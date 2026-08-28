@@ -70,6 +70,72 @@ class PulsarAttemptJournalTest {
     }
 
     @Test
+    void physicalRecordCodecRoundTripsEveryCurrentMappingStateAndRejectsBodyMutation() {
+        final ShardId shard = shard();
+        final PulsarAttemptJournal.ProducerKey producer = producer();
+        final PulsarAttemptJournal.CurrentAttemptIdentity identity = new PulsarAttemptJournal.CurrentAttemptIdentity(
+                DelayMessageId.random(shard),
+                7,
+                bytes(32, 7),
+                Bytes.sha256(Bytes.utf8("prepared-current")),
+                Bytes.sha256(Bytes.utf8("record-template")),
+                DeliveryContract.NEREUS_MANAGED_NOT_BEFORE,
+                sourcePosition(shard, 701),
+                Bytes.sha256(Bytes.utf8("artifact-set")));
+        final PulsarAttemptJournal.Mapping mapping =
+                PulsarAttemptJournal.Mapping.createCurrent(shard, producer, 9, identity);
+        final PulsarAttemptJournal.JournalPosition position =
+                new PulsarAttemptJournal.JournalPosition(12, 34, 0, 1, 2_000);
+
+        for (PulsarAttemptJournal.RecordKind kind : PulsarAttemptJournal.RecordKind.values()) {
+            final PulsarAttemptJournal.AppendRequest request = new PulsarAttemptJournal.AppendRequest(kind, mapping);
+            final byte[] encoded = PulsarAttemptJournalRecordCodec.encode(request);
+            final PulsarAttemptJournal.JournalRecord decoded =
+                    PulsarAttemptJournalRecordCodec.decode(encoded, position);
+            assertEquals(kind, decoded.kind());
+            assertArrayEquals(mapping.canonicalBytes(), decoded.mapping().canonicalBytes());
+            assertArrayEquals(position.canonicalBytes(), decoded.position().canonicalBytes());
+
+            final byte[] corrupted = encoded.clone();
+            corrupted[corrupted.length - 1] ^= 1;
+            assertThrows(
+                    IllegalArgumentException.class, () -> PulsarAttemptJournalRecordCodec.decode(corrupted, position));
+        }
+    }
+
+    @Test
+    void recoveryLookupObservesRetiredCurrentMappingWithoutMakingItSendableAgain() {
+        final ShardId shard = shard();
+        final PulsarAttemptJournal.ProducerKey producer = producer();
+        final PulsarAttemptJournal.CurrentAttemptIdentity identity = new PulsarAttemptJournal.CurrentAttemptIdentity(
+                DelayMessageId.random(shard),
+                8,
+                bytes(32, 8),
+                Bytes.sha256(Bytes.utf8("prepared-recovery")),
+                Bytes.sha256(Bytes.utf8("record-template-recovery")),
+                DeliveryContract.NEREUS_MANAGED_NOT_BEFORE,
+                sourcePosition(shard, 702),
+                Bytes.sha256(Bytes.utf8("artifact-set-recovery")));
+        final AtomicLong journalEntry = new AtomicLong(702);
+        final PulsarAttemptJournal journal =
+                new PulsarAttemptJournal(shard, request -> position(journalEntry.getAndIncrement()));
+        final PulsarAttemptJournal.Mapping mapping =
+                journal.appendOrReuseCurrent(producer, identity).record().mapping();
+        journal.retireNotPublished(mapping.mappingId());
+
+        assertArrayEquals(
+                mapping.mappingId(),
+                journal.findCurrent(producer, identity).orElseThrow().mappingId());
+        assertEquals(PulsarAttemptJournal.AttemptState.RETIRED_NOT_PUBLISHED, journal.state(mapping.mappingId()));
+        assertThrows(
+                PulsarAttemptJournal.JournalException.class, () -> journal.appendOrReuseCurrent(producer, identity));
+        assertThrows(
+                PulsarAttemptJournal.JournalException.class,
+                () -> journal.sendAfterOwnershipStarted(
+                        mapping, ignored -> CompletableFuture.completedFuture("must-not-send")));
+    }
+
+    @Test
     void localAppenderFailsClosedAfterUnsignedEntryExhaustionWithoutWrapping() {
         final ShardId shard = shard();
         final PulsarAttemptJournal journal = new PulsarAttemptJournal(shard, -1L);

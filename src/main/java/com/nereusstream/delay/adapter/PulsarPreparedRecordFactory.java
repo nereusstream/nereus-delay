@@ -48,6 +48,9 @@ public final class PulsarPreparedRecordFactory {
                 || !Arrays.equals(exactMapping.artifactGenerationSetDigest(), exact.artifactGenerationSetDigest())
                 || !exactMapping.producer().laneId().equals(exact.destinationLaneId())
                 || !Arrays.equals(exactMapping.producer().laneIncarnation(), exact.laneIncarnation())
+                || !Arrays.equals(
+                        exactMapping.producer().stableProducerNameHash(),
+                        exact.channel().producerOrTransactionalIdentitySha256())
                 || exactMapping.producer().target().partition() != exact.physicalPartition()) {
             throw new IllegalArgumentException("Journal mapping does not match the prepared descriptor");
         }

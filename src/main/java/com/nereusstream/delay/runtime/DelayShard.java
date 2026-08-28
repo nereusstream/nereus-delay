@@ -6559,6 +6559,47 @@ public final class DelayShard {
         return next;
     }
 
+    /**
+     * Narrow bridge used by the fenced {@code OwnedDelayShard} adapter loop.
+     * The caller supplies the persisted ledger Owner Epoch; this method never
+     * changes ownership and only applies one of the three closed Journal
+     * projections after its physical append has been acknowledged.
+     */
+    public synchronized PublishAttemptLedger applyOwnedAttemptJournalProjection(
+            final AttemptJournalProjection operation,
+            final byte[] publishAttemptId,
+            final long admittedOwnerEpoch,
+            final long sequenceId,
+            final byte[] journalPosition) {
+        Objects.requireNonNull(operation, "operation");
+        return switch (operation) {
+            case MAPPED ->
+                recordAttemptJournalMapping(
+                        publishAttemptId,
+                        admittedOwnerEpoch,
+                        sequenceId,
+                        Objects.requireNonNull(journalPosition, "journalPosition"));
+            case RETIREMENT_PENDING -> {
+                if (journalPosition != null && journalPosition.length != 0) {
+                    throw new IllegalArgumentException("retirement-pending projection cannot carry a position");
+                }
+                yield markAttemptJournalRetirementPending(publishAttemptId, admittedOwnerEpoch);
+            }
+            case RETIRED ->
+                recordAttemptJournalRetirement(
+                        publishAttemptId,
+                        admittedOwnerEpoch,
+                        Objects.requireNonNull(journalPosition, "journalPosition"));
+        };
+    }
+
+    /** Closed adapter-owned Journal projection operations. */
+    public enum AttemptJournalProjection {
+        MAPPED,
+        RETIREMENT_PENDING,
+        RETIRED
+    }
+
     private PublishAttemptLedger requirePublishingAttempt(final byte[] publishAttemptId, final long ownerEpoch) {
         final PublishAttemptLedger ledger = getPublishAttempt(publishAttemptId, ownerEpoch);
         if (ledger == null || ledger.state() != AttemptLedgerState.PUBLISHING) {

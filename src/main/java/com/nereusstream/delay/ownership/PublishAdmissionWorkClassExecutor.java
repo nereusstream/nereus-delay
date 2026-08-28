@@ -1,6 +1,7 @@
 package com.nereusstream.delay.ownership;
 
 import com.nereusstream.delay.protocol.AdapterKind;
+import com.nereusstream.delay.protocol.ArtifactGenerationSet;
 import com.nereusstream.delay.protocol.AuthorIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.ChannelResourceIdentity;
@@ -11,6 +12,9 @@ import com.nereusstream.delay.protocol.DeliveryMode;
 import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.PreparedPublishDescriptor;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
+import com.nereusstream.delay.protocol.PulsarKey;
+import com.nereusstream.delay.protocol.PulsarMetadata;
+import com.nereusstream.delay.protocol.PulsarRecordTemplate;
 import com.nereusstream.delay.protocol.ReadyCertificate;
 import com.nereusstream.delay.protocol.ReservedPublishMetadata;
 import com.nereusstream.delay.protocol.SystemMutation;
@@ -46,6 +50,7 @@ public final class PublishAdmissionWorkClassExecutor {
     private final ClaimExecutionAdmission permits;
     private final ShardLogMutationAppender appender;
     private final AdmissionPrerequisiteGate prerequisiteGate;
+    private final ArtifactGenerationSet artifacts;
 
     public PublishAdmissionWorkClassExecutor(
             final WorkClassExecutionRegistry workClasses,
@@ -54,12 +59,25 @@ public final class PublishAdmissionWorkClassExecutor {
             final ClaimExecutionAdmission permits,
             final ShardLogMutationAppender appender,
             final AdmissionPrerequisiteGate prerequisiteGate) {
+        this(workClasses, ownedShard, authority, permits, appender, prerequisiteGate, null);
+    }
+
+    /** Creates an Admission executor pinned to one current artifact generation set. */
+    public PublishAdmissionWorkClassExecutor(
+            final WorkClassExecutionRegistry workClasses,
+            final OwnedDelayShard ownedShard,
+            final OxiaOwnerLeaseStore authority,
+            final ClaimExecutionAdmission permits,
+            final ShardLogMutationAppender appender,
+            final AdmissionPrerequisiteGate prerequisiteGate,
+            final ArtifactGenerationSet artifacts) {
         this.workClasses = Objects.requireNonNull(workClasses, "workClasses");
         this.ownedShard = Objects.requireNonNull(ownedShard, "ownedShard");
         this.authority = Objects.requireNonNull(authority, "authority");
         this.permits = Objects.requireNonNull(permits, "permits");
         this.appender = Objects.requireNonNull(appender, "appender");
         this.prerequisiteGate = Objects.requireNonNull(prerequisiteGate, "prerequisiteGate");
+        this.artifacts = artifacts;
         this.workClasses.bindClaimExecutionAdmission(this.permits);
         this.ownedShard.bindWorkClassExecutionRegistry(this.workClasses);
     }
@@ -89,7 +107,8 @@ public final class PublishAdmissionWorkClassExecutor {
         return submit(
                 claim,
                 reservation,
-                deriveDescriptor(Objects.requireNonNull(claim, "Claim"), Objects.requireNonNull(channel, "channel")),
+                deriveDescriptor(
+                        Objects.requireNonNull(claim, "Claim"), Objects.requireNonNull(channel, "channel"), artifacts),
                 readyCertificate,
                 decisionTime,
                 retryUntilEpochMs,
@@ -136,7 +155,7 @@ public final class PublishAdmissionWorkClassExecutor {
     }
 
     private static PreparedPublishDescriptor deriveDescriptor(
-            final ClaimRecord claim, final ChannelResourceIdentity channel) {
+            final ClaimRecord claim, final ChannelResourceIdentity channel, final ArtifactGenerationSet artifacts) {
         final ClaimMaterialization materialization = claim.materialization();
         final ClaimResultBody.ClaimPrecondition precondition =
                 ClaimResultBody.decodePrecondition(claim.preconditionBytes());
@@ -157,7 +176,7 @@ public final class PublishAdmissionWorkClassExecutor {
                 materialization.capabilityProfile().semanticHash(),
                 materialization.deliverAtEpochMs(),
                 DeliveryMode.MANAGED);
-        if (materialization.legacyEncoding() || adapterKind == AdapterKind.PULSAR) {
+        if (materialization.legacyEncoding()) {
             return new PreparedPublishDescriptor(
                     adapterKind,
                     claim.laneId(),
@@ -177,6 +196,61 @@ public final class PublishAdmissionWorkClassExecutor {
                     materialization.deliverAtEpochMs(),
                     materialization.expireAtEpochMs(),
                     materialization.actionAtEpochMs());
+        }
+        if (adapterKind == AdapterKind.PULSAR) {
+            if (artifacts == null) {
+                throw new IllegalStateException("current Pulsar Admission requires an exact ArtifactGenerationSet");
+            }
+            if (materialization.nativeDeliveryPolicy() != com.nereusstream.delay.protocol.NativeDeliveryPolicy.FORBID
+                    || materialization.actionAtEpochMs() != materialization.deliverAtEpochMs()
+                    || materialization.handoffPolicyHeadRef() != null) {
+                throw new IllegalStateException(
+                        "native Pulsar Admission requires the signed policy-snapshot authority path");
+            }
+            final PulsarMetadata metadata = materialization.businessMetadata().pulsar();
+            final PulsarKey key = metadata.partitionKey() == null
+                    ? PulsarKey.none()
+                    : metadata.keyEncoding() == PulsarMetadata.KeyEncoding.UTF8
+                            ? PulsarKey.utf8(metadata.partitionKey())
+                            : PulsarKey.binary(metadata.partitionKey());
+            final PulsarRecordTemplate template = new PulsarRecordTemplate(
+                    materialization.targetResource(),
+                    materialization.physicalPartition(),
+                    key,
+                    metadata.orderingKey(),
+                    metadata.properties(),
+                    materialization.eventTimeEpochMs(),
+                    reserved,
+                    DeliveryContract.NEREUS_MANAGED_NOT_BEFORE,
+                    null,
+                    materialization.payload(),
+                    artifacts.setDigest());
+            return new PreparedPublishDescriptor(
+                    adapterKind,
+                    claim.laneId(),
+                    claim.laneIncarnation(),
+                    materialization.destinationProfile(),
+                    materialization.capabilityProfile(),
+                    materialization.targetResource(),
+                    materialization.physicalPartition(),
+                    channel,
+                    materialization.messageId(),
+                    materialization.generation(),
+                    publishAttemptId,
+                    attemptNo,
+                    materialization.payload(),
+                    materialization.businessMetadata(),
+                    reserved,
+                    materialization.deliverAtEpochMs(),
+                    materialization.expireAtEpochMs(),
+                    materialization.actionAtEpochMs(),
+                    materialization.nativeDeliveryPolicy(),
+                    DeliveryContract.NEREUS_MANAGED_NOT_BEFORE,
+                    null,
+                    materialization.eventTimeEpochMs(),
+                    template,
+                    template.recordTemplateHash(),
+                    artifacts.setDigest());
         }
         return new PreparedPublishDescriptor(
                 adapterKind,
@@ -203,7 +277,9 @@ public final class PublishAdmissionWorkClassExecutor {
                 materialization.eventTimeEpochMs(),
                 null,
                 null,
-                PreparedPublishDescriptor.legacyArtifactGenerationSetDigest());
+                artifacts == null
+                        ? PreparedPublishDescriptor.legacyArtifactGenerationSetDigest()
+                        : artifacts.setDigest());
     }
 
     private void execute(final Request request, final Submission submission) {

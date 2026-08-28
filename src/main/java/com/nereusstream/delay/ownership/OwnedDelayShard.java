@@ -19,10 +19,12 @@ import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationBodyCodec;
 import com.nereusstream.delay.protocol.SystemMutationType;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
+import com.nereusstream.delay.runtime.AttemptLedgerState;
 import com.nereusstream.delay.runtime.ClaimRecord;
 import com.nereusstream.delay.runtime.CommandResult;
 import com.nereusstream.delay.runtime.DelayShard;
 import com.nereusstream.delay.runtime.LaneRecord;
+import com.nereusstream.delay.runtime.PublishAttemptLedger;
 import com.nereusstream.delay.runtime.SystemMutationResult;
 import com.nereusstream.delay.scheduler.PersistentLaneScheduler;
 import com.nereusstream.delay.scheduler.ScheduleWorkItem;
@@ -686,6 +688,104 @@ public final class OwnedDelayShard {
             state = ShardLifecycleState.FENCED;
             throw new IllegalStateException("Publish Admission Claim changed before Shard Log append");
         }
+    }
+
+    /**
+     * Rechecks the active lease and exact durable attempt immediately before
+     * the managed Pulsar point of no return. A replacement Owner may inspect
+     * or retire an old mapping, but it cannot inherit this send authority.
+     */
+    public synchronized void requirePhysicalPublishAuthoritativelyStrict(
+            final OxiaOwnerLeaseStore authority, final PublishAttemptLedger expectedAttempt, final LongSupplier clock) {
+        final PublishAttemptLedger current =
+                requireAttemptJournalAuthority(authority, expectedAttempt, clock, "physical publish");
+        if (current.ownerEpoch() != lease.ownerEpoch()
+                || ownerIdentity == null
+                || !Bytes.constantTimeEquals(current.ownerIdentity(), ownerIdentity.canonicalBytes())) {
+            throw new IllegalStateException("physical publish attempt belongs to another Owner epoch");
+        }
+    }
+
+    /** Records the ACKed MAPPED position while retaining the admitted Owner identity. */
+    public synchronized void recordAttemptJournalMappingAuthoritativelyStrict(
+            final OxiaOwnerLeaseStore authority,
+            final PublishAttemptLedger expectedAttempt,
+            final long sequenceId,
+            final byte[] journalPosition,
+            final LongSupplier clock) {
+        final PublishAttemptLedger current =
+                requireAttemptJournalAuthority(authority, expectedAttempt, clock, "Attempt Journal mapping");
+        delegate.applyOwnedAttemptJournalProjection(
+                DelayShard.AttemptJournalProjection.MAPPED,
+                current.publishAttemptId(),
+                current.ownerEpoch(),
+                sequenceId,
+                journalPosition);
+    }
+
+    /** Persists the no-send retirement fence before the Journal retirement append. */
+    public synchronized void markAttemptJournalRetirementPendingAuthoritativelyStrict(
+            final OxiaOwnerLeaseStore authority, final PublishAttemptLedger expectedAttempt, final LongSupplier clock) {
+        final PublishAttemptLedger current =
+                requireAttemptJournalAuthority(authority, expectedAttempt, clock, "Attempt Journal retirement fence");
+        delegate.applyOwnedAttemptJournalProjection(
+                DelayShard.AttemptJournalProjection.RETIREMENT_PENDING,
+                current.publishAttemptId(),
+                current.ownerEpoch(),
+                current.journalSequenceId(),
+                null);
+    }
+
+    /** Records the ACKed RETIRED_NOT_PUBLISHED position before source resolution. */
+    public synchronized void recordAttemptJournalRetirementAuthoritativelyStrict(
+            final OxiaOwnerLeaseStore authority,
+            final PublishAttemptLedger expectedAttempt,
+            final byte[] journalPosition,
+            final LongSupplier clock) {
+        final PublishAttemptLedger current =
+                requireAttemptJournalAuthority(authority, expectedAttempt, clock, "Attempt Journal retirement");
+        delegate.applyOwnedAttemptJournalProjection(
+                DelayShard.AttemptJournalProjection.RETIRED,
+                current.publishAttemptId(),
+                current.ownerEpoch(),
+                current.journalSequenceId(),
+                journalPosition);
+    }
+
+    private PublishAttemptLedger requireAttemptJournalAuthority(
+            final OxiaOwnerLeaseStore authority,
+            final PublishAttemptLedger expectedAttempt,
+            final LongSupplier clock,
+            final String operation) {
+        requireStrictActiveAuthority(authority);
+        final long nowEpochMs = readActiveWorkClock(clock, operation);
+        ensureAuthoritativeActive(authority, nowEpochMs, operation);
+        final PublishAttemptLedger expected = Objects.requireNonNull(expectedAttempt, "expectedAttempt");
+        final PublishAttemptLedger current = delegate.findOpenPublishAttempt(expected.publishAttemptId());
+        if (current == null
+                || current.state() != AttemptLedgerState.PUBLISHING
+                || !current.delayMessageId().equals(expected.delayMessageId())
+                || current.generation() != expected.generation()
+                || current.attemptNo() != expected.attemptNo()
+                || !current.laneId().equals(expected.laneId())
+                || !Bytes.constantTimeEquals(current.laneIncarnation(), expected.laneIncarnation())
+                || !Bytes.constantTimeEquals(current.preparedPublishHash(), expected.preparedPublishHash())
+                || !Bytes.constantTimeEquals(current.sourcePosition(), expected.sourcePosition())) {
+            state = ShardLifecycleState.FENCED;
+            throw new IllegalStateException(operation + " durable attempt identity changed");
+        }
+        final OwnerIdentity admittedOwner;
+        try {
+            admittedOwner = OwnerIdentity.decode(current.ownerIdentity());
+        } catch (IllegalArgumentException invalid) {
+            state = ShardLifecycleState.FENCED;
+            throw new IllegalStateException(operation + " requires a canonical admitted Owner", invalid);
+        }
+        if (admittedOwner.ownerEpoch() != current.ownerEpoch()) {
+            state = ShardLifecycleState.FENCED;
+            throw new IllegalStateException(operation + " admitted Owner epoch is inconsistent");
+        }
+        return current;
     }
 
     /**

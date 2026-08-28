@@ -3,6 +3,7 @@ set -Eeuo pipefail
 
 export LC_ALL=C
 export LANG=C
+export NEREUS_DELAY_ENVIRONMENT_CLASSIFICATION=DISPOSABLE_LOCAL
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 delay_root="$(cd "${script_dir}/.." && pwd)"
@@ -1110,6 +1111,7 @@ run_worker_smoke_process() {
     "GRADLE_USER_HOME=${gradle_user_home}" \
     "NEREUS_DELAY_OXIA_ENDPOINT=${oxia_endpoint}" \
     "NEREUS_DELAY_OXIA_NAMESPACE=default" \
+    "NEREUS_DELAY_ENVIRONMENT_CLASSIFICATION=DISPOSABLE_LOCAL" \
     "NEREUS_DELAY_PULSAR_WORKER_ID=${worker_id}" \
     "NEREUS_DELAY_PULSAR_WORKER_ROOT=${worker_root}" \
     "NEREUS_DELAY_PULSAR_WORKER_ASSIGNMENT_PREFIX=${assignment_prefix}" \
@@ -1189,9 +1191,12 @@ elif cut == "admission":
     require(after.get("phase") == "RECOVERED_AFTER_FRESH_PROCESS", "wrong Admission recovery phase")
     require(before.get("attempt_state") == "PUBLISHING" and before.get("outcome_applied") is False,
             "Admission cut did not persist exact PUBLISHING state")
-    require(after.get("attempt_state") == "PUBLISHED" and after.get("outcome_applied") is True,
-            "Admission recovery did not reach durable PUBLISHED")
+    require(after.get("attempt_state") == "UNCERTAIN" and after.get("outcome_applied") is True,
+            "Admission recovery did not enter the durable UNKNOWN hold")
     require(before.get("publish_attempt_id") == after.get("publish_attempt_id"), "Admission attempt identity changed")
+    require("Journal RETIRED_NOT_PUBLISHED is durable" in resume_log,
+            "Admission recovery did not persist the no-send Journal retirement")
+    require("target SEND=0" in resume_log, "Admission recovery did not prove zero target SENDs")
 elif cut == "destination":
     require(before.get("cell") == "pulsar-worker-destination-response-loss-process-crash", "wrong Outcome cell")
     require(before.get("phase") == "DESTINATION_RESPONSE_LOSS_PERSISTED", "wrong Outcome pre-crash phase")
@@ -1251,6 +1256,7 @@ run_worker_process_crash_cell() {
   printf '%s\n' "${topic}" >>"${created_topics_file}"
   if [[ -n "${destination_topic}" ]]; then
     printf '%s\n' "${destination_topic}" >>"${created_topics_file}"
+    printf '%s\n' "${destination_topic}-attempt-journal" >>"${created_topics_file}"
   fi
   case "${cut_kind}" in
     generic)
@@ -1772,7 +1778,7 @@ run_junit_cell recovery.candidate_claim \
 run_worker_process_crash_cell recovery.admission admission \
   "${resource_prefix}-worker-admission-crash" \
   "${resource_prefix}-worker-admission-destination" \
-  "durable PUBLISHING Admission survives SIGKILL and a different Worker completes the exact attempt"
+  "durable PUBLISHING Admission survives SIGKILL; a different Worker retires the unsent Journal mapping and holds the exact attempt UNCERTAIN without SEND"
 run_junit_cell recovery.journal_mapping \
   "Pulsar Attempt Journal mapping is durable before SEND and exact replay is idempotent" \
   com.nereusstream.delay.adapter.PulsarAttemptJournalTest.exactMappingMustBeDurableBeforeSendAndReplayIsIdempotent \

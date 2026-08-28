@@ -50,6 +50,7 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
     private final PhysicalPublishGate physicalGate;
     private final Runnable fenceOnFailure;
     private final DataResetActivationGate dataResetActivationGate;
+    private ManagedPulsarContext managedPulsarContext;
 
     /**
      * Creates the production composition and binds the physical admission
@@ -154,6 +155,18 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
     }
 
     /**
+     * Binds the single current managed-Pulsar Journal authority before this
+     * executor is used. The binding is one-way so a live Producer cannot be
+     * silently switched to another sequence or artifact generation.
+     */
+    public synchronized void bindManagedPulsarContext(final ManagedPulsarContext context) {
+        if (managedPulsarContext != null) {
+            throw new IllegalStateException("managed Pulsar context is already bound");
+        }
+        managedPulsarContext = Objects.requireNonNull(context, "context");
+    }
+
+    /**
      * Builds the exact adapter request from the canonical Admission retained
      * in a PUBLISHING ledger. Object-backed payloads must be supplied by the
      * external Object Store authority and are checked against the immutable
@@ -229,25 +242,18 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
                 exactArtifacts.setDigest());
     }
 
-    /**
-     * Submits the managed final Pulsar record after Journal mapping. This is
-     * the first production call site for the record projection: the ordinary
-     * request remains the outcome-mutation identity, while the final record
-     * itself is admitted and sent through the source-locked P1 adapter.
-     * Native delivery is intentionally not reachable from this method; its
-     * AUTO_FAST path requires the separate H5/H6 activation fence.
-     */
-    public Submission submitPulsarRecord(
+    private Submission submitPulsarRecord(
+            final ManagedPulsarContext context,
             final PublishAttemptLedger attempt,
-            final PulsarAttemptJournal.Mapping mapping,
-            final ArtifactGenerationSet artifacts,
             final byte[] payload,
             final LongSupplier ownerClock) {
+        final ManagedPulsarContext exactContext = Objects.requireNonNull(context, "context");
+        final PulsarAttemptJournal exactJournal = exactContext.journal();
+        final PulsarAttemptJournal.ProducerKey exactProducer = exactContext.producer();
+        final ArtifactGenerationSet artifacts = exactContext.artifacts();
         final PublishAttemptLedger exactAttempt = requirePublishingAttempt(attempt);
         final DestinationPublishRequest request = prepareRequest(exactAttempt, payload);
-        final PulsarPreparedRecord record = preparePulsarRecord(exactAttempt, mapping, artifacts, payload);
         final LongSupplier clock = Objects.requireNonNull(ownerClock, "ownerClock");
-
         if (request.actionAtEpochMs() < request.deliverAtEpochMs()) {
             return handoff(
                     exactAttempt,
@@ -255,69 +261,25 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
                     DestinationPublishResult.definitelyNotPublished(StableCode.CAPABILITY_UNAVAILABLE, null),
                     clock);
         }
-        final DestinationPublishResult generationRejection = requireH6PhysicalGeneration(artifacts);
-        if (generationRejection != null) {
-            return handoff(exactAttempt, request, generationRejection, clock);
-        }
-        final Decision initial = checkGate(exactAttempt, request, clock);
-        if (initial.kind() == DecisionKind.DEFERRED) {
-            return Submission.deferred(exactAttempt, request, initial);
-        }
-        if (initial.kind() == DecisionKind.DEFINITIVELY_NOT_PUBLISHED) {
-            return handoff(exactAttempt, request, initial.result(), clock);
-        }
-
-        final Submission submission = Submission.pending(exactAttempt, request);
         try {
-            final BoundedDestinationPublishAdapter.PublishCall call = physicalAdapter.submitPreparedRecord(
-                    record,
-                    artifacts,
-                    request.laneId(),
-                    request.laneIncarnation(),
-                    (ignoredRecord, ignoredArtifacts) -> lateGateResult(exactAttempt, request, clock));
-            submission.attachPhysicalCall(call);
-            registerCompletion(call.outcome(), exactResult -> completeResult(submission, exactResult, clock));
-            return submission;
-        } catch (RuntimeException | Error failure) {
-            fail(submission, failure);
-            throw failure;
-        }
-    }
-
-    /**
-     * Completes the full managed H3 ordering: current Journal mapping, final
-     * record construction, durable ownership marker, bounded P1 submission,
-     * and Journal PUBLISHED marker before the source outcome handoff.
-     */
-    public Submission submitPulsarRecord(
-            final PulsarAttemptJournal journal,
-            final PulsarAttemptJournal.ProducerKey producer,
-            final PublishAttemptLedger attempt,
-            final ArtifactGenerationSet artifacts,
-            final byte[] payload,
-            final LongSupplier ownerClock) {
-        final PulsarAttemptJournal exactJournal = Objects.requireNonNull(journal, "journal");
-        final PulsarAttemptJournal.ProducerKey exactProducer = Objects.requireNonNull(producer, "producer");
-        final PublishAttemptLedger exactAttempt = requirePublishingAttempt(attempt);
-        final DestinationPublishRequest request = prepareRequest(exactAttempt, payload);
-        final LongSupplier clock = Objects.requireNonNull(ownerClock, "ownerClock");
-        if (request.actionAtEpochMs() < request.deliverAtEpochMs()) {
+            requirePhysicalArtifact(exactContext);
+        } catch (RuntimeException failure) {
             return handoff(
                     exactAttempt,
                     request,
                     DestinationPublishResult.definitelyNotPublished(StableCode.CAPABILITY_UNAVAILABLE, null),
                     clock);
         }
-        final DestinationPublishResult generationRejection = requireH6PhysicalGeneration(artifacts);
-        if (generationRejection != null) {
-            return handoff(exactAttempt, request, generationRejection, clock);
-        }
-        final Decision initial = checkGate(exactAttempt, request, clock);
-        if (initial.kind() == DecisionKind.DEFERRED) {
-            return Submission.deferred(exactAttempt, request, initial);
-        }
-        if (initial.kind() == DecisionKind.DEFINITIVELY_NOT_PUBLISHED) {
-            return handoff(exactAttempt, request, initial.result(), clock);
+        final boolean recoveryOwner =
+                exactContext.ownerEpoch() != 0 && exactContext.ownerEpoch() != exactAttempt.ownerEpoch();
+        if (!recoveryOwner) {
+            final Decision initial = checkGate(exactAttempt, request, clock);
+            if (initial.kind() == DecisionKind.DEFERRED) {
+                return Submission.deferred(exactAttempt, request, initial);
+            }
+            if (initial.kind() == DecisionKind.DEFINITIVELY_NOT_PUBLISHED) {
+                return handoff(exactAttempt, request, initial.result(), clock);
+            }
         }
 
         final PulsarAttemptJournal.CurrentAttemptIdentity journalIdentity =
@@ -326,23 +288,91 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
                 != com.nereusstream.delay.protocol.DeliveryContract.NEREUS_MANAGED_NOT_BEFORE) {
             throw new IllegalArgumentException("managed Journal submission cannot use the native contract");
         }
-        final PulsarAttemptJournal.Mapping mapping = exactJournal
+        final Optional<PulsarAttemptJournal.Mapping> recoveredMapping =
+                recoveryOwner ? exactJournal.findCurrent(exactProducer, journalIdentity) : Optional.empty();
+        final PulsarAttemptJournal.Mapping mapping = recoveredMapping.orElseGet(() -> exactJournal
                 .appendOrReuseCurrent(exactProducer, journalIdentity)
                 .record()
-                .mapping();
+                .mapping());
+        if (!exactAttempt.mappingDurable()) {
+            exactContext
+                    .projectionSink()
+                    .recordMapped(
+                            exactAttempt,
+                            mapping.sequenceId(),
+                            journalPosition(exactJournal, mapping, PulsarAttemptJournal.RecordKind.MAPPED));
+        } else if (exactAttempt.journalSequenceId() != mapping.sequenceId()) {
+            throw new IllegalStateException("durable attempt and Journal sequence differ");
+        }
+
+        if (recoveryOwner) {
+            final PulsarAttemptJournal.AttemptState journalState = exactJournal.state(mapping.mappingId());
+            if (journalState == PulsarAttemptJournal.AttemptState.MAPPED) {
+                exactContext.projectionSink().markRetirementPending(exactAttempt);
+                final PulsarAttemptJournal.JournalRecord retired =
+                        exactJournal.retireNotPublished(mapping.mappingId()).record();
+                exactContext
+                        .projectionSink()
+                        .recordRetired(exactAttempt, retired.position().canonicalBytes());
+            } else if (journalState == PulsarAttemptJournal.AttemptState.RETIRED_NOT_PUBLISHED
+                    && exactAttempt.retirementPending()) {
+                exactContext
+                        .projectionSink()
+                        .recordRetired(
+                                exactAttempt,
+                                journalPosition(
+                                        exactJournal, mapping, PulsarAttemptJournal.RecordKind.RETIRED_NOT_PUBLISHED));
+            }
+            return handoff(
+                    exactAttempt,
+                    request,
+                    DestinationPublishResult.unknown(StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, null),
+                    clock);
+        }
+
         final PulsarPreparedRecord record = preparePulsarRecord(exactAttempt, mapping, artifacts, payload);
+        final Decision ownershipGate = checkGate(exactAttempt, request, clock);
+        if (ownershipGate.kind() == DecisionKind.DEFERRED) {
+            return Submission.deferred(
+                    exactAttempt, request, Decision.deferred(ownershipGate.code(), ownershipGate.evidence()));
+        }
+        if (ownershipGate.kind() == DecisionKind.DEFINITIVELY_NOT_PUBLISHED) {
+            return retireBeforeOwnershipAndHandoff(
+                    exactContext, exactAttempt, request, exactJournal, mapping, ownershipGate.result(), clock);
+        }
+        try {
+            requirePhysicalArtifact(exactContext);
+        } catch (RuntimeException failure) {
+            return Submission.deferred(
+                    exactAttempt, request, Decision.deferred(StableCode.CAPABILITY_UNAVAILABLE, null));
+        }
         final Submission submission = Submission.pending(exactAttempt, request);
         try {
-            exactJournal.markOwnershipStarted(mapping);
             final AtomicReference<BoundedDestinationPublishAdapter.PublishCall> physicalCall = new AtomicReference<>();
             final CompletionStage<DestinationPublishResult> journalStage =
-                    exactJournal.sendAfterOwnershipStarted(mapping, ignored -> {
+                    exactJournal.sendAfterMapped(mapping, ignored -> {
                         final BoundedDestinationPublishAdapter.PublishCall call = physicalAdapter.submitPreparedRecord(
                                 record,
                                 artifacts,
                                 request.laneId(),
                                 request.laneIncarnation(),
-                                (ignoredRecord, ignoredArtifacts) -> lateGateResult(exactAttempt, request, clock));
+                                (ignoredRecord, ignoredArtifacts) -> {
+                                    final Decision late = checkGate(exactAttempt, request, clock);
+                                    if (late.kind() == DecisionKind.DEFINITIVELY_NOT_PUBLISHED) {
+                                        return late.result();
+                                    }
+                                    if (late.kind() == DecisionKind.DEFERRED) {
+                                        return DestinationPublishResult.unknown(late.code(), late.evidence());
+                                    }
+                                    try {
+                                        requirePhysicalArtifact(exactContext);
+                                    } catch (RuntimeException failure) {
+                                        return DestinationPublishResult.unknown(
+                                                StableCode.CAPABILITY_UNAVAILABLE, null);
+                                    }
+                                    exactJournal.markOwnershipStarted(mapping);
+                                    return null;
+                                });
                         physicalCall.set(call);
                         return call.outcome();
                     });
@@ -353,7 +383,8 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
             submission.attachPhysicalCall(call);
             registerCompletion(
                     journalStage,
-                    exactResult -> completePulsarJournalResult(submission, exactResult, exactJournal, mapping, clock));
+                    exactResult -> completePulsarJournalResult(
+                            submission, exactResult, exactContext, exactJournal, mapping, clock));
             return submission;
         } catch (RuntimeException | Error failure) {
             fail(submission, failure);
@@ -361,25 +392,71 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
         }
     }
 
+    private Submission retireBeforeOwnershipAndHandoff(
+            final ManagedPulsarContext context,
+            final PublishAttemptLedger attempt,
+            final DestinationPublishRequest request,
+            final PulsarAttemptJournal journal,
+            final PulsarAttemptJournal.Mapping mapping,
+            final DestinationPublishResult result,
+            final LongSupplier ownerClock) {
+        context.projectionSink().markRetirementPending(attempt);
+        final PulsarAttemptJournal.JournalRecord retired =
+                journal.retireNotPublished(mapping.mappingId()).record();
+        context.projectionSink().recordRetired(attempt, retired.position().canonicalBytes());
+        return handoff(attempt, request, result, ownerClock);
+    }
+
+    private static byte[] journalPosition(
+            final PulsarAttemptJournal journal,
+            final PulsarAttemptJournal.Mapping mapping,
+            final PulsarAttemptJournal.RecordKind kind) {
+        for (PulsarAttemptJournal.JournalRecord record : journal.records()) {
+            if (record.kind() == kind && Arrays.equals(record.mapping().mappingId(), mapping.mappingId())) {
+                return record.position().canonicalBytes();
+            }
+        }
+        throw new IllegalStateException("durable Attempt Journal state has no local position: " + kind);
+    }
+
     private void completePulsarJournalResult(
             final Submission submission,
             final DestinationPublishResult result,
+            final ManagedPulsarContext context,
             final PulsarAttemptJournal journal,
             final PulsarAttemptJournal.Mapping mapping,
             final LongSupplier ownerClock) {
-        if (result.disposition() == DestinationPublishResult.Disposition.PUBLISHED) {
-            try {
+        DestinationPublishResult resolved = result;
+        try {
+            final PulsarAttemptJournal.AttemptState journalState = journal.state(mapping.mappingId());
+            if (result.disposition() == DestinationPublishResult.Disposition.PUBLISHED) {
+                if (journalState != PulsarAttemptJournal.AttemptState.OWNERSHIP_STARTED) {
+                    throw new IllegalStateException("published target result has no durable ownership marker");
+                }
                 journal.markPublished(mapping);
-            } catch (RuntimeException | Error failure) {
-                failClosed(failure);
-                completeResult(
-                        submission,
-                        DestinationPublishResult.unknown(StableCode.PULSAR_EVIDENCE_DIVERGENCE, null),
-                        ownerClock);
-                return;
+            } else if (result.disposition() == DestinationPublishResult.Disposition.DEFINITIVELY_NOT_PUBLISHED
+                    && journalState == PulsarAttemptJournal.AttemptState.MAPPED) {
+                context.projectionSink().markRetirementPending(submission.attempt());
+                final PulsarAttemptJournal.JournalRecord retired =
+                        journal.retireNotPublished(mapping.mappingId()).record();
+                context.projectionSink()
+                        .recordRetired(submission.attempt(), retired.position().canonicalBytes());
+            } else if (result.disposition() == DestinationPublishResult.Disposition.DEFINITIVELY_NOT_PUBLISHED) {
+                resolved = DestinationPublishResult.unknown(StableCode.PULSAR_EVIDENCE_DIVERGENCE, null);
             }
+        } catch (RuntimeException | Error failure) {
+            failClosed(failure);
+            resolved = DestinationPublishResult.unknown(StableCode.PULSAR_EVIDENCE_DIVERGENCE, null);
         }
-        completeResult(submission, result, ownerClock);
+        completeResult(submission, resolved, ownerClock);
+    }
+
+    private void requirePhysicalArtifact(final ManagedPulsarContext context) {
+        context.artifactGate().require(context.artifacts());
+        if (dataResetActivationGate != null) {
+            dataResetActivationGate.requirePhysicalSend(
+                    context.artifacts(), dataResetActivationGate.manifest().manifestDigest());
+        }
     }
 
     private static void requireExactPayload(final PayloadForPublish payloadProjection, final byte[] exactPayload) {
@@ -412,6 +489,17 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
                     exactRequest,
                     DestinationPublishResult.definitelyNotPublished(StableCode.CAPABILITY_UNAVAILABLE, null),
                     clock);
+        }
+
+        final ManagedPulsarContext pulsarContext;
+        synchronized (this) {
+            pulsarContext = managedPulsarContext;
+        }
+        if (pulsarContext != null
+                && exactRequest.laneId().equals(pulsarContext.producer().laneId())
+                && Arrays.equals(
+                        exactRequest.laneIncarnation(), pulsarContext.producer().laneIncarnation())) {
+            return submitPulsarRecord(pulsarContext, exactAttempt, exactRequest.payload(), clock);
         }
 
         final Decision initial = checkGate(exactAttempt, exactRequest, clock);
@@ -491,19 +579,6 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
             case DEFINITIVELY_NOT_PUBLISHED -> decision.result();
             case DEFERRED -> DestinationPublishResult.unknown(decision.code(), decision.evidence());
         };
-    }
-
-    private DestinationPublishResult requireH6PhysicalGeneration(final ArtifactGenerationSet artifacts) {
-        if (dataResetActivationGate == null) {
-            return DestinationPublishResult.definitelyNotPublished(StableCode.CAPABILITY_UNAVAILABLE, null);
-        }
-        try {
-            dataResetActivationGate.requirePhysicalSend(
-                    artifacts, dataResetActivationGate.manifest().manifestDigest());
-            return null;
-        } catch (RuntimeException failure) {
-            return DestinationPublishResult.definitelyNotPublished(StableCode.CAPABILITY_UNAVAILABLE, null);
-        }
     }
 
     private void fail(final Submission submission, final Throwable failure) {
@@ -587,6 +662,38 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
     @FunctionalInterface
     public interface PhysicalPublishGate {
         Decision check(PublishAttemptLedger attempt, DestinationPublishRequest request, LongSupplier ownerClock);
+    }
+
+    /** Exact H6 or disposable-local authority for one immutable artifact set. */
+    @FunctionalInterface
+    public interface PhysicalArtifactGate {
+        void require(ArtifactGenerationSet artifacts);
+    }
+
+    /** Durable local projection updated only after the corresponding Journal ACK. */
+    public interface JournalProjectionSink {
+        void recordMapped(PublishAttemptLedger attempt, long sequenceId, byte[] journalPosition);
+
+        void markRetirementPending(PublishAttemptLedger attempt);
+
+        void recordRetired(PublishAttemptLedger attempt, byte[] journalPosition);
+    }
+
+    /** One immutable managed Pulsar producer/Journal/artifact authority. */
+    public record ManagedPulsarContext(
+            PulsarAttemptJournal journal,
+            PulsarAttemptJournal.ProducerKey producer,
+            ArtifactGenerationSet artifacts,
+            PhysicalArtifactGate artifactGate,
+            JournalProjectionSink projectionSink,
+            long ownerEpoch) {
+        public ManagedPulsarContext {
+            Objects.requireNonNull(journal, "journal");
+            Objects.requireNonNull(producer, "producer");
+            Objects.requireNonNull(artifacts, "artifacts");
+            Objects.requireNonNull(artifactGate, "artifactGate");
+            Objects.requireNonNull(projectionSink, "projectionSink");
+        }
     }
 
     public enum DecisionKind {

@@ -183,6 +183,32 @@ public final class PulsarAttemptJournal {
     }
 
     /**
+     * Finds an exact current mapping in any Journal state without making it
+     * sendable again. This is the recovery-only counterpart to
+     * {@link #appendOrReuseCurrent}: a retired mapping remains observable so
+     * a fresh Worker can re-emit the same source UNKNOWN hold, but it can
+     * never be passed back through the SEND path.
+     */
+    public synchronized Optional<Mapping> findCurrent(
+            final ProducerKey producer, final CurrentAttemptIdentity identity) {
+        Objects.requireNonNull(producer, "producer");
+        Objects.requireNonNull(identity, "identity");
+        Mapping matching = null;
+        for (MappingState candidate : mappings.values()) {
+            if (!Arrays.equals(candidate.mapping.publishAttemptId(), identity.publishAttemptId())) {
+                continue;
+            }
+            if (!candidate.mapping.producer().equals(producer)
+                    || !sameCurrentAttemptIdentity(candidate.mapping, identity)) {
+                throw conflict("publish attempt identity was reused with different current Journal mapping bytes");
+            }
+            matching = candidate.mapping;
+            break;
+        }
+        return Optional.ofNullable(matching);
+    }
+
+    /**
      * Durable mapping-before-send entry point for a prepared attempt. A
      * retransmission reuses the same sequence and mapping record; the target
      * sender is never invoked until the Journal append/replay gate succeeds.

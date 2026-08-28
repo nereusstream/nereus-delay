@@ -3,7 +3,9 @@ package com.nereusstream.delay.transport;
 import com.nereusstream.delay.adapter.DestinationPhysicalAdmission;
 import com.nereusstream.delay.adapter.DestinationPublishResult;
 import com.nereusstream.delay.adapter.PinnedPulsarDestinationAdapter;
+import com.nereusstream.delay.adapter.PulsarAttemptJournal;
 import com.nereusstream.delay.adapter.PulsarDestinationRequest;
+import com.nereusstream.delay.adapter.PulsarJournalResource;
 import com.nereusstream.delay.adapter.PulsarSendAckEvidence;
 import com.nereusstream.delay.adapter.PulsarSendRequest;
 import com.nereusstream.delay.adapter.PulsarSendResult;
@@ -42,6 +44,7 @@ import com.nereusstream.delay.protocol.ActivationBarrier;
 import com.nereusstream.delay.protocol.ActiveLaneState;
 import com.nereusstream.delay.protocol.AdapterKind;
 import com.nereusstream.delay.protocol.AdapterMetadata;
+import com.nereusstream.delay.protocol.ArtifactGenerationSet;
 import com.nereusstream.delay.protocol.AuthorIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
@@ -58,6 +61,7 @@ import com.nereusstream.delay.protocol.DeliveryMode;
 import com.nereusstream.delay.protocol.DestinationLaneId;
 import com.nereusstream.delay.protocol.EvidenceCursor;
 import com.nereusstream.delay.protocol.EvidenceVerificationStatus;
+import com.nereusstream.delay.protocol.NativeDeliveryPolicy;
 import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.PreparedCommand;
@@ -71,6 +75,7 @@ import com.nereusstream.delay.protocol.PublishOutcomeBody;
 import com.nereusstream.delay.protocol.PulsarActivationBarrier;
 import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity;
 import com.nereusstream.delay.protocol.PulsarMetadata;
+import com.nereusstream.delay.protocol.PulsarSourceLock;
 import com.nereusstream.delay.protocol.PulsarSourcePosition;
 import com.nereusstream.delay.protocol.QuotaGrantRef;
 import com.nereusstream.delay.protocol.ReadyCertificate;
@@ -154,6 +159,10 @@ public final class PulsarClientArtifactWorkerSmoke {
     private static final long CREATION_TIMESTAMP = 2001L;
     private static final byte[] DESTINATION_INCARNATION = digest(17);
     private static final long DESTINATION_CREATION_TIMESTAMP = 1001L;
+    private static final byte[] JOURNAL_INCARNATION = digest(19);
+    private static final long JOURNAL_CREATION_TIMESTAMP = 3001L;
+    private static final ArtifactGenerationSet ARTIFACTS = ArtifactGenerationSet.current(
+            1, PulsarSourceLock.digest(), Bytes.sha256(Bytes.utf8("pulsar-worker-current-schema-bundle")));
     private static final long LEASE_DURATION_MS = 60_000;
     private static final long DUE_DISCOVERY_MAX_BYTES = 900_000;
     // Test-only source authority fixture. A real Worker receives this pinned
@@ -187,6 +196,7 @@ public final class PulsarClientArtifactWorkerSmoke {
         final String physicalTopic = "persistent://public/default/" + topic;
         final String destinationPhysicalTopic =
                 destinationTopic == null ? null : "persistent://public/default/" + destinationTopic;
+        final String journalTopic = destinationTopic == null ? null : destinationTopic + "-attempt-journal";
         final HttpClient admin = HttpClient.newBuilder()
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .build();
@@ -196,6 +206,7 @@ public final class PulsarClientArtifactWorkerSmoke {
                 || mode.equals("source-ack-resume");
         createTopic(admin, adminUrl, topic, reuseExistingTopic);
         if (destinationTopic != null && !mode.equals("prepare")) {
+            requireDisposableLocalPhysicalTesting();
             createTopic(
                     admin,
                     adminUrl,
@@ -203,6 +214,8 @@ public final class PulsarClientArtifactWorkerSmoke {
                     reuseExistingTopic,
                     DESTINATION_INCARNATION,
                     DESTINATION_CREATION_TIMESTAMP);
+            createTopic(
+                    admin, adminUrl, journalTopic, reuseExistingTopic, JOURNAL_INCARNATION, JOURNAL_CREATION_TIMESTAMP);
         }
         try {
             final var clientBuilder = PulsarClient.builder().serviceUrl(serviceUrl);
@@ -229,6 +242,7 @@ public final class PulsarClientArtifactWorkerSmoke {
                 deleteTopicIfPresent(admin, adminUrl, topic);
                 if (destinationTopic != null) {
                     deleteTopicIfPresent(admin, adminUrl, destinationTopic);
+                    deleteTopicIfPresent(admin, adminUrl, journalTopic);
                 }
             }
         }
@@ -627,7 +641,7 @@ public final class PulsarClientArtifactWorkerSmoke {
                                                 store,
                                                 physicalTurn.attempt().orElse(recoveredPublishAttempt),
                                                 physicalSchedulePosition,
-                                                "PUBLISHED",
+                                                "UNCERTAIN",
                                                 true,
                                                 null,
                                                 null,
@@ -921,9 +935,9 @@ public final class PulsarClientArtifactWorkerSmoke {
             }
             final WorkerPhysicalPublishExecutor.Submission submission = runtime.submitPhysicalPublish(
                     recoveredAttempt.publishAttemptId(), payload, System::currentTimeMillis);
-            if (submission.state() != WorkerPhysicalPublishExecutor.SubmissionState.PENDING) {
+            if (submission.state() != WorkerPhysicalPublishExecutor.SubmissionState.OUTCOME_HANDOFF_QUEUED) {
                 throw new IllegalStateException(
-                        "Pulsar admission response-loss fresh process did not submit the durable physical attempt: "
+                        "Pulsar admission response-loss fresh process did not hold the foreign-owner attempt: "
                                 + submission.state());
             }
             final WorkerShardRuntime.SourceBoundPhysicalPublishTurn physicalTurn =
@@ -934,17 +948,7 @@ public final class PulsarClientArtifactWorkerSmoke {
                             Optional.of(recoveredAttempt),
                             Optional.of(submission),
                             null);
-            return finishPhysicalPublish(
-                    runtime,
-                    delayShard,
-                    store,
-                    workClasses,
-                    bridge,
-                    client,
-                    physicalSchedulePosition,
-                    payload,
-                    admissionPosition,
-                    physicalTurn);
+            return finishAdmissionRecoveryHold(runtime, delayShard, workClasses, bridge, client, physicalTurn);
         }
         WorkerShardRuntime.DueClaimPublishPhysicalTurn dueClaimPublish = null;
         // A large payload can exceed the Lane's initial DRR quantum. Spend a
@@ -1064,6 +1068,83 @@ public final class PulsarClientArtifactWorkerSmoke {
                 payload,
                 admissionPosition,
                 physicalTurn);
+    }
+
+    private static WorkerShardRuntime.SourceBoundPhysicalPublishTurn finishAdmissionRecoveryHold(
+            final WorkerShardRuntime runtime,
+            final DelayShard delayShard,
+            final WorkClassExecutionRegistry workClasses,
+            final PhysicalPublishBridge bridge,
+            final PulsarClient client,
+            final WorkerShardRuntime.SourceBoundPhysicalPublishTurn physicalTurn)
+            throws Exception {
+        final PublishAttemptLedger attempt = physicalTurn
+                .attempt()
+                .orElseThrow(() -> new IllegalStateException("recovery hold did not retain its durable attempt"));
+        final WorkerPhysicalPublishExecutor.Submission submission =
+                physicalTurn.physicalSubmission().orElseThrow();
+        waitForPhysicalCompletion(submission);
+        final DestinationPublishResult result = submission.physicalResult().orElseThrow();
+        if (result.disposition() != DestinationPublishResult.Disposition.UNKNOWN
+                || result.stableCode() != StableCode.RECOVERY_FIRST_SEND_UNCERTAIN
+                || submission.physicalCall().isPresent()) {
+            throw new IllegalStateException("foreign-owner recovery reached a target SEND or the wrong hold result");
+        }
+
+        final SourceReplayMutation outcomeRecord = awaitPublishOutcome(runtime, workClasses);
+        final PublishOutcomeBody outcome =
+                PublishOutcomeBody.decode(outcomeRecord.mutation().canonicalBody());
+        if (outcome.sideEffect() != 3
+                || outcome.disposition() != 4
+                || outcome.stableCode() != StableCode.RECOVERY_FIRST_SEND_UNCERTAIN
+                || outcome.retryDecision().kind() != 5
+                || outcome.retryDecision().hasNextRetryAt()
+                || !Arrays.equals(outcome.publishAttemptId(), attempt.publishAttemptId())) {
+            throw new IllegalStateException("foreign-owner recovery did not source-apply the closed UNKNOWN hold");
+        }
+        final var message = delayShard.getMessage(attempt.delayMessageId());
+        final PublishAttemptLedger uncertain = delayShard.findOpenPublishAttempt(attempt.publishAttemptId());
+        if (message == null
+                || message.status() != MessageStatus.UNCERTAIN
+                || uncertain == null
+                || uncertain.state() != com.nereusstream.delay.runtime.AttemptLedgerState.UNCERTAIN
+                || !uncertain.mappingDurable()
+                || !uncertain.hasAllocatedJournalSequence()
+                || !uncertain.hasJournalPosition()
+                || uncertain.retirementPending()) {
+            throw new IllegalStateException("foreign-owner recovery did not retain the retired Journal proof");
+        }
+        requireNoPayload(client, bridge.destinationPhysicalTopic());
+        System.out.println("Pulsar Worker admission fresh-process recovery hold passed: old Owner attempt="
+                + Bytes.hex(attempt.publishAttemptId())
+                + ", Journal RETIRED_NOT_PUBLISHED is durable, Outcome=RECOVERY_FIRST_SEND_UNCERTAIN, target SEND=0");
+        return physicalTurn;
+    }
+
+    private static SourceReplayMutation awaitPublishOutcome(
+            final WorkerShardRuntime runtime, final WorkClassExecutionRegistry workClasses) throws Exception {
+        final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+        while (System.nanoTime() < deadline) {
+            workClasses.runTurn(new SchedulerBudget(1, 2_000_000, TimeUnit.SECONDS.toNanos(2)));
+            final com.nereusstream.delay.ownership.SourceApplyCoordinator.TurnResult turn = runtime.runSourceTurn(
+                    new SchedulerBudget(1, 2_000_000, TimeUnit.SECONDS.toNanos(2)), System::currentTimeMillis);
+            if (turn.status() == com.nereusstream.delay.ownership.SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED) {
+                if (turn.entry() instanceof SourceReplayMutation mutation
+                        && mutation.mutation().type() == SystemMutationType.PUBLISH_OUTCOME) {
+                    return mutation;
+                }
+                continue;
+            }
+            if (turn.status() != com.nereusstream.delay.ownership.SourceApplyCoordinator.TurnStatus.WAITING_FOR_SOURCE
+                    && turn.status()
+                            != com.nereusstream.delay.ownership.SourceApplyCoordinator.TurnStatus
+                                    .WAITING_FOR_WORK_CLASS) {
+                throw new IllegalStateException(
+                        "Pulsar Worker Publish Outcome source turn failed: " + turn.status(), turn.failure());
+            }
+            TimeUnit.MILLISECONDS.sleep(25);
+        }
+        throw new IllegalStateException("source-applied PUBLISH_OUTCOME did not become visible before deadline");
     }
 
     private static WorkerShardRuntime.SourceBoundPhysicalPublishTurn finishPhysicalPublish(
@@ -1276,7 +1357,8 @@ public final class PulsarClientArtifactWorkerSmoke {
                 authority,
                 permits,
                 bridge.appender(),
-                ignored -> PublishAdmissionWorkClassExecutor.PrerequisiteDecision.available());
+                ignored -> PublishAdmissionWorkClassExecutor.PrerequisiteDecision.available(),
+                ARTIFACTS);
         final WorkerCommandRuntime commandRuntime =
                 new WorkerCommandRuntime(workClasses, store.sharedResources(), claimExecutor, publishExecutor);
         final WorkerPublishPreparationCoordinator preparation =
@@ -1732,6 +1814,8 @@ public final class PulsarClientArtifactWorkerSmoke {
         }
         final com.nereusstream.delay.protocol.BrokerResourceIdentity target =
                 destinationResource(destinationPhysicalTopic);
+        final String producerName = destinationProducerName(laneId, laneIncarnation, target, destinationPartition);
+        final byte[] producerIdentity = Bytes.utf8(producerName);
         final ChannelResourceIdentity channel;
         final ReadyCertificate readyCertificate;
         final List<EvidenceCursor> evidenceCursors;
@@ -1752,7 +1836,8 @@ public final class PulsarClientArtifactWorkerSmoke {
                     attestationDigest,
                     issuedAt,
                     destinationProfile,
-                    destinationPartition);
+                    destinationPartition,
+                    producerIdentity);
             final long validUntil = Math.addExact(now, 60_000);
             readyCertificate = readyCertificate(
                     ownerIdentity,
@@ -1787,6 +1872,7 @@ public final class PulsarClientArtifactWorkerSmoke {
                     || !Arrays.equals(channel.laneIncarnation(), laneIncarnation)
                     || !channel.targetResource().equals(target)
                     || channel.physicalPartition() != destinationPartition
+                    || !Arrays.equals(channel.producerOrTransactionalIdentity(), producerIdentity)
                     || !Arrays.equals(
                             readyCertificate.storeIncarnation(),
                             store.metadata().storeIncarnation())) {
@@ -1804,7 +1890,6 @@ public final class PulsarClientArtifactWorkerSmoke {
         physicalAdmission.registerLane(new DestinationPhysicalAdmission.LaneSpec(
                 laneId, laneIncarnation, CLUSTER, 1, 1, 1, workClassBytes, 1, workClassBytes));
         physicalAdmission.openReady(laneId);
-        final String producerName = "pulsar-worker-destination-" + UUID.randomUUID();
         final byte[] producerNameHash = Bytes.sha256(Bytes.utf8(producerName));
         final boolean destinationResponseLoss = hasWorkerDestinationResponseLoss();
         final AtomicReference<GuardedMessageId> responseLostMessage = new AtomicReference<>();
@@ -1833,14 +1918,13 @@ public final class PulsarClientArtifactWorkerSmoke {
                         destinationPartition,
                         producerNameHash,
                         evidenceProvider);
-        final PinnedPulsarDestinationAdapter adapter = new PinnedPulsarDestinationAdapter(
-                new PulsarTargetResource(
-                        CLUSTER,
-                        DESTINATION_INCARNATION,
-                        destinationPhysicalTopic,
-                        DESTINATION_CREATION_TIMESTAMP,
-                        destinationPartition),
-                transport);
+        final PulsarTargetResource destinationTarget = new PulsarTargetResource(
+                CLUSTER,
+                DESTINATION_INCARNATION,
+                destinationPhysicalTopic,
+                DESTINATION_CREATION_TIMESTAMP,
+                destinationPartition);
+        final PinnedPulsarDestinationAdapter adapter = new PinnedPulsarDestinationAdapter(destinationTarget, transport);
         final ShardLogMutationAppender realAppender;
         if (suppliedAppender == null) {
             final String mutationProducerName = "pulsar-worker-mutation-" + UUID.randomUUID();
@@ -1883,16 +1967,26 @@ public final class PulsarClientArtifactWorkerSmoke {
                     final PublishAdmissionBody admission = PublishAdmissionBody.decode(attempt.admissionBytes());
                     final long retryDeadline =
                             attempt.hasRetryWindow() ? attempt.retryDeadlineEpochMs() : request.deliverAtEpochMs();
+                    final boolean recoveryHold = result.disposition() == DestinationPublishResult.Disposition.UNKNOWN
+                            && result.stableCode() == StableCode.RECOVERY_FIRST_SEND_UNCERTAIN;
+                    final long observedAt = result.brokerPersistenceTimeEpochMs() >= 0
+                            ? result.brokerPersistenceTimeEpochMs()
+                            : System.currentTimeMillis();
                     return new WorkerPublishOutcomeMutationFactory.OutcomeContext(
                             retryDeadline,
-                            0,
+                            recoveryHold ? 4 : 0,
                             admission.chargeVector().canonicalBytes(),
-                            evidence(
-                                    result.brokerPersistenceTimeEpochMs(),
-                                    result.brokerPersistenceTimeEpochMs(),
-                                    "pulsar-worker-publish-observed"),
-                            retryDecision(
-                                    admission.decisionTime().latestEpochMs(), retryDeadline, attempt.attemptNo()));
+                            evidence(observedAt, observedAt, "pulsar-worker-publish-observed"),
+                            recoveryHold
+                                    ? recoveryHoldRetryDecision(
+                                            admission.decisionTime().latestEpochMs(),
+                                            retryDeadline,
+                                            attempt.attemptNo(),
+                                            result.stableCode())
+                                    : retryDecision(
+                                            admission.decisionTime().latestEpochMs(),
+                                            retryDeadline,
+                                            attempt.attemptNo()));
                 },
                 author.canonicalBytes(),
                 1,
@@ -1905,13 +1999,57 @@ public final class PulsarClientArtifactWorkerSmoke {
                 workClasses,
                 Runnable::run,
                 outcomes,
-                (attempt, request, ownerClock) -> WorkerPhysicalPublishExecutor.Decision.allowed(),
+                (attempt, request, ownerClock) -> {
+                    ownedShard.requirePhysicalPublishAuthoritativelyStrict(authority, attempt, ownerClock);
+                    return WorkerPhysicalPublishExecutor.Decision.allowed();
+                },
                 outcomeFactory,
                 ownedShard::fence);
+        final String journalPhysicalTopic = destinationPhysicalTopic + "-attempt-journal";
+        final PulsarJournalResource journalResource = new PulsarJournalResource(
+                CLUSTER, JOURNAL_INCARNATION, journalPhysicalTopic, JOURNAL_CREATION_TIMESTAMP, shard.partition());
+        final String journalProducerName = attemptJournalProducerName(shard, journalResource);
+        final String replaySubscriptionName = attemptJournalReplaySubscription(ownerIdentity, journalResource);
+        final PulsarClientArtifactAttemptJournal journalTransport = PulsarClientArtifactAttemptJournal.open(
+                client, shard, journalResource, journalProducerName, replaySubscriptionName, Duration.ofSeconds(20));
+        final PulsarAttemptJournal.ProducerKey journalProducer =
+                new PulsarAttemptJournal.ProducerKey(laneId, laneIncarnation, producerNameHash, destinationTarget);
+        executor.bindManagedPulsarContext(new WorkerPhysicalPublishExecutor.ManagedPulsarContext(
+                journalTransport.journal(),
+                journalProducer,
+                ARTIFACTS,
+                candidate -> {
+                    requireDisposableLocalPhysicalTesting();
+                    if (!ARTIFACTS.equals(candidate)) {
+                        throw new IllegalStateException("physical artifact generation differs from the admission");
+                    }
+                },
+                new WorkerPhysicalPublishExecutor.JournalProjectionSink() {
+                    @Override
+                    public void recordMapped(
+                            final PublishAttemptLedger attempt, final long sequenceId, final byte[] journalPosition) {
+                        ownedShard.recordAttemptJournalMappingAuthoritativelyStrict(
+                                authority, attempt, sequenceId, journalPosition, System::currentTimeMillis);
+                    }
+
+                    @Override
+                    public void markRetirementPending(final PublishAttemptLedger attempt) {
+                        ownedShard.markAttemptJournalRetirementPendingAuthoritativelyStrict(
+                                authority, attempt, System::currentTimeMillis);
+                    }
+
+                    @Override
+                    public void recordRetired(final PublishAttemptLedger attempt, final byte[] journalPosition) {
+                        ownedShard.recordAttemptJournalRetirementAuthoritativelyStrict(
+                                authority, attempt, journalPosition, System::currentTimeMillis);
+                    }
+                },
+                ownerIdentity.ownerEpoch()));
         return new PhysicalPublishBridge(
                 executor,
                 appender,
                 appender,
+                journalTransport,
                 laneId,
                 laneIncarnation,
                 destinationProfile,
@@ -1927,6 +2065,24 @@ public final class PulsarClientArtifactWorkerSmoke {
                 admissionResponseLossObserved);
     }
 
+    private static String attemptJournalProducerName(final ShardId shard, final PulsarJournalResource journalResource) {
+        final byte[] identity = Bytes.sha256(
+                Bytes.utf8("nereus-delay-attempt-journal-producer\0"),
+                Bytes.utf8(shard.routeIncarnation().uuid().toString()),
+                Bytes.u32be(shard.partition()),
+                journalResource.exactResourceCanonicalBytes(1));
+        return "nereus-delay-journal-" + Bytes.hex(Arrays.copyOf(identity, 16));
+    }
+
+    private static String attemptJournalReplaySubscription(
+            final OwnerIdentity ownerIdentity, final PulsarJournalResource journalResource) {
+        final byte[] identity = Bytes.sha256(
+                Bytes.utf8("nereus-delay-attempt-journal-replay\0"),
+                ownerIdentity.canonicalBytes(),
+                journalResource.exactResourceCanonicalBytes(1));
+        return "nereus-delay-journal-replay-" + Bytes.hex(Arrays.copyOf(identity, 16));
+    }
+
     private static ChannelResourceIdentity channel(
             final DestinationLaneId laneId,
             final byte[] laneIncarnation,
@@ -1935,8 +2091,8 @@ public final class PulsarClientArtifactWorkerSmoke {
             final byte[] attestationDigest,
             final TrustedUtcIntervalEvidence issuedAt,
             final ProfileRef destinationProfile,
-            final int destinationPartition) {
-        final byte[] producer = Bytes.utf8("pulsar-worker-destination-producer");
+            final int destinationPartition,
+            final byte[] producer) {
         final byte[] binding = Bytes.sha256(Bytes.utf8("pulsar-worker-channel-binding"), target.canonicalBytes());
         final byte[] fingerprint =
                 Bytes.sha256(Bytes.utf8("pulsar-worker-channel-fingerprint"), Bytes.utf8(physicalTopic));
@@ -1983,6 +2139,20 @@ public final class PulsarClientArtifactWorkerSmoke {
                 binding,
                 fingerprint,
                 lease);
+    }
+
+    private static String destinationProducerName(
+            final DestinationLaneId laneId,
+            final byte[] laneIncarnation,
+            final com.nereusstream.delay.protocol.BrokerResourceIdentity target,
+            final int destinationPartition) {
+        final byte[] identity = Bytes.sha256(
+                Bytes.utf8("nereus-delay-managed-pulsar-producer\0"),
+                laneId.bytes(),
+                laneIncarnation,
+                target.canonicalBytes(),
+                Bytes.u32be(destinationPartition));
+        return "nereus-delay-managed-" + Bytes.hex(Arrays.copyOf(identity, 16));
     }
 
     private static ReadyCertificate readyCertificate(
@@ -2115,6 +2285,22 @@ public final class PulsarClientArtifactWorkerSmoke {
         });
     }
 
+    private static byte[] recoveryHoldRetryDecision(
+            final long firstAttemptAt, final long retryDeadline, final int completedAttemptNo, final StableCode cause) {
+        final RetryPolicyRef policy = new RetryPolicyRef(
+                Bytes.utf8("pulsar-worker-retry"), 1, Bytes.sha256(Bytes.utf8("pulsar-worker-retry-semantic")));
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.uint32(output, 1, 5);
+            CanonicalProtobuf.bytes(output, 2, policy.canonicalBytes());
+            CanonicalProtobuf.uint32(output, 3, completedAttemptNo);
+            CanonicalProtobuf.int64(output, 4, firstAttemptAt);
+            CanonicalProtobuf.int64(output, 5, retryDeadline);
+            CanonicalProtobuf.uint32(output, 7, 1);
+            CanonicalProtobuf.uint32(output, 8, cause.wireValue());
+            CanonicalProtobuf.uint32(output, 9, 1);
+        });
+    }
+
     private static TrustedUtcIntervalEvidence evidence(final long earliest, final long latest, final String identity) {
         return new TrustedUtcIntervalEvidence(
                 earliest,
@@ -2167,6 +2353,21 @@ public final class PulsarClientArtifactWorkerSmoke {
         }
     }
 
+    private static void requireNoPayload(final PulsarClient client, final String physicalTopic) throws Exception {
+        final TopicResourceGuard guard =
+                new TopicResourceGuard(CLUSTER, DESTINATION_INCARNATION, DESTINATION_CREATION_TIMESTAMP);
+        final GuardedConsumer<byte[]> consumer = PulsarClientArtifactSourceConsumerFactory.create(
+                client, guard, physicalTopic, "nereus-delay-p1-worker-no-send-" + UUID.randomUUID());
+        try {
+            final Message<byte[]> message = consumer.receive(2, TimeUnit.SECONDS);
+            if (message != null) {
+                throw new IllegalStateException("foreign-owner recovery emitted an unexpected destination message");
+            }
+        } finally {
+            consumer.close();
+        }
+    }
+
     private static void writeField(
             final java.io.ByteArrayOutputStream output, final CanonicalProtobuf.Reader.Field field) {
         if (field.wireType() == 0) {
@@ -2180,6 +2381,7 @@ public final class PulsarClientArtifactWorkerSmoke {
         private final WorkerPhysicalPublishExecutor executor;
         private final RecordingMutationAppender appender;
         private final AutoCloseable appenderResource;
+        private final AutoCloseable journalResource;
         private final DestinationLaneId laneId;
         private final byte[] laneIncarnation;
         private final ProfileRef destinationProfile;
@@ -2198,6 +2400,7 @@ public final class PulsarClientArtifactWorkerSmoke {
                 final WorkerPhysicalPublishExecutor executor,
                 final RecordingMutationAppender appender,
                 final AutoCloseable appenderResource,
+                final AutoCloseable journalResource,
                 final DestinationLaneId laneId,
                 final byte[] laneIncarnation,
                 final ProfileRef destinationProfile,
@@ -2214,6 +2417,7 @@ public final class PulsarClientArtifactWorkerSmoke {
             this.executor = executor;
             this.appender = appender;
             this.appenderResource = appenderResource;
+            this.journalResource = journalResource;
             this.laneId = laneId;
             this.laneIncarnation = Bytes.copy(laneIncarnation);
             this.destinationProfile = destinationProfile;
@@ -2300,6 +2504,18 @@ public final class PulsarClientArtifactWorkerSmoke {
                 executor.close();
             } catch (RuntimeException closeFailure) {
                 failure = closeFailure;
+            }
+            try {
+                journalResource.close();
+            } catch (Exception closeFailure) {
+                final RuntimeException runtimeFailure = closeFailure instanceof RuntimeException
+                        ? (RuntimeException) closeFailure
+                        : new IllegalStateException("Pulsar Worker Attempt Journal close failed", closeFailure);
+                if (failure == null) {
+                    failure = runtimeFailure;
+                } else {
+                    failure.addSuppressed(runtimeFailure);
+                }
             }
             try {
                 appenderResource.close();
@@ -3111,6 +3327,7 @@ public final class PulsarClientArtifactWorkerSmoke {
                 deliverAt + 10_000,
                 DeliveryMode.MANAGED,
                 OrderingMode.BEST_EFFORT,
+                NativeDeliveryPolicy.FORBID,
                 payload,
                 Bytes.utf8("source-" + identity),
                 null,
@@ -3118,6 +3335,22 @@ public final class PulsarClientArtifactWorkerSmoke {
                 null,
                 null);
         return PreparedCommand.schedule(shard, intent, deliverAt + 20_000);
+    }
+
+    private static void requireDisposableLocalPhysicalTesting() {
+        final String classification = System.getenv("NEREUS_DELAY_ENVIRONMENT_CLASSIFICATION");
+        if (!"DISPOSABLE_LOCAL".equals(classification)) {
+            throw new IllegalStateException(
+                    "real Worker physical testing requires environment classification DISPOSABLE_LOCAL");
+        }
+    }
+
+    static byte[] attemptJournalIncarnation() {
+        return Bytes.copy(JOURNAL_INCARNATION);
+    }
+
+    static long attemptJournalCreationTimestamp() {
+        return JOURNAL_CREATION_TIMESTAMP;
     }
 
     private static ScheduleResolver scheduleResolver(final String destinationPhysicalTopic) {

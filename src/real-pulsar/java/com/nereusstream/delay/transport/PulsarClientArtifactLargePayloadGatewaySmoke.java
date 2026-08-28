@@ -1554,6 +1554,14 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                 DESTINATION_INCARNATION,
                 DESTINATION_CREATION_TIMESTAMP,
                 adminUrls);
+        for (int partition = 0; partition < shardCount; partition++) {
+            createTopic(
+                    admin,
+                    adminUrls.get(0),
+                    destinationName + "-partition-" + partition + "-attempt-journal",
+                    PulsarClientArtifactWorkerSmoke.attemptJournalIncarnation(),
+                    PulsarClientArtifactWorkerSmoke.attemptJournalCreationTimestamp());
+        }
 
         final AuthenticatedTenantContext tenant =
                 new AuthenticatedTenantContext(bytes(32, 1), bytes(32, 2), bytes(32, 3));
@@ -2286,6 +2294,12 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                 .build();
         createPartitionedTopic(admin, adminUrl, sourceBase, SOURCE_INCARNATION, SOURCE_CREATION_TIMESTAMP, adminUrls);
         createTopic(admin, adminUrl, destinationName, DESTINATION_INCARNATION, DESTINATION_CREATION_TIMESTAMP);
+        createTopic(
+                admin,
+                adminUrl,
+                destinationName + "-attempt-journal",
+                PulsarClientArtifactWorkerSmoke.attemptJournalIncarnation(),
+                PulsarClientArtifactWorkerSmoke.attemptJournalCreationTimestamp());
 
         final AuthenticatedTenantContext tenant =
                 new AuthenticatedTenantContext(bytes(32, 1), bytes(32, 2), bytes(32, 3));
