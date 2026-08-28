@@ -3,8 +3,8 @@ package com.nereusstream.delay.runtime;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import com.nereusstream.delay.protocol.AdapterMetadata;
 import com.nereusstream.delay.protocol.AdapterKind;
+import com.nereusstream.delay.protocol.AdapterMetadata;
 import com.nereusstream.delay.protocol.AuthorIdentity;
 import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
@@ -20,11 +20,11 @@ import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.PayloadForPublish;
 import com.nereusstream.delay.protocol.PayloadReference;
 import com.nereusstream.delay.protocol.PreparedCommand;
-import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity;
-import com.nereusstream.delay.protocol.PulsarMetadata;
 import com.nereusstream.delay.protocol.ProfileKind;
 import com.nereusstream.delay.protocol.ProfileRef;
 import com.nereusstream.delay.protocol.ProtocolTestFixtures;
+import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity;
+import com.nereusstream.delay.protocol.PulsarMetadata;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ScheduleIntent;
 import com.nereusstream.delay.protocol.ShardId;
@@ -236,7 +236,8 @@ class ClaimMaterializationRuntimeTest {
             final ClaimMaterialization materialization = shard.resolveClaimMaterialization(schedule.delayMessageId());
 
             assertTrue(materialization.legacyEncoding());
-            assertEquals(com.nereusstream.delay.protocol.NativeDeliveryPolicy.FORBID,
+            assertEquals(
+                    com.nereusstream.delay.protocol.NativeDeliveryPolicy.FORBID,
                     materialization.nativeDeliveryPolicy());
             assertEquals(
                     new ClaimMaterialization(
