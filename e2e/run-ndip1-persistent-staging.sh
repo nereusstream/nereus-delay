@@ -25,6 +25,7 @@ compose_file_staging="${script_dir}/docker-compose.ndip1-staging.yml"
 
 pulsar_checkout="${NEREUS_DELAY_PULSAR_CHECKOUT:-${delay_root}/../pulsar-worktrees/nereus-delay-p1}"
 oxia_checkout="${NEREUS_DELAY_OXIA_CHECKOUT:-${delay_root}/../oxia}"
+oxia_cli="${NEREUS_DELAY_OXIA_BINARY:-${oxia_checkout}/bin/oxia}"
 pulsar_tarball="${NEREUS_DELAY_PULSAR_TARBALL:-${pulsar_checkout}/distribution/server/build/distributions/apache-pulsar-5.0.0-M1-bin.tar.gz}"
 pulsar_client_cp="${pulsar_checkout}/pulsar-client/build/libs/pulsar-client-original-5.0.0-M1.jar:${pulsar_checkout}/pulsar-client-api/build/libs/pulsar-client-api-5.0.0-M1.jar:${pulsar_checkout}/pulsar-common/build/libs/pulsar-common-5.0.0-M1.jar"
 pulsar_image="${resource_prefix}-pulsar:0a2536484cd3932801a98dc88ff112b2df88a1c7"
@@ -138,7 +139,7 @@ on_exit() {
 }
 trap on_exit EXIT
 
-for required_command in docker curl jq openssl python3 shasum tar xxd base64; do
+for required_command in docker curl jq openssl python3 shasum tar xxd base64 go; do
   command -v "${required_command}" >/dev/null 2>&1 || fail "required command is missing: ${required_command}"
 done
 docker compose version >/dev/null 2>&1 || fail "docker compose is unavailable"
@@ -172,6 +173,12 @@ pulsar_sha="$(git -C "${pulsar_checkout}" rev-parse HEAD)"
 pulsar_ref="$(git -C "${pulsar_checkout}" branch --show-current)"
 [[ -n "${pulsar_ref}" ]] || pulsar_ref="DETACHED:${pulsar_sha}"
 oxia_sha="$(git -C "${oxia_checkout}" rev-parse HEAD)"
+[[ -x "${oxia_cli}" ]] || fail "Oxia CLI is missing or not executable: ${oxia_cli}"
+oxia_cli_build_info="$(go version -m "${oxia_cli}" 2>/dev/null || true)"
+printf '%s\n' "${oxia_cli_build_info}" >"${run_dir}/g0/oxia-cli-build-info.txt"
+printf '%s\n' "${oxia_cli_build_info}" | rg -F "vcs.revision=${oxia_sha}" >/dev/null \
+  || fail "Oxia CLI VCS revision does not match the clean Oxia checkout: ${oxia_cli}"
+oxia_cli_sha256="$(shasum -a 256 "${oxia_cli}" | awk '{print $1}')"
 pulsar_tarball_sha256="$(shasum -a 256 "${pulsar_tarball}" | awk '{print $1}')"
 disposable_actual_sha256="$(shasum -a 256 "${disposable_receipt}" | awk '{print $1}' 2>/dev/null || true)"
 [[ "${disposable_actual_sha256}" == "${disposable_receipt_sha256}" ]] \
@@ -323,8 +330,8 @@ oxia_admin() {
 }
 
 oxia_client() {
-  "${compose[@]}" exec --no-TTY coordinator-1 oxia client \
-    --service-address data-server-1:6648 --namespace default --request-timeout 5s "$@"
+  "${oxia_cli}" client \
+    --service-address "${oxia_endpoint}" --namespace default --request-timeout 5s "$@"
 }
 
 wait_for_namespace() {
@@ -469,13 +476,15 @@ write_environment_snapshot() {
     --arg commandTopic "${command_topic}" --arg mutationTopic "${mutation_topic}" \
     --arg workerTopic "${worker_topic}" --arg nativeTopic "${native_topic}" \
     --arg minioBucket "${minio_bucket}" --arg minioPrefix "${resource_prefix}/${run_id}" \
+    --arg oxiaCli "${oxia_cli}" --arg oxiaCliSha256 "${oxia_cli_sha256}" \
     --arg persistentRoot "${staging_root}" \
     '{schema:$schema,schemaGeneration:1,environmentId:$environmentId,classification:$classification,runId:$runId,
       candidateCommit:$candidateCommit,p1SourceLock:$p1SourceLock,acceptedPackageDigest:$packageDigest,
       source:{oxia:$oxiaSource,pulsar:$pulsarSource,pulsarRef:$pulsarRef},snapshotDigest:$snapshotDigest,
       unresolvedPublishingOrUncertain:$unresolved,
       topics:{command:$commandTopic,mutation:$mutationTopic,worker:$workerTopic,native:$nativeTopic},
-      oxia:{namespace:"default",coordinators:[16691,16692,16693],dataServers:[16681,16682,16683]},
+      oxia:{namespace:"default",coordinators:[16691,16692,16693],dataServers:[16681,16682,16683],
+        clientEndpoint:"127.0.0.1:16681",clientBinary:$oxiaCli,clientBinarySha256:$oxiaCliSha256},
       minio:{bucket:$minioBucket,prefix:$minioPrefix},
       persistentRoot:$persistentRoot}' \
     >"${run_dir}/g0/g0-snapshot.json"
