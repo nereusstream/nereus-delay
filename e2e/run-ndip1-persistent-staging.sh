@@ -102,7 +102,8 @@ disabled_policy_envelope=""
 
 mkdir -p "${run_dir}/logs" "${run_dir}/results" "${run_dir}/g0" "${run_dir}/authority" \
   "${staging_root}/pulsar" "${staging_root}/oxia" "${staging_root}/minio/data" \
-  "${staging_root}/worker" "${staging_root}/chaos" "${runtime_dir}" "${cert_dir}" "${key_dir}"
+  "${staging_root}/worker" "${staging_root}/chaos" "${runtime_dir}" "${image_context}" \
+  "${cert_dir}" "${key_dir}"
 if [[ -e "${run_dir}/run-status.json" ]]; then
   echo "refusing to reuse evidence run directory: ${run_dir}" >&2
   exit 1
