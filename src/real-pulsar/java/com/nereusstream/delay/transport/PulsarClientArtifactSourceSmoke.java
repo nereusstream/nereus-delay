@@ -29,8 +29,10 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import org.apache.pulsar.client.api.GuardedConsumer;
@@ -40,6 +42,7 @@ import org.apache.pulsar.client.api.TopicResourceGuard;
 
 /** Real-service guarded SUBSCRIBE, replay, Broker-timestamp, and ACK smoke. */
 public final class PulsarClientArtifactSourceSmoke {
+    private static final int MAX_ADMIN_REDIRECTS = 8;
     private static final String CLUSTER = PulsarClientArtifactClientBuilder.clusterId();
     private static final byte[] INCARNATION = digest(43);
     private static final long CREATION_TIMESTAMP = 2001L;
@@ -395,12 +398,88 @@ public final class PulsarClientArtifactSourceSmoke {
 
     private static HttpResponse<String> request(
             final HttpClient client, final String path, final String method, final String body) throws Exception {
-        final HttpRequest.Builder builder =
-                HttpRequest.newBuilder(URI.create(path)).header("Content-Type", "application/json");
-        final HttpRequest request = "DELETE".equals(method)
-                ? builder.DELETE().build()
-                : builder.PUT(HttpRequest.BodyPublishers.ofString(body)).build();
-        return client.send(request, HttpResponse.BodyHandlers.ofString());
+        URI next = URI.create(path);
+        final Set<Integer> allowedAdminPorts = allowedAdminPorts(next);
+        final Set<URI> visited = new HashSet<>();
+        for (int redirect = 0; redirect <= MAX_ADMIN_REDIRECTS; redirect++) {
+            if (!visited.add(next)) {
+                throw new IllegalStateException("Pulsar admin redirect loop: " + next);
+            }
+            final HttpRequest.Builder builder =
+                    HttpRequest.newBuilder(next).header("Content-Type", "application/json");
+            final HttpRequest request = "DELETE".equals(method)
+                    ? builder.DELETE().build()
+                    : builder.PUT(HttpRequest.BodyPublishers.ofString(body)).build();
+            final HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 307 && response.statusCode() != 308) {
+                return response;
+            }
+            if (redirect == MAX_ADMIN_REDIRECTS) {
+                throw new IllegalStateException(
+                        "Pulsar admin redirect limit exceeded: " + next + " status=" + response.statusCode());
+            }
+            final String location = response.headers().firstValue("Location").orElse(null);
+            if (location == null || location.isBlank()) {
+                throw new IllegalStateException(
+                        "Pulsar admin redirect had no Location: " + next + " status=" + response.statusCode());
+            }
+            final URI redirected = URI.create(location);
+            validateAdminRedirect(next, redirected, allowedAdminPorts);
+            System.out.println("Pulsar admin owner redirect followed: " + next + " -> " + redirected);
+            next = redirected;
+        }
+        throw new IllegalStateException("Pulsar admin redirect handling did not converge: " + path);
+    }
+
+    private static Set<Integer> allowedAdminPorts(final URI initial) {
+        if (!"http".equalsIgnoreCase(initial.getScheme())
+                || !"127.0.0.1".equals(initial.getHost())
+                || initial.getUserInfo() != null
+                || initial.getFragment() != null) {
+            throw new IllegalStateException("Pulsar source smoke requires a loopback HTTP admin URL: " + initial);
+        }
+        final Set<Integer> ports = new HashSet<>();
+        if (initial.getPort() > 0) {
+            ports.add(initial.getPort());
+        }
+        addConfiguredAdminPort(ports, "PULSAR_WEB_1_PORT");
+        addConfiguredAdminPort(ports, "PULSAR_WEB_2_PORT");
+        if (ports.isEmpty()) {
+            throw new IllegalStateException("Pulsar admin URL must include a port: " + initial);
+        }
+        return ports;
+    }
+
+    private static void addConfiguredAdminPort(final Set<Integer> ports, final String variable) {
+        final String value = System.getenv(variable);
+        if (value == null || value.isBlank()) {
+            return;
+        }
+        final int port;
+        try {
+            port = Integer.parseInt(value);
+        } catch (NumberFormatException failure) {
+            throw new IllegalStateException(variable + " must be a numeric TCP port: " + value, failure);
+        }
+        if (port <= 0 || port > 65535) {
+            throw new IllegalStateException(variable + " is outside the TCP port range: " + value);
+        }
+        ports.add(port);
+    }
+
+    private static void validateAdminRedirect(
+            final URI current, final URI redirected, final Set<Integer> allowedAdminPorts) {
+        if (!"http".equalsIgnoreCase(current.getScheme())
+                || !"http".equalsIgnoreCase(redirected.getScheme())
+                || !"127.0.0.1".equals(redirected.getHost())
+                || !allowedAdminPorts.contains(redirected.getPort())
+                || !redirected.getRawPath().equals(current.getRawPath())
+                || !java.util.Objects.equals(redirected.getRawQuery(), current.getRawQuery())
+                || redirected.getUserInfo() != null
+                || redirected.getFragment() != null) {
+            throw new IllegalStateException("Pulsar admin redirect escaped the configured local resource scope: "
+                    + current + " -> " + redirected);
+        }
     }
 
     private static IllegalStateException failure(final String operation, final HttpResponse<String> response) {
