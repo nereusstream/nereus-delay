@@ -137,8 +137,11 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.apache.pulsar.client.api.GuardedConsumer;
 import org.apache.pulsar.client.api.GuardedMessageId;
@@ -1052,6 +1055,20 @@ public final class PulsarClientArtifactWorkerSmoke {
                         + "mutation was persisted, its local append response was discarded, and exact source replay "
                         + "recovered the PUBLISHING admission");
                 if (hasAdmissionResponseLossProcessCrash()) {
+                    final WorkerPhysicalPublishExecutor.Submission cutSubmission = physicalTurn
+                            .physicalSubmission()
+                            .orElseThrow(
+                                    () -> new IllegalStateException("admission crash cut has no physical submission"));
+                    final PublishAttemptLedger cutAttempt = requireAdmissionRecoveryAttempt(delayShard);
+                    if (cutSubmission.state() != WorkerPhysicalPublishExecutor.SubmissionState.DEFERRED
+                            || cutSubmission.physicalCall().isPresent()
+                            || !cutAttempt.mappingDurable()
+                            || !cutAttempt.hasAllocatedJournalSequence()
+                            || !cutAttempt.hasJournalPosition()
+                            || cutAttempt.retirementPending()) {
+                        throw new IllegalStateException(
+                                "admission crash cut is not exactly after durable MAPPED and before ownership/SEND");
+                    }
                     awaitAdmissionResponseLossProcessCrashGate(store.dbPath());
                 }
             }
@@ -2109,14 +2126,21 @@ public final class PulsarClientArtifactWorkerSmoke {
                 verificationKey.getPrivate());
         final OutcomeWorkClassExecutor outcomes =
                 new OutcomeWorkClassExecutor(workClasses, ownedShard, authority, appender);
+        final boolean admissionCrashCut = hasAdmissionResponseLossProcessCrash() && admissionResponseLoss;
+        final AtomicInteger physicalGateChecks = new AtomicInteger();
+        final ExecutorService physicalExecutor =
+                Executors.newSingleThreadExecutor(Thread.ofVirtual().factory());
         final WorkerPhysicalPublishExecutor executor = new WorkerPhysicalPublishExecutor(
                 adapter,
                 physicalAdmission,
                 workClasses,
-                Runnable::run,
+                physicalExecutor,
                 outcomes,
                 (attempt, request, ownerClock) -> {
                     ownedShard.requirePhysicalPublishAuthoritativelyStrict(authority, attempt, ownerClock);
+                    if (admissionCrashCut && physicalGateChecks.incrementAndGet() >= 2) {
+                        return WorkerPhysicalPublishExecutor.Decision.deferred(StableCode.CAPABILITY_UNAVAILABLE, null);
+                    }
                     return WorkerPhysicalPublishExecutor.Decision.allowed();
                 },
                 outcomeFactory,
@@ -2166,6 +2190,7 @@ public final class PulsarClientArtifactWorkerSmoke {
                 appender,
                 appender,
                 journalTransport,
+                physicalExecutor,
                 laneId,
                 laneIncarnation,
                 destinationProfile,
@@ -2498,6 +2523,7 @@ public final class PulsarClientArtifactWorkerSmoke {
         private final RecordingMutationAppender appender;
         private final AutoCloseable appenderResource;
         private final AutoCloseable journalResource;
+        private final AutoCloseable physicalExecutorResource;
         private final DestinationLaneId laneId;
         private final byte[] laneIncarnation;
         private final ProfileRef destinationProfile;
@@ -2517,6 +2543,7 @@ public final class PulsarClientArtifactWorkerSmoke {
                 final RecordingMutationAppender appender,
                 final AutoCloseable appenderResource,
                 final AutoCloseable journalResource,
+                final AutoCloseable physicalExecutorResource,
                 final DestinationLaneId laneId,
                 final byte[] laneIncarnation,
                 final ProfileRef destinationProfile,
@@ -2534,6 +2561,7 @@ public final class PulsarClientArtifactWorkerSmoke {
             this.appender = appender;
             this.appenderResource = appenderResource;
             this.journalResource = journalResource;
+            this.physicalExecutorResource = physicalExecutorResource;
             this.laneId = laneId;
             this.laneIncarnation = Bytes.copy(laneIncarnation);
             this.destinationProfile = destinationProfile;
@@ -2620,6 +2648,18 @@ public final class PulsarClientArtifactWorkerSmoke {
                 executor.close();
             } catch (RuntimeException closeFailure) {
                 failure = closeFailure;
+            }
+            try {
+                physicalExecutorResource.close();
+            } catch (Exception closeFailure) {
+                final RuntimeException runtimeFailure = closeFailure instanceof RuntimeException
+                        ? (RuntimeException) closeFailure
+                        : new IllegalStateException("Pulsar Worker physical executor close failed", closeFailure);
+                if (failure == null) {
+                    failure = runtimeFailure;
+                } else {
+                    failure.addSuppressed(runtimeFailure);
+                }
             }
             try {
                 journalResource.close();

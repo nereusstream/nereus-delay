@@ -27,11 +27,50 @@ import com.nereusstream.delay.scheduler.WorkClassRuntimeConfig;
 import java.security.KeyPairGenerator;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 class WorkerPhysicalPublishExecutorTest {
+    @Test
+    void completionBookkeepingUsesTheInjectedExecutor() throws Exception {
+        final Fixture fixture = new Fixture();
+        final CompletableFuture<DestinationPublishResult> physical = new CompletableFuture<>();
+        final CountDownLatch handedOff = new CountDownLatch(1);
+        final AtomicReference<String> completionThread = new AtomicReference<>();
+        final ExecutorService completionExecutor =
+                Executors.newSingleThreadExecutor(runnable -> new Thread(runnable, "publish-completion-test"));
+        final WorkerPhysicalPublishExecutor executor = new WorkerPhysicalPublishExecutor(
+                new BoundedDestinationPublishAdapter(
+                        ignored -> physical, fixture.admission, Fixture.workClasses(), Runnable::run),
+                (mutation, ownerClock) -> {
+                    completionThread.set(Thread.currentThread().getName());
+                    handedOff.countDown();
+                },
+                (ignoredAttempt, ignoredRequest, ignoredClock) -> WorkerPhysicalPublishExecutor.Decision.allowed(),
+                (ignoredAttempt, ignoredRequest, result) -> mutation(fixture.shard),
+                () -> {},
+                null,
+                completionExecutor);
+        try (executor) {
+            final WorkerPhysicalPublishExecutor.Submission submission =
+                    executor.submit(fixture.attempt, fixture.request, () -> 1_000);
+            assertEquals(WorkerPhysicalPublishExecutor.SubmissionState.PENDING, submission.state());
+
+            physical.complete(DestinationPublishResult.published(Bytes.utf8("delivery"), 1_001, Bytes.utf8("ack")));
+
+            assertTrue(handedOff.await(5, TimeUnit.SECONDS));
+            assertEquals("publish-completion-test", completionThread.get());
+            assertEquals(WorkerPhysicalPublishExecutor.SubmissionState.OUTCOME_HANDOFF_QUEUED, submission.state());
+        } finally {
+            completionExecutor.shutdownNow();
+        }
+    }
+
     @Test
     void allowedResultIsHandedOffAfterTheBoundedPhysicalCall() {
         final Fixture fixture = new Fixture();

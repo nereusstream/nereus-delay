@@ -50,6 +50,7 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
     private final PhysicalPublishGate physicalGate;
     private final Runnable fenceOnFailure;
     private final DataResetActivationGate dataResetActivationGate;
+    private final Executor completionExecutor;
     private ManagedPulsarContext managedPulsarContext;
 
     /**
@@ -99,7 +100,8 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
                 physicalGate,
                 outcomeFactory,
                 fenceOnFailure,
-                dataResetActivationGate);
+                dataResetActivationGate,
+                physicalExecutor);
     }
 
     /** Creates the bridge around an already composed bounded physical adapter. */
@@ -127,7 +129,8 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
                 physicalGate,
                 outcomeFactory,
                 fenceOnFailure,
-                dataResetActivationGate);
+                dataResetActivationGate,
+                Runnable::run);
     }
 
     WorkerPhysicalPublishExecutor(
@@ -136,7 +139,7 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
             final PhysicalPublishGate physicalGate,
             final PublishOutcomeMutationFactory outcomeFactory,
             final Runnable fenceOnFailure) {
-        this(physicalAdapter, outcomeSink, physicalGate, outcomeFactory, fenceOnFailure, null);
+        this(physicalAdapter, outcomeSink, physicalGate, outcomeFactory, fenceOnFailure, null, Runnable::run);
     }
 
     WorkerPhysicalPublishExecutor(
@@ -146,12 +149,31 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
             final PublishOutcomeMutationFactory outcomeFactory,
             final Runnable fenceOnFailure,
             final DataResetActivationGate dataResetActivationGate) {
+        this(
+                physicalAdapter,
+                outcomeSink,
+                physicalGate,
+                outcomeFactory,
+                fenceOnFailure,
+                dataResetActivationGate,
+                Runnable::run);
+    }
+
+    WorkerPhysicalPublishExecutor(
+            final BoundedDestinationPublishAdapter physicalAdapter,
+            final OutcomeMutationSink outcomeSink,
+            final PhysicalPublishGate physicalGate,
+            final PublishOutcomeMutationFactory outcomeFactory,
+            final Runnable fenceOnFailure,
+            final DataResetActivationGate dataResetActivationGate,
+            final Executor completionExecutor) {
         this.physicalAdapter = Objects.requireNonNull(physicalAdapter, "physicalAdapter");
         this.outcomeSink = Objects.requireNonNull(outcomeSink, "outcomeSink");
         this.physicalGate = Objects.requireNonNull(physicalGate, "physicalGate");
         this.outcomeFactory = Objects.requireNonNull(outcomeFactory, "outcomeFactory");
         this.fenceOnFailure = Objects.requireNonNull(fenceOnFailure, "fenceOnFailure");
         this.dataResetActivationGate = dataResetActivationGate;
+        this.completionExecutor = Objects.requireNonNull(completionExecutor, "completionExecutor");
     }
 
     /**
@@ -383,6 +405,7 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
             submission.attachPhysicalCall(call);
             registerCompletion(
                     journalStage,
+                    completionExecutor,
                     exactResult -> completePulsarJournalResult(
                             submission, exactResult, exactContext, exactJournal, mapping, clock));
             return submission;
@@ -519,7 +542,8 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
                     exactAttempt.preparedPublishHash(),
                     ignored -> lateGateResult(exactAttempt, exactRequest, clock));
             submission.attachPhysicalCall(call);
-            registerCompletion(call.outcome(), exactResult -> completeResult(submission, exactResult, clock));
+            registerCompletion(
+                    call.outcome(), completionExecutor, exactResult -> completeResult(submission, exactResult, clock));
             return submission;
         } catch (RuntimeException | Error failure) {
             fail(submission, failure);
@@ -596,12 +620,17 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
 
     private static void registerCompletion(
             final CompletionStage<DestinationPublishResult> stage,
+            final Executor completionExecutor,
             final java.util.function.Consumer<DestinationPublishResult> callback) {
         Objects.requireNonNull(stage, "physical outcome stage").whenComplete((value, error) -> {
-            if (error != null || value == null) {
+            final DestinationPublishResult result = error != null || value == null
+                    ? DestinationPublishResult.unknown(StableCode.DESTINATION_OUTCOME_UNKNOWN, null)
+                    : value;
+            try {
+                Objects.requireNonNull(completionExecutor, "completionExecutor").execute(() -> callback.accept(result));
+            } catch (RuntimeException rejected) {
+                // Do not run blocking Journal or source handoff work on a Broker I/O callback.
                 callback.accept(DestinationPublishResult.unknown(StableCode.DESTINATION_OUTCOME_UNKNOWN, null));
-            } else {
-                callback.accept(value);
             }
         });
     }
