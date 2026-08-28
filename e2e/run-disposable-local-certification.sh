@@ -1240,7 +1240,7 @@ run_broker_failover_cell() {
               GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealPulsarBinaryLookupSmoke \
               -PpulsarClientClasspath="${p1_client_cp}" \
               -PpulsarRuntimeDir="${runtime_dir}/lib" \
-              -PpulsarServiceUrl="${service_url_failover}" \
+              -PpulsarServiceUrl="${service_url_2}" \
               -PpulsarTopic="${topic}" \
               --no-daemon --console=plain >>"${log_path}" 2>&1; then
             printf '%s\n' "binary lookup diagnostic failed" >>"${log_path}"
