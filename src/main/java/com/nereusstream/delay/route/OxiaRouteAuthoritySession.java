@@ -20,6 +20,7 @@ import java.util.Arrays;
 import java.util.Iterator;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
@@ -105,7 +106,10 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
                     new SyncRecordClient(sessionClient),
                     new SyncRecordClient(notificationClient),
                     () -> createNotificationClient(
-                            serviceAddress, canonicalNamespace, canonicalClientIdentifier, sessionTimeout),
+                            serviceAddress,
+                            canonicalNamespace,
+                            canonicalClientIdentifier + "-route-reconnect-" + UUID.randomUUID(),
+                            sessionTimeout),
                     canonicalPrefix);
         } catch (RuntimeException failure) {
             try {
