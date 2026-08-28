@@ -5,6 +5,7 @@ import com.nereusstream.delay.adapter.PulsarSendResult;
 import com.nereusstream.delay.adapter.PulsarTargetResource;
 import com.nereusstream.delay.assessment.DeploymentSafetyGate;
 import com.nereusstream.delay.assessment.DisposableEnvironmentAttestation;
+import com.nereusstream.delay.assessment.PersistentStagingActivation;
 import com.nereusstream.delay.assessment.PhysicalSendActivationGate;
 import com.nereusstream.delay.protocol.AdapterMetadata;
 import com.nereusstream.delay.protocol.ArtifactGenerationSet;
@@ -81,21 +82,30 @@ public final class PulsarClientArtifactNativeSmoke {
         final HttpClient admin = HttpClient.newBuilder()
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .build();
+        final PersistentStagingActivation.Loaded persistentActivation = PersistentStagingActivation.loadIfConfigured();
         createTopic(admin, adminUrl, topic);
         try {
-            runNativeSendAndRead(serviceUrl, physicalTopic);
+            runNativeSendAndRead(serviceUrl, physicalTopic, persistentActivation);
         } finally {
-            deleteTopicIfPresent(admin, adminUrl, topic);
+            if (persistentActivation == null) {
+                deleteTopicIfPresent(admin, adminUrl, topic);
+            }
         }
     }
 
-    private static void runNativeSendAndRead(final String serviceUrl, final String physicalTopic) throws Exception {
+    private static void runNativeSendAndRead(
+            final String serviceUrl,
+            final String physicalTopic,
+            final PersistentStagingActivation.Loaded persistentActivation)
+            throws Exception {
         final byte[] payload = Bytes.utf8("nereus-delay-native-p1-smoke");
         final long nowEpochMs = System.currentTimeMillis();
         final long deliverAtEpochMs = nowEpochMs + 7_000L;
         final KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
-        final ArtifactGenerationSet artifacts = ArtifactGenerationSet.current(
-                1, PulsarSourceLock.digest(), Bytes.sha256(Bytes.utf8("native-real-smoke-schema")));
+        final ArtifactGenerationSet artifacts = persistentActivation == null
+                ? ArtifactGenerationSet.current(
+                        1, PulsarSourceLock.digest(), Bytes.sha256(Bytes.utf8("native-real-smoke-schema")))
+                : persistentActivation.artifacts();
         final String producerName = "nereus-delay-p1-native-smoke";
         final PulsarBrokerResourceIdentity target =
                 new PulsarBrokerResourceIdentity(CLUSTER, INCARNATION, physicalTopic, CREATION_TIMESTAMP);
@@ -198,17 +208,19 @@ public final class PulsarClientArtifactNativeSmoke {
                 handoff,
                 capabilitySnapshot);
         final PreparedSubmission submission = PreparedSubmission.nativePrepared(prepared, context);
-        final PhysicalSendActivationGate activationGate = PhysicalSendActivationGate.disposableLocal(
-                DeploymentSafetyGate.GateBStatus.PASS,
-                new DisposableEnvironmentAttestation(
-                        "native-smoke-disposable",
-                        physicalTopic,
-                        true,
-                        true,
-                        true,
-                        true,
-                        Bytes.sha256(Bytes.utf8("native-smoke-disposable-evidence"))),
-                artifacts);
+        final PhysicalSendActivationGate activationGate = persistentActivation == null
+                ? PhysicalSendActivationGate.disposableLocal(
+                        DeploymentSafetyGate.GateBStatus.PASS,
+                        new DisposableEnvironmentAttestation(
+                                "native-smoke-disposable",
+                                physicalTopic,
+                                true,
+                                true,
+                                true,
+                                true,
+                                Bytes.sha256(Bytes.utf8("native-smoke-disposable-evidence"))),
+                        artifacts)
+                : persistentActivation.physicalGate();
         final PulsarNativePreparedRecordValidator validator = new PulsarNativePreparedRecordValidator(
                 resource, keys.getPublic(), Clock.systemUTC(), null, activationGate);
         final PulsarPreparedRecord expectedRecord = validator.materialize(submission);

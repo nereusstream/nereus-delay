@@ -10,6 +10,8 @@ import com.nereusstream.delay.adapter.PulsarSendAckEvidence;
 import com.nereusstream.delay.adapter.PulsarSendRequest;
 import com.nereusstream.delay.adapter.PulsarSendResult;
 import com.nereusstream.delay.adapter.PulsarTargetResource;
+import com.nereusstream.delay.assessment.PersistentStagingActivation;
+import com.nereusstream.delay.assessment.PhysicalSendActivationGate;
 import com.nereusstream.delay.ownership.ClaimHandoffWorkClassExecutor;
 import com.nereusstream.delay.ownership.InMemoryOwnerLeaseStore;
 import com.nereusstream.delay.ownership.InMemoryWorkerAssignmentAuthority;
@@ -211,7 +213,7 @@ public final class PulsarClientArtifactWorkerSmoke {
                 || mode.equals("source-ack-resume");
         createTopic(admin, adminUrl, topic, reuseExistingTopic);
         if (destinationTopic != null && !mode.equals("prepare")) {
-            requireDisposableLocalPhysicalTesting();
+            requirePhysicalTestingEnvironment();
             createTopic(
                     admin,
                     adminUrl,
@@ -243,7 +245,7 @@ public final class PulsarClientArtifactWorkerSmoke {
                 }
             }
         } finally {
-            if (!mode.equals("prepare")) {
+            if (!mode.equals("prepare") && !isPersistentStaging()) {
                 deleteTopicIfPresent(admin, adminUrl, topic);
                 if (destinationTopic != null) {
                     deleteTopicIfPresent(admin, adminUrl, destinationTopic);
@@ -2181,6 +2183,7 @@ public final class PulsarClientArtifactWorkerSmoke {
         final AtomicInteger physicalGateChecks = new AtomicInteger();
         final ExecutorService physicalExecutor =
                 Executors.newSingleThreadExecutor(Thread.ofVirtual().factory());
+        final PhysicalSendActivationGate persistentPhysicalGate = persistentPhysicalGate();
         final WorkerPhysicalPublishExecutor executor = new WorkerPhysicalPublishExecutor(
                 adapter,
                 physicalAdmission,
@@ -2195,7 +2198,8 @@ public final class PulsarClientArtifactWorkerSmoke {
                     return WorkerPhysicalPublishExecutor.Decision.allowed();
                 },
                 outcomeFactory,
-                ownedShard::fence);
+                ownedShard::fence,
+                persistentPhysicalGate);
         final String journalPhysicalTopic = destinationPhysicalTopic + "-attempt-journal";
         final PulsarJournalResource journalResource = new PulsarJournalResource(
                 CLUSTER, JOURNAL_INCARNATION, journalPhysicalTopic, JOURNAL_CREATION_TIMESTAMP, shard.partition());
@@ -2227,7 +2231,6 @@ public final class PulsarClientArtifactWorkerSmoke {
                 journalProducer,
                 ARTIFACTS,
                 candidate -> {
-                    requireDisposableLocalPhysicalTesting();
                     if (!ARTIFACTS.equals(candidate)) {
                         throw new IllegalStateException("physical artifact generation differs from the admission");
                     }
@@ -3573,12 +3576,21 @@ public final class PulsarClientArtifactWorkerSmoke {
         return PreparedCommand.schedule(shard, intent, deliverAt + 20_000);
     }
 
-    private static void requireDisposableLocalPhysicalTesting() {
+    private static void requirePhysicalTestingEnvironment() {
         final String classification = System.getenv("NEREUS_DELAY_ENVIRONMENT_CLASSIFICATION");
-        if (!"DISPOSABLE_LOCAL".equals(classification)) {
+        if (!"DISPOSABLE_LOCAL".equals(classification) && !"STAGING".equals(classification)) {
             throw new IllegalStateException(
-                    "real Worker physical testing requires environment classification DISPOSABLE_LOCAL");
+                    "real Worker physical testing requires environment classification DISPOSABLE_LOCAL or STAGING");
         }
+    }
+
+    private static boolean isPersistentStaging() {
+        return "STAGING".equals(System.getenv("NEREUS_DELAY_ENVIRONMENT_CLASSIFICATION"));
+    }
+
+    private static PhysicalSendActivationGate persistentPhysicalGate() throws Exception {
+        final PersistentStagingActivation.Loaded activation = PersistentStagingActivation.loadIfConfigured();
+        return activation == null ? null : activation.physicalGate();
     }
 
     static byte[] attemptJournalIncarnation() {

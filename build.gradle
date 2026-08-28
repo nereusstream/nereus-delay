@@ -465,6 +465,25 @@ tasks.register('compileRealPulsar', JavaCompile) {
     options.compilerArgs += ['-Xlint:all', '-Werror']
 }
 
+tasks.register('runNdip1PersistentAuthority', JavaExec) {
+    group = 'verification'
+    description = 'Builds or signs one explicit persistent NDIP-1 staging evidence record.'
+    dependsOn tasks.named('classes')
+    def authorityCommand = findProperty('ndip1AuthorityCommand')
+    def authorityConfig = findProperty('ndip1AuthorityConfig')
+    if (authorityCommand == null || authorityConfig == null) {
+        doFirst {
+            throw new GradleException(
+                    'runNdip1PersistentAuthority requires -Pndip1AuthorityCommand=assessment|manifest|sign-json '
+                            + '-Pndip1AuthorityConfig=/persistent/path/config.json')
+        }
+    }
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.nereusstream.delay.assessment.PersistentStagingAuthorityTool'
+    args authorityCommand == null ? '' : authorityCommand,
+            authorityConfig == null ? '' : authorityConfig
+}
+
 tasks.register('runRealPulsarSmoke', JavaExec) {
     group = 'verification'
     description = 'Runs the P1 Delay binding API/evidence smoke against the locked client artifact.'
