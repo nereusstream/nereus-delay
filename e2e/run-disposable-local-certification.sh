@@ -49,6 +49,7 @@ compose_started=0
 cleanup_started=0
 test_process_pid=""
 oxia_bootstrap_log="${artifact_dir}/logs/oxia-bootstrap.log"
+oxia_admin_address=""
 
 remove_exact_directory() {
   local directory="$1"
@@ -631,29 +632,42 @@ wait_for_oxia() {
   return 1
 }
 
-oxia_admin() {
+oxia_admin_at() {
+  local endpoint="$1"
+  shift
   "${compose[@]}" exec --no-TTY coordinator-1 oxia admin \
-    --admin-address 127.0.0.1:6651 "$@"
+    --admin-address "${endpoint}" "$@"
+}
+
+oxia_admin() {
+  [[ -n "${oxia_admin_address}" ]] || return 1
+  oxia_admin_at "${oxia_admin_address}" "$@"
 }
 
 oxia_admin_is_ready() {
-  local response
-  response="$(oxia_admin dataserver get --output json 2>/dev/null)" || return 1
-  [[ -n "${response}" ]] || return 1
-  python3 -c '
+  local endpoint response
+  for endpoint in coordinator-1:6651 coordinator-2:6651 coordinator-3:6651; do
+    if response="$(oxia_admin_at "${endpoint}" dataserver get --output json 2>/dev/null)" \
+        && [[ -n "${response}" ]] \
+        && python3 -c '
 import json
 import sys
 
 value = json.load(sys.stdin)
 sys.exit(0 if isinstance(value, list) else 1)
-' <<<"${response}" >/dev/null 2>&1
+' <<<"${response}" >/dev/null 2>&1; then
+      oxia_admin_address="${endpoint}"
+      echo "Oxia coordinator admin is initialized at ${endpoint}"
+      return 0
+    fi
+  done
+  return 1
 }
 
 wait_for_oxia_admin() {
   local deadline=$((SECONDS + 180))
   while (( SECONDS < deadline )); do
     if oxia_admin_is_ready; then
-      echo "Oxia coordinator admin is initialized"
       return 0
     fi
     sleep 2
