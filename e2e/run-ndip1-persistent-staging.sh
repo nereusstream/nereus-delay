@@ -103,6 +103,8 @@ enabled_policy_envelope=""
 canary_receipt=""
 canary_receipt_sha256=""
 disabled_policy_envelope=""
+enabled_policy_activation_started=0
+enabled_policy_rollback_attempted=0
 
 mkdir -p "${run_dir}/logs" "${run_dir}/results" "${run_dir}/g0" "${run_dir}/authority" \
   "${staging_root}/pulsar" "${staging_root}/oxia" "${staging_root}/minio/data" \
@@ -137,6 +139,11 @@ write_run_status() {
 on_exit() {
   local status=$?
   set +e
+  if [[ "${status}" != 0 && "${enabled_policy_activation_started:-0}" == 1 \
+      && "${enabled_policy_rollback_attempted:-0}" == 0 ]]; then
+    enabled_policy_rollback_attempted=1
+    disable_enabled_policy || true
+  fi
   write_run_status "${status}"
   exit "${status}"
 }
@@ -1827,6 +1834,7 @@ write_enabled_policy() {
       nativeAdmission:1,nativeSend:1,handedOff:0}' >"${payload}"
   sign_staging_payload enabled-policy "${payload}" "${enabled_policy_envelope}"
   enabled_policy_envelope_sha256="$(sha256_file "${enabled_policy_envelope}")"
+  enabled_policy_activation_started=1
   persist_policy_to_oxia enabled "${enabled_policy_envelope}"
 }
 
@@ -1874,8 +1882,9 @@ run_enabled_canary() {
   rg -F "Pulsar Worker vertical smoke passed" \
     "${run_dir}/logs/real-gate-c-p1-worker-managed.log" >/dev/null \
     || fail "ENABLED canary is missing ordinary managed-path evidence"
-  [[ -s "${run_dir}/chaos/p1-broker-failover/before.json" \
-      && -s "${run_dir}/chaos/p1-broker-failover/after.json" ]] \
+  local broker_failover_before="${run_dir}/chaos/p1-broker-failover/before-process-crash.json"
+  local broker_failover_after="${run_dir}/chaos/p1-broker-failover/after-fresh-process.json"
+  [[ -s "${broker_failover_before}" && -s "${broker_failover_after}" ]] \
     || fail "ENABLED canary is missing Broker failover state evidence"
 
   jq -n --arg schema "nereus-delay.enabled-canary" --arg status PASS \
@@ -1887,6 +1896,8 @@ run_enabled_canary() {
     --argjson nativeAdmission 1 --argjson nativeSend 1 --argjson handedOff 0 \
     --arg stats "${canary_dir}/native-topic-stats.json" \
     --arg internalStats "${canary_dir}/native-topic-internal-stats.json" \
+    --arg brokerFailoverBefore "${broker_failover_before}" \
+    --arg brokerFailoverAfter "${broker_failover_after}" \
     --arg log "${canary_log}" --arg activatedAt "$(now_epoch_ms)" \
     '{canarySchema:$schema,canarySchemaGeneration:1,canaryStatus:$status,environmentId:$environmentId,
       candidateCommit:$candidateCommit,ndipPackageDigest:$packageDigest,p1SourceLock:$p1Lock,
@@ -1896,7 +1907,8 @@ run_enabled_canary() {
       handedOff:$handedOff,deliverAtEpochMs:($deliverAt|tonumber),maxRecords:1,typedP1SendAck:true,
       targetRecordReconciled:true,responseLossRecovery:true,brokerFailoverRecovery:true,
       workerOwnershipUnknownDoesNotFallback:true,ordinaryPathUnaffected:true,activatedAtEpochMs:($activatedAt|tonumber),
-      evidence:{log:$log,stats:$stats,internalStats:$internalStats,productionAuthority:false}}' \
+      evidence:{log:$log,stats:$stats,internalStats:$internalStats,brokerFailoverBefore:$brokerFailoverBefore,
+        brokerFailoverAfter:$brokerFailoverAfter,productionAuthority:false}}' \
     >"${run_dir}/authority/enabled-canary-receipt.json"
   sign_staging_payload enabled-canary-receipt "${run_dir}/authority/enabled-canary-receipt.json" \
     "${run_dir}/authority/enabled-canary-receipt.signed.json"
@@ -1926,6 +1938,7 @@ disable_enabled_policy() {
   sign_staging_payload disabled-policy "${payload}" "${disabled_policy_envelope}"
   disabled_policy_envelope_sha256="$(sha256_file "${disabled_policy_envelope}")"
   persist_policy_to_oxia disabled "${disabled_policy_envelope}"
+  enabled_policy_activation_started=0
 
   export_common_test_environment
   export NEREUS_DELAY_PERSISTENT_STAGING_GATE_C_RECEIPT="${gate_c_receipt}" \
