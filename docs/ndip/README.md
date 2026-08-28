@@ -33,7 +33,8 @@ digest 和 receipt 的 canonical 规则由已接受的
 
 ## 当前工作包
 
-- [`NDIP-1`](NDIP-1/README.md)：Accepted；Gate B PASS，H1 READY，H2-H6 按 slice 依赖等待。
-  exact `DISPOSABLE_LOCAL` attestation 下允许本地集成、恢复与故障测试。当前没有真实 persistent
-  deployment，因此 G0 为 `NOT_APPLICABLE_FOR_IMPLEMENTATION / PENDING_DEPLOYMENT`，没有
-  Assessment receipt；Gate C 不阻塞 implementation，但继续严格阻塞 SHADOW 与 ENABLED。
+- [`NDIP-1`](NDIP-1/README.md)：Accepted；Gate B PASS，H1-H6 代码切片已完成，最新主线的
+  local disposable certification 与发布证据仍待闭合。exact `DISPOSABLE_LOCAL` attestation 下
+  允许本地集成、恢复与故障测试。当前没有真实 persistent deployment，因此 G0 为
+  `NOT_APPLICABLE_FOR_IMPLEMENTATION / PENDING_DEPLOYMENT`，没有 Assessment receipt；Gate C
+  不阻塞 implementation/testing，但继续严格阻塞 SHADOW 与 ENABLED。

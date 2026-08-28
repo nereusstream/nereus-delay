@@ -34,13 +34,34 @@ manifest or cutover receipt exists, and no SHADOW or ENABLED authority is
 claimed. NDIP-1 therefore remains `Accepted`, while Gate C remains
 `PENDING_DEPLOYMENT`.
 
-The bounded disposable verification passed the managed destination typed
+Commit `62cb5e322edbc98e9a97c0d15dc017b06cdf5fd7` closes the remaining
+production-Worker gap in the managed Pulsar path. The Worker now opens and
+replays the source-locked guarded Attempt Journal, binds its stable Producer
+identity to the current prepared record, persists `MAPPED` before physical
+reservation/SEND, and durably records the ownership marker immediately before
+the target SEND. The mapping and retirement projections are fenced through the
+owned shard and persisted in RocksDB. There is no public prepared-send bypass
+around this sequence.
+
+A replacement owner cannot inherit the previous owner's SEND authority. It
+may replay and inspect the mapping, but a still-pre-ownership attempt is
+durably retired and source recovery becomes `UNCERTAIN`; the fresh-process
+smoke asserts that no target SEND occurred. Unit tests, full `check`, the
+source-locked `compileRealPulsar` gate and focused Journal tests pass at this
+commit. A new full disposable certification receipt bound to this source is
+still required, so the older receipt below remains historical evidence rather
+than release authority. Gate C, SHADOW and ENABLED remain blocked.
+
+The historical disposable verification passed the managed destination typed
 SEND/ACK evidence smoke and the native `Shared`-subscription exact-
 `deliverAt` smoke; the P1 `Exclusive` immediate-visibility behavior remains
-an explicit native subscription risk. The broader Shared/Key_Shared/
-Exclusive/Failover, strictness, disabled-delay, TTL/retention and process
-recovery matrix still needs a real environment-specific receipt. Conditional
-Oxia/MinIO tests remain skips when those services are not supplied.
+an explicit native subscription risk. That run covers Shared/Key_Shared/
+Exclusive/Failover, strictness, disabled-delay and process recovery, with one
+explicit `NOT_COVERED` fault cut. The current source must rerun that complete
+matrix; explicit TTL/retention native-risk cells and a portable retained
+artifact receipt also remain to be closed. Conditional Oxia/MinIO tests remain
+skips in ordinary unit-test mode when those services are not supplied; the
+strict certification entry point does not accept those skips.
 
 ## 2026-08-27 NDIP-1 implementation/deployment gate boundary — 68fe2c29 (historical snapshot)
 

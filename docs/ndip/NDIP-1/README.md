@@ -8,6 +8,8 @@
 - 审查基线：`main@8915d21ed325a90ec305201ca85ab8daea3803dc`
 - H0 实现提交：`main@7cb377ca9dd3135792237af0f027076630d5e4f3`
 - H1-H6 实现提交：`main@c7c99d377dc9e8bb786032173d62d1981011a4e2`
+- Managed Attempt Journal / recovery 闭环提交：
+  `main@62cb5e322edbc98e9a97c0d15dc017b06cdf5fd7`
 - 整理日期：`2026-08-28`
 
 仓库的 Accepted `NDP-0001` 持续演进规则保持不变。Accepted
@@ -21,8 +23,8 @@ Gate B PASS 是 implementation authorization：H1-H6 可按切片依赖顺序实
 deployment/upgrade authorization；它仍严格阻止 persistent environment mutation、SHADOW 和
 ENABLED。H0 不改变权威语义，不受这一命名桥接阻塞。
 
-本轮实现开始时的前置状态为 `H1 READY`；其余切片按 H1→H6 依赖顺序推进并分别保留认证前的
-代码实现与测试边界。
+本轮实现开始时的前置状态为 `H1 READY`；H1→H6 已按依赖顺序完成代码切片，当前工作重点是
+对最新主线重新生成完整的 local disposable certification，而不是进入部署或激活阶段。
 
 `normative package digest` 不包含本 README 和 candidate/final receipt，避免自引用与操作文本
 改变设计身份。仓库不保存会话执行提示词；需要时由用户请求并在会话内临时生成。摘要固定
@@ -112,6 +114,16 @@ source-locked P1 encoder/transport/evidence，H5 的无 clock shift AUTO_FAST，
 H6 的 signed `DataResetManifest`、`ArtifactGenerationSet` activation 和四个运行时
 generation gates 均已实现。
 
+`main@62cb5e322edbc98e9a97c0d15dc017b06cdf5fd7` 进一步关闭了此前只在独立组件中存在、尚未接入
+真实 Worker 的 Managed Pulsar Attempt Journal 链路：生产 Worker 现在必须先持久化固定
+`sequenceId` mapping，再取得物理 reservation 并在 SEND 前持久化 ownership marker；P1
+Producer 名称、current prepared descriptor、Journal replay 和 RocksDB projection 使用同一身份。
+新 owner 只能检查并退休旧 owner 的 pre-ownership mapping，随后产生
+`RECOVERY_FIRST_SEND_UNCERTAIN`，不得继承 SEND 权限或把旧尝试推断为 `PUBLISHED`。相应
+fresh-process smoke 明确验证 target SEND 为 0。该提交的 `test`、`check`、source-locked
+`compileRealPulsar` 和 focused Journal tests 已通过；完整 disposable certification 仍需在该
+source anchor 上重新执行并生成新 receipt。
+
 这里的“已实现”仅表示代码/本地 disposable 验证边界；它不表示 NDIP 已进入
 `Implemented`，也不生成 production Manifest、Gate C、SHADOW、ENABLED 或 cutover
 evidence。H0 仍然 fail-closed，缺少 exact current generation、signed manifest 或能力
@@ -120,12 +132,15 @@ gate 时不得触碰 Producer/物理适配器。由于没有真实 persistent de
 
 ## 2026-08-28 disposable local certification
 
-当前 runner `e2e/run-disposable-local-certification.sh` 已在 source-locked P1、真实双 Broker、
+历史 runner `e2e/run-disposable-local-certification.sh` 已在 source-locked P1、真实双 Broker、
 BookKeeper/metadata、Oxia、MinIO、RocksDB 和 ownership/failover 边界上完成一次严格
 fail-on-missing 运行。receipt 为 `BLOCKED`，覆盖结果是 22 个单元格中 21 个
 `EXECUTED_PASS`、1 个明确 `NOT_COVERED`、`skipped=0`，没有把缺失的 response-loss cut 伪造为
 PASS。完整的命令、source/config/attestation binding、证据路径与 cleanup 审计见
 [`05-Disposable-Local-Certification-执行记录.md`](05-Disposable-Local-Certification-执行记录.md)。
+
+该 receipt 绑定的是早于 Managed Attempt Journal / recovery 闭环的 source；它只作为历史证据
+保留，不能认证 `main@62cb5e32`。最新主线的完整 disposable certification 尚待重新执行。
 
 这只是 local disposable certification receipt/report；它不创建真实 DataResetAssessment
 scope，不是 Gate C authority，也不允许 SHADOW 或 ENABLED。当前 G0 仍为

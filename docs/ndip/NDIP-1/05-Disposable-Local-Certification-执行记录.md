@@ -27,7 +27,7 @@ SHADOW 和 ENABLED 均保持关闭。
 - P1 source lock：`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`
 - Oxia source：`main@37a17bef17202d5fd6e232da5fd26d94865484`
 - Accepted NDIP-1 package digest：
-  `13caab8ecdc201901f06e905f1c0bf9792780e50c6f5948f93abf2bdb8f4d21b4`
+  `13caab8ecdc201901f06e905f1c0bf9792780e50c6f5948f93abf2bdb8f4d21b`
 - Compose/config digest：`c3da78dba615f8fa14a7b2d58f52761bdb0eb4e268cebc2676e4dc0247ffa8bd`
 - Disposable attestation digest：`fd2a331299da9724b4202444f598921b0ff05c28c80a87a2bac58742dd7e143c`
 - MinIO image：`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z`
@@ -51,6 +51,18 @@ receipt：
 
 receipt verifier 以退出码 0 验证了 closed receipt、source/package/config/attestation 绑定、
 每个命令/结果/证据路径和清理结果。
+
+## 后续候选变更
+
+`main@62cb5e322edbc98e9a97c0d15dc017b06cdf5fd7` 已把 source-locked P1 Attempt Journal、固定
+Producer/sequence 身份、current prepared record、ownership marker 与 RocksDB projection 接入
+真实 Worker 路径。fresh-process owner replacement 现在只能退休旧 owner 的 pre-ownership
+mapping，并以 `UNCERTAIN` 进入 evidence resolution；测试明确断言 replacement owner 对目标
+Topic 的 SEND 为 0。
+
+本文件记录的 receipt 绑定 `main@35986a08`，因此不会被追认成上述候选变更的认证凭证。必须在
+干净且与远端同步的最新 `main` 上重新执行完整 runner、生成新的 closed receipt 并重新验证，
+才能更新当前 certification 结论。Gate C、SHADOW 与 ENABLED 不因候选代码或历史 receipt 改变。
 
 ## 环境与资源边界
 
