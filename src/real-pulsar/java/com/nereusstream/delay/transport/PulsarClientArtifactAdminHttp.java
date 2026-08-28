@@ -131,17 +131,20 @@ final class PulsarClientArtifactAdminHttp {
     }
 
     /**
-     * The broker may add its boolean owner-routing marker to a query-less
-     * resource redirect. No other query mutation is within the bounded local
-     * scope.
+     * The broker may add or replace its boolean owner-routing marker while
+     * routing a resource redirect. No other query mutation is within the
+     * bounded local scope.
      */
     private static boolean allowedRedirectQuery(final URI current, final URI redirected) {
         if (Objects.equals(redirected.getRawQuery(), current.getRawQuery())) {
             return true;
         }
-        return current.getRawQuery() == null
-                && ("authoritative=false".equals(redirected.getRawQuery())
-                        || "authoritative=true".equals(redirected.getRawQuery()));
+        return (current.getRawQuery() == null || isOwnerRoutingQuery(current.getRawQuery()))
+                && isOwnerRoutingQuery(redirected.getRawQuery());
+    }
+
+    private static boolean isOwnerRoutingQuery(final String query) {
+        return "authoritative=false".equals(query) || "authoritative=true".equals(query);
     }
 
     private static boolean isAdminPath(final URI uri) {

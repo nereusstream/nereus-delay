@@ -170,6 +170,8 @@ public final class PulsarClientArtifactWorkerSmoke {
     private static final long LEASE_DURATION_MS = 60_000;
     private static final long SYSTEM_MUTATION_RETRY_WINDOW_MS = 60_000;
     private static final long DUE_DISCOVERY_MAX_BYTES = 900_000;
+    private static final String PREPARED_RECORD_RETENTION_SUBSCRIPTION =
+            "nereus-delay-prepared-record-retention";
     // Test-only source authority fixture. A real Worker receives this pinned
     // verification/signing authority from the source-control plane; it must
     // not generate a new verification key during process recovery.
@@ -252,12 +254,24 @@ public final class PulsarClientArtifactWorkerSmoke {
     private static void prepareWorkerRecord(final PulsarClient client, final String physicalTopic) throws Exception {
         final TopicResourceGuard guard = new TopicResourceGuard(CLUSTER, INCARNATION, CREATION_TIMESTAMP);
         final ShardId shard = restartShard(physicalTopic);
-        send(
-                client,
-                guard,
-                physicalTopic,
-                command(shard, "worker-restart-prepared"),
-                "worker-restart-preparation-producer");
+        // Keep a durable, unacknowledged cursor on the prepared record. The
+        // staging Broker may rotate the active ledger while the no-cache
+        // compile step starts the post-failover probe; without a cursor, the
+        // closed one-entry ledger can be trimmed before recovery evidence is
+        // read. The cursor is closed, not deleted, so this does not leave an
+        // active consumer or change the Worker ownership test.
+        final GuardedConsumer<byte[]> retentionConsumer = PulsarClientArtifactSourceConsumerFactory.create(
+                client, guard, physicalTopic, PREPARED_RECORD_RETENTION_SUBSCRIPTION);
+        try {
+            send(
+                    client,
+                    guard,
+                    physicalTopic,
+                    command(shard, "worker-restart-prepared"),
+                    "worker-restart-preparation-producer");
+        } finally {
+            retentionConsumer.close();
+        }
         System.out.println(
                 "Pulsar Worker restart preparation passed: one guarded record persisted before broker restart");
     }
