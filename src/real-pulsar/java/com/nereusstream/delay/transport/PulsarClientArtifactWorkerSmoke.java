@@ -75,6 +75,7 @@ import com.nereusstream.delay.protocol.PublishOutcomeBody;
 import com.nereusstream.delay.protocol.PulsarActivationBarrier;
 import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity;
 import com.nereusstream.delay.protocol.PulsarMetadata;
+import com.nereusstream.delay.protocol.PulsarPreparedRecord;
 import com.nereusstream.delay.protocol.PulsarSourceLock;
 import com.nereusstream.delay.protocol.PulsarSourcePosition;
 import com.nereusstream.delay.protocol.QuotaGrantRef;
@@ -1094,6 +1095,14 @@ public final class PulsarClientArtifactWorkerSmoke {
         final SourceReplayMutation outcomeRecord = awaitPublishOutcome(runtime, workClasses);
         final PublishOutcomeBody outcome =
                 PublishOutcomeBody.decode(outcomeRecord.mutation().canonicalBody());
+        final var application =
+                delayShard.getSystemMutationResult(outcomeRecord.mutation().systemMutationId());
+        if (application == null
+                || application.applyStatus() != com.nereusstream.delay.runtime.ApplyStatus.APPLIED
+                || application.stableCode() != StableCode.RECOVERY_FIRST_SEND_UNCERTAIN) {
+            throw new IllegalStateException("foreign-owner recovery Outcome was not source-applied: "
+                    + (application == null ? "missing" : application.applyStatus() + "/" + application.stableCode()));
+        }
         if (outcome.sideEffect() != 3
                 || outcome.disposition() != 4
                 || outcome.stableCode() != StableCode.RECOVERY_FIRST_SEND_UNCERTAIN
@@ -1112,7 +1121,13 @@ public final class PulsarClientArtifactWorkerSmoke {
                 || !uncertain.hasAllocatedJournalSequence()
                 || !uncertain.hasJournalPosition()
                 || uncertain.retirementPending()) {
-            throw new IllegalStateException("foreign-owner recovery did not retain the retired Journal proof");
+            throw new IllegalStateException("foreign-owner recovery did not retain the retired Journal proof: "
+                    + "message=" + (message == null ? "missing" : message.status())
+                    + ", attempt=" + (uncertain == null ? "missing" : uncertain.state())
+                    + ", mapping=" + (uncertain != null && uncertain.mappingDurable())
+                    + ", sequence=" + (uncertain != null && uncertain.hasAllocatedJournalSequence())
+                    + ", position=" + (uncertain != null && uncertain.hasJournalPosition())
+                    + ", retirementPending=" + (uncertain != null && uncertain.retirementPending()));
         }
         requireNoPayload(client, bridge.destinationPhysicalTopic());
         System.out.println("Pulsar Worker admission fresh-process recovery hold passed: old Owner attempt="
@@ -1251,6 +1266,14 @@ public final class PulsarClientArtifactWorkerSmoke {
         }
         final PublishOutcomeBody outcome =
                 PublishOutcomeBody.decode(outcomeRecord.mutation().canonicalBody());
+        final var application =
+                delayShard.getSystemMutationResult(outcomeRecord.mutation().systemMutationId());
+        if (application == null
+                || application.applyStatus() != com.nereusstream.delay.runtime.ApplyStatus.APPLIED
+                || application.stableCode() != StableCode.OK) {
+            throw new IllegalStateException("Pulsar Worker Publish Outcome was not source-applied: "
+                    + (application == null ? "missing" : application.applyStatus() + "/" + application.stableCode()));
+        }
         if (outcome.sideEffect() != 1
                 || outcome.stableCode() != StableCode.OK
                 || !Arrays.equals(outcome.publishAttemptId(), publishAttemptId)) {
@@ -1456,6 +1479,81 @@ public final class PulsarClientArtifactWorkerSmoke {
         responseEvidenceResolved.set(true);
         return Optional.of(
                 new PulsarClientArtifactDestinationTransport.ResolvedPublish(typed, evidence.brokerEntryTimestamp()));
+    }
+
+    private static Optional<PulsarClientArtifactDestinationTransport.ResolvedRecordPublish>
+            resolvePreparedDestinationResponseLoss(
+                    final PulsarPreparedRecord record,
+                    final ArtifactGenerationSet artifacts,
+                    final byte[] producerNameHash,
+                    final AtomicReference<GuardedMessageId> responseLostMessage,
+                    final AtomicBoolean responseEvidenceResolved) {
+        final GuardedMessageId messageId = responseLostMessage.get();
+        if (messageId == null
+                || record.template().targetResource().kind()
+                        != com.nereusstream.delay.protocol.BrokerResourceIdentity.Kind.PULSAR) {
+            return Optional.empty();
+        }
+        final PulsarBrokerResourceIdentity target =
+                record.template().targetResource().pulsar();
+        final int partition = Math.toIntExact(record.template().physicalPartition());
+        final TopicResourceGuard expectedGuard = new TopicResourceGuard(
+                target.authenticatedClusterId(), target.resourceIncarnation(), target.physicalTopicCreationTimestamp());
+        if (!expectedGuard.equals(messageId.resourceGuard())
+                || !target.physicalTopic().equals(messageId.physicalTopic())
+                || partition != messageId.partition()
+                || !(messageId instanceof MessageIdAdv advanced)
+                || advanced.getLedgerId() < 0
+                || advanced.getEntryId() < 0
+                || advanced.getPartitionIndex() != partition) {
+            return Optional.empty();
+        }
+        final GuardedSendSuccessEvidence evidence = messageId.responseEvidence();
+        final TopicResourceGuardAttestation expectedAttestation =
+                new TopicResourceGuardAttestation(expectedGuard, target.physicalTopic(), partition);
+        if (evidence == null
+                || !expectedAttestation.equals(evidence.attestation())
+                || evidence.ledgerId() != advanced.getLedgerId()
+                || evidence.entryId() != advanced.getEntryId()
+                || evidence.brokerEntryTimestamp() != messageId.brokerEntryTimestamp()) {
+            return Optional.empty();
+        }
+        final int rawBatchIndex = advanced.getBatchIndex();
+        final int rawBatchSize = advanced.getBatchSize();
+        final int normalizedBatchIndex = rawBatchIndex < 0 ? 0 : rawBatchIndex;
+        final int batchSize = rawBatchIndex < 0 ? 1 : rawBatchSize;
+        if (rawBatchIndex >= 0 && (rawBatchSize <= 0 || Integer.compareUnsigned(rawBatchIndex, rawBatchSize) >= 0)) {
+            return Optional.empty();
+        }
+        final PublishEvidence typed = PulsarSendAckEvidence.publishedRecord(
+                record,
+                artifacts,
+                producerNameHash,
+                advanced.getLedgerId(),
+                advanced.getEntryId(),
+                normalizedBatchIndex,
+                batchSize,
+                evidence.brokerEntryTimestamp(),
+                evidence.protocolVersion(),
+                evidence.connectionGeneration(),
+                evidence.producerId(),
+                evidence.sequenceId(),
+                evidence.sendCommandSha256(),
+                evidence.authenticatedResponseCommandSha256());
+        responseEvidenceResolved.set(true);
+        return Optional.of(new PulsarClientArtifactDestinationTransport.ResolvedRecordPublish(
+                typed,
+                advanced.getLedgerId(),
+                advanced.getEntryId(),
+                normalizedBatchIndex,
+                batchSize,
+                evidence.brokerEntryTimestamp(),
+                evidence.protocolVersion(),
+                evidence.connectionGeneration(),
+                evidence.producerId(),
+                evidence.sequenceId(),
+                evidence.sendCommandSha256(),
+                evidence.authenticatedResponseCommandSha256()));
     }
 
     @SuppressWarnings("unchecked")
@@ -1903,11 +2001,28 @@ public final class PulsarClientArtifactWorkerSmoke {
                 producerName);
         final Producer<byte[]> producer =
                 destinationResponseLoss ? responseLossProducer(rawProducer, responseLostMessage) : rawProducer;
-        final PulsarClientArtifactDestinationTransport.PublishEvidenceProvider evidenceProvider =
-                destinationResponseLoss
-                        ? (request, preparedHash, failure) -> resolveDestinationResponseLoss(
-                                request, preparedHash, producerNameHash, responseLostMessage, responseEvidenceResolved)
-                        : null;
+        final PulsarClientArtifactDestinationTransport.PublishEvidenceProvider evidenceProvider;
+        if (destinationResponseLoss) {
+            evidenceProvider = new PulsarClientArtifactDestinationTransport.PublishEvidenceProvider() {
+                @Override
+                public Optional<PulsarClientArtifactDestinationTransport.ResolvedPublish> resolve(
+                        final PulsarDestinationRequest request, final byte[] preparedHash, final Throwable failure) {
+                    return resolveDestinationResponseLoss(
+                            request, preparedHash, producerNameHash, responseLostMessage, responseEvidenceResolved);
+                }
+
+                @Override
+                public Optional<PulsarClientArtifactDestinationTransport.ResolvedRecordPublish> resolve(
+                        final PulsarPreparedRecord record,
+                        final ArtifactGenerationSet artifacts,
+                        final Throwable failure) {
+                    return resolvePreparedDestinationResponseLoss(
+                            record, artifacts, producerNameHash, responseLostMessage, responseEvidenceResolved);
+                }
+            };
+        } else {
+            evidenceProvider = null;
+        }
         final com.nereusstream.delay.transport.PulsarClientArtifactDestinationTransport transport =
                 new PulsarClientArtifactDestinationTransport(
                         producer,
@@ -1967,26 +2082,22 @@ public final class PulsarClientArtifactWorkerSmoke {
                     final PublishAdmissionBody admission = PublishAdmissionBody.decode(attempt.admissionBytes());
                     final long retryDeadline =
                             attempt.hasRetryWindow() ? attempt.retryDeadlineEpochMs() : request.deliverAtEpochMs();
-                    final boolean recoveryHold = result.disposition() == DestinationPublishResult.Disposition.UNKNOWN
-                            && result.stableCode() == StableCode.RECOVERY_FIRST_SEND_UNCERTAIN;
+                    final boolean unknownHold = result.disposition() == DestinationPublishResult.Disposition.UNKNOWN;
+                    final long firstAttemptAt = attempt.hasRetryWindow()
+                            ? attempt.firstAttemptAtEpochMs()
+                            : admission.decisionTime().latestEpochMs();
                     final long observedAt = result.brokerPersistenceTimeEpochMs() >= 0
                             ? result.brokerPersistenceTimeEpochMs()
                             : System.currentTimeMillis();
                     return new WorkerPublishOutcomeMutationFactory.OutcomeContext(
                             retryDeadline,
-                            recoveryHold ? 4 : 0,
+                            unknownHold ? 4 : 0,
                             admission.chargeVector().canonicalBytes(),
                             evidence(observedAt, observedAt, "pulsar-worker-publish-observed"),
-                            recoveryHold
+                            unknownHold
                                     ? recoveryHoldRetryDecision(
-                                            admission.decisionTime().latestEpochMs(),
-                                            retryDeadline,
-                                            attempt.attemptNo(),
-                                            result.stableCode())
-                                    : retryDecision(
-                                            admission.decisionTime().latestEpochMs(),
-                                            retryDeadline,
-                                            attempt.attemptNo()));
+                                            firstAttemptAt, retryDeadline, attempt.attemptNo(), result.stableCode())
+                                    : retryDecision(firstAttemptAt, retryDeadline, attempt.attemptNo()));
                 },
                 author.canonicalBytes(),
                 1,

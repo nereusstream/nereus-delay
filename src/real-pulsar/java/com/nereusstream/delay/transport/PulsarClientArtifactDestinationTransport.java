@@ -192,10 +192,11 @@ public final class PulsarClientArtifactDestinationTransport
         }
         try {
             return PulsarClientArtifactRecordEncoder.send(producer, record)
-                    .handle((messageId, failure) ->
-                            failure == null ? success(record, artifacts, messageId) : failure(record, failure));
+                    .handle((messageId, failure) -> failure == null
+                            ? success(record, artifacts, messageId)
+                            : failure(record, artifacts, failure));
         } catch (RuntimeException failure) {
-            return CompletableFuture.completedFuture(failure(record, failure));
+            return CompletableFuture.completedFuture(failure(record, artifacts, failure));
         }
     }
 
@@ -366,7 +367,8 @@ public final class PulsarClientArtifactDestinationTransport
         return DestinationPublishResult.unknown(StableCode.ENQUEUE_RESULT_UNCERTAIN, null);
     }
 
-    private DestinationPublishResult failure(final PulsarPreparedRecord record, final Throwable failure) {
+    private DestinationPublishResult failure(
+            final PulsarPreparedRecord record, final ArtifactGenerationSet artifacts, final Throwable failure) {
         final TopicResourceGuardException guardFailure = unwrap(failure);
         if (guardFailure != null && guardFailure.definitelyNotPersisted()) {
             final byte[] evidence = guardFailure.responseEvidence().isPresent()
@@ -374,6 +376,39 @@ public final class PulsarClientArtifactDestinationTransport
                     : null;
             return DestinationPublishResult.definitelyNotPublished(
                     StableCode.BROKER_DEFINITIVE_NOT_PERSISTED, evidence);
+        }
+        if (publishEvidenceProvider != null) {
+            try {
+                final Optional<ResolvedRecordPublish> resolved =
+                        publishEvidenceProvider.resolve(record, artifacts, failure);
+                if (resolved != null && resolved.isPresent()) {
+                    final ResolvedRecordPublish candidate = resolved.get();
+                    PulsarSendAckEvidence.requireExactBindingForRecord(
+                            candidate.evidence(),
+                            record,
+                            artifacts,
+                            producerNameHash,
+                            candidate.ledgerId(),
+                            candidate.entryId(),
+                            candidate.normalizedBatchIndex(),
+                            candidate.batchSize(),
+                            candidate.brokerPersistenceTimeEpochMs(),
+                            candidate.p1ProtocolVersion(),
+                            candidate.connectionGeneration(),
+                            candidate.producerId(),
+                            candidate.actualSequenceId(),
+                            candidate.sendCommandSha256(),
+                            candidate.authenticatedResponseCommandSha256());
+                    return DestinationPublishResult.published(
+                            expectedTarget(),
+                            partition,
+                            record.externalIdentity().identity(),
+                            candidate.brokerPersistenceTimeEpochMs(),
+                            candidate.evidence().canonicalBytes());
+                }
+            } catch (RuntimeException ignored) {
+                // A provider cannot promote a foreign record, command, ACK, or position to PUBLISHED.
+            }
         }
         return DestinationPublishResult.unknown(StableCode.ENQUEUE_RESULT_UNCERTAIN, null);
     }
@@ -436,6 +471,51 @@ public final class PulsarClientArtifactDestinationTransport
         }
     }
 
+    /** Exact generation-2 SEND/ACK proof returned after a prepared-record response loss. */
+    public record ResolvedRecordPublish(
+            PublishEvidence evidence,
+            long ledgerId,
+            long entryId,
+            int normalizedBatchIndex,
+            int batchSize,
+            long brokerPersistenceTimeEpochMs,
+            int p1ProtocolVersion,
+            long connectionGeneration,
+            long producerId,
+            long actualSequenceId,
+            byte[] sendCommandSha256,
+            byte[] authenticatedResponseCommandSha256) {
+        public ResolvedRecordPublish {
+            Objects.requireNonNull(evidence, "evidence");
+            if (ledgerId < 0
+                    || entryId < 0
+                    || normalizedBatchIndex < 0
+                    || batchSize <= 0
+                    || Integer.compareUnsigned(normalizedBatchIndex, batchSize) >= 0
+                    || brokerPersistenceTimeEpochMs < 0
+                    || p1ProtocolVersion <= 0
+                    || connectionGeneration < 0
+                    || producerId < 0
+                    || actualSequenceId < 0) {
+                throw new IllegalArgumentException("resolved prepared-record position/evidence is invalid");
+            }
+            Bytes.requireLength(sendCommandSha256, 32, "sendCommandSha256");
+            Bytes.requireLength(authenticatedResponseCommandSha256, 32, "authenticatedResponseCommandSha256");
+            sendCommandSha256 = Bytes.copy(sendCommandSha256);
+            authenticatedResponseCommandSha256 = Bytes.copy(authenticatedResponseCommandSha256);
+        }
+
+        @Override
+        public byte[] sendCommandSha256() {
+            return Bytes.copy(sendCommandSha256);
+        }
+
+        @Override
+        public byte[] authenticatedResponseCommandSha256() {
+            return Bytes.copy(authenticatedResponseCommandSha256);
+        }
+    }
+
     /**
      * Optional source-bound recovery hook. Implementations must reread or
      * otherwise prove the exact Broker outcome; returning empty keeps UNKNOWN.
@@ -444,5 +524,14 @@ public final class PulsarClientArtifactDestinationTransport
     public interface PublishEvidenceProvider {
         Optional<ResolvedPublish> resolve(
                 PulsarDestinationRequest request, byte[] preparedPublishHash, Throwable failure);
+
+        /** Prepared-record recovery is a separate closed evidence branch; legacy providers remain empty. */
+        default Optional<ResolvedRecordPublish> resolve(
+                final PulsarPreparedRecord record, final ArtifactGenerationSet artifacts, final Throwable failure) {
+            Objects.requireNonNull(record, "record");
+            Objects.requireNonNull(artifacts, "artifacts");
+            Objects.requireNonNull(failure, "failure");
+            return Optional.empty();
+        }
     }
 }

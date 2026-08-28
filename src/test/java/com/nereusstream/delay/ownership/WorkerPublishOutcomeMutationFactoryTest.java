@@ -58,6 +58,32 @@ class WorkerPublishOutcomeMutationFactoryTest {
     }
 
     @Test
+    void buildsCanonicalSignedUnknownHoldWithoutTypedEvidence() {
+        final Fixture fixture = new Fixture();
+        final KeyPair keyPair = keyPair();
+        final AuthorIdentity author = AuthorIdentity.owner(
+                Bytes.utf8("deployment"), Bytes.utf8("worker"), 7, Bytes.sha256(Bytes.utf8("fence")));
+        final WorkerPublishOutcomeMutationFactory factory = new WorkerPublishOutcomeMutationFactory(
+                (attempt, request, physical) -> new WorkerPublishOutcomeMutationFactory.OutcomeContext(
+                        9_000, 4, unknownTransfer(), observedAt(), unknownRetryPlaceholder()),
+                author.canonicalBytes(),
+                1,
+                keyPair.getPrivate());
+
+        final var mutation = factory.create(
+                fixture.attempt,
+                fixture.request,
+                DestinationPublishResult.unknown(StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, null));
+        final PublishOutcomeBody body = PublishOutcomeBody.decode(mutation.canonicalBody());
+
+        assertTrue(mutation.verifySignature(keyPair.getPublic()));
+        assertEquals(3, body.sideEffect());
+        assertEquals(4, body.disposition());
+        assertEquals(StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, body.stableCode());
+        assertEquals(0, body.evidence().length);
+    }
+
+    @Test
     void rejectsUnknownResultThatWouldDropTypedEvidence() {
         final Fixture fixture = new Fixture();
         final KeyPair keyPair = keyPair();
