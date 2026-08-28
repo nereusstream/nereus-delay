@@ -1163,6 +1163,15 @@ run_oxia_restart_cell() {
     "${log_path}" "${evidence_path}" "${result_reason}"
 }
 
+capture_broker_listener_config() {
+  local service="$1"
+  local log_path="$2"
+  printf '%s\n' "--- ${service} effective broker listener config ---" >>"${log_path}"
+  "${compose[@]}" exec -T "${service}" sh -c \
+    "grep -E '^(brokerServicePort|webServicePort|bindAddress|bindAddresses|advertisedAddress|advertisedListeners|internalListenerName)=' /opt/pulsar/conf/broker.conf" \
+    >>"${log_path}" 2>&1 || printf '%s\n' "could not read ${service} broker.conf" >>"${log_path}"
+}
+
 run_broker_failover_cell() {
   local cell_id="recovery.broker_restart_failover"
   local topic="${resource_prefix}-broker-failover"
@@ -1178,6 +1187,8 @@ run_broker_failover_cell() {
   mkdir -p "${dump_dir}"
   printf '%s\n' "${topic}" >>"${created_topics_file}"
   : >"${log_path}"
+  capture_broker_listener_config pulsar-broker-1 "${log_path}"
+  capture_broker_listener_config pulsar-broker-2 "${log_path}"
   if GRADLE_USER_HOME="${gradle_user_home}" \
       NEREUS_DELAY_PULSAR_LISTENER_NAME=external ./gradlew runRealPulsarWorkerSmoke \
       -PpulsarClientClasspath="${p1_client_cp}" \
@@ -1256,6 +1267,10 @@ run_broker_failover_cell() {
     result_status="EXECUTED_FAIL"
     result_reason="broker-1 did not rejoin after the failover handoff"
     evidence_status="FAIL"
+  fi
+  if [[ "${result_status}" != "EXECUTED_PASS" ]]; then
+    printf '%s\n' '--- tail of Pulsar broker logs after failover ---' >>"${log_path}"
+    "${compose[@]}" logs --no-color --tail=400 pulsar-broker-1 pulsar-broker-2 >>"${log_path}" 2>&1 || true
   fi
   write_generic_evidence "${evidence_path}" "${cell_id}" "${evidence_status}" "${result_reason}" "${log_path}"
   record_cell "${cell_id}" "recovery" "${expected}" "${result_status}" "0" \
