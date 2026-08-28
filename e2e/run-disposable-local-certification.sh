@@ -35,6 +35,7 @@ IFS=: read -r -a p1_client_artifacts <<<"${p1_client_cp}"
 
 minio_image="quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z"
 minio_digest="sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"
+minio_digest_hex="${minio_digest#sha256:}"
 minio_region="us-east-1"
 minio_access_key="ndip1${run_suffix//-/}"
 minio_secret_key="ndip1-secret-${run_suffix//-/}-x"
@@ -356,7 +357,7 @@ python3 - "${context_json}" "${delay_root}" "${delay_commit}" "${p1_dir}" "${p1_
   "${accepted_package_sha256}" "${p1_tarball}" "${p1_distribution_sha256}" \
   "${compose_config}" "${compose_config_sha256}" "${attestation_path}" "${attestation_sha256}" \
   "${p1_client_cp}" "${compose_project}" "${resource_prefix}" "${p1_image}" "${minio_image}" \
-  "${minio_digest}" "${broker_1_port}" "${web_1_port}" "${broker_2_port}" "${web_2_port}" \
+  "${minio_digest_hex}" "${broker_1_port}" "${web_1_port}" "${broker_2_port}" "${web_2_port}" \
   "${oxia_data_1_port}" "${oxia_data_2_port}" "${oxia_data_3_port}" "${minio_port}" \
   "${command_topic}" "${evidence_topic}" "${business_topic}" "${oxia_bootstrap_log}" <<'PY'
 import hashlib
@@ -1099,10 +1100,12 @@ run_oxia_restart_cell() {
   local evidence_path="${artifact_dir}/evidence/${cell_id//[^A-Za-z0-9_.-]/_}.json"
   local gate_path="${artifact_dir}/recovery/oxia-route-release"
   local ready_path="${artifact_dir}/recovery/oxia-route-ready"
+  local execution_marker="${artifact_dir}/recovery/${cell_id//[^A-Za-z0-9_.-]/_}.test-start"
   local result_status="EXECUTED_FAIL"
   local result_reason="real Oxia restart/reopen smoke failed"
   local evidence_status="FAIL"
   unlink "${gate_path}" "${ready_path}" 2>/dev/null || true
+  touch "${execution_marker}"
   : >"${log_path}"
   (
     GRADLE_USER_HOME="${gradle_user_home}" \
@@ -1143,12 +1146,16 @@ run_oxia_restart_cell() {
   wait "${test_process_pid}" || test_status=$?
   test_process_pid=""
   if [[ "${test_status}" == 0 && "${ready}" == 1 ]] \
-      && rg -q "restart recovery passed" "${log_path}"; then
+      && assert_focused_test_executed \
+          "com.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest.signedRouteProviderRecoversAfterRealOxiaRestart" \
+          "${execution_marker}" >>"${log_path}" 2>&1; then
     result_status="EXECUTED_PASS"
     result_reason="${expected}"
     evidence_status="PASS"
   elif [[ "${result_reason}" == "real Oxia restart/reopen smoke failed" && "${test_status}" != 0 ]]; then
     result_reason="real Oxia route restart test exited with status ${test_status}"
+  elif [[ "${result_reason}" == "real Oxia restart/reopen smoke failed" ]]; then
+    result_reason="route restart test completed without exact no-skip execution proof"
   fi
   write_generic_evidence "${evidence_path}" "${cell_id}" "${evidence_status}" "${result_reason}" "${log_path}"
   record_cell "${cell_id}" "recovery" "${expected}" "${result_status}" "0" \
