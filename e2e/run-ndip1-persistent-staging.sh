@@ -425,7 +425,7 @@ write_environment_snapshot() {
     "${worker_destination_topic}" "${worker_destination_topic}-attempt-journal" "${route_worker_topic}" \
     "${native_topic}" "${broker_recovery_topic}" "${evidence_topic}"; do
     topic_status="$(curl --silent --show-error --output "${run_dir}/g0/g0-topic-${topic}.json" \
-      --write-out '%{http_code}' "${admin_url}/admin/v2/persistent/public/default/${topic}" || true)"
+      --write-out '%{http_code}' "${admin_url}/admin/v2/persistent/public/default/${topic}/stats" || true)"
     [[ "${topic_status}" == 404 ]] \
       || fail "G0 exact topic read was not absent for ${topic}: HTTP ${topic_status}"
   done
@@ -809,7 +809,7 @@ create_persistent_topic() {
     || fail "persistent topic create failed for ${topic}: ${status}"
   local read_status
   read_status="$(curl --silent --show-error --output "${run_dir}/g0/topic-${topic}-read.json" \
-    --write-out '%{http_code}' "${topic_url}")"
+    --write-out '%{http_code}' "${topic_url}/stats")"
   [[ "${read_status}" == 2?? ]] || fail "persistent topic readback failed for ${topic}: ${read_status}"
 }
 
