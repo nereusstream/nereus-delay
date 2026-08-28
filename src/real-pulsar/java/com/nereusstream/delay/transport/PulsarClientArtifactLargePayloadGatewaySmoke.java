@@ -180,7 +180,7 @@ import org.apache.pulsar.client.api.TopicResourceGuard;
 
 /** Real Pulsar Gateway/Oxia/Worker/MinIO large-payload authority smoke. */
 public final class PulsarClientArtifactLargePayloadGatewaySmoke {
-    private static final String CLUSTER = "standalone";
+    private static final String CLUSTER = PulsarClientArtifactClientBuilder.clusterId();
     private static final byte[] SOURCE_INCARNATION = digest(43);
     private static final long SOURCE_CREATION_TIMESTAMP = 2001L;
     private static final byte[] DESTINATION_INCARNATION = digest(17);
@@ -1582,7 +1582,7 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
         final String assignmentPrefix = "nereus-delay/pulsar-large-payload-multi-assignment/" + UUID.randomUUID();
         final String gatewayPrefix = "nereus-delay/pulsar-large-payload-multi-gateway/" + UUID.randomUUID();
 
-        try (PulsarClient client = PulsarClient.builder().serviceUrl(serviceUrl).build();
+        try (PulsarClient client = PulsarClientArtifactClientBuilder.builder(serviceUrl).build();
                 GuardedConsumer<byte[]> destinationConsumer0 = PulsarClientArtifactSourceConsumerFactory.create(
                         client,
                         new TopicResourceGuard(CLUSTER, DESTINATION_INCARNATION, DESTINATION_CREATION_TIMESTAMP),
@@ -2325,7 +2325,7 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
         final String assignmentPrefix = "nereus-delay/pulsar-large-payload-assignment/" + UUID.randomUUID();
         final String gatewayPrefix = "nereus-delay/pulsar-large-payload-gateway/" + UUID.randomUUID();
 
-        try (PulsarClient client = PulsarClient.builder().serviceUrl(serviceUrl).build()) {
+        try (PulsarClient client = PulsarClientArtifactClientBuilder.builder(serviceUrl).build()) {
             final PulsarSourcePosition activationPosition = sendFrameAndPosition(
                     client,
                     sourceGuard,

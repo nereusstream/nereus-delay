@@ -40,7 +40,7 @@ import org.apache.pulsar.client.api.TopicResourceGuard;
 
 /** Real-service guarded SUBSCRIBE, replay, Broker-timestamp, and ACK smoke. */
 public final class PulsarClientArtifactSourceSmoke {
-    private static final String CLUSTER = "standalone";
+    private static final String CLUSTER = PulsarClientArtifactClientBuilder.clusterId();
     private static final byte[] INCARNATION = digest(43);
     private static final long CREATION_TIMESTAMP = 2001L;
 
@@ -56,7 +56,7 @@ public final class PulsarClientArtifactSourceSmoke {
         final String physicalTopic = "persistent://public/default/" + topic;
         final HttpClient admin = HttpClient.newHttpClient();
         createTopic(admin, adminUrl, topic);
-        try (PulsarClient client = PulsarClient.builder().serviceUrl(serviceUrl).build()) {
+        try (PulsarClient client = PulsarClientArtifactClientBuilder.builder(serviceUrl).build()) {
             final TopicResourceGuard guard = new TopicResourceGuard(CLUSTER, INCARNATION, CREATION_TIMESTAMP);
             final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
             final PreparedCommand firstCommand = command(shard, "source-one");

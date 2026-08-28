@@ -10,6 +10,7 @@ environment_id="local-docker-staging-ndip1"
 classification="STAGING"
 staging_root="${NEREUS_DELAY_STAGING_ROOT:-${delay_root}-staging/${environment_id}}"
 resource_prefix="${NEREUS_DELAY_STAGING_RESOURCE_PREFIX:-ndip1-local-docker-staging}"
+pulsar_cluster_name="ndip1-staging"
 artifact_root="${staging_root}/evidence"
 run_id="$(date -u +%Y%m%d%H%M%S)-$$"
 run_dir="${artifact_root}/${run_id}"
@@ -198,7 +199,8 @@ python3 "${delay_root}/scripts/verify-ndip-package.py" \
 export NEREUS_DELAY_STAGING_ROOT="${staging_root}"
 export NEREUS_DELAY_STAGING_RESOURCE_PREFIX="${resource_prefix}"
 export PULSAR_P1_IMAGE="${pulsar_image}"
-export PULSAR_CLUSTER_NAME="ndip1-staging"
+export PULSAR_CLUSTER_NAME="${pulsar_cluster_name}"
+export NEREUS_DELAY_PULSAR_CLUSTER_ID="${pulsar_cluster_name}"
 export PULSAR_BROKER_1_PORT="${broker_1_port}"
 export PULSAR_WEB_1_PORT="${web_1_port}"
 export PULSAR_BROKER_2_PORT="${broker_2_port}"
@@ -755,6 +757,7 @@ run_baseline_tests() {
 
 export_common_test_environment() {
   export NEREUS_DELAY_ENVIRONMENT_CLASSIFICATION="${classification}"
+  export NEREUS_DELAY_PULSAR_CLUSTER_ID="${pulsar_cluster_name}"
   export NEREUS_DELAY_OXIA_ENDPOINT="${oxia_endpoint}"
   export NEREUS_DELAY_OXIA_NAMESPACE="default"
   export NEREUS_DELAY_MINIO_ENDPOINT="${minio_proxy_endpoint}"
@@ -1567,6 +1570,7 @@ run_shadow_worker_command() {
     "NEREUS_DELAY_PULSAR_WORKER_ASSIGNMENT_PREFIX=${shadow_assignment_prefix}" \
     "NEREUS_DELAY_PULSAR_WORKER_AUTHORITY_PREFIX=${shadow_authority_prefix}" \
     "NEREUS_DELAY_PULSAR_WORKER_ID=${shadow_worker_id}" \
+    "NEREUS_DELAY_PULSAR_CLUSTER_ID=${pulsar_cluster_name}" \
     "NEREUS_DELAY_PULSAR_LISTENER_NAME=external" \
     "$@" \
     "${delay_root}/gradlew" runRealPulsarWorkerSmoke \

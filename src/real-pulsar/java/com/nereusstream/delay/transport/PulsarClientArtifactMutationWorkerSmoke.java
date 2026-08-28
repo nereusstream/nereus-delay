@@ -91,7 +91,7 @@ import org.apache.pulsar.client.api.TopicResourceGuard;
  * on one P1 topic and use the same guarded SUBSCRIBE connection proof.</p>
  */
 public final class PulsarClientArtifactMutationWorkerSmoke {
-    private static final String CLUSTER = "standalone";
+    private static final String CLUSTER = PulsarClientArtifactClientBuilder.clusterId();
     private static final byte[] INCARNATION = digest(53);
     private static final long CREATION_TIMESTAMP = 3001L;
     private static final long LEASE_DURATION_MS = 60_000;
@@ -116,7 +116,7 @@ public final class PulsarClientArtifactMutationWorkerSmoke {
             final MutationFixture recoveryMutation = timeFence(shard, "recovery", verificationKey);
             final MutationFixture activeMutation = timeFence(shard, "active", verificationKey);
             try (PulsarClient client =
-                    PulsarClient.builder().serviceUrl(serviceUrl).build()) {
+                    PulsarClientArtifactClientBuilder.builder(serviceUrl).build()) {
                 final PulsarSourcePositionPair positions = appendMutations(
                         client, guard, physicalTopic, shard, recoveryMutation.mutation(), activeMutation.mutation());
                 if (positions.active().compareTo(positions.recovery()) <= 0) {

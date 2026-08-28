@@ -18,10 +18,7 @@ public final class PulsarClientArtifactBinaryLookupSmoke {
         final String serviceUrl = args[0];
         final String topic = args[1];
         final String listenerName = System.getenv("NEREUS_DELAY_PULSAR_LISTENER_NAME");
-        final var clientBuilder = PulsarClient.builder().serviceUrl(serviceUrl);
-        if (listenerName != null && !listenerName.isBlank()) {
-            clientBuilder.listenerName(listenerName);
-        }
+        final var clientBuilder = PulsarClientArtifactClientBuilder.builder(serviceUrl);
         try (PulsarClient client = clientBuilder.build()) {
             if (!"org.apache.pulsar.client.impl.PulsarClientImpl"
                     .equals(client.getClass().getName())) {

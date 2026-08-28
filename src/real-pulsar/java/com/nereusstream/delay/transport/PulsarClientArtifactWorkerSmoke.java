@@ -160,7 +160,7 @@ import org.apache.pulsar.client.api.TypedMessageBuilder;
 
 /** Real Pulsar recovery, active Worker apply and synchronous ACK smoke. */
 public final class PulsarClientArtifactWorkerSmoke {
-    private static final String CLUSTER = "standalone";
+    private static final String CLUSTER = PulsarClientArtifactClientBuilder.clusterId();
     private static final byte[] INCARNATION = digest(43);
     private static final long CREATION_TIMESTAMP = 2001L;
     private static final byte[] DESTINATION_INCARNATION = digest(17);
@@ -225,11 +225,7 @@ public final class PulsarClientArtifactWorkerSmoke {
                     admin, adminUrl, journalTopic, reuseExistingTopic, JOURNAL_INCARNATION, JOURNAL_CREATION_TIMESTAMP);
         }
         try {
-            final var clientBuilder = PulsarClient.builder().serviceUrl(serviceUrl);
-            final String listenerName = System.getenv("NEREUS_DELAY_PULSAR_LISTENER_NAME");
-            if (listenerName != null && !listenerName.isBlank()) {
-                clientBuilder.listenerName(listenerName);
-            }
+            final var clientBuilder = PulsarClientArtifactClientBuilder.builder(serviceUrl);
             try (PulsarClient client = clientBuilder.build()) {
                 if (mode.equals("prepare")) {
                     prepareWorkerRecord(client, physicalTopic);

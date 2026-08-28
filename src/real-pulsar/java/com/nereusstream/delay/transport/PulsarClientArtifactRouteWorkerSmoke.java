@@ -108,7 +108,7 @@ import org.apache.pulsar.client.api.TopicResourceGuard;
  * the signed connection-generation fence is checked at the post-barrier ACK.
  */
 public final class PulsarClientArtifactRouteWorkerSmoke {
-    private static final String CLUSTER = "standalone";
+    private static final String CLUSTER = PulsarClientArtifactClientBuilder.clusterId();
     private static final byte[] INCARNATION = digest(67);
     private static final long CREATION_TIMESTAMP = 4001L;
     private static final Duration RECEIVE_TIMEOUT = Duration.ofMillis(250);
@@ -151,7 +151,7 @@ public final class PulsarClientArtifactRouteWorkerSmoke {
             final String assignmentPrefix = "nereus-delay/pulsar-route-worker-assignment/" + UUID.randomUUID();
 
             try (PulsarClient client =
-                    PulsarClient.builder().serviceUrl(serviceUrl).build()) {
+                    PulsarClientArtifactClientBuilder.builder(serviceUrl).build()) {
                 final GuardedConsumer<byte[]> nativeConsumer = PulsarClientArtifactSourceConsumerFactory.create(
                         client, guard, physicalTopic, "nereus-delay-route-source-" + UUID.randomUUID());
                 final PulsarClientArtifactSourceRecordConsumer source = new PulsarClientArtifactSourceRecordConsumer(
@@ -378,7 +378,7 @@ public final class PulsarClientArtifactRouteWorkerSmoke {
             final String assignmentPrefix = "nereus-delay/pulsar-route-worker-multi-assignment/" + UUID.randomUUID();
 
             try (PulsarClient client =
-                    PulsarClient.builder().serviceUrl(serviceUrl).build()) {
+                    PulsarClientArtifactClientBuilder.builder(serviceUrl).build()) {
                 final List<RouteShardProbe> probes = new ArrayList<>(shardCount);
                 for (int partition = 0; partition < shardCount; partition++) {
                     final String physicalTopic = physicalTopicBase + "-partition-" + partition;

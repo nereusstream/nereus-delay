@@ -35,7 +35,7 @@ import org.apache.pulsar.client.api.TopicResourceGuard;
 
 /** Real guarded append/replay/ACK smoke for one signed Pulsar System Mutation. */
 public final class PulsarClientArtifactMutationSmoke {
-    private static final String CLUSTER = "standalone";
+    private static final String CLUSTER = PulsarClientArtifactClientBuilder.clusterId();
     private static final byte[] INCARNATION = digest(53);
     private static final long CREATION_TIMESTAMP = 3001L;
 
@@ -57,7 +57,7 @@ public final class PulsarClientArtifactMutationSmoke {
             final SystemMutation mutation = timeFence(shard);
             final PulsarSourcePosition appendedPosition;
             try (PulsarClient client =
-                    PulsarClient.builder().serviceUrl(serviceUrl).build()) {
+                    PulsarClientArtifactClientBuilder.builder(serviceUrl).build()) {
                 final GuardedConsumer<byte[]> appendProofConsumer = PulsarClientArtifactSourceConsumerFactory.create(
                         client, guard, physicalTopic, "nereus-delay-mutation-append-" + UUID.randomUUID());
                 try (PulsarClientArtifactShardLogMutationAppender appender =

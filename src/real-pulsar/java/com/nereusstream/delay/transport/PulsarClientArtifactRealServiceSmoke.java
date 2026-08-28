@@ -21,7 +21,7 @@ import org.apache.pulsar.client.api.TopicResourceGuardException;
 
 /** Real-service smoke for the source-locked P1 producer and broker guard. */
 public final class PulsarClientArtifactRealServiceSmoke {
-    private static final String CLUSTER = "standalone";
+    private static final String CLUSTER = PulsarClientArtifactClientBuilder.clusterId();
     private static final byte[] OLD_INCARNATION = digest(17);
     private static final byte[] NEW_INCARNATION = digest(29);
     private static final long OLD_CREATION_TIMESTAMP = 1001L;
@@ -40,7 +40,7 @@ public final class PulsarClientArtifactRealServiceSmoke {
         final HttpClient admin = HttpClient.newHttpClient();
         createTopic(admin, adminUrl, topic, OLD_INCARNATION, OLD_CREATION_TIMESTAMP);
 
-        try (PulsarClient client = PulsarClient.builder().serviceUrl(serviceUrl).build()) {
+        try (PulsarClient client = PulsarClientArtifactClientBuilder.builder(serviceUrl).build()) {
             final Producer<byte[]> oldProducer = PulsarClientArtifactProducerFactory.create(
                     client,
                     CLUSTER,

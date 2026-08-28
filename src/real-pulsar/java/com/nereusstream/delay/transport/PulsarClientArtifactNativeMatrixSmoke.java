@@ -54,7 +54,7 @@ import org.apache.pulsar.client.api.TopicResourceGuard;
  * the native P1 behavior that the caller selected.</p>
  */
 public final class PulsarClientArtifactNativeMatrixSmoke {
-    private static final String CLUSTER = "standalone";
+    private static final String CLUSTER = PulsarClientArtifactClientBuilder.clusterId();
     private static final int TICK_TIME_MILLIS = 1_000;
     private static final long MAX_DELIVERY_DELAY_MILLIS = 60_000;
     private static final long DELIVERY_DELAY_MILLIS = 4_000;
@@ -205,7 +205,7 @@ public final class PulsarClientArtifactNativeMatrixSmoke {
         boolean expiryTriggered = false;
         boolean targetLedgerTrimmed = false;
         String riskObservation = "subscription behavior matched the explicit Pulsar native contract";
-        try (PulsarClient client = PulsarClient.builder().serviceUrl(serviceUrl).build();
+        try (PulsarClient client = PulsarClientArtifactClientBuilder.builder(serviceUrl).build();
                 Producer<byte[]> producer = PulsarClientArtifactProducerFactory.create(
                         client, CLUSTER, incarnation, physicalTopic, creationTimestamp, producerName);
                 PulsarClientArtifactSendTransport transport = new PulsarClientArtifactSendTransport(
@@ -450,7 +450,7 @@ public final class PulsarClientArtifactNativeMatrixSmoke {
                 "unload native retention topic");
         final byte[] triggerPayload = Bytes.utf8("ndip1-zero-retention-rollover-" + topic);
         final TopicResourceGuard guard = new TopicResourceGuard(CLUSTER, incarnation, creationTimestamp);
-        try (PulsarClient client = PulsarClient.builder().serviceUrl(serviceUrl).build();
+        try (PulsarClient client = PulsarClientArtifactClientBuilder.builder(serviceUrl).build();
                 Producer<byte[]> producer = PulsarClientArtifactProducerFactory.create(
                         client,
                         CLUSTER,

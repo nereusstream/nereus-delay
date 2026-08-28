@@ -76,9 +76,10 @@ public final class PulsarClientArtifactCapacityProducer {
             final byte[] incarnation,
             final long creationTimestamp)
             throws Exception {
-        final TopicResourceGuard goodGuard = new TopicResourceGuard("standalone", incarnation, creationTimestamp);
+        final TopicResourceGuard goodGuard = new TopicResourceGuard(
+                PulsarClientArtifactClientBuilder.clusterId(), incarnation, creationTimestamp);
         final TopicResourceGuard badGuard = new TopicResourceGuard(
-                "standalone",
+                PulsarClientArtifactClientBuilder.clusterId(),
                 Bytes.sha256(Bytes.utf8("wrong-resource:" + configuration.topicBase())),
                 creationTimestamp);
         final AtomicLong accepted = new AtomicLong();
@@ -96,7 +97,7 @@ public final class PulsarClientArtifactCapacityProducer {
         boolean pass = true;
 
         try (PulsarClient client =
-                PulsarClient.builder().serviceUrl(configuration.serviceUrl()).build()) {
+                PulsarClientArtifactClientBuilder.builder(configuration.serviceUrl()).build()) {
             long recordStart = 0L;
             long epochIndex = 0L;
             while (recordStart < configuration.records()) {

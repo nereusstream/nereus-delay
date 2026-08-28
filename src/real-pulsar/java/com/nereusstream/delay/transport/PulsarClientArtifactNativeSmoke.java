@@ -65,7 +65,7 @@ import org.apache.pulsar.client.api.TopicResourceGuard;
 
 /** Real-service smoke for the final native record encoder and deliverAt path. */
 public final class PulsarClientArtifactNativeSmoke {
-    private static final String CLUSTER = "standalone";
+    private static final String CLUSTER = PulsarClientArtifactClientBuilder.clusterId();
     private static final byte[] INCARNATION = digest(17);
     private static final long CREATION_TIMESTAMP = 1001L;
 
@@ -242,7 +242,7 @@ public final class PulsarClientArtifactNativeSmoke {
         final AuthenticatedTenantContext tenant = new AuthenticatedTenantContext(
                 tenantScope, Bytes.sha256(Bytes.utf8("native-smoke-routing")), principalScope);
 
-        try (PulsarClient client = PulsarClient.builder().serviceUrl(serviceUrl).build();
+        try (PulsarClient client = PulsarClientArtifactClientBuilder.builder(serviceUrl).build();
                 Producer<byte[]> producer = PulsarClientArtifactProducerFactory.create(
                         client, CLUSTER, INCARNATION, physicalTopic, CREATION_TIMESTAMP, producerName)) {
             final PulsarClientArtifactSendTransport recordSender = new PulsarClientArtifactSendTransport(
