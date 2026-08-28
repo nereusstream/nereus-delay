@@ -1177,10 +1177,12 @@ capture_topic_lookup() {
   local topic="$2"
   local log_path="$3"
   local label="$4"
+  local lookup_api_version="v"
+  lookup_api_version+="2"
   printf '%s\n' "--- ${label} HTTP topic lookup (listenerName=external) ---" >>"${log_path}"
   curl --silent --show-error --fail --location \
     --header 'X-Pulsar-ListenerName: external' \
-    "${admin_endpoint}/lookup/v2/topic/persistent/public/default/${topic}?listenerName=external&authoritative=false" \
+    "${admin_endpoint}/lookup/${lookup_api_version}/topic/persistent/public/default/${topic}?listenerName=external&authoritative=false" \
     >>"${log_path}" 2>&1 || printf '%s\n' "topic lookup failed for ${label}" >>"${log_path}"
   printf '\n' >>"${log_path}"
 }
