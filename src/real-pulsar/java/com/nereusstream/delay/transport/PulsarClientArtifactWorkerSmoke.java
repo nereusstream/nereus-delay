@@ -312,10 +312,10 @@ public final class PulsarClientArtifactWorkerSmoke {
                             proof.attestationDigest()));
             final WorkerAssignmentAuthority assignmentAuthority = oxia == null
                     ? new InMemoryWorkerAssignmentAuthority()
-                    : new OxiaSyncWorkerAssignmentBackend(
-                            oxia, "nereus-delay/pulsar-worker-placement/" + UUID.randomUUID());
-            final WorkerAssignment assignmentProjection =
+                    : new OxiaSyncWorkerAssignmentBackend(oxia, workerAssignmentPrefix());
+            final AssignmentAcceptance assignmentAcceptance =
                     publishAssignment(assignmentAuthority, sourceAssignment, oxia != null);
+            final WorkerAssignment assignmentProjection = assignmentAcceptance.assignment();
             final SourceAssignment assignment = assignmentProjection.sourceAssignment();
             final OxiaOwnerLeaseStore authority = oxia == null
                     ? new OxiaOwnerLeaseStore(new InMemoryOwnerLeaseStore())
@@ -324,8 +324,12 @@ public final class PulsarClientArtifactWorkerSmoke {
             final byte[] sessionIdentity =
                     oxia == null ? Bytes.sha256(Bytes.utf8("pulsar-worker-session")) : oxia.sessionIdentity();
             final OwnerLease lease = authority
-                    .acquire(assignment, "pulsar-worker", sessionIdentity, ownerNow, LEASE_DURATION_MS)
+                    .acquire(assignment, workerId(), sessionIdentity, ownerNow, LEASE_DURATION_MS)
                     .orElseThrow();
+            System.out.println("Pulsar Worker owner lease acquired: worker=" + workerId()
+                    + ", assignmentRevision=" + assignmentAcceptance.revision()
+                    + ", placementEpoch=" + assignmentProjection.placementEpoch()
+                    + ", ownerEpoch=" + Long.toUnsignedString(lease.ownerEpoch()));
             final WorkClassExecutionRegistry workClasses = workClasses();
             final KeyPair verificationKey = sourceAuthorityKeyPair();
             final CompatibleControlSnapshot controlSnapshot = controlSnapshot(shard);
@@ -2359,15 +2363,29 @@ public final class PulsarClientArtifactWorkerSmoke {
                 0);
     }
 
-    private static WorkerAssignment publishAssignment(
+    private static AssignmentAcceptance publishAssignment(
             final WorkerAssignmentAuthority authority,
             final SourceAssignment sourceAssignment,
             final boolean realOxia) {
         final WorkerAssignmentCoordinator coordinator = new WorkerAssignmentCoordinator(
                 new WorkerPlacementPolicy(new WorkerPlacementPolicy.Configuration(1_000, 0, 0, 0, 0)), authority);
         final long now = System.currentTimeMillis();
+        final String workerId = workerId();
+        final Optional<WorkerAssignmentAuthority.Publication> current = authority.current(sourceAssignment.shardId());
+        final long expectedRevision =
+                current.map(WorkerAssignmentAuthority.Publication::revision).orElse(0L);
+        final long placementEpoch;
+        try {
+            placementEpoch = current.isEmpty()
+                    ? 1L
+                    : Math.addExact(current.orElseThrow().assignment().placementEpoch(), 1L);
+        } catch (ArithmeticException exhausted) {
+            throw new IllegalStateException("Pulsar Worker placement epoch exhausted", exhausted);
+        }
+        final String currentWorkerId =
+                current.map(publication -> publication.assignment().workerId()).orElse(null);
         final WorkerPlacementPolicy.WorkerCandidate candidate = new WorkerPlacementPolicy.WorkerCandidate(
-                "pulsar-worker",
+                workerId,
                 capacity(1),
                 CapacityVector.empty(),
                 0,
@@ -2382,24 +2400,28 @@ public final class PulsarClientArtifactWorkerSmoke {
         final WorkerAssignmentCoordinator.PlacementResult result = coordinator.place(
                 sourceAssignment,
                 Bytes.sha256(Bytes.utf8("pulsar-worker-capacity-envelope")),
-                1,
+                placementEpoch,
                 List.of(candidate),
                 capacity(1),
                 CapacityVector.empty(),
                 CapacityVector.empty(),
-                null,
+                currentWorkerId,
                 now,
                 0,
-                0);
+                expectedRevision);
         final WorkerAssignmentAuthority.Publication publication =
                 result.publication().orElseThrow();
         final WorkerAssignment accepted = coordinator.requireAccepted(
                 sourceAssignment.shardId(), publication.revision(), publication.assignment());
         System.out.println("Pulsar Worker assignment publication/acceptance passed: revision="
                 + publication.revision() + ", worker=" + accepted.workerId() + ", authority="
-                + (realOxia ? "real Oxia session-bound" : "in-memory"));
-        return accepted;
+                + (realOxia ? "real Oxia session-bound" : "in-memory") + ", previousWorker="
+                + (currentWorkerId == null ? "none" : currentWorkerId) + ", placementEpoch="
+                + Long.toUnsignedString(accepted.placementEpoch()));
+        return new AssignmentAcceptance(accepted, publication.revision());
     }
+
+    private record AssignmentAcceptance(WorkerAssignment assignment, long revision) {}
 
     private static CapacityVector capacity(final long dbInstances) {
         final long[] values = new long[CapacityDimension.COUNT];
@@ -2416,9 +2438,25 @@ public final class PulsarClientArtifactWorkerSmoke {
         return OxiaSyncOwnerLeaseBackend.connectUnchecked(
                 endpoint,
                 namespace,
-                "nereus-delay-pulsar-worker-" + UUID.randomUUID(),
+                "nereus-delay-pulsar-worker-" + workerId() + "-" + UUID.randomUUID(),
                 Duration.ofSeconds(15),
-                "nereus-delay-pulsar-worker/" + UUID.randomUUID());
+                workerAuthorityPrefix());
+    }
+
+    private static String workerId() {
+        return configured("NEREUS_DELAY_PULSAR_WORKER_ID", "pulsar-worker");
+    }
+
+    private static String workerAuthorityPrefix() {
+        return configured(
+                "NEREUS_DELAY_PULSAR_WORKER_AUTHORITY_PREFIX",
+                "nereus-delay/pulsar-worker-authority/" + UUID.randomUUID());
+    }
+
+    private static String workerAssignmentPrefix() {
+        return configured(
+                "NEREUS_DELAY_PULSAR_WORKER_ASSIGNMENT_PREFIX",
+                "nereus-delay/pulsar-worker-placement/" + UUID.randomUUID());
     }
 
     private static String configured(final String name, final String fallback) {

@@ -49,6 +49,7 @@ runtime_dir=""
 compose_started=0
 cleanup_started=0
 test_process_pid=""
+worker_fault_pid=""
 oxia_bootstrap_log="${artifact_dir}/logs/oxia-bootstrap.log"
 oxia_admin_address=""
 
@@ -69,6 +70,9 @@ cleanup_on_exit() {
     if [[ -n "${test_process_pid:-}" ]]; then
       kill "${test_process_pid}" >/dev/null 2>&1 || true
       wait "${test_process_pid}" >/dev/null 2>&1 || true
+    fi
+    if [[ -n "${worker_fault_pid:-}" ]]; then
+      kill -KILL "${worker_fault_pid}" >/dev/null 2>&1 || true
     fi
     if [[ "${compose_started:-0}" == 1 ]]; then
       "${compose[@]}" down --volumes --remove-orphans --rmi local >/dev/null 2>&1 || true
@@ -1093,6 +1097,287 @@ run_real_source_ack_response_loss_cell() {
     "${log_path}" "${evidence_path}" "${result_reason}"
 }
 
+run_worker_smoke_process() {
+  local mode="$1"
+  local topic="$2"
+  local destination_topic="$3"
+  local worker_id="$4"
+  local worker_root="$5"
+  local assignment_prefix="$6"
+  local authority_prefix="$7"
+  shift 7
+  env \
+    "GRADLE_USER_HOME=${gradle_user_home}" \
+    "NEREUS_DELAY_OXIA_ENDPOINT=${oxia_endpoint}" \
+    "NEREUS_DELAY_OXIA_NAMESPACE=default" \
+    "NEREUS_DELAY_PULSAR_WORKER_ID=${worker_id}" \
+    "NEREUS_DELAY_PULSAR_WORKER_ROOT=${worker_root}" \
+    "NEREUS_DELAY_PULSAR_WORKER_ASSIGNMENT_PREFIX=${assignment_prefix}" \
+    "NEREUS_DELAY_PULSAR_WORKER_AUTHORITY_PREFIX=${authority_prefix}" \
+    "$@" \
+    ./gradlew runRealPulsarWorkerSmoke \
+      -PpulsarClientClasspath="${p1_client_cp}" \
+      -PpulsarRuntimeDir="${runtime_dir}/lib" \
+      -PpulsarServiceUrl="${service_url_1}" \
+      -PpulsarAdminUrl="${admin_url_1}" \
+      -PpulsarTopic="${topic}" \
+      -PpulsarWorkerMode="${mode}" \
+      -PpulsarWorkerDestinationTopic="${destination_topic}" \
+      -PpulsarWithOxia=true \
+      --no-daemon --console=plain
+}
+
+validate_worker_process_crash_evidence() {
+  local cut_kind="$1"
+  local before="$2"
+  local after="$3"
+  local crash_log="$4"
+  local resume_log="$5"
+  python3 - "${cut_kind}" "${before}" "${after}" "${crash_log}" "${resume_log}" <<'PY'
+import json
+import re
+import sys
+from pathlib import Path
+
+cut, before_path, after_path, crash_log_path, resume_log_path = sys.argv[1:]
+before = json.loads(Path(before_path).read_text(encoding="utf-8"))
+after = json.loads(Path(after_path).read_text(encoding="utf-8"))
+crash_log = Path(crash_log_path).read_text(encoding="utf-8")
+resume_log = Path(resume_log_path).read_text(encoding="utf-8")
+
+def require(condition, message):
+    if not condition:
+        raise SystemExit(message)
+
+require(before.get("schema") == "nereus-delay-chaos-durable-state-dump", "invalid pre-crash schema")
+require(after.get("schema") == "nereus-delay-chaos-durable-state-dump", "invalid post-recovery schema")
+require(before.get("process_pid") != after.get("process_pid"), "recovery did not use a fresh Worker process")
+for field in ("store_root", "store_incarnation", "db_identity", "shard"):
+    require(before.get(field) == after.get(field), f"durable Worker identity changed: {field}")
+require(before.get("durable_store_read") is True and before.get("dump_forced") is True,
+        "pre-crash dump was not durable")
+require(after.get("durable_store_read") is True and after.get("dump_forced") is True,
+        "post-recovery dump was not durable")
+
+first_assignment = re.search(
+    r"assignment publication/acceptance passed: revision=1, worker=([^,]+).*previousWorker=none, placementEpoch=1",
+    crash_log,
+)
+second_assignment = re.search(
+    r"assignment publication/acceptance passed: revision=2, worker=([^,]+).*previousWorker=([^,]+), placementEpoch=2",
+    resume_log,
+)
+require(first_assignment is not None, "first Worker did not publish assignment revision 1")
+require(second_assignment is not None, "fresh Worker did not replace assignment at revision 2")
+require(first_assignment.group(1) != second_assignment.group(1), "Worker identity did not transfer")
+require(second_assignment.group(2) == first_assignment.group(1), "replacement did not observe the first Worker")
+require("assignmentRevision=1, placementEpoch=1" in crash_log, "first owner lease was not assignment-bound")
+require("assignmentRevision=2, placementEpoch=2" in resume_log, "second owner lease was not assignment-bound")
+
+if cut == "generic":
+    require(before.get("cell") == "pulsar-worker-process-crash", "wrong generic crash cell")
+    require(before.get("phase") == "PULSAR_WORKER_PROCESS_CRASH_READY", "wrong generic pre-crash phase")
+    require(after.get("phase") == "RECOVERED_AFTER_FRESH_PROCESS", "wrong generic recovery phase")
+    require(before.get("source_record_prepared") is True, "source record was not prepared")
+    require(before.get("source_record_applied") is False, "source record applied before crash")
+    require(before.get("source_ack_committed") is False, "source ACK committed before crash")
+    require(after.get("source_record_applied") is True, "fresh Worker did not apply source record")
+    require(after.get("source_ack_committed") is True, "fresh Worker did not commit source ACK")
+elif cut == "admission":
+    require(before.get("cell") == "pulsar-worker-admission-response-loss-process-crash", "wrong Admission cell")
+    require(before.get("phase") == "ADMISSION_RESPONSE_LOSS_PERSISTED", "wrong Admission pre-crash phase")
+    require(after.get("phase") == "RECOVERED_AFTER_FRESH_PROCESS", "wrong Admission recovery phase")
+    require(before.get("attempt_state") == "PUBLISHING" and before.get("outcome_applied") is False,
+            "Admission cut did not persist exact PUBLISHING state")
+    require(after.get("attempt_state") == "PUBLISHED" and after.get("outcome_applied") is True,
+            "Admission recovery did not reach durable PUBLISHED")
+    require(before.get("publish_attempt_id") == after.get("publish_attempt_id"), "Admission attempt identity changed")
+elif cut == "destination":
+    require(before.get("cell") == "pulsar-worker-destination-response-loss-process-crash", "wrong Outcome cell")
+    require(before.get("phase") == "DESTINATION_RESPONSE_LOSS_PERSISTED", "wrong Outcome pre-crash phase")
+    require(after.get("phase") == "RECOVERED_AFTER_FRESH_PROCESS", "wrong Outcome recovery phase")
+    require(before.get("attempt_state") == "PUBLISHING" and before.get("outcome_applied") is False,
+            "Outcome cut did not stop before source apply")
+    require(after.get("attempt_state") == "PUBLISHED" and after.get("outcome_applied") is True,
+            "fresh Worker did not source-apply the definitive Outcome")
+    for field in ("publish_attempt_id", "message_id"):
+        require(before.get(field) == after.get(field) and before.get(field), f"Outcome identity changed: {field}")
+elif cut == "source_ack":
+    require(before.get("cell") == "pulsar-source-ack-response-loss", "wrong source ACK cell")
+    require(before.get("phase") == "SOURCE_ACK_RESPONSE_LOSS_PERSISTED", "wrong source ACK pre-crash phase")
+    require(after.get("phase") == "RECOVERED_AFTER_FRESH_PROCESS", "wrong source ACK recovery phase")
+    require(before.get("source_apply_durable") is True and before.get("source_ack_committed") is True,
+            "source ACK cut was not after durable apply and Broker ACK")
+    require(before.get("ack_response_lost") is True, "source ACK response was not lost")
+    require(after.get("recovery_replayed_ack_source") is False, "fresh Worker replayed the ACKed source record")
+    require(after.get("duplicate_source_apply_observed") is False, "fresh Worker duplicated source apply")
+    require(before.get("source_ack_source_position") == after.get("source_ack_source_position"),
+            "source ACK position changed across recovery")
+else:
+    raise SystemExit(f"unknown cut kind: {cut}")
+PY
+}
+
+run_worker_process_crash_cell() {
+  local cell_id="$1"
+  local cut_kind="$2"
+  local topic="$3"
+  local destination_topic="$4"
+  local expected="$5"
+  local cell_name="${cell_id//[^A-Za-z0-9_.-]/_}"
+  local cell_dir="${artifact_dir}/recovery/${cell_name}"
+  local worker_root="${cell_dir}/worker-root"
+  local state_dir="${cell_dir}/state-dumps"
+  local gate_path="${cell_dir}/cut"
+  local pid_path="${cell_dir}/pid"
+  local crash_log="${cell_dir}/crash.log"
+  local resume_log="${cell_dir}/resume.log"
+  local log_path="${artifact_dir}/logs/${cell_name}.log"
+  local evidence_path="${artifact_dir}/evidence/${cell_name}.json"
+  local assignment_prefix="${resource_prefix}/worker-assignment/${cell_name}"
+  local authority_prefix="${resource_prefix}/worker-authority/${cell_name}"
+  local worker_a="${cell_name}-worker-a"
+  local worker_b="${cell_name}-worker-b"
+  local crash_mode="crash-wait"
+  local resume_mode="resume"
+  local gate_env=""
+  local pid_env=""
+  local crash_env=()
+  local resume_env=()
+  local result_status="EXECUTED_FAIL"
+  local result_reason="fresh-process Worker crash cell failed"
+  local evidence_status="FAIL"
+  mkdir -p "${cell_dir}" "${state_dir}"
+  printf '%s\n' "${topic}" >>"${created_topics_file}"
+  if [[ -n "${destination_topic}" ]]; then
+    printf '%s\n' "${destination_topic}" >>"${created_topics_file}"
+  fi
+  case "${cut_kind}" in
+    generic)
+      gate_env="NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH_GATE=${gate_path}"
+      pid_env="NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH_PID_FILE=${pid_path}"
+      crash_env+=("NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH_ONLY=1")
+      resume_env+=("NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH_ONLY=1")
+      ;;
+    admission)
+      gate_env="NEREUS_DELAY_PULSAR_WORKER_ADMISSION_RESPONSE_LOSS_PROCESS_CRASH_GATE=${gate_path}"
+      pid_env="NEREUS_DELAY_PULSAR_WORKER_ADMISSION_RESPONSE_LOSS_PROCESS_CRASH_PID_FILE=${pid_path}"
+      crash_env+=("NEREUS_DELAY_PULSAR_WORKER_ADMISSION_RESPONSE_LOSS=1")
+      crash_env+=("NEREUS_DELAY_PULSAR_WORKER_ADMISSION_RESPONSE_LOSS_PROCESS_CRASH_ONLY=1")
+      resume_env+=("NEREUS_DELAY_PULSAR_WORKER_ADMISSION_RESPONSE_LOSS_PROCESS_CRASH_ONLY=1")
+      ;;
+    destination)
+      gate_env="NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS_PROCESS_CRASH_GATE=${gate_path}"
+      pid_env="NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS_PROCESS_CRASH_PID_FILE=${pid_path}"
+      crash_env+=("NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS=1")
+      crash_env+=("NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS_PROCESS_CRASH_ONLY=1")
+      resume_env+=("NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS_PROCESS_CRASH_ONLY=1")
+      ;;
+    source_ack)
+      crash_mode="source-ack-crash-wait"
+      resume_mode="source-ack-resume"
+      gate_env="NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS_PROCESS_CRASH_GATE=${gate_path}"
+      pid_env="NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS_PROCESS_CRASH_PID_FILE=${pid_path}"
+      crash_env+=("NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS=1")
+      crash_env+=("NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS_PROCESS_CRASH_ONLY=1")
+      ;;
+    *)
+      echo "unknown Worker process-crash cut: ${cut_kind}" >&2
+      return 2
+      ;;
+  esac
+  crash_env+=("NEREUS_DELAY_PULSAR_CHAOS_STATE_DUMP_DIR=${state_dir}" "${gate_env}" "${pid_env}")
+  resume_env+=("NEREUS_DELAY_PULSAR_CHAOS_STATE_DUMP_DIR=${state_dir}")
+  : >"${log_path}"
+  if ! run_worker_smoke_process prepare "${topic}" "" "${worker_a}" "${worker_root}" \
+      "${assignment_prefix}" "${authority_prefix}" >"${cell_dir}/prepare.log" 2>&1; then
+    result_reason="Worker crash fixture could not persist its source record"
+  else
+    set +e
+    run_worker_smoke_process "${crash_mode}" "${topic}" "${destination_topic}" "${worker_a}" \
+      "${worker_root}" "${assignment_prefix}" "${authority_prefix}" "${crash_env[@]}" \
+      >"${crash_log}" 2>&1 &
+    test_process_pid=$!
+    set -e
+    local gate_ready=0
+    local attempt
+    for attempt in $(seq 1 180); do
+      if [[ -f "${gate_path}" && -s "${pid_path}" ]]; then
+        gate_ready=1
+        break
+      fi
+      if ! kill -0 "${test_process_pid}" >/dev/null 2>&1; then
+        break
+      fi
+      sleep 1
+    done
+    if [[ "${gate_ready}" != 1 ]]; then
+      result_reason="Worker did not reach the exact ${cut_kind} crash gate"
+      if [[ -n "${test_process_pid}" ]]; then
+        kill "${test_process_pid}" >/dev/null 2>&1 || true
+        wait "${test_process_pid}" >/dev/null 2>&1 || true
+        test_process_pid=""
+      fi
+    else
+      worker_fault_pid="$(<"${pid_path}")"
+      if [[ ! "${worker_fault_pid}" =~ ^[0-9]+$ ]] || ! kill -0 "${worker_fault_pid}" >/dev/null 2>&1; then
+        result_reason="Worker crash PID was not alive at the exact cut"
+        kill "${test_process_pid}" >/dev/null 2>&1 || true
+        wait "${test_process_pid}" >/dev/null 2>&1 || true
+        test_process_pid=""
+        worker_fault_pid=""
+      else
+        kill -KILL "${worker_fault_pid}"
+        rm -f "${gate_path}"
+        local crash_status=0
+        wait "${test_process_pid}" || crash_status=$?
+        test_process_pid=""
+        worker_fault_pid=""
+        if [[ "${crash_status}" == 0 ]]; then
+          result_reason="Worker unexpectedly exited successfully after SIGKILL"
+        elif [[ ! -s "${state_dir}/before-process-crash.json" ]]; then
+          result_reason="Worker did not force the pre-crash durable state dump"
+        else
+          # The owner lease is session-ephemeral. Waiting beyond the configured
+          # 15-second session timeout makes the successor's acquisition exact,
+          # instead of relying on transport-close timing.
+          sleep 17
+          local resume_status=0
+          set +e
+          run_worker_smoke_process "${resume_mode}" "${topic}" "${destination_topic}" "${worker_b}" \
+              "${worker_root}" "${assignment_prefix}" "${authority_prefix}" "${resume_env[@]}" \
+              >"${resume_log}" 2>&1
+          resume_status=$?
+          set -e
+          if [[ "${resume_status}" != 0 ]]; then
+            result_reason="fresh Worker could not replace the assignment and recover the exact Store"
+          elif [[ ! -s "${state_dir}/after-fresh-process.json" ]]; then
+            result_reason="fresh Worker did not force the post-recovery durable state dump"
+          elif validate_worker_process_crash_evidence \
+              "${cut_kind}" "${state_dir}/before-process-crash.json" \
+              "${state_dir}/after-fresh-process.json" "${crash_log}" "${resume_log}" \
+              >>"${log_path}" 2>&1; then
+            result_status="EXECUTED_PASS"
+            result_reason="${expected}"
+            evidence_status="PASS"
+          else
+            result_reason="fresh-process state, assignment or ownership evidence failed validation"
+          fi
+        fi
+      fi
+    fi
+  fi
+  {
+    sed -n '1,240p' "${cell_dir}/prepare.log" 2>/dev/null || true
+    sed -n '1,320p' "${crash_log}" 2>/dev/null || true
+    sed -n '1,320p' "${resume_log}" 2>/dev/null || true
+  } >>"${log_path}"
+  write_generic_evidence "${evidence_path}" "${cell_id}" "${evidence_status}" "${result_reason}" "${log_path}"
+  record_cell "${cell_id}" "recovery" "${expected}" "${result_status}" "0" \
+    "two real Worker JVMs with shared Oxia assignment/lease scope, exact ${cut_kind} cut, SIGKILL and fresh-process resume" \
+    "${log_path}" "${evidence_path}" "${result_reason}"
+}
+
 run_oxia_restart_cell() {
   local cell_id="recovery.oxia_restart_reopen"
   local expected="real Oxia route session and cache recover after an actual data-server restart"
@@ -1484,31 +1769,30 @@ run_junit_cell recovery.candidate_claim \
   com.nereusstream.delay.runtime.DelayShardTest.localClaimIsDurableAndRecoveryRequeueRestoresSemanticTimelineAtomically \
   "${artifact_dir}/evidence/recovery.candidate_claim.json" \
   "the focused unit test passed without a conditional skip"
-run_junit_cell recovery.admission \
-  "one exact local Claim is consumed before Publish Admission" \
-  com.nereusstream.delay.runtime.DelayShardTest.publishAdmissionConsumesExactLocalClaimBeforeCreatingAttemptLedger \
-  "${artifact_dir}/evidence/recovery.admission.json" \
-  "the focused unit test passed without a conditional skip"
+run_worker_process_crash_cell recovery.admission admission \
+  "${resource_prefix}-worker-admission-crash" \
+  "${resource_prefix}-worker-admission-destination" \
+  "durable PUBLISHING Admission survives SIGKILL and a different Worker completes the exact attempt"
 run_junit_cell recovery.journal_mapping \
-  "durable Journal mapping precedes target transaction and exact retry is idempotent" \
-  com.nereusstream.delay.adapter.KafkaReceiptJournalTest.mappingMustBeDurableBeforeTargetTransactionAndExactRetryIsIdempotent \
+  "Pulsar Attempt Journal mapping is durable before SEND and exact replay is idempotent" \
+  com.nereusstream.delay.adapter.PulsarAttemptJournalTest.exactMappingMustBeDurableBeforeSendAndReplayIsIdempotent \
   "${artifact_dir}/evidence/recovery.journal_mapping.json" \
-  "the focused unit test passed without a conditional skip"
+  "the focused Pulsar Attempt Journal test passed without a conditional skip"
 run_real_destination_response_loss_cell
 run_real_worker_cell recovery.response_loss_after_ack_before_outcome \
   "${resource_prefix}-worker-destination-response-loss" \
   "${resource_prefix}-worker-destination" \
   "real Worker destination SEND response loss resolves typed evidence before the definitive Outcome"
-mark_not_covered recovery.response_loss_after_outcome_before_handoff \
-  "Outcome-before-handoff response loss" \
-  "The current source has no safe independently controllable cut between definitive Outcome persistence and handoff; a mock or renamed disposable run is not promoted."
-run_real_source_ack_response_loss_cell
-run_junit_cell recovery.worker_ownership_transfer \
-  "second real Oxia session acquires the next owner epoch after the first session closes" \
-  com.nereusstream.delay.ownership.OxiaRealServiceSmokeTest.ownerLeaseCasAndEphemeralSessionWorkAgainstRealService \
-  "${artifact_dir}/evidence/recovery.worker_ownership_transfer.json" \
-  "real Oxia ownership transfer passed with two session owners" \
-  "NEREUS_DELAY_OXIA_ENDPOINT=${oxia_endpoint}" "NEREUS_DELAY_OXIA_NAMESPACE=default"
+run_worker_process_crash_cell recovery.response_loss_after_outcome_before_handoff destination \
+  "${resource_prefix}-worker-outcome-crash" \
+  "${resource_prefix}-worker-outcome-destination" \
+  "definitive PUBLISH_OUTCOME survives SIGKILL before source apply; a different Worker applies it without a second SEND"
+run_worker_process_crash_cell recovery.response_loss_handed_off_before_checkpoint source_ack \
+  "${resource_prefix}-worker-source-ack-crash" "" \
+  "Broker-accepted source ACK survives response loss and SIGKILL without duplicate source apply"
+run_worker_process_crash_cell recovery.worker_ownership_transfer generic \
+  "${resource_prefix}-worker-ownership-crash" "" \
+  "a different Worker replaces the durable assignment and acquires the same Oxia owner scope after SIGKILL"
 run_broker_failover_cell
 run_oxia_restart_cell
 run_oxia_minio_junit_cell recovery.oxia_minio_checkpoint \
