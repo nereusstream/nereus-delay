@@ -742,35 +742,42 @@ public final class PulsarClientArtifactWorkerSmoke {
                                     writeWorkerProcessStateDump(
                                             "RECOVERED_AFTER_FRESH_PROCESS", root, store, physicalTopic, shard, true);
                                 }
-                                final Path checkpointPath = root.resolve("worker-final-checkpoint");
-                                final byte[] checkpointId =
-                                        Arrays.copyOf(Bytes.sha256(Bytes.utf8("pulsar-worker-final-checkpoint")), 16);
-                                final var drain = runtime.drain(
-                                        new com.nereusstream.delay.ownership.OwnerDrainCoordinator.DrainRequest(
-                                                System.currentTimeMillis() + 30_000, 0, checkpointPath, checkpointId),
-                                        System::currentTimeMillis,
-                                        () -> {});
-                                if (drain.pendingCheckpointTask() != null
-                                        || drain.finalCheckpointPath() == null
-                                        || !Files.isDirectory(checkpointPath)
-                                        || CheckpointFileInventory.collect(checkpointPath)
-                                                .isEmpty()
-                                        || !authority.current(shard).isEmpty()) {
-                                    throw new IllegalStateException(
-                                            "Pulsar Worker drain did not publish the final checkpoint and release "
-                                                    + "the exact owner lease");
-                                }
-                                runtimeDrained = true;
-                                System.out.println(
-                                        "Pulsar Worker vertical smoke passed: assignment recovery ledger/entry="
-                                                + recovered.ledgerId() + "/" + recovered.entryId()
-                                                + ", active apply ledger/entry=" + activePosition.ledgerId() + "/"
-                                                + activePosition.entryId()
-                                                + ", guarded SUBSCRIBE, RocksDB WriteBatch, ACK, "
-                                                + "and final checkpoint");
-                                if (oxia != null) {
+                                if (admissionRecoveryResume) {
+                                    requireUncertainDrainBlocked(runtime, ownedShard, authority, store, shard);
+                                } else {
+                                    final Path checkpointPath = root.resolve("worker-final-checkpoint");
+                                    final byte[] checkpointId = Arrays.copyOf(
+                                            Bytes.sha256(Bytes.utf8("pulsar-worker-final-checkpoint")), 16);
+                                    final var drain = runtime.drain(
+                                            new com.nereusstream.delay.ownership.OwnerDrainCoordinator.DrainRequest(
+                                                    System.currentTimeMillis() + 30_000,
+                                                    0,
+                                                    checkpointPath,
+                                                    checkpointId),
+                                            System::currentTimeMillis,
+                                            () -> {});
+                                    if (drain.pendingCheckpointTask() != null
+                                            || drain.finalCheckpointPath() == null
+                                            || !Files.isDirectory(checkpointPath)
+                                            || CheckpointFileInventory.collect(checkpointPath)
+                                                    .isEmpty()
+                                            || !authority.current(shard).isEmpty()) {
+                                        throw new IllegalStateException(
+                                                "Pulsar Worker drain did not publish the final checkpoint and release "
+                                                        + "the exact owner lease");
+                                    }
+                                    runtimeDrained = true;
                                     System.out.println(
-                                            "Pulsar Worker authority smoke passed: real Oxia session-bound lease");
+                                            "Pulsar Worker vertical smoke passed: assignment recovery ledger/entry="
+                                                    + recovered.ledgerId() + "/" + recovered.entryId()
+                                                    + ", active apply ledger/entry=" + activePosition.ledgerId() + "/"
+                                                    + activePosition.entryId()
+                                                    + ", guarded SUBSCRIBE, RocksDB WriteBatch, ACK, "
+                                                    + "and final checkpoint");
+                                    if (oxia != null) {
+                                        System.out.println(
+                                                "Pulsar Worker authority smoke passed: real Oxia session-bound lease");
+                                    }
                                 }
                                 if (hasSourceAckResponseLoss()) {
                                     if (!sourceAckResponseLossObserved.get()) {
@@ -1152,6 +1159,36 @@ public final class PulsarClientArtifactWorkerSmoke {
                 + Bytes.hex(attempt.publishAttemptId())
                 + ", Journal RETIRED_NOT_PUBLISHED is durable, Outcome=RECOVERY_FIRST_SEND_UNCERTAIN, target SEND=0");
         return physicalTurn;
+    }
+
+    private static void requireUncertainDrainBlocked(
+            final WorkerShardRuntime runtime,
+            final OwnedDelayShard ownedShard,
+            final OxiaOwnerLeaseStore authority,
+            final ShardStore store,
+            final ShardId shard) {
+        try {
+            runtime.drain(
+                    new com.nereusstream.delay.ownership.OwnerDrainCoordinator.DrainRequest(
+                            System.currentTimeMillis() + 30_000, 0, null),
+                    System::currentTimeMillis,
+                    () -> {});
+            throw new IllegalStateException("UNCERTAIN recovery obligation incorrectly completed a clean drain");
+        } catch (IllegalStateException expected) {
+            if (!"owner drain callback quiescence budget exhausted".equals(expected.getMessage())) {
+                throw expected;
+            }
+        }
+        final Optional<OwnerLease> current = authority.current(shard);
+        if (ownedShard.state() != ShardLifecycleState.DRAINING
+                || !runtime.sourcePaused()
+                || store.isClosed()
+                || current.isEmpty()
+                || !ownedShard.lease().sameIdentity(current.orElseThrow())) {
+            throw new IllegalStateException("UNCERTAIN recovery drain did not remain fail-closed and retryable");
+        }
+        System.out.println("Pulsar Worker admission recovery drain guard passed: unresolved UNCERTAIN obligation "
+                + "blocked clean checkpoint/lease release; disposable session teardown remains non-authoritative");
     }
 
     private static SourceReplayMutation awaitPublishOutcome(
