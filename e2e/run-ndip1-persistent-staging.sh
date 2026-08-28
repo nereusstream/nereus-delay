@@ -155,8 +155,6 @@ git -C "${delay_root}" merge-base --is-ancestor \
 
 [[ -z "$(git -C "${pulsar_checkout}" status --porcelain)" ]] \
   || fail "P1 checkout is dirty: ${pulsar_checkout}"
-[[ "$(git -C "${pulsar_checkout}" branch --show-current)" == "nereus/delay-resource-guard" ]] \
-  || fail "P1 checkout is on the wrong branch"
 [[ "$(git -C "${pulsar_checkout}" rev-parse HEAD)" == "${p1_source_lock}" ]] \
   || fail "P1 checkout does not match the locked source"
 [[ -z "$(git -C "${oxia_checkout}" status --porcelain)" ]] \
@@ -170,6 +168,8 @@ done
 
 candidate_commit="$(git -C "${delay_root}" rev-parse HEAD)"
 pulsar_sha="$(git -C "${pulsar_checkout}" rev-parse HEAD)"
+pulsar_ref="$(git -C "${pulsar_checkout}" branch --show-current)"
+[[ -n "${pulsar_ref}" ]] || pulsar_ref="DETACHED:${pulsar_sha}"
 oxia_sha="$(git -C "${oxia_checkout}" rev-parse HEAD)"
 pulsar_tarball_sha256="$(shasum -a 256 "${pulsar_tarball}" | awk '{print $1}')"
 disposable_actual_sha256="$(shasum -a 256 "${disposable_receipt}" | awk '{print $1}' 2>/dev/null || true)"
@@ -461,7 +461,8 @@ write_environment_snapshot() {
     --arg environmentId "${environment_id}" --arg classification "${classification}" \
     --arg runId "${run_id}" --arg candidateCommit "${candidate_commit}" \
     --arg p1SourceLock "${p1_source_lock}" --arg oxiaSource "${oxia_sha}" \
-    --arg pulsarSource "${pulsar_sha}" --arg packageDigest "${accepted_package_digest}" \
+    --arg pulsarSource "${pulsar_sha}" --arg pulsarRef "${pulsar_ref}" \
+    --arg packageDigest "${accepted_package_digest}" \
     --arg snapshotDigest "${g0_snapshot_sha256}" --argjson unresolved "${unresolved_obligations}" \
     --arg commandTopic "${command_topic}" --arg mutationTopic "${mutation_topic}" \
     --arg workerTopic "${worker_topic}" --arg nativeTopic "${native_topic}" \
@@ -469,7 +470,7 @@ write_environment_snapshot() {
     --arg persistentRoot "${staging_root}" \
     '{schema:$schema,schemaGeneration:1,environmentId:$environmentId,classification:$classification,runId:$runId,
       candidateCommit:$candidateCommit,p1SourceLock:$p1SourceLock,acceptedPackageDigest:$packageDigest,
-      source:{oxia:$oxiaSource,pulsar:$pulsarSource},snapshotDigest:$snapshotDigest,
+      source:{oxia:$oxiaSource,pulsar:$pulsarSource,pulsarRef:$pulsarRef},snapshotDigest:$snapshotDigest,
       unresolvedPublishingOrUncertain:$unresolved,
       topics:{command:$commandTopic,mutation:$mutationTopic,worker:$workerTopic,native:$nativeTopic},
       oxia:{namespace:"default",coordinators:[16691,16692,16693],dataServers:[16681,16682,16683]},
