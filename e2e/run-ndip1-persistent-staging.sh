@@ -888,7 +888,6 @@ create_persistent_topic() {
 execute_manifest_operations() {
   create_persistent_topic "${command_topic}" 17 1001
   create_persistent_topic "${system_topic}" 43 2001
-  create_persistent_topic "${worker_topic}" 43 2001
   create_persistent_topic "${mutation_topic}" 53 3001
   create_persistent_topic "${route_worker_topic}" 67 4001
   create_persistent_topic "${evidence_topic}"
