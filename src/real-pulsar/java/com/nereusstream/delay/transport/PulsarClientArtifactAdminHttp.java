@@ -122,12 +122,23 @@ final class PulsarClientArtifactAdminHttp {
                 || !allowedAdminPorts.contains(redirected.getPort())
                 || !isAdminPath(redirected)
                 || !Objects.equals(redirected.getRawPath(), current.getRawPath())
-                || !Objects.equals(redirected.getRawQuery(), current.getRawQuery())
+                || !allowedRedirectQuery(current, redirected)
                 || redirected.getUserInfo() != null
                 || redirected.getFragment() != null) {
             throw new IllegalStateException("Pulsar admin redirect escaped the configured local resource scope: "
                     + current + " -> " + redirected);
         }
+    }
+
+    /**
+     * The broker may add its owner-routing marker to a query-less resource
+     * redirect. No other query mutation is within the bounded local scope.
+     */
+    private static boolean allowedRedirectQuery(final URI current, final URI redirected) {
+        if (Objects.equals(redirected.getRawQuery(), current.getRawQuery())) {
+            return true;
+        }
+        return current.getRawQuery() == null && "authoritative=false".equals(redirected.getRawQuery());
     }
 
     private static boolean isAdminPath(final URI uri) {
