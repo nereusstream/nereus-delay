@@ -127,6 +127,14 @@ class WorkerPublishOutcomeMutationFactoryTest {
                                 Bytes.utf8("delivery"), 2_001, evidence(fixture.attempt.publishAttemptId(), true))));
     }
 
+    @Test
+    void rejectsSystemMutationDeadlineBeforeTrustedOutcomeObservation() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new WorkerPublishOutcomeMutationFactory.OutcomeContext(
+                        1_999, 4, unknownTransfer(), observedAt(), unknownRetryPlaceholder()));
+    }
+
     private static byte[] charge() {
         return new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
                 .canonicalBytes();

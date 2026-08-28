@@ -165,6 +165,7 @@ public final class PulsarClientArtifactWorkerSmoke {
     private static final ArtifactGenerationSet ARTIFACTS = ArtifactGenerationSet.current(
             1, PulsarSourceLock.digest(), Bytes.sha256(Bytes.utf8("pulsar-worker-current-schema-bundle")));
     private static final long LEASE_DURATION_MS = 60_000;
+    private static final long SYSTEM_MUTATION_RETRY_WINDOW_MS = 60_000;
     private static final long DUE_DISCOVERY_MAX_BYTES = 900_000;
     // Test-only source authority fixture. A real Worker receives this pinned
     // verification/signing authority from the source-control plane; it must
@@ -2089,11 +2090,15 @@ public final class PulsarClientArtifactWorkerSmoke {
                     final long observedAt = result.brokerPersistenceTimeEpochMs() >= 0
                             ? result.brokerPersistenceTimeEpochMs()
                             : System.currentTimeMillis();
+                    final TrustedUtcIntervalEvidence outcomeObservation =
+                            evidence(observedAt, observedAt, "pulsar-worker-publish-observed");
+                    final long mutationRetryUntil =
+                            Math.addExact(outcomeObservation.latestEpochMs(), SYSTEM_MUTATION_RETRY_WINDOW_MS);
                     return new WorkerPublishOutcomeMutationFactory.OutcomeContext(
-                            retryDeadline,
+                            mutationRetryUntil,
                             unknownHold ? 4 : 0,
                             admission.chargeVector().canonicalBytes(),
-                            evidence(observedAt, observedAt, "pulsar-worker-publish-observed"),
+                            outcomeObservation,
                             unknownHold
                                     ? recoveryHoldRetryDecision(
                                             firstAttemptAt, retryDeadline, attempt.attemptNo(), result.stableCode())

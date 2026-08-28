@@ -161,6 +161,10 @@ public final class WorkerPublishOutcomeMutationFactory
             }
             transfer = Bytes.copy(Objects.requireNonNull(transfer, "transfer"));
             observedAt = Objects.requireNonNull(observedAt, "observedAt");
+            if (retryUntilEpochMs < observedAt.latestEpochMs()) {
+                throw new IllegalArgumentException(
+                        "System Mutation retry deadline precedes the trusted outcome observation");
+            }
             retryDecision = Bytes.copy(Objects.requireNonNull(retryDecision, "retryDecision"));
         }
 
