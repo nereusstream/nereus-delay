@@ -1,0 +1,99 @@
+services:
+  zk:
+    volumes:
+      - type: bind
+        source: ${NEREUS_DELAY_STAGING_ROOT:?NEREUS_DELAY_STAGING_ROOT is required}/pulsar/zk-data
+        target: /pulsar/data
+
+  bookie:
+    volumes:
+      - type: bind
+        source: ${NEREUS_DELAY_STAGING_ROOT:?NEREUS_DELAY_STAGING_ROOT is required}/pulsar/bookie-data
+        target: /pulsar/data
+
+  pulsar-broker-1:
+    environment:
+      PULSAR_DELAYED_DELIVERY_STRICT: "true"
+    volumes:
+      - type: bind
+        source: ${NEREUS_DELAY_STAGING_ROOT:?NEREUS_DELAY_STAGING_ROOT is required}/pulsar/broker-1-data
+        target: /pulsar/data
+      - type: bind
+        source: ${NEREUS_DELAY_STAGING_ROOT:?NEREUS_DELAY_STAGING_ROOT is required}/pulsar/broker-1-logs
+        target: /pulsar/logs
+
+  pulsar-broker-2:
+    environment:
+      PULSAR_DELAYED_DELIVERY_STRICT: "true"
+    volumes:
+      - type: bind
+        source: ${NEREUS_DELAY_STAGING_ROOT:?NEREUS_DELAY_STAGING_ROOT is required}/pulsar/broker-2-data
+        target: /pulsar/data
+      - type: bind
+        source: ${NEREUS_DELAY_STAGING_ROOT:?NEREUS_DELAY_STAGING_ROOT is required}/pulsar/broker-2-logs
+        target: /pulsar/logs
+
+  coordinator-1:
+    volumes:
+      - type: bind
+        source: ${NEREUS_DELAY_STAGING_ROOT:?NEREUS_DELAY_STAGING_ROOT is required}/oxia/coordinator-1
+        target: /var/lib/oxia/raft
+
+  coordinator-2:
+    volumes:
+      - type: bind
+        source: ${NEREUS_DELAY_STAGING_ROOT:?NEREUS_DELAY_STAGING_ROOT is required}/oxia/coordinator-2
+        target: /var/lib/oxia/raft
+
+  coordinator-3:
+    volumes:
+      - type: bind
+        source: ${NEREUS_DELAY_STAGING_ROOT:?NEREUS_DELAY_STAGING_ROOT is required}/oxia/coordinator-3
+        target: /var/lib/oxia/raft
+
+  data-server-1:
+    volumes:
+      - type: bind
+        source: ${NEREUS_DELAY_STAGING_ROOT:?NEREUS_DELAY_STAGING_ROOT is required}/oxia/data-server-1-wal
+        target: /var/lib/oxia/wal
+      - type: bind
+        source: ${NEREUS_DELAY_STAGING_ROOT:?NEREUS_DELAY_STAGING_ROOT is required}/oxia/data-server-1-db
+        target: /var/lib/oxia/db
+
+  data-server-2:
+    volumes:
+      - type: bind
+        source: ${NEREUS_DELAY_STAGING_ROOT:?NEREUS_DELAY_STAGING_ROOT is required}/oxia/data-server-2-wal
+        target: /var/lib/oxia/wal
+      - type: bind
+        source: ${NEREUS_DELAY_STAGING_ROOT:?NEREUS_DELAY_STAGING_ROOT is required}/oxia/data-server-2-db
+        target: /var/lib/oxia/db
+
+  data-server-3:
+    volumes:
+      - type: bind
+        source: ${NEREUS_DELAY_STAGING_ROOT:?NEREUS_DELAY_STAGING_ROOT is required}/oxia/data-server-3-wal
+        target: /var/lib/oxia/wal
+      - type: bind
+        source: ${NEREUS_DELAY_STAGING_ROOT:?NEREUS_DELAY_STAGING_ROOT is required}/oxia/data-server-3-db
+        target: /var/lib/oxia/db
+
+  minio:
+    image: ${NEREUS_DELAY_MINIO_IMAGE:?NEREUS_DELAY_MINIO_IMAGE is required}
+    hostname: minio
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: ${NEREUS_DELAY_MINIO_ACCESS_KEY:?NEREUS_DELAY_MINIO_ACCESS_KEY is required}
+      MINIO_ROOT_PASSWORD: ${NEREUS_DELAY_MINIO_SECRET_KEY:?NEREUS_DELAY_MINIO_SECRET_KEY is required}
+    ports:
+      - "127.0.0.1:${NEREUS_DELAY_MINIO_PORT:?NEREUS_DELAY_MINIO_PORT is required}:9000"
+    volumes:
+      - type: bind
+        source: ${NEREUS_DELAY_STAGING_ROOT:?NEREUS_DELAY_STAGING_ROOT is required}/minio/data
+        target: /data
+
+networks:
+  pulsar-cluster:
+    name: ${NEREUS_DELAY_STAGING_RESOURCE_PREFIX:?NEREUS_DELAY_STAGING_RESOURCE_PREFIX is required}-pulsar
+  default:
+    name: ${NEREUS_DELAY_STAGING_RESOURCE_PREFIX:?NEREUS_DELAY_STAGING_RESOURCE_PREFIX is required}-services
