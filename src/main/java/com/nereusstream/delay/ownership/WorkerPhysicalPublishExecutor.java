@@ -7,7 +7,7 @@ import com.nereusstream.delay.adapter.DestinationPublishRequest;
 import com.nereusstream.delay.adapter.DestinationPublishResult;
 import com.nereusstream.delay.adapter.PulsarAttemptJournal;
 import com.nereusstream.delay.adapter.PulsarPreparedRecordFactory;
-import com.nereusstream.delay.assessment.DataResetActivationGate;
+import com.nereusstream.delay.assessment.PhysicalSendActivationGate;
 import com.nereusstream.delay.protocol.ArtifactGenerationSet;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.DeliveryContract;
@@ -53,7 +53,7 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
     private final PublishOutcomeMutationFactory outcomeFactory;
     private final PhysicalPublishGate physicalGate;
     private final Runnable fenceOnFailure;
-    private final DataResetActivationGate dataResetActivationGate;
+    private final PhysicalSendActivationGate physicalSendActivationGate;
     private final Executor completionExecutor;
     private ManagedPulsarContext managedPulsarContext;
 
@@ -92,7 +92,7 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
             final PhysicalPublishGate physicalGate,
             final PublishOutcomeMutationFactory outcomeFactory,
             final Runnable fenceOnFailure,
-            final DataResetActivationGate dataResetActivationGate) {
+            final PhysicalSendActivationGate physicalSendActivationGate) {
         this(
                 new BoundedDestinationPublishAdapter(
                         Objects.requireNonNull(delegate, "delegate"),
@@ -104,7 +104,7 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
                 physicalGate,
                 outcomeFactory,
                 fenceOnFailure,
-                dataResetActivationGate,
+                physicalSendActivationGate,
                 physicalExecutor);
     }
 
@@ -125,7 +125,7 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
             final PhysicalPublishGate physicalGate,
             final PublishOutcomeMutationFactory outcomeFactory,
             final Runnable fenceOnFailure,
-            final DataResetActivationGate dataResetActivationGate) {
+            final PhysicalSendActivationGate physicalSendActivationGate) {
         this(
                 physicalAdapter,
                 (mutation, ownerClock) -> Objects.requireNonNull(outcomeExecutor, "outcomeExecutor")
@@ -133,7 +133,7 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
                 physicalGate,
                 outcomeFactory,
                 fenceOnFailure,
-                dataResetActivationGate,
+                physicalSendActivationGate,
                 Runnable::run);
     }
 
@@ -152,14 +152,14 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
             final PhysicalPublishGate physicalGate,
             final PublishOutcomeMutationFactory outcomeFactory,
             final Runnable fenceOnFailure,
-            final DataResetActivationGate dataResetActivationGate) {
+            final PhysicalSendActivationGate physicalSendActivationGate) {
         this(
                 physicalAdapter,
                 outcomeSink,
                 physicalGate,
                 outcomeFactory,
                 fenceOnFailure,
-                dataResetActivationGate,
+                physicalSendActivationGate,
                 Runnable::run);
     }
 
@@ -169,14 +169,14 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
             final PhysicalPublishGate physicalGate,
             final PublishOutcomeMutationFactory outcomeFactory,
             final Runnable fenceOnFailure,
-            final DataResetActivationGate dataResetActivationGate,
+            final PhysicalSendActivationGate physicalSendActivationGate,
             final Executor completionExecutor) {
         this.physicalAdapter = Objects.requireNonNull(physicalAdapter, "physicalAdapter");
         this.outcomeSink = Objects.requireNonNull(outcomeSink, "outcomeSink");
         this.physicalGate = Objects.requireNonNull(physicalGate, "physicalGate");
         this.outcomeFactory = Objects.requireNonNull(outcomeFactory, "outcomeFactory");
         this.fenceOnFailure = Objects.requireNonNull(fenceOnFailure, "fenceOnFailure");
-        this.dataResetActivationGate = dataResetActivationGate;
+        this.physicalSendActivationGate = physicalSendActivationGate;
         this.completionExecutor = Objects.requireNonNull(completionExecutor, "completionExecutor");
     }
 
@@ -281,7 +281,7 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
         final DestinationPublishRequest request = prepareRequest(exactAttempt, payload);
         final LongSupplier clock = Objects.requireNonNull(ownerClock, "ownerClock");
         try {
-            requirePhysicalArtifact(exactContext, clock);
+            requirePhysicalArtifact(exactContext, exactAttempt, clock);
         } catch (RuntimeException failure) {
             return handoff(
                     exactAttempt,
@@ -368,7 +368,7 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
                     exactContext, exactAttempt, request, exactJournal, mapping, ownershipGate.result(), clock);
         }
         try {
-            requirePhysicalArtifact(exactContext, clock);
+            requirePhysicalArtifact(exactContext, exactAttempt, clock);
         } catch (RuntimeException failure) {
             return Submission.deferred(
                     exactAttempt, request, Decision.deferred(StableCode.CAPABILITY_UNAVAILABLE, null));
@@ -392,7 +392,7 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
                                         return DestinationPublishResult.unknown(late.code(), late.evidence());
                                     }
                                     try {
-                                        requirePhysicalArtifact(exactContext, clock);
+                                        requirePhysicalArtifact(exactContext, exactAttempt, clock);
                                     } catch (RuntimeException failure) {
                                         return DestinationPublishResult.unknown(
                                                 StableCode.CAPABILITY_UNAVAILABLE, null);
@@ -491,21 +491,28 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
         completeResult(submission, resolved, ownerClock);
     }
 
-    private void requirePhysicalArtifact(final ManagedPulsarContext context, final LongSupplier ownerClock) {
+    private void requirePhysicalArtifact(
+            final ManagedPulsarContext context, final PublishAttemptLedger attempt, final LongSupplier ownerClock) {
+        final PreparedPublishDescriptor descriptor = PublishAdmissionBody.decode(
+                        Objects.requireNonNull(attempt, "attempt").admissionBytes())
+                .descriptor()
+                .value();
+        if (descriptor.deliveryContract() == DeliveryContract.PULSAR_NATIVE_DELIVERY
+                && physicalSendActivationGate == null) {
+            throw new IllegalStateException("native Managed send has no physical-send activation authority");
+        }
         context.artifactGate().require(context.artifacts());
-        if (dataResetActivationGate != null) {
+        if (physicalSendActivationGate != null) {
             final long trustedNowEpochMs =
                     Objects.requireNonNull(ownerClock, "ownerClock").getAsLong();
             if (trustedNowEpochMs < 0) {
                 throw new IllegalStateException("physical-send trusted time must be non-negative");
             }
-            dataResetActivationGate.requirePhysicalSend(
-                    context.artifacts(), dataResetActivationGate.manifest().manifestDigest(), trustedNowEpochMs);
+            physicalSendActivationGate.requirePhysicalSend(context.artifacts(), trustedNowEpochMs);
         }
     }
 
-    private static void requireFrozenHandoffLease(
-            final ManagedPulsarContext context, final PublishAttemptLedger attempt) {
+    private void requireFrozenHandoffLease(final ManagedPulsarContext context, final PublishAttemptLedger attempt) {
         final PublishAdmissionBody admission = PublishAdmissionBody.decode(attempt.admissionBytes());
         final PreparedPublishDescriptor descriptor = admission.descriptor().value();
         if (descriptor.deliveryContract() != DeliveryContract.PULSAR_NATIVE_DELIVERY) {

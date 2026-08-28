@@ -12,8 +12,9 @@ import com.nereusstream.delay.adapter.PulsarNativeSendRequest;
 import com.nereusstream.delay.adapter.PulsarSendAckEvidence;
 import com.nereusstream.delay.adapter.PulsarSendResult;
 import com.nereusstream.delay.adapter.PulsarTargetResource;
-import com.nereusstream.delay.assessment.DataResetActivationGate;
-import com.nereusstream.delay.assessment.DataResetManifest;
+import com.nereusstream.delay.assessment.DeploymentSafetyGate;
+import com.nereusstream.delay.assessment.DisposableEnvironmentAttestation;
+import com.nereusstream.delay.assessment.PhysicalSendActivationGate;
 import com.nereusstream.delay.protocol.AdapterMetadata;
 import com.nereusstream.delay.protocol.ArtifactGenerationSet;
 import com.nereusstream.delay.protocol.Bytes;
@@ -33,7 +34,6 @@ import com.nereusstream.delay.protocol.PreparedCommand;
 import com.nereusstream.delay.protocol.PreparedSubmission;
 import com.nereusstream.delay.protocol.ProfileKind;
 import com.nereusstream.delay.protocol.ProfileRef;
-import com.nereusstream.delay.protocol.ProtocolCapabilityDeclaration;
 import com.nereusstream.delay.protocol.PublishEvidence;
 import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity;
 import com.nereusstream.delay.protocol.PulsarMetadata;
@@ -42,7 +42,6 @@ import com.nereusstream.delay.protocol.PulsarSourceLock;
 import com.nereusstream.delay.protocol.RetryPolicyRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.SubmissionOutcomeKind;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.route.RouteSnapshotProvider;
@@ -196,34 +195,11 @@ class PulsarNativeProductionCompositionTest {
         final ShardId shard = new ShardId(new RouteIncarnation(bytes(16, 1)), 3);
         final byte[] tenantScope = hash("tenant");
         final byte[] principalScope = hash("principal");
-        final DataResetManifest.ManifestScope manifestScope = new DataResetManifest.ManifestScope(
-                "disposable-test", "native-composition", tenantScope, hash("route-snapshot"), new ShardSubject(shard));
-        final ProtocolCapabilityDeclaration declaration = new ProtocolCapabilityDeclaration(
-                "worker",
-                hash("worker"),
-                List.of(artifacts.clientCommandTuple(), artifacts.systemMutationTuple()),
-                artifacts,
-                1,
-                hash("session"));
-        final DataResetManifest.WorkerCapability worker = new DataResetManifest.WorkerCapability(
-                "worker", hash("worker"), hash("session"), declaration, hash("worker-evidence"));
-        final DataResetManifest.ResourceIncarnation resourceIncarnation = new DataResetManifest.ResourceIncarnation(
-                "PULSAR", "native-topic", hash("resource-incarnation"), true, hash("resource-evidence"));
-        final DataResetManifest manifest = DataResetManifest.create(
-                manifestScope,
-                "0123456789abcdef0123456789abcdef01234567",
-                7,
-                artifacts,
-                List.of(resourceIncarnation),
-                hash("fresh-resources"),
-                new DataResetManifest.ObligationZeroProof(0, 0, 0, hash("zero-obligations")),
-                List.of(worker),
-                evidence(1_000),
-                new DataResetManifest.ActivationWindow(2_000, 6_000),
-                1,
-                keys.getPrivate());
-        final DataResetActivationGate activationGate =
-                new DataResetActivationGate(manifest, keys.getPublic(), "disposable-test", artifacts);
+        final PhysicalSendActivationGate activationGate = PhysicalSendActivationGate.disposableLocal(
+                DeploymentSafetyGate.GateBStatus.PASS,
+                new DisposableEnvironmentAttestation(
+                        "disposable-test", "native-composition", true, true, true, true, hash("attestation")),
+                artifacts);
         final PulsarBrokerResourceIdentity target =
                 new PulsarBrokerResourceIdentity("cluster", hash("resource"), "persistent://tenant/ns/native", 100);
         final ProfileRef destination =

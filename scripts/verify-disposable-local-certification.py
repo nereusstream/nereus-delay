@@ -535,7 +535,7 @@ def verify_receipt(receipt: dict[str, Any], receipt_path: Path, root: Path) -> N
         },
         "receipt",
     )
-    if receipt["receiptSchema"] != RECEIPT_SCHEMA or receipt["receiptSchemaGeneration"] != 1:
+    if receipt["receiptSchema"] != RECEIPT_SCHEMA or receipt["receiptSchemaGeneration"] not in {1, 2}:
         raise VerificationError("unknown disposable-local receipt schema")
     if receipt["classification"] != "DISPOSABLE_LOCAL":
         raise VerificationError("receipt classification is not DISPOSABLE_LOCAL")
@@ -576,9 +576,13 @@ def verify_receipt(receipt: dict[str, Any], receipt_path: Path, root: Path) -> N
 
 def verify_supporting_checks(receipt: dict[str, Any]) -> None:
     checks = receipt["supportingChecks"]
-    if not isinstance(checks, list) or len(checks) != 2:
-        raise VerificationError("supportingChecks must contain the two P1 checks")
     expected_ids = ["p1.compileRealPulsar", "p1.h0"]
+    if receipt["receiptSchemaGeneration"] == 2:
+        expected_ids.append("p1.nativeCoordinator")
+    if not isinstance(checks, list) or len(checks) != len(expected_ids):
+        raise VerificationError(
+            f"supportingChecks must contain the {len(expected_ids)} schema-bound P1 checks"
+        )
     for index, value in enumerate(checks):
         entry = closed_object(
             value,

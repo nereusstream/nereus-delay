@@ -1,34 +1,60 @@
 package com.nereusstream.delay.transport;
 
+import com.nereusstream.delay.adapter.PulsarNativePreparedRecordValidator;
 import com.nereusstream.delay.adapter.PulsarSendResult;
+import com.nereusstream.delay.adapter.PulsarTargetResource;
+import com.nereusstream.delay.assessment.DeploymentSafetyGate;
+import com.nereusstream.delay.assessment.DisposableEnvironmentAttestation;
+import com.nereusstream.delay.assessment.PhysicalSendActivationGate;
+import com.nereusstream.delay.protocol.AdapterMetadata;
 import com.nereusstream.delay.protocol.ArtifactGenerationSet;
-import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.DelayMessageId;
+import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
 import com.nereusstream.delay.protocol.DeliveryContract;
 import com.nereusstream.delay.protocol.DeliveryMode;
-import com.nereusstream.delay.protocol.ExternalDeliveryIdentity;
+import com.nereusstream.delay.protocol.HandoffPath;
+import com.nereusstream.delay.protocol.HandoffPolicyMode;
+import com.nereusstream.delay.protocol.HandoffPolicySnapshot;
+import com.nereusstream.delay.protocol.NativeCapabilitySnapshot;
+import com.nereusstream.delay.protocol.NativeDeliveryPolicy;
+import com.nereusstream.delay.protocol.NativePreparedDelivery;
+import com.nereusstream.delay.protocol.NativePreparedRecordBinding;
+import com.nereusstream.delay.protocol.NativePreparedRecordContext;
+import com.nereusstream.delay.protocol.OrderingMode;
+import com.nereusstream.delay.protocol.PreparedCommand;
+import com.nereusstream.delay.protocol.PreparedSubmission;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
 import com.nereusstream.delay.protocol.PublishEvidence;
 import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity;
-import com.nereusstream.delay.protocol.PulsarKey;
 import com.nereusstream.delay.protocol.PulsarMetadata;
 import com.nereusstream.delay.protocol.PulsarPreparedRecord;
-import com.nereusstream.delay.protocol.PulsarRecordTemplate;
-import com.nereusstream.delay.protocol.PulsarReservedProperties;
-import com.nereusstream.delay.protocol.PulsarSequenceAuthority;
 import com.nereusstream.delay.protocol.PulsarSourceLock;
-import com.nereusstream.delay.protocol.ReservedPublishMetadata;
-import com.nereusstream.delay.protocol.ResolvedPayload;
+import com.nereusstream.delay.protocol.RetryPolicyRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
+import com.nereusstream.delay.protocol.SubmissionOutcomeKind;
+import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
+import com.nereusstream.delay.route.RouteSnapshotProvider;
+import com.nereusstream.delay.semantic.AuthenticatedTenantContext;
+import com.nereusstream.delay.semantic.RouteSelectionHint;
+import com.nereusstream.delay.submission.DefaultSubmissionCoordinator;
+import com.nereusstream.delay.submission.PulsarNativeSubmissionOutcomeProjector;
+import com.nereusstream.delay.submission.RouteBoundSubmissionTransportPlanResolver;
+import com.nereusstream.delay.submission.SubmissionOutcomeProjectorRegistry;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.time.Clock;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import org.apache.pulsar.client.api.GuardedConsumer;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.Producer;
@@ -63,58 +89,195 @@ public final class PulsarClientArtifactNativeSmoke {
 
     private static void runNativeSendAndRead(final String serviceUrl, final String physicalTopic) throws Exception {
         final byte[] payload = Bytes.utf8("nereus-delay-native-p1-smoke");
-        final long deliverAtEpochMs = System.currentTimeMillis() + 6_000L;
-        final RouteIncarnation routeIncarnation = RouteIncarnation.random();
-        final DelayMessageId messageId = DelayMessageId.random(new ShardId(routeIncarnation, 0));
-        final byte[] publishAttemptId = digest(31);
-        final byte[] nativeDeliveryId = digest(32);
+        final long nowEpochMs = System.currentTimeMillis();
+        final long deliverAtEpochMs = nowEpochMs + 7_000L;
+        final KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         final ArtifactGenerationSet artifacts = ArtifactGenerationSet.current(
                 1, PulsarSourceLock.digest(), Bytes.sha256(Bytes.utf8("native-real-smoke-schema")));
         final String producerName = "nereus-delay-p1-native-smoke";
         final PulsarBrokerResourceIdentity target =
                 new PulsarBrokerResourceIdentity(CLUSTER, INCARNATION, physicalTopic, CREATION_TIMESTAMP);
-        final ReservedPublishMetadata reserved = new ReservedPublishMetadata(
-                routeIncarnation,
-                0,
-                messageId,
+        final PulsarTargetResource resource = new PulsarTargetResource(
+                target.authenticatedClusterId(),
+                target.resourceIncarnation(),
+                target.physicalTopic(),
+                target.physicalTopicCreationTimestamp(),
+                0);
+        final ProfileRef destination = new ProfileRef(
+                Bytes.utf8("native-smoke-destination"),
                 1,
-                publishAttemptId,
-                Bytes.sha256(Bytes.utf8("native-smoke-destination")),
-                Bytes.sha256(Bytes.utf8("native-smoke-capability")),
-                deliverAtEpochMs,
-                DeliveryMode.MANAGED);
-        final PulsarRecordTemplate template = new PulsarRecordTemplate(
-                BrokerResourceIdentity.pulsar(target),
+                Bytes.sha256(Bytes.utf8("native-smoke-destination-semantic")),
+                ProfileKind.DESTINATION);
+        final ProfileRef capability = new ProfileRef(
+                Bytes.utf8("native-smoke-capability"),
+                1,
+                Bytes.sha256(Bytes.utf8("native-smoke-capability-semantic")),
+                ProfileKind.DELIVERY_CAPABILITY);
+        final byte[] tenantScope = Bytes.sha256(Bytes.utf8("native-smoke-tenant"));
+        final byte[] principalScope = Bytes.sha256(Bytes.utf8("native-smoke-principal"));
+        final TrustedUtcIntervalEvidence issuedAt = evidence(nowEpochMs - 3_000L);
+        final NativeCapabilitySnapshot capabilitySnapshot = NativeCapabilitySnapshot.create(
+                destination,
+                capability,
+                target,
                 0,
-                PulsarKey.none(),
-                null,
-                List.<PulsarMetadata.Property>of(),
-                System.currentTimeMillis(),
-                reserved,
-                DeliveryContract.PULSAR_NATIVE_DELIVERY,
+                Bytes.sha256(Bytes.utf8("native-smoke-resource-guard")),
+                1,
+                1,
+                Bytes.sha256(Bytes.utf8("native-smoke-credential-binding")),
+                Bytes.sha256(Bytes.utf8("native-smoke-credential-fingerprint")),
+                principalScope,
+                issuedAt,
+                nowEpochMs + 60_000L,
+                1,
+                keys.getPrivate());
+        final HandoffPolicySnapshot handoff = HandoffPolicySnapshot.create(
+                Bytes.sha256(Bytes.utf8("native-smoke-policy-scope")),
+                1,
+                HandoffPolicyMode.ENABLED,
+                1_000,
+                nowEpochMs - 1_000L,
+                nowEpochMs + 60_000L,
+                HandoffPath.AUTO_FAST,
+                issuedAt,
+                1,
+                artifacts.setDigest(),
+                keys.getPrivate());
+        final PulsarMetadata metadata = new PulsarMetadata(
+                Bytes.utf8("native-smoke-key"),
+                PulsarMetadata.KeyEncoding.UTF8,
+                Bytes.utf8("native-smoke-ordering"),
+                List.of(new PulsarMetadata.Property("native-smoke", "coordinator")));
+        final CanonicalScheduleIntent intent = CanonicalScheduleIntent.create(
+                destination,
+                new RetryPolicyRef(
+                        Bytes.utf8("native-smoke-retry"), 1, Bytes.sha256(Bytes.utf8("native-smoke-retry-semantic"))),
                 deliverAtEpochMs,
-                com.nereusstream.delay.protocol.PayloadForPublish.inline(payload),
-                artifacts.setDigest());
-        final byte[] preparedIdentityHash = Bytes.sha256(Bytes.utf8("native-smoke-prepared-identity"));
-        final PulsarPreparedRecord record = new PulsarPreparedRecord(
-                template,
-                template.recordTemplateHash(),
-                ResolvedPayload.of(payload),
-                PulsarSequenceAuthority.producerAssigned(),
-                ExternalDeliveryIdentity.nativeDelivery(nativeDeliveryId),
-                preparedIdentityHash,
-                PulsarReservedProperties.all(reserved, publishAttemptId, preparedIdentityHash),
-                artifacts.setDigest());
+                deliverAtEpochMs + 30_000L,
+                DeliveryMode.MANAGED,
+                OrderingMode.BEST_EFFORT,
+                new byte[0],
+                payload,
+                null,
+                AdapterMetadata.pulsar(metadata),
+                null,
+                nowEpochMs - 10_000L,
+                NativeDeliveryPolicy.ALLOW_AUTO_FAST_AND_MANAGED_HANDOFF);
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
+        final PreparedCommand managed = PreparedCommand.schedule(shard, intent, deliverAtEpochMs + 30_000L);
+        final NativePreparedRecordContext context = NativePreparedRecordContext.initialSchedule(
+                managed, Bytes.sha256(Bytes.utf8("native-smoke-attempt-seed")), artifacts.setDigest());
+        final byte[] nativeDeliveryId = NativePreparedRecordBinding.derive(
+                context,
+                destination,
+                capability,
+                target,
+                0,
+                payload,
+                metadata,
+                intent.eventTimeEpochMs(),
+                deliverAtEpochMs,
+                intent.nativeDeliveryPolicy(),
+                DeliveryContract.PULSAR_NATIVE_DELIVERY,
+                handoff,
+                capabilitySnapshot);
+        final NativePreparedDelivery prepared = NativePreparedDelivery.createCurrent(
+                nativeDeliveryId,
+                destination,
+                capability,
+                target,
+                0,
+                payload,
+                metadata,
+                intent.eventTimeEpochMs(),
+                deliverAtEpochMs,
+                intent.nativeDeliveryPolicy(),
+                DeliveryContract.PULSAR_NATIVE_DELIVERY,
+                handoff,
+                capabilitySnapshot);
+        final PreparedSubmission submission = PreparedSubmission.nativePrepared(prepared, context);
+        final PhysicalSendActivationGate activationGate = PhysicalSendActivationGate.disposableLocal(
+                DeploymentSafetyGate.GateBStatus.PASS,
+                new DisposableEnvironmentAttestation(
+                        "native-smoke-disposable",
+                        physicalTopic,
+                        true,
+                        true,
+                        true,
+                        true,
+                        Bytes.sha256(Bytes.utf8("native-smoke-disposable-evidence"))),
+                artifacts);
+        final PulsarNativePreparedRecordValidator validator = new PulsarNativePreparedRecordValidator(
+                resource, keys.getPublic(), Clock.systemUTC(), null, activationGate);
+        final PulsarPreparedRecord expectedRecord = validator.materialize(submission);
+        final PulsarCommandTransportKey transportKey = new PulsarCommandTransportKey(
+                target.authenticatedClusterId(),
+                target.physicalTopic(),
+                new Bytes32(target.resourceIncarnation()),
+                target.physicalTopicCreationTimestamp(),
+                0,
+                new CredentialBindingKey(
+                        capabilitySnapshot.credentialBindingGeneration(),
+                        new Digest32(capabilitySnapshot.credentialBindingDigest()),
+                        new Digest32(capabilitySnapshot.resolvedCredentialFingerprintDigest())));
+        final AuthenticatedTenantContext tenant = new AuthenticatedTenantContext(
+                tenantScope, Bytes.sha256(Bytes.utf8("native-smoke-routing")), principalScope);
 
         try (PulsarClient client = PulsarClient.builder().serviceUrl(serviceUrl).build();
                 Producer<byte[]> producer = PulsarClientArtifactProducerFactory.create(
-                        client, CLUSTER, INCARNATION, physicalTopic, CREATION_TIMESTAMP, producerName);
-                PulsarClientArtifactSendTransport transport = new PulsarClientArtifactSendTransport(
-                        producer, CLUSTER, INCARNATION, physicalTopic, CREATION_TIMESTAMP, 0, true)) {
-            final PulsarSendResult result = transport
-                    .sendPreparedRecord(record, artifacts)
-                    .toCompletableFuture()
-                    .get(20, TimeUnit.SECONDS);
+                        client, CLUSTER, INCARNATION, physicalTopic, CREATION_TIMESTAMP, producerName)) {
+            final PulsarClientArtifactSendTransport recordSender = new PulsarClientArtifactSendTransport(
+                    producer, CLUSTER, INCARNATION, physicalTopic, CREATION_TIMESTAMP, 0, true);
+            final AtomicReference<PulsarSendResult> physicalResult = new AtomicReference<>();
+            final com.nereusstream.delay.adapter.PinnedPulsarNativeSubmissionAdapter.PulsarNativeSendTransport
+                    nativeSender =
+                            new com.nereusstream.delay.adapter.PinnedPulsarNativeSubmissionAdapter
+                                    .PulsarNativeSendTransport() {
+                                @Override
+                                public CompletableFuture<PulsarSendResult> send(
+                                        final com.nereusstream.delay.adapter.PulsarNativeSendRequest ignored) {
+                                    return CompletableFuture.failedFuture(
+                                            new AssertionError("coordinator used the envelope-only native sender"));
+                                }
+
+                                @Override
+                                public CompletableFuture<PulsarSendResult> sendPreparedRecord(
+                                        final PulsarPreparedRecord record,
+                                        final ArtifactGenerationSet candidateArtifacts) {
+                                    if (!expectedRecord.equals(record) || !artifacts.equals(candidateArtifacts)) {
+                                        return CompletableFuture.failedFuture(new AssertionError(
+                                                "coordinator changed the validated prepared record"));
+                                    }
+                                    return recordSender
+                                            .sendPreparedRecord(record, candidateArtifacts)
+                                            .toCompletableFuture()
+                                            .thenApply(result -> {
+                                                physicalResult.set(result);
+                                                return result;
+                                            });
+                                }
+                            };
+            final ProductionPulsarSendTransport transport = new ProductionPulsarSendTransport(
+                    transportKey,
+                    new ProductionPulsarSendTransport.Configuration(true, true, true, "source-locked-p1-smoke"),
+                    ignored -> CompletableFuture.failedFuture(
+                            new AssertionError("coordinator selected the managed sender for a native branch")),
+                    nativeSender,
+                    validator);
+            final CommandTransportRegistry transports = key -> transportKey.equals(key) ? transport : null;
+            final DefaultSubmissionCoordinator coordinator = new DefaultSubmissionCoordinator(
+                    new RouteBoundSubmissionTransportPlanResolver(routes(), System::currentTimeMillis, validator),
+                    transports,
+                    SubmissionOutcomeProjectorRegistry.of(new PulsarNativeSubmissionOutcomeProjector()));
+            final var outcome =
+                    coordinator.submit(tenant, submission).toCompletableFuture().get(20, TimeUnit.SECONDS);
+            if (outcome.kind() != SubmissionOutcomeKind.NATIVE_RECEIPT) {
+                throw new IllegalStateException("native coordinator did not produce a receipt: " + outcome.kind());
+            }
+            final PulsarSendResult result = physicalResult.get();
+            if (result == null) {
+                throw new IllegalStateException("native coordinator did not reach the prepared-record sender");
+            }
             if (result.disposition() != PulsarSendResult.Disposition.PERSISTED
                     || result.responseEvidenceBytes() == null
                     || result.brokerEntryTimestampEpochMs() < 0) {
@@ -123,7 +286,7 @@ public final class PulsarClientArtifactNativeSmoke {
             final PublishEvidence evidence = PublishEvidence.decode(result.responseEvidenceBytes());
             com.nereusstream.delay.adapter.PulsarSendAckEvidence.requireExactRecordBinding(
                     evidence,
-                    record,
+                    expectedRecord,
                     artifacts,
                     result.ledgerId(),
                     result.entryId(),
@@ -144,7 +307,7 @@ public final class PulsarClientArtifactNativeSmoke {
                 }
                 consumer.acknowledge(delivered);
             }
-            System.out.println("Pulsar native typed-evidence smoke passed: topic="
+            System.out.println("Pulsar native coordinator typed-evidence smoke passed: topic="
                     + physicalTopic
                     + ", deliverAt="
                     + deliverAtEpochMs
@@ -170,6 +333,41 @@ public final class PulsarClientArtifactNativeSmoke {
             throw new IllegalStateException("native ACK evidence did not contain a sequence");
         }
         return sequence;
+    }
+
+    private static RouteSnapshotProvider routes() {
+        return new RouteSnapshotProvider() {
+            @Override
+            public com.nereusstream.delay.protocol.RouteSnapshot activeForNewSchedule(
+                    final AuthenticatedTenantContext context, final RouteSelectionHint hint) {
+                return null;
+            }
+
+            @Override
+            public com.nereusstream.delay.protocol.RouteSnapshot exact(
+                    final RouteIncarnation incarnation, final AuthenticatedTenantContext context) {
+                return null;
+            }
+
+            @Override
+            public long publishedRevision() {
+                return 1;
+            }
+        };
+    }
+
+    private static TrustedUtcIntervalEvidence evidence(final long time) {
+        return new TrustedUtcIntervalEvidence(
+                time,
+                time + 1,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                Bytes.utf8("native-smoke-clock-" + time),
+                1,
+                time,
+                time,
+                Bytes.sha256(Bytes.utf8("native-smoke-time-" + time)),
+                0,
+                null);
     }
 
     private static void createTopic(final HttpClient client, final String adminUrl, final String topic)

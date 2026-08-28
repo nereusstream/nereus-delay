@@ -126,8 +126,9 @@ def read_supporting(path: Path) -> list[dict[str, str]]:
         if not Path(log_path).is_file():
             raise ValueError(f"supporting check log is missing: {log_path}")
         records.append({"id": cell_id, "status": status, "command": command, "logPath": log_path})
-    if [record["id"] for record in records] != ["p1.compileRealPulsar", "p1.h0"]:
-        raise ValueError("supporting records do not contain the two P1 checks in order")
+    expected_ids = ["p1.compileRealPulsar", "p1.h0", "p1.nativeCoordinator"]
+    if [record["id"] for record in records] != expected_ids:
+        raise ValueError("supporting records do not contain the three P1 checks in order")
     return records
 
 
@@ -158,7 +159,7 @@ def main() -> int:
             status = "PASS"
         receipt = {
             "receiptSchema": "nereus-delay.disposable-local-certification-receipt",
-            "receiptSchemaGeneration": 1,
+            "receiptSchemaGeneration": 2,
             "classification": "DISPOSABLE_LOCAL",
             "status": status,
             "authority": False,

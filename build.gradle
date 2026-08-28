@@ -558,7 +558,7 @@ tasks.register('runRealPulsarDestinationSmoke', JavaExec) {
 
 tasks.register('runRealPulsarNativeSmoke', JavaExec) {
     group = 'verification'
-    description = 'Runs the final native Pulsar deliverAt record and typed SEND ACK evidence against a service.'
+    description = 'Runs the full native coordinator-to-P1 deliverAt record and typed ACK path against a service.'
     dependsOn tasks.named('compileRealPulsar')
     if (realPulsarClientClasspath == null || realPulsarRuntimeDir == null
             || findProperty('pulsarServiceUrl') == null

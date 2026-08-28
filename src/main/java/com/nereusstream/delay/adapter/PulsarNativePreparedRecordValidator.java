@@ -1,6 +1,6 @@
 package com.nereusstream.delay.adapter;
 
-import com.nereusstream.delay.assessment.DataResetActivationGate;
+import com.nereusstream.delay.assessment.PhysicalSendActivationGate;
 import com.nereusstream.delay.protocol.ArtifactGenerationSet;
 import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
@@ -33,14 +33,14 @@ public final class PulsarNativePreparedRecordValidator {
     private final PublicKey issuerKey;
     private final Clock clock;
     private final PinnedPulsarNativeSubmissionAdapter.CredentialFingerprintProvider credentialFingerprintProvider;
-    private final DataResetActivationGate activationGate;
+    private final PhysicalSendActivationGate activationGate;
 
     public PulsarNativePreparedRecordValidator(
             final PulsarTargetResource resource,
             final PublicKey issuerKey,
             final Clock clock,
             final PinnedPulsarNativeSubmissionAdapter.CredentialFingerprintProvider credentialFingerprintProvider,
-            final DataResetActivationGate activationGate) {
+            final PhysicalSendActivationGate activationGate) {
         this.resource = Objects.requireNonNull(resource, "resource");
         this.issuerKey = Objects.requireNonNull(issuerKey, "issuerKey");
         this.clock = Objects.requireNonNull(clock, "clock");
@@ -83,8 +83,7 @@ public final class PulsarNativePreparedRecordValidator {
         final long nowEpochMs;
         try {
             nowEpochMs = clock.millis();
-            activationGate.requirePhysicalSend(
-                    artifacts, activationGate.manifest().manifestDigest(), nowEpochMs);
+            activationGate.requirePhysicalSend(artifacts, nowEpochMs);
         } catch (RuntimeException unavailable) {
             return StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE;
         }

@@ -1805,6 +1805,18 @@ create_topic "${business_topic}" || fail_preflight "could not create business to
 printf '%s\n' "${native_topic_names[@]}" >>"${created_topics_file}"
 
 set_broker_strictness true || fail_preflight "could not enable strict Pulsar delayed delivery"
+native_coordinator_topic="${resource_prefix}-native-coordinator"
+printf '%s\n' "${native_coordinator_topic}" >>"${created_topics_file}"
+run_supporting_check "p1.nativeCoordinator" \
+  "GRADLE_USER_HOME=${gradle_user_home} ./gradlew runRealPulsarNativeSmoke -PpulsarNativeTopic=${native_coordinator_topic}" \
+  "${artifact_dir}/logs/p1-native-coordinator.log" \
+  env "GRADLE_USER_HOME=${gradle_user_home}" ./gradlew runRealPulsarNativeSmoke \
+    -PpulsarClientClasspath="${p1_client_cp}" \
+    -PpulsarRuntimeDir="${runtime_dir}/lib" \
+    -PpulsarServiceUrl="${service_url_1}" \
+    -PpulsarAdminUrl="${admin_url_1}" \
+    -PpulsarNativeTopic="${native_coordinator_topic}" \
+    --no-daemon --console=plain
 run_native_cell native.shared.strict "${native_topic_names[0]}" shared strict strict \
   "strict mode rejects early delivery at deliverAt"
 set_broker_strictness false || fail_preflight "could not disable strict Pulsar delayed delivery"

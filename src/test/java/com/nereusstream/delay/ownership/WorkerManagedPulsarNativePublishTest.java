@@ -10,6 +10,9 @@ import com.nereusstream.delay.adapter.DestinationPublishResult;
 import com.nereusstream.delay.adapter.PulsarAttemptJournal;
 import com.nereusstream.delay.adapter.PulsarJournalResource;
 import com.nereusstream.delay.adapter.PulsarTargetResource;
+import com.nereusstream.delay.assessment.DeploymentSafetyGate;
+import com.nereusstream.delay.assessment.DisposableEnvironmentAttestation;
+import com.nereusstream.delay.assessment.PhysicalSendActivationGate;
 import com.nereusstream.delay.protocol.ActivationBarrier;
 import com.nereusstream.delay.protocol.AdapterKind;
 import com.nereusstream.delay.protocol.AdapterMetadata;
@@ -177,6 +180,35 @@ class WorkerManagedPulsarNativePublishTest {
         }
     }
 
+    @Test
+    void missingPhysicalActivationAuthorityBlocksBeforeJournalOrProducerOwnership() throws Exception {
+        final Fixture fixture = Fixture.create();
+        final AtomicInteger preparedCalls = new AtomicInteger();
+        final AtomicInteger leaseChecks = new AtomicInteger();
+        final AtomicReference<PulsarPreparedRecord> sent = new AtomicReference<>();
+        final WorkerPhysicalPublishExecutor executor =
+                fixture.executor(preparedAdapter(preparedCalls, sent), leaseChecks, fixture.validPhysicalTime, null);
+
+        try (executor) {
+            final WorkerPhysicalPublishExecutor.Submission submission = executor.submit(
+                    fixture.attempt,
+                    WorkerPhysicalPublishExecutor.prepareRequest(fixture.attempt, fixture.payload),
+                    () -> 1_950);
+
+            assertEquals(WorkerPhysicalPublishExecutor.SubmissionState.OUTCOME_HANDOFF_QUEUED, submission.state());
+            assertEquals(0, preparedCalls.get());
+            assertEquals(0, leaseChecks.get());
+            assertTrue(sent.get() == null);
+            assertTrue(fixture.journal.records().isEmpty());
+            assertEquals(
+                    DestinationPublishResult.Disposition.DEFINITIVELY_NOT_PUBLISHED,
+                    submission.physicalResult().orElseThrow().disposition());
+            assertEquals(
+                    StableCode.CAPABILITY_UNAVAILABLE,
+                    submission.physicalResult().orElseThrow().stableCode());
+        }
+    }
+
     private static DestinationPublishAdapter preparedAdapter(
             final AtomicInteger calls, final AtomicReference<PulsarPreparedRecord> sent) {
         return new DestinationPublishAdapter() {
@@ -228,6 +260,17 @@ class WorkerManagedPulsarNativePublishTest {
                 Bytes.sha256(Bytes.utf8("worker-native-fence")));
         private final ArtifactGenerationSet artifacts = ArtifactGenerationSet.current(
                 1, PulsarSourceLock.digest(), Bytes.sha256(Bytes.utf8("worker-native-schema")));
+        private final PhysicalSendActivationGate physicalActivation = PhysicalSendActivationGate.disposableLocal(
+                DeploymentSafetyGate.GateBStatus.PASS,
+                new DisposableEnvironmentAttestation(
+                        "worker-native-disposable",
+                        "worker-native-test",
+                        true,
+                        true,
+                        true,
+                        true,
+                        Bytes.sha256(Bytes.utf8("worker-native-attestation"))),
+                artifacts);
         private final PulsarTargetResource target = new PulsarTargetResource(
                 "worker-native-cluster",
                 Bytes.sha256(Bytes.utf8("worker-native-target-resource")),
@@ -380,12 +423,21 @@ class WorkerManagedPulsarNativePublishTest {
                 final DestinationPublishAdapter adapter,
                 final AtomicInteger leaseChecks,
                 final TrustedUtcIntervalEvidence physicalTime) {
+            return executor(adapter, leaseChecks, physicalTime, physicalActivation);
+        }
+
+        private WorkerPhysicalPublishExecutor executor(
+                final DestinationPublishAdapter adapter,
+                final AtomicInteger leaseChecks,
+                final TrustedUtcIntervalEvidence physicalTime,
+                final PhysicalSendActivationGate activationGate) {
             final WorkerPhysicalPublishExecutor result = new WorkerPhysicalPublishExecutor(
                     new BoundedDestinationPublishAdapter(adapter, admission, workClasses(), Runnable::run),
                     (mutation, ownerClock) -> {},
                     (ignoredAttempt, ignoredRequest, ignoredClock) -> WorkerPhysicalPublishExecutor.Decision.allowed(),
                     (ignoredAttempt, ignoredRequest, ignoredResult) -> mutation(shard),
-                    () -> {});
+                    () -> {},
+                    activationGate);
             result.bindManagedPulsarContext(new WorkerPhysicalPublishExecutor.ManagedPulsarContext(
                     journal,
                     producer,

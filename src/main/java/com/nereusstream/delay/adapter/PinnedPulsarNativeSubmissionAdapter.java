@@ -1,6 +1,6 @@
 package com.nereusstream.delay.adapter;
 
-import com.nereusstream.delay.assessment.DataResetActivationGate;
+import com.nereusstream.delay.assessment.PhysicalSendActivationGate;
 import com.nereusstream.delay.protocol.ArtifactGenerationSet;
 import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
@@ -41,7 +41,6 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
     private final PulsarNativeSendTransport transport;
     private final CredentialFingerprintProvider credentialFingerprintProvider;
     private final boolean nativePreparedDeliveryEnabled;
-    private final DataResetActivationGate dataResetActivationGate;
     private final PulsarNativePreparedRecordValidator preparedRecordValidator;
     private final CloseGuard closeGuard = new CloseGuard();
 
@@ -88,7 +87,7 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
         this(resource, issuerKey, clock, transport, credentialFingerprintProvider, nativePreparedDeliveryEnabled, null);
     }
 
-    /** Full constructor with the signed H6 activation barrier. */
+    /** Full constructor with a closed disposable or persistent physical-send authority. */
     public PinnedPulsarNativeSubmissionAdapter(
             final PulsarTargetResource resource,
             final PublicKey issuerKey,
@@ -96,18 +95,17 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
             final PulsarNativeSendTransport transport,
             final CredentialFingerprintProvider credentialFingerprintProvider,
             final boolean nativePreparedDeliveryEnabled,
-            final DataResetActivationGate dataResetActivationGate) {
+            final PhysicalSendActivationGate physicalSendActivationGate) {
         this.resource = Objects.requireNonNull(resource, "resource");
         this.issuerKey = Objects.requireNonNull(issuerKey, "issuerKey");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.transport = Objects.requireNonNull(transport, "transport");
         this.credentialFingerprintProvider = credentialFingerprintProvider;
         this.nativePreparedDeliveryEnabled = nativePreparedDeliveryEnabled;
-        this.dataResetActivationGate = dataResetActivationGate;
-        this.preparedRecordValidator = dataResetActivationGate == null
+        this.preparedRecordValidator = physicalSendActivationGate == null
                 ? null
                 : new PulsarNativePreparedRecordValidator(
-                        resource, issuerKey, clock, credentialFingerprintProvider, dataResetActivationGate);
+                        resource, issuerKey, clock, credentialFingerprintProvider, physicalSendActivationGate);
     }
 
     public PinnedPulsarNativeSubmissionAdapter(
@@ -137,7 +135,7 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
             final PublicKey issuerKey,
             final PulsarNativeSendTransport transport,
             final boolean nativePreparedDeliveryEnabled,
-            final DataResetActivationGate dataResetActivationGate) {
+            final PhysicalSendActivationGate physicalSendActivationGate) {
         this(
                 resource,
                 issuerKey,
@@ -145,7 +143,7 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
                 transport,
                 null,
                 nativePreparedDeliveryEnabled,
-                dataResetActivationGate);
+                physicalSendActivationGate);
     }
 
     /**
