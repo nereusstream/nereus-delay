@@ -37,6 +37,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 import org.apache.pulsar.client.api.GuardedConsumer;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.MessageIdAdv;
@@ -58,6 +59,13 @@ public final class PulsarClientArtifactNativeMatrixSmoke {
     private static final long MAX_DELIVERY_DELAY_MILLIS = 60_000;
     private static final long DELIVERY_DELAY_MILLIS = 4_000;
     private static final long STRICT_EARLY_TOLERANCE_MILLIS = 100;
+    private static final int MESSAGE_TTL_SECONDS = 1;
+    private static final long TTL_EXPIRY_SETTLE_MILLIS = 500;
+    private static final long TTL_POST_DELIVER_AT_OBSERVATION_MILLIS = 2_000;
+    private static final int RETENTION_TIME_MINUTES = 0;
+    private static final int RETENTION_SIZE_MEGABYTES = 0;
+    private static final int ADMIN_ATTEMPTS = 60;
+    private static final long ADMIN_RETRY_MILLIS = 250;
     private static final int HASH_LENGTH = 32;
 
     private PulsarClientArtifactNativeMatrixSmoke() {}
@@ -72,6 +80,10 @@ public final class PulsarClientArtifactNativeMatrixSmoke {
         final String topic = requireText(arguments[2], "topic");
         final SubscriptionType subscriptionType = parseSubscriptionType(arguments[3]);
         final PolicyMode policyMode = PolicyMode.parse(arguments[4]);
+        if ((policyMode == PolicyMode.TTL_EXPIRY || policyMode == PolicyMode.RETENTION_ZERO)
+                && subscriptionType != SubscriptionType.Shared) {
+            throw new IllegalArgumentException("native TTL/retention risk cells require Shared subscription");
+        }
         final String brokerStrictness = requireText(arguments[5], "broker-strictness");
         final Path evidencePath = Path.of(arguments[6]).toAbsolutePath();
         final long startedAt = System.currentTimeMillis();
@@ -83,7 +95,13 @@ public final class PulsarClientArtifactNativeMatrixSmoke {
         createTopic(admin, adminUrl, topic, incarnation, creationTimestamp);
         try {
             setDelayedDeliveryPolicy(admin, adminUrl, topic, policyMode.active());
+            if (policyMode == PolicyMode.TTL_EXPIRY) {
+                setMessageTtl(admin, adminUrl, topic, MESSAGE_TTL_SECONDS);
+            } else if (policyMode == PolicyMode.RETENTION_ZERO) {
+                setRetention(admin, adminUrl, topic, RETENTION_TIME_MINUTES, RETENTION_SIZE_MEGABYTES);
+            }
             final CellResult result = runCell(
+                    admin,
                     serviceUrl,
                     adminUrl,
                     topic,
@@ -112,6 +130,7 @@ public final class PulsarClientArtifactNativeMatrixSmoke {
     }
 
     private static CellResult runCell(
+            final HttpClient admin,
             final String serviceUrl,
             final String adminUrl,
             final String topic,
@@ -136,6 +155,7 @@ public final class PulsarClientArtifactNativeMatrixSmoke {
                 PulsarSourceLock.digest(),
                 Bytes.sha256(Bytes.utf8("ndip1-disposable-native-matrix-schema")));
         final String producerName = "nereus-delay-ndip1-native-" + topic;
+        final String subscriptionName = producerName + "-sub";
         final PulsarBrokerResourceIdentity target =
                 new PulsarBrokerResourceIdentity(CLUSTER, incarnation, physicalTopic, creationTimestamp);
         final ReservedPublishMetadata reserved = new ReservedPublishMetadata(
@@ -179,13 +199,27 @@ public final class PulsarClientArtifactNativeMatrixSmoke {
         final long sendStartedAt = System.currentTimeMillis();
         final PulsarSendResult sendResult;
         final AckFields ack;
-        final Message<byte[]> delivered;
-        final long receiveAtEpochMs;
+        Message<byte[]> delivered = null;
+        long receiveAtEpochMs = 0;
+        boolean deliveryObserved = false;
+        boolean expiryTriggered = false;
+        boolean targetLedgerTrimmed = false;
+        String riskObservation = "subscription behavior matched the explicit Pulsar native contract";
         try (PulsarClient client = PulsarClient.builder().serviceUrl(serviceUrl).build();
                 Producer<byte[]> producer = PulsarClientArtifactProducerFactory.create(
                         client, CLUSTER, incarnation, physicalTopic, creationTimestamp, producerName);
                 PulsarClientArtifactSendTransport transport = new PulsarClientArtifactSendTransport(
                         producer, CLUSTER, incarnation, physicalTopic, creationTimestamp, 0, true)) {
+            final TopicResourceGuard guard = new TopicResourceGuard(CLUSTER, incarnation, creationTimestamp);
+            if (policyMode == PolicyMode.TTL_EXPIRY) {
+                try (GuardedConsumer<byte[]> ignored = PulsarClientArtifactSourceConsumerFactory.create(
+                        client, guard, physicalTopic, subscriptionName, subscriptionType)) {
+                    // The durable cursor must exist before the target is persisted so TTL can expire it.
+                    if (!physicalTopic.equals(ignored.getTopic())) {
+                        throw new IllegalStateException("TTL seed consumer is not bound to the exact topic");
+                    }
+                }
+            }
             sendResult = transport
                     .sendPreparedRecord(record, artifacts)
                     .toCompletableFuture()
@@ -219,76 +253,126 @@ public final class PulsarClientArtifactNativeMatrixSmoke {
                         "native matrix ACK is not bound to the exact record/position/source lock");
             }
 
-            final TopicResourceGuard guard = new TopicResourceGuard(CLUSTER, incarnation, creationTimestamp);
-            try (GuardedConsumer<byte[]> consumer = PulsarClientArtifactSourceConsumerFactory.create(
-                    client, guard, physicalTopic, "nereus-delay-ndip1-native-" + topic + "-sub", subscriptionType)) {
-                final long earlyWindowDeadline = Math.min(deliverAtEpochMs, System.currentTimeMillis() + 1_500L);
-                Message<byte[]> early = null;
-                while (System.currentTimeMillis() < earlyWindowDeadline) {
-                    final long remaining = earlyWindowDeadline - System.currentTimeMillis();
-                    if (remaining <= 0) {
-                        break;
-                    }
-                    early = consumer.receive((int) Math.min(remaining, 250L), TimeUnit.MILLISECONDS);
-                    if (early != null) {
-                        break;
-                    }
-                }
-                if (early != null) {
-                    final long earlyReceivedAt = System.currentTimeMillis();
-                    if (policyMode.requiresDelayedBoundary()) {
-                        final long earlyByMillis = deliverAtEpochMs - earlyReceivedAt;
-                        if (policyMode == PolicyMode.STRICT
-                                || earlyByMillis > TICK_TIME_MILLIS + STRICT_EARLY_TOLERANCE_MILLIS) {
-                            throw new IllegalStateException(
-                                    "native matrix message was released beyond the allowed native risk boundary: "
-                                            + "cell="
-                                            + cellId
-                                            + ", earlyByMillis="
-                                            + earlyByMillis);
+            if (policyMode == PolicyMode.TTL_EXPIRY) {
+                waitUntil(sendResult.brokerEntryTimestampEpochMs()
+                        + TimeUnit.SECONDS.toMillis(MESSAGE_TTL_SECONDS)
+                        + TTL_EXPIRY_SETTLE_MILLIS);
+                expireSubscription(admin, adminUrl, topic, subscriptionName, MESSAGE_TTL_SECONDS);
+                expiryTriggered = true;
+                try (GuardedConsumer<byte[]> consumer = PulsarClientArtifactSourceConsumerFactory.create(
+                        client, guard, physicalTopic, subscriptionName, subscriptionType)) {
+                    final long observationDeadline = deliverAtEpochMs + TTL_POST_DELIVER_AT_OBSERVATION_MILLIS;
+                    while (System.currentTimeMillis() < observationDeadline) {
+                        final long remaining = observationDeadline - System.currentTimeMillis();
+                        if (remaining <= 0) {
+                            break;
                         }
-                    } else if (earlyReceivedAt >= deliverAtEpochMs) {
-                        throw new IllegalStateException("native matrix immediate cell was not immediate");
-                    }
-                    delivered = early;
-                    receiveAtEpochMs = earlyReceivedAt;
-                } else {
-                    delivered = consumer.receive(15, TimeUnit.SECONDS);
-                    receiveAtEpochMs = System.currentTimeMillis();
-                    if (delivered == null) {
-                        throw new IllegalStateException("native matrix message was not delivered: " + cellId);
+                        final Message<byte[]> unexpected =
+                                consumer.receive((int) Math.min(remaining, 250L), TimeUnit.MILLISECONDS);
+                        if (unexpected != null) {
+                            throw new IllegalStateException(
+                                    "TTL-expired native message became visible at or after deliverAt");
+                        }
                     }
                 }
-                validateDeliveredMessage(
-                        delivered, physicalTopic, payload, key, orderingKey, eventTimeEpochMs, record, ack);
-                if (policyMode == PolicyMode.STRICT
-                        && receiveAtEpochMs + STRICT_EARLY_TOLERANCE_MILLIS < deliverAtEpochMs) {
-                    throw new IllegalStateException("strict native matrix delivery was early by "
-                            + (deliverAtEpochMs - receiveAtEpochMs)
-                            + " ms");
-                }
-                if (policyMode == PolicyMode.DISABLED
-                        || subscriptionType == SubscriptionType.Exclusive
-                        || subscriptionType == SubscriptionType.Failover) {
-                    if (receiveAtEpochMs >= deliverAtEpochMs && policyMode == PolicyMode.DISABLED) {
-                        throw new IllegalStateException("disabled-delivery cell was not immediately visible");
+                riskObservation = "topic TTL and an explicit Pulsar expiry check removed the delayed message before "
+                        + "deliverAt; no delivery was observed after deliverAt";
+            } else {
+                try (GuardedConsumer<byte[]> consumer = PulsarClientArtifactSourceConsumerFactory.create(
+                        client, guard, physicalTopic, subscriptionName, subscriptionType)) {
+                    final long earlyWindowDeadline = Math.min(deliverAtEpochMs, System.currentTimeMillis() + 1_500L);
+                    Message<byte[]> early = null;
+                    while (System.currentTimeMillis() < earlyWindowDeadline) {
+                        final long remaining = earlyWindowDeadline - System.currentTimeMillis();
+                        if (remaining <= 0) {
+                            break;
+                        }
+                        early = consumer.receive((int) Math.min(remaining, 250L), TimeUnit.MILLISECONDS);
+                        if (early != null) {
+                            break;
+                        }
                     }
-                    if (receiveAtEpochMs >= deliverAtEpochMs
-                            && (subscriptionType == SubscriptionType.Exclusive
-                                    || subscriptionType == SubscriptionType.Failover)) {
-                        throw new IllegalStateException("exclusive/failover native immediate cell was not immediate");
+                    if (early != null) {
+                        final long earlyReceivedAt = System.currentTimeMillis();
+                        if (policyMode.requiresDelayedBoundary()) {
+                            final long earlyByMillis = deliverAtEpochMs - earlyReceivedAt;
+                            if (policyMode == PolicyMode.STRICT
+                                    || earlyByMillis > TICK_TIME_MILLIS + STRICT_EARLY_TOLERANCE_MILLIS) {
+                                throw new IllegalStateException(
+                                        "native matrix message was released beyond the allowed native risk boundary: "
+                                                + "cell="
+                                                + cellId
+                                                + ", earlyByMillis="
+                                                + earlyByMillis);
+                            }
+                        } else if (earlyReceivedAt >= deliverAtEpochMs) {
+                            throw new IllegalStateException("native matrix immediate cell was not immediate");
+                        }
+                        delivered = early;
+                        receiveAtEpochMs = earlyReceivedAt;
+                    } else {
+                        delivered = consumer.receive(15, TimeUnit.SECONDS);
+                        receiveAtEpochMs = System.currentTimeMillis();
+                        if (delivered == null) {
+                            throw new IllegalStateException("native matrix message was not delivered: " + cellId);
+                        }
                     }
+                    validateDeliveredMessage(
+                            delivered, physicalTopic, payload, key, orderingKey, eventTimeEpochMs, record, ack);
+                    deliveryObserved = true;
+                    if (policyMode == PolicyMode.STRICT
+                            && receiveAtEpochMs + STRICT_EARLY_TOLERANCE_MILLIS < deliverAtEpochMs) {
+                        throw new IllegalStateException("strict native matrix delivery was early by "
+                                + (deliverAtEpochMs - receiveAtEpochMs)
+                                + " ms");
+                    }
+                    if (policyMode == PolicyMode.DISABLED
+                            || subscriptionType == SubscriptionType.Exclusive
+                            || subscriptionType == SubscriptionType.Failover) {
+                        if (receiveAtEpochMs >= deliverAtEpochMs && policyMode == PolicyMode.DISABLED) {
+                            throw new IllegalStateException("disabled-delivery cell was not immediately visible");
+                        }
+                        if (receiveAtEpochMs >= deliverAtEpochMs
+                                && (subscriptionType == SubscriptionType.Exclusive
+                                        || subscriptionType == SubscriptionType.Failover)) {
+                            throw new IllegalStateException(
+                                    "exclusive/failover native immediate cell was not immediate");
+                        }
+                    }
+                    consumer.acknowledge(delivered);
                 }
-                consumer.acknowledge(delivered);
             }
         }
+        if (policyMode == PolicyMode.RETENTION_ZERO) {
+            targetLedgerTrimmed = observeZeroRetention(
+                    admin,
+                    serviceUrl,
+                    adminUrl,
+                    topic,
+                    physicalTopic,
+                    subscriptionName,
+                    incarnation,
+                    creationTimestamp,
+                    producerName,
+                    sendResult.ledgerId());
+            riskObservation = "zero topic retention removed the acknowledged target ledger after rollover and an "
+                    + "explicit Pulsar trim";
+        }
         final long finishedAt = System.currentTimeMillis();
-        final long receiveDelta = receiveAtEpochMs - deliverAtEpochMs;
+        final long receiveDelta = deliveryObserved ? receiveAtEpochMs - deliverAtEpochMs : 0;
         return new CellResult(
                 cellId,
                 subscriptionTypeName(subscriptionType),
                 policyMode.value(),
                 brokerStrictness,
+                policyMode.riskKind(),
+                policyMode == PolicyMode.TTL_EXPIRY ? MESSAGE_TTL_SECONDS : 0,
+                policyMode == PolicyMode.RETENTION_ZERO ? RETENTION_TIME_MINUTES : -1,
+                policyMode == PolicyMode.RETENTION_ZERO ? RETENTION_SIZE_MEGABYTES : -1,
+                deliveryObserved,
+                expiryTriggered,
+                targetLedgerTrimmed,
+                riskObservation,
                 topic,
                 physicalTopic,
                 CLUSTER,
@@ -319,6 +403,93 @@ public final class PulsarClientArtifactNativeMatrixSmoke {
                 receiveAtEpochMs,
                 receiveDelta,
                 finishedAt);
+    }
+
+    private static void waitUntil(final long deadlineEpochMs) throws InterruptedException {
+        while (System.currentTimeMillis() < deadlineEpochMs) {
+            final long remaining = deadlineEpochMs - System.currentTimeMillis();
+            if (remaining <= 0) {
+                break;
+            }
+            TimeUnit.MILLISECONDS.sleep(Math.min(remaining, 100L));
+        }
+    }
+
+    private static void expireSubscription(
+            final HttpClient client,
+            final String adminUrl,
+            final String topic,
+            final String subscriptionName,
+            final int expireTimeInSeconds)
+            throws Exception {
+        final String path = adminUrl
+                + "/admin/v2/persistent/public/default/"
+                + topic
+                + "/subscription/"
+                + subscriptionName
+                + "/expireMessages/"
+                + expireTimeInSeconds;
+        requireAdminMutation(client, path, "expire native TTL subscription");
+    }
+
+    private static boolean observeZeroRetention(
+            final HttpClient admin,
+            final String serviceUrl,
+            final String adminUrl,
+            final String topic,
+            final String physicalTopic,
+            final String subscriptionName,
+            final byte[] incarnation,
+            final long creationTimestamp,
+            final String producerName,
+            final long targetLedgerId)
+            throws Exception {
+        requireAdminMutation(
+                admin,
+                adminUrl + "/admin/v2/persistent/public/default/" + topic + "/unload",
+                "unload native retention topic");
+        final byte[] triggerPayload = Bytes.utf8("ndip1-zero-retention-rollover-" + topic);
+        final TopicResourceGuard guard = new TopicResourceGuard(CLUSTER, incarnation, creationTimestamp);
+        try (PulsarClient client = PulsarClient.builder().serviceUrl(serviceUrl).build();
+                Producer<byte[]> producer = PulsarClientArtifactProducerFactory.create(
+                        client,
+                        CLUSTER,
+                        incarnation,
+                        physicalTopic,
+                        creationTimestamp,
+                        producerName + "-retention-rollover");
+                GuardedConsumer<byte[]> consumer = PulsarClientArtifactSourceConsumerFactory.create(
+                        client, guard, physicalTopic, subscriptionName, SubscriptionType.Shared)) {
+            producer.newMessage().value(triggerPayload).send();
+            final Message<byte[]> trigger = consumer.receive(15, TimeUnit.SECONDS);
+            if (trigger == null || !Arrays.equals(triggerPayload, trigger.getValue())) {
+                throw new IllegalStateException("zero-retention rollover message was not delivered exactly");
+            }
+            consumer.acknowledge(trigger);
+        }
+        final String trimPath = adminUrl + "/admin/v2/persistent/public/default/" + topic + "/trim";
+        requireAdminMutation(admin, trimPath, "trim zero-retention native topic");
+        final String statsPath =
+                adminUrl + "/admin/v2/persistent/public/default/" + topic + "/internalStats?metadata=true";
+        final Pattern targetLedger = Pattern.compile(
+                "\\\"ledgerId\\\"\\s*:\\s*" + Pattern.quote(Long.toString(targetLedgerId)) + "(?:\\D|$)");
+        for (int attempt = 0; attempt < ADMIN_ATTEMPTS; attempt++) {
+            HttpResponse<String> response = request(admin, statsPath, "GET", "");
+            if (response.statusCode() == 404) {
+                response = request(admin, statsPath.replace("metadata=true", "metadata=false"), "GET", "");
+            }
+            if (response.statusCode() >= 200
+                    && response.statusCode() < 300
+                    && !targetLedger.matcher(response.body()).find()) {
+                return true;
+            }
+            if (attempt > 0 && attempt % 10 == 0) {
+                requireAdminMutation(admin, trimPath, "retry zero-retention native topic trim");
+            }
+            TimeUnit.MILLISECONDS.sleep(ADMIN_RETRY_MILLIS);
+        }
+        throw new IllegalStateException(
+                "zero-retention trim did not remove the acknowledged target ledger: " + targetLedgerId);
     }
 
     private static void validateDeliveredMessage(
@@ -412,6 +583,77 @@ public final class PulsarClientArtifactNativeMatrixSmoke {
         throw new IllegalStateException("native matrix delayed-delivery policy did not converge: " + topic);
     }
 
+    private static void setMessageTtl(
+            final HttpClient client, final String adminUrl, final String topic, final int messageTtlSeconds)
+            throws Exception {
+        final String path = adminUrl + "/admin/v2/persistent/public/default/" + topic + "/messageTTL";
+        requireAdminMutation(client, path + "?messageTTL=" + messageTtlSeconds, "set native matrix topic message TTL");
+        for (int attempt = 0; attempt < ADMIN_ATTEMPTS; attempt++) {
+            final HttpResponse<String> response = request(client, path + "?applied=true", "GET", "");
+            if (response.statusCode() >= 200
+                    && response.statusCode() < 300
+                    && Integer.toString(messageTtlSeconds)
+                            .equals(response.body().trim())) {
+                return;
+            }
+            TimeUnit.MILLISECONDS.sleep(ADMIN_RETRY_MILLIS);
+        }
+        throw new IllegalStateException("native matrix topic message TTL did not converge: " + topic);
+    }
+
+    private static void setRetention(
+            final HttpClient client,
+            final String adminUrl,
+            final String topic,
+            final int retentionTimeMinutes,
+            final int retentionSizeMegabytes)
+            throws Exception {
+        final String path = adminUrl + "/admin/v2/persistent/public/default/" + topic + "/retention";
+        final String body = "{\"retentionTimeInMinutes\":"
+                + retentionTimeMinutes
+                + ",\"retentionSizeInMB\":"
+                + retentionSizeMegabytes
+                + "}";
+        requireAdminMutation(client, path, "set native matrix topic retention", body);
+        for (int attempt = 0; attempt < ADMIN_ATTEMPTS; attempt++) {
+            final HttpResponse<String> response = request(client, path + "?applied=true", "GET", "");
+            final String compact = response.body().replaceAll("\\s+", "");
+            if (response.statusCode() >= 200
+                    && response.statusCode() < 300
+                    && compact.contains("\"retentionTimeInMinutes\":" + retentionTimeMinutes)
+                    && compact.contains("\"retentionSizeInMB\":" + retentionSizeMegabytes)) {
+                return;
+            }
+            TimeUnit.MILLISECONDS.sleep(ADMIN_RETRY_MILLIS);
+        }
+        throw new IllegalStateException("native matrix topic retention did not converge: " + topic);
+    }
+
+    private static void requireAdminMutation(final HttpClient client, final String path, final String operation)
+            throws Exception {
+        requireAdminMutation(client, path, operation, "");
+    }
+
+    private static void requireAdminMutation(
+            final HttpClient client, final String path, final String operation, final String body) throws Exception {
+        HttpResponse<String> lastResponse = null;
+        for (int attempt = 0; attempt < ADMIN_ATTEMPTS; attempt++) {
+            lastResponse = request(client, path, "POST", body);
+            if (lastResponse.statusCode() >= 200 && lastResponse.statusCode() < 300) {
+                return;
+            }
+            if (lastResponse.statusCode() != 404
+                    && lastResponse.statusCode() != 409
+                    && lastResponse.statusCode() != 412
+                    && lastResponse.statusCode() != 500
+                    && lastResponse.statusCode() != 503) {
+                throw failure(operation, lastResponse);
+            }
+            TimeUnit.MILLISECONDS.sleep(ADMIN_RETRY_MILLIS);
+        }
+        throw failure(operation, Objects.requireNonNull(lastResponse, "admin response"));
+    }
+
     private static void deleteTopicIfPresent(final HttpClient client, final String adminUrl, final String topic) {
         try {
             final HttpResponse<String> response = request(
@@ -431,6 +673,7 @@ public final class PulsarClientArtifactNativeMatrixSmoke {
         final HttpRequest request =
                 switch (method) {
                     case "DELETE" -> builder.DELETE().build();
+                    case "GET" -> builder.GET().build();
                     case "POST" ->
                         builder.POST(HttpRequest.BodyPublishers.ofString(body)).build();
                     case "PUT" ->
@@ -476,7 +719,9 @@ public final class PulsarClientArtifactNativeMatrixSmoke {
         STRICT("strict", true, true),
         NON_STRICT("non-strict", true, true),
         DISABLED("disabled", false, false),
-        IMMEDIATE("immediate", true, false);
+        IMMEDIATE("immediate", true, false),
+        TTL_EXPIRY("ttl-expiry", true, false),
+        RETENTION_ZERO("retention-zero", true, true);
 
         private final String value;
         private final boolean active;
@@ -513,6 +758,14 @@ public final class PulsarClientArtifactNativeMatrixSmoke {
         private String matrixValue() {
             return value.replace('-', '_');
         }
+
+        private String riskKind() {
+            return switch (this) {
+                case TTL_EXPIRY -> "message-ttl";
+                case RETENTION_ZERO -> "retention";
+                default -> "subscription-delivery";
+            };
+        }
     }
 
     private record CellResult(
@@ -520,6 +773,14 @@ public final class PulsarClientArtifactNativeMatrixSmoke {
             String subscriptionType,
             String policyMode,
             String brokerStrictness,
+            String riskKind,
+            int messageTtlSeconds,
+            int retentionTimeMinutes,
+            int retentionSizeMegabytes,
+            boolean deliveryObserved,
+            boolean expiryTriggered,
+            boolean targetLedgerTrimmed,
+            String riskObservation,
             String topic,
             String physicalTopic,
             String cluster,
@@ -552,12 +813,20 @@ public final class PulsarClientArtifactNativeMatrixSmoke {
             long finishedAtEpochMs) {
         private String toJson() {
             return "{\n"
-                    + field("schema", "nereus-delay.disposable-local.native-cell-evidence-r1", true)
+                    + field("schema", "nereus-delay.disposable-local.native-cell-evidence-r2", true)
                     + field("classification", "DISPOSABLE_LOCAL", true)
                     + field("cellId", cellId, true)
                     + field("subscriptionType", subscriptionType, true)
                     + field("policyMode", policyMode, true)
                     + field("brokerStrictness", brokerStrictness, true)
+                    + field("riskKind", riskKind, true)
+                    + field("messageTtlSeconds", messageTtlSeconds, false)
+                    + field("retentionTimeMinutes", retentionTimeMinutes, false)
+                    + field("retentionSizeMegabytes", retentionSizeMegabytes, false)
+                    + field("deliveryObserved", deliveryObserved, false)
+                    + field("expiryTriggered", expiryTriggered, false)
+                    + field("targetLedgerTrimmed", targetLedgerTrimmed, false)
+                    + field("riskObservation", riskObservation, true)
                     + field("topic", topic, true)
                     + field("physicalTopic", physicalTopic, true)
                     + field("cluster", cluster, true)

@@ -280,6 +280,8 @@ native_topic_names=(
   "${resource_prefix}-native-key-shared-disabled"
   "${resource_prefix}-native-exclusive-immediate"
   "${resource_prefix}-native-failover-immediate"
+  "${resource_prefix}-native-shared-ttl-expiry"
+  "${resource_prefix}-native-shared-retention-zero"
 )
 created_topics_file="${artifact_dir}/created-topics.txt"
 : >"${created_topics_file}"
@@ -568,12 +570,63 @@ import json
 import sys
 
 value = json.load(open(sys.argv[1], encoding="utf-8"))
+expected_keys = {
+    "schema", "classification", "cellId", "subscriptionType", "policyMode",
+    "brokerStrictness", "riskKind", "messageTtlSeconds", "retentionTimeMinutes",
+    "retentionSizeMegabytes", "deliveryObserved", "expiryTriggered",
+    "targetLedgerTrimmed", "riskObservation", "topic", "physicalTopic", "cluster",
+    "resourceIncarnationBase64", "creationTimestamp", "partition", "messageIdBase64",
+    "generation", "publishAttemptIdBase64", "payloadBase64", "payloadSha256", "key",
+    "orderingKeyBase64", "eventTimeEpochMs", "deliverAtEpochMs",
+    "recordTemplateHashBase64", "preparedRecordHashBase64",
+    "artifactGenerationSetDigestBase64", "sendStartedAtEpochMs", "ledgerId", "entryId",
+    "batchIndex", "batchSize", "brokerEntryTimestampEpochMs", "actualSequenceId",
+    "sendCommandSha256Base64", "authenticatedResponseSha256Base64", "receiveAtEpochMs",
+    "receiveDeltaFromTargetMs", "startedAt", "finishedAt", "verdict",
+}
+if set(value) != expected_keys:
+    raise SystemExit("native evidence is not a closed current-generation object")
 if value.get("classification") != "DISPOSABLE_LOCAL":
     raise SystemExit("native evidence classification is not DISPOSABLE_LOCAL")
 if value.get("cellId") != sys.argv[2]:
     raise SystemExit("native evidence cell id does not match the command")
 if value.get("verdict") != "PASS":
     raise SystemExit("native evidence verdict is not PASS")
+if value.get("schema") != "nereus-delay.disposable-local.native-cell-evidence-r2":
+    raise SystemExit("native evidence schema is not the closed current generation")
+if sys.argv[2] == "native.shared.ttl_expiry":
+    expected = {
+        "riskKind": "message-ttl",
+        "messageTtlSeconds": 1,
+        "deliveryObserved": False,
+        "expiryTriggered": True,
+        "targetLedgerTrimmed": False,
+    }
+    if any(value.get(key) != expected_value for key, expected_value in expected.items()):
+        raise SystemExit("native TTL evidence does not prove the exact expiry boundary")
+elif sys.argv[2] == "native.shared.retention_zero":
+    expected = {
+        "riskKind": "retention",
+        "retentionTimeMinutes": 0,
+        "retentionSizeMegabytes": 0,
+        "deliveryObserved": True,
+        "expiryTriggered": False,
+        "targetLedgerTrimmed": True,
+    }
+    if any(value.get(key) != expected_value for key, expected_value in expected.items()):
+        raise SystemExit("native retention evidence does not prove the exact zero-retention boundary")
+else:
+    expected = {
+        "riskKind": "subscription-delivery",
+        "messageTtlSeconds": 0,
+        "retentionTimeMinutes": -1,
+        "retentionSizeMegabytes": -1,
+        "deliveryObserved": True,
+        "expiryTriggered": False,
+        "targetLedgerTrimmed": False,
+    }
+    if any(value.get(key) != expected_value for key, expected_value in expected.items()):
+        raise SystemExit("native subscription evidence has inconsistent risk fields")
 PY
 }
 
@@ -1769,6 +1822,11 @@ run_native_cell native.exclusive.immediate "${native_topic_names[6]}" exclusive 
   "Exclusive immediate delivery after persistence is an expected native PASS"
 run_native_cell native.failover.immediate "${native_topic_names[7]}" failover immediate non-strict \
   "Failover immediate delivery after persistence is an expected native PASS"
+set_broker_strictness true || fail_preflight "could not enable strict Pulsar delayed delivery for native risks"
+run_native_cell native.shared.ttl_expiry "${native_topic_names[8]}" shared ttl-expiry strict \
+  "topic TTL expiry before deliverAt is an expected Pulsar native risk"
+run_native_cell native.shared.retention_zero "${native_topic_names[9]}" shared retention-zero strict \
+  "zero retention trims the acknowledged target ledger after rollover"
 
 run_junit_cell recovery.candidate_claim \
   "one durable Candidate/Claim transition and recovery requeue" \

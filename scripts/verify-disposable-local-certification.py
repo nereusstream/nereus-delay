@@ -28,6 +28,8 @@ NATIVE_CELLS = (
     "native.key_shared.disabled",
     "native.exclusive.immediate",
     "native.failover.immediate",
+    "native.shared.ttl_expiry",
+    "native.shared.retention_zero",
 )
 REQUIRED_CELLS = NATIVE_CELLS + (
     "recovery.candidate_claim",
