@@ -1143,12 +1143,19 @@ run_credential_binding_chaos() {
 }
 
 run_long_gc_chaos() {
+  local previous_java_tool_options="${JAVA_TOOL_OPTIONS-}" java_tool_options_was_set="${JAVA_TOOL_OPTIONS+x}"
+  export JAVA_TOOL_OPTIONS="-Xmx512m -XX:+UseSerialGC"
   run_two_phase_store_chaos \
     long-gc-chaos \
     NEREUS_DELAY_LONG_GC_PHASE \
     NEREUS_DELAY_LONG_GC_ARTIFACT_DIR \
     com.nereusstream.delay.scheduler.LongGcDurableChaosTest.realLongGcPausePreservesDurableDueAdmission \
     "${run_dir}/chaos/long-gc"
+  if [[ -n "${java_tool_options_was_set}" ]]; then
+    export JAVA_TOOL_OPTIONS="${previous_java_tool_options}"
+  else
+    unset JAVA_TOOL_OPTIONS
+  fi
 }
 
 run_target_isolation_chaos() {
