@@ -212,13 +212,14 @@ docker image inspect --format '{{join .RepoDigests "\n"}}' "${minio_image}" \
   | rg -F "@${minio_digest}" >/dev/null \
   || fail "local MinIO image does not carry the locked digest ${minio_digest}"
 
-if [[ ! -s "${runtime_dir}/lib/pulsar-client-api-5.0.0-M1.jar" ]]; then
+runtime_client_api="${runtime_dir}/lib/org.apache.pulsar-pulsar-client-api-5.0.0-M1.jar"
+if [[ ! -s "${runtime_client_api}" ]]; then
   if [[ -n "$(find "${runtime_dir}" -mindepth 1 -print -quit)" ]]; then
     fail "P1 runtime directory is non-empty but its lib is incomplete: ${runtime_dir}"
   fi
   tar -xzf "${pulsar_tarball}" -C "${runtime_dir}" --strip-components=1 "apache-pulsar-5.0.0-M1/lib"
 fi
-[[ -s "${runtime_dir}/lib/pulsar-client-api-5.0.0-M1.jar" ]] || fail "P1 runtime extraction failed"
+[[ -s "${runtime_client_api}" ]] || fail "P1 runtime extraction failed"
 
 if [[ ! -s "${image_context}/apache-pulsar-5.0.0-M1-bin.tar.gz" ]]; then
   if [[ -n "$(find "${image_context}" -mindepth 1 -print -quit)" ]]; then
