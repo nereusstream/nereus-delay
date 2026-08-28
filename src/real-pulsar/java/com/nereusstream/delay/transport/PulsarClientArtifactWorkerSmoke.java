@@ -1359,6 +1359,16 @@ public final class PulsarClientArtifactWorkerSmoke {
                     + "exact payload, the local response was discarded, and typed PULSAR_SEND_ACK evidence "
                     + "resolved the source-applied PUBLISHED Outcome");
         }
+        if (bridge.attemptJournalResponseLoss()) {
+            if (bridge.attemptJournalResponseLossRecoveries() != 3) {
+                throw new IllegalStateException("Pulsar Worker Attempt Journal response-loss smoke expected three "
+                        + "exact readback recoveries but observed "
+                        + bridge.attemptJournalResponseLossRecoveries());
+            }
+            System.out.println("Pulsar Worker Attempt Journal response-loss smoke passed: MAPPED, "
+                    + "OWNERSHIP_STARTED, and PUBLISHED were each persisted before the client response was "
+                    + "discarded and recovered by exact guarded contiguous readback");
+        }
         System.out.println("Pulsar Worker source-applied physical publish passed: Admission source ledger="
                 + admissionPosition.ledgerId() + "/" + admissionPosition.entryId()
                 + ", typed PULSAR_SEND_ACK target ledger/entry=" + branchNumber(evidence, 3) + "/"
@@ -1657,6 +1667,10 @@ public final class PulsarClientArtifactWorkerSmoke {
 
     private static boolean hasWorkerDestinationResponseLoss() {
         return "1".equals(System.getenv("NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS"));
+    }
+
+    private static boolean hasWorkerAttemptJournalResponseLoss() {
+        return "1".equals(System.getenv("NEREUS_DELAY_PULSAR_WORKER_ATTEMPT_JOURNAL_RESPONSE_LOSS"));
     }
 
     private static boolean hasWorkerAdmissionResponseLoss() {
@@ -2187,8 +2201,25 @@ public final class PulsarClientArtifactWorkerSmoke {
                 CLUSTER, JOURNAL_INCARNATION, journalPhysicalTopic, JOURNAL_CREATION_TIMESTAMP, shard.partition());
         final String journalProducerName = attemptJournalProducerName(shard, journalResource);
         final String replaySubscriptionName = attemptJournalReplaySubscription(ownerIdentity, journalResource);
-        final PulsarClientArtifactAttemptJournal journalTransport = PulsarClientArtifactAttemptJournal.open(
-                client, shard, journalResource, journalProducerName, replaySubscriptionName, Duration.ofSeconds(20));
+        final boolean attemptJournalResponseLoss = hasWorkerAttemptJournalResponseLoss();
+        final Producer<byte[]> rawJournalProducer = PulsarClientArtifactProducerFactory.create(
+                client,
+                journalResource.authenticatedClusterId(),
+                journalResource.resourceIncarnation(),
+                journalResource.physicalTopic(),
+                journalResource.physicalTopicCreationTimestamp(),
+                journalProducerName);
+        final Producer<byte[]> journalProducerTransport = attemptJournalResponseLoss
+                ? responseLossProducer(rawJournalProducer, new AtomicReference<>())
+                : rawJournalProducer;
+        final PulsarClientArtifactAttemptJournal journalTransport =
+                PulsarClientArtifactAttemptJournal.openWithProducerForTesting(
+                        client,
+                        shard,
+                        journalResource,
+                        journalProducerTransport,
+                        replaySubscriptionName,
+                        Duration.ofSeconds(20));
         final PulsarAttemptJournal.ProducerKey journalProducer =
                 new PulsarAttemptJournal.ProducerKey(laneId, laneIncarnation, producerNameHash, destinationTarget);
         executor.bindManagedPulsarContext(new WorkerPhysicalPublishExecutor.ManagedPulsarContext(
@@ -2239,6 +2270,7 @@ public final class PulsarClientArtifactWorkerSmoke {
                 destinationPhysicalTopic,
                 destinationResponseLoss,
                 responseEvidenceResolved,
+                attemptJournalResponseLoss,
                 admissionResponseLoss,
                 admissionResponseLossObserved);
     }
@@ -2559,7 +2591,7 @@ public final class PulsarClientArtifactWorkerSmoke {
         private final WorkerPhysicalPublishExecutor executor;
         private final RecordingMutationAppender appender;
         private final AutoCloseable appenderResource;
-        private final AutoCloseable journalResource;
+        private final PulsarClientArtifactAttemptJournal journalResource;
         private final AutoCloseable physicalExecutorResource;
         private final DestinationLaneId laneId;
         private final byte[] laneIncarnation;
@@ -2572,6 +2604,7 @@ public final class PulsarClientArtifactWorkerSmoke {
         private final String destinationPhysicalTopic;
         private final boolean destinationResponseLoss;
         private final AtomicBoolean destinationResponseEvidenceResolved;
+        private final boolean attemptJournalResponseLoss;
         private final boolean admissionResponseLoss;
         private final AtomicBoolean admissionResponseLossObserved;
 
@@ -2579,7 +2612,7 @@ public final class PulsarClientArtifactWorkerSmoke {
                 final WorkerPhysicalPublishExecutor executor,
                 final RecordingMutationAppender appender,
                 final AutoCloseable appenderResource,
-                final AutoCloseable journalResource,
+                final PulsarClientArtifactAttemptJournal journalResource,
                 final AutoCloseable physicalExecutorResource,
                 final DestinationLaneId laneId,
                 final byte[] laneIncarnation,
@@ -2592,6 +2625,7 @@ public final class PulsarClientArtifactWorkerSmoke {
                 final String destinationPhysicalTopic,
                 final boolean destinationResponseLoss,
                 final AtomicBoolean destinationResponseEvidenceResolved,
+                final boolean attemptJournalResponseLoss,
                 final boolean admissionResponseLoss,
                 final AtomicBoolean admissionResponseLossObserved) {
             this.executor = executor;
@@ -2610,6 +2644,7 @@ public final class PulsarClientArtifactWorkerSmoke {
             this.destinationPhysicalTopic = destinationPhysicalTopic;
             this.destinationResponseLoss = destinationResponseLoss;
             this.destinationResponseEvidenceResolved = destinationResponseEvidenceResolved;
+            this.attemptJournalResponseLoss = attemptJournalResponseLoss;
             this.admissionResponseLoss = admissionResponseLoss;
             this.admissionResponseLossObserved = admissionResponseLossObserved;
         }
@@ -2668,6 +2703,14 @@ public final class PulsarClientArtifactWorkerSmoke {
 
         boolean destinationResponseEvidenceResolved() {
             return destinationResponseEvidenceResolved.get();
+        }
+
+        boolean attemptJournalResponseLoss() {
+            return attemptJournalResponseLoss;
+        }
+
+        int attemptJournalResponseLossRecoveries() {
+            return journalResource.responseLossRecoveries();
         }
 
         boolean admissionResponseLoss() {

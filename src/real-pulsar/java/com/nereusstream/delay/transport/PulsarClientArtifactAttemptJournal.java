@@ -5,7 +5,9 @@ import com.nereusstream.delay.adapter.PulsarAttemptJournalRecordCodec;
 import com.nereusstream.delay.adapter.PulsarJournalResource;
 import com.nereusstream.delay.protocol.ShardId;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -24,13 +26,16 @@ import org.apache.pulsar.client.api.TopicResourceGuardAttestation;
 
 /** Source-locked P1 transport and contiguous startup replay for one Attempt Journal. */
 public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJournal.DurableAppender, AutoCloseable {
+    private final PulsarClient client;
     private final Producer<byte[]> producer;
     private final PulsarJournalResource resource;
     private final TopicResourceGuard expectedGuard;
+    private final String replaySubscriptionName;
     private final Duration responseTimeout;
     private final int responseTimeoutMs;
     private final PulsarAttemptJournal journal;
     private final int replayedRecords;
+    private int responseLossRecoveries;
 
     /** Opens the guarded producer and reconstructs the complete Journal from its earliest retained record. */
     public static PulsarClientArtifactAttemptJournal open(
@@ -50,17 +55,38 @@ public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJo
                 exactResource.physicalTopic(),
                 exactResource.physicalTopicCreationTimestamp(),
                 journalProducerName);
+        return openWithProducerForTesting(
+                client, shard, exactResource, producer, replaySubscriptionName, responseTimeout);
+    }
+
+    /**
+     * Opens an Attempt Journal around an already guarded producer. This
+     * package-scoped seam exists so the real P1 smoke can discard a committed
+     * client response without weakening the production producer factory.
+     * Ownership of {@code producer} transfers to the returned Journal.
+     */
+    static PulsarClientArtifactAttemptJournal openWithProducerForTesting(
+            final PulsarClient client,
+            final ShardId shard,
+            final PulsarJournalResource resource,
+            final Producer<byte[]> producer,
+            final String replaySubscriptionName,
+            final Duration responseTimeout)
+            throws PulsarClientException {
+        Objects.requireNonNull(client, "client");
+        final PulsarJournalResource exactResource = Objects.requireNonNull(resource, "resource");
+        final Producer<byte[]> exactProducer = Objects.requireNonNull(producer, "producer");
         try {
             return new PulsarClientArtifactAttemptJournal(
                     client,
-                    producer,
+                    exactProducer,
                     Objects.requireNonNull(shard, "shard"),
                     exactResource,
                     replaySubscriptionName,
                     responseTimeout);
         } catch (RuntimeException | PulsarClientException failure) {
             try {
-                producer.close();
+                exactProducer.close();
             } catch (PulsarClientException closeFailure) {
                 failure.addSuppressed(closeFailure);
             }
@@ -76,6 +102,7 @@ public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJo
             final String replaySubscriptionName,
             final Duration responseTimeout)
             throws PulsarClientException {
+        this.client = Objects.requireNonNull(client, "client");
         this.producer = Objects.requireNonNull(producer, "producer");
         this.resource = Objects.requireNonNull(resource, "resource");
         this.expectedGuard = new TopicResourceGuard(
@@ -84,13 +111,12 @@ public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJo
                 resource.physicalTopicCreationTimestamp());
         this.responseTimeout = requirePositive(responseTimeout);
         this.responseTimeoutMs = Math.toIntExact(this.responseTimeout.toMillis());
+        this.replaySubscriptionName = Objects.requireNonNull(replaySubscriptionName, "replaySubscriptionName");
         if (!resource.physicalTopic().equals(producer.getTopic()) || resource.partition() != shard.partition()) {
             throw new IllegalArgumentException("Attempt Journal producer/resource/shard binding differs");
         }
         this.journal = new PulsarAttemptJournal(shard, this, resource);
-        this.replayedRecords = replay(
-                Objects.requireNonNull(client, "client"),
-                Objects.requireNonNull(replaySubscriptionName, "replaySubscriptionName"));
+        this.replayedRecords = replay(this.client, this.replaySubscriptionName);
     }
 
     public PulsarAttemptJournal journal() {
@@ -99,6 +125,11 @@ public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJo
 
     public int replayedRecords() {
         return replayedRecords;
+    }
+
+    /** Number of ambiguous appends resolved by exact contiguous Journal readback. */
+    public synchronized int responseLossRecoveries() {
+        return responseLossRecoveries;
     }
 
     @Override
@@ -117,9 +148,59 @@ public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJo
             Thread.currentThread().interrupt();
             throw new IllegalStateException("interrupted while awaiting Attempt Journal acknowledgement", interrupted);
         } catch (ExecutionException | TimeoutException failure) {
+            final Optional<PulsarAttemptJournal.JournalPosition> recovered;
+            try {
+                recovered = recoverCommitted(payload);
+            } catch (RuntimeException recoveryFailure) {
+                failure.addSuppressed(recoveryFailure);
+                throw new IllegalStateException("Attempt Journal append outcome is unknown", failure);
+            }
+            if (recovered.isPresent()) {
+                responseLossRecoveries++;
+                return recovered.get();
+            }
             throw new IllegalStateException("Attempt Journal append outcome is unknown", failure);
         }
         return acknowledgedPosition(messageId);
+    }
+
+    /**
+     * Resolves a committed-response loss from the same guarded, contiguous
+     * replay subscription used at startup. Only the exact canonical Journal
+     * payload can produce a durable position; absence at the captured tail
+     * remains unknown because an in-flight send may still complete later.
+     */
+    private Optional<PulsarAttemptJournal.JournalPosition> recoverCommitted(final byte[] expectedPayload) {
+        try (GuardedConsumer<byte[]> consumer = PulsarClientArtifactSourceConsumerFactory.create(
+                client, expectedGuard, resource.physicalTopic(), replaySubscriptionName)) {
+            PulsarClientArtifactRecoverySourcePositioner.awaitStableProof(
+                    consumer, expectedGuard, resource.physicalTopic(), resource.partition(), responseTimeout);
+            @SuppressWarnings("deprecation")
+            final MessageId replayThrough = consumer.getLastMessageId();
+            if (MessageId.earliest.equals(replayThrough)) {
+                return Optional.empty();
+            }
+            PulsarAttemptJournal.JournalPosition exact = null;
+            while (true) {
+                final Message<byte[]> message = consumer.receive(responseTimeoutMs, TimeUnit.MILLISECONDS);
+                if (message == null) {
+                    throw new IllegalStateException("Attempt Journal readback ended before its captured tail");
+                }
+                final PulsarAttemptJournal.JournalPosition position = replayPosition(message);
+                // Decode every traversed record before acknowledging it so a
+                // corrupt or foreign body cannot be skipped by readback.
+                PulsarAttemptJournalRecordCodec.decode(message.getData(), position);
+                if (exact == null && Arrays.equals(expectedPayload, message.getData())) {
+                    exact = position;
+                }
+                consumer.acknowledge(message);
+                if (message.getMessageId().compareTo(replayThrough) >= 0) {
+                    return Optional.ofNullable(exact);
+                }
+            }
+        } catch (PulsarClientException failure) {
+            throw new IllegalStateException("Attempt Journal response-loss readback failed", failure);
+        }
     }
 
     @Override

@@ -1090,6 +1090,7 @@ run_real_worker_cell() {
       NEREUS_DELAY_OXIA_ENDPOINT="${oxia_endpoint}" \
       NEREUS_DELAY_OXIA_NAMESPACE=default \
       NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS=1 \
+      NEREUS_DELAY_PULSAR_WORKER_ATTEMPT_JOURNAL_RESPONSE_LOSS=1 \
       ./gradlew runRealPulsarWorkerSmoke \
       -PpulsarClientClasspath="${p1_client_cp}" \
       -PpulsarRuntimeDir="${runtime_dir}/lib" \
@@ -1100,7 +1101,8 @@ run_real_worker_cell() {
       -PpulsarWorkerDestinationTopic="${destination_topic}" \
       -PpulsarWithOxia=true \
       --no-daemon --console=plain >"${log_path}" 2>&1; then
-    if rg -q "destination response-loss.*smoke passed|Worker authority smoke passed" "${log_path}"; then
+    if rg -q "destination response-loss.*smoke passed" "${log_path}" \
+        && rg -q "Attempt Journal response-loss smoke passed" "${log_path}"; then
       result_status="EXECUTED_PASS"
       result_reason="${expected}"
       evidence_status="PASS"
@@ -1110,7 +1112,7 @@ run_real_worker_cell() {
   fi
   write_generic_evidence "${evidence_path}" "${cell_id}" "${evidence_status}" "${result_reason}" "${log_path}"
   record_cell "${cell_id}" "recovery" "${expected}" "${result_status}" "0" \
-    "GRADLE_USER_HOME=${gradle_user_home} ./gradlew runRealPulsarWorkerSmoke -PpulsarTopic=${topic} -PpulsarWorkerDestinationTopic=${destination_topic} with destination response-loss injection" \
+    "GRADLE_USER_HOME=${gradle_user_home} ./gradlew runRealPulsarWorkerSmoke -PpulsarTopic=${topic} -PpulsarWorkerDestinationTopic=${destination_topic} with destination and Attempt Journal response-loss injection" \
     "${log_path}" "${evidence_path}" "${result_reason}"
 }
 
@@ -1846,7 +1848,7 @@ run_real_destination_response_loss_cell
 run_real_worker_cell recovery.response_loss_after_ack_before_outcome \
   "${resource_prefix}-worker-destination-response-loss" \
   "${resource_prefix}-worker-destination" \
-  "real Worker destination SEND response loss resolves typed evidence before the definitive Outcome"
+  "real Worker destination SEND response loss resolves typed evidence, while all three Attempt Journal writes recover exact committed positions, before the definitive Outcome"
 run_worker_process_crash_cell recovery.response_loss_after_outcome_before_handoff destination \
   "${resource_prefix}-worker-outcome-crash" \
   "${resource_prefix}-worker-outcome-destination" \

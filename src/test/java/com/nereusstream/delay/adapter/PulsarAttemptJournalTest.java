@@ -193,6 +193,35 @@ class PulsarAttemptJournalTest {
     }
 
     @Test
+    void exactResponseLossRetryAtAnotherPhysicalPositionReplaysIdempotentlyAndAdvancesCursor() {
+        final ShardId shard = shard();
+        final PulsarAttemptJournal.CurrentAttemptIdentity identity = new PulsarAttemptJournal.CurrentAttemptIdentity(
+                DelayMessageId.random(shard),
+                41,
+                bytes(32, 41),
+                Bytes.sha256(Bytes.utf8("prepared-response-loss")),
+                Bytes.sha256(Bytes.utf8("template-response-loss")),
+                DeliveryContract.PULSAR_NATIVE_DELIVERY,
+                sourcePosition(shard, 741),
+                Bytes.sha256(Bytes.utf8("artifacts-response-loss")));
+        final PulsarAttemptJournal source = new PulsarAttemptJournal(shard, request -> position(10));
+        final PulsarAttemptJournal.Mapping mapping =
+                source.appendNextCurrent(producer(), identity).record().mapping();
+        final PulsarAttemptJournal.JournalRecord first = source.records().getFirst();
+        final PulsarAttemptJournal.JournalRecord duplicate =
+                new PulsarAttemptJournal.JournalRecord(first.kind(), first.mapping(), position(11));
+
+        final PulsarAttemptJournal recovered = new PulsarAttemptJournal(shard, request -> position(20));
+        recovered.replay(first);
+        recovered.replay(duplicate);
+
+        assertEquals(PulsarAttemptJournal.AttemptState.MAPPED, recovered.state(mapping.mappingId()));
+        assertEquals(2, recovered.records().size());
+        assertEquals(11, recovered.records().getLast().position().entryId());
+        assertTrue(recovered.appendOrReuseCurrent(producer(), identity).idempotent());
+    }
+
+    @Test
     void h3JournalRequiresOwnershipBeforeSendAndUsesFourStateTransitions() {
         final ShardId shard = shard();
         final AtomicLong entry = new AtomicLong(100);

@@ -327,7 +327,17 @@ public final class PulsarAttemptJournal {
                         prior.position().canonicalBytes(), record.position().canonicalBytes())) {
                     return;
                 }
-                throw conflict("Attempt Journal state record replay conflict");
+                // A committed Broker response may be lost before the local
+                // state transition is installed. An exact retry can then
+                // leave the same canonical state record at another physical
+                // Journal position. Preserve the first state-transition
+                // authority, but retain and advance through the duplicate
+                // physical record so contiguous replay and later cursors do
+                // not fail or silently skip it.
+                validatePosition(record.position());
+                records.add(record);
+                lastPosition = record.position();
+                return;
             }
             validatePosition(record.position());
             switch (record.kind()) {

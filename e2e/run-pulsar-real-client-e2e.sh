@@ -6,7 +6,7 @@ export LANG=C
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 delay_dir="$(cd "${script_dir}/.." && pwd)"
-pulsar_dir="${NEREUS_DELAY_PULSAR_CHECKOUT:-${delay_dir}/../../pulsar-worktrees/nereus-delay-p1}"
+pulsar_dir="${NEREUS_DELAY_PULSAR_CHECKOUT:-${delay_dir}/../pulsar-worktrees/nereus-delay-p1}"
 gradle_user_home="${NEREUS_DELAY_PULSAR_GRADLE_USER_HOME:-/tmp/nereus-delay-pulsar-e2e-gradle}"
 with_oxia="${NEREUS_DELAY_PULSAR_WITH_OXIA:-0}"
 destination_response_loss="${NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS:-0}"
@@ -18,6 +18,7 @@ source_ack_response_loss_only="${NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS_ON
 source_ack_response_loss_process_crash_only="${NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS_PROCESS_CRASH_ONLY:-0}"
 source_ack_response_loss_state_dump_dir="${NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS_STATE_DUMP_DIR:-}"
 worker_destination_response_loss="${NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS:-0}"
+worker_attempt_journal_response_loss="${NEREUS_DELAY_PULSAR_WORKER_ATTEMPT_JOURNAL_RESPONSE_LOSS:-0}"
 worker_destination_response_loss_only="${NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS_ONLY:-0}"
 worker_destination_response_loss_process_crash_only="${NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS_PROCESS_CRASH_ONLY:-0}"
 worker_admission_response_loss="${NEREUS_DELAY_PULSAR_WORKER_ADMISSION_RESPONSE_LOSS:-0}"
@@ -26,7 +27,7 @@ worker_admission_response_loss_process_crash_only="${NEREUS_DELAY_PULSAR_WORKER_
 worker_process_crash="${NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH:-0}"
 worker_process_crash_only="${NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH_ONLY:-0}"
 multi_shard_only="${NEREUS_DELAY_PULSAR_MULTI_SHARD_ONLY:-0}"
-oxia_checkout="${NEREUS_DELAY_OXIA_CHECKOUT:-${delay_dir}/../../oxia}"
+oxia_checkout="${NEREUS_DELAY_OXIA_CHECKOUT:-${delay_dir}/../oxia}"
 compose_project="nereus-delay-pulsar-e2e-$(date +%s)-$$"
 oxia_project="nereus-delay-pulsar-oxia-e2e-${compose_project#nereus-delay-pulsar-e2e-}"
 compose_file="${script_dir}/docker-compose.pulsar.yml"
@@ -111,6 +112,10 @@ if [[ "${source_ack_response_loss_process_crash_only}" == "1" && -z "${source_ac
 fi
 if [[ "${worker_destination_response_loss}" != "0" && "${worker_destination_response_loss}" != "1" ]]; then
   echo "NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS must be 0 or 1" >&2
+  exit 1
+fi
+if [[ "${worker_attempt_journal_response_loss}" != "0" && "${worker_attempt_journal_response_loss}" != "1" ]]; then
+  echo "NEREUS_DELAY_PULSAR_WORKER_ATTEMPT_JOURNAL_RESPONSE_LOSS must be 0 or 1" >&2
   exit 1
 fi
 if [[ "${worker_destination_response_loss_only}" != "0" && "${worker_destination_response_loss_only}" != "1" ]]; then
@@ -251,7 +256,8 @@ trap cleanup EXIT INT TERM
 
 require_clean_pulsar_checkout() {
   test -z "$(git -C "${pulsar_dir}" status --porcelain)"
-  test "$(git -C "${pulsar_dir}" branch --show-current)" = "nereus/delay-resource-guard"
+  test "$(git -C "${pulsar_dir}" rev-parse --verify HEAD)" = \
+    "0a2536484cd3932801a98dc88ff112b2df88a1c7"
   git -C "${pulsar_dir}" merge-base --is-ancestor \
     8dae0236c0a0d405ed7f8303081080520fe91551 HEAD
 }
