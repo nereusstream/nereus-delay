@@ -40,7 +40,9 @@ startup、assignment、source apply 和 physical send 边界拒绝 stale/mixed g
 receipt、production manifest、SHADOW observation 或 ENABLED lease；这些缺失是
 `PENDING_DEPLOYMENT`，不是可以用 synthetic placeholder 填补的证据。
 
-H1-H6 当前实现提交为 `main@c7c99d377dc9e8bb786032173d62d1981011a4e2`；P1 source lock
+H1-H6 代码切片历史锚点为 `main@c7c99d377dc9e8bb786032173d62d1981011a4e2`；本次
+disposable certification 绑定的 Delay source 为
+`main@35986a08462bd5facbd9be6f3d28f06080115745`。P1 source lock
 为 `nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`。下面引用的
 `68fe2c29` G0 implementation gate 文字是该提交时的历史状态，不是当前 H1-H6 完成状态。
 

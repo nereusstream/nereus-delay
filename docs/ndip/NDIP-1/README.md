@@ -132,13 +132,14 @@ scope，不是 Gate C authority，也不允许 SHADOW 或 ENABLED。当前 G0 �
 `NOT_APPLICABLE_FOR_IMPLEMENTATION / PENDING_DEPLOYMENT`，Gate C 仍为
 `PENDING_DEPLOYMENT`。
 
-本轮实现提交为 `main@c7c99d377dc9e8bb786032173d62d1981011a4e2`，P1 correctness-critical
-source lock 固定为 `nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`。
-主线 `test`、`check`、`compileRealPulsar`、binding smoke 和 H0 smoke 均通过；在独占
-disposable standalone 上，managed destination typed SEND/ACK evidence 与 native
-`Shared` subscription 的 exact `deliverAt` 前后可见性 smoke 均通过。`Exclusive` 的立即可见
-行为按 P1 原生契约保留为显式风险，不被包装成 not-before 保证。Oxia/MinIO 需要外部真实服务
-的测试仍按条件 skip。
+本轮 H1-H6 代码切片的历史锚点为
+`main@c7c99d377dc9e8bb786032173d62d1981011a4e2`；本次 disposable certification 实际绑定的
+代码提交为 `main@35986a08462bd5facbd9be6f3d28f06080115745`。P1 correctness-critical source
+lock 固定为 `nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`。主线
+`test`、`check`、`compileRealPulsar`、binding smoke 和 H0 smoke 均通过；独占 disposable
+运行还实际覆盖了真实双 Broker、Oxia/MinIO、ownership transfer 和 restart/reopen 路径。
+`Exclusive` 的立即可见行为按 P1 原生契约保留为显式风险，不被包装成 not-before 保证。
+普通 `./gradlew test` 中没有真实服务的测试仍可按条件 skip；严格认证入口不接受 skip。
 
 H0 的目标只有一个：在完整契约尚未被接受、物理链路尚未闭环时，所有尚未正确编码业务
 record 的 Pulsar native 物理入口都必须在 Producer ownership 前确定拒绝。范围同时包括：
