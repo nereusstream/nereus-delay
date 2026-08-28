@@ -23,22 +23,23 @@ public final class PulsarClientArtifactBinaryLookupSmoke {
             clientBuilder.listenerName(listenerName);
         }
         try (PulsarClient client = clientBuilder.build()) {
-            if (!"org.apache.pulsar.client.impl.PulsarClientImpl".equals(client.getClass().getName())) {
+            if (!"org.apache.pulsar.client.impl.PulsarClientImpl"
+                    .equals(client.getClass().getName())) {
                 throw new IllegalStateException("P1 client did not expose PulsarClientImpl lookup");
             }
             final Object lookup = invoke(client, "getLookup");
             final Class<?> topicNameClass = Class.forName("org.apache.pulsar.common.naming.TopicName");
-            final Object topicName = topicNameClass.getMethod("get", String.class).invoke(null, topic);
+            final Object topicName =
+                    topicNameClass.getMethod("get", String.class).invoke(null, topic);
             final Method getBroker = lookup.getClass().getMethod("getBroker", topicNameClass);
             final CompletableFuture<?> lookupFuture = (CompletableFuture<?>) getBroker.invoke(lookup, topicName);
             final Object result = lookupFuture.get(30, TimeUnit.SECONDS);
             final InetSocketAddress logical = (InetSocketAddress) invoke(result, "getLogicalAddress");
             final InetSocketAddress physical = (InetSocketAddress) invoke(result, "getPhysicalAddress");
-            System.out.println(
-                    "Pulsar binary topic lookup passed: listener=" + listenerName
-                            + ", logical=" + logical
-                            + ", physical=" + physical
-                            + ", useProxy=" + invoke(result, "isUseProxy"));
+            System.out.println("Pulsar binary topic lookup passed: listener=" + listenerName
+                    + ", logical=" + logical
+                    + ", physical=" + physical
+                    + ", useProxy=" + invoke(result, "isUseProxy"));
         }
     }
 
