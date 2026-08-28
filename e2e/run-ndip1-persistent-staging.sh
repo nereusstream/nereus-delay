@@ -1115,12 +1115,14 @@ run_two_phase_store_chaos() {
 }
 
 run_credential_binding_chaos() {
+  export NEREUS_DELAY_CREDENTIAL_CHAOS_PREFIX="${resource_prefix}/${run_id}/credential-binding"
   run_two_phase_store_chaos \
     credential-binding-chaos \
     NEREUS_DELAY_CREDENTIAL_CHAOS_PHASE \
     NEREUS_DELAY_CREDENTIAL_CHAOS_ARTIFACT_DIR \
     com.nereusstream.delay.runtime.CredentialBindingDurableChaosTest.rotatesProtectedCredentialBindingAcrossFreshProcess \
     "${run_dir}/chaos/credential-binding"
+  unset NEREUS_DELAY_CREDENTIAL_CHAOS_PREFIX
 }
 
 run_long_gc_chaos() {
