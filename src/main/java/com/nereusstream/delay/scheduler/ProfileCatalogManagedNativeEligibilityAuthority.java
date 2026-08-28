@@ -13,6 +13,7 @@ import com.nereusstream.delay.protocol.HandoffPolicyScope;
 import com.nereusstream.delay.protocol.HandoffPolicySnapshot;
 import com.nereusstream.delay.protocol.NativeDeliveryPolicy;
 import com.nereusstream.delay.protocol.OrderingMode;
+import com.nereusstream.delay.protocol.PreparedPublishDescriptor;
 import com.nereusstream.delay.protocol.ProfileKind;
 import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
 import com.nereusstream.delay.protocol.ScheduleBinding;
@@ -132,8 +133,59 @@ public final class ProfileCatalogManagedNativeEligibilityAuthority
             final ScheduleBinding binding,
             final TrustedUtcIntervalEvidence decisionTime) {
         final ClaimMaterialization exact = Objects.requireNonNull(materialization, "materialization");
-        final ScheduleBinding exactBinding = Objects.requireNonNull(binding, "binding");
         final TrustedUtcIntervalEvidence exactTime = Objects.requireNonNull(decisionTime, "decisionTime");
+        final AdmissionContext context = admissionContext(exact, binding);
+        final HandoffPolicyAuthority.Publication first = policies.requireCurrent(context.scope());
+        if (!first.head().ref(first.oxiaVersion()).equals(exact.handoffPolicyHeadRef())) {
+            throw new IllegalArgumentException("Claim policy head is no longer current");
+        }
+        final HandoffPolicySnapshot snapshot = first.head().snapshot();
+        requireFrozenSnapshot(
+                exact,
+                context,
+                snapshot,
+                exactTime,
+                Objects.requireNonNull(trustPosition.get(), "policy trust position"),
+                true);
+        final HandoffPolicyAuthority.Publication second = policies.requireCurrent(context.scope());
+        if (!first.sameHead(second)) {
+            throw new IllegalStateException("handoff policy head changed during Admission validation");
+        }
+        return snapshot;
+    }
+
+    /**
+     * Revalidates an Admission-frozen snapshot at the physical ownership
+     * boundary. This intentionally does not reread the mutable current head:
+     * disable is bounded by the signed lease, and an already admitted exact
+     * snapshot remains authoritative until its {@code validUntil} boundary.
+     */
+    public void requireFrozen(
+            final PreparedPublishDescriptor descriptor,
+            final ClaimMaterialization claimMaterialization,
+            final ScheduleBinding binding,
+            final TrustedUtcIntervalEvidence trustedTime,
+            final SourcePosition admissionPosition) {
+        final PreparedPublishDescriptor exactDescriptor = Objects.requireNonNull(descriptor, "descriptor");
+        final ClaimMaterialization exactClaim = Objects.requireNonNull(claimMaterialization, "claimMaterialization");
+        if (exactDescriptor.handoffPolicySnapshot() == null
+                || !exactDescriptor
+                        .materialization(exactClaim.handoffPolicyHeadRef())
+                        .equals(exactClaim)) {
+            throw new IllegalArgumentException("physical handoff descriptor does not match its Claim");
+        }
+        final AdmissionContext context = admissionContext(exactClaim, binding);
+        requireFrozenSnapshot(
+                exactClaim,
+                context,
+                exactDescriptor.handoffPolicySnapshot(),
+                Objects.requireNonNull(trustedTime, "trustedTime"),
+                Objects.requireNonNull(admissionPosition, "admissionPosition"),
+                false);
+    }
+
+    private AdmissionContext admissionContext(final ClaimMaterialization exact, final ScheduleBinding binding) {
+        final ScheduleBinding exactBinding = Objects.requireNonNull(binding, "binding");
         if (exact.legacyEncoding()
                 || exact.nativeDeliveryPolicy() == NativeDeliveryPolicy.FORBID
                 || !exact.nativeDeliveryPolicy().allowsManagedHandoff()
@@ -174,20 +226,24 @@ public final class ProfileCatalogManagedNativeEligibilityAuthority
                 intent.orderingMode(),
                 scopePathBits,
                 artifacts);
-        final HandoffPolicyAuthority.Publication first = policies.requireCurrent(scope);
-        if (!first.head().ref(first.oxiaVersion()).equals(exact.handoffPolicyHeadRef())) {
-            throw new IllegalArgumentException("Claim policy head is no longer current");
-        }
-        final HandoffPolicySnapshot snapshot = first.head().snapshot();
-        final SourcePosition position = Objects.requireNonNull(trustPosition.get(), "policy trust position");
-        trustStore.requireTrusted(snapshot, scope, artifacts.setDigest(), position);
+        return new AdmissionContext(resolved, scope);
+    }
+
+    private void requireFrozenSnapshot(
+            final ClaimMaterialization exact,
+            final AdmissionContext context,
+            final HandoffPolicySnapshot snapshot,
+            final TrustedUtcIntervalEvidence exactTime,
+            final SourcePosition position,
+            final boolean requirePreDeliveryInterval) {
+        trustStore.requireTrusted(snapshot, context.scope(), artifacts.setDigest(), position);
         snapshot.requireActiveAt(exactTime);
-        snapshot.requireLeadAtMost(resolved.destination().handoffLeadMs());
+        snapshot.requireLeadAtMost(context.profiles().destination().handoffLeadMs());
         if (snapshot.mode() != HandoffPolicyMode.ENABLED
                 || !snapshot.allows(HandoffPath.MANAGED_HANDOFF)
                 || snapshot.effectiveLeadMs() <= 0
                 || exactTime.earliestEpochMs() < exact.actionAtEpochMs()
-                || exactTime.latestEpochMs() >= exact.deliverAtEpochMs()) {
+                || requirePreDeliveryInterval && exactTime.latestEpochMs() >= exact.deliverAtEpochMs()) {
             throw new IllegalArgumentException("Managed Handoff lease is not valid for this Admission interval");
         }
         final long expectedActionAt;
@@ -199,11 +255,6 @@ public final class ProfileCatalogManagedNativeEligibilityAuthority
         if (expectedActionAt < 0 || exact.actionAtEpochMs() != expectedActionAt) {
             throw new IllegalArgumentException("Claim action time does not match the current signed lead");
         }
-        final HandoffPolicyAuthority.Publication second = policies.requireCurrent(scope);
-        if (!first.sameHead(second)) {
-            throw new IllegalStateException("handoff policy head changed during Admission validation");
-        }
-        return snapshot;
     }
 
     private ResolvedProfiles resolveProfiles(final CanonicalLaneTuple.Projection lane) {
@@ -281,4 +332,17 @@ public final class ProfileCatalogManagedNativeEligibilityAuthority
     }
 
     private record ResolvedProfiles(DestinationProfileSemantic destination, DeliveryCapabilitySemantic capability) {}
+
+    private record AdmissionContext(ResolvedProfiles profiles, byte[] scope) {
+        private AdmissionContext {
+            Objects.requireNonNull(profiles, "profiles");
+            com.nereusstream.delay.protocol.Bytes.requireLength(scope, 32, "policy scope");
+            scope = com.nereusstream.delay.protocol.Bytes.copy(scope);
+        }
+
+        @Override
+        public byte[] scope() {
+            return com.nereusstream.delay.protocol.Bytes.copy(scope);
+        }
+    }
 }

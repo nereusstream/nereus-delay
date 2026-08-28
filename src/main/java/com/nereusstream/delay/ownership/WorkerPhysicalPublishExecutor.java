@@ -10,14 +10,17 @@ import com.nereusstream.delay.adapter.PulsarPreparedRecordFactory;
 import com.nereusstream.delay.assessment.DataResetActivationGate;
 import com.nereusstream.delay.protocol.ArtifactGenerationSet;
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.DeliveryContract;
 import com.nereusstream.delay.protocol.PayloadForPublish;
 import com.nereusstream.delay.protocol.PreparedPublishDescriptor;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
 import com.nereusstream.delay.protocol.PulsarPreparedRecord;
 import com.nereusstream.delay.protocol.ResolvedPayload;
+import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.SourcePositionCodec;
 import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutation;
+import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.runtime.AttemptLedgerState;
 import com.nereusstream.delay.runtime.PublishAttemptLedger;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
@@ -28,6 +31,7 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.LongSupplier;
+import java.util.function.Supplier;
 
 /**
  * Bridges one durable PUBLISHING attempt to a guarded destination adapter and
@@ -276,13 +280,6 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
         final PublishAttemptLedger exactAttempt = requirePublishingAttempt(attempt);
         final DestinationPublishRequest request = prepareRequest(exactAttempt, payload);
         final LongSupplier clock = Objects.requireNonNull(ownerClock, "ownerClock");
-        if (request.actionAtEpochMs() < request.deliverAtEpochMs()) {
-            return handoff(
-                    exactAttempt,
-                    request,
-                    DestinationPublishResult.definitelyNotPublished(StableCode.CAPABILITY_UNAVAILABLE, null),
-                    clock);
-        }
         try {
             requirePhysicalArtifact(exactContext, clock);
         } catch (RuntimeException failure) {
@@ -306,10 +303,6 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
 
         final PulsarAttemptJournal.CurrentAttemptIdentity journalIdentity =
                 prepareCurrentPulsarJournalIdentity(exactAttempt, artifacts);
-        if (journalIdentity.deliveryContract()
-                != com.nereusstream.delay.protocol.DeliveryContract.NEREUS_MANAGED_NOT_BEFORE) {
-            throw new IllegalArgumentException("managed Journal submission cannot use the native contract");
-        }
         final Optional<PulsarAttemptJournal.Mapping> recoveredMapping =
                 recoveryOwner ? exactJournal.findCurrent(exactProducer, journalIdentity) : Optional.empty();
         final PulsarAttemptJournal.Mapping mapping = recoveredMapping.orElseGet(() -> exactJournal
@@ -353,6 +346,18 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
         }
 
         final PulsarPreparedRecord record = preparePulsarRecord(exactAttempt, mapping, artifacts, payload);
+        try {
+            requireFrozenHandoffLease(exactContext, exactAttempt);
+        } catch (RuntimeException unavailable) {
+            return retireBeforeOwnershipAndHandoff(
+                    exactContext,
+                    exactAttempt,
+                    request,
+                    exactJournal,
+                    mapping,
+                    DestinationPublishResult.definitelyNotPublished(StableCode.CAPABILITY_UNAVAILABLE, null),
+                    clock);
+        }
         final Decision ownershipGate = checkGate(exactAttempt, request, clock);
         if (ownershipGate.kind() == DecisionKind.DEFERRED) {
             return Submission.deferred(
@@ -392,7 +397,18 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
                                         return DestinationPublishResult.unknown(
                                                 StableCode.CAPABILITY_UNAVAILABLE, null);
                                     }
-                                    exactJournal.markOwnershipStarted(mapping);
+                                    try {
+                                        requireFrozenHandoffLease(exactContext, exactAttempt);
+                                    } catch (RuntimeException unavailable) {
+                                        return DestinationPublishResult.definitelyNotPublished(
+                                                StableCode.CAPABILITY_UNAVAILABLE, null);
+                                    }
+                                    try {
+                                        exactJournal.markOwnershipStarted(mapping);
+                                    } catch (RuntimeException appendUnknown) {
+                                        return DestinationPublishResult.unknown(
+                                                StableCode.PULSAR_EVIDENCE_DIVERGENCE, null);
+                                    }
                                     return null;
                                 });
                         physicalCall.set(call);
@@ -488,6 +504,35 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
         }
     }
 
+    private static void requireFrozenHandoffLease(
+            final ManagedPulsarContext context, final PublishAttemptLedger attempt) {
+        final PublishAdmissionBody admission = PublishAdmissionBody.decode(attempt.admissionBytes());
+        final PreparedPublishDescriptor descriptor = admission.descriptor().value();
+        if (descriptor.deliveryContract() != DeliveryContract.PULSAR_NATIVE_DELIVERY) {
+            return;
+        }
+        if (context.handoffLeaseGate() == null || context.trustedTimeSupplier() == null) {
+            throw new IllegalStateException("native Managed send has no frozen-lease authority");
+        }
+        final TrustedUtcIntervalEvidence trustedTime =
+                Objects.requireNonNull(context.trustedTimeSupplier().get(), "physical handoff trusted-time evidence");
+        if (trustedTime.earliestEpochMs() < admission.decisionTime().latestEpochMs()) {
+            throw new IllegalArgumentException("physical handoff time regressed behind Admission");
+        }
+        descriptor.handoffPolicySnapshot().requireActiveAt(trustedTime);
+        if (!Arrays.equals(
+                descriptor.handoffPolicySnapshot().artifactGenerationSetDigest(),
+                context.artifacts().setDigest())) {
+            throw new IllegalArgumentException("physical handoff snapshot uses another artifact generation set");
+        }
+        context.handoffLeaseGate()
+                .require(
+                        admission,
+                        context.artifacts(),
+                        trustedTime,
+                        SourcePositionCodec.decode(attempt.sourcePosition()));
+    }
+
     private static void requireExactPayload(final PayloadForPublish payloadProjection, final byte[] exactPayload) {
         Objects.requireNonNull(payloadProjection, "payloadProjection");
         if (payloadProjection.hasInlinePayload()) {
@@ -510,16 +555,6 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
         final LongSupplier clock = Objects.requireNonNull(ownerClock, "ownerClock");
         requireAttemptIdentity(exactAttempt, exactRequest);
 
-        // H0 keeps the not-yet-closed native handoff path before every
-        // physical gate, reservation, and adapter/delegate invocation.
-        if (exactRequest.actionAtEpochMs() < exactRequest.deliverAtEpochMs()) {
-            return handoff(
-                    exactAttempt,
-                    exactRequest,
-                    DestinationPublishResult.definitelyNotPublished(StableCode.CAPABILITY_UNAVAILABLE, null),
-                    clock);
-        }
-
         final ManagedPulsarContext pulsarContext;
         synchronized (this) {
             pulsarContext = managedPulsarContext;
@@ -529,6 +564,18 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
                 && Arrays.equals(
                         exactRequest.laneIncarnation(), pulsarContext.producer().laneIncarnation())) {
             return submitPulsarRecord(pulsarContext, exactAttempt, exactRequest.payload(), clock);
+        }
+
+        // An early request is reachable only through the fully bound managed
+        // Pulsar record/Journal/lease composition above. All generic or
+        // partially composed paths remain H0 fail-closed before physical
+        // admission and Producer ownership.
+        if (exactRequest.actionAtEpochMs() < exactRequest.deliverAtEpochMs()) {
+            return handoff(
+                    exactAttempt,
+                    exactRequest,
+                    DestinationPublishResult.definitelyNotPublished(StableCode.CAPABILITY_UNAVAILABLE, null),
+                    clock);
         }
 
         final Decision initial = checkGate(exactAttempt, exactRequest, clock);
@@ -719,6 +766,16 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
         void recordRetired(PublishAttemptLedger attempt, byte[] journalPosition);
     }
 
+    /** Revalidates the frozen Admission snapshot without consulting the mutable current head. */
+    @FunctionalInterface
+    public interface FrozenHandoffLeaseGate {
+        void require(
+                PublishAdmissionBody admission,
+                ArtifactGenerationSet artifacts,
+                TrustedUtcIntervalEvidence trustedTime,
+                SourcePosition admissionPosition);
+    }
+
     /** One immutable managed Pulsar producer/Journal/artifact authority. */
     public record ManagedPulsarContext(
             PulsarAttemptJournal journal,
@@ -726,13 +783,28 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
             ArtifactGenerationSet artifacts,
             PhysicalArtifactGate artifactGate,
             JournalProjectionSink projectionSink,
+            FrozenHandoffLeaseGate handoffLeaseGate,
+            Supplier<TrustedUtcIntervalEvidence> trustedTimeSupplier,
             long ownerEpoch) {
+        public ManagedPulsarContext(
+                final PulsarAttemptJournal journal,
+                final PulsarAttemptJournal.ProducerKey producer,
+                final ArtifactGenerationSet artifacts,
+                final PhysicalArtifactGate artifactGate,
+                final JournalProjectionSink projectionSink,
+                final long ownerEpoch) {
+            this(journal, producer, artifacts, artifactGate, projectionSink, null, null, ownerEpoch);
+        }
+
         public ManagedPulsarContext {
             Objects.requireNonNull(journal, "journal");
             Objects.requireNonNull(producer, "producer");
             Objects.requireNonNull(artifacts, "artifacts");
             Objects.requireNonNull(artifactGate, "artifactGate");
             Objects.requireNonNull(projectionSink, "projectionSink");
+            if ((handoffLeaseGate == null) != (trustedTimeSupplier == null)) {
+                throw new IllegalArgumentException("handoff lease gate and trusted-time supplier must be paired");
+            }
             if (ownerEpoch == 0) {
                 throw new IllegalArgumentException("ownerEpoch must be non-zero");
             }
