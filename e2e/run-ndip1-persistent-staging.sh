@@ -1628,6 +1628,7 @@ run_shadow_worker_ownership_transfer() {
   shadow_worker_id="worker-ndip1-b"
   shadow_worker_mode=resume
   run_shadow_worker_command "${chaos_dir}/resume.log" \
+    "NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH_ONLY=1" \
     "NEREUS_DELAY_PULSAR_CHAOS_STATE_DUMP_DIR=${state_dir}"
   [[ -s "${state_dir}/after-fresh-process.json" ]] || fail "SHADOW Worker post-recovery state is missing"
   python3 - "${state_dir}/before-process-crash.json" "${state_dir}/after-fresh-process.json" \
