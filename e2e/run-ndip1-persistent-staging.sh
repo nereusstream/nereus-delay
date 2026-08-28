@@ -503,7 +503,8 @@ now_epoch_ms() {
 }
 
 authority_task() {
-  local label="$1" command="$2" config="$3" output_file="${run_dir}/authority/${label}.log"
+  local label="$1" command="$2" config="$3"
+  local output_file="${run_dir}/authority/${label}.log"
   local output
   output="$(GRADLE_USER_HOME="${gradle_home}" "${delay_root}/gradlew" -q \
     runNdip1PersistentAuthority \
@@ -1417,7 +1418,8 @@ write_gate_c_receipt() {
 
 sign_staging_payload() {
   local label="$1" payload_path="$2" envelope_path="$3"
-  local config_path="${run_dir}/authority/${label}-sign-config.json"
+  local config_path
+  config_path="${run_dir}/authority/${label}-sign-config.json"
   jq -n --arg payloadPath "${payload_path}" --arg signedEnvelopePath "${envelope_path}" \
     --arg privateKeyPath "${key_dir}/issuer-ed25519-private.der" \
     --arg publicKeyPath "${key_dir}/issuer-ed25519-public.der" \
