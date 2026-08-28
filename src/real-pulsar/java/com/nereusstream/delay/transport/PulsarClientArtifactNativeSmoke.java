@@ -78,7 +78,9 @@ public final class PulsarClientArtifactNativeSmoke {
         final String adminUrl = arguments[1];
         final String topic = arguments[2];
         final String physicalTopic = "persistent://public/default/" + topic;
-        final HttpClient admin = HttpClient.newHttpClient();
+        final HttpClient admin = HttpClient.newBuilder()
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .build();
         createTopic(admin, adminUrl, topic);
         try {
             runNativeSendAndRead(serviceUrl, physicalTopic);
