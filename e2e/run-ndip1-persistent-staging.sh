@@ -322,6 +322,28 @@ wait_for_oxia_service() {
   fail "Oxia service did not become healthy: ${service}"
 }
 
+wait_for_oxia_client_ready() {
+  local label="$1" ready_path="$2" deadline=$((SECONDS + 180)) attempts=0 output output_sha256
+  mkdir -p "$(dirname "${ready_path}")"
+  while (( SECONDS < deadline )); do
+    attempts=$((attempts + 1))
+    if output="$(oxia_client list --key-min "" --key-max "" 2>"${ready_path}.last-error")"; then
+      output_sha256="$(printf '%s' "${output}" | shasum -a 256 | awk '{print $1}')"
+      jq -n --arg schema "nereus-delay.oxia-client-readiness" --arg status PASS \
+        --arg label "${label}" --arg endpoint "${oxia_endpoint}" \
+        --arg checkedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        --arg outputSha256 "${output_sha256}" --argjson attempts "${attempts}" \
+        --argjson outputLineCount "$(printf '%s\n' "${output}" | wc -l | tr -d ' ')" \
+        '{schema:$schema,schemaGeneration:1,status:$status,label:$label,endpoint:$endpoint,
+          checkedAt:$checkedAt,attempts:$attempts,command:"oxia client list --key-min '' --key-max ''",
+          outputSha256:$outputSha256,outputLineCount:$outputLineCount}' >"${ready_path}"
+      return 0
+    fi
+    sleep 2
+  done
+  fail "Oxia client endpoint did not become ready for ${label}: ${oxia_endpoint}"
+}
+
 oxia_admin() {
   local coordinator output
   for coordinator in coordinator-1 coordinator-2 coordinator-3; do
@@ -995,6 +1017,7 @@ run_gateway_session_churn() {
   wait_for_file "${NEREUS_DELAY_GATEWAY_SESSION_CHURN_RECOVERY_READY}" "Gateway Oxia session-churn recovery readiness"
   "${compose[@]}" start data-server-1 >"${chaos_dir}/data-server-start.log" 2>&1
   wait_for_oxia_service data-server-1 6648
+  wait_for_oxia_client_ready gateway-session-churn "${chaos_dir}/oxia-client-ready.json"
   touch "${NEREUS_DELAY_GATEWAY_SESSION_CHURN_RECOVERY_GATE}"
   set +e
   wait "${child}"
@@ -1038,6 +1061,7 @@ run_gateway_leader_failover() {
   done
   [[ -n "${current}" && "${current}" != "${leader}" ]] \
     || { "${compose[@]}" start "${stopped_service}" >/dev/null 2>&1 || true; fail "Oxia leader did not fail over"; }
+  wait_for_oxia_client_ready gateway-leader-failover "${chaos_dir}/oxia-client-ready.json"
   touch "${NEREUS_DELAY_GATEWAY_MULTI_NODE_FAILOVER_GATE}"
   set +e
   wait "${child}"
@@ -1066,6 +1090,7 @@ run_route_restart_case() {
   sleep 3
   "${compose[@]}" start data-server-1 >"${chaos_dir}/start.log" 2>&1
   wait_for_oxia_service data-server-1 6648
+  wait_for_oxia_client_ready "${label}" "${chaos_dir}/oxia-client-ready.json"
   touch "${NEREUS_DELAY_OXIA_ROUTE_RESTART_GATE}"
   set +e
   wait "${child}"
