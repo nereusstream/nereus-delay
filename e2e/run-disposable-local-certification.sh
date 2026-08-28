@@ -638,7 +638,7 @@ oxia_admin() {
 
 oxia_admin_is_ready() {
   local response
-  response="$(oxia_admin dataserver list --output json 2>/dev/null)" || return 1
+  response="$(oxia_admin dataserver get --output json 2>/dev/null)" || return 1
   [[ -n "${response}" ]] || return 1
   python3 -c '
 import json
@@ -697,7 +697,7 @@ bootstrap_oxia_cluster() {
 
     deadline=$((SECONDS + 180))
     while (( SECONDS < deadline )); do
-      if dataservers_json="$(oxia_admin dataserver list --output json 2>/dev/null)" \
+      if dataservers_json="$(oxia_admin dataserver get --output json 2>/dev/null)" \
           && python3 -c '
 import json
 import sys
@@ -775,7 +775,7 @@ sys.exit(0 if ready else 1)
       echo "Oxia default namespace did not reach a three-server ready shard" >&2
       return 1
     fi
-    oxia_admin dataserver list --output json
+    oxia_admin dataserver get --output json
     oxia_admin namespace get default --output json
     echo "Oxia disposable bootstrap passed: three RUNNING data servers and default RF=3 namespace"
   } >>"${oxia_bootstrap_log}" 2>&1
