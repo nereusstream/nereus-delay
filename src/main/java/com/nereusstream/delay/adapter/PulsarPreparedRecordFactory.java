@@ -35,9 +35,6 @@ public final class PulsarPreparedRecordFactory {
         final PulsarAttemptJournal.Mapping exactMapping = Objects.requireNonNull(mapping, "mapping");
         final ResolvedPayload exactPayload = Objects.requireNonNull(resolvedPayload, "resolvedPayload");
         final ArtifactGenerationSet exactArtifacts = requireArtifacts(artifacts, exact);
-        if (exact.deliveryContract() != DeliveryContract.NEREUS_MANAGED_NOT_BEFORE) {
-            throw new IllegalArgumentException("managed Journal records require the ordinary delivery contract");
-        }
         if (!exactMapping.delayMessageId().equals(exact.messageId())
                 || exactMapping.generation() != exact.generation()
                 || !Arrays.equals(exactMapping.publishAttemptId(), exact.publishAttemptId())

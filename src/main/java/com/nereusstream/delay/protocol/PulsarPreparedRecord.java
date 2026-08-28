@@ -43,14 +43,18 @@ public final class PulsarPreparedRecord {
         }
         this.sequenceAuthority = Objects.requireNonNull(sequenceAuthority, "sequenceAuthority");
         this.externalIdentity = Objects.requireNonNull(externalIdentity, "externalIdentity");
-        if (template.deliveryContract().isNative()) {
-            if (sequenceAuthority.kind() != PulsarSequenceAuthority.Kind.PRODUCER_ASSIGNED
-                    || externalIdentity.kind() != ExternalDeliveryIdentity.Kind.NATIVE_DELIVERY) {
-                throw new IllegalArgumentException("native record requires producer-assigned/native identity branches");
+        if (sequenceAuthority.kind() == PulsarSequenceAuthority.Kind.MANAGED_JOURNAL) {
+            if (externalIdentity.kind() != ExternalDeliveryIdentity.Kind.PUBLISH_ATTEMPT) {
+                throw new IllegalArgumentException("managed Journal record requires a publish-attempt identity");
             }
-        } else if (sequenceAuthority.kind() != PulsarSequenceAuthority.Kind.MANAGED_JOURNAL
-                || externalIdentity.kind() != ExternalDeliveryIdentity.Kind.PUBLISH_ATTEMPT) {
-            throw new IllegalArgumentException("managed record requires journal/publish-attempt branches");
+        } else if (sequenceAuthority.kind() == PulsarSequenceAuthority.Kind.PRODUCER_ASSIGNED) {
+            if (!template.deliveryContract().isNative()
+                    || externalIdentity.kind() != ExternalDeliveryIdentity.Kind.NATIVE_DELIVERY) {
+                throw new IllegalArgumentException(
+                        "producer-assigned record requires the native contract and native-delivery identity");
+            }
+        } else {
+            throw new IllegalArgumentException("unsupported Pulsar sequence authority");
         }
         this.preparedIdentityHash = fixed(preparedIdentityHash, "preparedIdentityHash");
         this.finalReservedProperties = finalProperties(finalReservedProperties);

@@ -411,13 +411,14 @@ public final class PublishAdmissionBody {
         }
         final long expectedActionAt;
         try {
-            expectedActionAt = Math.subtractExact(deliverAt, destinationProfile.handoffLeadMs());
+            expectedActionAt = Math.subtractExact(
+                    deliverAt, typedDescriptor.handoffPolicySnapshot().effectiveLeadMs());
         } catch (ArithmeticException overflow) {
             throw new IllegalArgumentException("Pulsar handoff timing underflows deliverAt", overflow);
         }
         if (expectedActionAt < 0
                 || actionAt != expectedActionAt
-                || typedDescriptor.handoffPolicySnapshot().effectiveLeadMs() != destinationProfile.handoffLeadMs()) {
+                || typedDescriptor.handoffPolicySnapshot().effectiveLeadMs() > destinationProfile.handoffLeadMs()) {
             throw new IllegalArgumentException("Pulsar handoff actionAt does not match the pinned lead");
         }
     }
