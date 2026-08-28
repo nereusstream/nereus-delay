@@ -655,23 +655,22 @@ PY
   [[ "${skip_count}" == 41 ]] || fail "baseline JUnit results did not contain exactly 41 conditional skips: ${skip_count}"
 }
 
-clear_external_test_environment() {
+run_baseline_tests() {
+  local -a clean_environment=()
   local name
   while IFS= read -r name; do
-    [[ -n "${name}" ]] && unset "${name}"
+    [[ -n "${name}" ]] && clean_environment+=(-u "${name}")
   done < <(env | rg '^NEREUS_DELAY_[A-Za-z0-9_]+=' | sed 's/=.*//')
-  unset PULSAR_P1_IMAGE PULSAR_CLUSTER_NAME PULSAR_BROKER_1_PORT PULSAR_WEB_1_PORT \
-    PULSAR_BROKER_2_PORT PULSAR_WEB_2_PORT
-}
-
-run_baseline_tests() {
-  clear_external_test_environment
+  for name in PULSAR_P1_IMAGE PULSAR_CLUSTER_NAME PULSAR_BROKER_1_PORT PULSAR_WEB_1_PORT \
+    PULSAR_BROKER_2_PORT PULSAR_WEB_2_PORT; do
+    clean_environment+=(-u "${name}")
+  done
   local log_file="${run_dir}/logs/baseline-test.log"
-  GRADLE_USER_HOME="${gradle_home}" "${delay_root}/gradlew" cleanTest \
+  env "${clean_environment[@]}" GRADLE_USER_HOME="${gradle_home}" "${delay_root}/gradlew" cleanTest \
     --no-build-cache --no-daemon --console=plain >"${run_dir}/logs/clean-test-baseline.log" 2>&1 \
     || fail "baseline cleanTest failed"
   set +e
-  GRADLE_USER_HOME="${gradle_home}" "${delay_root}/gradlew" test \
+  env "${clean_environment[@]}" GRADLE_USER_HOME="${gradle_home}" "${delay_root}/gradlew" test \
     --no-build-cache --no-daemon --console=plain --rerun-tasks >"${log_file}" 2>&1
   local status=$?
   set -e
@@ -1351,7 +1350,6 @@ write_gate_c_receipt() {
   local manifest_sha256 manifest_digest public_key_der
   assessment_receipt_sha256="$(sha256_file "${assessment_receipt}")"
   assessment_envelope_sha256="$(sha256_file "${assessment_envelope}")"
-  scope_digest="$(jq -r '.scope | @json' "${assessment_envelope}" | shasum -a 256 | awk '{print $1}')"
   scope_digest="$(authority_task scope-digest scope-digest "${scope_config_path}" | sed -n 's/^scopeDigest=//p' | tail -1)"
   manifest_sha256="$(sha256_file "${manifest}")"
   manifest_digest="$(sed -n 's/^manifestDigest=//p' "${run_dir}/authority/manifest-command.log" | tail -1)"
