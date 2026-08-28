@@ -475,6 +475,24 @@ set_minio_fault_mode() {
     || fail "could not set persistent MinIO fault proxy mode: ${mode}"
 }
 
+read_absent_persistent_topic() {
+  local topic="$1" topic_url="${admin_url}/admin/v2/persistent/public/default/${topic}/stats"
+  local output_path="${run_dir}/g0/g0-topic-${topic}.json"
+  local attempts_path="${run_dir}/g0/g0-topic-${topic}.attempts.log"
+  local deadline=$((SECONDS + 60)) attempt=0 topic_status
+  : >"${attempts_path}"
+  while :; do
+    attempt=$((attempt + 1))
+    topic_status="$(curl --silent --show-error --location --max-redirs 5 --max-time 15 \
+      --output "${output_path}" --write-out '%{http_code}' "${topic_url}" \
+      2>>"${attempts_path}" || true)"
+    printf 'attempt=%s http=%s\n' "${attempt}" "${topic_status}" >>"${attempts_path}"
+    [[ "${topic_status}" == 404 ]] && return 0
+    (( SECONDS < deadline )) || fail "G0 exact topic read was not absent for ${topic}: HTTP ${topic_status}"
+    sleep 2
+  done
+}
+
 write_environment_snapshot() {
   docker version >"${run_dir}/g0/docker-version.txt"
   "${compose[@]}" config >"${run_dir}/g0/compose-config.yaml"
@@ -482,14 +500,11 @@ write_environment_snapshot() {
   curl --silent --show-error "${admin_url}/admin/v2/brokers/ready" >"${run_dir}/g0/pulsar-broker-ready.json"
   curl --silent --show-error --location "${admin_url}/admin/v2/persistent/public/default" \
     >"${run_dir}/g0/pulsar-topics-before.json"
-  local topic topic_status
+  local topic
   for topic in "${command_topic}" "${system_topic}" "${mutation_topic}" "${worker_topic}" \
     "${worker_destination_topic}" "${worker_destination_topic}-attempt-journal" "${route_worker_topic}" \
     "${native_topic}" "${broker_recovery_topic}" "${evidence_topic}"; do
-    topic_status="$(curl --silent --show-error --location --output "${run_dir}/g0/g0-topic-${topic}.json" \
-      --write-out '%{http_code}' "${admin_url}/admin/v2/persistent/public/default/${topic}/stats" || true)"
-    [[ "${topic_status}" == 404 ]] \
-      || fail "G0 exact topic read was not absent for ${topic}: HTTP ${topic_status}"
+    read_absent_persistent_topic "${topic}"
   done
   oxia_admin namespace get default -o json >"${run_dir}/g0/oxia-namespace-before.json"
   oxia_admin dataserver list -o json >"${run_dir}/g0/oxia-dataservers-before.json"
