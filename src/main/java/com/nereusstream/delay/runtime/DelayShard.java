@@ -1347,21 +1347,34 @@ public final class DelayShard {
             throw new IllegalStateException("scheduled Message has no durable TimelineWorkRef");
         }
         final CanonicalLaneTuple.Projection lane = CanonicalLaneTuple.project(binding.canonicalLaneTuple());
-        final ClaimMaterialization materialization = new ClaimMaterialization(
-                lane.destinationProfile(),
-                lane.capabilityProfile(),
-                lane.targetResource(),
-                lane.physicalPartition(),
-                exactMessageId,
-                Integer.toUnsignedLong(current.generation()),
-                payload,
-                intent.adapterMetadata(),
-                current.deliverAtEpochMs(),
-                current.expireAtEpochMs(),
-                timeline.actionAtEpochMs(),
-                intent.nativeDeliveryPolicy(),
-                intent.eventTimeEpochMs(),
-                null);
+        final ClaimMaterialization materialization = intent.legacyPolicyDefault()
+                ? new ClaimMaterialization(
+                        lane.destinationProfile(),
+                        lane.capabilityProfile(),
+                        lane.targetResource(),
+                        lane.physicalPartition(),
+                        exactMessageId,
+                        Integer.toUnsignedLong(current.generation()),
+                        payload,
+                        intent.adapterMetadata(),
+                        current.deliverAtEpochMs(),
+                        current.expireAtEpochMs(),
+                        timeline.actionAtEpochMs())
+                : new ClaimMaterialization(
+                        lane.destinationProfile(),
+                        lane.capabilityProfile(),
+                        lane.targetResource(),
+                        lane.physicalPartition(),
+                        exactMessageId,
+                        Integer.toUnsignedLong(current.generation()),
+                        payload,
+                        intent.adapterMetadata(),
+                        current.deliverAtEpochMs(),
+                        current.expireAtEpochMs(),
+                        timeline.actionAtEpochMs(),
+                        intent.nativeDeliveryPolicy(),
+                        intent.eventTimeEpochMs(),
+                        null);
         requireClaimMaterializationMatchesMessage(exactMessageId, current, materialization);
         return materialization;
     }

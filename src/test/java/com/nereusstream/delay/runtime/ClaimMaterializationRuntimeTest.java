@@ -2,7 +2,9 @@ package com.nereusstream.delay.runtime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.AdapterMetadata;
+import com.nereusstream.delay.protocol.AdapterKind;
 import com.nereusstream.delay.protocol.AuthorIdentity;
 import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
@@ -18,6 +20,8 @@ import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.PayloadForPublish;
 import com.nereusstream.delay.protocol.PayloadReference;
 import com.nereusstream.delay.protocol.PreparedCommand;
+import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity;
+import com.nereusstream.delay.protocol.PulsarMetadata;
 import com.nereusstream.delay.protocol.ProfileKind;
 import com.nereusstream.delay.protocol.ProfileRef;
 import com.nereusstream.delay.protocol.ProtocolTestFixtures;
@@ -170,6 +174,85 @@ class ClaimMaterializationRuntimeTest {
             assertEquals(PayloadForPublish.inline(payload), derived.payload());
             assertEquals(intent.adapterMetadata(), derived.businessMetadata());
             assertEquals(current.runtimeIndex().timeline().actionAtEpochMs(), derived.actionAtEpochMs());
+        }
+    }
+
+    @Test
+    void preservesLegacyMaterializationForPulsarMigrationIntent() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("legacy-pulsar-claim"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 4);
+        final ProfileRef destination = profile(ProfileKind.DESTINATION, "legacy-pulsar-destination");
+        final ProfileRef capability = profile(ProfileKind.DELIVERY_CAPABILITY, "legacy-pulsar-capability");
+        final String physicalTopic = "persistent://tenant/ns/legacy-pulsar-claim";
+        final byte[] resourceIncarnation = Bytes.sha256(Bytes.utf8("legacy-pulsar-resource"));
+        final byte[] tuple = canonicalPulsarLaneTuple(
+                destination, capability, "pulsar-cluster", resourceIncarnation, physicalTopic, 7, 0);
+        final com.nereusstream.delay.protocol.DestinationLaneId lane =
+                com.nereusstream.delay.protocol.DestinationLaneId.derive(tuple);
+        final byte[] payload = Bytes.utf8("legacy-pulsar-payload");
+        final CanonicalScheduleIntent intent = CanonicalScheduleIntent.create(
+                destination,
+                new com.nereusstream.delay.protocol.RetryPolicyRef(
+                        Bytes.utf8("legacy-pulsar-retry"), 1, Bytes.sha256(Bytes.utf8("legacy-pulsar-retry"))),
+                2_000,
+                5_000,
+                DeliveryMode.MANAGED,
+                OrderingMode.BEST_EFFORT,
+                Bytes.utf8("legacy-pulsar-ordering"),
+                payload,
+                null,
+                AdapterMetadata.pulsar(new PulsarMetadata(null, null, null, List.of())),
+                null,
+                null);
+        assertTrue(intent.legacyPolicyDefault());
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId, intent, 9_000);
+        final ScheduleResolver resolver = new ScheduleResolver() {
+            @Override
+            public ResolvedSchedule resolveSchedule(
+                    final ShardId shard,
+                    final DelayMessageId messageId,
+                    final CanonicalScheduleIntent resolvedIntent,
+                    final SourcePosition source) {
+                return new ResolvedSchedule(lane, tuple, payload, null);
+            }
+
+            @Override
+            public ResolvedPrepare resolvePrepare(
+                    final ShardId shard,
+                    final DelayMessageId messageId,
+                    final com.nereusstream.delay.protocol.PrepareLargeScheduleBody body,
+                    final SourcePosition source) {
+                throw new UnsupportedOperationException("not used by this test");
+            }
+        };
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults(), null, null, resolver);
+            assertEquals(
+                    com.nereusstream.delay.protocol.StableCode.SCHEDULED,
+                    shard.apply(schedule, position(shardId, 0, 1_000)).stableCode());
+
+            final ClaimMaterialization materialization = shard.resolveClaimMaterialization(schedule.delayMessageId());
+
+            assertTrue(materialization.legacyEncoding());
+            assertEquals(com.nereusstream.delay.protocol.NativeDeliveryPolicy.FORBID,
+                    materialization.nativeDeliveryPolicy());
+            assertEquals(
+                    new ClaimMaterialization(
+                            destination,
+                            capability,
+                            BrokerResourceIdentity.pulsar(new PulsarBrokerResourceIdentity(
+                                    "pulsar-cluster", resourceIncarnation, physicalTopic, 7)),
+                            0,
+                            schedule.delayMessageId(),
+                            0,
+                            PayloadForPublish.inline(payload),
+                            intent.adapterMetadata(),
+                            2_000,
+                            5_000,
+                            2_000),
+                    materialization);
         }
     }
 
@@ -380,6 +463,33 @@ class ClaimMaterializationRuntimeTest {
                 deliverAt,
                 expireAt,
                 actionAt);
+    }
+
+    private static byte[] canonicalPulsarLaneTuple(
+            final ProfileRef destination,
+            final ProfileRef capability,
+            final String cluster,
+            final byte[] resourceIncarnation,
+            final String physicalTopic,
+            final long creationTimestamp,
+            final long physicalPartition) {
+        return Bytes.concat(
+                Bytes.sha256(Bytes.utf8("legacy-pulsar-tenant-routing-scope")),
+                Bytes.u8(AdapterKind.PULSAR.wireValue()),
+                Bytes.lp32(Bytes.utf8(cluster)),
+                Bytes.u8(2),
+                resourceIncarnation,
+                Bytes.u64beBits(creationTimestamp),
+                Bytes.lp32(Bytes.utf8(physicalTopic)),
+                Bytes.u32be(physicalPartition),
+                Bytes.lp32(destination.profileId()),
+                Bytes.u64beBits(destination.version()),
+                destination.semanticHash(),
+                Bytes.lp32(capability.profileId()),
+                Bytes.u64beBits(capability.version()),
+                capability.semanticHash(),
+                Bytes.u8(1),
+                Bytes.sha256(Bytes.utf8("legacy-pulsar-ordering-domain")));
     }
 
     private static ClaimMaterialization newMaterialization(
