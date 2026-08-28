@@ -1194,6 +1194,8 @@ run_broker_failover_cell() {
   local log_path="${artifact_dir}/logs/${cell_id//[^A-Za-z0-9_.-]/_}.log"
   local evidence_path="${artifact_dir}/evidence/${cell_id//[^A-Za-z0-9_.-]/_}.json"
   local dump_dir="${artifact_dir}/recovery/broker-state"
+  local before_dump="${dump_dir}/before-process-crash.json"
+  local after_dump="${dump_dir}/after-fresh-process.json"
   local result_status="EXECUTED_FAIL"
   local result_reason="real two-Broker failover smoke failed"
   local evidence_status="FAIL"
@@ -1284,7 +1286,7 @@ run_broker_failover_cell() {
     fi
   fi
   if [[ "${result_status}" == "EXECUTED_PASS" ]] \
-      && [[ ! -f "${dump_dir}/before.json" || ! -f "${dump_dir}/after.json" ]]; then
+      && [[ ! -f "${before_dump}" || ! -f "${after_dump}" ]]; then
     result_status="EXECUTED_FAIL"
     result_reason="failover command passed without both durable-state receipts"
     evidence_status="FAIL"
