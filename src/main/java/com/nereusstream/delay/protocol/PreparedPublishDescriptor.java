@@ -392,7 +392,25 @@ public final class PreparedPublishDescriptor {
 
     /** Returns the replay-stable materialization projection carried by this descriptor. */
     public ClaimMaterialization materialization() {
+        return materialization(handoffPolicySnapshot == null ? null : handoffPolicySnapshot.headRef(), false);
+    }
+
+    /**
+     * Reconstructs the exact Claim projection using its Oxia-bound head
+     * reference. The descriptor freezes the full signed snapshot while the
+     * enclosing Admission Claim precondition retains the publication
+     * revision; both are required to recover the exact native materialization.
+     */
+    public ClaimMaterialization materialization(final HandoffPolicyHeadRef policyHeadRef) {
+        return materialization(policyHeadRef, true);
+    }
+
+    private ClaimMaterialization materialization(
+            final HandoffPolicyHeadRef policyHeadRef, final boolean requirePublishedHead) {
         if (legacyEncoding) {
+            if (policyHeadRef != null) {
+                throw new IllegalArgumentException("legacy descriptor cannot carry a handoff policy head");
+            }
             return new ClaimMaterialization(
                     destinationProfile,
                     capabilityProfile,
@@ -405,6 +423,16 @@ public final class PreparedPublishDescriptor {
                     deliverAtEpochMs,
                     expireAtEpochMs,
                     actionAtEpochMs);
+        }
+        if ((handoffPolicySnapshot == null) != (policyHeadRef == null)) {
+            throw new IllegalArgumentException("descriptor snapshot and Claim policy head must be paired");
+        }
+        if (handoffPolicySnapshot != null
+                && (requirePublishedHead && policyHeadRef.oxiaVersion() == 0
+                        || !Arrays.equals(handoffPolicySnapshot.policyScopeDigest(), policyHeadRef.scopeDigest())
+                        || handoffPolicySnapshot.generation() != policyHeadRef.generation()
+                        || !Arrays.equals(handoffPolicySnapshot.snapshotDigest(), policyHeadRef.snapshotDigest()))) {
+            throw new IllegalArgumentException("Claim policy head does not identify the descriptor snapshot");
         }
         return new ClaimMaterialization(
                 destinationProfile,
@@ -420,7 +448,7 @@ public final class PreparedPublishDescriptor {
                 actionAtEpochMs,
                 nativeDeliveryPolicy,
                 eventTimeEpochMs,
-                handoffPolicySnapshot == null ? null : handoffPolicySnapshot.headRef());
+                policyHeadRef);
     }
 
     public byte[] canonicalBytes() {

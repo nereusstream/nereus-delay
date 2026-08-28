@@ -73,6 +73,13 @@ public final class ScheduleBinding {
         return Bytes.copy(canonicalBody);
     }
 
+    /** Returns the exact source-bound schedule intent used by policy/admission gates. */
+    public CanonicalScheduleIntent intent() {
+        return commandType == CommandType.SCHEDULE
+                ? ScheduleCommandBody.decode(canonicalBody).intent()
+                : PrepareLargeScheduleBody.decode(canonicalBody).intentWithoutPayload();
+    }
+
     /** Requires one Claim projection to preserve the immutable resolved Lane tuple. */
     public void requireClaimLaneProjection(final ClaimMaterialization materialization) {
         CanonicalLaneTuple.requireClaimProjection(

@@ -9,6 +9,7 @@ import com.nereusstream.delay.protocol.ClaimMaterialization;
 import com.nereusstream.delay.protocol.ClaimResultBody;
 import com.nereusstream.delay.protocol.DeliveryContract;
 import com.nereusstream.delay.protocol.DeliveryMode;
+import com.nereusstream.delay.protocol.HandoffPolicySnapshot;
 import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.PreparedPublishDescriptor;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
@@ -17,11 +18,13 @@ import com.nereusstream.delay.protocol.PulsarMetadata;
 import com.nereusstream.delay.protocol.PulsarRecordTemplate;
 import com.nereusstream.delay.protocol.ReadyCertificate;
 import com.nereusstream.delay.protocol.ReservedPublishMetadata;
+import com.nereusstream.delay.protocol.ScheduleBinding;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.runtime.ClaimRecord;
 import com.nereusstream.delay.scheduler.ClaimExecutionAdmission;
+import com.nereusstream.delay.scheduler.ManagedHandoffAdmissionAuthority;
 import com.nereusstream.delay.scheduler.WorkClass;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import com.nereusstream.delay.scheduler.WorkClassTask;
@@ -51,6 +54,7 @@ public final class PublishAdmissionWorkClassExecutor {
     private final ShardLogMutationAppender appender;
     private final AdmissionPrerequisiteGate prerequisiteGate;
     private final ArtifactGenerationSet artifacts;
+    private final ManagedHandoffAdmissionAuthority managedHandoffAuthority;
 
     public PublishAdmissionWorkClassExecutor(
             final WorkClassExecutionRegistry workClasses,
@@ -59,7 +63,7 @@ public final class PublishAdmissionWorkClassExecutor {
             final ClaimExecutionAdmission permits,
             final ShardLogMutationAppender appender,
             final AdmissionPrerequisiteGate prerequisiteGate) {
-        this(workClasses, ownedShard, authority, permits, appender, prerequisiteGate, null);
+        this(workClasses, ownedShard, authority, permits, appender, prerequisiteGate, null, null);
     }
 
     /** Creates an Admission executor pinned to one current artifact generation set. */
@@ -71,6 +75,22 @@ public final class PublishAdmissionWorkClassExecutor {
             final ShardLogMutationAppender appender,
             final AdmissionPrerequisiteGate prerequisiteGate,
             final ArtifactGenerationSet artifacts) {
+        this(workClasses, ownedShard, authority, permits, appender, prerequisiteGate, artifacts, null);
+    }
+
+    /**
+     * Creates an Admission executor with the current artifact set and the
+     * current-policy authority required to freeze Managed Handoff leases.
+     */
+    public PublishAdmissionWorkClassExecutor(
+            final WorkClassExecutionRegistry workClasses,
+            final OwnedDelayShard ownedShard,
+            final OxiaOwnerLeaseStore authority,
+            final ClaimExecutionAdmission permits,
+            final ShardLogMutationAppender appender,
+            final AdmissionPrerequisiteGate prerequisiteGate,
+            final ArtifactGenerationSet artifacts,
+            final ManagedHandoffAdmissionAuthority managedHandoffAuthority) {
         this.workClasses = Objects.requireNonNull(workClasses, "workClasses");
         this.ownedShard = Objects.requireNonNull(ownedShard, "ownedShard");
         this.authority = Objects.requireNonNull(authority, "authority");
@@ -78,6 +98,7 @@ public final class PublishAdmissionWorkClassExecutor {
         this.appender = Objects.requireNonNull(appender, "appender");
         this.prerequisiteGate = Objects.requireNonNull(prerequisiteGate, "prerequisiteGate");
         this.artifacts = artifacts;
+        this.managedHandoffAuthority = managedHandoffAuthority;
         this.workClasses.bindClaimExecutionAdmission(this.permits);
         this.ownedShard.bindWorkClassExecutionRegistry(this.workClasses);
     }
@@ -104,13 +125,15 @@ public final class PublishAdmissionWorkClassExecutor {
             final int signingKeyVersion,
             final PrivateKey signingKey,
             final LongSupplier ownerClock) {
-        return submit(
-                claim,
+        final ClaimRecord exactClaim = Objects.requireNonNull(claim, "Claim");
+        final TrustedUtcIntervalEvidence exactDecision = Objects.requireNonNull(decisionTime, "decisionTime");
+        final HandoffPolicySnapshot frozen = freezeNativeIfSelected(exactClaim, exactDecision);
+        return submitPrepared(
+                exactClaim,
                 reservation,
-                deriveDescriptor(
-                        Objects.requireNonNull(claim, "Claim"), Objects.requireNonNull(channel, "channel"), artifacts),
+                deriveDescriptor(exactClaim, Objects.requireNonNull(channel, "channel"), artifacts, frozen),
                 readyCertificate,
-                decisionTime,
+                exactDecision,
                 retryUntilEpochMs,
                 signingKeyVersion,
                 signingKey,
@@ -123,6 +146,32 @@ public final class PublishAdmissionWorkClassExecutor {
      * ordered Admission apply or an explicit Claim revoke releases it.
      */
     public Submission submit(
+            final ClaimRecord claim,
+            final ClaimExecutionAdmission.Reservation reservation,
+            final PreparedPublishDescriptor descriptor,
+            final ReadyCertificate readyCertificate,
+            final TrustedUtcIntervalEvidence decisionTime,
+            final long retryUntilEpochMs,
+            final int signingKeyVersion,
+            final PrivateKey signingKey,
+            final LongSupplier ownerClock) {
+        final ClaimRecord exactClaim = Objects.requireNonNull(claim, "Claim");
+        final PreparedPublishDescriptor exactDescriptor = Objects.requireNonNull(descriptor, "descriptor");
+        final TrustedUtcIntervalEvidence exactDecision = Objects.requireNonNull(decisionTime, "decisionTime");
+        requireDescriptorAuthority(exactClaim, exactDescriptor, exactDecision);
+        return submitPrepared(
+                exactClaim,
+                reservation,
+                exactDescriptor,
+                readyCertificate,
+                exactDecision,
+                retryUntilEpochMs,
+                signingKeyVersion,
+                signingKey,
+                ownerClock);
+    }
+
+    private Submission submitPrepared(
             final ClaimRecord claim,
             final ClaimExecutionAdmission.Reservation reservation,
             final PreparedPublishDescriptor descriptor,
@@ -154,8 +203,50 @@ public final class PublishAdmissionWorkClassExecutor {
         return submission;
     }
 
+    private HandoffPolicySnapshot freezeNativeIfSelected(
+            final ClaimRecord claim, final TrustedUtcIntervalEvidence decisionTime) {
+        final ClaimMaterialization materialization = claim.materialization();
+        if (materialization.actionAtEpochMs() == materialization.deliverAtEpochMs()) {
+            if (materialization.handoffPolicyHeadRef() != null) {
+                throw new IllegalArgumentException("ordinary Claim cannot carry a handoff policy head");
+            }
+            return null;
+        }
+        if (artifacts == null || managedHandoffAuthority == null) {
+            throw new IllegalStateException("native Pulsar Admission has no current policy authority");
+        }
+        final ScheduleBinding binding = ownedShard.shard().getScheduleBinding(claim.delayMessageId());
+        if (binding == null) {
+            throw new IllegalStateException("native Pulsar Admission has no source-bound Schedule binding");
+        }
+        return Objects.requireNonNull(
+                managedHandoffAuthority.freezeCurrent(materialization, binding, decisionTime),
+                "frozen handoff policy snapshot");
+    }
+
+    private void requireDescriptorAuthority(
+            final ClaimRecord claim,
+            final PreparedPublishDescriptor descriptor,
+            final TrustedUtcIntervalEvidence decisionTime) {
+        final boolean nativeContract = descriptor.deliveryContract() == DeliveryContract.PULSAR_NATIVE_DELIVERY;
+        final boolean early = descriptor.actionAtEpochMs() < descriptor.deliverAtEpochMs();
+        if (!nativeContract && !early) {
+            return;
+        }
+        if (!nativeContract || !early || descriptor.handoffPolicySnapshot() == null) {
+            throw new IllegalArgumentException("early Publish Admission requires the native delivery contract");
+        }
+        final HandoffPolicySnapshot frozen = freezeNativeIfSelected(claim, decisionTime);
+        if (!frozen.equals(descriptor.handoffPolicySnapshot())) {
+            throw new IllegalArgumentException("descriptor does not carry the CAS-stable current handoff snapshot");
+        }
+    }
+
     private static PreparedPublishDescriptor deriveDescriptor(
-            final ClaimRecord claim, final ChannelResourceIdentity channel, final ArtifactGenerationSet artifacts) {
+            final ClaimRecord claim,
+            final ChannelResourceIdentity channel,
+            final ArtifactGenerationSet artifacts,
+            final HandoffPolicySnapshot handoffPolicySnapshot) {
         final ClaimMaterialization materialization = claim.materialization();
         final ClaimResultBody.ClaimPrecondition precondition =
                 ClaimResultBody.decodePrecondition(claim.preconditionBytes());
@@ -201,11 +292,9 @@ public final class PublishAdmissionWorkClassExecutor {
             if (artifacts == null) {
                 throw new IllegalStateException("current Pulsar Admission requires an exact ArtifactGenerationSet");
             }
-            if (materialization.nativeDeliveryPolicy() != com.nereusstream.delay.protocol.NativeDeliveryPolicy.FORBID
-                    || materialization.actionAtEpochMs() != materialization.deliverAtEpochMs()
-                    || materialization.handoffPolicyHeadRef() != null) {
-                throw new IllegalStateException(
-                        "native Pulsar Admission requires the signed policy-snapshot authority path");
+            final boolean nativeContract = materialization.actionAtEpochMs() < materialization.deliverAtEpochMs();
+            if (nativeContract != (handoffPolicySnapshot != null)) {
+                throw new IllegalStateException("native Pulsar Admission snapshot selection is inconsistent");
             }
             final PulsarMetadata metadata = materialization.businessMetadata().pulsar();
             final PulsarKey key = metadata.partitionKey() == null
@@ -221,8 +310,10 @@ public final class PublishAdmissionWorkClassExecutor {
                     metadata.properties(),
                     materialization.eventTimeEpochMs(),
                     reserved,
-                    DeliveryContract.NEREUS_MANAGED_NOT_BEFORE,
-                    null,
+                    nativeContract
+                            ? DeliveryContract.PULSAR_NATIVE_DELIVERY
+                            : DeliveryContract.NEREUS_MANAGED_NOT_BEFORE,
+                    nativeContract ? materialization.deliverAtEpochMs() : null,
                     materialization.payload(),
                     artifacts.setDigest());
             return new PreparedPublishDescriptor(
@@ -245,8 +336,10 @@ public final class PublishAdmissionWorkClassExecutor {
                     materialization.expireAtEpochMs(),
                     materialization.actionAtEpochMs(),
                     materialization.nativeDeliveryPolicy(),
-                    DeliveryContract.NEREUS_MANAGED_NOT_BEFORE,
-                    null,
+                    nativeContract
+                            ? DeliveryContract.PULSAR_NATIVE_DELIVERY
+                            : DeliveryContract.NEREUS_MANAGED_NOT_BEFORE,
+                    handoffPolicySnapshot,
                     materialization.eventTimeEpochMs(),
                     template,
                     template.recordTemplateHash(),
@@ -537,7 +630,10 @@ public final class PublishAdmissionWorkClassExecutor {
             if (!precondition.hasMaterialization()) {
                 throw new IllegalArgumentException("Publish Admission requires Claim materialization");
             }
-            if (!typedDescriptor.materialization().equals(precondition.materializationValue())
+            final ClaimMaterialization claimMaterialization = precondition.materializationValue();
+            if (!typedDescriptor
+                            .materialization(claimMaterialization.handoffPolicyHeadRef())
+                            .equals(claimMaterialization)
                     || !typedDescriptor.messageId().equals(typedClaim.delayMessageId())
                     || typedDescriptor.generation() != Integer.toUnsignedLong(typedClaim.generation())
                     || !typedDescriptor.destinationLaneId().equals(typedClaim.laneId())

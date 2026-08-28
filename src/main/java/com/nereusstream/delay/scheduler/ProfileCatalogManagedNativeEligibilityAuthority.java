@@ -3,11 +3,16 @@ package com.nereusstream.delay.scheduler;
 import com.nereusstream.delay.protocol.AdapterKind;
 import com.nereusstream.delay.protocol.ArtifactGenerationSet;
 import com.nereusstream.delay.protocol.CanonicalLaneTuple;
+import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
+import com.nereusstream.delay.protocol.ClaimMaterialization;
 import com.nereusstream.delay.protocol.DeliveryCapabilitySemantic;
 import com.nereusstream.delay.protocol.DestinationProfileSemantic;
 import com.nereusstream.delay.protocol.HandoffPath;
+import com.nereusstream.delay.protocol.HandoffPolicyMode;
 import com.nereusstream.delay.protocol.HandoffPolicyScope;
 import com.nereusstream.delay.protocol.HandoffPolicySnapshot;
+import com.nereusstream.delay.protocol.NativeDeliveryPolicy;
+import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.ProfileKind;
 import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
 import com.nereusstream.delay.protocol.ScheduleBinding;
@@ -32,7 +37,8 @@ import java.util.function.Supplier;
  * trust, and returns a process-local decision. Missing or untrusted live state disables only the native optimization;
  * malformed durable schedule identity remains an integrity failure.</p>
  */
-public final class ProfileCatalogManagedNativeEligibilityAuthority implements ManagedNativeEligibilityAuthority {
+public final class ProfileCatalogManagedNativeEligibilityAuthority
+        implements ManagedNativeEligibilityAuthority, ManagedHandoffAdmissionAuthority {
     private final ProfileCatalog profiles;
     private final HandoffPolicyAuthority policies;
     private final HandoffPolicyTrustStore trustStore;
@@ -112,6 +118,92 @@ public final class ProfileCatalogManagedNativeEligibilityAuthority implements Ma
         return HandoffEligibilityResolver.resolve(
                 input(exactMessage, trustedTime, resolved.destination(), resolved.capability(), snapshot, true),
                 publication);
+    }
+
+    /**
+     * Rereads the current Oxia head on both sides of validation and returns
+     * only the exact signed snapshot referenced by the Claim. Any drift,
+     * unavailable authority, or mismatched source-bound input fails closed
+     * before a Publish Admission can be constructed.
+     */
+    @Override
+    public HandoffPolicySnapshot freezeCurrent(
+            final ClaimMaterialization materialization,
+            final ScheduleBinding binding,
+            final TrustedUtcIntervalEvidence decisionTime) {
+        final ClaimMaterialization exact = Objects.requireNonNull(materialization, "materialization");
+        final ScheduleBinding exactBinding = Objects.requireNonNull(binding, "binding");
+        final TrustedUtcIntervalEvidence exactTime = Objects.requireNonNull(decisionTime, "decisionTime");
+        if (exact.legacyEncoding()
+                || exact.nativeDeliveryPolicy() == NativeDeliveryPolicy.FORBID
+                || !exact.nativeDeliveryPolicy().allowsManagedHandoff()
+                || exact.handoffPolicyHeadRef() == null
+                || exact.actionAtEpochMs() >= exact.deliverAtEpochMs()
+                || !exactBinding.delayMessageId().equals(exact.messageId())) {
+            throw new IllegalArgumentException("Claim does not select Managed Pulsar native delivery");
+        }
+        exactBinding.requireClaimLaneProjection(exact);
+        final CanonicalLaneTuple.Projection lane = CanonicalLaneTuple.project(exactBinding.canonicalLaneTuple());
+        final CanonicalScheduleIntent intent = exactBinding.intent();
+        if (intent.legacyPolicyDefault()
+                || intent.deliveryMode() != com.nereusstream.delay.protocol.DeliveryMode.MANAGED
+                || intent.nativeDeliveryPolicy() != exact.nativeDeliveryPolicy()
+                || intent.orderingMode() != OrderingMode.BEST_EFFORT
+                || !intent.profile().equals(exact.destinationProfile())
+                || !intent.adapterMetadata().equals(exact.businessMetadata())
+                || !Objects.equals(intent.eventTimeEpochMs(), exact.eventTimeEpochMs())
+                || intent.deliverAtEpochMs() != exact.deliverAtEpochMs()
+                || intent.expireAtEpochMs() != exact.expireAtEpochMs()) {
+            throw new IllegalArgumentException("Claim differs from its source-bound native Schedule intent");
+        }
+        final ResolvedProfiles resolved = Objects.requireNonNull(
+                resolveProfiles(lane), "Managed Handoff Profiles are unavailable or inconsistent");
+        if (!TimingCapability.includes(
+                        resolved.capability().timingCapabilityBits(), TimingCapability.PULSAR_NATIVE_MANAGED_HANDOFF)
+                || resolved.destination().handoffLeadMs() <= 0) {
+            throw new IllegalArgumentException("Managed Handoff capability is unavailable");
+        }
+        final int scopePathBits =
+                exact.nativeDeliveryPolicy().allowsAutoFast() ? HandoffPath.VALID_MASK : HandoffPath.MANAGED_HANDOFF;
+        final byte[] scope = HandoffPolicyScope.digest(
+                lane.tenantRouteScopeDigest(),
+                lane.destinationProfile(),
+                lane.capabilityProfile(),
+                lane.targetResource(),
+                lane.physicalPartition(),
+                intent.orderingMode(),
+                scopePathBits,
+                artifacts);
+        final HandoffPolicyAuthority.Publication first = policies.requireCurrent(scope);
+        if (!first.head().ref(first.oxiaVersion()).equals(exact.handoffPolicyHeadRef())) {
+            throw new IllegalArgumentException("Claim policy head is no longer current");
+        }
+        final HandoffPolicySnapshot snapshot = first.head().snapshot();
+        final SourcePosition position = Objects.requireNonNull(trustPosition.get(), "policy trust position");
+        trustStore.requireTrusted(snapshot, scope, artifacts.setDigest(), position);
+        snapshot.requireActiveAt(exactTime);
+        snapshot.requireLeadAtMost(resolved.destination().handoffLeadMs());
+        if (snapshot.mode() != HandoffPolicyMode.ENABLED
+                || !snapshot.allows(HandoffPath.MANAGED_HANDOFF)
+                || snapshot.effectiveLeadMs() <= 0
+                || exactTime.earliestEpochMs() < exact.actionAtEpochMs()
+                || exactTime.latestEpochMs() >= exact.deliverAtEpochMs()) {
+            throw new IllegalArgumentException("Managed Handoff lease is not valid for this Admission interval");
+        }
+        final long expectedActionAt;
+        try {
+            expectedActionAt = Math.subtractExact(exact.deliverAtEpochMs(), snapshot.effectiveLeadMs());
+        } catch (ArithmeticException overflow) {
+            throw new IllegalArgumentException("Managed Handoff action time overflows", overflow);
+        }
+        if (expectedActionAt < 0 || exact.actionAtEpochMs() != expectedActionAt) {
+            throw new IllegalArgumentException("Claim action time does not match the current signed lead");
+        }
+        final HandoffPolicyAuthority.Publication second = policies.requireCurrent(scope);
+        if (!first.sameHead(second)) {
+            throw new IllegalStateException("handoff policy head changed during Admission validation");
+        }
+        return snapshot;
     }
 
     private ResolvedProfiles resolveProfiles(final CanonicalLaneTuple.Projection lane) {

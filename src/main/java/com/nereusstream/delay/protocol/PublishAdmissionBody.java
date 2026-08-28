@@ -488,7 +488,11 @@ public final class PublishAdmissionBody {
                 || !Arrays.equals(claim.storeIncarnation(), storeIncarnation)) {
             throw new IllegalArgumentException("Publish Admission Claim precondition mismatch");
         }
-        final byte[] expectedMaterialization = descriptor.materializationBytes();
+        final ClaimMaterialization claimMaterialization = claim.materializationValue();
+        final byte[] expectedMaterialization = descriptor
+                .value()
+                .materialization(claimMaterialization.handoffPolicyHeadRef())
+                .canonicalBytes();
         if (!Arrays.equals(expectedMaterialization, claim.materialization())) {
             throw new IllegalArgumentException("Publish Admission materialization mismatch");
         }
