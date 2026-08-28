@@ -430,7 +430,8 @@ write_environment_snapshot() {
   "${compose[@]}" config >"${run_dir}/g0/compose-config.yaml"
   "${compose[@]}" ps --all >"${run_dir}/g0/compose-ps.txt"
   curl --silent --show-error "${admin_url}/admin/v2/brokers/ready" >"${run_dir}/g0/pulsar-broker-ready.json"
-  curl --silent --show-error "${admin_url}/admin/v2/persistent/public/default" >"${run_dir}/g0/pulsar-topics-before.json"
+  curl --silent --show-error --location "${admin_url}/admin/v2/persistent/public/default" \
+    >"${run_dir}/g0/pulsar-topics-before.json"
   local topic topic_status
   for topic in "${command_topic}" "${system_topic}" "${mutation_topic}" "${worker_topic}" \
     "${worker_destination_topic}" "${worker_destination_topic}-attempt-journal" "${route_worker_topic}" \
@@ -822,7 +823,7 @@ create_persistent_topic() {
     '{"nereus.resource.guard.version":"1","nereus.resource.incarnation":$incarnation,
       "nereus.resource.created-at":$creation}')"
   local status
-  status="$(curl --silent --show-error --output "${run_dir}/g0/topic-${topic}-create.json" \
+  status="$(curl --silent --show-error --location --output "${run_dir}/g0/topic-${topic}-create.json" \
     --write-out '%{http_code}' --header 'Content-Type: application/json' \
     --request PUT --data "${body}" "${topic_url}")"
   [[ "${status}" == 2?? || "${status}" == 409 ]] \
