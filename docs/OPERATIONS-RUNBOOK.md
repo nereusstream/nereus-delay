@@ -2035,3 +2035,37 @@ global prune was used. Eighty-eight unreferenced `/private/tmp/nereus-delay*`
 directories were moved to
 `/Users/liusinan/.Trash/nereus-delay-cleanup-20260822-full` after `.git`
 checks. Current evidence and referenced historical receipts remain available.
+
+## 2026-08-28 NDIP-1 disposable local certification — 35986a08
+
+The current disposable entry point is
+`e2e/run-disposable-local-certification.sh`. The source-bound run used Delay
+`35986a08462bd5facbd9be6f3d28f06080115745`, Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e232da5fd26d94865484`. Run it with a fresh artifact and an
+exclusive resource prefix:
+
+```bash
+NEREUS_DELAY_DISPOSABLE_GRADLE_USER_HOME=/Users/liusinan/.gradle \
+  bash e2e/run-disposable-local-certification.sh
+```
+
+The 2026-08-28 receipt is
+`/var/folders/vk/l_r0z80j1dj93fsrjx3zqv4r0000gn/T/nereus-delay-ndip1-cert.XXXXXX.LcUObXDn7T/disposable-local-certification-receipt.json`.
+It is `BLOCKED` only because the current source has no safe independently
+controllable cut for response loss after definitive Outcome persistence and
+before handoff. The other 21 of 22 cells executed and passed, including the
+native Shared/Key_Shared strictness matrix, Exclusive/Failover native immediate
+behavior, real two-Broker failover, real Oxia restart/ownership transfer and
+Oxia/MinIO checkpoint paths. The certification summary reports `skipped=0`.
+
+This is a local disposable certification receipt/report, not a deployment
+assessment or activation authority. It does not change the current G0
+`NOT_APPLICABLE_FOR_IMPLEMENTATION / PENDING_DEPLOYMENT` state. A future
+`EXISTING` or `STAGING` persistent environment must run the real G0 and its
+independent Gate C path before any SHADOW or ENABLED operation.
+
+Cleanup passed with the exact Compose project absent and empty remaining
+containers, generated images, networks, processes, temporary credentials,
+topics and volumes. The runner uses exact project/resource-prefix cleanup and
+does not authorize global Docker prune or source/worktree deletion.

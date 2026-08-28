@@ -17,6 +17,11 @@
 Worker 或 unresolved obligation 环境。因此不能构造权威 Assessment scope，也不得为了过门生成
 虚假 environment、placeholder PASS 或模拟 production receipt。
 
+2026-08-28 的 `DISPOSABLE_LOCAL` certification runner 已在独占、可销毁环境中完成真实 native、
+recovery、fault、Oxia/MinIO 和 cleanup 矩阵；其 local receipt 为 `BLOCKED`，包含 21 个
+`EXECUTED_PASS` 与 1 个真实 `NOT_COVERED`，没有 skipped cell。该结果只证明本地认证边界，
+不创建 Assessment scope，不改变下面的 persistent deployment 状态。
+
 `NOT_APPLICABLE_FOR_IMPLEMENTATION` 只表示 G0 不是 H1-H6 的前置条件；它不是 Gate C PASS。
 第一个 existing/staging/production deployment 出现后，状态转为 `PENDING` 并使用真实 closed
 scope 执行 G0。在此之前 H1-H6 的代码/本地 disposable 验证可以推进，但任何 persistent

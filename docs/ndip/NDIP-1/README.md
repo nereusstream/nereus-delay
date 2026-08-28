@@ -71,6 +71,9 @@ receipt 同时固定 `gateCRequiredBeforeShadow=true` 与 `gateCRequiredBeforeEn
    - 记录只读 G0 tooling、lifecycle safety guard、验证证据和 pending deployment；它不是
      Assessment receipt 或 Gate C
      authority。
+7. [`05-Disposable-Local-Certification-执行记录.md`](05-Disposable-Local-Certification-执行记录.md)
+   - 非规范地记录一次 source-bound `DISPOSABLE_LOCAL` 本地认证、矩阵结果和 exact cleanup；
+     它不创建 Assessment scope，也不提供 deployment authority。
 
 旧的根目录稿件 `docs/修复 Pulsar Handoff 延迟投递.md` 已由本工作包替代，不再保留
 两份并行计划。
@@ -114,6 +117,20 @@ generation gates 均已实现。
 evidence。H0 仍然 fail-closed，缺少 exact current generation、signed manifest 或能力
 gate 时不得触碰 Producer/物理适配器。由于没有真实 persistent deployment，Gate C 仍为
 `PENDING_DEPLOYMENT`，SHADOW/ENABLED 继续阻断。
+
+## 2026-08-28 disposable local certification
+
+当前 runner `e2e/run-disposable-local-certification.sh` 已在 source-locked P1、真实双 Broker、
+BookKeeper/metadata、Oxia、MinIO、RocksDB 和 ownership/failover 边界上完成一次严格
+fail-on-missing 运行。receipt 为 `BLOCKED`，覆盖结果是 22 个单元格中 21 个
+`EXECUTED_PASS`、1 个明确 `NOT_COVERED`、`skipped=0`，没有把缺失的 response-loss cut 伪造为
+PASS。完整的命令、source/config/attestation binding、证据路径与 cleanup 审计见
+[`05-Disposable-Local-Certification-执行记录.md`](05-Disposable-Local-Certification-执行记录.md)。
+
+这只是 local disposable certification receipt/report；它不创建真实 DataResetAssessment
+scope，不是 Gate C authority，也不允许 SHADOW 或 ENABLED。当前 G0 仍为
+`NOT_APPLICABLE_FOR_IMPLEMENTATION / PENDING_DEPLOYMENT`，Gate C 仍为
+`PENDING_DEPLOYMENT`。
 
 本轮实现提交为 `main@c7c99d377dc9e8bb786032173d62d1981011a4e2`，P1 correctness-critical
 source lock 固定为 `nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`。
