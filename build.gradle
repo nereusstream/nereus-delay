@@ -988,6 +988,14 @@ tasks.named('checkstyleTest').configure {
     source = fileTree('src/test/java')
 }
 
+// The opt-in compiler writes the realPulsar source-set output directory that
+// Checkstyle places on its analysis classpath.  Keep the default check gate
+// independent of P1 artifacts, but order the two tasks when callers request
+// both in the same invocation so Gradle never observes an implicit producer.
+tasks.named('checkstyleRealPulsar').configure {
+    mustRunAfter tasks.named('compileRealPulsar')
+}
+
 spotless {
     java {
         target 'src/**/*.java'
