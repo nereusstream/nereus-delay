@@ -16,6 +16,11 @@ def fail(message: str) -> None:
     raise SystemExit(message)
 
 
+def normalized_case_name(name: str) -> str:
+    """Normalize the no-argument JUnit suffix emitted by Gradle XML reports."""
+    return name[:-2] if name.endswith("()") else name
+
+
 def read_json(path: Path) -> dict:
     if not path.is_file() or path.is_symlink():
         fail(f"missing regular evidence file: {path}")
@@ -36,7 +41,7 @@ def result_cases(directory: Path) -> dict[tuple[str, str], str]:
         except (OSError, ET.ParseError) as exc:
             fail(f"invalid JUnit XML {path}: {exc}")
         for case in root.iter("testcase"):
-            key = (case.attrib.get("classname", ""), case.attrib.get("name", ""))
+            key = (case.attrib.get("classname", ""), normalized_case_name(case.attrib.get("name", "")))
             if case.find("failure") is not None or case.find("error") is not None:
                 state = "FAILED"
             elif case.find("skipped") is not None:
