@@ -621,6 +621,7 @@ write_authority_configs() {
     --arg workerBEvidence "${worker_b_evidence}" \
     --arg now "${observation_now}" --arg from "$((${observation_now} + 5000))" \
     --arg until "$((${observation_now} + 86400000))" --arg evidence "${resource_evidence}" \
+    --arg mono "${observation_mono}" --arg sourceEvidence "${source_evidence}" \
     --arg scopeEvidence "${scope_evidence}" --arg obligationEvidence "${obligation_evidence}" \
     --arg tenantScopeDigest "${tenant_scope_digest}" --arg routeSnapshotDigest "${route_snapshot_digest}" \
     --arg schemaHash "$(sha256_text pulsar-worker-current-schema-bundle)" \
@@ -634,6 +635,8 @@ write_authority_configs() {
           workerCapabilityEvidenceDigest:$workerBEvidence}],
       issuerKeyGeneration:1,createdAtEpochMs:$now,activationValidFromEpochMs:$from,
       activationValidUntilEpochMs:$until,environmentId:$environmentId,deploymentId:$deploymentId,
+      source:"CERTIFIED_HOST_CLOCK",sourceId:"ndip1-certified-host-clock",sourceConfigGeneration:1,
+      sampleSequence:1,monotonicAnchorNs:$mono,sourceEvidenceSha256:$sourceEvidence,
       sourceBaselineCommit:$sourceCommit,tenantScopeDigest:$tenantScopeDigest,routeSnapshotDigest:$routeSnapshotDigest,
       routeIncarnation:$routeIncarnation,shardPartition:0,freshResourceEvidenceDigest:$scopeEvidence,
       obligationEvidenceDigest:$obligationEvidence,manifestPath:$manifestPath,
