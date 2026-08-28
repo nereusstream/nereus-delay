@@ -199,6 +199,13 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
             return;
         }
         requireSession();
+        if (notificationDelegate instanceof SyncRecordClient) {
+            // The Oxia receiver already owns the committed offset and retries
+            // its stream after a node restart. Replacing it without a server
+            // supplied start offset would create a new stream at the current
+            // commit offset and could skip the next committed route event.
+            return;
+        }
         final OxiaRouteRecordClient replacement = notificationDelegateFactory.get();
         final OxiaRouteRecordClient previous = notificationDelegate;
         notificationDelegate = replacement;
