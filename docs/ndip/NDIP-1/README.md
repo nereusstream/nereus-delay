@@ -125,7 +125,21 @@ Producer 名称、current prepared descriptor、Journal replay 和 RocksDB proje
 `RECOVERY_FIRST_SEND_UNCERTAIN`，不得继承 SEND 权限或把旧尝试推断为 `PUBLISHED`。相应
 fresh-process smoke 明确验证 target SEND 为 0。后续又增加了 definitive Outcome 后的真实
 SIGKILL/replacement-Worker cut、未解决 `UNCERTAIN` drain 阻断及 TTL/retention 原生风险
-cell；完整 24-cell disposable certification 已在 `main@da15290e` 通过。
+cell；完整 24-cell disposable certification 曾在 `main@da15290e` 通过。
+
+随后对 H1-H6 做的独立生产路径审查又关闭了四组不能由旧 fixture 代替的缺口：
+
+- `main@52285864` 将 Attempt Journal 的 committed-response loss 解析接入真实 P1 Journal，
+  并保持 mapping-before-send、固定 sequence、ownership marker 与 replacement-Owner
+  `RECOVERY_FIRST_SEND_UNCERTAIN` 边界；
+- `main@7d4ed573` 强制九项 reserved properties 按 unsigned UTF-8 bytes 排序，并把带认证
+  P1 拒绝证据的 definite rejection 保持为 definitive non-publication；
+- `main@8b25fbda` 把 current `PreparedSubmission` 的 hash-bound native record 从默认
+  SDK/Gateway coordinator 接到 prepared-record sender，禁止退回 envelope-only H0 sender；
+- `main@913a2a2e` 引入闭合 `PhysicalSendActivationGate`：disposable 测试只能使用完整
+  attestation，persistent send 必须同时满足 Gate C、SHADOW requirements、签名
+  `DataResetManifest` 与 exact running source baseline。Managed Handoff 缺少该 authority 时在
+  Attempt Journal 写入和 Producer ownership 前拒绝，AUTO_FAST 在 transport ownership 前拒绝。
 
 这里的“已实现”仅表示代码/本地 disposable 验证边界；它不表示 NDIP 已进入
 `Implemented`，也不生成 production Manifest、Gate C、SHADOW、ENABLED 或 cutover
@@ -135,16 +149,19 @@ gate 时不得触碰 Producer/物理适配器。由于没有真实 persistent de
 
 ## 2026-08-28 disposable local certification
 
-当前 runner `e2e/run-disposable-local-certification.sh` 已在 source-locked P1、真实双 Broker、
+runner `e2e/run-disposable-local-certification.sh` 已在 source-locked P1、真实双 Broker、
 BookKeeper/metadata、Oxia、MinIO、RocksDB 和 ownership/failover 边界上完成严格
 fail-on-missing 运行。receipt 为 `PASS`：24 个单元格全部 `EXECUTED_PASS`，
 `EXECUTED_FAIL=0`、`NOT_COVERED=0`、`skipped=0`。完整命令、source/config/attestation
 binding、证据路径与 cleanup 审计见
 [`05-Disposable-Local-Certification-执行记录.md`](05-Disposable-Local-Certification-执行记录.md)。
 
-当前 receipt 绑定 `main@da15290e47b9255403c92e4ebba3c7d5189edb75`、Accepted package
-digest、P1/Oxia source lock 和 exact disposable attestation。早期 21/22 `BLOCKED` receipt 只作为
-历史证据，不得替代当前 24/24 source-bound PASS。
+`main@da15290e47b9255403c92e4ebba3c7d5189edb75` 的 generation-1 receipt 是独立审查前的
+历史 PASS，不得替代后续 HEAD。当前 runner 生成 generation-2 receipt，并把
+`p1.nativeCoordinator` 加入 closed supporting checks；该检查必须真实经过
+`PreparedSubmission -> resolver -> coordinator -> guarded transport -> source-locked P1 encoder`
+后才允许 PASS。当前 source-bound 结果以持久化 artifact 目录中的 receipt 及 verifier 结果为准，
+不得从本 README 的历史 SHA 推断。
 
 这只是 local disposable certification receipt/report；它不创建真实 DataResetAssessment
 scope，不是 Gate C authority，也不允许 SHADOW 或 ENABLED。当前 G0 仍为
@@ -152,7 +169,7 @@ scope，不是 Gate C authority，也不允许 SHADOW 或 ENABLED。当前 G0 �
 `PENDING_DEPLOYMENT`。
 
 本轮 H1-H6 代码切片的历史锚点为
-`main@c7c99d377dc9e8bb786032173d62d1981011a4e2`；当前 disposable certification 绑定
+`main@c7c99d377dc9e8bb786032173d62d1981011a4e2`；独立审查前的 disposable certification 绑定
 `main@da15290e47b9255403c92e4ebba3c7d5189edb75`。P1 correctness-critical source
 lock 固定为 `nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`。主线
 `test`、`check`、`compileRealPulsar`、binding smoke 和 H0 smoke 均通过；独占 disposable

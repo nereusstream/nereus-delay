@@ -1,11 +1,42 @@
 # NDIP-1 Disposable Local Certification 执行记录
 
-> 本文件是非规范的实施/运维记录。它只记录一次 `DISPOSABLE_LOCAL` 本地认证运行，不能
-> 作为 DataResetAssessment scope、Gate C authority、SHADOW 或 ENABLED 的输入凭证。
+> 本文件是非规范的实施/运维记录。它保存历史基线并定义当前 receipt 的读取方式，不能作为
+> DataResetAssessment scope、Gate C authority、SHADOW 或 ENABLED 的输入凭证。
 
-## 结论
+## 独立审查后的当前认证契约
 
-2026-08-28 的当前 source-bound 运行已经通过：
+独立生产路径审查在 `main@913a2a2e` 关闭了 Attempt Journal response-loss、canonical
+record/evidence、默认 coordinator 到 P1 prepared-record sender，以及 physical activation
+lifecycle 的缺口。`main@da15290e` 的 24/24 receipt 因而只保留为历史基线，不能认证这些后续
+修改。
+
+当前 runner 生成 `receiptSchemaGeneration=2`，closed supporting checks 从两个扩展为三个：
+
+- `p1.compileRealPulsar`；
+- `p1.h0`；
+- `p1.nativeCoordinator`。
+
+最后一项必须在真实 source-locked P1 Broker 上经过
+`PreparedSubmission -> RouteBoundSubmissionTransportPlanResolver -> DefaultSubmissionCoordinator ->
+ProductionPulsarSendTransport -> PulsarClientArtifactRecordEncoder`，验证 `.deliverAt(...)`、exact
+record evidence 和 Shared strict 模式的 early receive rejection。直接调用
+`sendPreparedRecord` 的 fixture 或 matrix cell 不能替代它。
+
+持久化认证使用非系统临时目录：
+
+```bash
+NEREUS_DELAY_DISPOSABLE_ARTIFACT_DIR=/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay-artifacts/ndip1-final \
+NEREUS_DELAY_DISPOSABLE_GRADLE_USER_HOME=/Users/liusinan/.gradle \
+  bash e2e/run-disposable-local-certification.sh
+```
+
+runner 会在上述 base 下创建带 UTC 时间的不可混用子目录。哪个 receipt 属于当前 HEAD，必须由
+`scripts/verify-disposable-local-certification.py` 对 exact source binding、三项 supporting
+checks、24 个 matrix cell 和 cleanup 全部验证后确定，不能从文件名或本文中的历史 SHA 推断。
+
+## 历史 generation-1 PASS
+
+2026-08-28 在 `main@da15290e` 的 source-bound 运行曾经通过：
 
 - receipt status：`PASS`；
 - matrix：24 个 closed cell，`EXECUTED_PASS=24`、`EXECUTED_FAIL=0`、
