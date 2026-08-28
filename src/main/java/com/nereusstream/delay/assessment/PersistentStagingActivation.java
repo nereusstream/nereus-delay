@@ -1,5 +1,7 @@
 package com.nereusstream.delay.assessment;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.nereusstream.delay.protocol.ArtifactGenerationSet;
 import com.nereusstream.delay.protocol.Bytes;
@@ -8,7 +10,9 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.security.PublicKey;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.List;
 import java.util.Objects;
 import java.util.regex.Pattern;
 
@@ -22,6 +26,7 @@ public final class PersistentStagingActivation {
     public static final String CLASSIFICATION_ENV = "NEREUS_DELAY_ENVIRONMENT_CLASSIFICATION";
     public static final String GATE_C_ENV = "NEREUS_DELAY_PERSISTENT_STAGING_GATE_C_RECEIPT";
     public static final String SHADOW_ENV = "NEREUS_DELAY_PERSISTENT_STAGING_SHADOW_RECEIPT";
+    public static final String POLICY_ENV = "NEREUS_DELAY_PERSISTENT_STAGING_POLICY";
     private static final String EXPECTED_PACKAGE_DIGEST =
             "13caab8ecdc201901f06e905f1c0bf9792780e50c6f5948f93abf2bdb8f4d21b";
     private static final String EXPECTED_P1_LOCK = "0a2536484cd3932801a98dc88ff112b2df88a1c7";
@@ -68,8 +73,9 @@ public final class PersistentStagingActivation {
         require(assessment, "outcome", "PASS_DIRECT_REPLACE", "PASS_RETAIN");
         require(assessment, "ndipPackageDigest", EXPECTED_PACKAGE_DIGEST);
         require(assessment, "sourceBaselineCommit", candidateCommit);
-        require(assessment.getAsJsonObject("scope"), "environmentId", environmentId);
-        final String assessmentScopeDigest = requiredField(assessment.getAsJsonObject("scope"), "scopeDigest");
+        final JsonObject assessmentScope = assessment.getAsJsonObject("scope");
+        require(assessmentScope, "environmentId", environmentId);
+        final String assessmentScopeDigest = Bytes.hex(scopeDigest(assessmentScope));
         require(assessmentScopeDigest, requiredField(gate, "assessmentScopeDigest"), "assessment scope digest");
         final Path assessmentReceiptPath = Path.of(requiredField(gate, "assessmentReceiptPath"));
         final byte[] assessmentReceipt = readRegular(assessmentReceiptPath);
@@ -127,6 +133,17 @@ public final class PersistentStagingActivation {
         require(shadow, "attemptJournalLeak", "false");
         require(shadow, "generationIncarnationMix", "false");
 
+        final PersistentStagingEvidence.Verified policyEnvelope =
+                PersistentStagingEvidence.readVerified(Path.of(requiredEnv(POLICY_ENV)));
+        requireSameKey(gateEnvelope.publicKey(), policyEnvelope.publicKey(), "staging policy envelope");
+        final JsonObject policy = policyEnvelope.payloadJson();
+        require(policy, "policySchema", "nereus-delay.persistent-staging-policy");
+        require(policy, "policyStatus", "ENABLED");
+        require(policy, "environmentId", environmentId);
+        require(policy, "candidateCommit", candidateCommit);
+        require(policy, "gateCEnvelopeSha256", Bytes.hex(gateEnvelope.envelopeDigest()));
+        require(policy, "shadowEnvelopeSha256", Bytes.hex(shadowEnvelope.envelopeDigest()));
+
         final GateCAuthorization gateC = new GateCAuthorization(
                 environmentId,
                 EnvironmentClassification.valueOf(gateClassification),
@@ -153,7 +170,8 @@ public final class PersistentStagingActivation {
                 manifestGate,
                 physicalGate,
                 gateEnvelope.envelopeDigest(),
-                shadowEnvelope.envelopeDigest());
+                shadowEnvelope.envelopeDigest(),
+                policyEnvelope.envelopeDigest());
     }
 
     /** Returns no authority for a normal SHADOW/managed Worker process. */
@@ -249,6 +267,40 @@ public final class PersistentStagingActivation {
         }
     }
 
+    private static byte[] scopeDigest(final JsonObject value) throws IOException {
+        try {
+            final List<DataResetAssessmentScope.ResourceRef> resources = new ArrayList<>();
+            for (JsonElement element : value.getAsJsonArray("resources")) {
+                final JsonObject resource = element.getAsJsonObject();
+                resources.add(new DataResetAssessmentScope.ResourceRef(
+                        DataResetAssessmentScope.ResourceKind.valueOf(
+                                resource.get("kind").getAsString()),
+                        resource.get("identity").getAsString()));
+            }
+            return new DataResetAssessmentScope(
+                            value.get("environmentId").getAsString(),
+                            EnvironmentClassification.valueOf(
+                                    value.get("environmentClassification").getAsString()),
+                            value.get("deploymentId").getAsString(),
+                            strings(value.getAsJsonArray("tenantIds")),
+                            strings(value.getAsJsonArray("routeIds")),
+                            strings(value.getAsJsonArray("shardIds")),
+                            resources,
+                            strings(value.getAsJsonArray("eligibleWorkerIds")))
+                    .scopeDigest();
+        } catch (RuntimeException failure) {
+            throw new IOException("assessment scope is not a valid canonical scope", failure);
+        }
+    }
+
+    private static List<String> strings(final JsonArray value) {
+        final List<String> result = new ArrayList<>();
+        for (JsonElement element : value) {
+            result.add(element.getAsString());
+        }
+        return result;
+    }
+
     public record Loaded(
             String environmentId,
             String candidateCommit,
@@ -258,7 +310,8 @@ public final class PersistentStagingActivation {
             DataResetActivationGate manifestGate,
             PhysicalSendActivationGate physicalGate,
             byte[] gateCEnvelopeDigest,
-            byte[] shadowEnvelopeDigest) {
+            byte[] shadowEnvelopeDigest,
+            byte[] policyEnvelopeDigest) {
         public Loaded {
             Objects.requireNonNull(environmentId, "environmentId");
             Objects.requireNonNull(candidateCommit, "candidateCommit");
@@ -269,8 +322,10 @@ public final class PersistentStagingActivation {
             Objects.requireNonNull(physicalGate, "physicalGate");
             gateCEnvelopeDigest = Bytes.copy(gateCEnvelopeDigest);
             shadowEnvelopeDigest = Bytes.copy(shadowEnvelopeDigest);
+            policyEnvelopeDigest = Bytes.copy(policyEnvelopeDigest);
             Bytes.requireLength(gateCEnvelopeDigest, 32, "gateCEnvelopeDigest");
             Bytes.requireLength(shadowEnvelopeDigest, 32, "shadowEnvelopeDigest");
+            Bytes.requireLength(policyEnvelopeDigest, 32, "policyEnvelopeDigest");
         }
 
         @Override
@@ -281,6 +336,11 @@ public final class PersistentStagingActivation {
         @Override
         public byte[] shadowEnvelopeDigest() {
             return Bytes.copy(shadowEnvelopeDigest);
+        }
+
+        @Override
+        public byte[] policyEnvelopeDigest() {
+            return Bytes.copy(policyEnvelopeDigest);
         }
     }
 }

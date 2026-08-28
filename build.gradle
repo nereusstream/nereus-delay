@@ -474,7 +474,8 @@ tasks.register('runNdip1PersistentAuthority', JavaExec) {
     if (authorityCommand == null || authorityConfig == null) {
         doFirst {
             throw new GradleException(
-                    'runNdip1PersistentAuthority requires -Pndip1AuthorityCommand=assessment|manifest|sign-json '
+                    'runNdip1PersistentAuthority requires '
+                            + '-Pndip1AuthorityCommand=assessment|manifest|verify-manifest|sign-json|scope-digest|verify-activation '
                             + '-Pndip1AuthorityConfig=/persistent/path/config.json')
         }
     }

@@ -83,6 +83,11 @@ public final class PulsarClientArtifactNativeSmoke {
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .build();
         final PersistentStagingActivation.Loaded persistentActivation = PersistentStagingActivation.loadIfConfigured();
+        if (persistentActivation == null
+                && "STAGING".equals(System.getenv(PersistentStagingActivation.CLASSIFICATION_ENV))) {
+            throw new IllegalStateException(
+                    "STAGING native physical send requires Gate C, SHADOW, and an ENABLED policy");
+        }
         createTopic(admin, adminUrl, topic);
         try {
             runNativeSendAndRead(serviceUrl, physicalTopic, persistentActivation);

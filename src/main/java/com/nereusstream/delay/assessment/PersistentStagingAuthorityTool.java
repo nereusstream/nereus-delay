@@ -50,15 +50,50 @@ public final class PersistentStagingAuthorityTool {
 
     public static void main(final String[] arguments) throws Exception {
         if (arguments.length != 2) {
-            throw new IllegalArgumentException("usage: <assessment|manifest|sign-json> <config-or-payload.json>");
+            throw new IllegalArgumentException(
+                    "usage: <assessment|manifest|verify-manifest|sign-json|scope-digest|verify-activation|verify-json> "
+                            + "<config-or-payload.json>");
         }
         switch (arguments[0]) {
             case "assessment" -> writeAssessment(readObject(Path.of(arguments[1])));
             case "manifest" -> writeManifest(readObject(Path.of(arguments[1])));
+            case "verify-manifest" -> verifyManifest(readObject(Path.of(arguments[1])));
             case "sign-json" -> signJson(readObject(Path.of(arguments[1])));
+            case "scope-digest" -> printScopeDigest(readObject(Path.of(arguments[1])));
+            case "verify-activation" -> verifyActivation();
+            case "verify-json" -> verifyJson(readObject(Path.of(arguments[1])));
             default ->
                 throw new IllegalArgumentException("unknown persistent staging authority command: " + arguments[0]);
         }
+    }
+
+    private static void printScopeDigest(final JsonObject config) {
+        System.out.println("scopeDigest=" + Bytes.hex(scope(config).scopeDigest()));
+    }
+
+    private static void verifyActivation() throws Exception {
+        final PersistentStagingActivation.Loaded activation = PersistentStagingActivation.loadFromEnvironment();
+        System.out.println("environmentId=" + activation.environmentId());
+        System.out.println("candidateCommit=" + activation.candidateCommit());
+        System.out.println("gateCEnvelopeDigest=" + Bytes.hex(activation.gateCEnvelopeDigest()));
+        System.out.println("shadowEnvelopeDigest=" + Bytes.hex(activation.shadowEnvelopeDigest()));
+        System.out.println("policyEnvelopeDigest=" + Bytes.hex(activation.policyEnvelopeDigest()));
+        System.out.println(
+                "artifactSetDigest=" + Bytes.hex(activation.artifacts().setDigest()));
+    }
+
+    private static void verifyJson(final JsonObject config) throws Exception {
+        final Path envelopePath = persistentPath(text(config, "signedEnvelopePath"));
+        final PersistentStagingEvidence.Verified envelope = PersistentStagingEvidence.readVerified(envelopePath);
+        final Path publicKeyPath = persistentPath(text(config, "publicKeyPath"));
+        final PublicKey expected = PersistentStagingEvidence.decodePublicKey(readRegular(publicKeyPath));
+        if (!Bytes.constantTimeEquals(
+                expected.getEncoded(), envelope.publicKey().getEncoded())) {
+            throw new IOException("signed JSON envelope uses another public key");
+        }
+        System.out.println("signedEnvelope=" + envelopePath);
+        System.out.println("envelopeDigest=" + Bytes.hex(envelope.envelopeDigest()));
+        System.out.println("payloadDigest=" + Bytes.hex(Bytes.sha256(envelope.payload())));
     }
 
     private static void writeAssessment(final JsonObject config) throws Exception {
@@ -91,23 +126,8 @@ public final class PersistentStagingAuthorityTool {
         final byte[] schemaHash = digest(config, "canonicalSchemaBundleHash");
         final ArtifactGenerationSet artifacts =
                 ArtifactGenerationSet.current(resetGeneration, PulsarSourceLock.digest(), schemaHash);
-        final String workerId = text(config, "workerId");
-        final byte[] workerIdentity = digest(config, "workerIdentity");
-        final byte[] sessionIdentity = digest(config, "sessionIdentity");
-        final ProtocolCapabilityDeclaration declaration = new ProtocolCapabilityDeclaration(
-                workerId,
-                workerIdentity,
-                List.of(artifacts.clientCommandTuple(), artifacts.systemMutationTuple()),
-                artifacts,
-                longValue(config, "capabilityEpoch"),
-                sessionIdentity);
-        final DataResetManifest.WorkerCapability worker = new DataResetManifest.WorkerCapability(
-                workerId,
-                workerIdentity,
-                sessionIdentity,
-                declaration,
-                digest(config, "workerCapabilityEvidenceDigest"));
         final List<DataResetManifest.ResourceIncarnation> resources = manifestResources(config);
+        final List<DataResetManifest.WorkerCapability> workers = manifestWorkers(config, artifacts);
         final long createdAt = longValue(config, "createdAtEpochMs");
         final TrustedUtcIntervalEvidence createdEvidence = timeEvidence(config, createdAt, createdAt);
         final DataResetManifest manifest = new DataResetManifestIssuer(
@@ -127,7 +147,7 @@ public final class PersistentStagingAuthorityTool {
                         resources,
                         digest(config, "freshResourceEvidenceDigest"),
                         new DataResetManifest.ObligationZeroProof(0, 0, 0, digest(config, "obligationEvidenceDigest")),
-                        List.of(worker),
+                        workers,
                         createdEvidence,
                         new DataResetManifest.ActivationWindow(
                                 longValue(config, "activationValidFromEpochMs"),
@@ -145,6 +165,24 @@ public final class PersistentStagingAuthorityTool {
         System.out.println("manifestDigest=" + Bytes.hex(manifest.manifestDigest()));
         System.out.println("artifactSetDigest=" + Bytes.hex(manifest.artifacts().setDigest()));
         System.out.println("manifestCreatedAt=" + Instant.ofEpochMilli(createdAt));
+    }
+
+    private static void verifyManifest(final JsonObject config) throws Exception {
+        final Path manifestPath = persistentPath(text(config, "manifestPath"));
+        final DataResetManifest manifest = DataResetManifest.decode(readRegular(manifestPath));
+        final PublicKey publicKey =
+                PersistentStagingEvidence.decodePublicKey(readRegular(persistentPath(text(config, "publicKeyPath"))));
+        if (!manifest.verifySignature(publicKey)) {
+            throw new IOException("DataResetManifest signature verification failed");
+        }
+        if (!manifest.isCurrentGeneration()) {
+            throw new IOException("DataResetManifest is not current generation");
+        }
+        System.out.println("manifest=" + manifestPath);
+        System.out.println("manifestDigest=" + Bytes.hex(manifest.manifestDigest()));
+        System.out.println("artifactSetDigest=" + Bytes.hex(manifest.artifacts().setDigest()));
+        System.out.println("resourceCount=" + manifest.resources().size());
+        System.out.println("workerCount=" + manifest.workerCapabilities().size());
     }
 
     private static void signJson(final JsonObject config) throws Exception {
@@ -273,6 +311,41 @@ public final class PersistentStagingAuthorityTool {
             throw new IllegalArgumentException("manifest resource incarnations do not cover all closed resource kinds");
         }
         return result;
+    }
+
+    private static List<DataResetManifest.WorkerCapability> manifestWorkers(
+            final JsonObject config, final ArtifactGenerationSet artifacts) {
+        if (!config.has("workers")) {
+            return List.of(manifestWorker(config, artifacts));
+        }
+        final List<DataResetManifest.WorkerCapability> result = new ArrayList<>();
+        for (JsonElement element : array(config, "workers")) {
+            result.add(manifestWorker(element.getAsJsonObject(), artifacts));
+        }
+        if (result.isEmpty()) {
+            throw new IllegalArgumentException("manifest workers must be non-empty");
+        }
+        return List.copyOf(result);
+    }
+
+    private static DataResetManifest.WorkerCapability manifestWorker(
+            final JsonObject worker, final ArtifactGenerationSet artifacts) {
+        final String workerId = text(worker, "workerId");
+        final byte[] workerIdentity = digest(worker, "workerIdentity");
+        final byte[] sessionIdentity = digest(worker, "sessionIdentity");
+        final ProtocolCapabilityDeclaration declaration = new ProtocolCapabilityDeclaration(
+                workerId,
+                workerIdentity,
+                List.of(artifacts.clientCommandTuple(), artifacts.systemMutationTuple()),
+                artifacts,
+                longValue(worker, "capabilityEpoch"),
+                sessionIdentity);
+        return new DataResetManifest.WorkerCapability(
+                workerId,
+                workerIdentity,
+                sessionIdentity,
+                declaration,
+                digest(worker, "workerCapabilityEvidenceDigest"));
     }
 
     private static KeyMaterial keyMaterial(final JsonObject config) throws Exception {

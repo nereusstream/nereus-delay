@@ -125,9 +125,13 @@ public final class PersistentStagingEvidence {
         if (parent == null || !Files.isDirectory(parent, LinkOption.NOFOLLOW_LINKS)) {
             throw new IOException("evidence parent must be an existing non-symlink directory: " + parent);
         }
+        final byte[] content = Objects.requireNonNull(bytes, "bytes");
         try (FileChannel channel = FileChannel.open(
                 normalized, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS)) {
-            channel.write(java.nio.ByteBuffer.wrap(Objects.requireNonNull(bytes, "bytes")));
+            final java.nio.ByteBuffer buffer = java.nio.ByteBuffer.wrap(content);
+            while (buffer.hasRemaining()) {
+                channel.write(buffer);
+            }
             channel.force(true);
         }
         return normalized;
