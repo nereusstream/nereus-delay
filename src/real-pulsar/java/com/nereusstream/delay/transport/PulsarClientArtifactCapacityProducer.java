@@ -45,7 +45,7 @@ public final class PulsarClientArtifactCapacityProducer {
         final long creationTimestamp = System.currentTimeMillis();
         final List<String> adminUrls = Arrays.asList(configuration.adminUrls().split(","));
         final HttpClient adminClient = HttpClient.newBuilder()
-                .followRedirects(HttpClient.Redirect.NORMAL)
+                .followRedirects(HttpClient.Redirect.NEVER)
                 .build();
         final String topic = "persistent://public/default/" + configuration.topicBase();
         PulsarClientArtifactLargePayloadGatewaySmoke.createPartitionedTopic(

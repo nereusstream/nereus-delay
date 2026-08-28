@@ -16,9 +16,7 @@ import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
-import java.net.URI;
 import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -253,12 +251,7 @@ public final class PulsarClientArtifactMutationSmoke {
 
     private static HttpResponse<String> request(
             final HttpClient client, final String path, final String method, final String body) throws Exception {
-        final HttpRequest.Builder builder =
-                HttpRequest.newBuilder(URI.create(path)).header("Content-Type", "application/json");
-        final HttpRequest request = "DELETE".equals(method)
-                ? builder.DELETE().build()
-                : builder.PUT(HttpRequest.BodyPublishers.ofString(body)).build();
-        return client.send(request, HttpResponse.BodyHandlers.ofString());
+        return PulsarClientArtifactAdminHttp.request(client, path, method, body);
     }
 
     private static void closeNative(final GuardedConsumer<byte[]> consumer) {

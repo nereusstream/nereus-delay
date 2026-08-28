@@ -1,8 +1,6 @@
 package com.nereusstream.delay.transport;
 
-import java.net.URI;
 import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -37,7 +35,7 @@ public final class PulsarClientArtifactBrokerProcessCrashStateSmoke {
         final String adminUrl = trimTrailingSlash(arguments[0]);
         final String topic = arguments[1];
         final HttpClient client = HttpClient.newBuilder()
-                .followRedirects(HttpClient.Redirect.NORMAL)
+                .followRedirects(HttpClient.Redirect.NEVER)
                 .connectTimeout(java.time.Duration.ofSeconds(10))
                 .build();
         final String statsUrl = adminUrl + "/admin/v2/persistent/public/default/" + topic + "/internalStats";
@@ -96,12 +94,8 @@ public final class PulsarClientArtifactBrokerProcessCrashStateSmoke {
         Exception lastFailure = null;
         for (int attempt = 1; attempt <= ADMIN_REQUEST_ATTEMPTS; attempt++) {
             try {
-                final HttpResponse<String> response = client.send(
-                        HttpRequest.newBuilder(URI.create(url))
-                                .timeout(java.time.Duration.ofSeconds(20))
-                                .GET()
-                                .build(),
-                        HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+                final HttpResponse<String> response = PulsarClientArtifactAdminHttp.request(
+                        client, url, "GET", "", java.time.Duration.ofSeconds(20));
                 lastResponse = new AdminResponse(response.statusCode(), response.body());
                 if (response.statusCode() != 500
                         && response.statusCode() != 502

@@ -6,9 +6,7 @@ import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CommandId;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
-import java.net.URI;
 import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.Arrays;
 import java.util.Base64;
@@ -194,12 +192,7 @@ public final class PulsarClientArtifactRealServiceSmoke {
 
     private static HttpResponse<String> request(
             final HttpClient client, final String path, final String method, final String body) throws Exception {
-        final HttpRequest.Builder builder =
-                HttpRequest.newBuilder(URI.create(path)).header("Content-Type", "application/json");
-        final HttpRequest request = "DELETE".equals(method)
-                ? builder.DELETE().build()
-                : builder.PUT(HttpRequest.BodyPublishers.ofString(body)).build();
-        return client.send(request, HttpResponse.BodyHandlers.ofString());
+        return PulsarClientArtifactAdminHttp.request(client, path, method, body);
     }
 
     private static IllegalStateException failure(final String operation, final HttpResponse<String> response) {

@@ -22,9 +22,7 @@ import com.nereusstream.delay.protocol.ReservedPublishMetadata;
 import com.nereusstream.delay.protocol.ResolvedPayload;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
-import java.net.URI;
 import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -88,7 +86,7 @@ public final class PulsarClientArtifactNativeMatrixSmoke {
         final Path evidencePath = Path.of(arguments[6]).toAbsolutePath();
         final long startedAt = System.currentTimeMillis();
         final HttpClient admin = HttpClient.newBuilder()
-                .followRedirects(HttpClient.Redirect.NORMAL)
+                .followRedirects(HttpClient.Redirect.NEVER)
                 .build();
         final byte[] incarnation = Bytes.sha256(Bytes.utf8("ndip1-disposable-resource\0" + topic));
         final long creationTimestamp = startedAt;
@@ -679,19 +677,7 @@ public final class PulsarClientArtifactNativeMatrixSmoke {
 
     private static HttpResponse<String> request(
             final HttpClient client, final String path, final String method, final String body) throws Exception {
-        final HttpRequest.Builder builder =
-                HttpRequest.newBuilder(URI.create(path)).header("Content-Type", "application/json");
-        final HttpRequest request =
-                switch (method) {
-                    case "DELETE" -> builder.DELETE().build();
-                    case "GET" -> builder.GET().build();
-                    case "POST" ->
-                        builder.POST(HttpRequest.BodyPublishers.ofString(body)).build();
-                    case "PUT" ->
-                        builder.PUT(HttpRequest.BodyPublishers.ofString(body)).build();
-                    default -> throw new IllegalArgumentException("unsupported HTTP method: " + method);
-                };
-        return client.send(request, HttpResponse.BodyHandlers.ofString());
+        return PulsarClientArtifactAdminHttp.request(client, path, method, body);
     }
 
     private static IllegalStateException failure(final String operation, final HttpResponse<String> response) {

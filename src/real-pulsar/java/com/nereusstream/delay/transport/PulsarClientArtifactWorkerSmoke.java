@@ -115,9 +115,7 @@ import com.nereusstream.delay.store.WorkerLoadVector;
 import com.nereusstream.delay.store.WorkerPlacementPolicy;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
-import java.net.URI;
 import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
@@ -205,7 +203,7 @@ public final class PulsarClientArtifactWorkerSmoke {
                 destinationTopic == null ? null : "persistent://public/default/" + destinationTopic;
         final String journalTopic = destinationTopic == null ? null : destinationTopic + "-attempt-journal";
         final HttpClient admin = HttpClient.newBuilder()
-                .followRedirects(HttpClient.Redirect.NORMAL)
+                .followRedirects(HttpClient.Redirect.NEVER)
                 .build();
         final boolean reuseExistingTopic = mode.equals("resume")
                 || mode.equals("crash-wait")
@@ -3752,12 +3750,7 @@ public final class PulsarClientArtifactWorkerSmoke {
 
     private static HttpResponse<String> request(
             final HttpClient client, final String path, final String method, final String body) throws Exception {
-        final HttpRequest.Builder builder =
-                HttpRequest.newBuilder(URI.create(path)).header("Content-Type", "application/json");
-        final HttpRequest request = "DELETE".equals(method)
-                ? builder.DELETE().build()
-                : builder.PUT(HttpRequest.BodyPublishers.ofString(body)).build();
-        return client.send(request, HttpResponse.BodyHandlers.ofString());
+        return PulsarClientArtifactAdminHttp.request(client, path, method, body);
     }
 
     private static IllegalStateException failure(final String operation, final HttpResponse<String> response) {

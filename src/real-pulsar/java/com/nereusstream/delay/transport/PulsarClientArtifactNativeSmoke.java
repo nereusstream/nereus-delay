@@ -43,9 +43,7 @@ import com.nereusstream.delay.submission.DefaultSubmissionCoordinator;
 import com.nereusstream.delay.submission.PulsarNativeSubmissionOutcomeProjector;
 import com.nereusstream.delay.submission.RouteBoundSubmissionTransportPlanResolver;
 import com.nereusstream.delay.submission.SubmissionOutcomeProjectorRegistry;
-import java.net.URI;
 import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -80,7 +78,7 @@ public final class PulsarClientArtifactNativeSmoke {
         final String topic = arguments[2];
         final String physicalTopic = "persistent://public/default/" + topic;
         final HttpClient admin = HttpClient.newBuilder()
-                .followRedirects(HttpClient.Redirect.NORMAL)
+                .followRedirects(HttpClient.Redirect.NEVER)
                 .build();
         final PersistentStagingActivation.Loaded persistentActivation = PersistentStagingActivation.loadIfConfigured();
         if (persistentActivation == null
@@ -425,12 +423,7 @@ public final class PulsarClientArtifactNativeSmoke {
 
     private static HttpResponse<String> request(
             final HttpClient client, final String path, final String method, final String body) throws Exception {
-        final HttpRequest.Builder builder =
-                HttpRequest.newBuilder(URI.create(path)).header("Content-Type", "application/json");
-        final HttpRequest request = "DELETE".equals(method)
-                ? builder.DELETE().build()
-                : builder.PUT(HttpRequest.BodyPublishers.ofString(body)).build();
-        return client.send(request, HttpResponse.BodyHandlers.ofString());
+        return PulsarClientArtifactAdminHttp.request(client, path, method, body);
     }
 
     private static IllegalStateException failure(final String operation, final HttpResponse<String> response) {

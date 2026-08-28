@@ -18,9 +18,7 @@ import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
-import java.net.URI;
 import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
@@ -67,7 +65,7 @@ public final class PulsarClientArtifactDestinationSmoke {
         final String topic = arguments[2];
         final String physicalTopic = "persistent://public/default/" + topic;
         final HttpClient admin = HttpClient.newBuilder()
-                .followRedirects(HttpClient.Redirect.NORMAL)
+                .followRedirects(HttpClient.Redirect.NEVER)
                 .build();
         final String freshProcessPhase = System.getenv("NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS_PHASE");
         if (!"READ".equals(freshProcessPhase)) {
@@ -689,12 +687,7 @@ public final class PulsarClientArtifactDestinationSmoke {
 
     private static HttpResponse<String> request(
             final HttpClient client, final String path, final String method, final String body) throws Exception {
-        final HttpRequest.Builder builder =
-                HttpRequest.newBuilder(URI.create(path)).header("Content-Type", "application/json");
-        final HttpRequest request = "DELETE".equals(method)
-                ? builder.DELETE().build()
-                : builder.PUT(HttpRequest.BodyPublishers.ofString(body)).build();
-        return client.send(request, HttpResponse.BodyHandlers.ofString());
+        return PulsarClientArtifactAdminHttp.request(client, path, method, body);
     }
 
     private static IllegalStateException failure(final String operation, final HttpResponse<String> response) {

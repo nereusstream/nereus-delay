@@ -148,7 +148,6 @@ import io.grpc.stub.MetadataUtils;
 import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -811,17 +810,7 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
 
     static HttpResponse<String> request(
             final HttpClient client, final String path, final String method, final String body) throws Exception {
-        final HttpRequest.Builder builder =
-                HttpRequest.newBuilder(URI.create(path)).header("Content-Type", "application/json");
-        final HttpRequest request;
-        if ("DELETE".equals(method)) {
-            request = builder.DELETE().build();
-        } else if ("POST".equals(method)) {
-            request = builder.POST(HttpRequest.BodyPublishers.ofString(body)).build();
-        } else {
-            request = builder.PUT(HttpRequest.BodyPublishers.ofString(body)).build();
-        }
-        return client.send(request, HttpResponse.BodyHandlers.ofString());
+        return PulsarClientArtifactAdminHttp.request(client, path, method, body);
     }
 
     private static IllegalStateException failure(final String operation, final HttpResponse<String> response) {
@@ -1536,7 +1525,7 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
         final String destinationName = sourceBase + "-destination";
         final String destinationPhysicalTopic = "persistent://public/default/" + destinationName;
         final HttpClient admin = HttpClient.newBuilder()
-                .followRedirects(HttpClient.Redirect.NORMAL)
+                .followRedirects(HttpClient.Redirect.NEVER)
                 .build();
         createPartitionedTopic(
                 admin,
@@ -2290,7 +2279,7 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
         }
 
         final HttpClient admin = HttpClient.newBuilder()
-                .followRedirects(HttpClient.Redirect.NORMAL)
+                .followRedirects(HttpClient.Redirect.NEVER)
                 .build();
         createPartitionedTopic(admin, adminUrl, sourceBase, SOURCE_INCARNATION, SOURCE_CREATION_TIMESTAMP, adminUrls);
         createTopic(admin, adminUrl, destinationName, DESTINATION_INCARNATION, DESTINATION_CREATION_TIMESTAMP);
