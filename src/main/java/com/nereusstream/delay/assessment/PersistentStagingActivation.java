@@ -217,22 +217,13 @@ public final class PersistentStagingActivation {
                 DeploymentSafetyGate.ShadowReadiness.REQUIREMENTS_PASS,
                 manifestGate,
                 runningCommit,
-                (candidateArtifacts, trustedNowEpochMs) -> {
-                    try {
-                        requireCurrentEnabledPolicy(
-                                policyHandle.authority().requireCurrent(policyScopeDigest),
-                                policyOxiaVersion,
-                                policyGeneration,
-                                policy,
-                                trustedPublicKey,
-                                trustedKeyGeneration,
-                                candidateArtifacts,
-                                trustedNowEpochMs);
-                    } catch (IOException failure) {
-                        throw new IllegalStateException(
-                                "live handoff policy authority rejected physical send", failure);
-                    }
-                });
+                (candidateArtifacts, trustedNowEpochMs) -> requireFrozenPolicy(
+                        currentPolicy.head().snapshot(),
+                        currentPolicy.head().snapshot(),
+                        trustedPublicKey,
+                        manifest.artifacts(),
+                        candidateArtifacts,
+                        trustedNowEpochMs));
         return new Loaded(
                 environmentId,
                 candidateCommit,
@@ -264,6 +255,27 @@ public final class PersistentStagingActivation {
             return null;
         }
         return loadFromEnvironment();
+    }
+
+    private static void requireFrozenPolicy(
+            final HandoffPolicySnapshot expected,
+            final HandoffPolicySnapshot candidate,
+            final PublicKey trustedPublicKey,
+            final ArtifactGenerationSet expectedArtifacts,
+            final ArtifactGenerationSet candidateArtifacts,
+            final long trustedNowEpochMs) {
+        Objects.requireNonNull(candidate, "candidate");
+        Objects.requireNonNull(candidateArtifacts, "candidateArtifacts");
+        if (!Bytes.constantTimeEquals(expected.canonicalBytes(), candidate.canonicalBytes())
+                || !expectedArtifacts.equals(candidateArtifacts)
+                || !Bytes.constantTimeEquals(expectedArtifacts.setDigest(), candidateArtifacts.setDigest())
+                || !candidate.verifySignature(trustedPublicKey)
+                || !Bytes.constantTimeEquals(candidate.artifactGenerationSetDigest(), candidateArtifacts.setDigest())
+                || candidate.mode() != HandoffPolicyMode.ENABLED
+                || trustedNowEpochMs < candidate.validFromEpochMs()
+                || trustedNowEpochMs >= candidate.validUntilEpochMs()) {
+            throw new IllegalStateException("frozen handoff policy is stale, untrusted, or artifact-mismatched");
+        }
     }
 
     private static String requiredEnv(final String name) throws IOException {
@@ -526,6 +538,20 @@ public final class PersistentStagingActivation {
         @Override
         public byte[] policyScopeDigest() {
             return Bytes.copy(policyScopeDigest);
+        }
+
+        /** Verifies the exact frozen policy without treating a later DISABLED head as retroactive revocation. */
+        public void requireFrozenHandoffPolicy(
+                final HandoffPolicySnapshot snapshot,
+                final ArtifactGenerationSet candidateArtifacts,
+                final long trustedNowEpochMs) {
+            requireFrozenPolicy(
+                    policyPublication.head().snapshot(),
+                    snapshot,
+                    trustedPublicKey,
+                    artifacts,
+                    candidateArtifacts,
+                    trustedNowEpochMs);
         }
 
         @Override

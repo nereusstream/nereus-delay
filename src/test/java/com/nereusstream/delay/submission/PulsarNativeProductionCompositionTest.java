@@ -188,8 +188,32 @@ class PulsarNativeProductionCompositionTest {
         assertEquals(fixture.submission, PreparedSubmission.decode(fixture.submission.canonicalBytes()));
     }
 
+    @Test
+    void capabilityAndHandoffTrustAuthoritiesAreIndependent() throws Exception {
+        final Fixture fixture = fixture();
+
+        assertEquals(null, fixture.validator.validate(fixture.prepared, fixture.record, fixture.artifacts));
+
+        final PulsarNativePreparedRecordValidator wrongHandoffAuthority = new PulsarNativePreparedRecordValidator(
+                fixture.resource,
+                fixture.capabilityKeys.getPublic(),
+                Clock.fixed(Instant.ofEpochMilli(3_000), ZoneOffset.UTC),
+                null,
+                fixture.activationGate,
+                (snapshot, artifacts, now) -> {
+                    if (!snapshot.verifySignature(fixture.capabilityKeys.getPublic())) {
+                        throw new IllegalArgumentException("handoff signature is not owned by capability authority");
+                    }
+                });
+
+        assertEquals(
+                com.nereusstream.delay.protocol.StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE,
+                wrongHandoffAuthority.validate(fixture.prepared, fixture.record, fixture.artifacts));
+    }
+
     private static Fixture fixture() throws Exception {
-        final KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final KeyPair capabilityKeys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final KeyPair handoffKeys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         final ArtifactGenerationSet artifacts =
                 ArtifactGenerationSet.current(7, PulsarSourceLock.digest(), hash("schema-bundle"));
         final ShardId shard = new ShardId(new RouteIncarnation(bytes(16, 1)), 3);
@@ -221,7 +245,7 @@ class PulsarNativeProductionCompositionTest {
                 issuedAt,
                 6_000,
                 1,
-                keys.getPrivate());
+                capabilityKeys.getPrivate());
         final HandoffPolicySnapshot handoff = HandoffPolicySnapshot.create(
                 hash("policy-scope"),
                 1,
@@ -233,7 +257,7 @@ class PulsarNativeProductionCompositionTest {
                 issuedAt,
                 1,
                 artifacts.setDigest(),
-                keys.getPrivate());
+                handoffKeys.getPrivate());
         final PulsarMetadata metadata =
                 new PulsarMetadata(null, null, Bytes.utf8("ordering"), List.of(new PulsarMetadata.Property("a", "b")));
         final CanonicalScheduleIntent intent = CanonicalScheduleIntent.create(
@@ -290,10 +314,15 @@ class PulsarNativeProductionCompositionTest {
                 0);
         final PulsarNativePreparedRecordValidator validator = new PulsarNativePreparedRecordValidator(
                 resource,
-                keys.getPublic(),
+                capabilityKeys.getPublic(),
                 Clock.fixed(Instant.ofEpochMilli(3_000), ZoneOffset.UTC),
                 null,
-                activationGate);
+                activationGate,
+                (snapshot, candidateArtifacts, now) -> {
+                    if (!snapshot.verifySignature(handoffKeys.getPublic()) || !candidateArtifacts.equals(artifacts)) {
+                        throw new IllegalArgumentException("handoff authority rejected frozen lease");
+                    }
+                });
         final PulsarPreparedRecord record = validator.materialize(submission);
         final PulsarCommandTransportKey transportKey = new PulsarCommandTransportKey(
                 target.authenticatedClusterId(),
@@ -310,6 +339,8 @@ class PulsarNativeProductionCompositionTest {
                 artifacts,
                 target,
                 resource,
+                activationGate,
+                capabilityKeys,
                 new AuthenticatedTenantContext(tenantScope, hash("routing"), principalScope),
                 context,
                 prepared,
@@ -370,6 +401,8 @@ class PulsarNativeProductionCompositionTest {
             ArtifactGenerationSet artifacts,
             PulsarBrokerResourceIdentity target,
             PulsarTargetResource resource,
+            PhysicalSendActivationGate activationGate,
+            KeyPair capabilityKeys,
             AuthenticatedTenantContext tenant,
             NativePreparedRecordContext context,
             NativePreparedDelivery prepared,

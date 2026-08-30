@@ -96,6 +96,27 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
             final CredentialFingerprintProvider credentialFingerprintProvider,
             final boolean nativePreparedDeliveryEnabled,
             final PhysicalSendActivationGate physicalSendActivationGate) {
+        this(
+                resource,
+                issuerKey,
+                clock,
+                transport,
+                credentialFingerprintProvider,
+                nativePreparedDeliveryEnabled,
+                physicalSendActivationGate,
+                null);
+    }
+
+    /** Production constructor with independent capability and frozen Handoff trust authorities. */
+    public PinnedPulsarNativeSubmissionAdapter(
+            final PulsarTargetResource resource,
+            final PublicKey issuerKey,
+            final Clock clock,
+            final PulsarNativeSendTransport transport,
+            final CredentialFingerprintProvider credentialFingerprintProvider,
+            final boolean nativePreparedDeliveryEnabled,
+            final PhysicalSendActivationGate physicalSendActivationGate,
+            final PulsarNativePreparedRecordValidator.FrozenHandoffPolicyGate handoffPolicyGate) {
         this.resource = Objects.requireNonNull(resource, "resource");
         this.issuerKey = Objects.requireNonNull(issuerKey, "issuerKey");
         this.clock = Objects.requireNonNull(clock, "clock");
@@ -104,8 +125,16 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
         this.nativePreparedDeliveryEnabled = nativePreparedDeliveryEnabled;
         this.preparedRecordValidator = physicalSendActivationGate == null
                 ? null
-                : new PulsarNativePreparedRecordValidator(
-                        resource, issuerKey, clock, credentialFingerprintProvider, physicalSendActivationGate);
+                : handoffPolicyGate == null
+                        ? new PulsarNativePreparedRecordValidator(
+                                resource, issuerKey, clock, credentialFingerprintProvider, physicalSendActivationGate)
+                        : new PulsarNativePreparedRecordValidator(
+                                resource,
+                                issuerKey,
+                                clock,
+                                credentialFingerprintProvider,
+                                physicalSendActivationGate,
+                                handoffPolicyGate);
     }
 
     public PinnedPulsarNativeSubmissionAdapter(

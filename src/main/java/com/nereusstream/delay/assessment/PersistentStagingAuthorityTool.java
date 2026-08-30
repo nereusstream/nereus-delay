@@ -1,5 +1,7 @@
 package com.nereusstream.delay.assessment;
 
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -16,12 +18,16 @@ import com.nereusstream.delay.assessment.DataResetInventory.WorkerObservation;
 import com.nereusstream.delay.assessment.DataResetInventory.WorkerUpgradeStatus;
 import com.nereusstream.delay.protocol.ArtifactGenerationSet;
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.HandoffPolicyMode;
 import com.nereusstream.delay.protocol.ProtocolCapabilityDeclaration;
 import com.nereusstream.delay.protocol.PulsarSourceLock;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.runtime.TrustedUtcInterval;
+import com.nereusstream.delay.semantic.HandoffPolicyAuthority;
+import com.nereusstream.delay.semantic.HandoffPolicyIssuer;
+import com.nereusstream.delay.semantic.OxiaSyncHandoffPolicyAuthority;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -32,6 +38,7 @@ import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.PrivateKey;
 import java.security.PublicKey;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -48,12 +55,15 @@ import java.util.Set;
  * assessment/manifest construction and Ed25519 evidence persistence.
  */
 public final class PersistentStagingAuthorityTool {
+    private static final Gson GSON = new GsonBuilder().disableHtmlEscaping().create();
+
     private PersistentStagingAuthorityTool() {}
 
     public static void main(final String[] arguments) throws Exception {
         if (arguments.length != 2) {
             throw new IllegalArgumentException(
-                    "usage: <assessment|manifest|verify-manifest|sign-json|scope-digest|verify-activation|verify-json> "
+                    "usage: <assessment|manifest|verify-manifest|sign-json|scope-digest|verify-activation|verify-json|"
+                            + "publish-policy|read-policy> "
                             + "<config-or-payload.json>");
         }
         switch (arguments[0]) {
@@ -64,6 +74,8 @@ public final class PersistentStagingAuthorityTool {
             case "scope-digest" -> printScopeDigest(readObject(Path.of(arguments[1])));
             case "verify-activation" -> verifyActivation();
             case "verify-json" -> verifyJson(readObject(Path.of(arguments[1])));
+            case "publish-policy" -> publishPolicy(readObject(Path.of(arguments[1])));
+            case "read-policy" -> readPolicy(readObject(Path.of(arguments[1])));
             default ->
                 throw new IllegalArgumentException("unknown persistent staging authority command: " + arguments[0]);
         }
@@ -200,6 +212,162 @@ public final class PersistentStagingAuthorityTool {
                 envelopePath, payload, key.privateKey(), key.publicKey(), key.generation());
         System.out.println("signedEnvelope=" + envelopePath);
         System.out.println("envelopeDigest=" + Bytes.hex(Bytes.sha256(readRegular(envelopePath))));
+    }
+
+    private static void publishPolicy(final JsonObject config) throws Exception {
+        final KeyMaterial key = keyMaterial(config);
+        final DataResetManifest manifest = verifiedManifest(config, key.publicKey());
+        final String runningCommit = RunningArtifactIdentity.requireCleanSourceCommit();
+        if (!runningCommit.equals(manifest.sourceBaselineCommit())
+                || !runningCommit.equals(text(config, "candidateCommit"))) {
+            throw new IOException("policy publication source commit differs from the clean running artifact");
+        }
+        final PersistentStagingNativeCanaryIdentity.Identity identity = policyIdentity(config, manifest.artifacts());
+        if (config.has("expectedPolicyScopeDigest")
+                && !Bytes.constantTimeEquals(
+                        identity.policyScopeDigest(), digest(config, "expectedPolicyScopeDigest"))) {
+            throw new IllegalArgumentException("computed handoff policy scope differs from expected scope");
+        }
+        final HandoffPolicyMode mode = HandoffPolicyMode.valueOf(text(config, "policyMode"));
+        final long generation = positiveLong(config, "policyGeneration");
+        final long expectedOxiaVersion = nonNegativeLong(config, "expectedOxiaVersion");
+        final long validFrom = nonNegativeLong(config, "validFromEpochMs");
+        final long validUntil = positiveLong(config, "validUntilEpochMs");
+        final long issuedAt = nonNegativeLong(config, "issuedAtEpochMs");
+        final TrustedUtcIntervalEvidence issuedAtEvidence = timeEvidence(config, issuedAt, issuedAt);
+        final HandoffPolicyIssuer issuer = new HandoffPolicyIssuer(
+                key.privateKey(), key.generation(), manifest.artifacts(), positiveLong(config, "maximumLeaseMs"));
+        final HandoffPolicyAuthority.Publication publication;
+        try (OxiaSyncHandoffPolicyAuthority.ClientHandle handle = OxiaSyncHandoffPolicyAuthority.connect(
+                text(config, "oxiaServiceAddress"),
+                text(config, "oxiaNamespace"),
+                text(config, "oxiaClientIdentifier"),
+                Duration.ofMillis(positiveLong(config, "oxiaRequestTimeoutMs")),
+                text(config, "oxiaKeyPrefix"))) {
+            publication = issuer.issueAndPublish(
+                    handle.authority(),
+                    identity.policyScopeDigest(),
+                    expectedOxiaVersion,
+                    generation,
+                    mode,
+                    nonNegativeLong(config, "effectiveLeadMs"),
+                    validFrom,
+                    validUntil,
+                    nonNegativeInt(config, "allowedPathBits"),
+                    nonNegativeLong(config, "effectiveDisabledAfterEpochMs"),
+                    issuedAtEvidence);
+        }
+        final JsonObject receipt = new JsonObject();
+        receipt.addProperty("policySchema", "nereus-delay.handoff-policy-publication");
+        receipt.addProperty("policySchemaGeneration", 1);
+        receipt.addProperty("policyStatus", mode.name());
+        receipt.addProperty("environmentId", text(config, "environmentId"));
+        receipt.addProperty("candidateCommit", runningCommit);
+        copyText(config, receipt, "gateCEnvelopeSha256");
+        copyText(config, receipt, "shadowEnvelopeSha256");
+        copyText(config, receipt, "canaryEnvelopeSha256");
+        receipt.addProperty("policyScopeDigest", Bytes.hex(identity.policyScopeDigest()));
+        receipt.addProperty("policyOxiaVersion", publication.oxiaVersion());
+        receipt.addProperty(
+                "policyGeneration", Long.toUnsignedString(publication.head().generation()));
+        receipt.addProperty("policyHeadDigest", Bytes.hex(publication.head().headDigest()));
+        receipt.addProperty(
+                "policySnapshotDigest", Bytes.hex(publication.head().snapshot().snapshotDigest()));
+        receipt.addProperty("effectiveLeadMs", publication.head().snapshot().effectiveLeadMs());
+        receipt.addProperty("allowedPathBits", publication.head().snapshot().allowedPathBits());
+        receipt.addProperty("validFromEpochMs", publication.head().snapshot().validFromEpochMs());
+        receipt.addProperty("validUntilEpochMs", publication.head().snapshot().validUntilEpochMs());
+        receipt.addProperty("effectiveDisabledAfterEpochMs", publication.head().effectiveDisabledAfterEpochMs());
+        receipt.addProperty("issuerKeyGeneration", key.generation());
+        receipt.addProperty(
+                "issuerPublicKeySha256", Bytes.hex(Bytes.sha256(key.publicKey().getEncoded())));
+        receipt.addProperty("artifactSetDigest", Bytes.hex(manifest.artifacts().setDigest()));
+        receipt.addProperty("targetPhysicalTopic", identity.target().physicalTopic());
+        receipt.addProperty(
+                "targetResourceIncarnation", Bytes.hex(identity.target().resourceIncarnation()));
+        receipt.addProperty("targetCreationTimestamp", identity.target().physicalTopicCreationTimestamp());
+        receipt.addProperty(
+                "destinationProfileSemanticHash",
+                Bytes.hex(identity.destination().semanticHash()));
+        receipt.addProperty(
+                "capabilityProfileSemanticHash", Bytes.hex(identity.capability().semanticHash()));
+        receipt.addProperty("issuedAtEpochMs", issuedAt);
+        final Path payloadPath = persistentPath(text(config, "payloadPath"));
+        final Path envelopePath = persistentPath(text(config, "signedEnvelopePath"));
+        final byte[] payload = (GSON.toJson(receipt) + "\n").getBytes(StandardCharsets.UTF_8);
+        PersistentStagingEvidence.writeNew(payloadPath, payload);
+        PersistentStagingEvidence.writeSignedNew(
+                envelopePath, payload, key.privateKey(), key.publicKey(), key.generation());
+        System.out.println("policyPayload=" + payloadPath);
+        System.out.println("policyEnvelope=" + envelopePath);
+        System.out.println("policyScopeDigest=" + Bytes.hex(identity.policyScopeDigest()));
+        System.out.println("policyOxiaVersion=" + publication.oxiaVersion());
+        System.out.println(
+                "policyGeneration=" + Long.toUnsignedString(publication.head().generation()));
+        System.out.println("policyHeadDigest=" + Bytes.hex(publication.head().headDigest()));
+        System.out.println("policySnapshotDigest="
+                + Bytes.hex(publication.head().snapshot().snapshotDigest()));
+        System.out.println(
+                "policyValidUntilEpochMs=" + publication.head().snapshot().validUntilEpochMs());
+    }
+
+    private static void readPolicy(final JsonObject config) throws Exception {
+        final PublicKey publicKey =
+                PersistentStagingEvidence.decodePublicKey(readRegular(persistentPath(text(config, "publicKeyPath"))));
+        final DataResetManifest manifest = verifiedManifest(config, publicKey);
+        final PersistentStagingNativeCanaryIdentity.Identity identity = policyIdentity(config, manifest.artifacts());
+        final HandoffPolicyAuthority.Publication publication;
+        try (OxiaSyncHandoffPolicyAuthority.ClientHandle handle = OxiaSyncHandoffPolicyAuthority.connect(
+                text(config, "oxiaServiceAddress"),
+                text(config, "oxiaNamespace"),
+                text(config, "oxiaClientIdentifier"),
+                Duration.ofMillis(positiveLong(config, "oxiaRequestTimeoutMs")),
+                text(config, "oxiaKeyPrefix"))) {
+            publication = handle.authority().requireCurrent(identity.policyScopeDigest());
+        }
+        if (!publication.head().snapshot().verifySignature(publicKey)
+                || !Bytes.constantTimeEquals(
+                        publication.head().snapshot().artifactGenerationSetDigest(),
+                        manifest.artifacts().setDigest())) {
+            throw new IOException("current Oxia handoff policy is not signed by the configured artifact authority");
+        }
+        System.out.println("policyScopeDigest=" + Bytes.hex(identity.policyScopeDigest()));
+        System.out.println("policyOxiaVersion=" + publication.oxiaVersion());
+        System.out.println(
+                "policyGeneration=" + Long.toUnsignedString(publication.head().generation()));
+        System.out.println("policyMode=" + publication.head().mode());
+        System.out.println("policyHeadDigest=" + Bytes.hex(publication.head().headDigest()));
+        System.out.println("policySnapshotDigest="
+                + Bytes.hex(publication.head().snapshot().snapshotDigest()));
+        System.out.println(
+                "policyValidUntilEpochMs=" + publication.head().snapshot().validUntilEpochMs());
+        System.out.println("effectiveDisabledAfterEpochMs=" + publication.head().effectiveDisabledAfterEpochMs());
+    }
+
+    private static DataResetManifest verifiedManifest(final JsonObject config, final PublicKey publicKey)
+            throws IOException {
+        final DataResetManifest manifest =
+                DataResetManifest.decode(readRegular(persistentPath(text(config, "manifestPath"))));
+        if (!manifest.verifySignature(publicKey) || !manifest.isCurrentGeneration()) {
+            throw new IOException("policy publication DataResetManifest is invalid or not current");
+        }
+        return manifest;
+    }
+
+    private static PersistentStagingNativeCanaryIdentity.Identity policyIdentity(
+            final JsonObject config, final ArtifactGenerationSet artifacts) {
+        return PersistentStagingNativeCanaryIdentity.create(
+                text(config, "authenticatedClusterId"),
+                hex(config, "targetResourceIncarnation"),
+                text(config, "targetPhysicalTopic"),
+                nonNegativeLong(config, "targetCreationTimestamp"),
+                artifacts);
+    }
+
+    private static void copyText(final JsonObject source, final JsonObject target, final String name) {
+        if (source.has(name)) {
+            target.addProperty(name, text(source, name));
+        }
     }
 
     private static DataResetAssessmentScope scope(final JsonObject config) {
@@ -471,12 +639,36 @@ public final class PersistentStagingAuthorityTool {
         }
     }
 
+    private static long nonNegativeLong(final JsonObject parent, final String name) {
+        final long value = longValue(parent, name);
+        if (value < 0) {
+            throw new IllegalArgumentException("JSON field must be non-negative: " + name);
+        }
+        return value;
+    }
+
+    private static long positiveLong(final JsonObject parent, final String name) {
+        final long value = longValue(parent, name);
+        if (value <= 0) {
+            throw new IllegalArgumentException("JSON field must be positive: " + name);
+        }
+        return value;
+    }
+
     private static int intValue(final JsonObject parent, final String name) {
         try {
             return Integer.parseInt(text(parent, name));
         } catch (NumberFormatException failure) {
             throw new IllegalArgumentException("JSON field is not an int: " + name, failure);
         }
+    }
+
+    private static int nonNegativeInt(final JsonObject parent, final String name) {
+        final int value = intValue(parent, name);
+        if (value < 0) {
+            throw new IllegalArgumentException("JSON field must be non-negative: " + name);
+        }
+        return value;
     }
 
     private static byte[] digest(final JsonObject parent, final String name) {

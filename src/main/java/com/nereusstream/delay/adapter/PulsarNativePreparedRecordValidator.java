@@ -7,6 +7,7 @@ import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.DeliveryContract;
 import com.nereusstream.delay.protocol.HandoffPath;
 import com.nereusstream.delay.protocol.HandoffPolicyMode;
+import com.nereusstream.delay.protocol.HandoffPolicySnapshot;
 import com.nereusstream.delay.protocol.NativeCapabilitySnapshot;
 import com.nereusstream.delay.protocol.NativeDeliveryPolicy;
 import com.nereusstream.delay.protocol.NativePreparedDelivery;
@@ -30,10 +31,11 @@ import java.util.Objects;
  */
 public final class PulsarNativePreparedRecordValidator {
     private final PulsarTargetResource resource;
-    private final PublicKey issuerKey;
+    private final PublicKey capabilityIssuerKey;
     private final Clock clock;
     private final PinnedPulsarNativeSubmissionAdapter.CredentialFingerprintProvider credentialFingerprintProvider;
     private final PhysicalSendActivationGate activationGate;
+    private final FrozenHandoffPolicyGate handoffPolicyGate;
 
     public PulsarNativePreparedRecordValidator(
             final PulsarTargetResource resource,
@@ -41,11 +43,33 @@ public final class PulsarNativePreparedRecordValidator {
             final Clock clock,
             final PinnedPulsarNativeSubmissionAdapter.CredentialFingerprintProvider credentialFingerprintProvider,
             final PhysicalSendActivationGate activationGate) {
+        this(
+                resource,
+                issuerKey,
+                clock,
+                credentialFingerprintProvider,
+                activationGate,
+                (snapshot, artifacts, trustedNowEpochMs) -> {
+                    if (!snapshot.verifySignature(issuerKey)) {
+                        throw new IllegalArgumentException("handoff policy signature is invalid");
+                    }
+                });
+    }
+
+    /** Production constructor with an independent frozen Handoff trust authority. */
+    public PulsarNativePreparedRecordValidator(
+            final PulsarTargetResource resource,
+            final PublicKey capabilityIssuerKey,
+            final Clock clock,
+            final PinnedPulsarNativeSubmissionAdapter.CredentialFingerprintProvider credentialFingerprintProvider,
+            final PhysicalSendActivationGate activationGate,
+            final FrozenHandoffPolicyGate handoffPolicyGate) {
         this.resource = Objects.requireNonNull(resource, "resource");
-        this.issuerKey = Objects.requireNonNull(issuerKey, "issuerKey");
+        this.capabilityIssuerKey = Objects.requireNonNull(capabilityIssuerKey, "capabilityIssuerKey");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.credentialFingerprintProvider = credentialFingerprintProvider;
         this.activationGate = Objects.requireNonNull(activationGate, "activationGate");
+        this.handoffPolicyGate = Objects.requireNonNull(handoffPolicyGate, "handoffPolicyGate");
     }
 
     public ArtifactGenerationSet artifacts() {
@@ -115,8 +139,8 @@ public final class PulsarNativePreparedRecordValidator {
         }
         final boolean signatureValid;
         try {
-            signatureValid = prepared.capabilitySnapshot().verifySignature(issuerKey)
-                    && prepared.handoffPolicySnapshot().verifySignature(issuerKey);
+            signatureValid = prepared.capabilitySnapshot().verifySignature(capabilityIssuerKey);
+            handoffPolicyGate.require(prepared.handoffPolicySnapshot(), artifacts, nowEpochMs);
         } catch (RuntimeException invalid) {
             return StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE;
         }
@@ -148,6 +172,12 @@ public final class PulsarNativePreparedRecordValidator {
             }
         }
         return null;
+    }
+
+    /** Verifies one already frozen Handoff lease immediately before native Producer ownership. */
+    @FunctionalInterface
+    public interface FrozenHandoffPolicyGate {
+        void require(HandoffPolicySnapshot snapshot, ArtifactGenerationSet artifacts, long trustedNowEpochMs);
     }
 
     private static com.nereusstream.delay.protocol.NativePreparedRecordContext recordContext(

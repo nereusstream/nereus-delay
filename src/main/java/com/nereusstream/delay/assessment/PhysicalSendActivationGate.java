@@ -130,7 +130,7 @@ public final class PhysicalSendActivationGate {
         PERSISTENT_ENABLED
     }
 
-    /** Re-reads mutable deployment authority immediately before physical ownership. */
+    /** Revalidates bounded deployment authority immediately before physical ownership. */
     @FunctionalInterface
     public interface LiveAuthorityGate {
         void requireCurrent(ArtifactGenerationSet candidateArtifacts, long trustedNowEpochMs);
