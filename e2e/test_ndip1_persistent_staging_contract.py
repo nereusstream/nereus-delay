@@ -28,6 +28,36 @@ class PersistentStagingContractTest(unittest.TestCase):
         self.assertEqual(1, enabled_canary.count('--arg p1Lock "${p1_source_lock}"'))
         self.assertIn('rg -e "current (Oxia )?handoff policy"', runner)
 
+    def test_managed_handoff_schedule_uses_the_frozen_policy_lead(self) -> None:
+        source = WORKER_SMOKE.read_text(encoding="utf-8")
+        resolver = source.split("private static ScheduleResolver scheduleResolver(", 1)[1]
+        self.assertIn("intent.deliverAtEpochMs(), managedHandoff.effectiveLeadMs()", resolver)
+        self.assertNotIn(
+            "intent.deliverAtEpochMs(),\n"
+            "                                    PersistentStagingNativeCanaryIdentity.MAX_HANDOFF_LEAD_MS",
+            resolver,
+        )
+        self.assertIn("effectiveLeadMs <= 0", source)
+        self.assertIn(
+            "effectiveLeadMs > PersistentStagingNativeCanaryIdentity.MAX_HANDOFF_LEAD_MS",
+            source,
+        )
+        self.assertIn("MANAGED_HANDOFF_CANARY_DELAY_MS = 30_000", source)
+
+    def test_rollback_reads_live_topic_stats_even_if_canary_capture_is_missing(self) -> None:
+        runner = RUNNER.read_text(encoding="utf-8")
+        rollback = runner.split("disable_enabled_policy() {", 1)[1].split(
+            "run_independent_certification_validation() {", 1
+        )[0]
+        self.assertIn('rollback-native-topic-stats.json', rollback)
+        self.assertIn(
+            '"${admin_url}/admin/v2/persistent/public/default/${native_topic}/stats"',
+            rollback,
+        )
+        self.assertNotIn('${run_dir}/canary/native-topic-stats.json', rollback)
+        self.assertIn("nativeTopicStatsHttpStatus", rollback)
+        self.assertIn("schemaGeneration:2", rollback)
+
     def test_manifest_rocksdb_identity_is_the_exact_worker_root(self) -> None:
         runner = RUNNER.read_text(encoding="utf-8")
         self.assertIn('rocksdb_resource="${run_dir}/worker-store"', runner)

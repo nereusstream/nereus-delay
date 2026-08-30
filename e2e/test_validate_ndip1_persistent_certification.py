@@ -270,6 +270,31 @@ class PersistentCertificationValidatorTest(unittest.TestCase):
         with self.assertRaises(VALIDATOR.VerificationError):
             VALIDATOR.require_evidence_ref(reference, "native", evidence.parent.resolve(), "native evidence")
 
+    def test_rollback_requires_digest_bound_live_topic_stats_with_no_publishers(self) -> None:
+        run_dir = self.root / "run"
+        stats_path = run_dir / "authority" / "rollback-native-topic-stats.json"
+        stats_path.parent.mkdir(parents=True)
+        stats_path.write_text('{"publishers":[]}\n', encoding="utf-8")
+        rollback = {
+            "activeSendCount": 0,
+            "evidence": {
+                "nativeTopicStats": {
+                    "path": str(stats_path),
+                    "sha256": hashlib.sha256(stats_path.read_bytes()).hexdigest(),
+                },
+                "nativeTopicStatsHttpStatus": 200,
+            },
+        }
+
+        VALIDATOR.verify_rollback_topic_stats(rollback, run_dir.resolve())
+
+        stats_path.write_text('{"publishers":[{"producerName":"still-active"}]}\n', encoding="utf-8")
+        rollback["evidence"]["nativeTopicStats"]["sha256"] = hashlib.sha256(
+            stats_path.read_bytes()
+        ).hexdigest()
+        with self.assertRaises(VALIDATOR.VerificationError):
+            VALIDATOR.verify_rollback_topic_stats(rollback, run_dir.resolve())
+
     def test_native_evidence_is_policy_artifact_and_time_bound(self) -> None:
         path = self.root / "native.json"
         candidate = "12" * 20

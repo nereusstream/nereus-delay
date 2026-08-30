@@ -269,6 +269,24 @@ commit；AUTO_FAST、Managed Handoff 和 `ArtifactGenerationSet` 的物理证据
 仍要求验证命令非零退出。专项测试固定 commit-to-digest 向量、双 canary evidence 检查和 stale-head
 诊断；该修复不会把上述 blocked run 晋升为 authority。
 
+run `20260830104711-17324` 在候选
+`e46dba0371095913da298a623b4ff883c569e643` 上完成了 13/13 Manifest readback、Gate C 41/41、
+SHADOW `0/0/0` 和 AUTO_FAST `1/1/0`，随后在 Managed Handoff 的 provider-driven Claim 前
+fail-closed。真实 ENABLED snapshot 的 `effectiveLeadMs=7000`，而 Worker canary 的 Schedule
+resolver 曾错误地用 destination profile 的 `maxHandoffLeadMs=15000` 生成 `actionAt`。Admission
+按冻结 snapshot 要求 exact lead，二者不相等，因此 32 个有界 due turn 都不能产生 Claim。该 run
+没有 Managed evidence、canary receipt、rollback receipt 或 current-pointer authority。
+
+这次失败同时证明旧 rollback 依赖顺序不闭合：失败发生在常规
+`canary/native-topic-stats.json` 生成前，清理却读取该文件，导致二级 rollback 审计中止。当前
+Worker canary 从已加载并冻结的 policy publication 读取 exact `effectiveLeadMs`，拒绝小于等于零或
+大于 profile 上限的 lead，并给 prepare/resume 留出固定 30 秒 canary horizon。rollback 不再依赖
+canary 成功路径的文件，而是在旧 ENABLED lease 到期后通过 Pulsar Admin 重新读取 exact native
+topic；HTTP 200 必须得到 closed publishers 集合且数量为零，HTTP 404 只表示 topic 不存在，其他
+状态全部 fail-closed。该 live stats 的 path、digest 和 HTTP status 进入 generation-2 签名 rollback receipt，独立
+validator 重新计算摘要并验证零 publisher。上述修复只使后续新 run 可重新认证，不会补写或晋升
+失败 run。
+
 ## Authority 边界
 
 即使 current pointer 对某个 HEAD 验证 PASS，也只说明固定本机 staging 的 bounded 候选认证：

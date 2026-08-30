@@ -12,7 +12,7 @@
   `main@62cb5e322edbc98e9a97c0d15dc017b06cdf5fd7`
 - Disposable-local 24-cell 认证代码与 source anchor：
   `main@da15290e47b9255403c92e4ebba3c7d5189edb75`
-- 整理日期：`2026-08-28`
+- 整理日期：`2026-08-30`
 
 仓库的 Accepted `NDP-0001` 持续演进规则保持不变。Accepted
 [`NDP-0002`](../../proposals/0002-register-ndip-governance.md) 已完成一次性治理桥接；本工作包
@@ -169,6 +169,12 @@ RESET：operator 必须显式签署 `RESET_INTERNAL_ONLY` 或 `CREATE_NEW_INTERN
 用户数据；Manifest 操作后必须逐个 read back 全部 13 类资源。最终 certification 还必须由与 runner
 独立的 verifier 重新验证完整签名与证据链。
 
+持久化认证实跑还关闭了两个只在真实 policy/失败顺序下出现的组合缺口：Managed Schedule 的
+`actionAt` 必须按 Admission 将冻结的 exact `effectiveLeadMs` 计算，不能拿 profile 上限代替；失败
+rollback 必须重新读取 Pulsar 当前 topic stats 并把摘要绑定进签名 receipt，不能依赖成功 canary
+稍后才会生成的 stats 文件。相关 blocked run 与证据边界记录在 `06`；当前是否形成 staging PASS
+仍只由 current pointer 和独立 verifier 决定。
+
 这里的“已实现”仅表示代码与环境认证工具边界；它不表示 NDIP 已进入 `Implemented`，也不产生
 production authority。H0 仍然 fail-closed，缺少 exact current generation、signed manifest 或
 能力 gate 时不得触碰 Producer/物理适配器。exact staging evidence 必须按上方 current-pointer
@@ -282,7 +288,7 @@ head 投影，防止 policy disabled 或 lead 缩小时 native head 阻塞 ordin
 | H3 | Attempt Journal/physical handoff slice | **implemented; disposable certification passed** | H2 + focused/full gates passed |
 | H4 | P1 encoder/transport/evidence slice | **implemented; 24-cell source-locked certification passed** | H3 + source-locked P1 gates passed |
 | H5 | AUTO_FAST contract/timestamp/recovery slice | **implemented; disposable certification passed** | H4 + focused/full gates passed |
-| H6 | activation/reset/generation-barrier slice | **implemented; disposable tests and exact staging evidence passed** | H5 + each environment's exact gates |
+| H6 | activation/reset/generation-barrier slice | **implemented；exact staging 结果只由 current pointer 决定** | H5 + each environment's exact gates |
 | local disposable testing | synthetic integration/recovery/fault environment | **ALLOWED；当前 PASS 由 exact 24-cell receipt verifier 决定** | Gate B PASS + exact complete disposable attestation |
 | SHADOW | environment-specific deployment | **由 exact current staging receipt 决定；其他环境 blocked** | exact environment Gate C PASS |
 | ENABLED | controlled native delivery activation | **仅允许 bounded canary；完成后必须回到 DISABLED** | Gate C PASS + SHADOW requirements PASS + signed Manifest/source lock/Worker barrier |

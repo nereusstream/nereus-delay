@@ -166,6 +166,25 @@ def require_evidence_ref(value: dict[str, Any], name: str, run_dir: Path, label:
     return path
 
 
+def verify_rollback_topic_stats(value: dict[str, Any], run_dir: Path) -> None:
+    evidence = value.get("evidence")
+    require(
+        isinstance(evidence, dict)
+        and set(evidence) == {"nativeTopicStats", "nativeTopicStatsHttpStatus"},
+        "rollback topic evidence is not closed",
+    )
+    stats_path = require_evidence_ref(evidence, "nativeTopicStats", run_dir, "rollback native topic stats")
+    http_status = evidence.get("nativeTopicStatsHttpStatus")
+    require(http_status in (200, 404), "rollback native topic stats has an invalid HTTP status")
+    if http_status == 404:
+        require(value.get("activeSendCount") == 0, "an absent rollback topic retained an active send")
+        return
+    stats = read_json(stats_path, "rollback native topic stats")
+    publishers = stats.get("publishers")
+    require(isinstance(publishers, (list, dict)), "rollback native topic stats lacks publishers")
+    require(len(publishers) == value.get("activeSendCount") == 0, "rollback topic retained an active publisher")
+
+
 def resource_set(scope: dict[str, Any], label: str) -> set[tuple[str, str]]:
     resources = scope.get("resources")
     require(isinstance(resources, list) and len(resources) == len(RESOURCE_KINDS),
@@ -663,6 +682,11 @@ def validate(args: argparse.Namespace) -> dict[str, Any]:
 
     rollback = verify_envelope(run_dir / "authority/rollback-receipt.signed.json", trusted_public_key)
     rollback_value = rollback.payload
+    require(
+        rollback_value.get("schema") == "nereus-delay.ndip1-rollback"
+        and rollback_value.get("schemaGeneration") == 2,
+        "rollback schema is not current",
+    )
     require(rollback_value.get("status") == "PASS" and rollback_value.get("environmentReturnedToDisabled") is True,
             "rollback is not PASS/DISABLED")
     require_candidate(rollback_value, candidate, "rollback")
@@ -674,6 +698,7 @@ def validate(args: argparse.Namespace) -> dict[str, Any]:
             "rollback retained an active lease/send")
     require(rollback_value.get("activeNativeProcessCount") == 0
             and rollback_value.get("activeWorkerProcessCount") == 0, "rollback retained a native/Worker process")
+    verify_rollback_topic_stats(rollback_value, run_dir)
     final_state = read_json(run_dir / "authority/final-state.json", "final state")
     require(final_state.get("status") == "DISABLED", "final state is not DISABLED")
     require_candidate(final_state, candidate, "final state")
@@ -706,6 +731,7 @@ def validate(args: argparse.Namespace) -> dict[str, Any]:
         "applicableChecks": 41,
         "manifestSignatureVerified": True,
         "rawCanaryEvidenceDigestsVerified": 8,
+        "rawRollbackEvidenceDigestsVerified": 1,
         "attemptJournalStartupReplayRecords": 3,
         "nativeAdmission": 2,
         "nativeSend": 2,

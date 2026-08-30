@@ -2755,22 +2755,38 @@ disable_enabled_policy() {
   enabled_policy_activation_started=0
 
   local native_processes worker_processes native_process_count worker_process_count active_lease_count active_send_count
+  local rollback_stats rollback_stats_sha256 rollback_stats_http_status rollback_stats_curl_log
   native_processes="$(pgrep -af 'PulsarClientArtifactNativeSmoke' || true)"
   worker_processes="$(pgrep -af 'PulsarClientArtifactWorkerSmoke' || true)"
   native_process_count="$(printf '%s\n' "${native_processes}" | awk 'NF {count++} END {print count+0}')"
   worker_process_count="$(printf '%s\n' "${worker_processes}" | awk 'NF {count++} END {print count+0}')"
   [[ -z "${native_processes}" && -z "${worker_processes}" ]] \
     || fail "rollback left a native or Worker process active"
-  active_send_count="$(python3 - "${run_dir}/canary/native-topic-stats.json" <<'PY'
+  rollback_stats="${run_dir}/authority/rollback-native-topic-stats.json"
+  rollback_stats_curl_log="${run_dir}/authority/rollback-native-topic-stats.curl.log"
+  rollback_stats_http_status="$(curl --silent --show-error --location --max-redirs 5 --max-time 15 \
+    --output "${rollback_stats}" --write-out '%{http_code}' \
+    "${admin_url}/admin/v2/persistent/public/default/${native_topic}/stats" \
+    2>"${rollback_stats_curl_log}" || true)"
+  [[ "${rollback_stats_http_status}" == 200 || "${rollback_stats_http_status}" == 404 ]] \
+    || fail "rollback could not inspect the exact native topic: HTTP ${rollback_stats_http_status}"
+  if [[ "${rollback_stats_http_status}" == 200 ]]; then
+    active_send_count="$(python3 - "${rollback_stats}" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 value = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 publishers = value.get("publishers")
-print(len(publishers) if isinstance(publishers, (list, dict)) else 0)
+if not isinstance(publishers, (list, dict)):
+    raise SystemExit("Pulsar topic stats has no closed publishers collection")
+print(len(publishers))
 PY
-  )"
+    )"
+  else
+    active_send_count=0
+  fi
+  rollback_stats_sha256="$(sha256_file "${rollback_stats}")"
   active_lease_count="$(( $(now_epoch_ms) < enabled_policy_valid_until_epoch_ms ? 1 : 0 ))"
   [[ "${active_send_count}" == 0 && "${active_lease_count}" == 0 ]] \
     || fail "rollback retained an active send or unexpired ENABLED lease"
@@ -2779,14 +2795,19 @@ PY
     --arg policy "${disabled_policy_envelope}" \
     --arg policyDigest "${disabled_policy_envelope_sha256}" --arg verificationLog "${verification_log}" \
     --arg canaryReceipt "${canary_receipt}" --arg canaryDigest "${canary_receipt_sha256}" \
+    --arg rollbackStats "${rollback_stats}" --arg rollbackStatsSha256 "${rollback_stats_sha256}" \
+    --arg rollbackStatsHttpStatus "${rollback_stats_http_status}" \
     --argjson activeNativeProcessCount "${native_process_count}" \
     --argjson activeWorkerProcessCount "${worker_process_count}" \
     --argjson activeLeaseCount "${active_lease_count}" --argjson activeSendCount "${active_send_count}" \
-    '{schema:$schema,status:$status,environmentId:$environmentId,candidateCommit:$candidateCommit,finalPolicy:$policy,
+    '{schema:$schema,schemaGeneration:2,status:$status,environmentId:$environmentId,
+      candidateCommit:$candidateCommit,finalPolicy:$policy,
       finalPolicyEnvelopeSha256:$policyDigest,disabledActivationRejected:true,
       activeNativeProcessCount:$activeNativeProcessCount,activeWorkerProcessCount:$activeWorkerProcessCount,
       activeLeaseCount:$activeLeaseCount,activeSendCount:$activeSendCount,
       canaryReceipt:$canaryReceipt,canaryReceiptSha256:$canaryDigest,verificationLog:$verificationLog,
+      evidence:{nativeTopicStats:{path:$rollbackStats,sha256:$rollbackStatsSha256},
+        nativeTopicStatsHttpStatus:($rollbackStatsHttpStatus|tonumber)},
       environmentReturnedToDisabled:true,productionAuthority:false}' \
     >"${run_dir}/authority/rollback-receipt.json"
   sign_staging_payload rollback-receipt "${run_dir}/authority/rollback-receipt.json" \

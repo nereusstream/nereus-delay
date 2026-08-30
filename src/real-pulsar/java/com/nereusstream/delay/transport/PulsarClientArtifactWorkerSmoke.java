@@ -187,6 +187,7 @@ public final class PulsarClientArtifactWorkerSmoke {
     private static final long LEASE_DURATION_MS = 60_000;
     private static final long SYSTEM_MUTATION_RETRY_WINDOW_MS = 60_000;
     private static final long DUE_DISCOVERY_MAX_BYTES = 900_000;
+    private static final long MANAGED_HANDOFF_CANARY_DELAY_MS = 30_000;
     private static final String PREPARED_RECORD_RETENTION_SUBSCRIPTION = "nereus-delay-prepared-record-retention";
     // Test-only source authority fixture. A real Worker receives this pinned
     // verification/signing authority from the source-control plane; it must
@@ -2968,6 +2969,17 @@ public final class PulsarClientArtifactWorkerSmoke {
                 throw new IllegalStateException("Managed Handoff trust position changed after activation");
             }
         }
+
+        private long effectiveLeadMs() {
+            final long effectiveLeadMs =
+                    activation.policyPublication().head().snapshot().effectiveLeadMs();
+            if (effectiveLeadMs <= 0 || effectiveLeadMs > PersistentStagingNativeCanaryIdentity.MAX_HANDOFF_LEAD_MS) {
+                throw new IllegalStateException(
+                        "Managed Handoff policy lead is outside the exact destination profile bound: "
+                                + effectiveLeadMs);
+            }
+            return effectiveLeadMs;
+        }
     }
 
     static final class PhysicalPublishBridge implements AutoCloseable {
@@ -4009,7 +4021,7 @@ public final class PulsarClientArtifactWorkerSmoke {
 
     private static PreparedCommand managedHandoffCommand(
             final ShardId shard, final PersistentStagingNativeCanaryIdentity.Identity identity, final byte[] payload) {
-        final long deliverAt = Math.addExact(System.currentTimeMillis(), 18_000);
+        final long deliverAt = Math.addExact(System.currentTimeMillis(), MANAGED_HANDOFF_CANARY_DELAY_MS);
         final RetryPolicyRef retryPolicy = new RetryPolicyRef(
                 Bytes.utf8("pulsar-worker-managed-handoff-retry"),
                 1,
@@ -4194,9 +4206,7 @@ public final class PulsarClientArtifactWorkerSmoke {
                             canonicalLaneTuple(tenantScope, destinationPhysicalTopic, intent.profile(), capability, 0);
                     final Long actionAt = managedHandoff == null
                             ? null
-                            : Math.subtractExact(
-                                    intent.deliverAtEpochMs(),
-                                    PersistentStagingNativeCanaryIdentity.MAX_HANDOFF_LEAD_MS);
+                            : Math.subtractExact(intent.deliverAtEpochMs(), managedHandoff.effectiveLeadMs());
                     return new ResolvedSchedule(
                             DestinationLaneId.derive(tuple), tuple, intent.inlinePayload(), null, actionAt);
                 }
