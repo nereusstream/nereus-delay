@@ -7,7 +7,35 @@ normative requirements in [`Nereus Delay 设计.md`](Nereus%20Delay%20设计.md)
 the [`Current Protocol Registry`](PROTOCOL-REGISTRY.md), or the Accepted ADRs.
 An unchecked item is not an implementation permission; it is a release blocker.
 
-## 2026-08-28 NDIP-1 H1-H6 implementation slices
+## 2026-08-30 NDIP-1 production-path closure and certification model
+
+The current implementation no longer relies on the earlier fixture-only or
+AUTO_FAST-only staging proof. The closure through `main@b8500d61` adds the
+real Managed Handoff Worker/Admission/Attempt Journal/P1 transport/Outcome
+canary, a persistent Oxia current-head policy authority rooted in an external
+staging trust key, explicit signed data disposition, exact 13-resource
+Manifest readback, and an independent full-chain certification validator.
+
+The Managed branch must persist a fixed sequence mapping before SEND, record
+Producer ownership before the source-locked P1 call, project Pulsar
+`.deliverAt(...)`, bind serialized SEND and authenticated ACK command hashes,
+append the definitive Outcome to the source log, and resolve response loss
+without an automatic resend. Persistent activation revalidates the frozen
+lease at Admission and immediately before ownership; stale, expired,
+scope-mismatched, disabled, or non-advancing policy generations fail closed.
+
+Current evidence is deliberately not encoded as a static commit or run id in
+this file. A disposable receipt is current only when the generation-2 verifier
+binds all 24 cells and three source-locked supporting checks to the exact
+checkout. Persistent staging is current only when
+`nereus-delay-staging/local-docker-staging-ndip1/deployment/current.json`
+points to an immutable final summary for that same HEAD and the independent
+validator verifies G0, signed data disposition, 13/13 readback, Gate C 41/41,
+SHADOW 0/0/0, AUTO_FAST 1/1/0, Managed Handoff 1/1/1, and final DISABLED
+rollback. This remains `productionAuthority=false`; other environments and
+production deployment remain separately gated.
+
+## 2026-08-28 NDIP-1 H1-H6 implementation slices (historical pre-staging snapshot)
 
 The H1-H6 implementation anchor is
 `main@c7c99d377dc9e8bb786032173d62d1981011a4e2`; the current fully certified
@@ -54,13 +82,13 @@ The exact receipt is recorded in
 [`NDIP-1 Disposable Local Certification`](ndip/NDIP-1/05-Disposable-Local-Certification-%E6%89%A7%E8%A1%8C%E8%AE%B0%E5%BD%95.md).
 It is deliberately non-authoritative: `authority=false`, `gateC=false`,
 `shadow=false` and `enabled=false`. These are implementation and disposable
-test artifacts, not a deployment or release certificate. No persistent
-environment has been assessed, no production Manifest or cutover receipt
-exists, and no SHADOW or ENABLED authority is claimed. NDIP-1 therefore remains
-`Accepted`, Gate C remains `PENDING_DEPLOYMENT`, and the physical path remains
-fail-closed unless exact current generation, signed Manifest and capability
-gates are all present. Ordinary unit-test mode may still conditionally skip
-external-service tests; the strict certification entry point accepts no skip.
+test artifacts, not a deployment or release certificate. At this historical
+snapshot no persistent environment had been assessed. Later local staging
+evidence does not alter the Accepted receipt or create production authority;
+the physical path remains fail-closed unless exact current generation, signed
+Manifest and capability gates are all present. Ordinary unit-test mode may
+still conditionally skip external-service tests; the strict certification
+entry point accepts no skip.
 
 ## 2026-08-27 NDIP-1 implementation/deployment gate boundary — 68fe2c29 (historical snapshot)
 

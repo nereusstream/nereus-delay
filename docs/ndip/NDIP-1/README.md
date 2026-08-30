@@ -25,9 +25,10 @@ Gate B PASS 是 implementation authorization：H1-H6 可按切片依赖顺序实
 deployment/upgrade authorization；在具体环境完成 G0、签名 Manifest 和 Gate C 前仍严格阻止
 该环境的 persistent mutation、SHADOW 和 ENABLED。H0 不改变权威语义，不受这一命名桥接阻塞。
 
-本轮实现开始时的前置状态为 `H1 READY`；H1→H6 已按依赖顺序完成代码切片，disposable-local
-认证矩阵也已闭合。随后已在固定的 `local-docker-staging-ndip1` 上执行 G0/Gate C/SHADOW 和
-最小 canary；该环境最终保持 `DISABLED`，其他环境仍须独立执行同一组门禁。
+本轮实现开始时的前置状态为 `H1 READY`；H1→H6 已按依赖顺序完成代码切片。当前实现还把
+Managed Handoff 的真实 Worker/Admission/Attempt Journal/P1 transport/Outcome 链路、持久化 policy
+authority、显式数据处置和独立认证 verifier 纳入同一闭环。disposable-local 与 persistent
+staging 的“当前结果”均按 exact source binding 解析，不能由本文中的历史提交或 run id 推断。
 
 `normative package digest` 不包含本 README 和 candidate/final receipt，避免自引用与操作文本
 改变设计身份。仓库不保存会话执行提示词；需要时由用户请求并在会话内临时生成。摘要固定
@@ -58,15 +59,17 @@ python3 scripts/verify-ndip-package.py \
 `implementation=AUTHORIZED` 和 `local_disposable_testing=AUTHORIZED_WITH_EXACT_ATTESTATION`。
 receipt 同时固定 `gateCRequiredBeforeShadow=true` 与 `gateCRequiredBeforeEnabled=true`。
 
-## 2026-08-30 persistent staging certification 状态
+## Persistent staging certification 状态解析
 
-本工作包已在固定的本机持久化环境
-`environmentId=local-docker-staging-ndip1`（`classification=STAGING`）完成一次新的、候选版本绑定的
-G0 → Gate C → SHADOW → 最小 ENABLED canary。当前可审计结论是：Gate C `PASS`、SHADOW
-`PASS`、ENABLED canary `PASS`，随后已签发并验证 `DISABLED` rollback；这只授予该 exact staging
-环境的有限证据，不是 production authority，也不把 NDIP 状态改写为 production readiness。
+固定本机环境为 `environmentId=local-docker-staging-ndip1`、`classification=STAGING`。最新可用
+认证不复制进本 README，而由持久化指针
+`nereus-delay-staging/local-docker-staging-ndip1/deployment/current.json` 指向一个 immutable
+final summary。只有当独立 verifier 验证 trust root、签名、source/package/P1 lock、显式数据处置、
+G0、13/13 Manifest readback、Gate C 41/41、SHADOW、双路径 canary、rollback，且 summary 的
+candidate commit 等于待认证 checkout 时，才能把该 run 解释为该候选的 staging PASS。
 
-完整命令、环境拓扑、41 个条件 skip 的分类、签名 receipt、故障恢复和保留/回滚边界见
+`20260830035421-73816` 是旧候选上的历史单路径 run，不得认证当前源码。完整入口、指针协议、
+证据结构和历史边界见
 [`06-Persistent-Staging-Gate-C-SHADOW-执行记录.md`](06-Persistent-Staging-Gate-C-SHADOW-执行记录.md)。
 该记录是非规范执行/运维材料；Accepted package 仍只由 `01`–`04` 和现有
 `acceptance-receipt.json` 定义。
@@ -120,10 +123,9 @@ first persistent deployment / upgrade
 ```
 
 执行前没有真实 persistent deployment 时，不生成虚假 Assessment receipt；那一阶段的 G0 状态是
-`NOT_APPLICABLE_FOR_IMPLEMENTATION / PENDING_DEPLOYMENT`。本目录现已另有一份绑定
-`local-docker-staging-ndip1` 的真实执行记录：该 staging 的 G0、Gate C、SHADOW 和最小 canary
-已完成，最终策略保持 `DISABLED`；其他 existing、staging、production 或 unknown 环境仍不得
-借用这份 authority，继续 fail-closed。
+`NOT_APPLICABLE_FOR_IMPLEMENTATION / PENDING_DEPLOYMENT`。固定本机 staging 的当前状态只能由
+上述 current pointer 与独立 verifier 解析；其他 existing、staging、production 或 unknown 环境
+不得借用该环境的 authority，继续 fail-closed。
 
 ## 2026-08-28 实现切片状态
 
@@ -159,11 +161,18 @@ cell；完整 24-cell disposable certification 曾在 `main@da15290e` 通过。
   `DataResetManifest` 与 exact running source baseline。Managed Handoff 缺少该 authority 时在
   Attempt Journal 写入和 Producer ownership 前拒绝，AUTO_FAST 在 transport ownership 前拒绝。
 
-这里的“已实现”仅表示代码/本地 disposable 验证边界；它不表示 NDIP 已进入
-`Implemented`，也不生成 production Manifest、Gate C、SHADOW、ENABLED 或 cutover
-evidence。H0 仍然 fail-closed，缺少 exact current generation、signed manifest 或能力
-gate 时不得触碰 Producer/物理适配器。2026-08-30 的 exact staging evidence 见上方执行记录；
-Accepted package receipt 自身仍保持 `gate_c=PENDING_DEPLOYMENT`，不被 staging 结果改写。
+后续 production-path closure 又要求 persistent activation 从固定 trust root 解析当前 Oxia policy
+head，拒绝 generation 回退，并在 Admission 与物理发送前验证同一冻结 lease；Managed staging
+canary 必须真实经过 Worker schedule、Claim、Admission、mapping-before-send、P1 `.deliverAt(...)`、
+SEND/ACK evidence、Outcome source-log handoff 和 response-loss resolution。G0 不再从环境类型推断
+RESET：operator 必须显式签署 `RESET_INTERNAL_ONLY` 或 `CREATE_NEW_INTERNAL_ONLY`，并证明没有外部
+用户数据；Manifest 操作后必须逐个 read back 全部 13 类资源。最终 certification 还必须由与 runner
+独立的 verifier 重新验证完整签名与证据链。
+
+这里的“已实现”仅表示代码与环境认证工具边界；它不表示 NDIP 已进入 `Implemented`，也不产生
+production authority。H0 仍然 fail-closed，缺少 exact current generation、signed manifest 或
+能力 gate 时不得触碰 Producer/物理适配器。exact staging evidence 必须按上方 current-pointer
+规则解释；Accepted package receipt 自身仍保持 `gate_c=PENDING_DEPLOYMENT`，不被环境结果改写。
 
 ## 2026-08-28 disposable local certification
 
@@ -183,9 +192,8 @@ binding、证据路径与 cleanup 审计见
 
 这只是 local disposable certification receipt/report；它不创建真实 DataResetAssessment
 scope，不是 Gate C authority，也不允许 SHADOW 或 ENABLED。该 disposable receipt 仍不能替代
-上方 exact staging run 的 G0/Gate C authority；当前 staging 结论见本 README 的 2026-08-30
-状态段和 `06-Persistent-Staging-Gate-C-SHADOW-执行记录.md`，Accepted package receipt 自身仍为
-`gate_c=PENDING_DEPLOYMENT`。
+persistent staging 的 G0/Gate C authority；staging 结论必须通过 current pointer 和独立 verifier
+读取，Accepted package receipt 自身仍为 `gate_c=PENDING_DEPLOYMENT`。
 
 本轮 H1-H6 代码切片的历史锚点为
 `main@c7c99d377dc9e8bb786032173d62d1981011a4e2`；独立审查前的 disposable certification 绑定
@@ -274,9 +282,9 @@ head 投影，防止 policy disabled 或 lead 缩小时 native head 阻塞 ordin
 | H4 | P1 encoder/transport/evidence slice | **implemented; 24-cell source-locked certification passed** | H3 + source-locked P1 gates passed |
 | H5 | AUTO_FAST contract/timestamp/recovery slice | **implemented; disposable certification passed** | H4 + focused/full gates passed |
 | H6 | activation/reset/generation-barrier slice | **implemented; disposable tests and exact staging evidence passed** | H5 + each environment's exact gates |
-| local disposable testing | synthetic integration/recovery/fault environment | **ALLOWED; current 24-cell run PASS** | Gate B PASS + exact complete disposable attestation |
-| SHADOW | environment-specific deployment | **exact local staging PASS; other environments blocked** | exact environment Gate C PASS |
-| ENABLED | controlled native delivery activation | **exact local staging canary PASS, then DISABLED** | Gate C PASS + SHADOW requirements PASS + signed Manifest/source lock/Worker barrier |
+| local disposable testing | synthetic integration/recovery/fault environment | **ALLOWED；当前 PASS 由 exact 24-cell receipt verifier 决定** | Gate B PASS + exact complete disposable attestation |
+| SHADOW | environment-specific deployment | **由 exact current staging receipt 决定；其他环境 blocked** | exact environment Gate C PASS |
+| ENABLED | controlled native delivery activation | **仅允许 bounded canary；完成后必须回到 DISABLED** | Gate C PASS + SHADOW requirements PASS + signed Manifest/source lock/Worker barrier |
 
 H1-H6 代码切片完成后仍需在每个发布/部署边界重核最新源码签名、P1 source lock 和生成号
 占用；这属于正常的 source-drift 审计，不得借此重新打开本文已经关闭的产品契约。G0 pure

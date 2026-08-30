@@ -2036,7 +2036,32 @@ directories were moved to
 `/Users/liusinan/.Trash/nereus-delay-cleanup-20260822-full` after `.git`
 checks. Current evidence and referenced historical receipts remain available.
 
-## 2026-08-28 NDIP-1 disposable local certification — da15290e
+## NDIP-1 current disposable and persistent certification entry points
+
+Do not reuse the temporary receipt or source SHA in the historical section
+below for a newer checkout. A current disposable run must use a retained,
+operator-owned artifact base and its generation-2 verifier must bind all 24
+cells plus `p1.compileRealPulsar`, `p1.h0`, and `p1.nativeCoordinator` to the
+exact HEAD:
+
+```bash
+NEREUS_DELAY_DISPOSABLE_ARTIFACT_DIR=/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay-artifacts/ndip1-final \
+NEREUS_DELAY_DISPOSABLE_GRADLE_USER_HOME=/Users/liusinan/.gradle \
+  bash e2e/run-disposable-local-certification.sh
+```
+
+Persistent staging additionally requires the exact disposable receipt and
+SHA-256, an explicit signed `RESET_INTERNAL_ONLY` or
+`CREATE_NEW_INTERNAL_ONLY` operator decision, and
+`NEREUS_DELAY_STAGING_EXTERNAL_USER_DATA=false`. Its current result is read
+only through
+`nereus-delay-staging/local-docker-staging-ndip1/deployment/current.json` and
+`e2e/validate-ndip1-persistent-certification.py`. A valid result includes G0,
+13/13 Manifest readback, Gate C 41/41, SHADOW 0/0/0, AUTO_FAST 1/1/0,
+Managed Handoff 1/1/1, and final DISABLED rollback. It remains local staging
+evidence with `productionAuthority=false`.
+
+## 2026-08-28 NDIP-1 disposable local certification — da15290e (historical)
 
 The current disposable entry point is
 `e2e/run-disposable-local-certification.sh`. The source-bound run used Delay

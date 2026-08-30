@@ -11,7 +11,32 @@ Spec revision：`DESIGN-BASELINE-2026-08-25`
 
 **Open semantic questions: none.**
 
-## 2026-08-28 NDIP-1 H1-H6 implementation audit boundary
+## 2026-08-30 NDIP-1 physical-chain and certification audit
+
+The later production-path audit closed the gap between component fixtures and
+the real Managed destination composition. Persistent canary evidence now must
+cross Worker scheduling, Claim, Admission-frozen policy, the physical lease
+gate, Attempt Journal mapping-before-send, fixed sequence and ownership,
+source-locked P1 `.deliverAt(...)`, typed SEND/ACK proof, and definitive
+Outcome handoff through the source log. Response loss is resolved from Journal
+and Broker evidence and cannot silently fall back to an automatic resend.
+
+Persistent policy authority is a signed, bounded lease read from the current
+Oxia head under a fixed external trust root. Admission and physical send bind
+the same snapshot; stale scope, invalid time, disabled status, CAS-only advance
+without policy-generation advance, or source/generation mismatch fails closed.
+G0 also requires an explicit signed internal-only data-disposition decision
+and 13/13 post-operation readback; environment classification alone cannot
+authorize reset.
+
+Certification freshness is resolved dynamically. A local staging PASS is
+usable for a checkout only if its persistent `deployment/current.json` points
+to an immutable final summary for the exact HEAD and the independent validator
+rechecks the complete signature/evidence chain, including AUTO_FAST 1/1/0,
+Managed Handoff 1/1/1, and final DISABLED rollback. That evidence remains
+environment-specific and `productionAuthority=false`.
+
+## 2026-08-28 NDIP-1 H1-H6 implementation audit boundary (historical snapshot)
 
 The current main worktree has implementation slices for H1 through H6. The
 slice boundary is generation-bound: current declarations, activation markers,
@@ -22,11 +47,11 @@ mixed generation data fails closed. AUTO_FAST uses the exact business
 `NEREUS_MANAGED_NOT_BEFORE` and does not project a Pulsar `deliverAt`.
 
 The H6 `DataResetManifest` is signed and self-contained, but it is only an
-activation prerequisite. There is no real persistent deployment, Gate C
-receipt, production manifest, SHADOW observation or ENABLED lease in this
-worktree. Accordingly this audit records implementation evidence only;
-`Accepted` and `Gate C=PENDING_DEPLOYMENT` remain unchanged, and H0's
-no-producer-touch fail-closed behavior remains the safe default.
+activation prerequisite. At this historical snapshot there was no persistent
+staging assessment or activation receipt. Accordingly the section records
+implementation evidence only; later environment-specific evidence still does
+not change `Accepted`, the package receipt's `Gate C=PENDING_DEPLOYMENT`, or
+H0's no-producer-touch fail-closed default.
 
 The H1-H6 implementation anchor is
 `main@c7c99d377dc9e8bb786032173d62d1981011a4e2`; the current disposable-local

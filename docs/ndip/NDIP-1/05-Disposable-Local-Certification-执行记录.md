@@ -195,4 +195,7 @@ volumesRemaining=[]
 本次 PASS 不能替代 persistent G0。未来需要先明确 `EXISTING`、`STAGING` 或
 `PRODUCTION` environment identity、scope、tenant/route/shard、Worker exact set、resource
 inventory、外部保留义务和可信时间区间，再执行真实 G0 并生成独立 Gate C 审查输入。
-当前 Gate C 仍为 `PENDING_DEPLOYMENT`，SHADOW/ENABLED 继续 fail-closed。
+Accepted package receipt 中的 Gate C 始终为 `PENDING_DEPLOYMENT`。固定本机 staging 是否已有
+候选级 Gate C/SHADOW/canary 证据，应按
+[`06-Persistent-Staging-Gate-C-SHADOW-执行记录.md`](06-Persistent-Staging-Gate-C-SHADOW-执行记录.md)
+中的 `deployment/current.json` 与独立 verifier 读取；该证据也不能授予其他环境或 production。
