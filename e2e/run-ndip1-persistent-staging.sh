@@ -1867,10 +1867,10 @@ run_enabled_canary() {
   [[ "${deliver_at}" =~ ^[0-9]+$ && "${native_marker_count}" == 1 ]] \
     || fail "ENABLED canary did not produce exactly one native record evidence line"
 
-  curl --silent --show-error --fail \
+  curl --silent --show-error --fail --location --max-redirs 5 --max-time 15 \
     "${admin_url}/admin/v2/persistent/public/default/${native_topic}/stats" \
     >"${canary_dir}/native-topic-stats.json"
-  curl --silent --show-error --fail \
+  curl --silent --show-error --fail --location --max-redirs 5 --max-time 15 \
     "${admin_url}/admin/v2/persistent/public/default/${native_topic}/internalStats" \
     >"${canary_dir}/native-topic-internal-stats.json"
   rg -F "Pulsar Worker destination response-loss" \
