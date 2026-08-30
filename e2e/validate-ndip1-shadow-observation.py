@@ -61,40 +61,50 @@ def require_tests(run_dir: Path, label: str, names: set[str]) -> None:
             fail(f"SHADOW JUnit case is not exactly PASS: {label}/{name}: {matches}")
 
 
-def verify_policy(policy_dir: Path, expected: list[tuple[str, str, str]]) -> None:
-    public_key: str | None = None
-    for phase, state, action in expected:
+def verify_policy(policy_dir: Path, trusted_public_key: Path, expected_key_generation: int) -> None:
+    trusted_key = trusted_public_key.read_bytes()
+    prior_version = 0
+    prior_generation = 0
+    policy_scope: str | None = None
+    for phase in ("shadow-initial", "shadow-candidate-add", "shadow-candidate-cancel"):
         envelope_path = policy_dir / f"{phase}.signed.json"
         envelope = read_json(envelope_path)
         if envelope.get("evidenceSchema") != "nereus-delay.persistent-staging-evidence":
             fail(f"SHADOW policy is not a signed evidence envelope: {envelope_path}")
-        key = envelope.get("publicKeyDerBase64")
-        if not isinstance(key, str) or not key:
-            fail(f"SHADOW policy has no embedded public key: {envelope_path}")
-        if public_key is None:
-            public_key = key
-        elif public_key != key:
-            fail(f"SHADOW policy key changed across update: {envelope_path}")
         try:
+            key = base64.b64decode(envelope["publicKeyDerBase64"], validate=True)
             payload = base64.b64decode(envelope["payloadBase64"], validate=True)
-        except (KeyError, ValueError) as exc:
-            fail(f"SHADOW policy payload is not base64: {envelope_path}: {exc}")
+        except (KeyError, ValueError, TypeError) as exc:
+            fail(f"SHADOW policy envelope contains invalid base64: {envelope_path}: {exc}")
+        if key != trusted_key or envelope.get("keyGeneration") != expected_key_generation:
+            fail(f"SHADOW policy is not bound to the external trust root: {envelope_path}")
         if hashlib.sha256(payload).hexdigest() != envelope.get("payloadSha256"):
             fail(f"SHADOW policy payload digest mismatch: {envelope_path}")
         try:
             value = json.loads(payload.decode("utf-8"))
         except (UnicodeDecodeError, ValueError) as exc:
             fail(f"SHADOW policy payload is not JSON: {envelope_path}: {exc}")
-        if value.get("policyStatus") != "SHADOW":
+        if (value.get("policySchema") != "nereus-delay.handoff-policy-publication"
+                or value.get("policyStatus") != "SHADOW"):
             fail(f"SHADOW policy has the wrong status: {envelope_path}")
-        if value.get("candidateState") != state or value.get("candidateAction") != action:
-            fail(f"SHADOW policy transition mismatch: {envelope_path}")
-        verify_log = policy_dir.parent / f"shadow-policy-{phase}-verify.log"
-        if "envelopeDigest=" not in verify_log.read_text(encoding="utf-8"):
-            fail(f"signed SHADOW policy was not read back by the authority tool: {verify_log}")
-        oxia_readback = policy_dir / f"{phase}-oxia-get.txt"
-        if not oxia_readback.is_file() or not oxia_readback.read_text(encoding="utf-8").strip():
-            fail(f"signed SHADOW policy was not read back from real Oxia: {oxia_readback}")
+        version = int(value.get("policyOxiaVersion", 0))
+        generation = int(value.get("policyGeneration", 0))
+        scope = value.get("policyScopeDigest")
+        if version <= prior_version or generation <= prior_generation:
+            fail(f"SHADOW policy CAS version/generation did not advance: {envelope_path}")
+        if not isinstance(scope, str) or not re.fullmatch(r"[0-9a-f]{64}", scope):
+            fail(f"SHADOW policy has no canonical scope: {envelope_path}")
+        if policy_scope is None:
+            policy_scope = scope
+        elif scope != policy_scope:
+            fail(f"SHADOW policy scope changed across current-head updates: {envelope_path}")
+        readback = policy_dir / f"{phase}-readback.log"
+        readback_text = readback.read_text(encoding="utf-8")
+        for marker in (f"policyMode=SHADOW", f"policyOxiaVersion={version}", f"policyGeneration={generation}"):
+            if marker not in readback_text:
+                fail(f"real Oxia current-head readback is incomplete: {readback}: {marker}")
+        prior_version = version
+        prior_generation = generation
 
 
 def state_has_unresolved(path: Path) -> bool:
@@ -112,6 +122,8 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--shadow-dir", type=Path, required=True)
     parser.add_argument("--policy-dir", type=Path, required=True)
+    parser.add_argument("--trusted-public-key", type=Path, required=True)
+    parser.add_argument("--issuer-key-generation", type=int, required=True)
     parser.add_argument("--gate-c-log", type=Path, required=True)
     parser.add_argument("--observation-seconds", type=int, required=True)
     args = parser.parse_args()
@@ -119,11 +131,7 @@ def main() -> int:
     if args.observation_seconds < 10:
         fail("SHADOW observation window is shorter than 10 seconds")
     run_dir = args.shadow_dir.parent
-    verify_policy(
-        args.policy_dir,
-        [("initial", "NONE", "NOOP"), ("candidate-add", "ADDED", "ADD"),
-         ("candidate-cancel", "CANCELLED", "CANCEL")],
-    )
+    verify_policy(args.policy_dir, args.trusted_public_key, args.issuer_key_generation)
     require_tests(
         run_dir,
         "shadow-policy-controls",

@@ -11,6 +11,7 @@ import com.nereusstream.delay.protocol.HandoffPolicySnapshot;
 import com.nereusstream.delay.protocol.PulsarSourceLock;
 import com.nereusstream.delay.semantic.HandoffPolicyAuthority;
 import com.nereusstream.delay.semantic.OxiaSyncHandoffPolicyAuthority;
+import com.nereusstream.delay.semantic.OxiaSyncHandoffPolicyTrustStore;
 import io.oxia.client.api.exceptions.OxiaException;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -238,6 +239,8 @@ public final class PersistentStagingActivation {
                 policyScopeDigest,
                 currentPolicy,
                 trustedPublicKey,
+                trustedKeyGeneration,
+                requiredEnv(POLICY_KEY_PREFIX_ENV),
                 policyHandle);
     }
 
@@ -497,6 +500,8 @@ public final class PersistentStagingActivation {
             byte[] policyScopeDigest,
             HandoffPolicyAuthority.Publication policyPublication,
             PublicKey trustedPublicKey,
+            int trustedKeyGeneration,
+            String policyKeyPrefix,
             OxiaSyncHandoffPolicyAuthority.ClientHandle policyHandle)
             implements AutoCloseable {
         public Loaded {
@@ -517,6 +522,10 @@ public final class PersistentStagingActivation {
             Bytes.requireLength(policyScopeDigest, 32, "policyScopeDigest");
             Objects.requireNonNull(policyPublication, "policyPublication");
             Objects.requireNonNull(trustedPublicKey, "trustedPublicKey");
+            if (trustedKeyGeneration <= 0) {
+                throw new IllegalArgumentException("trustedKeyGeneration must be positive");
+            }
+            policyKeyPrefix = Objects.requireNonNull(policyKeyPrefix, "policyKeyPrefix");
             Objects.requireNonNull(policyHandle, "policyHandle");
         }
 
@@ -552,6 +561,16 @@ public final class PersistentStagingActivation {
                     artifacts,
                     candidateArtifacts,
                     trustedNowEpochMs);
+        }
+
+        /** Returns the same current-head authority verified during activation. */
+        public HandoffPolicyAuthority handoffPolicyAuthority() {
+            return policyHandle.authority();
+        }
+
+        /** Returns the immutable source-position trust store sharing the verified Oxia session. */
+        public OxiaSyncHandoffPolicyTrustStore handoffPolicyTrustStore() {
+            return new OxiaSyncHandoffPolicyTrustStore(policyHandle.client(), policyKeyPrefix);
         }
 
         @Override

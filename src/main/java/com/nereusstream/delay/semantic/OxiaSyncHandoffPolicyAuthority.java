@@ -81,6 +81,10 @@ public final class OxiaSyncHandoffPolicyAuthority implements HandoffPolicyAuthor
         if (actualVersion != expectedOxiaVersion) {
             throw new IllegalStateException("policy head compare-and-set revision conflict");
         }
+        if (current != null
+                && Long.compareUnsigned(exactNext.generation(), current.head().generation()) <= 0) {
+            throw new IllegalStateException("policy head generation must advance monotonically");
+        }
         final byte[] bytes = exactNext.canonicalBytes();
         final Set<PutOption> options = currentResult == null
                 ? Set.of(PutOption.IfRecordDoesNotExist)

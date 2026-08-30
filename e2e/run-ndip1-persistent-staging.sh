@@ -19,6 +19,8 @@ runtime_dir="${staging_root}/p1-runtime"
 image_context="${staging_root}/p1-image-context"
 cert_dir="${staging_root}/certificates"
 key_dir="${staging_root}/authority"
+deployment_dir="${staging_root}/deployment"
+deployment_pointer="${deployment_dir}/current.json"
 compose_project="${resource_prefix}"
 compose_file_pulsar="${script_dir}/docker-compose.pulsar-cluster.yml"
 compose_file_oxia="${script_dir}/docker-compose.oxia-cluster.yml"
@@ -94,8 +96,11 @@ worker_registry_resource="oxia://default/${resource_prefix}/${run_id}/worker-reg
 accepted_package_digest="13caab8ecdc201901f06e905f1c0bf9792780e50c6f5948f93abf2bdb8f4d21b"
 p1_source_lock="0a2536484cd3932801a98dc88ff112b2df88a1c7"
 p1_source_lock_digest=""
-disposable_receipt="/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay-artifacts/ndip1-final/20260828120404-32881-21717/disposable-local-certification-receipt.json"
-disposable_receipt_sha256="53b0e41ec03209577d6721f4d50e658cc4e8d3f989ddf0cb5ff14e3027462d9f"
+disposable_receipt="${NEREUS_DELAY_DISPOSABLE_RECEIPT:-}"
+disposable_receipt_sha256="${NEREUS_DELAY_DISPOSABLE_RECEIPT_SHA256:-}"
+staging_data_decision="${NEREUS_DELAY_STAGING_DATA_DECISION:-}"
+staging_operator="${NEREUS_DELAY_STAGING_OPERATOR:-}"
+staging_external_user_data="${NEREUS_DELAY_STAGING_EXTERNAL_USER_DATA:-}"
 
 scope_config_path=""
 assessment_config_path=""
@@ -109,6 +114,22 @@ enabled_policy_envelope=""
 canary_receipt=""
 canary_receipt_sha256=""
 disabled_policy_envelope=""
+policy_oxia_version=0
+policy_generation=0
+enabled_policy_valid_until_epoch_ms=0
+policy_scope_digest=""
+native_target_incarnation_hex="1111111111111111111111111111111111111111111111111111111111111111"
+assessed_final_summary=""
+assessed_run_dir=""
+assessed_run_id=""
+assessed_scope_path=""
+assessed_mode=""
+data_disposition_payload="${run_dir}/authority/data-disposition-declaration.json"
+data_disposition_envelope="${run_dir}/authority/data-disposition-declaration.signed.json"
+data_disposition_envelope_sha256=""
+certification_validation_envelope=""
+certification_validation_envelope_sha256=""
+candidate_scope_path="${run_dir}/authority/candidate-scope.json"
 enabled_policy_activation_started=0
 enabled_policy_rollback_attempted=0
 
@@ -116,6 +137,7 @@ mkdir -p "${run_dir}/logs" "${run_dir}/results" "${run_dir}/g0" "${run_dir}/auth
   "${staging_root}/pulsar" "${staging_root}/oxia" "${staging_root}/minio/data" \
   "${staging_root}/worker" "${staging_root}/chaos" "${staging_root}/source" "${runtime_dir}" "${image_context}" \
   "${cert_dir}" "${key_dir}"
+mkdir -p "${deployment_dir}"
 if [[ -e "${run_dir}/run-status.json" ]]; then
   echo "refusing to reuse evidence run directory: ${run_dir}" >&2
   exit 1
@@ -291,9 +313,25 @@ printf '%s\n' "${oxia_cli_build_info}" | rg -F "vcs.revision=${oxia_sha}" >/dev/
   || fail "Oxia CLI VCS revision does not match the clean Oxia checkout: ${oxia_cli}"
 oxia_cli_sha256="$(shasum -a 256 "${oxia_cli}" | awk '{print $1}')"
 pulsar_tarball_sha256="$(shasum -a 256 "${pulsar_tarball}" | awk '{print $1}')"
-disposable_actual_sha256="$(shasum -a 256 "${disposable_receipt}" | awk '{print $1}' 2>/dev/null || true)"
+[[ -n "${disposable_receipt}" && -n "${disposable_receipt_sha256}" ]] \
+  || fail "exact disposable receipt path and SHA-256 must be supplied"
+[[ -f "${disposable_receipt}" && ! -L "${disposable_receipt}" ]] \
+  || fail "the disposable receipt must be a regular non-symlink file"
+disposable_actual_sha256="$(shasum -a 256 "${disposable_receipt}" | awk '{print $1}')"
 [[ "${disposable_actual_sha256}" == "${disposable_receipt_sha256}" ]] \
   || fail "the recorded disposable receipt is missing or has a different digest"
+python3 "${delay_root}/scripts/verify-disposable-local-certification.py" \
+  --receipt "${disposable_receipt}" >"${run_dir}/logs/disposable-receipt-verifier.log" 2>&1 \
+  || fail "the exact disposable receipt failed independent verification"
+[[ "$(jq -r '.source.delayCommit' "${disposable_receipt}")" == "${candidate_commit}" \
+    && "$(jq -r '.status' "${disposable_receipt}")" == PASS \
+    && "$(jq -r '.classification' "${disposable_receipt}")" == DISPOSABLE_LOCAL \
+    && "$(jq -r '.matrix | length' "${disposable_receipt}")" == 24 \
+    && "$(jq -r '.authority' "${disposable_receipt}")" == false \
+    && "$(jq -r '.gateC' "${disposable_receipt}")" == false \
+    && "$(jq -r '.shadow' "${disposable_receipt}")" == false \
+    && "$(jq -r '.enabled' "${disposable_receipt}")" == false ]] \
+  || fail "the disposable receipt is not a 24/24 non-authoritative certification for the exact candidate"
 
 python3 "${delay_root}/scripts/verify-ndip-package.py" \
   --package-dir "${delay_root}/docs/ndip/NDIP-1" \
@@ -645,6 +683,133 @@ set_minio_fault_mode() {
     || fail "could not set persistent MinIO fault proxy mode: ${mode}"
 }
 
+write_candidate_scope() {
+  local resources_json
+  resources_json="$(jq -n \
+    --arg command "${command_resource}" --arg system "${system_resource}" \
+    --arg rocksdb "${rocksdb_resource}" --arg checkpoint "${checkpoint_resource}" \
+    --arg profile "${profile_resource}" --arg policy "${policy_resource}" \
+    --arg payload "${payload_resource}" --arg journal "${attempt_journal_resource}" \
+    --arg cursor "${cursor_resource}" --arg query "${query_resource}" \
+    --arg obligation "${obligation_resource}" --arg incarnation "${incarnation_resource}" \
+    --arg workerRegistry "${worker_registry_resource}" \
+    '[{kind:"COMMAND_TOPIC",identity:$command},{kind:"SYSTEM_TOPIC",identity:$system},
+      {kind:"ROCKSDB_STORE",identity:$rocksdb},{kind:"CHECKPOINT_CATALOG",identity:$checkpoint},
+      {kind:"PROFILE_OXIA_STATE",identity:$profile},{kind:"RUNTIME_POLICY_STATE",identity:$policy},
+      {kind:"PAYLOAD_RESERVATION_OBJECT_STATE",identity:$payload},
+      {kind:"PULSAR_ATTEMPT_JOURNAL",identity:$journal},{kind:"EVIDENCE_TOPIC_CURSOR",identity:$cursor},
+      {kind:"QUERY_DEDUPE_STATE",identity:$query},{kind:"OBLIGATION_INDEX",identity:$obligation},
+      {kind:"RESOURCE_INCARNATION_REGISTRY",identity:$incarnation},
+      {kind:"WORKER_REGISTRY",identity:$workerRegistry}]')"
+  jq -n --arg environmentId "${environment_id}" --arg classification "${classification}" \
+    --arg deploymentId "${resource_prefix}/${run_id}" --arg workerId "worker-ndip1-a" \
+    --arg workerBId "worker-ndip1-b" --argjson resources "${resources_json}" \
+    '{scope:{environmentId:$environmentId,environmentClassification:$classification,
+      deploymentId:$deploymentId,tenantIds:["tenant-ndip1"],routeIds:["route-ndip1"],
+      shardIds:["route-ndip1/0"],eligibleWorkerIds:[$workerId,$workerBId],resources:$resources}}' \
+    >"${candidate_scope_path}"
+}
+
+resolve_assessed_deployment() {
+  local pointer_digest="" pointer_summary="" pointer_scope="" pointer_scope_digest="" latest=""
+  if [[ -e "${deployment_pointer}" ]]; then
+    [[ -f "${deployment_pointer}" && ! -L "${deployment_pointer}" ]] \
+      || fail "deployment pointer is not a regular non-symlink file: ${deployment_pointer}"
+    [[ "$(jq -r '.schema' "${deployment_pointer}")" == "nereus-delay.ndip1-deployment-pointer" \
+        && "$(jq -r '.status' "${deployment_pointer}")" == CURRENT ]] \
+      || fail "deployment pointer is not a canonical CURRENT record"
+    pointer_summary="$(jq -r '.finalSummary' "${deployment_pointer}")"
+    pointer_digest="$(jq -r '.finalSummarySha256' "${deployment_pointer}")"
+    pointer_scope="$(jq -r '.deploymentScope' "${deployment_pointer}")"
+    pointer_scope_digest="$(jq -r '.deploymentScopeSha256' "${deployment_pointer}")"
+    [[ -f "${pointer_summary}" && ! -L "${pointer_summary}" \
+        && "$(sha256_file "${pointer_summary}")" == "${pointer_digest}" ]] \
+      || fail "deployment pointer does not bind an immutable final summary"
+    [[ -f "${pointer_scope}" && ! -L "${pointer_scope}" \
+        && "$(sha256_file "${pointer_scope}")" == "${pointer_scope_digest}" ]] \
+      || fail "deployment pointer does not bind an immutable exact scope"
+    assessed_final_summary="${pointer_summary}"
+  else
+    latest="$(find "${artifact_root}" -mindepth 2 -maxdepth 2 -name final-summary.json -type f \
+      -not -path "${run_dir}/*" -print | LC_ALL=C sort | tail -1)"
+    assessed_final_summary="${latest}"
+  fi
+  if [[ -n "${assessed_final_summary}" ]]; then
+    [[ "$(jq -r '.status' "${assessed_final_summary}")" == COMPLETED ]] \
+      || fail "assessed deployment final summary is not COMPLETED"
+    assessed_run_dir="$(cd "$(dirname "${assessed_final_summary}")" && pwd)"
+    assessed_run_id="$(jq -r '.runId' "${assessed_final_summary}")"
+    [[ "${assessed_run_dir}" == "${artifact_root}/${assessed_run_id}" ]] \
+      || fail "assessed deployment run identity differs from its immutable path"
+    assessed_scope_path="$(jq -r '.deploymentScope // empty' "${assessed_final_summary}")"
+    [[ -n "${assessed_scope_path}" ]] \
+      || assessed_scope_path="${assessed_run_dir}/authority/scope.json"
+    if [[ -n "${pointer_scope}" && "${assessed_scope_path}" != "${pointer_scope}" ]]; then
+      fail "deployment pointer and final summary disagree on the exact scope"
+    fi
+    [[ -f "${assessed_scope_path}" && ! -L "${assessed_scope_path}" ]] \
+      || fail "assessed deployment has no exact closed scope"
+    assessed_mode=EXISTING
+  else
+    assessed_mode=CREATE_NEW
+    assessed_run_id="${run_id}"
+  fi
+  jq -n --arg schema "nereus-delay.ndip1-assessed-deployment" --arg mode "${assessed_mode}" \
+    --arg runId "${assessed_run_id}" --arg finalSummary "${assessed_final_summary}" \
+    --arg scope "${assessed_scope_path}" --arg pointer "${deployment_pointer}" \
+    '{schema:$schema,schemaGeneration:1,mode:$mode,runId:$runId,finalSummary:$finalSummary,
+      scope:$scope,pointer:$pointer,readOnlyResolution:true} | with_entries(select(.value != ""))' \
+    >"${run_dir}/g0/assessed-deployment.json"
+}
+
+write_data_disposition_declaration() {
+  local expected_decision assessed_final_sha256="" assessed_scope_sha256=""
+  case "${assessed_mode}" in
+    EXISTING) expected_decision=RESET_INTERNAL_ONLY ;;
+    CREATE_NEW) expected_decision=CREATE_NEW_INTERNAL_ONLY ;;
+    *) fail "unsupported assessed deployment mode: ${assessed_mode}" ;;
+  esac
+  [[ "${staging_data_decision}" == "${expected_decision}" ]] \
+    || fail "explicit staging data decision must be ${expected_decision} for ${assessed_mode}"
+  [[ "${staging_external_user_data}" == false ]] \
+    || fail "persistent staging reset requires an explicit false external-user-data declaration"
+  [[ "${staging_operator}" =~ ^[A-Za-z0-9._@-]+$ ]] \
+    || fail "persistent staging operator must be an explicit safe identifier"
+  if [[ "${assessed_mode}" == EXISTING ]]; then
+    [[ "$(jq -r '.environmentId' "${assessed_final_summary}")" == "${environment_id}" \
+        && "$(jq -r '.productionAuthority' "${assessed_final_summary}")" == false ]] \
+      || fail "only this non-production staging deployment can be explicitly reincarnated"
+    [[ "$(jq -n --slurpfile prior "${assessed_scope_path}" --slurpfile candidate "${candidate_scope_path}" \
+      '[($prior[0].scope.resources[].identity) as $old | $candidate[0].scope.resources[].identity | select(. == $old)] | length')" == 0 ]] \
+      || fail "candidate resource identities overlap the existing deployment during RESET"
+    assessed_final_sha256="$(sha256_file "${assessed_final_summary}")"
+    assessed_scope_sha256="$(sha256_file "${assessed_scope_path}")"
+  fi
+  jq -n --arg schema "nereus-delay.ndip1-staging-data-disposition" \
+    --arg environmentId "${environment_id}" --arg classification "${classification}" \
+    --arg operator "${staging_operator}" --arg decision "${staging_data_decision}" \
+    --arg assessedMode "${assessed_mode}" --arg assessedRunId "${assessed_run_id}" \
+    --arg assessedFinalSummary "${assessed_final_summary}" \
+    --arg assessedFinalSummarySha256 "${assessed_final_sha256}" \
+    --arg assessedScope "${assessed_scope_path}" --arg assessedScopeSha256 "${assessed_scope_sha256}" \
+    --arg candidateScope "${candidate_scope_path}" \
+    --arg candidateScopeSha256 "$(sha256_file "${candidate_scope_path}")" \
+    --arg candidateCommit "${candidate_commit}" --arg issuedAtEpochMs "$(now_epoch_ms)" \
+    '{schema:$schema,schemaGeneration:1,environmentId:$environmentId,
+      environmentClassification:$classification,operator:$operator,decision:$decision,
+      externalUserDataPresent:false,existingResourcesAreInternalStagingOnly:true,
+      assessedDeployment:{mode:$assessedMode,runId:$assessedRunId,finalSummary:$assessedFinalSummary,
+        finalSummarySha256:$assessedFinalSummarySha256,scope:$assessedScope,scopeSha256:$assessedScopeSha256},
+      candidateScope:$candidateScope,candidateScopeSha256:$candidateScopeSha256,
+      candidateCommit:$candidateCommit,replacementDisposition:"REINCARNATE",
+      destructiveOperationsAuthorized:false,operatorAuthorization:"EXPLICIT_ENVIRONMENT_INPUT",
+      productionAuthority:false,issuedAtEpochMs:($issuedAtEpochMs|tonumber)}' \
+    >"${data_disposition_payload}"
+  sign_staging_payload data-disposition-declaration \
+    "${data_disposition_payload}" "${data_disposition_envelope}"
+  data_disposition_envelope_sha256="$(sha256_file "${data_disposition_envelope}")"
+}
+
 read_absent_persistent_topic() {
   local topic="$1" topic_url="${admin_url}/admin/v2/persistent/public/default/${topic}/stats"
   local output_path="${run_dir}/g0/g0-topic-${topic}.json"
@@ -661,6 +826,111 @@ read_absent_persistent_topic() {
     (( SECONDS < deadline )) || fail "G0 exact topic read was not absent for ${topic}: HTTP ${topic_status}"
     sleep 2
   done
+}
+
+collect_assessed_resource_observations() {
+  local output_dir="${run_dir}/g0/existing-resources" rows="${run_dir}/g0/resource-observations.ndjson"
+  local resources_source index=0 resource kind identity raw metadata present status prefix topic_uri topic
+  local external_retention replacement_disposition
+  mkdir -p "${output_dir}"
+  : >"${rows}"
+  [[ -f "${data_disposition_envelope}" && ! -L "${data_disposition_envelope}" \
+      && "$(sha256_file "${data_disposition_envelope}")" == "${data_disposition_envelope_sha256}" \
+      && "$(jq -r '.externalUserDataPresent' "${data_disposition_payload}")" == false \
+      && "$(jq -r '.replacementDisposition' "${data_disposition_payload}")" == REINCARNATE ]] \
+    || fail "G0 has no exact signed data-disposition declaration"
+  external_retention=NONE
+  replacement_disposition=REINCARNATE
+  if [[ "${assessed_mode}" == EXISTING ]]; then
+    resources_source="${assessed_scope_path}"
+  else
+    resources_source="${run_dir}/authority/candidate-scope.json"
+  fi
+  while IFS= read -r resource; do
+    index=$((index + 1))
+    kind="$(jq -r '.kind' <<<"${resource}")"
+    identity="$(jq -r '.identity' <<<"${resource}")"
+    raw="${output_dir}/$(printf '%02d' "${index}")-${kind}.raw"
+    metadata="${output_dir}/$(printf '%02d' "${index}")-${kind}.json"
+    present=false
+    status=COMPLETE
+    case "${kind}" in
+      COMMAND_TOPIC|SYSTEM_TOPIC|PULSAR_ATTEMPT_JOURNAL|EVIDENCE_TOPIC_CURSOR)
+        topic_uri="${identity%%/subscription/*}"
+        [[ "${topic_uri}" == persistent://public/default/* ]] \
+          || fail "G0 Pulsar identity is outside the closed public/default scope: ${identity}"
+        topic="${topic_uri##*/}"
+        local http_status
+        http_status="$(curl --silent --show-error --location --max-redirs 5 --max-time 15 \
+          --output "${raw}" --write-out '%{http_code}' \
+          "${admin_url}/admin/v2/persistent/public/default/${topic}/stats" || true)"
+        [[ "${http_status}" == 200 || "${http_status}" == 404 ]] \
+          || fail "G0 could not inspect existing Pulsar resource ${identity}: HTTP ${http_status}"
+        if [[ "${http_status}" == 200 ]]; then
+          present=true
+          jq -e 'type == "object" and
+            ((.publishers // []) | length) == 0 and
+            ([.subscriptions[]?.consumers // [] | length] | all(. == 0))' "${raw}" >/dev/null \
+            || fail "G0 found an active publisher/consumer or malformed stats for ${identity}"
+        fi
+        ;;
+      ROCKSDB_STORE)
+        if [[ -d "${identity}" && ! -L "${identity}" ]]; then
+          [[ -z "$(find "${identity}" -type l -print -quit)" ]] \
+            || fail "G0 RocksDB inventory contains a symlink: ${identity}"
+          printf 'DIRECTORY_PRESENT\n' >"${raw}"
+          while IFS= read -r -d '' file; do
+            shasum -a 256 "${file}" >>"${raw}"
+          done < <(find "${identity}" -type f -print0 | LC_ALL=C sort -z)
+          present=true
+        elif [[ ! -e "${identity}" ]]; then
+          printf 'ABSENT\n' >"${raw}"
+        else
+          fail "G0 RocksDB resource is not a regular directory or absent: ${identity}"
+        fi
+        ;;
+      PAYLOAD_RESERVATION_OBJECT_STATE)
+        prefix="${identity#s3://${minio_bucket}/}"
+        curl --silent --show-error --fail --aws-sigv4 "aws:amz:${minio_region}:s3" \
+          --user "${minio_access_key}:${minio_secret_key}" \
+          "${minio_endpoint}/${minio_bucket}?list-type=2&prefix=${prefix}" >"${raw}"
+        rg -F '<Key>' "${raw}" >/dev/null && present=true || true
+        ;;
+      CHECKPOINT_CATALOG|PROFILE_OXIA_STATE|RUNTIME_POLICY_STATE|QUERY_DEDUPE_STATE|OBLIGATION_INDEX|RESOURCE_INCARNATION_REGISTRY|WORKER_REGISTRY)
+        prefix="${identity#oxia://default/}"
+        : >"${raw}"
+        while IFS= read -r key; do
+          [[ -n "${key}" ]] || continue
+          printf 'KEY %s\n' "${key}" >>"${raw}"
+          oxia_client get --hex "${key}" >>"${raw}" \
+            || fail "G0 could not read existing Oxia record: ${key}"
+        done < <(rg -F "${prefix}" "${run_dir}/g0/oxia-keys-before.txt" || true)
+        [[ -s "${raw}" ]] && present=true
+        if [[ "${kind}" == OBLIGATION_INDEX ]] \
+          && rg -a -e 'PUBLISHING' -e 'UNCERTAIN' "${raw}" >/dev/null; then
+          fail "G0 found a non-terminal obligation in the existing Oxia index"
+        fi
+        ;;
+      *) fail "G0 resource collector does not recognize closed kind: ${kind}" ;;
+    esac
+    jq -n --arg kind "${kind}" --arg identity "${identity}" --arg status "${status}" \
+      --argjson present "${present}" --arg rawEvidence "${raw}" \
+      --arg rawEvidenceSha256 "$(sha256_file "${raw}")" \
+      --arg dispositionEnvelope "${data_disposition_envelope}" \
+      --arg dispositionEnvelopeSha256 "${data_disposition_envelope_sha256}" \
+      --arg externalRetention "${external_retention}" \
+      --arg replacementDisposition "${replacement_disposition}" \
+      '{kind:$kind,identity:$identity,accessStatus:$status,present:$present,
+        rawEvidence:$rawEvidence,rawEvidenceSha256:$rawEvidenceSha256,
+        dispositionEnvelope:$dispositionEnvelope,dispositionEnvelopeSha256:$dispositionEnvelopeSha256,
+        externalRetention:$externalRetention,replacementDisposition:$replacementDisposition}' >"${metadata}"
+    jq -c --arg evidenceSha256 "$(sha256_file "${metadata}")" \
+      '{kind,identity,accessStatus,externalRetention,replacementDisposition,evidenceSha256:$evidenceSha256}' \
+      "${metadata}" >>"${rows}"
+  done < <(jq -c '.scope.resources[]' "${resources_source}")
+  jq -s '.' "${rows}" >"${run_dir}/g0/resource-observations.json"
+  [[ "$(jq 'length' "${run_dir}/g0/resource-observations.json")" == 13 ]] \
+    || fail "G0 resource collector did not cover the closed 13-resource set"
 }
 
 write_environment_snapshot() {
@@ -688,20 +958,85 @@ write_environment_snapshot() {
   ! rg -F "<Key>${resource_prefix}/${run_id}/" "${run_dir}/g0/minio-objects-before.xml" \
     || fail "G0 found an existing MinIO object in the new run scope"
   [[ ! -e "${rocksdb_resource}" ]] || fail "G0 found an existing RocksDB incarnation in the new run scope"
+  collect_assessed_resource_observations
   find "${staging_root}" -mindepth 1 -maxdepth 6 -print \
     | LC_ALL=C sort >"${run_dir}/g0/persistent-paths-before.txt"
   docker ps -a --filter "label=com.docker.compose.project=${compose_project}" \
     >"${run_dir}/g0/docker-resources-before.txt"
-  pgrep -af 'PulsarClientArtifactWorkerSmoke|PulsarClientArtifactNativeSmoke|PersistentStaging' \
-    >"${run_dir}/g0/worker-processes-before.txt" || true
+  ps -axo pid=,command= \
+    | awk '/PulsarClientArtifactWorkerSmoke|PulsarClientArtifactNativeSmoke/ && ! /awk/' \
+    >"${run_dir}/g0/worker-processes-before.txt"
   find "${staging_root}/worker" "${staging_root}/chaos" -type f -print 2>/dev/null \
     | LC_ALL=C sort >"${run_dir}/g0/local-state-before.txt" || true
-  if rg -n 'PUBLISHING|UNCERTAIN' "${run_dir}/g0" "${staging_root}/worker" "${staging_root}/chaos" \
-    >"${run_dir}/g0/unresolved-obligations.txt" 2>/dev/null; then
-    unresolved_obligations=true
+  if [[ "${assessed_mode}" == EXISTING ]]; then
+    local assessed_run_status="${assessed_run_dir}/run-status.json"
+    local assessed_final_state="${assessed_run_dir}/authority/final-state.json"
+    local prior_gate prior_shadow prior_canary prior_policy prior_rollback prior_label prior_envelope
+    [[ ! -s "${run_dir}/g0/worker-processes-before.txt" ]] \
+      || fail "the existing deployment still has a native/Worker process"
+    [[ "$(jq -r '.status' "${assessed_final_summary}")" == COMPLETED \
+        && "$(jq -r '.status' "${assessed_run_status}")" == COMPLETED \
+        && "$(jq -r '.status' "${assessed_final_state}")" == DISABLED \
+        && "$(jq -r '.activeLeaseCount' "${assessed_final_state}")" == 0 \
+        && "$(jq -r '.activeSendCount' "${assessed_final_state}")" == 0 ]] \
+      || fail "the existing deployment has no closed zero-obligation terminal evidence"
+    prior_gate="$(jq -r '.gateCReceipt' "${assessed_final_summary}")"
+    prior_shadow="$(jq -r '.shadowReceipt' "${assessed_final_summary}")"
+    prior_canary="$(jq -r '.canaryReceipt' "${assessed_final_summary}")"
+    prior_policy="$(jq -r '.finalPolicy' "${assessed_final_summary}")"
+    prior_rollback="$(jq -r '.rollbackReceipt' "${assessed_final_state}")"
+    for prior_label in gate-c shadow canary policy rollback; do
+      case "${prior_label}" in
+        gate-c) prior_envelope="${prior_gate}" ;;
+        shadow) prior_envelope="${prior_shadow}" ;;
+        canary) prior_envelope="${prior_canary}" ;;
+        policy) prior_envelope="${prior_policy}" ;;
+        rollback) prior_envelope="${prior_rollback}" ;;
+      esac
+      [[ "${prior_envelope}" == "${assessed_run_dir}"/* \
+          && -f "${prior_envelope}" && ! -L "${prior_envelope}" ]] \
+        || fail "existing deployment ${prior_label} evidence is outside its immutable run"
+      jq -n --arg signedEnvelopePath "${prior_envelope}" \
+        --arg publicKeyPath "${key_dir}/issuer-ed25519-public.der" \
+        '{signedEnvelopePath:$signedEnvelopePath,publicKeyPath:$publicKeyPath}' \
+        >"${run_dir}/g0/prior-${prior_label}-verify-config.json"
+      authority_task "prior-${prior_label}-verify" verify-json \
+        "${run_dir}/g0/prior-${prior_label}-verify-config.json" >/dev/null
+    done
+    [[ "$(sha256_file "${prior_gate}")" == "$(jq -r '.gateCReceiptSha256' "${assessed_final_summary}")" \
+        && "$(sha256_file "${prior_shadow}")" == "$(jq -r '.shadowReceiptSha256' "${assessed_final_summary}")" \
+        && "$(sha256_file "${prior_canary}")" == "$(jq -r '.canaryReceiptSha256' "${assessed_final_summary}")" \
+        && "$(sha256_file "${prior_policy}")" == "$(jq -r '.disabledPolicyEnvelopeSha256' "${assessed_final_state}")" \
+        && "$(sha256_file "${prior_rollback}")" == "$(jq -r '.rollbackReceiptSha256' "${assessed_final_state}")" ]] \
+      || fail "existing deployment authority digest chain is inconsistent"
+    jq -n --arg gateC "${prior_gate}" --arg gateCSha256 "$(sha256_file "${prior_gate}")" \
+      --arg shadow "${prior_shadow}" --arg shadowSha256 "$(sha256_file "${prior_shadow}")" \
+      --arg canary "${prior_canary}" --arg canarySha256 "$(sha256_file "${prior_canary}")" \
+      --arg policy "${prior_policy}" --arg policySha256 "$(sha256_file "${prior_policy}")" \
+      --arg rollback "${prior_rollback}" --arg rollbackSha256 "$(sha256_file "${prior_rollback}")" \
+      '{status:"PASS",trustedKeyMatch:true,signaturesVerified:true,
+        gateC:{path:$gateC,sha256:$gateCSha256},shadow:{path:$shadow,sha256:$shadowSha256},
+        canary:{path:$canary,sha256:$canarySha256},policy:{path:$policy,sha256:$policySha256},
+        rollback:{path:$rollback,sha256:$rollbackSha256}}' \
+      >"${run_dir}/g0/prior-authority-verification.json"
+    jq -n --arg finalSummary "${assessed_final_summary}" --arg runStatus "${assessed_run_status}" \
+      --arg finalState "${assessed_final_state}" \
+      --arg finalSummarySha256 "$(sha256_file "${assessed_final_summary}")" \
+      --arg runStatusSha256 "$(sha256_file "${assessed_run_status}")" \
+      --arg finalStateSha256 "$(sha256_file "${assessed_final_state}")" \
+      --arg authorityVerification "${run_dir}/g0/prior-authority-verification.json" \
+      --arg authorityVerificationSha256 "$(sha256_file "${run_dir}/g0/prior-authority-verification.json")" \
+      '{unresolvedPublishing:false,unresolvedUncertain:false,finalSummary:$finalSummary,
+        finalSummarySha256:$finalSummarySha256,runStatus:$runStatus,runStatusSha256:$runStatusSha256,
+        finalState:$finalState,finalStateSha256:$finalStateSha256,
+        authorityVerification:$authorityVerification,
+        authorityVerificationSha256:$authorityVerificationSha256}' \
+      >"${run_dir}/g0/unresolved-obligations.txt"
+    unresolved_obligations=false
   else
     unresolved_obligations=false
-    : >"${run_dir}/g0/unresolved-obligations.txt"
+    jq -n '{unresolvedPublishing:false,unresolvedUncertain:false,reason:"CREATE_NEW exact scope is absent"}' \
+      >"${run_dir}/g0/unresolved-obligations.txt"
   fi
   g0_snapshot_sha256="$(find "${run_dir}/g0" -type f -not -name 'g0-snapshot.json' -print0 \
     | sort -z | xargs -0 shasum -a 256 | shasum -a 256 | awk '{print $1}')"
@@ -717,6 +1052,10 @@ write_environment_snapshot() {
     --arg pulsarSource "${pulsar_sha}" --arg pulsarRef "${pulsar_ref}" \
     --arg packageDigest "${accepted_package_digest}" \
     --arg snapshotDigest "${g0_snapshot_sha256}" --argjson unresolved "${unresolved_obligations}" \
+    --arg assessedMode "${assessed_mode}" --arg assessedRunId "${assessed_run_id}" \
+    --arg assessedFinalSummary "${assessed_final_summary}" --arg assessedScope "${assessed_scope_path}" \
+    --arg dataDisposition "${data_disposition_envelope}" \
+    --arg dataDispositionSha256 "${data_disposition_envelope_sha256}" \
     --arg commandTopic "${command_topic}" --arg mutationTopic "${mutation_topic}" \
     --arg workerTopic "${worker_topic}" --arg nativeTopic "${native_topic}" \
     --arg minioBucket "${minio_bucket}" --arg minioPrefix "${resource_prefix}/${run_id}" \
@@ -728,6 +1067,9 @@ write_environment_snapshot() {
         oxiaSourceCheckout:$oxiaSourceCheckout,oxiaSourceManifest:$oxiaSourceManifest,
         oxiaSourceManifestSha256:$oxiaSourceManifestSha256,pulsar:$pulsarSource,pulsarRef:$pulsarRef},
       snapshotDigest:$snapshotDigest,
+      assessedDeployment:{mode:$assessedMode,runId:$assessedRunId,finalSummary:$assessedFinalSummary,
+        scope:$assessedScope,resourceObservations:"g0/resource-observations.json",
+        dataDispositionEnvelope:$dataDisposition,dataDispositionEnvelopeSha256:$dataDispositionSha256},
       unresolvedPublishingOrUncertain:$unresolved,
       topics:{command:$commandTopic,mutation:$mutationTopic,worker:$workerTopic,native:$nativeTopic},
       oxia:{namespace:"default",coordinators:[16691,16692,16693],dataServers:[16681,16682,16683],
@@ -765,42 +1107,22 @@ authority_task() {
 }
 
 write_authority_configs() {
-  local scope_path="${run_dir}/authority/scope.json"
+  local scope_path="${run_dir}/authority/assessment-scope.json"
   local assessment_config="${run_dir}/authority/assessment-config.json"
   local manifest_config="${run_dir}/authority/manifest-config.json"
-  local resources_json scope_json scope_digest observation_now observation_latest observation_mono
+  local resources_json candidate_resources_json resource_observations_json worker_ids_json
+  local scope_json scope_digest observation_now observation_latest observation_mono
   local scope_evidence obligation_evidence worker_evidence source_evidence
   local resource_evidence worker_identity session_identity tenant_scope_digest route_snapshot_digest
-  resources_json="$(jq -n \
-    --arg command "${command_resource}" --arg system "${system_resource}" \
-    --arg rocksdb "${rocksdb_resource}" --arg checkpoint "${checkpoint_resource}" \
-    --arg profile "${profile_resource}" --arg policy "${policy_resource}" \
-    --arg payload "${payload_resource}" --arg journal "${attempt_journal_resource}" \
-    --arg cursor "${cursor_resource}" --arg query "${query_resource}" \
-    --arg obligation "${obligation_resource}" --arg incarnation "${incarnation_resource}" \
-    --arg workerRegistry "${worker_registry_resource}" \
-    '[{kind:"COMMAND_TOPIC",identity:$command},
-      {kind:"SYSTEM_TOPIC",identity:$system},
-      {kind:"ROCKSDB_STORE",identity:$rocksdb},
-      {kind:"CHECKPOINT_CATALOG",identity:$checkpoint},
-      {kind:"PROFILE_OXIA_STATE",identity:$profile},
-      {kind:"RUNTIME_POLICY_STATE",identity:$policy},
-      {kind:"PAYLOAD_RESERVATION_OBJECT_STATE",identity:$payload},
-      {kind:"PULSAR_ATTEMPT_JOURNAL",identity:$journal},
-      {kind:"EVIDENCE_TOPIC_CURSOR",identity:$cursor},
-      {kind:"QUERY_DEDUPE_STATE",identity:$query},
-      {kind:"OBLIGATION_INDEX",identity:$obligation},
-      {kind:"RESOURCE_INCARNATION_REGISTRY",identity:$incarnation},
-      {kind:"WORKER_REGISTRY",identity:$workerRegistry}]')"
-  jq -n \
-    --arg environmentId "${environment_id}" --arg classification "${classification}" \
-    --arg deploymentId "${resource_prefix}/${run_id}" \
-    --arg commandTopic "${command_topic}" --arg systemTopic "${system_topic}" \
-    --arg workerId "worker-ndip1-a" --arg workerBId "worker-ndip1-b" --argjson resources "${resources_json}" \
-    '{scope:{environmentId:$environmentId,environmentClassification:$classification,
-      deploymentId:$deploymentId,tenantIds:["tenant-ndip1"],routeIds:["route-ndip1"],
-      shardIds:["route-ndip1/0"],eligibleWorkerIds:[$workerId,$workerBId],resources:$resources}}' \
-    >"${scope_path}"
+  if [[ "${assessed_mode}" == EXISTING ]]; then
+    jq '{scope:.scope}' "${assessed_scope_path}" >"${scope_path}"
+  else
+    jq '{scope:.scope}' "${candidate_scope_path}" >"${scope_path}"
+  fi
+  resources_json="$(jq -c '.scope.resources' "${scope_path}")"
+  candidate_resources_json="$(jq -c '.scope.resources' "${candidate_scope_path}")"
+  resource_observations_json="$(jq -c '.' "${run_dir}/g0/resource-observations.json")"
+  worker_ids_json="$(jq -c '.scope.eligibleWorkerIds' "${scope_path}")"
   scope_json="$(jq -c '.scope' "${scope_path}")"
   [[ -n "${scope_json}" && "${scope_json}" != null ]] || fail "canonical G0 scope could not be loaded"
   scope_digest="$(authority_task scope-digest scope-digest "${scope_path}" | sed -n 's/^scopeDigest=//p' | tail -1)"
@@ -808,17 +1130,22 @@ write_authority_configs() {
   observation_now="$(now_epoch_ms)"
   observation_latest="${observation_now}"
   observation_mono="$(python3 -c 'import time; print(time.monotonic_ns())')"
-  scope_evidence="$(sha256_file "${run_dir}/g0/g0-snapshot.json")"
+  scope_evidence="$(
+    shasum -a 256 "${scope_path}" "${run_dir}/g0/assessed-deployment.json" \
+      "${run_dir}/g0/resource-observations.json" "${data_disposition_envelope}" \
+      | shasum -a 256 | awk '{print $1}'
+  )"
   obligation_evidence="$(sha256_file "${run_dir}/g0/unresolved-obligations.txt")"
   worker_evidence="$(sha256_file "${run_dir}/g0/worker-processes-before.txt")"
   source_evidence="$(sha256_text "${environment_id}|CERTIFIED_HOST_CLOCK|${observation_now}")"
-  resource_evidence="$(sha256_text "${environment_id}|resource-observation|${run_id}")"
+  resource_evidence="$(sha256_file "${run_dir}/g0/resource-observations.json")"
   jq -n \
     --arg scopeDigest "${scope_digest}" --arg scopeEvidence "${scope_evidence}" \
     --arg obligationEvidence "${obligation_evidence}" --arg workerEvidence "${worker_evidence}" \
     --arg sourceEvidence "${source_evidence}" --arg resourceEvidence "${resource_evidence}" \
     --arg earliest "${observation_now}" --arg latest "${observation_latest}" \
     --arg mono "${observation_mono}" --argjson resources "${resources_json}" \
+    --argjson resourceObservations "${resource_observations_json}" --argjson workerIds "${worker_ids_json}" \
     --arg packageDigest "${accepted_package_digest}" --arg sourceCommit "${candidate_commit}" \
     --arg receiptPath "${run_dir}/authority/data-reset-assessment.json" \
     --arg signedEnvelopePath "${run_dir}/authority/data-reset-assessment.signed.json" \
@@ -834,17 +1161,22 @@ write_authority_configs() {
         observationTime:{earliestEpochMs:$earliest,latestEpochMs:$latest,qualified:true,
           source:"CERTIFIED_HOST_CLOCK",sourceId:"ndip1-certified-host-clock",sourceConfigGeneration:"1",
           sampleSequence:"1",monotonicAnchorNs:$mono,sourceEvidenceSha256:$sourceEvidence},
-        resourceObservations:($resources | map({kind:.kind,identity:.identity,accessStatus:"COMPLETE",
-          externalRetention:"NONE",replacementDisposition:"REINCARNATE",evidenceSha256:$resourceEvidence})),
+        resourceObservations:$resourceObservations,
         obligationEnumerationComplete:true,obligationEvidenceSha256:$obligationEvidence,obligations:[],
         workerEnumerationComplete:true,workerEvidenceSha256:$workerEvidence,
-        workers:[{workerId:$workerId,upgradeStatus:"UPGRADEABLE",evidenceSha256:$resourceEvidence},
-          {workerId:$workerBId,upgradeStatus:"UPGRADEABLE",evidenceSha256:$resourceEvidence}]}}' \
+        workers:($workerIds | map({workerId:.,upgradeStatus:"UPGRADEABLE",evidenceSha256:$workerEvidence}))}}' \
     >"${assessment_config}"
   authority_task assessment assessment "${assessment_config}" >"${run_dir}/authority/assessment-command.log"
   [[ "$(jq -r '.outcome' "${run_dir}/authority/data-reset-assessment.json")" == PASS_* ]] \
-    || fail "G0 DataResetAssessment did not permit reset"
+    || fail "G0 DataResetAssessment did not produce a decision-ready RESET/RETAIN candidate"
   local reset_generation=1
+  if [[ "${assessed_mode}" == EXISTING ]]; then
+    local prior_reset_generation
+    prior_reset_generation="$(jq -r '.resetGeneration' "${assessed_run_dir}/authority/manifest-config.json")"
+    [[ "${prior_reset_generation}" =~ ^[0-9]+$ ]] \
+      || fail "existing deployment manifest has no reset generation"
+    reset_generation="$((prior_reset_generation + 1))"
+  fi
   route_incarnation="$(sha256_text "${environment_id}|route-incarnation|${run_id}")"
   route_incarnation="${route_incarnation:0:32}"
   worker_identity="$(sha256_text "${environment_id}|worker-identity|worker-ndip1-a")"
@@ -857,10 +1189,11 @@ write_authority_configs() {
   jq -n \
     --arg packageDigest "${accepted_package_digest}" --arg p1Lock "${p1_source_lock_digest}" \
     --arg sourceCommit "${candidate_commit}" --arg environmentId "${environment_id}" \
-    --arg deploymentId "${resource_prefix}/${run_id}" --arg workerId "worker-ndip1-a" --arg workerBId "worker-ndip1-b" \
+    --arg deploymentId "${resource_prefix}/${run_id}" --arg resetGeneration "${reset_generation}" \
+    --arg workerId "worker-ndip1-a" --arg workerBId "worker-ndip1-b" \
     --arg privateKeyPath "${key_dir}/issuer-ed25519-private.der" \
     --arg publicKeyPath "${key_dir}/issuer-ed25519-public.der" \
-    --argjson resources "${resources_json}" --arg routeIncarnation "${route_incarnation}" \
+    --argjson resources "${candidate_resources_json}" --arg routeIncarnation "${route_incarnation}" \
     --arg workerIdentity "${worker_identity}" --arg sessionIdentity "${session_identity}" \
     --arg workerBIdentity "${worker_b_identity}" --arg workerBSessionIdentity "${worker_b_session_identity}" \
     --arg workerBEvidence "${worker_b_evidence}" \
@@ -871,7 +1204,7 @@ write_authority_configs() {
     --arg tenantScopeDigest "${tenant_scope_digest}" --arg routeSnapshotDigest "${route_snapshot_digest}" \
     --arg schemaHash "$(sha256_text pulsar-worker-current-schema-bundle)" \
     --arg manifestPath "${run_dir}/authority/data-reset-manifest.bin" \
-    '{p1SourceLockDigest:$p1Lock,resetGeneration:1,canonicalSchemaBundleHash:$schemaHash,
+    '{p1SourceLockDigest:$p1Lock,resetGeneration:$resetGeneration,canonicalSchemaBundleHash:$schemaHash,
       workerId:$workerId,workerIdentity:$workerIdentity,sessionIdentity:$sessionIdentity,capabilityEpoch:1,
       workerCapabilityEvidenceDigest:$evidence,privateKeyPath:$privateKeyPath,publicKeyPath:$publicKeyPath,
       workers:[{workerId:$workerId,workerIdentity:$workerIdentity,sessionIdentity:$sessionIdentity,capabilityEpoch:1,
@@ -979,7 +1312,14 @@ export_common_test_environment() {
   unset NEREUS_DELAY_PERSISTENT_STAGING_GATE_C_RECEIPT \
     NEREUS_DELAY_PERSISTENT_STAGING_SHADOW_RECEIPT \
     NEREUS_DELAY_PERSISTENT_STAGING_POLICY \
-    NEREUS_DELAY_PERSISTENT_STAGING_REQUIRE_AUTHORITY
+    NEREUS_DELAY_PERSISTENT_STAGING_REQUIRE_AUTHORITY \
+    NEREUS_DELAY_PERSISTENT_STAGING_TRUSTED_PUBLIC_KEY \
+    NEREUS_DELAY_PERSISTENT_STAGING_ISSUER_KEY_GENERATION \
+    NEREUS_DELAY_PERSISTENT_STAGING_POLICY_KEY_PREFIX \
+    NEREUS_DELAY_PERSISTENT_STAGING_NATIVE_STATE_DIR \
+    NEREUS_DELAY_PERSISTENT_STAGING_NATIVE_EVIDENCE \
+    NEREUS_DELAY_PERSISTENT_STAGING_MANAGED_EVIDENCE \
+    NEREUS_DELAY_PULSAR_WORKER_MANAGED_HANDOFF
 }
 
 run_gradle_tests_current_env() {
@@ -1085,6 +1425,11 @@ execute_manifest_operations() {
   create_persistent_topic "${mutation_topic}" 53 3001
   create_persistent_topic "${route_worker_topic}" 67 4001
   create_persistent_topic "${evidence_topic}"
+  "${compose[@]}" exec --no-TTY pulsar-broker-1 bin/pulsar-admin \
+    --admin-url http://pulsar-broker-1:8080 topics create-subscription \
+    --subscription ndip1 --messageId earliest "${evidence_resource}" \
+    >"${run_dir}/g0/evidence-subscription-create.log" 2>&1 \
+    || fail "manifest could not create the exact evidence cursor subscription"
   # The managed Worker and broker-failover smoke create these resources in
   # their exact prepare/resume phases.  Pre-creating them here would make a
   # non-resume smoke conflate an existing topic with a fresh incarnation.
@@ -1104,17 +1449,109 @@ execute_manifest_operations() {
     >"${run_dir}/g0/minio-objects-after-manifest.xml"
   find "${run_dir}/worker-store" -maxdepth 4 -print | LC_ALL=C sort \
     >"${run_dir}/g0/rocksdb-readback.txt"
+  local oxia_marker_value marker_key marker_kind marker_identity
+  oxia_marker_value="$(jq -nc --arg runId "${run_id}" --arg candidateCommit "${candidate_commit}" \
+    --arg manifestDigest "$(sed -n 's/^manifestDigest=//p' "${run_dir}/authority/manifest-command.log" | tail -1)" \
+    '{schema:"nereus-delay.ndip1-resource-incarnation-marker",schemaGeneration:1,
+      runId:$runId,candidateCommit:$candidateCommit,manifestDigest:$manifestDigest}')"
+  while IFS=$'\t' read -r marker_kind marker_identity; do
+    marker_key="${marker_identity#oxia://default/}/incarnation-marker"
+    [[ -z "$(oxia_client list --key-min "${marker_key}" --key-max "${marker_key}0")" ]] \
+      || fail "manifest Oxia marker already exists: ${marker_key}"
+    oxia_client put "${marker_key}" "${oxia_marker_value}" \
+      >"${run_dir}/g0/oxia-marker-${marker_kind}-put.txt" \
+      || fail "manifest could not create Oxia marker for ${marker_kind}"
+    oxia_client get --hex "${marker_key}" >"${run_dir}/g0/oxia-marker-${marker_kind}-readback.txt" \
+      || fail "manifest could not read back Oxia marker for ${marker_kind}"
+  done < <(jq -r '.scope.resources[] | select(.identity | startswith("oxia://default/")) |
+    [.kind,.identity] | @tsv' "${candidate_scope_path}")
   jq -n --arg environmentId "${environment_id}" --arg runId "${run_id}" \
     --arg command "${command_resource}" --arg system "${system_resource}" \
     --arg worker "${worker_resource}" --arg journal "${attempt_journal_resource}" \
     --arg evidence "${evidence_resource}" --arg payload "${payload_resource}" \
     --arg rocksdb "${rocksdb_resource}" --arg oxiaEndpoint "${oxia_endpoint}" \
-    '{schema:"nereus-delay.ndip1-manifest-operation-readback",environmentId:$environmentId,runId:$runId,
-      operations:{topicsCreatedAndReadBack:true,oxiaProfileNamespace:"default",oxiaEndpoint:$oxiaEndpoint,
-        minioPayloadMarkerCreatedAndListed:true,rocksdbIncarnationReadBack:true},
+    '{schema:"nereus-delay.ndip1-manifest-operation-intent",environmentId:$environmentId,runId:$runId,
+      operations:{topicsCreated:true,evidenceCursorCreated:true,oxiaIncarnationMarkersCreated:true,
+        minioPayloadMarkerCreated:true,rocksdbIncarnationCreated:true,oxiaEndpoint:$oxiaEndpoint},
       resources:{commandTopic:$command,systemTopic:$system,workerTopic:$worker,
         attemptJournal:$journal,evidenceTopic:$evidence,payloadReservation:$payload,rocksdb:$rocksdb},
       destructiveOperations:[],exactScope:true}' \
+    >"${run_dir}/authority/manifest-operation-intent.json"
+}
+
+audit_manifest_operations() {
+  local audit_dir="${run_dir}/g0/manifest-resource-readback"
+  local rows="${audit_dir}/resources.ndjson" index=0 resource kind identity raw topic_uri topic marker_key
+  mkdir -p "${audit_dir}"
+  : >"${rows}"
+  while IFS= read -r resource; do
+    index=$((index + 1))
+    kind="$(jq -r '.kind' <<<"${resource}")"
+    identity="$(jq -r '.identity' <<<"${resource}")"
+    raw="${audit_dir}/$(printf '%02d' "${index}")-${kind}.raw"
+    case "${kind}" in
+      COMMAND_TOPIC|SYSTEM_TOPIC|PULSAR_ATTEMPT_JOURNAL|EVIDENCE_TOPIC_CURSOR)
+        topic_uri="${identity%%/subscription/*}"
+        topic="${topic_uri##*/}"
+        curl --silent --show-error --fail --location --max-redirs 5 --max-time 15 \
+          "${admin_url}/admin/v2/persistent/public/default/${topic}/stats" >"${raw}" \
+          || fail "manifest readback could not inspect Pulsar resource ${identity}"
+        jq -e 'type == "object"' "${raw}" >/dev/null \
+          || fail "manifest Pulsar readback is not JSON for ${identity}"
+        if [[ "${kind}" == EVIDENCE_TOPIC_CURSOR ]]; then
+          jq -e '.subscriptions | type == "object" and has("ndip1")' "${raw}" >/dev/null \
+            || fail "manifest evidence cursor subscription was not read back"
+        fi
+        ;;
+      ROCKSDB_STORE)
+        [[ -d "${identity}" && ! -L "${identity}" \
+            && "$(<"${identity}/incarnation")" == "${run_id}" \
+            && "$(<"${identity}/route-incarnation")" == "${route_incarnation}" ]] \
+          || fail "manifest RocksDB incarnation did not read back exactly"
+        find "${identity}" -maxdepth 2 -type f -print0 | LC_ALL=C sort -z \
+          | while IFS= read -r -d '' file; do shasum -a 256 "${file}"; done >"${raw}"
+        ;;
+      PAYLOAD_RESERVATION_OBJECT_STATE)
+        curl --silent --show-error --fail --aws-sigv4 "aws:amz:${minio_region}:s3" \
+          --user "${minio_access_key}:${minio_secret_key}" \
+          "${minio_endpoint}/${minio_bucket}?list-type=2&prefix=${resource_prefix}/${run_id}/payload-reservation/marker" \
+          >"${raw}"
+        rg -F "<Key>${resource_prefix}/${run_id}/payload-reservation/marker</Key>" "${raw}" >/dev/null \
+          || fail "manifest MinIO payload marker did not read back exactly"
+        ;;
+      CHECKPOINT_CATALOG|PROFILE_OXIA_STATE|RUNTIME_POLICY_STATE|QUERY_DEDUPE_STATE|OBLIGATION_INDEX|RESOURCE_INCARNATION_REGISTRY|WORKER_REGISTRY)
+        marker_key="${identity#oxia://default/}/incarnation-marker"
+        oxia_client get --hex "${marker_key}" >"${raw}" \
+          || fail "manifest Oxia incarnation marker did not read back for ${kind}"
+        [[ -s "${raw}" ]] || fail "manifest Oxia incarnation marker is empty for ${kind}"
+        ;;
+      *) fail "manifest readback does not recognize closed resource kind: ${kind}" ;;
+    esac
+    jq -nc --arg kind "${kind}" --arg identity "${identity}" --arg evidence "${raw}" \
+      --arg evidenceSha256 "$(sha256_file "${raw}")" \
+      '{kind:$kind,identity:$identity,status:"PASS",evidence:$evidence,evidenceSha256:$evidenceSha256}' \
+      >>"${rows}"
+  done < <(jq -c '.scope.resources[]' "${candidate_scope_path}")
+  jq -s '.' "${rows}" >"${audit_dir}/resources.json"
+  [[ "$(jq 'length' "${audit_dir}/resources.json")" == 13 \
+      && "$(jq '[.[].identity] | unique | length' "${audit_dir}/resources.json")" == 13 \
+      && "$(jq '[.[].status] | all(. == "PASS")' "${audit_dir}/resources.json")" == true ]] \
+    || fail "manifest did not read back the exact 13-resource candidate scope"
+  jq -n --arg environmentId "${environment_id}" --arg runId "${run_id}" \
+    --arg candidateCommit "${candidate_commit}" \
+    --arg scope "${candidate_scope_path}" --arg scopeSha256 "$(sha256_file "${candidate_scope_path}")" \
+    --arg intent "${run_dir}/authority/manifest-operation-intent.json" \
+    --arg intentSha256 "$(sha256_file "${run_dir}/authority/manifest-operation-intent.json")" \
+    --arg resources "${audit_dir}/resources.json" \
+    --arg resourcesSha256 "$(sha256_file "${audit_dir}/resources.json")" \
+    '{schema:"nereus-delay.ndip1-manifest-operation-readback",schemaGeneration:1,
+      environmentId:$environmentId,runId:$runId,candidateCommit:$candidateCommit,
+      scope:$scope,scopeSha256:$scopeSha256,intent:$intent,intentSha256:$intentSha256,
+      resourceReadback:$resources,resourceReadbackSha256:$resourcesSha256,
+      operations:{exactScope:true,resourceReadbackCount:13,allFresh:true,
+        topicsCreatedAndReadBack:true,evidenceCursorCreatedAndReadBack:true,
+        oxiaIncarnationsCreatedAndReadBack:true,minioPayloadMarkerCreatedAndReadBack:true,
+        rocksdbIncarnationCreatedAndReadBack:true},destructiveOperations:[]}' \
     >"${run_dir}/authority/manifest-operation-readback.json"
 }
 
@@ -1648,15 +2085,26 @@ write_gate_c_receipt() {
   local assessment_receipt="${run_dir}/authority/data-reset-assessment.json"
   local assessment_envelope="${run_dir}/authority/data-reset-assessment.signed.json"
   local manifest="${run_dir}/authority/data-reset-manifest.bin"
-  local assessment_outcome
+  local assessment_outcome gate_c_resolution
   assessment_outcome="$(jq -r '.outcome' "${assessment_receipt}")"
   [[ "${assessment_outcome}" == PASS_* ]] || fail "Gate C assessment is not decision-ready"
+  case "${assessment_outcome}" in
+    PASS_DIRECT_REPLACE) gate_c_resolution=RESET ;;
+    PASS_RETAIN) gate_c_resolution=RETAIN ;;
+    *) fail "Gate C assessment outcome has no closed deployment resolution: ${assessment_outcome}" ;;
+  esac
   [[ "$(jq -r '.unresolvedPublishingOrUncertain' "${run_dir}/g0/g0-snapshot.json")" == false ]] \
     || fail "G0 found unresolved PUBLISHING or UNCERTAIN state"
-  [[ "$(jq -r '.operations.destructiveOperations | length' "${run_dir}/authority/manifest-operation-readback.json")" == 0 ]] \
+  [[ "$(jq -r '.destructiveOperations | length' "${run_dir}/authority/manifest-operation-readback.json")" == 0 ]] \
     || fail "manifest readback contains an unexpected destructive operation"
-  [[ "$(jq -r '.operations | to_entries | all(.value == true or (.value | type == "string"))' "${run_dir}/authority/manifest-operation-readback.json")" == true ]] \
+  [[ "$(jq -r '.operations.resourceReadbackCount' "${run_dir}/authority/manifest-operation-readback.json")" == 13 \
+      && "$(jq -r '.operations | to_entries | all(.value == true or .value == 13)' "${run_dir}/authority/manifest-operation-readback.json")" == true ]] \
     || fail "manifest readback did not prove each operation"
+  [[ "$(jq -r '.decision' "${data_disposition_payload}")" == "${staging_data_decision}" \
+      && "$(jq -r '.externalUserDataPresent' "${data_disposition_payload}")" == false \
+      && "$(jq -r '.candidateCommit' "${data_disposition_payload}")" == "${candidate_commit}" \
+      && "$(sha256_file "${data_disposition_envelope}")" == "${data_disposition_envelope_sha256}" ]] \
+    || fail "Gate C data-disposition authority is incomplete"
   [[ -s "${run_dir}/results/gate-c-p1-worker-managed.json" ]] \
     || fail "P1 managed Worker result is missing"
   [[ "$(jq -r '.status' "${run_dir}/g0/oxia-admin-readiness-initial.json")" == PASS ]] \
@@ -1687,12 +2135,16 @@ write_gate_c_receipt() {
     --arg schema "nereus-delay.gate-c" --arg status PASS --arg environmentId "${environment_id}" \
     --arg classification "${classification}" --arg candidateCommit "${candidate_commit}" \
     --arg packageDigest "${accepted_package_digest}" --arg p1Lock "${p1_source_lock}" \
-    --arg resolution RESET --arg assessmentEnvelopePath "${assessment_envelope}" \
+    --arg resolution "${gate_c_resolution}" --arg assessmentEnvelopePath "${assessment_envelope}" \
     --arg assessmentEnvelopeSha256 "${assessment_envelope_sha256}" \
     --arg assessmentReceiptPath "${assessment_receipt}" --arg assessmentReceiptSha256 "${assessment_receipt_sha256}" \
     --arg assessmentScopeDigest "${scope_digest}" --arg manifestPath "${manifest}" \
     --arg manifestSha256 "${manifest_sha256}" --arg manifestDigest "${manifest_digest}" \
     --arg manifestPublicKeyDerBase64 "${public_key_der}" --arg createdAtEpochMs "$(now_epoch_ms)" \
+    --arg dataDispositionPath "${data_disposition_envelope}" \
+    --arg dataDispositionSha256 "${data_disposition_envelope_sha256}" \
+    --arg manifestReadbackPath "${run_dir}/authority/manifest-operation-readback.json" \
+    --arg manifestReadbackSha256 "$(sha256_file "${run_dir}/authority/manifest-operation-readback.json")" \
     --argjson passedChecks "${passed_checks}" \
     --arg g0SnapshotPath "${run_dir}/g0/g0-snapshot.json" \
     --arg skipAuditPath "${run_dir}/authority/staging-skip-audit.json" \
@@ -1703,6 +2155,8 @@ write_gate_c_receipt() {
       assessmentReceiptSha256:$assessmentReceiptSha256,assessmentScopeDigest:$assessmentScopeDigest,
       manifestPath:$manifestPath,manifestSha256:$manifestSha256,manifestDigest:$manifestDigest,
       manifestPublicKeyDerBase64:$manifestPublicKeyDerBase64,createdAtEpochMs:$createdAtEpochMs,
+      dataDispositionPath:$dataDispositionPath,dataDispositionSha256:$dataDispositionSha256,
+      manifestReadbackPath:$manifestReadbackPath,manifestReadbackSha256:$manifestReadbackSha256,
       startupAssignmentGate:true,noOldGeneration:true,noUnresolvedPublishing:true,noUnresolvedUncertain:true,
       freshness:true,applicableChecks:41,passedChecks:$passedChecks,g0SnapshotPath:$g0SnapshotPath,skipAuditPath:$skipAuditPath,
       evidence:{realOxia:true,realMinio:true,realPulsarP1:true,realGateway:true,realWorker:true,
@@ -1741,17 +2195,81 @@ sign_staging_payload() {
   authority_task "${label}-verify" verify-json "${config_path}" >/dev/null
 }
 
-persist_policy_to_oxia() {
-  local phase="$1" signed_envelope="$2"
-  local key="${oxia_policy_key_prefix}/${phase}"
-  local encoded readback
-  encoded="$(base64 <"${signed_envelope}" | tr -d '\n')"
-  [[ -n "${encoded}" ]] || fail "signed policy envelope encoded to an empty Oxia value: ${phase}"
-  oxia_client put "${key}" "${encoded}" >"${run_dir}/authority/shadow-policy/${phase}-oxia-put.txt"
-  readback="$(oxia_client get "${key}")"
-  printf '%s\n' "${readback}" >"${run_dir}/authority/shadow-policy/${phase}-oxia-get.txt"
-  [[ "${readback}" == "${encoded}" ]] \
-    || fail "Oxia policy readback differs from the signed envelope: ${phase} (${key})"
+publish_policy_head() {
+  local label="$1" mode="$2" lead_ms="$3" allowed_path_bits="$4" lease_ms="$5"
+  local effective_disabled_after="$6" gate_digest="$7" shadow_digest="$8" canary_digest="$9"
+  local policy_dir="${run_dir}/authority/policy" now valid_from valid_until monotonic source_evidence
+  local payload envelope config output observed_version observed_generation observed_scope
+  mkdir -p "${policy_dir}"
+  policy_generation="$((policy_generation + 1))"
+  now="$(now_epoch_ms)"
+  valid_from="$((now + 1500))"
+  valid_until="$((valid_from + lease_ms))"
+  monotonic="$(python3 -c 'import time; print(time.monotonic_ns())')"
+  jq -n --arg schema "nereus-delay.policy-trusted-time" --arg label "${label}" \
+    --arg observedAtEpochMs "${now}" --arg monotonicAnchorNs "${monotonic}" \
+    '{schema:$schema,schemaGeneration:1,label:$label,observedAtEpochMs:($observedAtEpochMs|tonumber),
+      monotonicAnchorNs:($monotonicAnchorNs|tonumber),source:"CERTIFIED_HOST_CLOCK"}' \
+    >"${policy_dir}/${label}-trusted-time.json"
+  source_evidence="$(sha256_file "${policy_dir}/${label}-trusted-time.json")"
+  payload="${policy_dir}/${label}.json"
+  envelope="${policy_dir}/${label}.signed.json"
+  config="${policy_dir}/${label}-config.json"
+  jq -n \
+    --arg privateKeyPath "${key_dir}/issuer-ed25519-private.der" \
+    --arg publicKeyPath "${key_dir}/issuer-ed25519-public.der" \
+    --arg manifestPath "${run_dir}/authority/data-reset-manifest.bin" \
+    --arg candidateCommit "${candidate_commit}" --arg environmentId "${environment_id}" \
+    --arg authenticatedClusterId "${pulsar_cluster_name}" \
+    --arg targetResourceIncarnation "${native_target_incarnation_hex}" \
+    --arg targetPhysicalTopic "persistent://public/default/${native_topic}" \
+    --arg targetCreationTimestamp "1001" --arg expectedPolicyScopeDigest "${policy_scope_digest}" \
+    --arg oxiaServiceAddress "${oxia_endpoint}" --arg oxiaNamespace default \
+    --arg oxiaClientIdentifier "ndip1-policy-${run_id}-${label}" \
+    --arg oxiaKeyPrefix "${oxia_policy_key_prefix}" --arg policyMode "${mode}" \
+    --arg policyGeneration "${policy_generation}" --arg expectedOxiaVersion "${policy_oxia_version}" \
+    --arg effectiveLeadMs "${lead_ms}" --arg allowedPathBits "${allowed_path_bits}" \
+    --arg validFromEpochMs "${valid_from}" --arg validUntilEpochMs "${valid_until}" \
+    --arg effectiveDisabledAfterEpochMs "${effective_disabled_after}" --arg issuedAtEpochMs "${now}" \
+    --arg sampleSequence "${policy_generation}" --arg monotonicAnchorNs "${monotonic}" \
+    --arg sourceEvidenceSha256 "${source_evidence}" --arg payloadPath "${payload}" \
+    --arg signedEnvelopePath "${envelope}" --arg gateCEnvelopeSha256 "${gate_digest}" \
+    --arg shadowEnvelopeSha256 "${shadow_digest}" --arg canaryEnvelopeSha256 "${canary_digest}" \
+    '{privateKeyPath:$privateKeyPath,publicKeyPath:$publicKeyPath,issuerKeyGeneration:1,
+      manifestPath:$manifestPath,candidateCommit:$candidateCommit,environmentId:$environmentId,
+      authenticatedClusterId:$authenticatedClusterId,targetResourceIncarnation:$targetResourceIncarnation,
+      targetPhysicalTopic:$targetPhysicalTopic,targetCreationTimestamp:$targetCreationTimestamp,
+      expectedPolicyScopeDigest:$expectedPolicyScopeDigest,
+      oxiaServiceAddress:$oxiaServiceAddress,oxiaNamespace:$oxiaNamespace,
+      oxiaClientIdentifier:$oxiaClientIdentifier,oxiaRequestTimeoutMs:5000,oxiaKeyPrefix:$oxiaKeyPrefix,
+      policyMode:$policyMode,policyGeneration:$policyGeneration,expectedOxiaVersion:$expectedOxiaVersion,
+      effectiveLeadMs:$effectiveLeadMs,allowedPathBits:$allowedPathBits,
+      validFromEpochMs:$validFromEpochMs,validUntilEpochMs:$validUntilEpochMs,
+      effectiveDisabledAfterEpochMs:$effectiveDisabledAfterEpochMs,maximumLeaseMs:300000,
+      issuedAtEpochMs:$issuedAtEpochMs,source:"CERTIFIED_HOST_CLOCK",sourceId:"ndip1-policy-clock",
+      sourceConfigGeneration:1,sampleSequence:$sampleSequence,monotonicAnchorNs:$monotonicAnchorNs,
+      sourceEvidenceSha256:$sourceEvidenceSha256,payloadPath:$payloadPath,signedEnvelopePath:$signedEnvelopePath,
+      gateCEnvelopeSha256:$gateCEnvelopeSha256,shadowEnvelopeSha256:$shadowEnvelopeSha256,
+      canaryEnvelopeSha256:$canaryEnvelopeSha256}
+      | with_entries(select(.value != ""))' \
+    >"${config}"
+  output="$(authority_task "policy-${label}" publish-policy "${config}")"
+  observed_version="$(printf '%s\n' "${output}" | sed -n 's/^policyOxiaVersion=//p' | tail -1)"
+  observed_generation="$(printf '%s\n' "${output}" | sed -n 's/^policyGeneration=//p' | tail -1)"
+  observed_scope="$(printf '%s\n' "${output}" | sed -n 's/^policyScopeDigest=//p' | tail -1)"
+  [[ "${observed_version}" =~ ^[0-9]+$ && "${observed_generation}" == "${policy_generation}" \
+      && "${observed_scope}" =~ ^[0-9a-f]{64}$ ]] \
+    || fail "canonical policy publication output is incomplete: ${label}"
+  if [[ -n "${policy_scope_digest}" && "${observed_scope}" != "${policy_scope_digest}" ]]; then
+    fail "policy scope changed across one deployment: ${label}"
+  fi
+  policy_scope_digest="${observed_scope}"
+  policy_oxia_version="${observed_version}"
+  last_policy_envelope="${envelope}"
+  last_policy_envelope_sha256="$(sha256_file "${envelope}")"
+  last_policy_valid_until_epoch_ms="${valid_until}"
+  authority_task "policy-${label}-readback" read-policy "${config}" \
+    >"${policy_dir}/${label}-readback.log"
 }
 
 run_authorized_real_gradle() {
@@ -1892,33 +2410,11 @@ PY
 }
 
 write_shadow_policy_records() {
-  local policy_dir="${run_dir}/authority/shadow-policy"
-  mkdir -p "${policy_dir}"
-  local generation phase candidate_state candidate_action payload signed
-  for generation in 1 2 3; do
-    case "${generation}" in
-      1) phase=initial; candidate_state=NONE; candidate_action=NOOP ;;
-      2) phase=candidate-add; candidate_state=ADDED; candidate_action=ADD ;;
-      3) phase=candidate-cancel; candidate_state=CANCELLED; candidate_action=CANCEL ;;
-    esac
-    payload="${policy_dir}/${phase}.json"
-    signed="${policy_dir}/${phase}.signed.json"
-    jq -n --arg schema "nereus-delay.persistent-staging-policy" \
-      --arg status SHADOW --arg environmentId "${environment_id}" \
-      --arg candidateCommit "${candidate_commit}" --arg gateC "${gate_c_receipt_sha256}" \
-      --arg phase "${phase}" --arg candidateState "${candidate_state}" \
-      --arg candidateAction "${candidate_action}" --arg generation "${generation}" \
-      --arg operator "operator:local-ndip1" --arg issuedAt "$(now_epoch_ms)" \
-      '{policySchema:$schema,policySchemaGeneration:1,policyStatus:$status,environmentId:$environmentId,
-        candidateCommit:$candidateCommit,gateCEnvelopeSha256:$gateC,policyGeneration:($generation|tonumber),
-        candidateState:$candidateState,candidateAction:$candidateAction,phase:$phase,operator:$operator,
-        issuedAtEpochMs:($issuedAt|tonumber),singleProfile:"ndip1-shadow-profile",topics:["ndip1-shadow"],
-        nativeAdmission:0,nativeSend:0,handedOff:0}' >"${payload}"
-    sign_staging_payload "shadow-policy-${phase}" "${payload}" "${signed}"
-    persist_policy_to_oxia "${phase}" "${signed}"
-  done
-  shadow_policy_envelope="${policy_dir}/candidate-cancel.signed.json"
-  shadow_policy_envelope_sha256="$(sha256_file "${shadow_policy_envelope}")"
+  publish_policy_head shadow-initial SHADOW 0 0 120000 0 "${gate_c_receipt_sha256}" "" ""
+  publish_policy_head shadow-candidate-add SHADOW 0 0 120000 0 "${gate_c_receipt_sha256}" "" ""
+  publish_policy_head shadow-candidate-cancel SHADOW 0 0 120000 0 "${gate_c_receipt_sha256}" "" ""
+  shadow_policy_envelope="${last_policy_envelope}"
+  shadow_policy_envelope_sha256="${last_policy_envelope_sha256}"
 }
 
 run_shadow_observation() {
@@ -1975,7 +2471,9 @@ run_shadow_observation() {
   (( observation_seconds >= 10 )) || fail "SHADOW observation window was shorter than 10 seconds"
   python3 "${script_dir}/validate-ndip1-shadow-observation.py" \
     --shadow-dir "${shadow_dir}" \
-    --policy-dir "${run_dir}/authority/shadow-policy" \
+    --policy-dir "${run_dir}/authority/policy" \
+    --trusted-public-key "${key_dir}/issuer-ed25519-public.der" \
+    --issuer-key-generation 1 \
     --gate-c-log "${run_dir}/logs/real-gate-c-p1-worker-managed.log" \
     --observation-seconds "${observation_seconds}" \
     >"${shadow_dir}/validation.log" 2>&1 \
@@ -2018,22 +2516,13 @@ run_shadow_observation() {
 }
 
 write_enabled_policy() {
-  local payload="${run_dir}/authority/enabled-policy.json"
-  enabled_policy_envelope="${run_dir}/authority/enabled-policy.signed.json"
-  jq -n --arg schema "nereus-delay.persistent-staging-policy" \
-    --arg status ENABLED --arg environmentId "${environment_id}" \
-    --arg candidateCommit "${candidate_commit}" --arg gateC "${gate_c_receipt_sha256}" \
-    --arg shadow "${shadow_receipt_sha256}" --arg issuedAt "$(now_epoch_ms)" \
-    '{policySchema:$schema,policySchemaGeneration:1,policyStatus:$status,environmentId:$environmentId,
-      candidateCommit:$candidateCommit,gateCEnvelopeSha256:$gateC,shadowEnvelopeSha256:$shadow,
-      policyGeneration:4,operator:"operator:local-ndip1",issuedAtEpochMs:($issuedAt|tonumber),
-      singleProfile:"ndip1-enabled-canary-profile",topics:["ndip1-enabled-canary"],
-      subscription:"ndip1-enabled-canary-subscription",leadMs:7000,maxRecords:1,rollbackOnAnyMismatch:true,
-      nativeAdmission:1,nativeSend:1,handedOff:0}' >"${payload}"
-  sign_staging_payload enabled-policy "${payload}" "${enabled_policy_envelope}"
-  enabled_policy_envelope_sha256="$(sha256_file "${enabled_policy_envelope}")"
+  publish_policy_head enabled ENABLED 7000 3 120000 0 \
+    "${gate_c_receipt_sha256}" "${shadow_receipt_sha256}" ""
+  enabled_policy_envelope="${last_policy_envelope}"
+  enabled_policy_envelope_sha256="${last_policy_envelope_sha256}"
+  enabled_policy_valid_until_epoch_ms="${last_policy_valid_until_epoch_ms}"
   enabled_policy_activation_started=1
-  persist_policy_to_oxia enabled "${enabled_policy_envelope}"
+  sleep 2
 }
 
 run_enabled_canary() {
@@ -2044,6 +2533,11 @@ run_enabled_canary() {
   export NEREUS_DELAY_PERSISTENT_STAGING_GATE_C_RECEIPT="${gate_c_receipt}" \
     NEREUS_DELAY_PERSISTENT_STAGING_SHADOW_RECEIPT="${shadow_receipt}" \
     NEREUS_DELAY_PERSISTENT_STAGING_POLICY="${enabled_policy_envelope}" \
+    NEREUS_DELAY_PERSISTENT_STAGING_TRUSTED_PUBLIC_KEY="${key_dir}/issuer-ed25519-public.der" \
+    NEREUS_DELAY_PERSISTENT_STAGING_ISSUER_KEY_GENERATION=1 \
+    NEREUS_DELAY_PERSISTENT_STAGING_POLICY_KEY_PREFIX="${oxia_policy_key_prefix}" \
+    NEREUS_DELAY_PERSISTENT_STAGING_NATIVE_STATE_DIR="${canary_dir}/selection-state" \
+    NEREUS_DELAY_PERSISTENT_STAGING_NATIVE_EVIDENCE="${canary_dir}/native-canary-evidence.json" \
     NEREUS_DELAY_PERSISTENT_STAGING_REQUIRE_AUTHORITY=true
   authority_task canary-activation verify-activation "${run_dir}/authority/enabled-policy-sign-config.json" \
     >"${canary_dir}/activation-verification.log"
@@ -2053,17 +2547,70 @@ run_enabled_canary() {
     -PpulsarServiceUrl="${service_url}" -PpulsarAdminUrl="${admin_url}" \
     -PpulsarNativeTopic="${native_topic}"
   unset NEREUS_DELAY_PULSAR_LISTENER_NAME
+  local native_evidence="${canary_dir}/native-canary-evidence.json"
+  [[ -s "${native_evidence}" ]] || fail "ENABLED canary did not persist machine-readable native evidence"
+
+  local managed_source_topic="${worker_topic}-managed-handoff"
+  local managed_evidence="${canary_dir}/managed-handoff-evidence.json"
+  export NEREUS_DELAY_PULSAR_WORKER_ROOT="${canary_dir}/managed-worker-store" \
+    NEREUS_DELAY_PULSAR_WORKER_AUTHORITY_PREFIX="${resource_prefix}/${run_id}/managed-handoff-owner" \
+    NEREUS_DELAY_PULSAR_WORKER_ASSIGNMENT_PREFIX="${resource_prefix}/${run_id}/managed-handoff-assignment"
+  export NEREUS_DELAY_PULSAR_LISTENER_NAME=external
+  run_authorized_real_gradle enabled-managed-handoff-prepare \
+    runRealPulsarWorkerSmoke \
+    -PpulsarServiceUrl="${service_url}" -PpulsarAdminUrl="${admin_url}" \
+    -PpulsarTopic="${managed_source_topic}" -PpulsarWorkerMode=prepare
+  export NEREUS_DELAY_PULSAR_WORKER_MANAGED_HANDOFF=1 \
+    NEREUS_DELAY_PERSISTENT_STAGING_MANAGED_EVIDENCE="${managed_evidence}" \
+    NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS=1 \
+    NEREUS_DELAY_PULSAR_WORKER_ATTEMPT_JOURNAL_RESPONSE_LOSS=1
+  run_authorized_real_gradle enabled-managed-handoff \
+    runRealPulsarWorkerSmoke \
+    -PpulsarServiceUrl="${service_url}" -PpulsarAdminUrl="${admin_url}" \
+    -PpulsarTopic="${managed_source_topic}" -PpulsarWorkerMode=resume \
+    -PpulsarWorkerDestinationTopic="${native_topic}" -PpulsarWithOxia=true
+  unset NEREUS_DELAY_PULSAR_LISTENER_NAME NEREUS_DELAY_PULSAR_WORKER_MANAGED_HANDOFF \
+    NEREUS_DELAY_PERSISTENT_STAGING_MANAGED_EVIDENCE \
+    NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS \
+    NEREUS_DELAY_PULSAR_WORKER_ATTEMPT_JOURNAL_RESPONSE_LOSS
+
+  [[ -s "${managed_evidence}" ]] || fail "Managed Handoff canary did not persist machine evidence"
+  jq -e --arg policySnapshot "$(jq -r '.policySnapshotDigest' "${native_evidence}")" \
+    --arg p1Lock "${p1_source_lock}" \
+    '.schema == "nereus-delay.managed-handoff-canary-evidence" and
+     .verdict == "PASS" and .productionPath == true and .productionAuthority == false and
+     .nativeAdmission == 1 and .nativeSend == 1 and .handedOff == 1 and
+     .deliveryContract == "PULSAR_NATIVE_DELIVERY" and
+     .actionAtEpochMs < .brokerPersistenceTimeEpochMs and
+     .brokerPersistenceTimeEpochMs < .deliverAtEpochMs and
+     .policySnapshotDigest == $policySnapshot and .p1SourceLock == $p1Lock and
+     .destinationResponseLossResolved == true and .attemptJournalResponseLossRecoveries == 3 and
+     [.journal[].kind] == ["MAPPED","OWNERSHIP_STARTED","PUBLISHED"] and
+     all([.preparedPublishHash,.recordTemplateHash,.preparedRecordHash,.sendCommandSha256,
+       .authenticatedResponseCommandSha256,.artifactSetDigest][]; test("^[0-9a-f]{64}$"))' \
+    "${managed_evidence}" >/dev/null \
+    || fail "Managed Handoff canary evidence is incomplete or not source/Journal/P1 bound"
+  rg -F "Pulsar Worker source-applied physical publish passed" \
+    "${run_dir}/logs/real-enabled-managed-handoff.log" >/dev/null \
+    || fail "Managed Handoff canary did not close the Worker Outcome chain"
 
   local canary_log="${run_dir}/logs/real-enabled-canary.log"
   rg -F "Pulsar native coordinator typed-evidence smoke passed" "${canary_log}" \
     >/dev/null || fail "ENABLED canary did not publish the native typed-evidence success marker"
   rg -F "deliverAt=" "${canary_log}" >/dev/null || fail "ENABLED canary did not expose deliverAt evidence"
   rg -F "sequence=" "${canary_log}" >/dev/null || fail "ENABLED canary did not expose typed ACK sequence evidence"
-  local deliver_at native_marker_count
-  deliver_at="$(sed -n 's/.*deliverAt=\([0-9][0-9]*\).*/\1/p' "${canary_log}" | tail -1)"
+  local deliver_at native_marker_count native_admission native_send handed_off
+  deliver_at="$(jq -r '.deliverAtEpochMs' "${native_evidence}")"
+  native_admission="$(jq -r '.nativeAdmission' "${native_evidence}")"
+  native_send="$(jq -r '.nativeSend' "${native_evidence}")"
+  handed_off="$(jq -r '.handedOff' "${native_evidence}")"
   native_marker_count="$(rg -c -F "Pulsar native coordinator typed-evidence smoke passed" "${canary_log}")"
-  [[ "${deliver_at}" =~ ^[0-9]+$ && "${native_marker_count}" == 1 ]] \
-    || fail "ENABLED canary did not produce exactly one native record evidence line"
+  [[ "${deliver_at}" =~ ^[0-9]+$ && "${native_marker_count}" == 1 \
+      && "${native_admission}" == 1 && "${native_send}" == 1 && "${handed_off}" == 0 ]] \
+    || fail "ENABLED canary counters were not derived from one exact native record"
+  native_admission=2
+  native_send=2
+  handed_off=1
 
   curl --silent --show-error --fail --location --max-redirs 5 --max-time 15 \
     "${admin_url}/admin/v2/persistent/public/default/${native_topic}/stats" \
@@ -2091,7 +2638,10 @@ run_enabled_canary() {
     --arg gateC "${gate_c_receipt_sha256}" --arg shadow "${shadow_receipt_sha256}" \
     --arg policy "${enabled_policy_envelope}" --arg policyDigest "${enabled_policy_envelope_sha256}" \
     --arg topic "${native_topic}" --arg deliverAt "${deliver_at}" \
-    --argjson nativeAdmission 1 --argjson nativeSend 1 --argjson handedOff 0 \
+    --argjson nativeAdmission "${native_admission}" --argjson nativeSend "${native_send}" \
+    --argjson handedOff "${handed_off}" --arg nativeEvidence "${native_evidence}" \
+    --arg managedEvidence "${managed_evidence}" \
+    --arg managedLog "${run_dir}/logs/real-enabled-managed-handoff.log" \
     --arg stats "${canary_dir}/native-topic-stats.json" \
     --arg internalStats "${canary_dir}/native-topic-internal-stats.json" \
     --arg brokerFailoverBefore "${broker_failover_before}" \
@@ -2102,10 +2652,14 @@ run_enabled_canary() {
       gateCEnvelopeSha256:$gateC,shadowEnvelopeSha256:$shadow,enabledPolicyEnvelopeSha256:$policyDigest,
       enabledPolicy:$policy,profile:"ndip1-enabled-canary-profile",topic:$topic,
       subscription:"ndip1-enabled-canary-subscription",nativeAdmission:$nativeAdmission,nativeSend:$nativeSend,
-      handedOff:$handedOff,deliverAtEpochMs:($deliverAt|tonumber),maxRecords:1,typedP1SendAck:true,
+      handedOff:$handedOff,deliverAtEpochMs:($deliverAt|tonumber),maxRecords:2,typedP1SendAck:true,
+      branches:{autoFast:{nativeAdmission:1,nativeSend:1,handedOff:0},
+        managedHandoff:{nativeAdmission:1,nativeSend:1,handedOff:1}},
       targetRecordReconciled:true,responseLossRecovery:true,brokerFailoverRecovery:true,
       workerOwnershipUnknownDoesNotFallback:true,ordinaryPathUnaffected:true,activatedAtEpochMs:($activatedAt|tonumber),
-      evidence:{log:$log,stats:$stats,internalStats:$internalStats,brokerFailoverBefore:$brokerFailoverBefore,
+      evidence:{nativeCanary:$nativeEvidence,managedHandoff:$managedEvidence,
+        managedHandoffLog:$managedLog,log:$log,stats:$stats,internalStats:$internalStats,
+        brokerFailoverBefore:$brokerFailoverBefore,
         brokerFailoverAfter:$brokerFailoverAfter,productionAuthority:false}}' \
     >"${run_dir}/authority/enabled-canary-receipt.json"
   sign_staging_payload enabled-canary-receipt "${run_dir}/authority/enabled-canary-receipt.json" \
@@ -2115,35 +2669,30 @@ run_enabled_canary() {
   jq -n --arg environmentId "${environment_id}" --arg candidateCommit "${candidate_commit}" \
     --arg receipt "${canary_receipt}" --arg digest "${canary_receipt_sha256}" \
     --arg policy "${enabled_policy_envelope}" --arg policyDigest "${enabled_policy_envelope_sha256}" \
+    --argjson nativeAdmission "${native_admission}" --argjson nativeSend "${native_send}" \
+    --argjson handedOff "${handed_off}" \
     '{schema:"nereus-delay.ndip1-canary-record",status:"PASS",environmentId:$environmentId,
       candidateCommit:$candidateCommit,signedReceipt:$receipt,signedReceiptSha256:$digest,
-      enabledPolicy:$policy,enabledPolicyEnvelopeSha256:$policyDigest,nativeAdmission:1,nativeSend:1,
-      handedOff:0,productionAuthority:false}' >"${run_dir}/authority/canary-record.json"
+      enabledPolicy:$policy,enabledPolicyEnvelopeSha256:$policyDigest,nativeAdmission:$nativeAdmission,
+      nativeSend:$nativeSend,handedOff:$handedOff,productionAuthority:false}' \
+    >"${run_dir}/authority/canary-record.json"
 }
 
 disable_enabled_policy() {
-  local payload="${run_dir}/authority/disabled-policy.json"
-  disabled_policy_envelope="${run_dir}/authority/disabled-policy.signed.json"
-  jq -n --arg schema "nereus-delay.persistent-staging-policy" \
-    --arg status DISABLED --arg environmentId "${environment_id}" \
-    --arg candidateCommit "${candidate_commit}" --arg gateC "${gate_c_receipt_sha256}" \
-    --arg shadow "${shadow_receipt_sha256}" --arg canary "${canary_receipt_sha256}" \
-    --arg issuedAt "$(now_epoch_ms)" \
-    '{policySchema:$schema,policySchemaGeneration:1,policyStatus:$status,environmentId:$environmentId,
-      candidateCommit:$candidateCommit,gateCEnvelopeSha256:$gateC,shadowEnvelopeSha256:$shadow,
-      canaryEnvelopeSha256:$canary,policyGeneration:5,operator:"operator:local-ndip1",
-      issuedAtEpochMs:($issuedAt|tonumber),nativeAdmission:0,nativeSend:0,handedOff:0}' >"${payload}"
-  sign_staging_payload disabled-policy "${payload}" "${disabled_policy_envelope}"
-  disabled_policy_envelope_sha256="$(sha256_file "${disabled_policy_envelope}")"
-  persist_policy_to_oxia disabled "${disabled_policy_envelope}"
-  enabled_policy_activation_started=0
+  publish_policy_head disabled DISABLED 0 0 120000 "${enabled_policy_valid_until_epoch_ms}" \
+    "${gate_c_receipt_sha256}" "${shadow_receipt_sha256}" "${canary_receipt_sha256}"
+  disabled_policy_envelope="${last_policy_envelope}"
+  disabled_policy_envelope_sha256="${last_policy_envelope_sha256}"
 
   export_common_test_environment
   export NEREUS_DELAY_PERSISTENT_STAGING_GATE_C_RECEIPT="${gate_c_receipt}" \
     NEREUS_DELAY_PERSISTENT_STAGING_SHADOW_RECEIPT="${shadow_receipt}" \
-    NEREUS_DELAY_PERSISTENT_STAGING_POLICY="${disabled_policy_envelope}" \
+    NEREUS_DELAY_PERSISTENT_STAGING_POLICY="${enabled_policy_envelope}" \
+    NEREUS_DELAY_PERSISTENT_STAGING_TRUSTED_PUBLIC_KEY="${key_dir}/issuer-ed25519-public.der" \
+    NEREUS_DELAY_PERSISTENT_STAGING_ISSUER_KEY_GENERATION=1 \
+    NEREUS_DELAY_PERSISTENT_STAGING_POLICY_KEY_PREFIX="${oxia_policy_key_prefix}" \
     NEREUS_DELAY_PERSISTENT_STAGING_REQUIRE_AUTHORITY=true
-  local verification_log="${run_dir}/logs/disabled-policy-verification.log"
+  local verification_log="${run_dir}/logs/stale-enabled-policy-verification.log"
   set +e
   GRADLE_USER_HOME="${gradle_home}" "${delay_root}/gradlew" -q runNdip1PersistentAuthority \
     -Pndip1AuthorityCommand=verify-activation \
@@ -2151,32 +2700,55 @@ disable_enabled_policy() {
     --no-build-cache --no-daemon --console=plain --rerun-tasks >"${verification_log}" 2>&1
   local status=$?
   set -e
-  [[ "${status}" != 0 ]] || fail "DISABLED rollback did not reject persistent activation"
-  rg -F "policyStatus=DISABLED" "${verification_log}" >/dev/null \
-    || fail "DISABLED rollback rejection did not identify the disabled policy"
+  [[ "${status}" != 0 ]] || fail "DISABLED current head accepted a stale ENABLED activation receipt"
+  rg -e "current Oxia handoff policy" -e "policy head" -e "does not authorize activation" \
+    "${verification_log}" >/dev/null \
+    || fail "stale ENABLED rejection did not identify current-head disagreement"
 
-  local native_processes worker_processes
+  while (( $(now_epoch_ms) < enabled_policy_valid_until_epoch_ms )); do
+    sleep 5
+  done
+  local disabled_readback="${run_dir}/authority/policy/disabled-readback.log"
+  [[ "$(sed -n 's/^policyMode=//p' "${disabled_readback}" | tail -1)" == DISABLED ]] \
+    || fail "canonical current policy did not remain DISABLED through lease expiry"
+  local effective_disabled_after
+  effective_disabled_after="$(sed -n 's/^effectiveDisabledAfterEpochMs=//p' "${disabled_readback}" | tail -1)"
+  [[ "${effective_disabled_after}" == "${enabled_policy_valid_until_epoch_ms}" \
+      && $(now_epoch_ms) -ge ${effective_disabled_after} ]] \
+    || fail "EFFECTIVE_DISABLED was declared before the frozen ENABLED lease expired"
+  enabled_policy_activation_started=0
+
+  local native_processes worker_processes native_process_count worker_process_count active_lease_count active_send_count
   native_processes="$(pgrep -af 'PulsarClientArtifactNativeSmoke' || true)"
   worker_processes="$(pgrep -af 'PulsarClientArtifactWorkerSmoke' || true)"
+  native_process_count="$(printf '%s\n' "${native_processes}" | awk 'NF {count++} END {print count+0}')"
+  worker_process_count="$(printf '%s\n' "${worker_processes}" | awk 'NF {count++} END {print count+0}')"
   [[ -z "${native_processes}" && -z "${worker_processes}" ]] \
     || fail "rollback left a native or Worker process active"
-  python3 - "${run_dir}/canary/native-topic-stats.json" <<'PY'
+  active_send_count="$(python3 - "${run_dir}/canary/native-topic-stats.json" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 value = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 publishers = value.get("publishers")
-if isinstance(publishers, (list, dict)) and len(publishers) != 0:
-    raise SystemExit("rollback stats still expose active publishers")
+print(len(publishers) if isinstance(publishers, (list, dict)) else 0)
 PY
+  )"
+  active_lease_count="$(( $(now_epoch_ms) < enabled_policy_valid_until_epoch_ms ? 1 : 0 ))"
+  [[ "${active_send_count}" == 0 && "${active_lease_count}" == 0 ]] \
+    || fail "rollback retained an active send or unexpired ENABLED lease"
   jq -n --arg schema "nereus-delay.ndip1-rollback" --arg status PASS \
     --arg environmentId "${environment_id}" --arg policy "${disabled_policy_envelope}" \
     --arg policyDigest "${disabled_policy_envelope_sha256}" --arg verificationLog "${verification_log}" \
     --arg canaryReceipt "${canary_receipt}" --arg canaryDigest "${canary_receipt_sha256}" \
+    --argjson activeNativeProcessCount "${native_process_count}" \
+    --argjson activeWorkerProcessCount "${worker_process_count}" \
+    --argjson activeLeaseCount "${active_lease_count}" --argjson activeSendCount "${active_send_count}" \
     '{schema:$schema,status:$status,environmentId:$environmentId,finalPolicy:$policy,
       finalPolicyEnvelopeSha256:$policyDigest,disabledActivationRejected:true,
-      activeNativeProcessCount:0,activeWorkerProcessCount:0,activeLeaseCount:0,activeSendCount:0,
+      activeNativeProcessCount:$activeNativeProcessCount,activeWorkerProcessCount:$activeWorkerProcessCount,
+      activeLeaseCount:$activeLeaseCount,activeSendCount:$activeSendCount,
       canaryReceipt:$canaryReceipt,canaryReceiptSha256:$canaryDigest,verificationLog:$verificationLog,
       environmentReturnedToDisabled:true,productionAuthority:false}' \
     >"${run_dir}/authority/rollback-receipt.json"
@@ -2186,9 +2758,31 @@ PY
     --arg policyDigest "${disabled_policy_envelope_sha256}" \
     --arg receipt "${run_dir}/authority/rollback-receipt.signed.json" \
     --arg digest "$(sha256_file "${run_dir}/authority/rollback-receipt.signed.json")" \
+    --argjson activeLeaseCount "${active_lease_count}" --argjson activeSendCount "${active_send_count}" \
     '{schema:"nereus-delay.ndip1-final-state",status:"DISABLED",environmentId:$environmentId,
       disabledPolicy:$policy,disabledPolicyEnvelopeSha256:$policyDigest,rollbackReceipt:$receipt,
-      rollbackReceiptSha256:$digest,activeLeaseCount:0,activeSendCount:0}' >"${run_dir}/authority/final-state.json"
+      rollbackReceiptSha256:$digest,activeLeaseCount:$activeLeaseCount,activeSendCount:$activeSendCount}' \
+    >"${run_dir}/authority/final-state.json"
+}
+
+run_independent_certification_validation() {
+  local payload="${run_dir}/authority/persistent-certification-validation.json"
+  local envelope="${run_dir}/authority/persistent-certification-validation.signed.json"
+  python3 -B "${script_dir}/validate-ndip1-persistent-certification.py" \
+    --run-dir "${run_dir}" \
+    --trusted-public-key "${key_dir}/issuer-ed25519-public.der" \
+    --expected-candidate "${candidate_commit}" \
+    --expected-package-digest "${accepted_package_digest}" \
+    --expected-p1-source-lock "${p1_source_lock}" >"${payload}" \
+    || fail "independent persistent certification validation failed"
+  [[ "$(jq -r '.status' "${payload}")" == PASS \
+      && "$(jq -r '.candidateCommit' "${payload}")" == "${candidate_commit}" \
+      && "$(jq -r '.resourceReadbackCount' "${payload}")" == 13 \
+      && "$(jq -r '.finalPolicy' "${payload}")" == DISABLED ]] \
+    || fail "independent persistent certification validator returned an incomplete receipt"
+  sign_staging_payload persistent-certification-validation "${payload}" "${envelope}"
+  certification_validation_envelope="${envelope}"
+  certification_validation_envelope_sha256="$(sha256_file "${envelope}")"
 }
 
 complete_run() {
@@ -2200,13 +2794,38 @@ complete_run() {
     --arg gateC "${gate_c_receipt}" --arg gateCDigest "${gate_c_receipt_sha256}" \
     --arg shadow "${shadow_receipt}" --arg shadowDigest "${shadow_receipt_sha256}" \
     --arg canary "${canary_receipt}" --arg canaryDigest "${canary_receipt_sha256}" \
-    --arg disabled "${disabled_policy_envelope}" \
+    --arg disabled "${disabled_policy_envelope}" --arg deploymentScope "${candidate_scope_path}" \
+    --arg validation "${certification_validation_envelope}" \
+    --arg validationSha256 "${certification_validation_envelope_sha256}" \
+    --arg dataDisposition "${data_disposition_envelope}" \
+    --arg dataDispositionSha256 "${data_disposition_envelope_sha256}" \
+    --arg assessedMode "${assessed_mode}" --arg assessedRunId "${assessed_run_id}" \
     '{schema:"nereus-delay.ndip1-final-summary",status:"COMPLETED",environmentId:$environmentId,
       classification:$classification,runId:$runId,candidateCommit:$candidateCommit,persistentRoot:$root,
       g0Snapshot:$g0,assessmentEnvelope:$assessment,manifest:$manifest,gateCReceipt:$gateC,
       gateCReceiptSha256:$gateCDigest,shadowReceipt:$shadow,shadowReceiptSha256:$shadowDigest,
       canaryReceipt:$canary,canaryReceiptSha256:$canaryDigest,finalPolicy:$disabled,
+      certificationValidation:$validation,certificationValidationSha256:$validationSha256,
+      dataDisposition:$dataDisposition,dataDispositionSha256:$dataDispositionSha256,
+      deploymentScope:$deploymentScope,assessedDeployment:{mode:$assessedMode,runId:$assessedRunId},
       productionAuthority:false,stagingResourcesRetained:true}' >"${run_dir}/final-summary.json"
+  local historical_pointer="${deployment_dir}/current-${run_id}.json"
+  local prior_pointer_sha256=""
+  [[ ! -e "${historical_pointer}" ]] || fail "historical deployment pointer already exists"
+  [[ ! -e "${deployment_pointer}" ]] || prior_pointer_sha256="$(sha256_file "${deployment_pointer}")"
+  jq -n --arg schema "nereus-delay.ndip1-deployment-pointer" --arg status CURRENT \
+    --arg environmentId "${environment_id}" --arg runId "${run_id}" \
+    --arg finalSummary "${run_dir}/final-summary.json" \
+    --arg finalSummarySha256 "$(sha256_file "${run_dir}/final-summary.json")" \
+    --arg deploymentScope "${candidate_scope_path}" \
+    --arg deploymentScopeSha256 "$(sha256_file "${candidate_scope_path}")" \
+    --arg previousPointerSha256 "${prior_pointer_sha256}" \
+    '{schema:$schema,schemaGeneration:1,status:$status,environmentId:$environmentId,runId:$runId,
+      finalSummary:$finalSummary,finalSummarySha256:$finalSummarySha256,deploymentScope:$deploymentScope,
+      deploymentScopeSha256:$deploymentScopeSha256,previousPointerSha256:$previousPointerSha256,
+      publishedAtEpochMs:(now * 1000 | floor)}' >"${historical_pointer}"
+  jq '.' "${historical_pointer}" >"${deployment_pointer}.tmp"
+  mv "${deployment_pointer}.tmp" "${deployment_pointer}"
   final_status="COMPLETED"
   write_run_status 0
 }
@@ -2224,6 +2843,9 @@ bootstrap_oxia
 run_oxia_coordinator_restart
 init_minio
 start_fault_proxy
+write_candidate_scope
+resolve_assessed_deployment
+write_data_disposition_declaration
 write_environment_snapshot
 write_authority_configs
 execute_manifest_operations
@@ -2247,8 +2869,10 @@ run_real_pulsar_baseline_smoke
 run_p1_worker_response_loss_recovery
 run_p1_broker_failover
 audit_gate_c_results
+audit_manifest_operations
 write_gate_c_receipt
 run_shadow_observation
 run_enabled_canary
 disable_enabled_policy
+run_independent_certification_validation
 complete_run

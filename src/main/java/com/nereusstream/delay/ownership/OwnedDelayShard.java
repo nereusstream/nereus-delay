@@ -6,12 +6,14 @@ import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.ClaimMaterialization;
 import com.nereusstream.delay.protocol.CommandCodec;
 import com.nereusstream.delay.protocol.CompatibleControlSnapshot;
+import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.DestinationLaneId;
 import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.PreparedCommand;
 import com.nereusstream.delay.protocol.PulsarActivationBarrier;
 import com.nereusstream.delay.protocol.ResourceDeleteConfirmedBody;
 import com.nereusstream.delay.protocol.ResourceRetireIntentBody;
+import com.nereusstream.delay.protocol.ScheduleBinding;
 import com.nereusstream.delay.protocol.SourceActivationBarrier;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.SourcePositionCodec;
@@ -2232,6 +2234,11 @@ public final class OwnedDelayShard {
     /** Returns the exact durable typed Lane projection for restart-time proof reuse. */
     public synchronized ActiveLaneState getActiveLaneState(final DestinationLaneId laneId) {
         return delegate.getActiveLaneState(Objects.requireNonNull(laneId, "laneId"));
+    }
+
+    /** Returns only the immutable source-bound Schedule binding needed by a physical Admission gate. */
+    public synchronized ScheduleBinding getScheduleBinding(final DelayMessageId messageId) {
+        return delegate.getScheduleBinding(Objects.requireNonNull(messageId, "messageId"));
     }
 
     public synchronized ShardLifecycleState state() {

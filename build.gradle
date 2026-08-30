@@ -1101,6 +1101,15 @@ tasks.register('testNdip1PackageVerifier', Exec) {
     commandLine 'python3', '-B', 'scripts/test-verify-ndip-package.py'
 }
 
+tasks.register('testNdip1PersistentCertificationValidators', Exec) {
+    group = 'verification'
+    description = 'Runs fail-closed tests for persistent Gate C, SHADOW, and final-chain validators.'
+    workingDir projectDir
+    commandLine 'python3', '-B', '-m', 'unittest',
+            'e2e/test_validate_ndip1_shadow_observation.py',
+            'e2e/test_validate_ndip1_persistent_certification.py'
+}
+
 tasks.register('checkDocumentation') {
     group = 'verification'
     description = 'Checks current authority documents, accepted proposals, NDIP receipts, and baseline revision.'
@@ -1192,6 +1201,7 @@ tasks.register('checkProjectVersionMarkers', Exec) {
 tasks.named('check').configure {
     dependsOn tasks.named('checkDocumentation')
     dependsOn tasks.named('checkProjectVersionMarkers')
+    dependsOn tasks.named('testNdip1PersistentCertificationValidators')
 }
 
 jacocoTestReport {

@@ -34,6 +34,10 @@ class OxiaSyncHandoffPolicyAuthorityTest {
         assertEquals(1, published.oxiaVersion());
         assertEquals(first, authority.requireCurrent(first.scopeDigest()).head());
         assertThrows(IllegalStateException.class, () -> authority.compareAndSet(first.scopeDigest(), 0, first));
+        assertThrows(
+                IllegalStateException.class,
+                () -> authority.compareAndSet(
+                        first.scopeDigest(), published.oxiaVersion(), head(1, HandoffPolicyMode.SHADOW)));
 
         final HandoffPolicyHead disabled = head(2, HandoffPolicyMode.DISABLED);
         final HandoffPolicyAuthority.Publication replacement =

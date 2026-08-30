@@ -1,5 +1,9 @@
 package com.nereusstream.delay.transport;
 
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
 import com.nereusstream.delay.adapter.DestinationPhysicalAdmission;
 import com.nereusstream.delay.adapter.DestinationPublishResult;
 import com.nereusstream.delay.adapter.PinnedPulsarDestinationAdapter;
@@ -11,6 +15,8 @@ import com.nereusstream.delay.adapter.PulsarSendRequest;
 import com.nereusstream.delay.adapter.PulsarSendResult;
 import com.nereusstream.delay.adapter.PulsarTargetResource;
 import com.nereusstream.delay.assessment.PersistentStagingActivation;
+import com.nereusstream.delay.assessment.PersistentStagingEvidence;
+import com.nereusstream.delay.assessment.PersistentStagingNativeCanaryIdentity;
 import com.nereusstream.delay.assessment.PhysicalSendActivationGate;
 import com.nereusstream.delay.ownership.ClaimHandoffWorkClassExecutor;
 import com.nereusstream.delay.ownership.InMemoryOwnerLeaseStore;
@@ -63,12 +69,15 @@ import com.nereusstream.delay.protocol.DeliveryMode;
 import com.nereusstream.delay.protocol.DestinationLaneId;
 import com.nereusstream.delay.protocol.EvidenceCursor;
 import com.nereusstream.delay.protocol.EvidenceVerificationStatus;
+import com.nereusstream.delay.protocol.HandoffPolicySnapshot;
 import com.nereusstream.delay.protocol.NativeDeliveryPolicy;
 import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.PreparedCommand;
+import com.nereusstream.delay.protocol.PreparedPublishDescriptor;
 import com.nereusstream.delay.protocol.ProfileKind;
 import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
 import com.nereusstream.delay.protocol.ProtocolTuple;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
 import com.nereusstream.delay.protocol.PublishEvidence;
@@ -84,6 +93,7 @@ import com.nereusstream.delay.protocol.QuotaGrantRef;
 import com.nereusstream.delay.protocol.ReadyCertificate;
 import com.nereusstream.delay.protocol.RetryPolicyRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
+import com.nereusstream.delay.protocol.ScheduleBinding;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.SourcePosition;
@@ -97,14 +107,17 @@ import com.nereusstream.delay.runtime.DelayShardConfig;
 import com.nereusstream.delay.runtime.LaneRecord;
 import com.nereusstream.delay.runtime.MessageRecord;
 import com.nereusstream.delay.runtime.MessageStatus;
+import com.nereusstream.delay.runtime.ProfileCatalog;
 import com.nereusstream.delay.runtime.PublishAttemptLedger;
 import com.nereusstream.delay.runtime.ScheduleResolver;
 import com.nereusstream.delay.scheduler.ClaimExecutionAdmission;
+import com.nereusstream.delay.scheduler.ProfileCatalogManagedNativeEligibilityAuthority;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClass;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import com.nereusstream.delay.scheduler.WorkClassPolicy;
 import com.nereusstream.delay.scheduler.WorkClassRuntimeConfig;
+import com.nereusstream.delay.semantic.OxiaSyncHandoffPolicyTrustStore;
 import com.nereusstream.delay.store.CheckpointFileInventory;
 import com.nereusstream.delay.store.ColumnFamily;
 import com.nereusstream.delay.store.ShardStore;
@@ -113,6 +126,8 @@ import com.nereusstream.delay.store.SharedRocksDbResources;
 import com.nereusstream.delay.store.ValueEnvelope;
 import com.nereusstream.delay.store.WorkerLoadVector;
 import com.nereusstream.delay.store.WorkerPlacementPolicy;
+import java.io.Closeable;
+import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
 import java.net.http.HttpClient;
@@ -134,6 +149,7 @@ import java.util.Base64;
 import java.util.EnumMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -158,6 +174,7 @@ import org.apache.pulsar.client.api.TypedMessageBuilder;
 
 /** Real Pulsar recovery, active Worker apply and synchronous ACK smoke. */
 public final class PulsarClientArtifactWorkerSmoke {
+    private static final Gson GSON = new GsonBuilder().disableHtmlEscaping().create();
     private static final String CLUSTER = PulsarClientArtifactClientBuilder.clusterId();
     private static final byte[] INCARNATION = digest(43);
     private static final long CREATION_TIMESTAMP = 2001L;
@@ -300,7 +317,11 @@ public final class PulsarClientArtifactWorkerSmoke {
             send(client, guard, physicalTopic, recoveryCommand, "worker-recovery-producer");
         }
 
-        final OxiaSyncOwnerLeaseBackend.ClientHandle oxia = connectOxiaIfConfigured();
+        final WorkerAuthorityResources workerAuthorities = openWorkerAuthorityResources();
+        final OxiaSyncOwnerLeaseBackend.ClientHandle oxia = workerAuthorities.oxia();
+        final PersistentStagingActivation.Loaded persistentActivation = workerAuthorities.persistentActivation();
+        final ManagedHandoffConfiguration managedHandoff =
+                managedHandoffConfiguration(persistentActivation, destinationPhysicalTopic);
         final Path root = workerStoreRoot();
         final boolean admissionRecoveryResume =
                 hasAdmissionResponseLossProcessCrash() && !waitForProcessCrash && !seedRecovery;
@@ -374,7 +395,11 @@ public final class PulsarClientArtifactWorkerSmoke {
                     resources.bindWorkClassExecutionRegistry(workClasses);
                     store.recordControlSnapshot(controlSnapshot);
                     final DelayShard delayShard = new DelayShard(
-                            store, DelayShardConfig.defaults(), null, null, scheduleResolver(destinationPhysicalTopic));
+                            store,
+                            DelayShardConfig.defaults(),
+                            null,
+                            null,
+                            scheduleResolver(destinationPhysicalTopic, managedHandoff));
                     final OwnerIdentity ownerIdentity = new OwnerIdentity(
                             bytes(16, 70),
                             bytes(16, 71),
@@ -534,11 +559,16 @@ public final class PulsarClientArtifactWorkerSmoke {
                             send(client, guard, physicalTopic, activeCommand, "worker-active-producer");
                             physicalCommand = destinationPhysicalTopic == null
                                     ? null
-                                    : command(
-                                            shard,
-                                            "worker-physical-publish",
-                                            Bytes.utf8("pulsar-worker-source-applied-payload"),
-                                            2_000);
+                                    : managedHandoff == null
+                                            ? command(
+                                                    shard,
+                                                    "worker-physical-publish",
+                                                    Bytes.utf8("pulsar-worker-source-applied-payload"),
+                                                    2_000)
+                                            : managedHandoffCommand(
+                                                    shard,
+                                                    managedHandoff.identity(),
+                                                    Bytes.utf8("pulsar-worker-managed-handoff-payload"));
                             physicalSchedulePosition = physicalCommand == null
                                     ? null
                                     : sendAndPosition(
@@ -562,7 +592,27 @@ public final class PulsarClientArtifactWorkerSmoke {
                                             ownerIdentity,
                                             authority,
                                             workClasses,
-                                            verificationKey);
+                                            verificationKey,
+                                            managedHandoff == null
+                                                    ? destinationProfile("worker-physical-publish")
+                                                    : managedHandoff
+                                                            .identity()
+                                                            .destination()
+                                                            .ref(),
+                                            managedHandoff == null
+                                                    ? capabilityProfile()
+                                                    : managedHandoff
+                                                            .identity()
+                                                            .capability()
+                                                            .ref(),
+                                            null,
+                                            null,
+                                            1_000_000,
+                                            null,
+                                            0,
+                                            null,
+                                            persistentActivation,
+                                            managedHandoff);
                             recoveredDestinationOutcome = null;
                         }
                         try (physicalBridge) {
@@ -815,9 +865,7 @@ public final class PulsarClientArtifactWorkerSmoke {
                 }
             }
         } finally {
-            if (oxia != null) {
-                oxia.close();
-            }
+            workerAuthorities.close();
         }
     }
 
@@ -943,7 +991,12 @@ public final class PulsarClientArtifactWorkerSmoke {
                 bridge,
                 workClassBytes,
                 sharedClaimAdmission);
-        waitUntil(message.deliverAtEpochMs());
+        final long eligibleAt = bridge.managedHandoffSnapshot() == null
+                ? message.deliverAtEpochMs()
+                : Math.subtractExact(
+                        message.deliverAtEpochMs(),
+                        bridge.managedHandoffSnapshot().effectiveLeadMs());
+        waitUntil(eligibleAt);
 
         final byte[] payload = payloadOverride == null ? message.payload() : Bytes.copy(payloadOverride);
         if (admissionRecoveryResume) {
@@ -976,9 +1029,14 @@ public final class PulsarClientArtifactWorkerSmoke {
         // bounded number of ordinary due turns to accumulate the exact head
         // credit; keep every submitted due task inside its WorkClass cap.
         for (int schedulerTurn = 0; schedulerTurn < 32; schedulerTurn++) {
-            final long dueEarliest = Math.max(System.currentTimeMillis(), message.deliverAtEpochMs());
-            final TrustedUtcIntervalEvidence dueEvidence =
-                    evidence(dueEarliest, dueEarliest + 500, "pulsar-worker-due-clock");
+            final long dueEarliest = Math.max(System.currentTimeMillis(), eligibleAt);
+            final long dueLatest = bridge.managedHandoffSnapshot() == null
+                    ? Math.addExact(dueEarliest, 500)
+                    : Math.min(Math.addExact(dueEarliest, 500), Math.subtractExact(message.deliverAtEpochMs(), 1));
+            if (dueLatest < dueEarliest) {
+                throw new IllegalStateException("Managed Handoff missed its pre-delivery Admission interval");
+            }
+            final TrustedUtcIntervalEvidence dueEvidence = evidence(dueEarliest, dueLatest, "pulsar-worker-due-clock");
             final long dueTaskRequestBytes = Math.addExact(44L, dueEvidence.canonicalBytes().length);
             final long dueDiscoveryBytes = Math.min(
                     Math.max(DUE_DISCOVERY_MAX_BYTES, (long) payload.length),
@@ -1257,6 +1315,19 @@ public final class PulsarClientArtifactWorkerSmoke {
             throw new IllegalStateException("source-applied physical publish did not return typed PUBLISHED evidence: "
                     + physicalResult.disposition() + "/" + physicalResult.stableCode());
         }
+        final PublishAdmissionBody physicalAdmission = PublishAdmissionBody.decode(attempt.admissionBytes());
+        final var physicalDescriptor = physicalAdmission.descriptor().value();
+        final boolean managedHandoff = bridge.managedHandoffSnapshot() != null;
+        if (managedHandoff
+                && (physicalDescriptor.deliveryContract()
+                                != com.nereusstream.delay.protocol.DeliveryContract.PULSAR_NATIVE_DELIVERY
+                        || physicalDescriptor.actionAtEpochMs() >= physicalDescriptor.deliverAtEpochMs()
+                        || !bridge.managedHandoffSnapshot().equals(physicalDescriptor.handoffPolicySnapshot())
+                        || physicalResult.brokerPersistenceTimeEpochMs() < physicalDescriptor.actionAtEpochMs()
+                        || physicalResult.brokerPersistenceTimeEpochMs() >= physicalDescriptor.deliverAtEpochMs())) {
+            throw new IllegalStateException(
+                    "real Managed Handoff did not persist inside its frozen native-delivery interval");
+        }
 
         if (hasDestinationResponseLossProcessCrash()) {
             if (!bridge.destinationResponseLoss() || !bridge.destinationResponseEvidenceResolved()) {
@@ -1358,7 +1429,7 @@ public final class PulsarClientArtifactWorkerSmoke {
                 || delayShard.findOpenPublishAttempt(publishAttemptId) != null) {
             throw new IllegalStateException("source-applied typed Publish Outcome did not close the PUBLISHED attempt");
         }
-        requirePayload(client, bridge.destinationPhysicalTopic(), payload);
+        requirePayload(client, bridge.destinationPhysicalTopic(), payload, managedHandoff ? 4 : 1);
         if (bridge.destinationResponseLoss()) {
             if (!bridge.destinationResponseEvidenceResolved()) {
                 throw new IllegalStateException(
@@ -1377,6 +1448,17 @@ public final class PulsarClientArtifactWorkerSmoke {
             System.out.println("Pulsar Worker Attempt Journal response-loss smoke passed: MAPPED, "
                     + "OWNERSHIP_STARTED, and PUBLISHED were each persisted before the client response was "
                     + "discarded and recovered by exact guarded contiguous readback");
+        }
+        if (managedHandoff) {
+            writeManagedHandoffEvidence(
+                    bridge,
+                    attempt,
+                    physicalDescriptor,
+                    physicalResult,
+                    evidence,
+                    physicalSchedulePosition,
+                    admissionPosition,
+                    outcomePosition);
         }
         System.out.println("Pulsar Worker source-applied physical publish passed: Admission source ledger="
                 + admissionPosition.ledgerId() + "/" + admissionPosition.entryId()
@@ -1434,7 +1516,14 @@ public final class PulsarClientArtifactWorkerSmoke {
             final long workClassBytes,
             final ClaimExecutionAdmission sharedClaimAdmission) {
         final WorkerSchedulingRuntime scheduling = WorkerSchedulingRuntime.openForActiveOwnerFromTypedLanes(
-                workClasses, ownedShard, authority, store, ownerIdentity, List.of(bridge.laneId()), 8);
+                workClasses,
+                ownedShard,
+                authority,
+                store,
+                ownerIdentity,
+                List.of(bridge.laneId()),
+                8,
+                bridge.managedHandoffAuthority());
         final ClaimExecutionAdmission permits =
                 sharedClaimAdmission == null ? new ClaimExecutionAdmission(1, workClassBytes) : sharedClaimAdmission;
         permits.registerShard(new ClaimExecutionAdmission.ShardSpec(runtime.shardId(), 1, workClassBytes));
@@ -1455,7 +1544,8 @@ public final class PulsarClientArtifactWorkerSmoke {
                 permits,
                 bridge.appender(),
                 ignored -> PublishAdmissionWorkClassExecutor.PrerequisiteDecision.available(),
-                ARTIFACTS);
+                bridge.artifacts(),
+                bridge.managedHandoffAuthority());
         final WorkerCommandRuntime commandRuntime =
                 new WorkerCommandRuntime(workClasses, store.sharedResources(), claimExecutor, publishExecutor);
         final WorkerPublishPreparationCoordinator preparation =
@@ -1472,7 +1562,14 @@ public final class PulsarClientArtifactWorkerSmoke {
                     if (retryUntil <= earliest) {
                         return Optional.empty();
                     }
-                    final long latest = Math.min(retryUntil - 1, Math.addExact(earliest, 500));
+                    long latest = Math.min(retryUntil - 1, Math.addExact(earliest, 500));
+                    if (request.claim().materialization().actionAtEpochMs()
+                            < request.claim().materialization().deliverAtEpochMs()) {
+                        latest = Math.min(
+                                latest,
+                                Math.subtractExact(
+                                        request.claim().materialization().deliverAtEpochMs(), 1));
+                    }
                     if (latest < earliest) {
                         return Optional.empty();
                     }
@@ -1957,6 +2054,55 @@ public final class PulsarClientArtifactWorkerSmoke {
             final int destinationPartition,
             final ShardLogMutationAppender suppliedAppender)
             throws Exception {
+        return createPhysicalPublishBridge(
+                client,
+                nativeConsumer,
+                sourcePhysicalTopic,
+                shard,
+                physicalSchedulePosition,
+                destinationPhysicalTopic,
+                store,
+                ownedShard,
+                ownerIdentity,
+                authority,
+                workClasses,
+                verificationKey,
+                destinationProfile,
+                capabilityProfile,
+                requestedLaneId,
+                requestedLaneIncarnation,
+                workClassBytes,
+                sharedPhysicalAdmission,
+                destinationPartition,
+                suppliedAppender,
+                null,
+                null);
+    }
+
+    private static PhysicalPublishBridge createPhysicalPublishBridge(
+            final PulsarClient client,
+            final GuardedConsumer<?> nativeConsumer,
+            final String sourcePhysicalTopic,
+            final ShardId shard,
+            final com.nereusstream.delay.protocol.SourcePosition physicalSchedulePosition,
+            final String destinationPhysicalTopic,
+            final ShardStore store,
+            final OwnedDelayShard ownedShard,
+            final OwnerIdentity ownerIdentity,
+            final OxiaOwnerLeaseStore authority,
+            final WorkClassExecutionRegistry workClasses,
+            final KeyPair verificationKey,
+            final ProfileRef destinationProfile,
+            final ProfileRef capabilityProfile,
+            final DestinationLaneId requestedLaneId,
+            final byte[] requestedLaneIncarnation,
+            final long workClassBytes,
+            final DestinationPhysicalAdmission sharedPhysicalAdmission,
+            final int destinationPartition,
+            final ShardLogMutationAppender suppliedAppender,
+            final PersistentStagingActivation.Loaded persistentActivation,
+            final ManagedHandoffConfiguration managedHandoff)
+            throws Exception {
         if (workClassBytes <= 0) {
             throw new IllegalArgumentException("Pulsar physical publish work-class bytes must be positive");
         }
@@ -1966,8 +2112,16 @@ public final class PulsarClientArtifactWorkerSmoke {
         if ((requestedLaneId == null) != (requestedLaneIncarnation == null)) {
             throw new IllegalArgumentException("Pulsar physical publish lane identity must be supplied as a pair");
         }
+        if ((persistentActivation == null) != (managedHandoff == null)) {
+            throw new IllegalArgumentException("Managed Handoff activation and composition must be supplied together");
+        }
+        final ArtifactGenerationSet artifacts =
+                persistentActivation == null ? ARTIFACTS : persistentActivation.artifacts();
+        final byte[] tenantScope = managedHandoff == null
+                ? bytes(32, 61)
+                : managedHandoff.identity().tenantRouteScopeDigest();
         final byte[] laneTuple = canonicalLaneTuple(
-                destinationPhysicalTopic, destinationProfile, capabilityProfile, destinationPartition);
+                tenantScope, destinationPhysicalTopic, destinationProfile, capabilityProfile, destinationPartition);
         final DestinationLaneId laneId =
                 requestedLaneId == null ? DestinationLaneId.derive(laneTuple) : requestedLaneId;
         final byte[] laneIncarnation = requestedLaneIncarnation == null
@@ -1990,6 +2144,18 @@ public final class PulsarClientArtifactWorkerSmoke {
         }
         final com.nereusstream.delay.protocol.BrokerResourceIdentity target =
                 destinationResource(destinationPhysicalTopic);
+        if (managedHandoff != null) {
+            if (!managedHandoff.identity().destination().ref().equals(destinationProfile)
+                    || !managedHandoff.identity().capability().ref().equals(capabilityProfile)
+                    || !com.nereusstream.delay.protocol.BrokerResourceIdentity.pulsar(
+                                    managedHandoff.identity().target())
+                            .equals(target)
+                    || !Arrays.equals(
+                            managedHandoff.identity().policyScopeDigest(), persistentActivation.policyScopeDigest())) {
+                throw new IllegalArgumentException("Managed Handoff bridge differs from its activated exact scope");
+            }
+            managedHandoff.activateAt(physicalSchedulePosition);
+        }
         final String producerName = destinationProducerName(laneId, laneIncarnation, target, destinationPartition);
         final byte[] producerIdentity = Bytes.utf8(producerName);
         final ChannelResourceIdentity channel;
@@ -2190,7 +2356,8 @@ public final class PulsarClientArtifactWorkerSmoke {
         final AtomicInteger physicalGateChecks = new AtomicInteger();
         final ExecutorService physicalExecutor =
                 Executors.newSingleThreadExecutor(Thread.ofVirtual().factory());
-        final PhysicalSendActivationGate persistentPhysicalGate = persistentPhysicalGate();
+        final PhysicalSendActivationGate persistentPhysicalGate =
+                persistentActivation == null ? null : persistentActivation.physicalGate();
         final WorkerPhysicalPublishExecutor executor = new WorkerPhysicalPublishExecutor(
                 adapter,
                 physicalAdmission,
@@ -2236,9 +2403,9 @@ public final class PulsarClientArtifactWorkerSmoke {
         executor.bindManagedPulsarContext(new WorkerPhysicalPublishExecutor.ManagedPulsarContext(
                 journalTransport.journal(),
                 journalProducer,
-                ARTIFACTS,
+                artifacts,
                 candidate -> {
-                    if (!ARTIFACTS.equals(candidate)) {
+                    if (!artifacts.equals(candidate)) {
                         throw new IllegalStateException("physical artifact generation differs from the admission");
                     }
                 },
@@ -2262,6 +2429,32 @@ public final class PulsarClientArtifactWorkerSmoke {
                                 authority, attempt, journalPosition, System::currentTimeMillis);
                     }
                 },
+                managedHandoff == null
+                        ? null
+                        : (admission, candidateArtifacts, trustedTime, admissionPosition) -> {
+                            final var descriptor = admission.descriptor().value();
+                            final ScheduleBinding binding = ownedShard.getScheduleBinding(descriptor.messageId());
+                            if (binding == null) {
+                                throw new IllegalStateException(
+                                        "physical Managed Handoff has no source-bound Schedule binding");
+                            }
+                            final var publication = persistentActivation.policyPublication();
+                            managedHandoff
+                                    .authority()
+                                    .requireFrozen(
+                                            descriptor,
+                                            descriptor.materialization(
+                                                    publication.head().ref(publication.oxiaVersion())),
+                                            binding,
+                                            trustedTime,
+                                            admissionPosition);
+                        },
+                managedHandoff == null
+                        ? null
+                        : () -> {
+                            final long now = System.currentTimeMillis();
+                            return evidence(now, now, "pulsar-worker-managed-handoff-physical-time");
+                        },
                 ownerIdentity.ownerEpoch()));
         return new PhysicalPublishBridge(
                 executor,
@@ -2269,6 +2462,11 @@ public final class PulsarClientArtifactWorkerSmoke {
                 appender,
                 journalTransport,
                 physicalExecutor,
+                artifacts,
+                managedHandoff == null ? null : managedHandoff.authority(),
+                managedHandoff == null
+                        ? null
+                        : persistentActivation.policyPublication().head().snapshot(),
                 laneId,
                 laneIncarnation,
                 destinationProfile,
@@ -2440,11 +2638,21 @@ public final class PulsarClientArtifactWorkerSmoke {
             final ProfileRef destination,
             final ProfileRef capability,
             final int destinationPartition) {
+        return canonicalLaneTuple(bytes(32, 61), physicalTopic, destination, capability, destinationPartition);
+    }
+
+    private static byte[] canonicalLaneTuple(
+            final byte[] tenantRouteScopeDigest,
+            final String physicalTopic,
+            final ProfileRef destination,
+            final ProfileRef capability,
+            final int destinationPartition) {
         if (destinationPartition < 0) {
             throw new IllegalArgumentException("Pulsar destination partition must be non-negative");
         }
+        Bytes.requireLength(tenantRouteScopeDigest, 32, "tenantRouteScopeDigest");
         return Bytes.concat(
-                bytes(32, 61),
+                tenantRouteScopeDigest,
                 Bytes.u8(AdapterKind.PULSAR.wireValue()),
                 Bytes.lp32(Bytes.utf8(CLUSTER)),
                 Bytes.u8(2),
@@ -2556,18 +2764,135 @@ public final class PulsarClientArtifactWorkerSmoke {
         throw new IllegalStateException("Pulsar SEND ACK branch is missing field " + number);
     }
 
+    private static byte[] branchBytes(final PublishEvidence evidence, final int number) {
+        final CanonicalProtobuf.Reader reader = new CanonicalProtobuf.Reader(evidence.branch());
+        while (reader.hasRemaining()) {
+            final CanonicalProtobuf.Reader.Field field = reader.next();
+            if (field.number() == number && field.wireType() == 2) {
+                return field.rawValue();
+            }
+        }
+        throw new IllegalStateException("Pulsar SEND ACK branch is missing bytes field " + number);
+    }
+
+    private static void writeManagedHandoffEvidence(
+            final PhysicalPublishBridge bridge,
+            final PublishAttemptLedger attempt,
+            final PreparedPublishDescriptor descriptor,
+            final DestinationPublishResult result,
+            final PublishEvidence evidence,
+            final PulsarSourcePosition schedulePosition,
+            final PulsarSourcePosition admissionPosition,
+            final PulsarSourcePosition outcomePosition)
+            throws Exception {
+        final String configured = System.getenv("NEREUS_DELAY_PERSISTENT_STAGING_MANAGED_EVIDENCE");
+        if (configured == null || configured.isBlank()) {
+            throw new IllegalStateException("persistent Managed Handoff evidence path is not configured");
+        }
+        final List<PulsarAttemptJournal.JournalRecord> records = bridge.journalRecords();
+        final List<PulsarAttemptJournal.RecordKind> expectedKinds = List.of(
+                PulsarAttemptJournal.RecordKind.MAPPED,
+                PulsarAttemptJournal.RecordKind.OWNERSHIP_STARTED,
+                PulsarAttemptJournal.RecordKind.PUBLISHED);
+        if (records.size() != expectedKinds.size()
+                || !records.stream()
+                        .map(PulsarAttemptJournal.JournalRecord::kind)
+                        .toList()
+                        .equals(expectedKinds)) {
+            throw new IllegalStateException("Managed Handoff Attempt Journal is not mapping-before-send complete");
+        }
+        final long sequenceId = records.getFirst().mapping().sequenceId();
+        final byte[] mappingId = records.getFirst().mapping().mappingId();
+        if (sequenceId != branchNumber(evidence, 13)
+                || records.stream()
+                        .anyMatch(record ->
+                                !Arrays.equals(mappingId, record.mapping().mappingId()))) {
+            throw new IllegalStateException("Managed Handoff SEND sequence differs from its durable Journal mapping");
+        }
+        final JsonArray journal = new JsonArray();
+        for (PulsarAttemptJournal.JournalRecord record : records) {
+            final JsonObject row = new JsonObject();
+            row.addProperty("kind", record.kind().name());
+            row.addProperty("sequenceId", record.mapping().sequenceId());
+            row.addProperty(
+                    "positionSha256", Bytes.hex(Bytes.sha256(record.position().canonicalBytes())));
+            journal.add(row);
+        }
+        final JsonObject value = new JsonObject();
+        value.addProperty("schema", "nereus-delay.managed-handoff-canary-evidence");
+        value.addProperty("schemaGeneration", 1);
+        value.addProperty("verdict", "PASS");
+        value.addProperty("productionPath", true);
+        value.addProperty("productionAuthority", false);
+        value.addProperty("nativeAdmission", 1);
+        value.addProperty("nativeSend", 1);
+        value.addProperty("handedOff", 1);
+        value.addProperty("deliveryContract", descriptor.deliveryContract().name());
+        value.addProperty("actionAtEpochMs", descriptor.actionAtEpochMs());
+        value.addProperty("deliverAtEpochMs", descriptor.deliverAtEpochMs());
+        value.addProperty("brokerPersistenceTimeEpochMs", result.brokerPersistenceTimeEpochMs());
+        value.addProperty(
+                "policyGeneration",
+                Long.toUnsignedString(descriptor.handoffPolicySnapshot().generation()));
+        value.addProperty(
+                "policySnapshotDigest",
+                Bytes.hex(descriptor.handoffPolicySnapshot().snapshotDigest()));
+        value.addProperty("publishAttemptId", Bytes.hex(attempt.publishAttemptId()));
+        value.addProperty("preparedPublishHash", Bytes.hex(descriptor.preparedPublishHash()));
+        value.addProperty("recordTemplateHash", Bytes.hex(descriptor.recordTemplateHash()));
+        value.addProperty("preparedRecordHash", Bytes.hex(branchBytes(evidence, 17)));
+        value.addProperty("sequenceId", sequenceId);
+        value.addProperty("sendCommandSha256", Bytes.hex(branchBytes(evidence, 19)));
+        value.addProperty("authenticatedResponseCommandSha256", Bytes.hex(branchBytes(evidence, 20)));
+        value.addProperty("p1SourceLock", Bytes.hex(branchBytes(evidence, 21)));
+        value.addProperty("artifactSetDigest", Bytes.hex(branchBytes(evidence, 22)));
+        value.addProperty("schedulePositionSha256", Bytes.hex(Bytes.sha256(schedulePosition.canonicalBytes())));
+        value.addProperty("admissionPositionSha256", Bytes.hex(Bytes.sha256(admissionPosition.canonicalBytes())));
+        value.addProperty("outcomePositionSha256", Bytes.hex(Bytes.sha256(outcomePosition.canonicalBytes())));
+        value.addProperty("destinationResponseLossResolved", bridge.destinationResponseEvidenceResolved());
+        value.addProperty("attemptJournalResponseLossRecoveries", bridge.attemptJournalResponseLossRecoveries());
+        value.add("journal", journal);
+        PersistentStagingEvidence.writeNew(
+                Path.of(configured), (GSON.toJson(value) + "\n").getBytes(StandardCharsets.UTF_8));
+    }
+
     private static void requirePayload(
             final PulsarClient client, final String physicalTopic, final byte[] expectedPayload) throws Exception {
+        requirePayload(client, physicalTopic, expectedPayload, 1);
+    }
+
+    private static void requirePayload(
+            final PulsarClient client,
+            final String physicalTopic,
+            final byte[] expectedPayload,
+            final int maximumMessages)
+            throws Exception {
+        if (maximumMessages <= 0) {
+            throw new IllegalArgumentException("maximumMessages must be positive");
+        }
         final TopicResourceGuard guard =
                 new TopicResourceGuard(CLUSTER, DESTINATION_INCARNATION, DESTINATION_CREATION_TIMESTAMP);
         final GuardedConsumer<byte[]> consumer = PulsarClientArtifactSourceConsumerFactory.create(
                 client, guard, physicalTopic, "nereus-delay-p1-worker-destination-" + physicalTopic.hashCode());
         try {
-            final Message<byte[]> message = consumer.receive(15, TimeUnit.SECONDS);
-            if (message == null || !Arrays.equals(expectedPayload, message.getValue())) {
-                throw new IllegalStateException("source-applied typed destination payload was not read back exactly");
+            final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(25);
+            for (int received = 0; received < maximumMessages; received++) {
+                final long remaining = deadline - System.nanoTime();
+                final int remainingMs = remaining <= 0
+                        ? 0
+                        : Math.toIntExact(
+                                Math.min(Integer.MAX_VALUE, Math.max(1, TimeUnit.NANOSECONDS.toMillis(remaining))));
+                final Message<byte[]> message =
+                        remainingMs == 0 ? null : consumer.receive(remainingMs, TimeUnit.MILLISECONDS);
+                if (message == null) {
+                    break;
+                }
+                consumer.acknowledge(message);
+                if (Arrays.equals(expectedPayload, message.getValue())) {
+                    return;
+                }
             }
-            consumer.acknowledge(message);
+            throw new IllegalStateException("source-applied typed destination payload was not read back exactly");
         } finally {
             consumer.close();
         }
@@ -2597,12 +2922,42 @@ public final class PulsarClientArtifactWorkerSmoke {
         }
     }
 
+    private record ManagedHandoffConfiguration(
+            PersistentStagingActivation.Loaded activation,
+            PersistentStagingNativeCanaryIdentity.Identity identity,
+            OxiaSyncHandoffPolicyTrustStore trustStore,
+            AtomicReference<SourcePosition> trustPosition,
+            ProfileCatalogManagedNativeEligibilityAuthority authority) {
+        private ManagedHandoffConfiguration {
+            Objects.requireNonNull(activation, "activation");
+            Objects.requireNonNull(identity, "identity");
+            Objects.requireNonNull(trustStore, "trustStore");
+            Objects.requireNonNull(trustPosition, "trustPosition");
+            Objects.requireNonNull(authority, "authority");
+        }
+
+        private void activateAt(final SourcePosition sourcePosition) {
+            final SourcePosition exact = Objects.requireNonNull(sourcePosition, "sourcePosition");
+            final HandoffPolicySnapshot snapshot =
+                    activation.policyPublication().head().snapshot();
+            trustStore.installIssuerKey(activation.trustedKeyGeneration(), activation.trustedPublicKey(), exact);
+            trustStore.activatePolicy(identity.policyScopeDigest(), snapshot.generation(), exact);
+            if (!trustPosition.compareAndSet(null, exact)
+                    && !Arrays.equals(trustPosition.get().canonicalBytes(), exact.canonicalBytes())) {
+                throw new IllegalStateException("Managed Handoff trust position changed after activation");
+            }
+        }
+    }
+
     static final class PhysicalPublishBridge implements AutoCloseable {
         private final WorkerPhysicalPublishExecutor executor;
         private final RecordingMutationAppender appender;
         private final AutoCloseable appenderResource;
         private final PulsarClientArtifactAttemptJournal journalResource;
         private final AutoCloseable physicalExecutorResource;
+        private final ArtifactGenerationSet artifacts;
+        private final ProfileCatalogManagedNativeEligibilityAuthority managedHandoffAuthority;
+        private final HandoffPolicySnapshot managedHandoffSnapshot;
         private final DestinationLaneId laneId;
         private final byte[] laneIncarnation;
         private final ProfileRef destinationProfile;
@@ -2624,6 +2979,9 @@ public final class PulsarClientArtifactWorkerSmoke {
                 final AutoCloseable appenderResource,
                 final PulsarClientArtifactAttemptJournal journalResource,
                 final AutoCloseable physicalExecutorResource,
+                final ArtifactGenerationSet artifacts,
+                final ProfileCatalogManagedNativeEligibilityAuthority managedHandoffAuthority,
+                final HandoffPolicySnapshot managedHandoffSnapshot,
                 final DestinationLaneId laneId,
                 final byte[] laneIncarnation,
                 final ProfileRef destinationProfile,
@@ -2643,6 +3001,13 @@ public final class PulsarClientArtifactWorkerSmoke {
             this.appenderResource = appenderResource;
             this.journalResource = journalResource;
             this.physicalExecutorResource = physicalExecutorResource;
+            this.artifacts = Objects.requireNonNull(artifacts, "artifacts");
+            if ((managedHandoffAuthority == null) != (managedHandoffSnapshot == null)) {
+                throw new IllegalArgumentException(
+                        "Managed Handoff authority and frozen activation snapshot must be paired");
+            }
+            this.managedHandoffAuthority = managedHandoffAuthority;
+            this.managedHandoffSnapshot = managedHandoffSnapshot;
             this.laneId = laneId;
             this.laneIncarnation = Bytes.copy(laneIncarnation);
             this.destinationProfile = destinationProfile;
@@ -2661,6 +3026,18 @@ public final class PulsarClientArtifactWorkerSmoke {
 
         WorkerPhysicalPublishExecutor executor() {
             return executor;
+        }
+
+        ArtifactGenerationSet artifacts() {
+            return artifacts;
+        }
+
+        ProfileCatalogManagedNativeEligibilityAuthority managedHandoffAuthority() {
+            return managedHandoffAuthority;
+        }
+
+        HandoffPolicySnapshot managedHandoffSnapshot() {
+            return managedHandoffSnapshot;
         }
 
         ShardLogMutationAppender appender() {
@@ -2721,6 +3098,10 @@ public final class PulsarClientArtifactWorkerSmoke {
 
         int attemptJournalResponseLossRecoveries() {
             return journalResource.responseLossRecoveries();
+        }
+
+        List<PulsarAttemptJournal.JournalRecord> journalRecords() {
+            return journalResource.journal().records();
         }
 
         boolean admissionResponseLoss() {
@@ -3583,6 +3964,105 @@ public final class PulsarClientArtifactWorkerSmoke {
         return PreparedCommand.schedule(shard, intent, deliverAt + 20_000);
     }
 
+    private static PreparedCommand managedHandoffCommand(
+            final ShardId shard, final PersistentStagingNativeCanaryIdentity.Identity identity, final byte[] payload) {
+        final long deliverAt = Math.addExact(System.currentTimeMillis(), 18_000);
+        final RetryPolicyRef retryPolicy = new RetryPolicyRef(
+                Bytes.utf8("pulsar-worker-managed-handoff-retry"),
+                1,
+                Bytes.sha256(Bytes.utf8("pulsar-worker-managed-handoff-retry-semantic")));
+        final CanonicalScheduleIntent intent = CanonicalScheduleIntent.create(
+                identity.destination().ref(),
+                retryPolicy,
+                deliverAt,
+                Math.addExact(deliverAt, 30_000),
+                DeliveryMode.MANAGED,
+                OrderingMode.BEST_EFFORT,
+                NativeDeliveryPolicy.ALLOW_AUTO_FAST_AND_MANAGED_HANDOFF,
+                Bytes.utf8("pulsar-worker-managed-handoff-ordering"),
+                payload,
+                null,
+                AdapterMetadata.pulsar(new PulsarMetadata(
+                        Bytes.utf8("managed-handoff-key"),
+                        PulsarMetadata.KeyEncoding.UTF8,
+                        Bytes.utf8("managed-handoff-ordering"),
+                        List.of(new PulsarMetadata.Property("managed-handoff", "persistent-staging")))),
+                null,
+                System.currentTimeMillis());
+        return PreparedCommand.schedule(shard, intent, Math.addExact(deliverAt, 40_000));
+    }
+
+    private static ManagedHandoffConfiguration managedHandoffConfiguration(
+            final PersistentStagingActivation.Loaded activation, final String destinationPhysicalTopic) {
+        if (!hasManagedHandoffCanary()) {
+            if (activation != null) {
+                throw new IllegalArgumentException("persistent activation was loaded outside a Managed Handoff run");
+            }
+            return null;
+        }
+        if (activation == null || destinationPhysicalTopic == null) {
+            throw new IllegalStateException(
+                    "Managed Handoff canary requires complete persistent activation and an exact destination");
+        }
+        final PersistentStagingNativeCanaryIdentity.Identity identity = PersistentStagingNativeCanaryIdentity.create(
+                CLUSTER,
+                DESTINATION_INCARNATION,
+                destinationPhysicalTopic,
+                DESTINATION_CREATION_TIMESTAMP,
+                activation.artifacts());
+        if (!Arrays.equals(identity.policyScopeDigest(), activation.policyScopeDigest())
+                || !Arrays.equals(
+                        identity.policyScopeDigest(),
+                        activation.policyPublication().head().scopeDigest())
+                || !activation
+                        .policyPublication()
+                        .head()
+                        .snapshot()
+                        .allows(com.nereusstream.delay.protocol.HandoffPath.MANAGED_HANDOFF)) {
+            throw new IllegalStateException("persistent activation does not authorize the exact Managed Handoff");
+        }
+        final ProfileCatalog catalog = profileCatalog(identity);
+        final var trustStore = activation.handoffPolicyTrustStore();
+        final AtomicReference<SourcePosition> trustPosition = new AtomicReference<>();
+        final ProfileCatalogManagedNativeEligibilityAuthority authority =
+                new ProfileCatalogManagedNativeEligibilityAuthority(
+                        catalog,
+                        activation.handoffPolicyAuthority(),
+                        trustStore,
+                        activation.artifacts(),
+                        () -> Objects.requireNonNull(trustPosition.get(), "Managed Handoff source trust position"));
+        return new ManagedHandoffConfiguration(activation, identity, trustStore, trustPosition, authority);
+    }
+
+    private static ProfileCatalog profileCatalog(final PersistentStagingNativeCanaryIdentity.Identity identity) {
+        return new ProfileCatalog() {
+            @Override
+            public ProfileSemanticEnvelope resolve(final ProfileRef reference) {
+                if (identity.destination().ref().equals(reference)) {
+                    return identity.destination();
+                }
+                return identity.capability().ref().equals(reference) ? identity.capability() : null;
+            }
+
+            @Override
+            public com.nereusstream.delay.protocol.CredentialBinding resolveBinding(
+                    final ProfileRef profile, final long secretGeneration) {
+                return null;
+            }
+
+            @Override
+            public com.nereusstream.delay.protocol.CredentialBindingHead resolveHead(final ProfileRef profile) {
+                return null;
+            }
+
+            @Override
+            public com.nereusstream.delay.protocol.CredentialBindingProtection resolveProtection(
+                    final ProfileRef profile, final long secretGeneration) {
+                return null;
+            }
+        };
+    }
+
     private static void requirePhysicalTestingEnvironment() {
         final String classification = System.getenv("NEREUS_DELAY_ENVIRONMENT_CLASSIFICATION");
         if (!"DISPOSABLE_LOCAL".equals(classification) && !"STAGING".equals(classification)) {
@@ -3595,9 +4075,52 @@ public final class PulsarClientArtifactWorkerSmoke {
         return "STAGING".equals(System.getenv("NEREUS_DELAY_ENVIRONMENT_CLASSIFICATION"));
     }
 
-    private static PhysicalSendActivationGate persistentPhysicalGate() throws Exception {
-        final PersistentStagingActivation.Loaded activation = PersistentStagingActivation.loadIfConfigured();
-        return activation == null ? null : activation.physicalGate();
+    private static boolean hasManagedHandoffCanary() {
+        return "1".equals(System.getenv("NEREUS_DELAY_PULSAR_WORKER_MANAGED_HANDOFF"));
+    }
+
+    private static WorkerAuthorityResources openWorkerAuthorityResources() throws Exception {
+        final OxiaSyncOwnerLeaseBackend.ClientHandle oxia = connectOxiaIfConfigured();
+        try {
+            final PersistentStagingActivation.Loaded activation =
+                    hasManagedHandoffCanary() ? PersistentStagingActivation.loadFromEnvironment() : null;
+            return new WorkerAuthorityResources(oxia, activation);
+        } catch (Exception | Error failure) {
+            if (oxia != null) {
+                oxia.close();
+            }
+            throw failure;
+        }
+    }
+
+    private record WorkerAuthorityResources(
+            OxiaSyncOwnerLeaseBackend.ClientHandle oxia, PersistentStagingActivation.Loaded persistentActivation)
+            implements Closeable {
+        @Override
+        public void close() throws IOException {
+            IOException failure = null;
+            if (persistentActivation != null) {
+                try {
+                    persistentActivation.close();
+                } catch (IOException closeFailure) {
+                    failure = closeFailure;
+                }
+            }
+            if (oxia != null) {
+                try {
+                    oxia.close();
+                } catch (IOException closeFailure) {
+                    if (failure == null) {
+                        failure = closeFailure;
+                    } else {
+                        failure.addSuppressed(closeFailure);
+                    }
+                }
+            }
+            if (failure != null) {
+                throw failure;
+            }
+        }
     }
 
     static byte[] attemptJournalIncarnation() {
@@ -3608,7 +4131,8 @@ public final class PulsarClientArtifactWorkerSmoke {
         return JOURNAL_CREATION_TIMESTAMP;
     }
 
-    private static ScheduleResolver scheduleResolver(final String destinationPhysicalTopic) {
+    private static ScheduleResolver scheduleResolver(
+            final String destinationPhysicalTopic, final ManagedHandoffConfiguration managedHandoff) {
         if (destinationPhysicalTopic != null) {
             return new ScheduleResolver() {
                 @Override
@@ -3617,9 +4141,21 @@ public final class PulsarClientArtifactWorkerSmoke {
                         final DelayMessageId message,
                         final CanonicalScheduleIntent intent,
                         final com.nereusstream.delay.protocol.SourcePosition source) {
+                    final ProfileRef capability = managedHandoff == null
+                            ? capabilityProfile()
+                            : managedHandoff.identity().capability().ref();
+                    final byte[] tenantScope = managedHandoff == null
+                            ? bytes(32, 61)
+                            : managedHandoff.identity().tenantRouteScopeDigest();
                     final byte[] tuple =
-                            canonicalLaneTuple(destinationPhysicalTopic, intent.profile(), capabilityProfile());
-                    return new ResolvedSchedule(DestinationLaneId.derive(tuple), tuple, intent.inlinePayload(), null);
+                            canonicalLaneTuple(tenantScope, destinationPhysicalTopic, intent.profile(), capability, 0);
+                    final Long actionAt = managedHandoff == null
+                            ? null
+                            : Math.subtractExact(
+                                    intent.deliverAtEpochMs(),
+                                    PersistentStagingNativeCanaryIdentity.MAX_HANDOFF_LEAD_MS);
+                    return new ResolvedSchedule(
+                            DestinationLaneId.derive(tuple), tuple, intent.inlinePayload(), null, actionAt);
                 }
 
                 @Override
@@ -3628,10 +4164,18 @@ public final class PulsarClientArtifactWorkerSmoke {
                         final DelayMessageId message,
                         final com.nereusstream.delay.protocol.PrepareLargeScheduleBody body,
                         final com.nereusstream.delay.protocol.SourcePosition source) {
+                    final ProfileRef capability = managedHandoff == null
+                            ? capabilityProfile()
+                            : managedHandoff.identity().capability().ref();
+                    final byte[] tenantScope = managedHandoff == null
+                            ? bytes(32, 61)
+                            : managedHandoff.identity().tenantRouteScopeDigest();
                     final byte[] tuple = canonicalLaneTuple(
+                            tenantScope,
                             destinationPhysicalTopic,
                             body.intentWithoutPayload().profile(),
-                            capabilityProfile());
+                            capability,
+                            0);
                     return new ResolvedPrepare(DestinationLaneId.derive(tuple), tuple);
                 }
             };
