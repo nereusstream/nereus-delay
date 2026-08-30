@@ -118,6 +118,25 @@ def state_has_unresolved(path: Path) -> bool:
     return False
 
 
+def verify_no_native_send_markers(shadow_dir: Path, forbidden: tuple[str, ...]) -> None:
+    """Scan text evidence without interpreting the RocksDB state tree as UTF-8 logs."""
+    worker_state_root = shadow_dir / "chaos/shadow-worker-ownership/worker-root"
+    if not worker_state_root.is_dir() or worker_state_root.is_symlink():
+        fail(f"SHADOW Worker state root is not a regular directory: {worker_state_root}")
+
+    for path in shadow_dir.rglob("*.log"):
+        if path.is_relative_to(worker_state_root):
+            continue
+        if not path.is_file() or path.is_symlink():
+            fail(f"SHADOW text evidence is not a regular file: {path}")
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            fail(f"SHADOW text evidence is not strict UTF-8: {path}: {exc}")
+        if any(marker in text for marker in forbidden):
+            fail(f"SHADOW evidence contains a native physical send marker: {path}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--shadow-dir", type=Path, required=True)
@@ -181,10 +200,7 @@ def main() -> int:
         fail("SHADOW is missing the real managed Worker baseline evidence")
 
     forbidden = ("Pulsar native coordinator typed-evidence smoke passed", "native physical send")
-    for path in args.shadow_dir.rglob("*.log"):
-        text = path.read_text(encoding="utf-8")
-        if any(marker in text for marker in forbidden):
-            fail(f"SHADOW evidence contains a native physical send marker: {path}")
+    verify_no_native_send_markers(args.shadow_dir, forbidden)
     for path in (args.shadow_dir / "chaos/shadow-worker-ownership/state").glob("*.json"):
         if state_has_unresolved(path):
             fail(f"SHADOW state contains unresolved state: {path}")

@@ -14130,3 +14130,19 @@ checkpoint namespace and 16-byte ID now bind Route Incarnation, unsigned
 partition and owner epoch, giving retries one stable identity without aliasing
 independent Shards or ownership generations. The source-contract regression
 rejects a return to the global path.
+
+## 2026-08-30 NDIP-1 SHADOW evidence type audit
+
+The first run to pass the corrected Store and checkpoint bindings reached Gate
+C, then exposed an evidence-parser type error before SHADOW certification. A
+recursive `*.log` scan crossed into the retained Worker state root and decoded
+a binary RocksDB WAL as UTF-8. This was not a native-path runtime failure, and
+the fail-closed validator prevented a SHADOW receipt and current-pointer
+promotion.
+
+The corrected validator names one closed binary-state subtree and never
+interprets its WAL/checkpoint files as text. It still strictly validates every
+log outside that subtree as a regular non-symlink UTF-8 file and rejects both
+invalid encoding and native physical-send markers. Regression tests prove the
+three distinct cases, so the fix does not turn malformed evidence into a
+silent skip.

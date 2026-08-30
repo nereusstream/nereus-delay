@@ -17709,3 +17709,15 @@ The second Shard correctly failed because the retained target already existed.
 Final checkpoint path and identity are now deterministic over Route
 Incarnation, unsigned partition and owner epoch. This preserves same-drain
 retry identity while separating Shards and later ownership generations.
+
+The next full persistent run reached and signed Gate C after exact 13-resource
+readback, then correctly stopped before issuing a SHADOW receipt. Its SHADOW
+validator recursively treated every `*.log` below the observation root as
+UTF-8, including a binary RocksDB WAL below the Worker's retained state root.
+The validator now has an explicit evidence-type boundary: the exact
+`shadow-worker-ownership/worker-root` subtree is persistent binary state, while
+every `.log` outside it remains a required regular, non-symlink, strict-UTF-8
+text artifact and is scanned for forbidden native-send markers. Focused tests
+cover the valid WAL case and fail-closed behavior for malformed or forbidden
+text evidence. The blocked run did not issue SHADOW/ENABLED authority or
+advance the current deployment pointer.

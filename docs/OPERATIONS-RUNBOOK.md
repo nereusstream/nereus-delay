@@ -2098,6 +2098,17 @@ hash carries the same tuple. A retry of one drain therefore addresses the same
 physical identity, while another Shard or ownership generation cannot collide
 with or silently reuse its directory.
 
+SHADOW evidence validation treats
+`shadow/chaos/shadow-worker-ownership/worker-root` as a typed persistent-state
+subtree. RocksDB WAL files happen to use the `.log` suffix but are binary and
+must not be decoded as application logs. Outside that exact state root, every
+`.log` remains required to be a regular, non-symlink, strict-UTF-8 evidence
+file and is scanned for forbidden native-send markers. A decode error outside
+the typed state tree is a certification failure; operators must not use
+replacement decoding or ignore malformed files. Run `20260830091937-44496`
+is the immutable blocked evidence that exposed this boundary after Gate C and
+before any SHADOW receipt or ENABLED activation.
+
 ## 2026-08-28 NDIP-1 disposable local certification — da15290e (historical)
 
 The current disposable entry point is

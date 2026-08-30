@@ -79,6 +79,51 @@ class ShadowObservationValidatorTest(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 VALIDATOR.verify_policy(policy_dir, bad_key, 1)
 
+    def test_binary_rocksdb_wal_is_not_interpreted_as_text_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            shadow_dir = Path(directory) / "shadow"
+            state_root = shadow_dir / "chaos/shadow-worker-ownership/worker-root"
+            state_root.mkdir(parents=True)
+            (state_root / "000023.log").write_bytes(b"\xa7\x00\xffnative physical send")
+            text_log = shadow_dir / "broker-restart/start.log"
+            text_log.parent.mkdir(parents=True)
+            text_log.write_text("broker restarted\n", encoding="utf-8")
+
+            VALIDATOR.verify_no_native_send_markers(
+                shadow_dir,
+                ("native physical send",),
+            )
+
+    def test_non_utf8_file_outside_worker_state_tree_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            shadow_dir = Path(directory) / "shadow"
+            state_root = shadow_dir / "chaos/shadow-worker-ownership/worker-root"
+            state_root.mkdir(parents=True)
+            text_log = shadow_dir / "broker-restart/start.log"
+            text_log.parent.mkdir(parents=True)
+            text_log.write_bytes(b"\xa7\x00\xff")
+
+            with self.assertRaisesRegex(SystemExit, "not strict UTF-8"):
+                VALIDATOR.verify_no_native_send_markers(
+                    shadow_dir,
+                    ("native physical send",),
+                )
+
+    def test_native_send_marker_in_text_evidence_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            shadow_dir = Path(directory) / "shadow"
+            state_root = shadow_dir / "chaos/shadow-worker-ownership/worker-root"
+            state_root.mkdir(parents=True)
+            text_log = shadow_dir / "broker-restart/start.log"
+            text_log.parent.mkdir(parents=True)
+            text_log.write_text("native physical send\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(SystemExit, "native physical send marker"):
+                VALIDATOR.verify_no_native_send_markers(
+                    shadow_dir,
+                    ("native physical send",),
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

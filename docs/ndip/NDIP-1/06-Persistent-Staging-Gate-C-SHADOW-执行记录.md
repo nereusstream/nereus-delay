@@ -238,6 +238,20 @@ checkpoint target 已存在而拒绝。当前 P1 Worker production-composition s
 同一次 drain retry 保持同一身份，不同 Shard 或 ownership generation 不再别名。该 blocked run 同样
 没有 Gate C/SHADOW/ENABLED authority。
 
+run `20260830091937-44496` 在候选
+`127513618f78c3b21d88540406fc3ce40844cbe2` 上完成了 13/13 Manifest readback、Gate C 41/41 和
+SHADOW 的真实 dependency/ownership 场景，但在 SHADOW observation validator 处 fail-closed。旧
+validator 对 `shadow/` 递归读取所有 `*.log`，因而把 Worker `worker-root` 中 RocksDB 的二进制 WAL
+`000023.log` 错当作 UTF-8 应用日志，触发 `UnicodeDecodeError`。该 run 没有签发 SHADOW receipt、
+没有进入 ENABLED，也没有更新 current deployment pointer；其 Gate C receipt 仅绑定旧候选，不能
+认证修复后的 HEAD。
+
+当前 validator 将 `chaos/shadow-worker-ownership/worker-root` 定义为唯一的 typed persistent-state
+树，不再把其中的 RocksDB WAL/checkpoint 文件解释为文本；该树外所有 `*.log` 仍必须是 regular、
+non-symlink、strict UTF-8，并继续检查 native physical-send 禁止标记。回归测试同时覆盖二进制 WAL
+被正确分类、状态树外非 UTF-8 证据 fail-closed，以及真实 native-send marker fail-closed。不能通过
+`errors=ignore` 或捕获后静默跳过来放宽证据验证。
+
 ## Authority 边界
 
 即使 current pointer 对某个 HEAD 验证 PASS，也只说明固定本机 staging 的 bounded 候选认证：
