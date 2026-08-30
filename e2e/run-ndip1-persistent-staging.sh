@@ -1422,6 +1422,26 @@ run_local_storage_chaos() {
   set -e
   [[ "${before_status}" != 0 ]] || fail "disaster local-storage process unexpectedly survived SIGKILL"
   run_local_storage_phase disaster-host-fault after "${disaster_dir}"
+  local disaster_before_results="${run_dir}/results/gate-c-local-storage-disaster-before"
+  local disaster_after_run="${run_dir}/results/gate-c-local-storage-disaster-host-fault-after/run.json"
+  [[ -s "${disaster_before_results}/run.json" ]] || fail "disaster local-storage before run record is missing"
+  [[ -s "${disaster_after_run}" ]] || fail "disaster local-storage recovery run record is missing"
+  jq -e '.schema == "nereus-delay.ndip1-test-run" and .exitCode == 0' "${disaster_after_run}" \
+    >/dev/null || fail "disaster local-storage recovery did not pass"
+  local expected_fault_marker="${disaster_before_results}/expected-fault.json"
+  jq -n \
+    --arg resultDir "${disaster_before_results}" \
+    --arg killReceipt "${disaster_dir}/kill-receipt.json" \
+    --arg killReceiptSha256 "$(sha256_file "${disaster_dir}/kill-receipt.json")" \
+    --arg recoveryRunJson "${disaster_after_run}" \
+    --arg recoveryRunJsonSha256 "$(sha256_file "${disaster_after_run}")" \
+    '{schema:"nereus-delay.ndip1-expected-fault",schemaGeneration:1,
+      classification:"EXPECTED_TERMINATION",cell:"disaster-host-fault",signal:"SIGKILL",signalNumber:9,
+      testClass:"com.nereusstream.delay.store.LocalStorageDurableChaosTest",
+      testName:"localStorageFailureSurvivesFreshProcessRecovery",resultDir:$resultDir,
+      killReceipt:$killReceipt,killReceiptSha256:$killReceiptSha256,
+      recoveryRunJson:$recoveryRunJson,recoveryRunJsonSha256:$recoveryRunJsonSha256}' \
+    >"${expected_fault_marker}"
 
   command -v hdiutil >/dev/null 2>&1 || fail "hdiutil is required for the real ENOSPC staging cell"
   local enospc_dir="${root}/enospc"

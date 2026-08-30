@@ -4,12 +4,16 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
 
 EXPECTED = 41
+EXPECTED_FAULT_SCHEMA = "nereus-delay.ndip1-expected-fault"
+LOCAL_STORAGE_TEST_CLASS = "com.nereusstream.delay.store.LocalStorageDurableChaosTest"
+LOCAL_STORAGE_TEST_NAME = "localStorageFailureSurvivesFreshProcessRecovery()"
 
 
 def iter_cases(root: Path):
@@ -42,21 +46,112 @@ def read_cases(root: Path) -> dict[tuple[str, str], dict[str, str]]:
     return cases
 
 
-def collect_cases(directories: list[Path]) -> dict[tuple[str, str], list[dict[str, str]]]:
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def read_expected_fault(root: Path) -> dict[str, object] | None:
+    marker_path = root / "expected-fault.json"
+    if not marker_path.is_file():
+        return None
+    try:
+        marker = json.loads(marker_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"cannot read expected fault marker {marker_path}: {exc}") from exc
+    if not isinstance(marker, dict):
+        raise ValueError(f"expected fault marker is not an object: {marker_path}")
+
+    required_strings = {
+        "schema": EXPECTED_FAULT_SCHEMA,
+        "classification": "EXPECTED_TERMINATION",
+        "cell": "disaster-host-fault",
+        "signal": "SIGKILL",
+        "testClass": LOCAL_STORAGE_TEST_CLASS,
+        "testName": LOCAL_STORAGE_TEST_NAME,
+    }
+    for field, expected in required_strings.items():
+        if marker.get(field) != expected:
+            raise ValueError(f"expected fault marker field {field} is not {expected}: {marker_path}")
+    if marker.get("schemaGeneration") != 1 or marker.get("signalNumber") != 9:
+        raise ValueError(f"expected fault marker generation or signal is invalid: {marker_path}")
+
+    result_dir_value = marker.get("resultDir")
+    kill_receipt_value = marker.get("killReceipt")
+    kill_receipt_sha256 = marker.get("killReceiptSha256")
+    recovery_run_value = marker.get("recoveryRunJson")
+    recovery_run_sha256 = marker.get("recoveryRunJsonSha256")
+    if not all(isinstance(value, str) and value for value in (
+        result_dir_value,
+        kill_receipt_value,
+        kill_receipt_sha256,
+        recovery_run_value,
+        recovery_run_sha256,
+    )):
+        raise ValueError(f"expected fault marker paths or digests are missing: {marker_path}")
+
+    result_dir = Path(result_dir_value).resolve()
+    if result_dir != root.resolve():
+        raise ValueError(f"expected fault marker resultDir does not bind this result directory: {marker_path}")
+    kill_receipt = Path(kill_receipt_value).resolve()
+    if not kill_receipt.is_file() or sha256_file(kill_receipt) != kill_receipt_sha256:
+        raise ValueError(f"expected fault kill receipt is missing or has the wrong digest: {marker_path}")
+    try:
+        kill = json.loads(kill_receipt.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"cannot read expected fault kill receipt {kill_receipt}: {exc}") from exc
+    if not isinstance(kill, dict) or not (
+        kill.get("schema") == "nereus-delay.ndip1-local-storage-kill"
+        and kill.get("cell") == "disaster-host-fault"
+        and kill.get("signal") == "SIGKILL"
+        and kill.get("signalNumber") == 9
+        and kill.get("exactTarget") is True
+        and isinstance(kill.get("targetPid"), int)
+    ):
+        raise ValueError(f"expected fault kill receipt is not an exact SIGKILL proof: {kill_receipt}")
+
+    recovery_run = Path(recovery_run_value).resolve()
+    if not recovery_run.is_file() or sha256_file(recovery_run) != recovery_run_sha256:
+        raise ValueError(f"expected fault recovery run is missing or has the wrong digest: {marker_path}")
+    try:
+        recovery = json.loads(recovery_run.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"cannot read expected fault recovery run {recovery_run}: {exc}") from exc
+    if not isinstance(recovery, dict) or not (
+        recovery.get("schema") == "nereus-delay.ndip1-test-run"
+        and recovery.get("exitCode") == 0
+    ):
+        raise ValueError(f"expected fault recovery run did not pass: {recovery_run}")
+    return marker
+
+
+def collect_cases(directories: list[Path]) -> dict[tuple[str, str], list[dict[str, object]]]:
     """Collect every observation; never let a later result mask an earlier one."""
-    observed: dict[tuple[str, str], list[dict[str, str]]] = {}
+    observed: dict[tuple[str, str], list[dict[str, object]]] = {}
     for directory in directories:
+        try:
+            expected_fault = read_expected_fault(directory)
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
         for key, value in iter_cases(directory):
-            observed.setdefault(key, []).append(
-                {"directory": str(directory), **value}
-            )
+            observation: dict[str, object] = {"directory": str(directory), **value}
+            if expected_fault is not None and key == (
+                expected_fault["testClass"],
+                expected_fault["testName"],
+            ):
+                observation["expectedFault"] = True
+            observed.setdefault(key, []).append(observation)
     return observed
 
 
-def aggregate_status(observations: list[dict[str, str]]) -> str:
-    if not observations:
+def aggregate_status(observations: list[dict[str, object]]) -> str:
+    effective = [observation for observation in observations if not observation.get("expectedFault", False)]
+    if not effective:
         return "NOT_EXECUTED"
-    statuses = {observation["status"] for observation in observations}
+    statuses = {str(observation["status"]) for observation in effective}
     if "FAILED" in statuses:
         return "FAILED"
     if "SKIPPED" in statuses:
@@ -64,10 +159,12 @@ def aggregate_status(observations: list[dict[str, str]]) -> str:
     return "PASS"
 
 
-def aggregate_reason(observations: list[dict[str, str]]) -> str:
+def aggregate_reason(observations: list[dict[str, object]]) -> str:
     reasons = []
     for observation in observations:
-        detail = observation["status"]
+        detail = str(observation["status"])
+        if observation.get("expectedFault", False):
+            detail = f"EXPECTED_TERMINATION (raw {detail})"
         if observation["reason"]:
             detail += f": {observation['reason']}"
         reasons.append(f"{observation['directory']}: {detail}")
@@ -104,6 +201,8 @@ def main() -> int:
                 "resultReason": aggregate_reason(observations),
                 "observedRuns": len(observations),
                 "observedStatuses": [observation["status"] for observation in observations],
+                "effectiveRuns": sum(not observation.get("expectedFault", False) for observation in observations),
+                "expectedFaultRuns": sum(observation.get("expectedFault", False) for observation in observations),
             }
         )
 
