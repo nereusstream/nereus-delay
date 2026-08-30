@@ -184,7 +184,8 @@ binding、证据路径与 cleanup 审计见
 [`05-Disposable-Local-Certification-执行记录.md`](05-Disposable-Local-Certification-执行记录.md)。
 
 `main@da15290e47b9255403c92e4ebba3c7d5189edb75` 的 generation-1 receipt 是独立审查前的
-历史 PASS，不得替代后续 HEAD。当前 runner 生成 generation-2 receipt，并把
+历史 PASS，不得替代后续 HEAD。当前 runner 生成 generation-3 receipt，直接绑定每个
+matrix/supporting log digest，并把
 `p1.nativeCoordinator` 加入 closed supporting checks；该检查必须真实经过
 `PreparedSubmission -> resolver -> coordinator -> guarded transport -> source-locked P1 encoder`
 后才允许 PASS。当前 source-bound 结果以持久化 artifact 目录中的 receipt 及 verifier 结果为准，

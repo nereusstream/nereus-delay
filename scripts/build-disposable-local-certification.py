@@ -92,7 +92,10 @@ def read_records(path: Path) -> list[dict[str, Any]]:
         if len(fields) != 9:
             raise ValueError(f"matrix record {line_number} must have nine tab-separated fields")
         cell_id, category, expected, status, skipped, command, log_path, evidence_path, reason = fields
+        log = Path(log_path)
         evidence = Path(evidence_path)
+        if not log.is_file():
+            raise ValueError(f"matrix log is missing: {cell_id}: {log}")
         if not evidence.is_file():
             raise ValueError(f"matrix evidence is missing: {cell_id}: {evidence}")
         records.append(
@@ -104,6 +107,7 @@ def read_records(path: Path) -> list[dict[str, Any]]:
                 "skipped": skipped == "1",
                 "command": command,
                 "logPath": log_path,
+                "logSha256": sha256(log),
                 "evidencePath": evidence_path,
                 "resultSha256": sha256(evidence),
                 "reason": reason,
@@ -123,9 +127,18 @@ def read_supporting(path: Path) -> list[dict[str, str]]:
         if len(fields) != 4:
             raise ValueError(f"supporting record {line_number} must have four tab-separated fields")
         cell_id, status, command, log_path = fields
-        if not Path(log_path).is_file():
+        log = Path(log_path)
+        if not log.is_file():
             raise ValueError(f"supporting check log is missing: {log_path}")
-        records.append({"id": cell_id, "status": status, "command": command, "logPath": log_path})
+        records.append(
+            {
+                "id": cell_id,
+                "status": status,
+                "command": command,
+                "logPath": log_path,
+                "logSha256": sha256(log),
+            }
+        )
     expected_ids = ["p1.compileRealPulsar", "p1.h0", "p1.nativeCoordinator"]
     if [record["id"] for record in records] != expected_ids:
         raise ValueError("supporting records do not contain the three P1 checks in order")
@@ -159,7 +172,7 @@ def main() -> int:
             status = "PASS"
         receipt = {
             "receiptSchema": "nereus-delay.disposable-local-certification-receipt",
-            "receiptSchemaGeneration": 2,
+            "receiptSchemaGeneration": 3,
             "classification": "DISPOSABLE_LOCAL",
             "status": status,
             "authority": False,

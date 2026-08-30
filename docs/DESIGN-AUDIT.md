@@ -14093,3 +14093,20 @@ images remain; generated Nereus resources do not. Eighty-eight unreferenced
 temporary directories were moved recoverably to
 `/Users/liusinan/.Trash/nereus-delay-cleanup-20260822-full` after a `.git`
 audit. Current evidence trees and referenced historical receipts remain.
+
+## 2026-08-30 NDIP-1 certification integrity audit
+
+Review of the failed `recovery.oxia_restart_reopen` cell found two harness
+defects. The disposable runner released the Java recovery request after Oxia
+process health rather than a real namespace data-plane read, so the request
+could overlap leader election and exhaust its operation timeout. The runner
+and Gradle process also wrote the same file through independent descriptors,
+which allowed control output to be overwritten. The restart cell now uses
+separate logs, requires a source-locked CLI read and a 20-second session-expiry
+grace, and only passes when the cut and focused JUnit execution are both exact.
+
+The same audit found that generation-2 receipts hashed cell evidence JSON but
+did not directly hash matrix/supporting logs. Generation 3 adds `logSha256` to
+both closed branches and verifies it independently; mutation tests cover both
+fail-closed paths. Earlier receipts remain historical and cannot be used as
+current persistent-staging input.

@@ -10,7 +10,7 @@ record/evidence、默认 coordinator 到 P1 prepared-record sender，以及 phys
 lifecycle 的缺口。`main@da15290e` 的 24/24 receipt 因而只保留为历史基线，不能认证这些后续
 修改。
 
-当前 runner 生成 `receiptSchemaGeneration=2`，closed supporting checks 从两个扩展为三个：
+当前 runner 生成 `receiptSchemaGeneration=3`，closed supporting checks 保持三个：
 
 - `p1.compileRealPulsar`；
 - `p1.h0`；
@@ -33,6 +33,17 @@ NEREUS_DELAY_DISPOSABLE_GRADLE_USER_HOME=/Users/liusinan/.gradle \
 runner 会在上述 base 下创建带 UTC 时间的不可混用子目录。哪个 receipt 属于当前 HEAD，必须由
 `scripts/verify-disposable-local-certification.py` 对 exact source binding、三项 supporting
 checks、24 个 matrix cell 和 cleanup 全部验证后确定，不能从文件名或本文中的历史 SHA 推断。
+generation 3 为每个 supporting check 和 matrix cell 增加 `logSha256`；verifier 同时复算
+log 与 evidence digest，因此 receipt 生成后修改任一原始日志都会 fail-closed。Persistent staging
+入口只接受 exact candidate 的 generation-3、24/24、non-authoritative receipt。
+
+`recovery.oxia_restart_reopen` 不再把 Oxia 进程 health 当作 data-plane 恢复。runner 分离保存
+Gradle test output 与 stop/start control output，在 data-server-1 重启后先用 source-locked、clean
+Oxia CLI 完成真实 namespace list，再等待 20 秒 Route session expiry grace（超过测试固定的
+15 秒 session timeout），最后才释放 refresh/reopen gate。stop/start、data-plane read、grace 或
+focused no-skip proof 任一缺失，cell 都保持 `EXECUTED_FAIL`。receipt 的 source branch 还直接
+绑定该 CLI 与其 `go version -m` build-info digest，并验证 exact Oxia revision 与
+`vcs.modified=false`。
 
 ## 历史 generation-1 PASS
 
@@ -99,8 +110,9 @@ python3 -B scripts/verify-disposable-local-certification.py \
   --receipt /var/folders/vk/l_r0z80j1dj93fsrjx3zqv4r0000gn/T/nereus-delay-ndip1-cert.XXXXXX.e3ypGoUrmz/disposable-local-certification-receipt.json
 ```
 
-verifier 以退出码 0 验证了 closed schema、exact Delay/P1/Oxia source、Accepted package、
-Compose config、attestation、每个 log/evidence digest 和 cleanup。由于 receipt 故意绑定
+历史 verifier 以退出码 0 验证了当时 generation-1 的 closed schema、exact Delay/P1/Oxia source、
+Accepted package、Compose config、attestation、evidence digest 和 cleanup；历史 generation-1
+未直接在 receipt 中绑定每个 log digest。由于 receipt 故意绑定
 exact Delay commit，在后续仅文档提交上复核该历史证据时，应 checkout 上述 source commit；
 不得手改 receipt 伪造当前 HEAD binding。
 

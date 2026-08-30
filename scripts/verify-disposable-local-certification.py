@@ -197,29 +197,39 @@ def parse_timestamp(value: Any, location: str) -> datetime_module.datetime:
 
 
 def verify_source(receipt: dict[str, Any], root: Path) -> None:
+    expected_keys = {
+        "delayCheckout",
+        "delayCommit",
+        "p1Checkout",
+        "p1Commit",
+        "p1ExpectedCommit",
+        "p1Branch",
+        "oxiaCheckout",
+        "oxiaCommit",
+        "acceptedPackageDir",
+        "acceptedReceiptPath",
+        "acceptedPackageSha256",
+        "p1DistributionPath",
+        "p1DistributionSha256",
+        "p1ClientArtifacts",
+        "composeFiles",
+        "composeConfigPath",
+        "composeConfigSha256",
+        "attestationPath",
+        "attestationSha256",
+    }
+    if receipt["receiptSchemaGeneration"] >= 3:
+        expected_keys.update(
+            {
+                "oxiaCliPath",
+                "oxiaCliSha256",
+                "oxiaCliBuildInfoPath",
+                "oxiaCliBuildInfoSha256",
+            }
+        )
     source = closed_object(
         receipt["source"],
-        {
-            "delayCheckout",
-            "delayCommit",
-            "p1Checkout",
-            "p1Commit",
-            "p1ExpectedCommit",
-            "p1Branch",
-            "oxiaCheckout",
-            "oxiaCommit",
-            "acceptedPackageDir",
-            "acceptedReceiptPath",
-            "acceptedPackageSha256",
-            "p1DistributionPath",
-            "p1DistributionSha256",
-            "p1ClientArtifacts",
-            "composeFiles",
-            "composeConfigPath",
-            "composeConfigSha256",
-            "attestationPath",
-            "attestationSha256",
-        },
+        expected_keys,
         "source",
     )
     for key in GIT_COMMIT_FIELDS:
@@ -237,6 +247,28 @@ def verify_source(receipt: dict[str, Any], root: Path) -> None:
         "attestationPath",
     ):
         absolute_path(source[key], f"source.{key}")
+    if receipt["receiptSchemaGeneration"] >= 3:
+        oxia_cli_path = absolute_path(source["oxiaCliPath"], "source.oxiaCliPath")
+        oxia_cli_build_info_path = absolute_path(
+            source["oxiaCliBuildInfoPath"], "source.oxiaCliBuildInfoPath"
+        )
+        if sha256_file(oxia_cli_path, "Oxia CLI") != digest(
+            source["oxiaCliSha256"], "source.oxiaCliSha256"
+        ):
+            raise VerificationError("Oxia CLI SHA-256 mismatch")
+        if sha256_file(oxia_cli_build_info_path, "Oxia CLI build info") != digest(
+            source["oxiaCliBuildInfoSha256"], "source.oxiaCliBuildInfoSha256"
+        ):
+            raise VerificationError("Oxia CLI build-info SHA-256 mismatch")
+        try:
+            build_info = oxia_cli_build_info_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            raise VerificationError(f"cannot read Oxia CLI build info: {exc}") from exc
+        if (
+            f"vcs.revision={source['oxiaCommit']}" not in build_info
+            or "vcs.modified=false" not in build_info
+        ):
+            raise VerificationError("Oxia CLI build info is not clean or source-locked")
     delay_checkout = absolute_path(source["delayCheckout"], "source.delayCheckout")
     p1_checkout = absolute_path(source["p1Checkout"], "source.p1Checkout")
     oxia_checkout = absolute_path(source["oxiaCheckout"], "source.oxiaCheckout")
@@ -446,9 +478,23 @@ def verify_matrix(receipt: dict[str, Any]) -> None:
         raise VerificationError("matrix must contain exactly the registered required cells")
     observed_ids: list[str] = []
     for index, value in enumerate(matrix):
+        expected_keys = {
+            "id",
+            "category",
+            "expected",
+            "status",
+            "skipped",
+            "command",
+            "logPath",
+            "evidencePath",
+            "resultSha256",
+            "reason",
+        }
+        if receipt["receiptSchemaGeneration"] >= 3:
+            expected_keys.add("logSha256")
         entry = closed_object(
             value,
-            {"id", "category", "expected", "status", "skipped", "command", "logPath", "evidencePath", "resultSha256", "reason"},
+            expected_keys,
             f"matrix[{index}]",
         )
         cell_id = non_empty_string(entry["id"], f"matrix[{index}].id")
@@ -466,6 +512,10 @@ def verify_matrix(receipt: dict[str, Any]) -> None:
         evidence_path = absolute_path(entry["evidencePath"], f"matrix[{index}].evidencePath")
         if not log_path.is_file() or not evidence_path.is_file():
             raise VerificationError(f"matrix evidence path is missing: {cell_id}")
+        if receipt["receiptSchemaGeneration"] >= 3 and sha256_file(
+            log_path, f"matrix log {cell_id}"
+        ) != digest(entry["logSha256"], f"matrix[{index}].logSha256"):
+            raise VerificationError(f"matrix log SHA-256 mismatch: {cell_id}")
         if sha256_file(evidence_path, f"matrix evidence {cell_id}") != digest(entry["resultSha256"], f"matrix[{index}].resultSha256"):
             raise VerificationError(f"matrix evidence SHA-256 mismatch: {cell_id}")
         if entry["status"] == "NOT_COVERED":
@@ -535,7 +585,7 @@ def verify_receipt(receipt: dict[str, Any], receipt_path: Path, root: Path) -> N
         },
         "receipt",
     )
-    if receipt["receiptSchema"] != RECEIPT_SCHEMA or receipt["receiptSchemaGeneration"] not in {1, 2}:
+    if receipt["receiptSchema"] != RECEIPT_SCHEMA or receipt["receiptSchemaGeneration"] not in {1, 2, 3}:
         raise VerificationError("unknown disposable-local receipt schema")
     if receipt["classification"] != "DISPOSABLE_LOCAL":
         raise VerificationError("receipt classification is not DISPOSABLE_LOCAL")
@@ -577,16 +627,19 @@ def verify_receipt(receipt: dict[str, Any], receipt_path: Path, root: Path) -> N
 def verify_supporting_checks(receipt: dict[str, Any]) -> None:
     checks = receipt["supportingChecks"]
     expected_ids = ["p1.compileRealPulsar", "p1.h0"]
-    if receipt["receiptSchemaGeneration"] == 2:
+    if receipt["receiptSchemaGeneration"] >= 2:
         expected_ids.append("p1.nativeCoordinator")
     if not isinstance(checks, list) or len(checks) != len(expected_ids):
         raise VerificationError(
             f"supportingChecks must contain the {len(expected_ids)} schema-bound P1 checks"
         )
     for index, value in enumerate(checks):
+        expected_keys = {"id", "command", "status", "logPath"}
+        if receipt["receiptSchemaGeneration"] >= 3:
+            expected_keys.add("logSha256")
         entry = closed_object(
             value,
-            {"id", "command", "status", "logPath"},
+            expected_keys,
             f"supportingChecks[{index}]",
         )
         if entry["id"] != expected_ids[index]:
@@ -594,8 +647,13 @@ def verify_supporting_checks(receipt: dict[str, Any]) -> None:
         non_empty_string(entry["command"], f"supportingChecks[{index}].command")
         if entry["status"] not in {"PASS", "FAIL"}:
             raise VerificationError(f"invalid supporting check status: {entry['id']}")
-        if not absolute_path(entry["logPath"], f"supportingChecks[{index}].logPath").is_file():
+        log_path = absolute_path(entry["logPath"], f"supportingChecks[{index}].logPath")
+        if not log_path.is_file():
             raise VerificationError(f"supporting check log is missing: {entry['id']}")
+        if receipt["receiptSchemaGeneration"] >= 3 and sha256_file(
+            log_path, f"supporting check log {entry['id']}"
+        ) != digest(entry["logSha256"], f"supportingChecks[{index}].logSha256"):
+            raise VerificationError(f"supporting check log SHA-256 mismatch: {entry['id']}")
 
 
 def main() -> int:

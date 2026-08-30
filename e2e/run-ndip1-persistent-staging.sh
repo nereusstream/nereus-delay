@@ -325,6 +325,7 @@ python3 "${delay_root}/scripts/verify-disposable-local-certification.py" \
   || fail "the exact disposable receipt failed independent verification"
 [[ "$(jq -r '.source.delayCommit' "${disposable_receipt}")" == "${candidate_commit}" \
     && "$(jq -r '.status' "${disposable_receipt}")" == PASS \
+    && "$(jq -r '.receiptSchemaGeneration' "${disposable_receipt}")" == 3 \
     && "$(jq -r '.classification' "${disposable_receipt}")" == DISPOSABLE_LOCAL \
     && "$(jq -r '.matrix | length' "${disposable_receipt}")" == 24 \
     && "$(jq -r '.authority' "${disposable_receipt}")" == false \

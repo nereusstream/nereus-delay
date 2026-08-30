@@ -1103,9 +1103,10 @@ tasks.register('testNdip1PackageVerifier', Exec) {
 
 tasks.register('testNdip1PersistentCertificationValidators', Exec) {
     group = 'verification'
-    description = 'Runs fail-closed tests for persistent Gate C, SHADOW, and final-chain validators.'
+    description = 'Runs fail-closed tests for disposable evidence, persistent Gate C, SHADOW, and final-chain validators.'
     workingDir projectDir
     commandLine 'python3', '-B', '-m', 'unittest',
+            'scripts/test_verify_disposable_local_certification.py',
             'e2e/test_validate_ndip1_shadow_observation.py',
             'e2e/test_validate_ndip1_persistent_certification.py'
 }

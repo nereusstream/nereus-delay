@@ -2040,9 +2040,9 @@ checks. Current evidence and referenced historical receipts remain available.
 
 Do not reuse the temporary receipt or source SHA in the historical section
 below for a newer checkout. A current disposable run must use a retained,
-operator-owned artifact base and its generation-2 verifier must bind all 24
+operator-owned artifact base and its generation-3 verifier must bind all 24
 cells plus `p1.compileRealPulsar`, `p1.h0`, and `p1.nativeCoordinator` to the
-exact HEAD:
+exact HEAD and directly verify every matrix/supporting log digest:
 
 ```bash
 NEREUS_DELAY_DISPOSABLE_ARTIFACT_DIR=/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay-artifacts/ndip1-final \
@@ -2068,6 +2068,21 @@ the 41-row audit and Manifest readback; canary evidence uses closed
 `{path,sha256}` references. Any missing/mutated sidecar or a binary Manifest
 signature failure blocks the independent validator and prevents updating the
 current deployment pointer.
+
+## 2026-08-30 NDIP-1 disposable certification generation-3 contract
+
+The current `e2e/run-disposable-local-certification.sh` emits
+`receiptSchemaGeneration=3`. Every supporting check and every one of the 24
+matrix cells carries both its evidence digest and `logSha256`; the independent
+verifier rereads both paths and rejects any post-receipt mutation. Persistent
+staging rejects generation-1/2 receipts even when their source field happens
+to name the candidate.
+
+The Oxia restart cell uses separate test/control logs. After the exact
+data-server-1 stop/start it requires process health, a source-locked clean Oxia
+CLI namespace read, and a 20-second session-expiry grace before releasing the
+Route refresh gate. This prevents a port-ready process or a request that still
+overlaps leader election from being interpreted as restart/reopen recovery.
 
 ## 2026-08-28 NDIP-1 disposable local certification — da15290e (historical)
 

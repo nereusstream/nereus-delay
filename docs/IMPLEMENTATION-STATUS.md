@@ -34,9 +34,9 @@ validator verifies the binary Manifest signature and both AUTO_FAST and
 Managed evidence bodies instead of trusting path-only sidecars.
 
 Current evidence is deliberately not encoded as a static commit or run id in
-this file. A disposable receipt is current only when the generation-2 verifier
+this file. A disposable receipt is current only when the generation-3 verifier
 binds all 24 cells and three source-locked supporting checks to the exact
-checkout. Persistent staging is current only when
+checkout, including every raw log digest. Persistent staging is current only when
 `nereus-delay-staging/local-docker-staging-ndip1/deployment/current.json`
 points to an immutable final summary for that same HEAD and the independent
 validator verifies G0, signed data disposition, 13/13 readback, Gate C 41/41,
@@ -17675,3 +17675,18 @@ recoverably to
 was checked for absence of `.git`. The ten current evidence trees, candidate
 lock and historical directories still referenced by the ledgers remain in
 place. No source checkout or code directory was moved.
+
+## 2026-08-30 NDIP-1 disposable evidence and Oxia restart hardening
+
+The disposable receipt builder now emits schema generation 3 and binds the
+SHA-256 of every matrix and supporting-check log in addition to the existing
+evidence digest. The independent verifier recomputes both, while persistent
+staging requires generation 3 for its exact candidate input. Focused Python
+tests mutate each class of log and require fail-closed rejection.
+
+The real Oxia restart cell no longer releases on service health alone. It
+separates Gradle and control logs, verifies the data plane with the clean
+source-locked Oxia CLI, waits a bounded 20-second grace beyond the Route test's
+15-second session timeout, and requires the exact stop/start cut plus no-skip
+JUnit proof. This changes certification determinism and evidence integrity;
+it does not grant Gate C, SHADOW, ENABLED, or production authority.

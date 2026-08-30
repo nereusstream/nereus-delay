@@ -29,6 +29,7 @@ receipt_path="${artifact_dir}/disposable-local-certification-receipt.json"
 
 p1_dir="${NEREUS_DELAY_PULSAR_CHECKOUT:-${delay_root}/../pulsar-worktrees/nereus-delay-p1}"
 oxia_checkout="${NEREUS_DELAY_OXIA_CHECKOUT:-${delay_root}/../oxia}"
+oxia_cli="${oxia_checkout}/bin/oxia"
 p1_expected_commit="0a2536484cd3932801a98dc88ff112b2df88a1c7"
 p1_tarball="${NEREUS_DELAY_PULSAR_TARBALL:-${p1_dir}/distribution/server/build/distributions/apache-pulsar-5.0.0-M1-bin.tar.gz}"
 p1_client_cp="${p1_dir}/pulsar-client/build/libs/pulsar-client-original-5.0.0-M1.jar:${p1_dir}/pulsar-client-api/build/libs/pulsar-client-api-5.0.0-M1.jar:${p1_dir}/pulsar-common/build/libs/pulsar-common-5.0.0-M1.jar"
@@ -143,6 +144,7 @@ require_command() {
 require_command docker
 require_command curl
 require_command git
+require_command go
 require_command python3
 require_command shasum
 require_command tar
@@ -221,6 +223,16 @@ delay_commit="$(git -C "${delay_root}" rev-parse HEAD)"
 p1_commit="$(git -C "${p1_dir}" rev-parse HEAD)"
 p1_branch="$(git -C "${p1_dir}" branch --show-current)"
 oxia_commit="$(git -C "${oxia_checkout}" rev-parse HEAD)"
+[[ -x "${oxia_cli}" ]] || fail_preflight "source-locked Oxia CLI is missing: ${oxia_cli}"
+oxia_cli_build_info="$(go version -m "${oxia_cli}" 2>/dev/null || true)"
+oxia_cli_build_info_path="${artifact_dir}/logs/oxia-cli-build-info.log"
+printf '%s\n' "${oxia_cli_build_info}" >"${oxia_cli_build_info_path}"
+printf '%s\n' "${oxia_cli_build_info}" | rg -F "vcs.revision=${oxia_commit}" >/dev/null \
+  || fail_preflight "Oxia CLI VCS revision does not match the clean Oxia checkout"
+printf '%s\n' "${oxia_cli_build_info}" | rg -F 'vcs.modified=false' >/dev/null \
+  || fail_preflight "Oxia CLI was built from a modified Oxia checkout"
+oxia_cli_sha256="$(sha256_file "${oxia_cli}")"
+oxia_cli_build_info_sha256="$(sha256_file "${oxia_cli_build_info_path}")"
 p1_distribution_sha256="$(sha256_file "${p1_tarball}")"
 p1_client_sha256=()
 for artifact in "${p1_client_artifacts[@]}"; do
@@ -360,6 +372,7 @@ attestation_sha256="$(sha256_file "${attestation_path}")"
 
 python3 - "${context_json}" "${delay_root}" "${delay_commit}" "${p1_dir}" "${p1_commit}" \
   "${p1_expected_commit}" "${p1_branch}" "${oxia_checkout}" "${oxia_commit}" \
+  "${oxia_cli}" "${oxia_cli_sha256}" "${oxia_cli_build_info_path}" "${oxia_cli_build_info_sha256}" \
   "${delay_root}/docs/ndip/NDIP-1" "${delay_root}/docs/ndip/NDIP-1/acceptance-receipt.json" \
   "${accepted_package_sha256}" "${p1_tarball}" "${p1_distribution_sha256}" \
   "${compose_config}" "${compose_config_sha256}" "${attestation_path}" "${attestation_sha256}" \
@@ -375,7 +388,8 @@ from pathlib import Path
 
 (
     output, delay_root, delay_commit, p1_dir, p1_commit, p1_expected, p1_branch,
-    oxia_dir, oxia_commit, package_dir, accepted_receipt, package_sha, p1_tarball,
+    oxia_dir, oxia_commit, oxia_cli, oxia_cli_sha, oxia_cli_build_info,
+    oxia_cli_build_info_sha, package_dir, accepted_receipt, package_sha, p1_tarball,
     p1_tarball_sha, compose_config, compose_config_sha, attestation, attestation_sha,
     client_cp, compose_project, resource_prefix, p1_image, minio_image, minio_digest,
     broker_1, web_1, broker_2, web_2, oxia_data_1, oxia_data_2, oxia_data_3,
@@ -411,6 +425,10 @@ context = {
         "p1Branch": p1_branch,
         "oxiaCheckout": oxia_dir,
         "oxiaCommit": oxia_commit,
+        "oxiaCliPath": oxia_cli,
+        "oxiaCliSha256": oxia_cli_sha,
+        "oxiaCliBuildInfoPath": oxia_cli_build_info,
+        "oxiaCliBuildInfoSha256": oxia_cli_build_info_sha,
         "acceptedPackageDir": package_dir,
         "acceptedReceiptPath": accepted_receipt,
         "acceptedPackageSha256": package_sha,
@@ -689,6 +707,77 @@ wait_for_oxia() {
   echo "Oxia data-server-1 did not become ready" >&2
   "${compose[@]}" logs data-server-1 coordinator-1 >&2 || true
   return 1
+}
+
+wait_for_oxia_client_ready() {
+  local label="$1"
+  local evidence_path="$2"
+  local error_path="${evidence_path}.last-error"
+  local deadline=$((SECONDS + 180))
+  local attempts=0
+  local output output_sha256 checked_at
+  while (( SECONDS < deadline )); do
+    attempts=$((attempts + 1))
+    if output="$("${oxia_cli}" client --service-address "${oxia_endpoint}" \
+        --namespace default --request-timeout 5s list --key-min "" --key-max "" \
+        2>"${error_path}")"; then
+      output_sha256="$(printf '%s' "${output}" | shasum -a 256 | awk '{print $1}')"
+      checked_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      python3 - "${evidence_path}" "${label}" "${oxia_endpoint}" "${checked_at}" \
+        "${attempts}" "${output_sha256}" "$(printf '%s\n' "${output}" | wc -l | tr -d ' ')" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path, label, endpoint, checked_at, attempts, output_sha256, line_count = sys.argv[1:]
+Path(path).write_text(json.dumps({
+    "schema": "nereus-delay.oxia-client-readiness",
+    "schemaGeneration": 1,
+    "status": "PASS",
+    "label": label,
+    "endpoint": endpoint,
+    "checkedAt": checked_at,
+    "attempts": int(attempts),
+    "command": "oxia client list --key-min '' --key-max ''",
+    "outputSha256": output_sha256,
+    "outputLineCount": int(line_count),
+}, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+PY
+      return 0
+    fi
+    sleep 2
+  done
+  echo "Oxia client data plane did not become ready for ${label}: ${oxia_endpoint}" >&2
+  return 1
+}
+
+wait_for_oxia_route_session_expiry() {
+  local label="$1"
+  local evidence_path="$2"
+  local grace_seconds=20
+  local started_at ended_at
+  started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  sleep "${grace_seconds}"
+  ended_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  python3 - "${evidence_path}" "${label}" "${oxia_endpoint}" "${started_at}" \
+    "${ended_at}" "${grace_seconds}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path, label, endpoint, started_at, ended_at, grace_seconds = sys.argv[1:]
+Path(path).write_text(json.dumps({
+    "schema": "nereus-delay.oxia-route-session-expiry-grace",
+    "schemaGeneration": 1,
+    "status": "PASS",
+    "label": label,
+    "endpoint": endpoint,
+    "startedAt": started_at,
+    "endedAt": ended_at,
+    "graceSeconds": int(grace_seconds),
+    "basis": "exceeds the 15-second Route restart smoke-test session timeout by 5 seconds",
+}, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+PY
 }
 
 oxia_admin_at() {
@@ -1443,16 +1532,22 @@ run_oxia_restart_cell() {
   local cell_id="recovery.oxia_restart_reopen"
   local expected="real Oxia route session and cache recover after an actual data-server restart"
   local log_path="${artifact_dir}/logs/${cell_id//[^A-Za-z0-9_.-]/_}.log"
+  local test_log_path="${artifact_dir}/logs/${cell_id//[^A-Za-z0-9_.-]/_}.test.log"
+  local control_log_path="${artifact_dir}/logs/${cell_id//[^A-Za-z0-9_.-]/_}.control.log"
   local evidence_path="${artifact_dir}/evidence/${cell_id//[^A-Za-z0-9_.-]/_}.json"
+  local readiness_evidence_path="${artifact_dir}/recovery/oxia-route-data-plane-readiness.json"
+  local expiry_evidence_path="${artifact_dir}/recovery/oxia-route-session-expiry-grace.json"
   local gate_path="${artifact_dir}/recovery/oxia-route-release"
   local ready_path="${artifact_dir}/recovery/oxia-route-ready"
   local execution_marker="${artifact_dir}/recovery/${cell_id//[^A-Za-z0-9_.-]/_}.test-start"
   local result_status="EXECUTED_FAIL"
   local result_reason="real Oxia restart/reopen smoke failed"
   local evidence_status="FAIL"
+  local cut_completed=0
   unlink "${gate_path}" "${ready_path}" 2>/dev/null || true
   touch "${execution_marker}"
-  : >"${log_path}"
+  : >"${test_log_path}"
+  : >"${control_log_path}"
   (
     GRADLE_USER_HOME="${gradle_user_home}" \
     NEREUS_DELAY_OXIA_ENDPOINT="${oxia_endpoint}" \
@@ -1462,7 +1557,7 @@ run_oxia_restart_cell() {
       ./gradlew test \
       --tests com.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest.signedRouteProviderRecoversAfterRealOxiaRestart \
       --rerun-tasks --no-daemon --console=plain
-  ) >"${log_path}" 2>&1 &
+  ) >"${test_log_path}" 2>&1 &
   test_process_pid=$!
   local ready=0
   local attempt
@@ -1477,13 +1572,20 @@ run_oxia_restart_cell() {
     sleep 1
   done
   if [[ "${ready}" == 1 ]]; then
-    if "${compose[@]}" stop data-server-1 >>"${log_path}" 2>&1 \
+    if "${compose[@]}" stop data-server-1 >>"${control_log_path}" 2>&1 \
         && sleep 2 \
-        && "${compose[@]}" start data-server-1 >>"${log_path}" 2>&1 \
-        && wait_for_oxia >>"${log_path}" 2>&1; then
+        && "${compose[@]}" start data-server-1 >>"${control_log_path}" 2>&1 \
+        && wait_for_oxia >>"${control_log_path}" 2>&1 \
+        && wait_for_oxia_client_ready "${cell_id}" "${readiness_evidence_path}" \
+          >>"${control_log_path}" 2>&1 \
+        && wait_for_oxia_route_session_expiry "${cell_id}" "${expiry_evidence_path}" \
+          >>"${control_log_path}" 2>&1; then
+      cut_completed=1
       touch "${gate_path}"
     else
-      result_reason="could not perform the exact data-server-1 stop/start cut"
+      result_reason="could not perform the exact data-server-1 stop/start and data-plane recovery cut"
+      "${compose[@]}" start data-server-1 >>"${control_log_path}" 2>&1 || true
+      touch "${gate_path}"
     fi
   else
     result_reason="route provider did not reach the controlled restart gate"
@@ -1491,7 +1593,21 @@ run_oxia_restart_cell() {
   local test_status=0
   wait "${test_process_pid}" || test_status=$?
   test_process_pid=""
-  if [[ "${test_status}" == 0 && "${ready}" == 1 ]] \
+  {
+    printf '%s\n' 'Oxia restart control output:'
+    sed -n '1,$p' "${control_log_path}"
+    if [[ -f "${readiness_evidence_path}" ]]; then
+      printf '%s\n' 'Oxia data-plane readiness evidence:'
+      sed -n '1,$p' "${readiness_evidence_path}"
+    fi
+    if [[ -f "${expiry_evidence_path}" ]]; then
+      printf '%s\n' 'Oxia Route session-expiry evidence:'
+      sed -n '1,$p' "${expiry_evidence_path}"
+    fi
+    printf '%s\n' 'Focused Gradle test output:'
+    sed -n '1,$p' "${test_log_path}"
+  } >"${log_path}"
+  if [[ "${test_status}" == 0 && "${ready}" == 1 && "${cut_completed}" == 1 ]] \
       && assert_focused_test_executed \
           "com.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest.signedRouteProviderRecoversAfterRealOxiaRestart" \
           "${execution_marker}" >>"${log_path}" 2>&1; then
@@ -1505,7 +1621,7 @@ run_oxia_restart_cell() {
   fi
   write_generic_evidence "${evidence_path}" "${cell_id}" "${evidence_status}" "${result_reason}" "${log_path}"
   record_cell "${cell_id}" "recovery" "${expected}" "${result_status}" "0" \
-    "GRADLE_USER_HOME=${gradle_user_home} ./gradlew test --tests OxiaRealRouteAuthoritySmokeTest.signedRouteProviderRecoversAfterRealOxiaRestart with data-server-1 stop/start" \
+    "GRADLE_USER_HOME=${gradle_user_home} ./gradlew test --tests OxiaRealRouteAuthoritySmokeTest.signedRouteProviderRecoversAfterRealOxiaRestart with data-server-1 stop/start, Oxia data-plane read and 20-second session-expiry grace" \
     "${log_path}" "${evidence_path}" "${result_reason}"
 }
 
