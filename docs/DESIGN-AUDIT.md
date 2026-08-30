@@ -14122,3 +14122,11 @@ Manifest `ROCKSDB_STORE`, Worker configuration, incarnation markers and raw
 readback, and retains that path for STAGING runs. A focused source-contract
 test covers both identity equality and the no-delete staging guard. This is a
 certification correctness fix; the failed run is not activation evidence.
+
+The next persistent attempt confirmed why retained state must be exercised:
+the P1 Worker smoke used one global final-checkpoint path and identity for all
+Shard drains. A second Shard collided and the run stopped before Gate C. The
+checkpoint namespace and 16-byte ID now bind Route Incarnation, unsigned
+partition and owner epoch, giving retries one stable identity without aliasing
+independent Shards or ownership generations. The source-contract regression
+rejects a return to the global path.

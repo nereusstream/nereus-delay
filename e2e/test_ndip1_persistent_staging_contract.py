@@ -53,6 +53,21 @@ class PersistentStagingContractTest(unittest.TestCase):
             r"if \(!preserveWorkerRoot\) \{\s*deleteTree\(root\);\s*\}",
         )
 
+    def test_final_checkpoint_is_bound_to_shard_and_owner_generation(self) -> None:
+        source = WORKER_SMOKE.read_text(encoding="utf-8")
+        self.assertNotIn('root.resolve("worker-final-checkpoint")', source)
+        self.assertIn('root.resolve("worker-final-checkpoints")', source)
+        self.assertIn(
+            '.resolve(Bytes.hex(shard.routeIncarnation().bytes()))',
+            source,
+        )
+        self.assertIn(
+            '.resolve(Integer.toUnsignedString(shard.partition()))',
+            source,
+        )
+        self.assertIn('.resolve(Long.toUnsignedString(ownerEpoch))', source)
+        self.assertIn('Bytes.u64beBits(ownerEpoch)', source)
+
 
 if __name__ == "__main__":
     unittest.main()

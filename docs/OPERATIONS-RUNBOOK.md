@@ -2092,6 +2092,12 @@ retain it through the final 13-resource readback. A missing root, changed
 marker, symlink, or Worker cleanup of that root blocks Gate C before any SHADOW
 policy can be issued.
 
+Final owner-drain checkpoints below a retained P1 Worker root are namespaced by
+Route Incarnation, unsigned partition and owner epoch. The checkpoint identity
+hash carries the same tuple. A retry of one drain therefore addresses the same
+physical identity, while another Shard or ownership generation cannot collide
+with or silently reuse its directory.
+
 ## 2026-08-28 NDIP-1 disposable local certification — da15290e (historical)
 
 The current disposable entry point is

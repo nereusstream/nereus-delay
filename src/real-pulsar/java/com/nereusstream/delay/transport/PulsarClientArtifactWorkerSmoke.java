@@ -805,9 +805,10 @@ public final class PulsarClientArtifactWorkerSmoke {
                                 if (admissionRecoveryResume) {
                                     requireUncertainDrainBlocked(runtime, ownedShard, authority, store, shard);
                                 } else {
-                                    final Path checkpointPath = root.resolve("worker-final-checkpoint");
-                                    final byte[] checkpointId = Arrays.copyOf(
-                                            Bytes.sha256(Bytes.utf8("pulsar-worker-final-checkpoint")), 16);
+                                    final long finalOwnerEpoch =
+                                            ownedShard.lease().ownerEpoch();
+                                    final Path checkpointPath = finalCheckpointPath(root, shard, finalOwnerEpoch);
+                                    final byte[] checkpointId = finalCheckpointId(shard, finalOwnerEpoch);
                                     final var drain = runtime.drain(
                                             new com.nereusstream.delay.ownership.OwnerDrainCoordinator.DrainRequest(
                                                     System.currentTimeMillis() + 30_000,
@@ -3229,6 +3230,23 @@ public final class PulsarClientArtifactWorkerSmoke {
                         Bytes.sha256(Bytes.utf8("nereus-delay-pulsar-worker-restart/" + physicalTopic)),
                         RouteIncarnation.LENGTH)),
                 0);
+    }
+
+    private static Path finalCheckpointPath(final Path root, final ShardId shard, final long ownerEpoch) {
+        return root.resolve("worker-final-checkpoints")
+                .resolve(Bytes.hex(shard.routeIncarnation().bytes()))
+                .resolve(Integer.toUnsignedString(shard.partition()))
+                .resolve(Long.toUnsignedString(ownerEpoch));
+    }
+
+    private static byte[] finalCheckpointId(final ShardId shard, final long ownerEpoch) {
+        return Arrays.copyOf(
+                Bytes.sha256(
+                        Bytes.utf8("nereus-delay/pulsar-worker-final-checkpoint/generation-1"),
+                        shard.routeIncarnation().bytes(),
+                        Bytes.u32beBits(shard.partition()),
+                        Bytes.u64beBits(ownerEpoch)),
+                16);
     }
 
     private static AssignmentAcceptance publishAssignment(

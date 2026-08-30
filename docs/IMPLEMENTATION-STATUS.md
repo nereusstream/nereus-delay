@@ -17702,3 +17702,10 @@ readback to the same exact `worker-store` path. Real Worker smoke preserves
 that path when classification is `STAGING`; focused contract tests prevent
 either path or cleanup rule from drifting. The blocked run remains immutable
 and provides no Gate C, SHADOW, ENABLED, or production authority.
+
+The first rerun with that retention then exposed a second fixture alias:
+every P1 Worker drain used one `worker-final-checkpoint` path and fixed ID.
+The second Shard correctly failed because the retained target already existed.
+Final checkpoint path and identity are now deterministic over Route
+Incarnation, unsigned partition and owner epoch. This preserves same-drain
+retry identity while separating Shards and later ownership generations.

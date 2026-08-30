@@ -231,6 +231,13 @@ staging topic 一样保留该 Store，后续 readback 对实际 ShardStore 文�
 `test_ndip1_persistent_staging_contract.py` 固定这两个约束。该修复只恢复真实资源绑定；失败 run
 仍然不可晋升，任何新认证都必须绑定修复后的新 HEAD，并从 24/24 disposable receipt 重新开始。
 
+后续 run `20260830084756-10599` 又在同一资源绑定上暴露了第二个 fail-closed 问题：不同 Shard 的
+Worker drain 曾共用固定 `worker-final-checkpoint` 目录。保留真实 Store 后，第二个 Worker 场景会因
+checkpoint target 已存在而拒绝。当前 P1 Worker production-composition smoke 将 final checkpoint
+路径和 16-byte checkpoint identity 同时绑定到 Route Incarnation、unsigned partition 与 owner epoch；
+同一次 drain retry 保持同一身份，不同 Shard 或 ownership generation 不再别名。该 blocked run 同样
+没有 Gate C/SHADOW/ENABLED authority。
+
 ## Authority 边界
 
 即使 current pointer 对某个 HEAD 验证 PASS，也只说明固定本机 staging 的 bounded 候选认证：
