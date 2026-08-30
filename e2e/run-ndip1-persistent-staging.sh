@@ -25,8 +25,14 @@ compose_file_oxia="${script_dir}/docker-compose.oxia-cluster.yml"
 compose_file_staging="${script_dir}/docker-compose.ndip1-staging.yml"
 
 pulsar_checkout="${NEREUS_DELAY_PULSAR_CHECKOUT:-${delay_root}/../pulsar-worktrees/nereus-delay-p1}"
-oxia_checkout="${NEREUS_DELAY_OXIA_CHECKOUT:-${delay_root}/../oxia}"
-oxia_cli="${NEREUS_DELAY_OXIA_BINARY:-${oxia_checkout}/bin/oxia}"
+oxia_base_checkout="${NEREUS_DELAY_OXIA_CHECKOUT:-${delay_root}/../oxia}"
+oxia_checkout="${staging_root}/source/oxia-staging"
+oxia_cli="${oxia_checkout}/bin/oxia"
+oxia_base_sha=""
+oxia_patch_sha256=""
+oxia_source_manifest_sha256=""
+oxia_patch="${script_dir}/oxia-patches/raft-status-watch-replay.patch"
+oxia_expected_base_sha="37a17bef17202d5fd6e23282da5fd26d94865484"
 pulsar_tarball="${NEREUS_DELAY_PULSAR_TARBALL:-${pulsar_checkout}/distribution/server/build/distributions/apache-pulsar-5.0.0-M1-bin.tar.gz}"
 pulsar_client_cp="${pulsar_checkout}/pulsar-client/build/libs/pulsar-client-original-5.0.0-M1.jar:${pulsar_checkout}/pulsar-client-api/build/libs/pulsar-client-api-5.0.0-M1.jar:${pulsar_checkout}/pulsar-common/build/libs/pulsar-common-5.0.0-M1.jar"
 pulsar_image="${resource_prefix}-pulsar:0a2536484cd3932801a98dc88ff112b2df88a1c7"
@@ -108,7 +114,7 @@ enabled_policy_rollback_attempted=0
 
 mkdir -p "${run_dir}/logs" "${run_dir}/results" "${run_dir}/g0" "${run_dir}/authority" \
   "${staging_root}/pulsar" "${staging_root}/oxia" "${staging_root}/minio/data" \
-  "${staging_root}/worker" "${staging_root}/chaos" "${runtime_dir}" "${image_context}" \
+  "${staging_root}/worker" "${staging_root}/chaos" "${staging_root}/source" "${runtime_dir}" "${image_context}" \
   "${cert_dir}" "${key_dir}"
 if [[ -e "${run_dir}/run-status.json" ]]; then
   echo "refusing to reuse evidence run directory: ${run_dir}" >&2
@@ -149,10 +155,105 @@ on_exit() {
 }
 trap on_exit EXIT
 
-for required_command in docker curl jq openssl python3 shasum tar xxd base64 go; do
+for required_command in docker curl jq openssl python3 shasum tar xxd base64 go git make; do
   command -v "${required_command}" >/dev/null 2>&1 || fail "required command is missing: ${required_command}"
 done
 docker compose version >/dev/null 2>&1 || fail "docker compose is unavailable"
+
+prepare_oxia_staging_checkout() {
+  local source_root="${staging_root}/source"
+  local source_manifest="${source_root}/oxia-staging-source.json"
+  local source_manifest_tmp="${source_manifest}.tmp"
+  local base_commit patch_digest patched_commit
+
+  [[ -f "${oxia_patch}" ]] || fail "Oxia staging patch is missing: ${oxia_patch}"
+  [[ -d "${oxia_base_checkout}/.git" ]] || fail "Oxia base checkout is not a Git checkout: ${oxia_base_checkout}"
+  [[ -z "$(git -C "${oxia_base_checkout}" status --porcelain)" ]] \
+    || fail "Oxia base checkout is dirty: ${oxia_base_checkout}"
+  [[ "$(git -C "${oxia_base_checkout}" branch --show-current)" == "main" ]] \
+    || fail "Oxia base checkout is not on main: ${oxia_base_checkout}"
+  base_commit="$(git -C "${oxia_base_checkout}" rev-parse HEAD)"
+  [[ "${base_commit}" == "${oxia_expected_base_sha}" ]] \
+    || fail "Oxia base checkout is not the staging-locked source: ${base_commit}"
+  patch_digest="$(shasum -a 256 "${oxia_patch}" | awk '{print $1}')"
+
+  if [[ ! -e "${oxia_checkout}" ]]; then
+    git clone --no-hardlinks --branch main --single-branch "${oxia_base_checkout}" "${oxia_checkout}" \
+      >"${run_dir}/logs/oxia-staging-source-clone.log" 2>&1 \
+      || fail "could not create the persistent Oxia staging source checkout"
+    [[ "$(git -C "${oxia_checkout}" rev-parse HEAD)" == "${base_commit}" ]] \
+      || fail "new Oxia staging source checkout did not start at the locked base"
+    git -C "${oxia_checkout}" apply --unidiff-zero --check "${oxia_patch}" \
+      >"${run_dir}/logs/oxia-staging-source-patch-check.log" 2>&1 \
+      || fail "Oxia staging patch does not apply to the locked base"
+    git -C "${oxia_checkout}" apply --unidiff-zero "${oxia_patch}" \
+      >"${run_dir}/logs/oxia-staging-source-patch-apply.log" 2>&1 \
+      || fail "could not apply the Oxia staging patch"
+    [[ "$(git -C "${oxia_checkout}" diff --name-only)" == "oxiad/coordinator/metadata/factory.go" ]] \
+      || fail "Oxia staging patch changed an unexpected path"
+    git -C "${oxia_checkout}" add oxiad/coordinator/metadata/factory.go
+    GIT_AUTHOR_NAME="Nereus Delay staging" \
+      GIT_AUTHOR_EMAIL="nereus-delay-staging@localhost" \
+      GIT_COMMITTER_NAME="Nereus Delay staging" \
+      GIT_COMMITTER_EMAIL="nereus-delay-staging@localhost" \
+      git -C "${oxia_checkout}" commit --no-verify \
+        --message "fix(staging): replay raft status watch after restart" \
+        >"${run_dir}/logs/oxia-staging-source-commit.log" 2>&1 \
+        || fail "could not commit the Oxia staging patch"
+    patched_commit="$(git -C "${oxia_checkout}" rev-parse HEAD)"
+    printf '%s\n' "${patched_commit}" >"${source_root}/oxia-staging-commit.txt"
+    jq -n --arg schema "nereus-delay.ndip1-oxia-staging-source" \
+      --arg baseCheckout "${oxia_base_checkout}" --arg baseCommit "${base_commit}" \
+      --arg patchPath "${oxia_patch}" --arg patchSha256 "${patch_digest}" \
+      --arg patchedCheckout "${oxia_checkout}" --arg patchedCommit "${patched_commit}" \
+      '{schema:$schema,schemaGeneration:1,stagingOnly:true,productionAuthority:false,
+        baseCheckout:$baseCheckout,baseCommit:$baseCommit,patchPath:$patchPath,
+        patchSha256:$patchSha256,patchedCheckout:$patchedCheckout,patchedCommit:$patchedCommit,
+        buildCommand:"make -C <patchedCheckout>"}' \
+      >"${source_manifest_tmp}" \
+      && mv -n "${source_manifest_tmp}" "${source_manifest}" \
+      || fail "could not persist the Oxia staging source manifest"
+  else
+    [[ -f "${source_manifest}" ]] || fail "existing Oxia staging source has no source manifest"
+    jq -e --arg baseCheckout "${oxia_base_checkout}" --arg baseCommit "${base_commit}" \
+      --arg patchPath "${oxia_patch}" --arg patchSha256 "${patch_digest}" \
+      --arg patchedCheckout "${oxia_checkout}" \
+      '.stagingOnly == true and .productionAuthority == false and
+       .baseCheckout == $baseCheckout and .baseCommit == $baseCommit and
+       .patchPath == $patchPath and .patchSha256 == $patchSha256 and
+       .patchedCheckout == $patchedCheckout and (.patchedCommit | type == "string")' \
+      "${source_manifest}" >/dev/null \
+      || fail "existing Oxia staging source manifest does not match the locked patch"
+    patched_commit="$(jq -r '.patchedCommit' "${source_manifest}")"
+    [[ "$(git -C "${oxia_checkout}" rev-parse HEAD)" == "${patched_commit}" ]] \
+      || fail "existing Oxia staging source HEAD differs from its manifest"
+    [[ "$(git -C "${oxia_checkout}" rev-list --parents -n1 HEAD | awk '{print $2}')" == "${base_commit}" ]] \
+      || fail "existing Oxia staging source is not a single patch commit on the locked base"
+  fi
+
+  [[ -z "$(git -C "${oxia_checkout}" status --porcelain)" ]] \
+    || fail "Oxia staging source checkout is dirty: ${oxia_checkout}"
+  [[ "$(git -C "${oxia_checkout}" branch --show-current)" == "main" ]] \
+    || fail "Oxia staging source checkout is not on main: ${oxia_checkout}"
+  [[ "$(git -C "${oxia_checkout}" rev-list --parents -n1 HEAD | awk '{print $2}')" == "${base_commit}" ]] \
+    || fail "Oxia staging source parent is not the locked base"
+  if [[ ! -x "${oxia_cli}" ]]; then
+    make -C "${oxia_checkout}" >"${run_dir}/logs/oxia-staging-source-build.log" 2>&1 \
+      || fail "could not build the persistent Oxia staging CLI"
+  fi
+  [[ -x "${oxia_cli}" ]] || fail "Oxia staging CLI is missing or not executable: ${oxia_cli}"
+  [[ -z "$(git -C "${oxia_checkout}" status --porcelain)" ]] \
+    || fail "Oxia staging source became dirty while building the CLI"
+  oxia_base_sha="${base_commit}"
+  oxia_patch_sha256="${patch_digest}"
+  oxia_source_manifest_sha256="$(shasum -a 256 "${source_manifest}" | awk '{print $1}')"
+  cp -p "${source_manifest}" "${run_dir}/g0/oxia-staging-source.json"
+  cp -p "${oxia_patch}" "${run_dir}/g0/oxia-staging-source.patch"
+  [[ "$(shasum -a 256 "${run_dir}/g0/oxia-staging-source.json" | awk '{print $1}')" == \
+    "${oxia_source_manifest_sha256}" ]] || fail "G0 Oxia source manifest copy changed"
+  [[ "$(shasum -a 256 "${run_dir}/g0/oxia-staging-source.patch" | awk '{print $1}')" == \
+    "${oxia_patch_sha256}" ]] || fail "G0 Oxia staging patch copy changed"
+}
 
 git -C "${delay_root}" fetch origin main >/dev/null
 [[ "$(git -C "${delay_root}" branch --show-current)" == "main" ]] \
@@ -169,10 +270,7 @@ git -C "${delay_root}" merge-base --is-ancestor \
   || fail "P1 checkout is dirty: ${pulsar_checkout}"
 [[ "$(git -C "${pulsar_checkout}" rev-parse HEAD)" == "${p1_source_lock}" ]] \
   || fail "P1 checkout does not match the locked source"
-[[ -z "$(git -C "${oxia_checkout}" status --porcelain)" ]] \
-  || fail "Oxia checkout is dirty: ${oxia_checkout}"
-[[ "$(git -C "${oxia_checkout}" branch --show-current)" == "main" ]] \
-  || fail "Oxia checkout is not on main"
+prepare_oxia_staging_checkout
 [[ -s "${pulsar_tarball}" ]] || fail "locked P1 distribution is missing: ${pulsar_tarball}"
 for artifact in ${pulsar_client_cp//:/ }; do
   [[ -s "${artifact}" ]] || fail "locked P1 client artifact is missing: ${artifact}"
@@ -434,6 +532,44 @@ bootstrap_oxia() {
   wait_for_namespace
 }
 
+run_oxia_coordinator_restart() {
+  local restart_dir="${run_dir}/chaos/oxia-coordinator-restart"
+  local restart_started container_id
+  mkdir -p "${restart_dir}"
+  "${compose[@]}" ps --all >"${restart_dir}/before-ps.txt"
+  container_id="$("${compose[@]}" ps -q coordinator-1)"
+  [[ -n "${container_id}" ]] || fail "Oxia coordinator-1 container is missing before restart"
+  docker inspect --format '{{.Id}} {{.Image}} {{.State.Status}}' "${container_id}" \
+    >"${restart_dir}/before-container.txt"
+  restart_started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  "${compose[@]}" restart coordinator-1 >"${restart_dir}/restart.log" 2>&1 \
+    || fail "Oxia coordinator-1 restart command failed"
+  wait_for_oxia_service coordinator-1 6651
+  wait_for_oxia_service coordinator-2 6651
+  wait_for_oxia_service coordinator-3 6651
+  "${compose[@]}" ps --all >"${restart_dir}/after-ps.txt"
+  container_id="$("${compose[@]}" ps -q coordinator-1)"
+  [[ -n "${container_id}" ]] || fail "Oxia coordinator-1 container is missing after restart"
+  docker inspect --format '{{.Id}} {{.Image}} {{.State.Status}}' "${container_id}" \
+    >"${restart_dir}/after-container.txt"
+  "${compose[@]}" logs --since "${restart_started}" --no-color coordinator-1 \
+    >"${restart_dir}/after-restart.log" 2>&1 \
+    || fail "could not capture Oxia coordinator-1 restart logs"
+  if rg -n -e 'panic:' -e 'metadata bad version' "${restart_dir}/after-restart.log" >/dev/null; then
+    fail "Oxia coordinator-1 emitted a panic or metadata version failure after restart"
+  fi
+  oxia_admin namespace get default -o json >"${restart_dir}/namespace-after.json" \
+    || fail "Oxia namespace read failed after coordinator restart"
+  oxia_client list --key-min "" --key-max "" >"${restart_dir}/keys-after.txt" \
+    || fail "Oxia client read failed after coordinator restart"
+  jq -n --arg schema "nereus-delay.ndip1-oxia-coordinator-restart" \
+    --arg status PASS --arg service coordinator-1 --arg started "${restart_started}" \
+    --arg namespace "${restart_dir}/namespace-after.json" --arg keys "${restart_dir}/keys-after.txt" \
+    '{schema:$schema,schemaGeneration:1,status:$status,service:$service,restartStartedAt:$started,
+      allCoordinatorsHealthy:true,noPanicAfterRestart:true,namespaceReadBack:$namespace,
+      clientReadBack:$keys,productionAuthority:false}' >"${restart_dir}/receipt.json"
+}
+
 init_minio() {
   wait_for_http "${minio_endpoint}/minio/health/ready"
   local create_status version_status
@@ -547,6 +683,10 @@ write_environment_snapshot() {
     --arg environmentId "${environment_id}" --arg classification "${classification}" \
     --arg runId "${run_id}" --arg candidateCommit "${candidate_commit}" \
     --arg p1SourceLock "${p1_source_lock}" --arg oxiaSource "${oxia_sha}" \
+    --arg oxiaBaseSource "${oxia_base_sha}" --arg oxiaPatchSha256 "${oxia_patch_sha256}" \
+    --arg oxiaSourceCheckout "${oxia_checkout}" \
+    --arg oxiaSourceManifest "${run_dir}/g0/oxia-staging-source.json" \
+    --arg oxiaSourceManifestSha256 "${oxia_source_manifest_sha256}" \
     --arg pulsarSource "${pulsar_sha}" --arg pulsarRef "${pulsar_ref}" \
     --arg packageDigest "${accepted_package_digest}" \
     --arg snapshotDigest "${g0_snapshot_sha256}" --argjson unresolved "${unresolved_obligations}" \
@@ -557,11 +697,16 @@ write_environment_snapshot() {
     --arg persistentRoot "${staging_root}" \
     '{schema:$schema,schemaGeneration:1,environmentId:$environmentId,classification:$classification,runId:$runId,
       candidateCommit:$candidateCommit,p1SourceLock:$p1SourceLock,acceptedPackageDigest:$packageDigest,
-      source:{oxia:$oxiaSource,pulsar:$pulsarSource,pulsarRef:$pulsarRef},snapshotDigest:$snapshotDigest,
+      source:{oxia:$oxiaSource,oxiaBase:$oxiaBaseSource,oxiaPatchSha256:$oxiaPatchSha256,
+        oxiaSourceCheckout:$oxiaSourceCheckout,oxiaSourceManifest:$oxiaSourceManifest,
+        oxiaSourceManifestSha256:$oxiaSourceManifestSha256,pulsar:$pulsarSource,pulsarRef:$pulsarRef},
+      snapshotDigest:$snapshotDigest,
       unresolvedPublishingOrUncertain:$unresolved,
       topics:{command:$commandTopic,mutation:$mutationTopic,worker:$workerTopic,native:$nativeTopic},
       oxia:{namespace:"default",coordinators:[16691,16692,16693],dataServers:[16681,16682,16683],
-        clientEndpoint:"127.0.0.1:16681",clientBinary:$oxiaCli,clientBinarySha256:$oxiaCliSha256},
+        sourceCheckout:$oxiaSourceCheckout,sourceManifest:$oxiaSourceManifest,
+        sourceManifestSha256:$oxiaSourceManifestSha256,clientEndpoint:"127.0.0.1:16681",
+        clientBinary:$oxiaCli,clientBinarySha256:$oxiaCliSha256},
       minio:{bucket:$minioBucket,prefix:$minioPrefix},
       persistentRoot:$persistentRoot}' \
     >"${run_dir}/g0/g0-snapshot.json"
@@ -1467,6 +1612,8 @@ write_gate_c_receipt() {
     || fail "manifest readback did not prove each operation"
   [[ -s "${run_dir}/results/gate-c-p1-worker-managed.json" ]] \
     || fail "P1 managed Worker result is missing"
+  [[ "$(jq -r '.status' "${run_dir}/chaos/oxia-coordinator-restart/receipt.json")" == PASS ]] \
+    || fail "persistent Oxia coordinator restart gate is not PASS"
   local passed_checks
   passed_checks="$(jq -r '.counts.pass' "${run_dir}/authority/staging-skip-audit.json")"
   [[ "${passed_checks}" == 41 ]] || fail "Gate C receipt cannot be issued before the skip audit is PASS"
@@ -1508,7 +1655,7 @@ write_gate_c_receipt() {
       startupAssignmentGate:true,noOldGeneration:true,noUnresolvedPublishing:true,noUnresolvedUncertain:true,
       freshness:true,applicableChecks:41,passedChecks:$passedChecks,g0SnapshotPath:$g0SnapshotPath,skipAuditPath:$skipAuditPath,
       evidence:{realOxia:true,realMinio:true,realPulsarP1:true,realGateway:true,realWorker:true,
-        brokerFailover:true,workerOwnershipTransfer:true,responseLossRecovery:true}}' \
+        oxiaCoordinatorRestart:true,brokerFailover:true,workerOwnershipTransfer:true,responseLossRecovery:true}}' \
     >"${payload}"
   jq -n --arg payloadPath "${payload}" \
     --arg signedEnvelopePath "${run_dir}/authority/gate-c-receipt.signed.json" \
@@ -2023,6 +2170,7 @@ write_tls_if_needed
 wait_for_http "${admin_url}/admin/v2/brokers/ready"
 wait_for_http "http://127.0.0.1:${web_2_port}/admin/v2/brokers/ready"
 bootstrap_oxia
+run_oxia_coordinator_restart
 init_minio
 start_fault_proxy
 write_environment_snapshot

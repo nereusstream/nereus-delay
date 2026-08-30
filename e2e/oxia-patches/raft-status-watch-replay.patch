@@ -1,0 +1,79 @@
+diff --git a/oxiad/coordinator/metadata/factory.go b/oxiad/coordinator/metadata/factory.go
+--- a/oxiad/coordinator/metadata/factory.go
++++ b/oxiad/coordinator/metadata/factory.go
+@@ -38,16 +38,24 @@
+-type Factory struct {
+-	mu sync.Mutex
+-
+-	statusProvider  provider.Provider[*commonproto.ClusterStatus]
+-	configProvider  provider.Provider[*commonproto.ClusterConfiguration]
+-	coordinatorName string
+-	raft            *raft.Raft
+-	raftInterceptor raft.Interceptor
+-}
+-
+-func (f *Factory) OnApplied(key string, data []byte, version int64) {
+-	if f.raftInterceptor == nil {
+-		return
+-	}
+-	f.raftInterceptor.OnApplied(key, data, version)
+-}
++type Factory struct {
++	mu sync.Mutex
++
++	statusProvider  provider.Provider[*commonproto.ClusterStatus]
++	configProvider  provider.Provider[*commonproto.ClusterConfiguration]
++	coordinatorName string
++	raft            *raft.Raft
++	raftInterceptor raft.Interceptor
++}
++
++type raftInterceptorFanout []raft.Interceptor
++
++func (f raftInterceptorFanout) OnApplied(key string, data []byte, version int64) {
++	for _, interceptor := range f {
++		interceptor.OnApplied(key, data, version)
++	}
++}
++
++func (f *Factory) OnApplied(key string, data []byte, version int64) {
++	if f.raftInterceptor == nil {
++		return
++	}
++	f.raftInterceptor.OnApplied(key, data, version)
++}
+@@ -89,15 +97,19 @@
+-	case metadatacommon.NameRaft:
+-		if factory.raft, err = raft.New(meta.Raft.Address, meta.Raft.BootstrapNodes, meta.Raft.DataDir, factory); err != nil {
+-			return nil, fmt.Errorf("failed to create raft metadata provider: %w", err)
+-		}
+-		factory.configProvider = raft.NewProvider(ctx, factory.raft, metadatacodec.ClusterConfigCodec, metadatacommon.WatchEnabled)
+-		// Raft apply callbacks only drive the config watch today.
+-		// Status watch is intentionally unsupported; if we add it later,
+-		// this needs to fan out to the status provider too.
+-		configProvider, ok := factory.configProvider.(*raft.Provider[*commonproto.ClusterConfiguration])
+-		if !ok {
+-			return nil, errors.New("failed to create raft config provider")
+-		}
+-		factory.raftInterceptor = configProvider
+-		factory.statusProvider = raft.NewProvider(ctx, factory.raft, metadatacodec.ClusterStatusCodec, metadatacommon.WatchDisabled)
+-	default:
++	case metadatacommon.NameRaft:
++		if factory.raft, err = raft.New(meta.Raft.Address, meta.Raft.BootstrapNodes, meta.Raft.DataDir, factory); err != nil {
++			return nil, fmt.Errorf("failed to create raft metadata provider: %w", err)
++		}
++		factory.configProvider = raft.NewProvider(ctx, factory.raft, metadatacodec.ClusterConfigCodec, metadatacommon.WatchEnabled)
++		configProvider, ok := factory.configProvider.(*raft.Provider[*commonproto.ClusterConfiguration])
++		if !ok {
++			return nil, errors.New("failed to create raft config provider")
++		}
++		factory.statusProvider = raft.NewProvider(ctx, factory.raft, metadatacodec.ClusterStatusCodec, metadatacommon.WatchDisabled)
++		statusProvider, ok := factory.statusProvider.(*raft.Provider[*commonproto.ClusterStatus])
++		if !ok {
++			return nil, errors.New("failed to create raft status provider")
++		}
++		// Both providers must observe FSM replay. In particular, a restarted
++		// coordinator must recover the status version before doStatusRecovery
++		// attempts its optimistic update.
++		factory.raftInterceptor = raftInterceptorFanout{configProvider, statusProvider}
++	default:
