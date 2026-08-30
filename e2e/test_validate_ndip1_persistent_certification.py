@@ -20,6 +20,14 @@ SPEC.loader.exec_module(VALIDATOR)
 
 
 class PersistentCertificationValidatorTest(unittest.TestCase):
+    def test_derives_canonical_p1_source_lock_digest_from_commit(self) -> None:
+        self.assertEqual(
+            "e38d97ddcd3ba17d010fb1c75b132061551230a724785de52dee7eba9f5c34ed",
+            VALIDATOR.canonical_p1_source_lock_digest("0a2536484cd3932801a98dc88ff112b2df88a1c7"),
+        )
+        with self.assertRaises(VALIDATOR.VerificationError):
+            VALIDATOR.canonical_p1_source_lock_digest("e38d97dd" + "00" * 28)
+
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
@@ -162,7 +170,7 @@ class PersistentCertificationValidatorTest(unittest.TestCase):
             "deliverAtEpochMs": 120,
             "policySnapshotDigest": digest,
             "policyScopeDigest": "57" * 32,
-            "p1SourceLock": "78" * 20,
+            "p1SourceLock": "78" * 32,
             "destinationResponseLossResolved": True,
             "attemptJournalResponseLossRecoveries": 3,
             "attemptJournalStartupReplayRecords": 3,
@@ -189,11 +197,11 @@ class PersistentCertificationValidatorTest(unittest.TestCase):
             value[field] = "9a" * 32
         path.write_text(json.dumps(value), encoding="utf-8")
 
-        VALIDATOR.verify_managed_handoff_evidence(path, "57" * 32, digest, "9a" * 32, "78" * 20)
+        VALIDATOR.verify_managed_handoff_evidence(path, "57" * 32, digest, "9a" * 32, "78" * 32)
         value["brokerPersistenceTimeEpochMs"] = 120
         path.write_text(json.dumps(value), encoding="utf-8")
         with self.assertRaises(VALIDATOR.VerificationError):
-            VALIDATOR.verify_managed_handoff_evidence(path, "57" * 32, digest, "9a" * 32, "78" * 20)
+            VALIDATOR.verify_managed_handoff_evidence(path, "57" * 32, digest, "9a" * 32, "78" * 32)
 
     def test_verifies_manifest_domain_digest_and_signature(self) -> None:
         def varint(value: int) -> bytes:
@@ -279,7 +287,7 @@ class PersistentCertificationValidatorTest(unittest.TestCase):
             "policyScopeDigest": "34" * 32,
             "policySnapshotDigest": "56" * 32,
             "artifactSetDigest": "78" * 32,
-            "p1SourceLock": "9a" * 20,
+            "p1SourceLock": "9a" * 32,
             "brokerPersistenceTimeEpochMs": 100,
             "deliverAtEpochMs": 110,
             "sequenceId": 7,
@@ -291,14 +299,14 @@ class PersistentCertificationValidatorTest(unittest.TestCase):
         path.write_text(json.dumps(value), encoding="utf-8")
 
         VALIDATOR.verify_native_evidence(
-            path, candidate, "staging", "56" * 32, "78" * 32, "9a" * 20,
+            path, candidate, "staging", "56" * 32, "78" * 32, "9a" * 32,
             "persistent://public/default/canary",
         )
         value["brokerPersistenceTimeEpochMs"] = 110
         path.write_text(json.dumps(value), encoding="utf-8")
         with self.assertRaises(VALIDATOR.VerificationError):
             VALIDATOR.verify_native_evidence(
-                path, candidate, "staging", "56" * 32, "78" * 32, "9a" * 20,
+                path, candidate, "staging", "56" * 32, "78" * 32, "9a" * 32,
                 "persistent://public/default/canary",
             )
 

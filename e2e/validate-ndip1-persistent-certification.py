@@ -47,6 +47,11 @@ def require(condition: bool, message: str) -> None:
         raise VerificationError(message)
 
 
+def canonical_p1_source_lock_digest(source_lock_commit: str) -> str:
+    require(COMMIT.fullmatch(source_lock_commit) is not None, "expected P1 source lock is not a commit")
+    return hashlib.sha256(f"nereus/delay-resource-guard@{source_lock_commit}".encode("ascii")).hexdigest()
+
+
 def sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
@@ -311,7 +316,7 @@ def verify_managed_handoff_evidence(
     policy_scope_digest: str,
     policy_snapshot_digest: str,
     artifact_set_digest: str,
-    p1_source_lock: str,
+    p1_source_lock_digest: str,
 ) -> dict[str, Any]:
     value = read_json(path, "Managed Handoff evidence")
     require(value.get("schema") == "nereus-delay.managed-handoff-canary-evidence", "bad Managed Handoff schema")
@@ -331,7 +336,7 @@ def verify_managed_handoff_evidence(
     require(value.get("policyScopeDigest") == policy_scope_digest, "Managed policy scope mismatch")
     require(value.get("policySnapshotDigest") == policy_snapshot_digest, "Managed policy snapshot mismatch")
     require(value.get("artifactSetDigest") == artifact_set_digest, "Managed artifact set mismatch")
-    require(value.get("p1SourceLock") == p1_source_lock, "Managed P1 source lock mismatch")
+    require(value.get("p1SourceLock") == p1_source_lock_digest, "Managed P1 source lock digest mismatch")
     require(value.get("destinationResponseLossResolved") is True, "destination response loss was not resolved")
     require(value.get("attemptJournalResponseLossRecoveries") == 3, "Attempt Journal recovery count is not exact")
     require(value.get("attemptJournalStartupReplayRecords") == 3
@@ -367,7 +372,7 @@ def verify_native_evidence(
     environment_id: str,
     policy_snapshot_digest: str,
     artifact_set_digest: str,
-    p1_source_lock: str,
+    p1_source_lock_digest: str,
     expected_topic: str,
 ) -> dict[str, Any]:
     value = read_json(path, "AUTO_FAST native evidence")
@@ -383,7 +388,7 @@ def verify_native_evidence(
     require(value.get("targetPhysicalTopic") == expected_topic, "AUTO_FAST target differs from the canary")
     require(value.get("policySnapshotDigest") == policy_snapshot_digest, "AUTO_FAST policy snapshot mismatch")
     require(value.get("artifactSetDigest") == artifact_set_digest, "AUTO_FAST artifact set mismatch")
-    require(value.get("p1SourceLock") == p1_source_lock, "AUTO_FAST P1 source lock mismatch")
+    require(value.get("p1SourceLock") == p1_source_lock_digest, "AUTO_FAST P1 source lock digest mismatch")
     persisted_at = int(value.get("brokerPersistenceTimeEpochMs", -1))
     deliver_at = int(value.get("deliverAtEpochMs", -1))
     require(0 <= persisted_at < deliver_at, "AUTO_FAST was not persisted before deliverAt")
@@ -407,6 +412,7 @@ def validate(args: argparse.Namespace) -> dict[str, Any]:
     require(run_dir.is_dir() and not run_dir.is_symlink(), "run directory is not a regular directory")
     candidate = args.expected_candidate
     require(COMMIT.fullmatch(candidate) is not None, "expected candidate is not a commit")
+    p1_source_lock_digest = canonical_p1_source_lock_digest(args.expected_p1_source_lock)
     trusted_public_key = read_bytes(args.trusted_public_key.expanduser().resolve(strict=True), "trusted public key")
 
     gate = verify_envelope(run_dir / "authority/gate-c-receipt.signed.json", trusted_public_key)
@@ -633,7 +639,7 @@ def validate(args: argparse.Namespace) -> dict[str, Any]:
         environment_id,
         str(enabled_policy.get("policySnapshotDigest")),
         str(enabled_policy.get("artifactSetDigest")),
-        args.expected_p1_source_lock,
+        p1_source_lock_digest,
         str(canary_value.get("topic")),
     )
     verify_managed_handoff_evidence(
@@ -641,7 +647,7 @@ def validate(args: argparse.Namespace) -> dict[str, Any]:
         str(enabled_policy.get("policyScopeDigest")),
         str(enabled_policy.get("policySnapshotDigest")),
         str(enabled_policy.get("artifactSetDigest")),
-        args.expected_p1_source_lock,
+        p1_source_lock_digest,
     )
     managed_log = read_bytes(evidence_paths["managedHandoffLog"], "Managed Handoff log").decode("utf-8")
     for marker in (

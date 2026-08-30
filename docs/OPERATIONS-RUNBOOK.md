@@ -2069,6 +2069,14 @@ the 41-row audit and Manifest readback; canary evidence uses closed
 signature failure blocks the independent validator and prevents updating the
 current deployment pointer.
 
+Pass the P1 source lock to the persistent validator as the accepted 40-hex
+commit, never as a precomputed digest. Gate/G0 receipts retain that commit;
+the validator derives
+`SHA-256("nereus/delay-resource-guard@" + commit)` itself and requires the
+result in AUTO_FAST and Managed physical evidence. This prevents a 40-hex
+commit identifier and a 64-hex/32-byte artifact digest from being treated as
+the same field type while keeping both bound to one source lock.
+
 ## 2026-08-30 NDIP-1 disposable certification generation-3 contract
 
 The current `e2e/run-disposable-local-certification.sh` emits

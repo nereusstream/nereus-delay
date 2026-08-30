@@ -252,6 +252,23 @@ non-symlink、strict UTF-8，并继续检查 native physical-send 禁止标记�
 被正确分类、状态树外非 UTF-8 证据 fail-closed，以及真实 native-send marker fail-closed。不能通过
 `errors=ignore` 或捕获后静默跳过来放宽证据验证。
 
+run `20260830100335-44793` 在候选
+`57035ab04319fa1ff1538bc0a2fc41c15c480ca4` 上验证了修正后的 SHADOW parser：13/13 Manifest
+readback、Gate C 41/41、250 秒 SHADOW observation 和真实 Oxia/MinIO/Worker ownership cut 均通过，
+SHADOW 结果为 `0/0/0`。随后 AUTO_FAST 真实业务消息也成功在 `deliverAt` 前持久化并产生 typed
+SEND/ACK evidence，但 runner 在进入 Managed Handoff canary 前 fail-closed。原因是物理证据中的
+`p1SourceLock` 按规范保存 32-byte canonical source-lock digest，runner 却用 40-hex P1 commit 与它
+比较。失败清理已把 Oxia current head 改回 `DISABLED`；其二级诊断又因错误文本的词序匹配过窄而
+中止，因此该 run 没有 canary/rollback receipt，也没有更新 deployment current pointer。
+
+当前 runner 和独立 validator 明确区分两种类型：Gate C/G0/最终 certification receipt 绑定 P1
+commit；AUTO_FAST、Managed Handoff 和 `ArtifactGenerationSet` 的物理证据绑定
+`SHA-256("nereus/delay-resource-guard@" + commit)`。独立 validator 只接受 canonical 40-hex commit，
+再自行派生 64-hex digest验证 raw evidence；runner 不接受调用方直接注入 digest。stale ENABLED
+校验则接受 `current Oxia handoff policy` 和 `current handoff policy ...` 两类 closed rejection 文本，
+仍要求验证命令非零退出。专项测试固定 commit-to-digest 向量、双 canary evidence 检查和 stale-head
+诊断；该修复不会把上述 blocked run 晋升为 authority。
+
 ## Authority 边界
 
 即使 current pointer 对某个 HEAD 验证 PASS，也只说明固定本机 staging 的 bounded 候选认证：

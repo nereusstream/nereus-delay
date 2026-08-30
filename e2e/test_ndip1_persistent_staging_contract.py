@@ -19,6 +19,15 @@ WORKER_SMOKE = (
 
 
 class PersistentStagingContractTest(unittest.TestCase):
+    def test_enabled_evidence_uses_canonical_p1_digest_and_closed_stale_head_error(self) -> None:
+        runner = RUNNER.read_text(encoding="utf-8")
+        enabled_canary = runner.split("run_enabled_canary() {", 1)[1].split(
+            "disable_enabled_policy() {", 1
+        )[0]
+        self.assertEqual(2, enabled_canary.count('--arg p1Lock "${p1_source_lock_digest}"'))
+        self.assertEqual(1, enabled_canary.count('--arg p1Lock "${p1_source_lock}"'))
+        self.assertIn('rg -e "current (Oxia )?handoff policy"', runner)
+
     def test_manifest_rocksdb_identity_is_the_exact_worker_root(self) -> None:
         runner = RUNNER.read_text(encoding="utf-8")
         self.assertIn('rocksdb_resource="${run_dir}/worker-store"', runner)

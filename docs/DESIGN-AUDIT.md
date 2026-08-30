@@ -44,6 +44,15 @@ rechecks the complete signature/evidence chain, including AUTO_FAST 1/1/0,
 Managed Handoff 1/1/1, and final DISABLED rollback. That evidence remains
 environment-specific and `productionAuthority=false`.
 
+The certification audit also closes the P1 source identity representation.
+Deployment receipts carry the exact 40-hex P1 commit, while wire/physical
+evidence carries the accepted 32-byte source-lock digest. The independent
+validator validates the commit syntax and derives the digest under the same
+domain used by `PulsarSourceLock`; it never compares the commit directly with
+physical evidence and never trusts a separately supplied digest. Rollback
+still proves that the stale ENABLED envelope is rejected by the newer Oxia
+current head before waiting for the frozen lease boundary.
+
 ## 2026-08-28 NDIP-1 H1-H6 implementation audit boundary (historical snapshot)
 
 The current main worktree has implementation slices for H1 through H6. The

@@ -44,6 +44,17 @@ SHADOW 0/0/0, AUTO_FAST 1/1/0, Managed Handoff 1/1/1, and final DISABLED
 rollback. This remains `productionAuthority=false`; other environments and
 production deployment remain separately gated.
 
+The source-lock boundary is now type-closed across certification artifacts.
+Gate C, G0 and the final certification input bind the canonical 40-hex P1
+commit. Physical AUTO_FAST/Managed evidence binds the 32-byte
+`PulsarSourceLock.digest()` value. The runner and independent validator derive
+that digest from the accepted commit under the fixed
+`nereus/delay-resource-guard@` domain instead of comparing unlike values or
+accepting a caller-supplied digest. A stale ENABLED receipt must still be
+rejected after the Oxia head becomes DISABLED; the rollback audit recognizes
+the complete closed family of current-policy disagreement diagnostics without
+weakening the required non-zero activation result.
+
 ## 2026-08-28 NDIP-1 H1-H6 implementation slices (historical pre-staging snapshot)
 
 The H1-H6 implementation anchor is

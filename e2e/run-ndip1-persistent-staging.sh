@@ -2558,7 +2558,7 @@ run_enabled_canary() {
   local native_evidence="${canary_dir}/native-canary-evidence.json"
   [[ -s "${native_evidence}" ]] || fail "ENABLED canary did not persist machine-readable native evidence"
   jq -e --arg environmentId "${environment_id}" --arg candidateCommit "${candidate_commit}" \
-    --arg p1Lock "${p1_source_lock}" \
+    --arg p1Lock "${p1_source_lock_digest}" \
     '.schema == "nereus-delay.persistent-native-canary" and .schemaGeneration == 2 and
      .environmentId == $environmentId and .candidateCommit == $candidateCommit and
      .productionPath == true and .productionAuthority == false and .verdict == "PASS" and
@@ -2597,7 +2597,7 @@ run_enabled_canary() {
   jq -e --arg policySnapshot "$(jq -r '.policySnapshotDigest' "${native_evidence}")" \
     --arg policyScope "$(jq -r '.policyScopeDigest' "${native_evidence}")" \
     --arg artifactSet "$(jq -r '.artifactSetDigest' "${native_evidence}")" \
-    --arg p1Lock "${p1_source_lock}" \
+    --arg p1Lock "${p1_source_lock_digest}" \
     '.schema == "nereus-delay.managed-handoff-canary-evidence" and
      .schemaGeneration == 2 and
      .verdict == "PASS" and .productionPath == true and .productionAuthority == false and
@@ -2737,7 +2737,7 @@ disable_enabled_policy() {
   local status=$?
   set -e
   [[ "${status}" != 0 ]] || fail "DISABLED current head accepted a stale ENABLED activation receipt"
-  rg -e "current Oxia handoff policy" -e "policy head" -e "does not authorize activation" \
+  rg -e "current (Oxia )?handoff policy" -e "policy head" -e "does not authorize activation" \
     "${verification_log}" >/dev/null \
     || fail "stale ENABLED rejection did not identify current-head disagreement"
 
