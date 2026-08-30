@@ -2084,6 +2084,14 @@ CLI namespace read, and a 20-second session-expiry grace before releasing the
 Route refresh gate. This prevents a port-ready process or a request that still
 overlaps leader election from being interpreted as restart/reopen recovery.
 
+Persistent staging binds `ROCKSDB_STORE` to the exact root passed as
+`NEREUS_DELAY_PULSAR_WORKER_ROOT`; a nested marker-only directory is not an
+acceptable substitute. The run creates incarnation markers in that root, the
+real Worker writes its ShardStore below the same root, and STAGING smoke runs
+retain it through the final 13-resource readback. A missing root, changed
+marker, symlink, or Worker cleanup of that root blocks Gate C before any SHADOW
+policy can be issued.
+
 ## 2026-08-28 NDIP-1 disposable local certification — da15290e (historical)
 
 The current disposable entry point is

@@ -327,7 +327,8 @@ public final class PulsarClientArtifactWorkerSmoke {
                 hasAdmissionResponseLossProcessCrash() && !waitForProcessCrash && !seedRecovery;
         final boolean destinationRecoveryResume =
                 hasDestinationResponseLossProcessCrash() && !waitForProcessCrash && !seedRecovery;
-        final boolean preserveWorkerRoot = hasAdmissionResponseLossProcessCrash()
+        final boolean preserveWorkerRoot = isPersistentStaging()
+                || hasAdmissionResponseLossProcessCrash()
                 || hasDestinationResponseLossProcessCrash()
                 || sourceAckResponseLossProcessCrashWait
                 || sourceAckResponseLossProcessCrashResume;

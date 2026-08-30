@@ -17690,3 +17690,15 @@ source-locked Oxia CLI, waits a bounded 20-second grace beyond the Route test's
 15-second session timeout, and requires the exact stop/start cut plus no-skip
 JUnit proof. This changes certification determinism and evidence integrity;
 it does not grant Gate C, SHADOW, ENABLED, or production authority.
+
+## 2026-08-30 NDIP-1 persistent RocksDB identity correction
+
+Persistent run `20260830081450-52897` correctly stopped before Gate C because
+its Manifest named `worker-store/rocksdb` while the real P1 Worker used and
+cleaned `worker-store`. The nested directory was only an incarnation-marker
+fixture and was not the physical ShardStore authority. The runner now binds
+the Manifest identity, Worker root, incarnation markers and post-operation
+readback to the same exact `worker-store` path. Real Worker smoke preserves
+that path when classification is `STAGING`; focused contract tests prevent
+either path or cleanup rule from drifting. The blocked run remains immutable
+and provides no Gate C, SHADOW, ENABLED, or production authority.

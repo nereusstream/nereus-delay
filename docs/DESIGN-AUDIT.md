@@ -14110,3 +14110,15 @@ did not directly hash matrix/supporting logs. Generation 3 adds `logSha256` to
 both closed branches and verifies it independently; mutation tests cover both
 fail-closed paths. Earlier receipts remain historical and cannot be used as
 current persistent-staging input.
+
+## 2026-08-30 NDIP-1 persistent Store binding audit
+
+The first current-candidate persistent run exposed a certification identity
+error instead of masking it: the Manifest declared a nested marker directory,
+but the production-composition Worker opened the parent as its ShardStore root
+and its smoke cleanup removed that parent. The exact 13-resource readback
+stopped the run before Gate C. The corrected contract uses one path for
+Manifest `ROCKSDB_STORE`, Worker configuration, incarnation markers and raw
+readback, and retains that path for STAGING runs. A focused source-contract
+test covers both identity equality and the no-delete staging guard. This is a
+certification correctness fix; the failed run is not activation evidence.

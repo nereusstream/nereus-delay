@@ -81,7 +81,7 @@ system_resource="persistent://public/default/${system_topic}"
 worker_resource="persistent://public/default/${worker_topic}"
 attempt_journal_resource="persistent://public/default/${worker_destination_topic}-attempt-journal"
 evidence_resource="persistent://public/default/${evidence_topic}"
-rocksdb_resource="${run_dir}/worker-store/rocksdb"
+rocksdb_resource="${run_dir}/worker-store"
 checkpoint_resource="oxia://default/${resource_prefix}/${run_id}/checkpoint-catalog"
 profile_resource="oxia://default/${resource_prefix}/${run_id}/profile-state"
 policy_resource="oxia://default/${resource_prefix}/${run_id}/runtime-policy"
@@ -1309,7 +1309,7 @@ export_common_test_environment() {
   export NEREUS_DELAY_PULSAR_WORKER_ID="worker-ndip1-a"
   export NEREUS_DELAY_PULSAR_WORKER_AUTHORITY_PREFIX="${resource_prefix}/${run_id}/worker-authority"
   export NEREUS_DELAY_PULSAR_WORKER_ASSIGNMENT_PREFIX="${resource_prefix}/${run_id}/worker-assignment"
-  export NEREUS_DELAY_PULSAR_WORKER_ROOT="${run_dir}/worker-store"
+  export NEREUS_DELAY_PULSAR_WORKER_ROOT="${rocksdb_resource}"
   unset NEREUS_DELAY_PERSISTENT_STAGING_GATE_C_RECEIPT \
     NEREUS_DELAY_PERSISTENT_STAGING_SHADOW_RECEIPT \
     NEREUS_DELAY_PERSISTENT_STAGING_POLICY \
@@ -1434,9 +1434,9 @@ execute_manifest_operations() {
   # The managed Worker and broker-failover smoke create these resources in
   # their exact prepare/resume phases.  Pre-creating them here would make a
   # non-resume smoke conflate an existing topic with a fresh incarnation.
-  mkdir -p "${run_dir}/worker-store" "${run_dir}/worker-store/rocksdb" "${run_dir}/worker-store/checkpoints"
-  printf '%s\n' "${run_id}" >"${run_dir}/worker-store/rocksdb/incarnation"
-  printf '%s\n' "${route_incarnation}" >"${run_dir}/worker-store/rocksdb/route-incarnation"
+  mkdir -p "${rocksdb_resource}" "${rocksdb_resource}/checkpoints"
+  printf '%s\n' "${run_id}" >"${rocksdb_resource}/incarnation"
+  printf '%s\n' "${route_incarnation}" >"${rocksdb_resource}/route-incarnation"
   local marker="${run_dir}/g0/payload-reservation-marker.bin"
   printf 'ndip1-persistent-staging/%s/payload-reservation\n' "${run_id}" >"${marker}"
   curl --silent --show-error --fail --aws-sigv4 "aws:amz:${minio_region}:s3" \
@@ -1448,7 +1448,7 @@ execute_manifest_operations() {
     --user "${minio_access_key}:${minio_secret_key}" \
     "${minio_endpoint}/${minio_bucket}?list-type=2&prefix=${resource_prefix}/${run_id}" \
     >"${run_dir}/g0/minio-objects-after-manifest.xml"
-  find "${run_dir}/worker-store" -maxdepth 4 -print | LC_ALL=C sort \
+  find "${rocksdb_resource}" -maxdepth 4 -print | LC_ALL=C sort \
     >"${run_dir}/g0/rocksdb-readback.txt"
   local oxia_marker_value marker_key marker_kind marker_identity
   oxia_marker_value="$(jq -nc --arg runId "${run_id}" --arg candidateCommit "${candidate_commit}" \

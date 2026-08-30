@@ -217,6 +217,20 @@ DISABLED rollback。它以及更早的 blocked runs 均保留在 persistent evid
 历史证据仍可用于回归比较和验证 previous terminal authority，但不能被 current pointer 指向当前
 候选，除非它满足本文件开头的全部新条件（该 run 不满足）。
 
+run `20260830081450-52897` 在候选
+`6b2a0e19f0e31984ce00884531cd4d979ec46a39` 上执行到 Manifest 资源读回后 fail-closed，状态为
+`BLOCKED`。它完成了此前的 Gate C 条件测试，包括预期 `SIGKILL` 后 fresh-process recovery、真实
+ENOSPC、两类 P1 response-loss 与双 Broker failover，但没有签发 Gate C receipt，也没有进入
+SHADOW/ENABLED。失败原因是 runner 曾把 `ROCKSDB_STORE` identity 声明为
+`worker-store/rocksdb`，真实 Worker 却使用父级 `worker-store`，而 Worker smoke 的非 crash 清理又会
+删除整个真实 root；因此声明资源与物理资源不相同，并在 13-resource readback 第三项被正确阻断。
+
+当前 runner 已将 `ROCKSDB_STORE`、`NEREUS_DELAY_PULSAR_WORKER_ROOT` 和 incarnation marker 统一到
+同一个 exact `worker-store` 根。real Pulsar Worker smoke 在 `STAGING` classification 下像保留
+staging topic 一样保留该 Store，后续 readback 对实际 ShardStore 文件和 marker 一并取摘要。
+`test_ndip1_persistent_staging_contract.py` 固定这两个约束。该修复只恢复真实资源绑定；失败 run
+仍然不可晋升，任何新认证都必须绑定修复后的新 HEAD，并从 24/24 disposable receipt 重新开始。
+
 ## Authority 边界
 
 即使 current pointer 对某个 HEAD 验证 PASS，也只说明固定本机 staging 的 bounded 候选认证：
