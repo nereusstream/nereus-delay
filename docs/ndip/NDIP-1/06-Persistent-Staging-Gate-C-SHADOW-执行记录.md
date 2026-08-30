@@ -293,6 +293,22 @@ topic；HTTP 200 必须得到 closed publishers 集合且数量为零，HTTP 404
 validator 重新计算摘要并验证零 publisher。上述修复只使后续新 run 可重新认证，不会补写或晋升
 失败 run。
 
+run `20260830122759-34348` 在候选
+`d228ca100df5a83a0ddb70004c9ef6c1098cd296` 上进一步完成了 13/13 Manifest readback、Gate C
+41/41、280 秒 SHADOW `0/0/0`、AUTO_FAST `1/1/0`，并证明 singleton recovery cursor 修复后
+Managed Handoff 已能产生 provider-driven Claim。该 run 随后在 Admission append 已返回 ENQUEUED、
+但同一进程的 16 个非阻塞 source turns 尚未收到新记录时返回 `SOURCE_TURN_LIMIT`。runtime 对这个
+状态保持无 attempt、无 destination touch、无 owner fence；real-client harness 却先解包 attempt，
+把可重试的 source propagation 边界误报为 durable attempt 未保留。失败清理已发布签名
+`DISABLED` head，未生成 Managed evidence、canary receipt、rollback receipt 或 current pointer。
+
+当前 real-client harness 只对 ENQUEUED 的同一 `publishAttemptId` 和同一 Admission Source Position
+续跑 bounded source turns：每轮仍使用 runtime 的 16-turn 上限，轮间 25ms，wall-clock 总上限 30 秒；
+它不重新 append Admission，也不改变 payload/attempt identity。只有
+`SOURCE_TURN_LIMIT` 可续跑；其他状态立即按详细 status、source-turn 与 last-source-turn 证据
+fail-closed。`PHYSICAL_SUBMITTED` 验证先于 attempt 解包，因此后续失败不再被错误诊断覆盖。该修复
+仍须由新 HEAD 的完整 disposable 与 persistent certification 重新证明，不能晋升上述 blocked run。
+
 ## Authority 边界
 
 即使 current pointer 对某个 HEAD 验证 PASS，也只说明固定本机 staging 的 bounded 候选认证：

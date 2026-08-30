@@ -177,6 +177,13 @@ rollback 则必须重新读取 Pulsar 当前 topic stats 并把摘要绑定进�
 稍后才会生成的 stats 文件。相关 blocked run 与证据边界记录在 `06`；当前是否形成 staging PASS
 仍只由 current pointer 和独立 verifier 决定。
 
+真实 Pulsar source 的 append 成功与同一 Worker 非阻塞 receive 立即可见不是同一个边界。
+`runSourceBoundPhysicalPublish` 在有界 source turns 内尚未读到 Admission 时返回可重试的
+`SOURCE_TURN_LIMIT`，不围栏、不创建 attempt、也不触碰 destination。Persistent Worker/certification
+调用方必须保留同一 `publishAttemptId` 与 Admission Source Position，在后续 bounded turns 中重试；
+不得把传播延迟误报为 attempt 丢失，也不得重新 append Admission。real-client canary 对该重试增加
+30 秒总时限，超时或任何其他状态继续 fail-closed。
+
 这里的“已实现”仅表示代码与环境认证工具边界；它不表示 NDIP 已进入 `Implemented`，也不产生
 production authority。H0 仍然 fail-closed，缺少 exact current generation、signed manifest 或
 能力 gate 时不得触碰 Producer/物理适配器。exact staging evidence 必须按上方 current-pointer

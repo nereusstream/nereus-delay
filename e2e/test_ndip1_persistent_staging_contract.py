@@ -45,6 +45,29 @@ class PersistentStagingContractTest(unittest.TestCase):
         )
         self.assertIn("MANAGED_HANDOFF_CANARY_DELAY_MS = 30_000", source)
 
+    def test_managed_handoff_retries_bounded_source_propagation_without_changing_identity(self) -> None:
+        source = WORKER_SMOKE.read_text(encoding="utf-8")
+        helper = source.split(
+            "private static WorkerShardRuntime.SourceBoundPhysicalPublishTurn "
+            "awaitSourceBoundPhysicalPublish(",
+            1,
+        )[1].split(
+            "private static WorkerShardRuntime.SourceBoundPhysicalPublishTurn "
+            "finishAdmissionRecoveryHold(",
+            1,
+        )[0]
+        self.assertIn("SourceBoundPhysicalPublishStatus.SOURCE_TURN_LIMIT", helper)
+        self.assertIn("TimeUnit.SECONDS.toNanos(30)", helper)
+        self.assertIn("TimeUnit.MILLISECONDS.sleep(25)", helper)
+        self.assertIn("publishAttemptId,\n                    admissionPosition", helper)
+        self.assertIn("ignored -> Optional.of(payload)", helper)
+        self.assertNotIn("append", helper.lower())
+        self.assertNotIn("submitPublish", helper)
+        self.assertLess(
+            source.index("source-applied PUBLISHING did not submit physical publish"),
+            source.index("submitted physical publish did not retain its durable attempt"),
+        )
+
     def test_rollback_reads_live_topic_stats_even_if_canary_capture_is_missing(self) -> None:
         runner = RUNNER.read_text(encoding="utf-8")
         rollback = runner.split("disable_enabled_policy() {", 1)[1].split(

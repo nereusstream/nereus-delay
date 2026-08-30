@@ -1112,7 +1112,7 @@ public final class PulsarClientArtifactWorkerSmoke {
         final var admissionResult = admissionSubmission
                 .result()
                 .orElseThrow(() -> new IllegalStateException("provider-driven Publish Admission has no result"));
-        final WorkerShardRuntime.SourceBoundPhysicalPublishTurn physicalTurn = dueClaimPublish
+        WorkerShardRuntime.SourceBoundPhysicalPublishTurn physicalTurn = dueClaimPublish
                 .physicalTurn()
                 .orElseThrow(
                         () -> new IllegalStateException("provider-driven Worker turn did not start physical publish"));
@@ -1129,13 +1129,21 @@ public final class PulsarClientArtifactWorkerSmoke {
                         + admissionResult.kind());
             }
             admissionPosition = persistedAdmissionPosition;
+            physicalTurn = awaitSourceBoundPhysicalPublish(
+                    runtime,
+                    admissionSubmission.mutation().logicalOperationIdentity(),
+                    admissionPosition,
+                    payload,
+                    physicalTurn);
         } else if (admissionResult.kind()
                 == com.nereusstream.delay.ownership.PublishAdmissionWorkClassExecutor.ResultKind.UNKNOWN) {
-            final var recoveredAttempt = physicalTurn
-                    .attempt()
-                    .orElseThrow(() ->
-                            new IllegalStateException("UNKNOWN Publish Admission did not recover a PUBLISHING attempt: "
-                                    + physicalTurn.status() + "/" + physicalTurn.failure()));
+            if (physicalTurn.attempt().isEmpty()) {
+                throw new IllegalStateException("UNKNOWN Publish Admission did not recover a PUBLISHING attempt: "
+                        + physicalTurn.status()
+                        + "/"
+                        + physicalTurn.failure());
+            }
+            final var recoveredAttempt = physicalTurn.attempt().orElseThrow();
             final SourcePosition recoveredPosition = SourcePositionCodec.decode(recoveredAttempt.sourcePosition());
             if (!(recoveredPosition instanceof PulsarSourcePosition recoveredAdmissionPosition)
                     || recoveredAdmissionPosition.compareTo(physicalSchedulePosition) <= 0) {
@@ -1200,6 +1208,42 @@ public final class PulsarClientArtifactWorkerSmoke {
                 payload,
                 admissionPosition,
                 physicalTurn);
+    }
+
+    /**
+     * Continues a source-bound Admission across bounded Worker turns.
+     *
+     * <p>An ENQUEUED append is not proof that a non-blocking source receive
+     * in the same process turn can already observe the record. The runtime
+     * deliberately returns {@code SOURCE_TURN_LIMIT} without fencing or
+     * touching the destination in that case. A persistent Worker must retain
+     * the exact Admission identity and retry on later turns; this real-client
+     * harness models that production scheduling boundary with a finite wall
+     * clock deadline instead of treating propagation latency as a missing
+     * durable attempt.</p>
+     */
+    private static WorkerShardRuntime.SourceBoundPhysicalPublishTurn awaitSourceBoundPhysicalPublish(
+            final WorkerShardRuntime runtime,
+            final byte[] publishAttemptId,
+            final PulsarSourcePosition admissionPosition,
+            final byte[] payload,
+            final WorkerShardRuntime.SourceBoundPhysicalPublishTurn initialTurn)
+            throws InterruptedException {
+        WorkerShardRuntime.SourceBoundPhysicalPublishTurn turn =
+                Objects.requireNonNull(initialTurn, "initial physical turn");
+        final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+        while (turn.status() == WorkerShardRuntime.SourceBoundPhysicalPublishStatus.SOURCE_TURN_LIMIT
+                && System.nanoTime() < deadline) {
+            TimeUnit.MILLISECONDS.sleep(25);
+            turn = runtime.runSourceBoundPhysicalPublish(
+                    publishAttemptId,
+                    admissionPosition,
+                    new SchedulerBudget(1, 2_000_000, TimeUnit.SECONDS.toNanos(2)),
+                    16,
+                    ignored -> Optional.of(payload),
+                    System::currentTimeMillis);
+        }
+        return turn;
     }
 
     private static WorkerShardRuntime.SourceBoundPhysicalPublishTurn finishAdmissionRecoveryHold(
@@ -1335,15 +1379,24 @@ public final class PulsarClientArtifactWorkerSmoke {
             final PulsarSourcePosition admissionPosition,
             final WorkerShardRuntime.SourceBoundPhysicalPublishTurn physicalTurn)
             throws Exception {
-        final PublishAttemptLedger attempt = physicalTurn
-                .attempt()
-                .orElseThrow(
-                        () -> new IllegalStateException("physical publish result did not retain its durable attempt"));
-        final byte[] publishAttemptId = attempt.publishAttemptId();
         if (physicalTurn.status() != WorkerShardRuntime.SourceBoundPhysicalPublishStatus.PHYSICAL_SUBMITTED) {
             throw new IllegalStateException("source-applied PUBLISHING did not submit physical publish: "
-                    + physicalTurn.status() + "/" + physicalTurn.failure());
+                    + physicalTurn.status()
+                    + "/sourceTurns="
+                    + physicalTurn.sourceTurns()
+                    + "/lastSourceTurn="
+                    + physicalTurn
+                            .lastSourceTurn()
+                            .map(turn -> turn.status().name())
+                            .orElse("NONE")
+                    + "/failure="
+                    + physicalTurn.failure());
         }
+        final PublishAttemptLedger attempt = physicalTurn
+                .attempt()
+                .orElseThrow(() ->
+                        new IllegalStateException("submitted physical publish did not retain its durable attempt"));
+        final byte[] publishAttemptId = attempt.publishAttemptId();
         final WorkerPhysicalPublishExecutor.Submission submission =
                 physicalTurn.physicalSubmission().orElseThrow();
         waitForPhysicalCompletion(submission);
