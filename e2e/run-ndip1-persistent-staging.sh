@@ -1438,7 +1438,7 @@ run_local_storage_chaos() {
     '{schema:"nereus-delay.ndip1-expected-fault",schemaGeneration:1,
       classification:"EXPECTED_TERMINATION",cell:"disaster-host-fault",signal:"SIGKILL",signalNumber:9,
       testClass:"com.nereusstream.delay.store.LocalStorageDurableChaosTest",
-      testName:"localStorageFailureSurvivesFreshProcessRecovery",resultDir:$resultDir,
+      testName:"localStorageFailureSurvivesFreshProcessRecovery()",resultDir:$resultDir,
       killReceipt:$killReceipt,killReceiptSha256:$killReceiptSha256,
       recoveryRunJson:$recoveryRunJson,recoveryRunJsonSha256:$recoveryRunJsonSha256}' \
     >"${expected_fault_marker}"
