@@ -13,6 +13,7 @@ import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 
 class PhysicalSendActivationGateTest {
@@ -59,7 +60,8 @@ class PhysicalSendActivationGateTest {
                 gateC,
                 DeploymentSafetyGate.ShadowReadiness.REQUIREMENTS_PASS,
                 fixture.manifestGate,
-                SOURCE_COMMIT);
+                SOURCE_COMMIT,
+                (artifacts, trustedNow) -> {});
 
         gate.requirePhysicalSend(fixture.artifacts, 250);
         assertEquals(PhysicalSendActivationGate.Mode.PERSISTENT_ENABLED, gate.mode());
@@ -72,7 +74,8 @@ class PhysicalSendActivationGateTest {
                         gateC,
                         DeploymentSafetyGate.ShadowReadiness.NOT_STARTED,
                         fixture.manifestGate,
-                        SOURCE_COMMIT));
+                        SOURCE_COMMIT,
+                        (artifacts, trustedNow) -> {}));
         assertThrows(
                 IllegalArgumentException.class,
                 () -> PhysicalSendActivationGate.persistentEnabled(
@@ -81,7 +84,8 @@ class PhysicalSendActivationGateTest {
                         gateC,
                         DeploymentSafetyGate.ShadowReadiness.REQUIREMENTS_PASS,
                         fixture.manifestGate,
-                        "fedcba9876543210fedcba9876543210fedcba98"));
+                        "fedcba9876543210fedcba9876543210fedcba98",
+                        (artifacts, trustedNow) -> {}));
         assertThrows(
                 NullPointerException.class,
                 () -> PhysicalSendActivationGate.persistentEnabled(
@@ -90,7 +94,8 @@ class PhysicalSendActivationGateTest {
                         null,
                         DeploymentSafetyGate.ShadowReadiness.REQUIREMENTS_PASS,
                         fixture.manifestGate,
-                        SOURCE_COMMIT));
+                        SOURCE_COMMIT,
+                        (artifacts, trustedNow) -> {}));
     }
 
     @Test
@@ -112,7 +117,37 @@ class PhysicalSendActivationGateTest {
                         anotherEnvironment,
                         DeploymentSafetyGate.ShadowReadiness.REQUIREMENTS_PASS,
                         fixture.manifestGate,
-                        SOURCE_COMMIT));
+                        SOURCE_COMMIT,
+                        (artifacts, trustedNow) -> {}));
+    }
+
+    @Test
+    void persistentGateRereadsLiveAuthorityBeforeEveryPhysicalSend() throws Exception {
+        final PersistentFixture fixture = persistentFixture("prod-live");
+        final GateCAuthorization gateC = new GateCAuthorization(
+                "prod-live",
+                EnvironmentClassification.PRODUCTION,
+                GateCAuthorization.Resolution.RESET,
+                hash("scope"),
+                hash("receipt"),
+                hash("gate"));
+        final AtomicBoolean enabled = new AtomicBoolean(true);
+        final PhysicalSendActivationGate gate = PhysicalSendActivationGate.persistentEnabled(
+                DeploymentSafetyGate.GateBStatus.PASS,
+                EnvironmentClassification.PRODUCTION,
+                gateC,
+                DeploymentSafetyGate.ShadowReadiness.REQUIREMENTS_PASS,
+                fixture.manifestGate,
+                SOURCE_COMMIT,
+                (artifacts, trustedNow) -> {
+                    if (!enabled.get()) {
+                        throw new IllegalStateException("revoked");
+                    }
+                });
+
+        gate.requirePhysicalSend(fixture.artifacts, 250);
+        enabled.set(false);
+        assertThrows(IllegalStateException.class, () -> gate.requirePhysicalSend(fixture.artifacts, 250));
     }
 
     private static PersistentFixture persistentFixture(final String environmentId) throws Exception {

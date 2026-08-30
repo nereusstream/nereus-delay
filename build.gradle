@@ -50,6 +50,9 @@ dependencies {
 // have the locked K1 artifact can run `compileRealKafka` with
 // `-PkafkaClientJar=/absolute/path/to/kafka-clients.jar`.
 sourceSets {
+    main {
+        resources.srcDir(layout.buildDirectory.dir('generated/resources/source-identity'))
+    }
     realKafka {
         java.srcDir('src/real-kafka/java')
     }
@@ -59,6 +62,39 @@ sourceSets {
     realCross {
         java.srcDir('src/real-cross/java')
     }
+}
+
+def runningArtifactIdentityDir = layout.buildDirectory.dir('generated/resources/source-identity')
+tasks.register('generateRunningArtifactIdentity') {
+    description = 'Generates the source commit and cleanliness bound into the runnable artifact.'
+    outputs.dir(runningArtifactIdentityDir)
+    outputs.upToDateWhen { false }
+    doLast {
+        def runGit = { List<String> arguments ->
+            def process = new ProcessBuilder(['git'] + arguments)
+                    .directory(rootDir)
+                    .redirectErrorStream(true)
+                    .start()
+            def output = process.inputStream.getText('UTF-8').trim()
+            if (process.waitFor() != 0) {
+                throw new GradleException("cannot resolve running artifact source identity: ${output}")
+            }
+            return output
+        }
+        def commit = runGit(['rev-parse', 'HEAD'])
+        if (!(commit ==~ /[0-9a-f]{40}/)) {
+            throw new GradleException('git returned a non-canonical source commit')
+        }
+        def trackedStatus = runGit(['status', '--porcelain'])
+        def outputDir = runningArtifactIdentityDir.get().asFile
+        def identity = new File(outputDir, 'META-INF/nereus-delay-source-identity.properties')
+        identity.parentFile.mkdirs()
+        identity.setText("sourceCommit=${commit}\ntrackedSourceClean=${trackedStatus.isEmpty()}\n", 'UTF-8')
+    }
+}
+
+tasks.named('processResources').configure {
+    dependsOn tasks.named('generateRunningArtifactIdentity')
 }
 
 // The default source-set compile tasks have no artifact classpath until the

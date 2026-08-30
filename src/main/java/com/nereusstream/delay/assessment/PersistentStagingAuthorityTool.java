@@ -27,6 +27,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermission;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.PrivateKey;
@@ -37,6 +38,7 @@ import java.util.Base64;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Local-only authority tooling for the persistent NDIP-1 staging workflow.
@@ -72,14 +74,18 @@ public final class PersistentStagingAuthorityTool {
     }
 
     private static void verifyActivation() throws Exception {
-        final PersistentStagingActivation.Loaded activation = PersistentStagingActivation.loadFromEnvironment();
-        System.out.println("environmentId=" + activation.environmentId());
-        System.out.println("candidateCommit=" + activation.candidateCommit());
-        System.out.println("gateCEnvelopeDigest=" + Bytes.hex(activation.gateCEnvelopeDigest()));
-        System.out.println("shadowEnvelopeDigest=" + Bytes.hex(activation.shadowEnvelopeDigest()));
-        System.out.println("policyEnvelopeDigest=" + Bytes.hex(activation.policyEnvelopeDigest()));
-        System.out.println(
-                "artifactSetDigest=" + Bytes.hex(activation.artifacts().setDigest()));
+        try (PersistentStagingActivation.Loaded activation = PersistentStagingActivation.loadFromEnvironment()) {
+            System.out.println("environmentId=" + activation.environmentId());
+            System.out.println("candidateCommit=" + activation.candidateCommit());
+            System.out.println("gateCEnvelopeDigest=" + Bytes.hex(activation.gateCEnvelopeDigest()));
+            System.out.println("shadowEnvelopeDigest=" + Bytes.hex(activation.shadowEnvelopeDigest()));
+            System.out.println("policyEnvelopeDigest=" + Bytes.hex(activation.policyEnvelopeDigest()));
+            System.out.println("policyScopeDigest=" + Bytes.hex(activation.policyScopeDigest()));
+            System.out.println(
+                    "policyOxiaVersion=" + activation.policyPublication().oxiaVersion());
+            System.out.println(
+                    "artifactSetDigest=" + Bytes.hex(activation.artifacts().setDigest()));
+        }
     }
 
     private static void verifyJson(final JsonObject config) throws Exception {
@@ -363,8 +369,10 @@ public final class PersistentStagingAuthorityTool {
             PersistentStagingEvidence.writeNew(
                     privatePath, generated.getPrivate().getEncoded());
             PersistentStagingEvidence.writeNew(publicPath, generated.getPublic().getEncoded());
+            requireKeyPermissions(privatePath, publicPath);
             return new KeyMaterial(generated.getPrivate(), generated.getPublic(), generation);
         }
+        requireKeyPermissions(privatePath, publicPath);
         final PrivateKey privateKey = PersistentStagingEvidence.decodePrivateKey(readRegular(privatePath));
         final PublicKey publicKey = PersistentStagingEvidence.decodePublicKey(readRegular(publicPath));
         return new KeyMaterial(privateKey, publicKey, generation);
@@ -417,7 +425,42 @@ public final class PersistentStagingAuthorityTool {
     }
 
     private static boolean bool(final JsonObject parent, final String name) {
-        return Boolean.parseBoolean(text(parent, name));
+        final String value = text(parent, name);
+        return switch (value) {
+            case "true" -> true;
+            case "false" -> false;
+            default -> throw new IllegalArgumentException("JSON field is not a closed boolean: " + name);
+        };
+    }
+
+    private static void requireKeyPermissions(final Path privatePath, final Path publicPath) throws IOException {
+        try {
+            final Path parent = privatePath.getParent();
+            if (parent == null || !parent.equals(publicPath.getParent())) {
+                throw new IOException("Ed25519 key pair must share one persistent directory");
+            }
+            Files.setPosixFilePermissions(
+                    parent,
+                    Set.of(
+                            PosixFilePermission.OWNER_READ,
+                            PosixFilePermission.OWNER_WRITE,
+                            PosixFilePermission.OWNER_EXECUTE));
+            Files.setPosixFilePermissions(
+                    privatePath, Set.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE));
+            Files.setPosixFilePermissions(
+                    publicPath,
+                    Set.of(
+                            PosixFilePermission.OWNER_READ,
+                            PosixFilePermission.OWNER_WRITE,
+                            PosixFilePermission.GROUP_READ,
+                            PosixFilePermission.OTHERS_READ));
+            final Set<PosixFilePermission> privatePermissions = Files.getPosixFilePermissions(privatePath);
+            if (!privatePermissions.equals(Set.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE))) {
+                throw new IOException("persistent staging private key permissions must be 0600");
+            }
+        } catch (UnsupportedOperationException failure) {
+            throw new IOException("persistent staging authority requires POSIX key permissions", failure);
+        }
     }
 
     private static long longValue(final JsonObject parent, final String name) {

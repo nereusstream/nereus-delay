@@ -5,12 +5,19 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.nereusstream.delay.protocol.ArtifactGenerationSet;
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.HandoffPolicyHead;
+import com.nereusstream.delay.protocol.HandoffPolicyMode;
+import com.nereusstream.delay.protocol.HandoffPolicySnapshot;
 import com.nereusstream.delay.protocol.PulsarSourceLock;
+import com.nereusstream.delay.semantic.HandoffPolicyAuthority;
+import com.nereusstream.delay.semantic.OxiaSyncHandoffPolicyAuthority;
+import io.oxia.client.api.exceptions.OxiaException;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.security.PublicKey;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
@@ -28,6 +35,11 @@ public final class PersistentStagingActivation {
     public static final String GATE_C_ENV = "NEREUS_DELAY_PERSISTENT_STAGING_GATE_C_RECEIPT";
     public static final String SHADOW_ENV = "NEREUS_DELAY_PERSISTENT_STAGING_SHADOW_RECEIPT";
     public static final String POLICY_ENV = "NEREUS_DELAY_PERSISTENT_STAGING_POLICY";
+    public static final String TRUSTED_PUBLIC_KEY_ENV = "NEREUS_DELAY_PERSISTENT_STAGING_TRUSTED_PUBLIC_KEY";
+    public static final String TRUSTED_KEY_GENERATION_ENV = "NEREUS_DELAY_PERSISTENT_STAGING_ISSUER_KEY_GENERATION";
+    public static final String OXIA_ENDPOINT_ENV = "NEREUS_DELAY_OXIA_ENDPOINT";
+    public static final String OXIA_NAMESPACE_ENV = "NEREUS_DELAY_OXIA_NAMESPACE";
+    public static final String POLICY_KEY_PREFIX_ENV = "NEREUS_DELAY_PERSISTENT_STAGING_POLICY_KEY_PREFIX";
     private static final String EXPECTED_PACKAGE_DIGEST =
             "13caab8ecdc201901f06e905f1c0bf9792780e50c6f5948f93abf2bdb8f4d21b";
     private static final String EXPECTED_P1_LOCK = "0a2536484cd3932801a98dc88ff112b2df88a1c7";
@@ -41,8 +53,11 @@ public final class PersistentStagingActivation {
         if (!"STAGING".equals(classification)) {
             throw new IOException("persistent staging activation requires STAGING classification");
         }
-        final PersistentStagingEvidence.Verified gateEnvelope =
-                PersistentStagingEvidence.readVerified(Path.of(requiredEnv(GATE_C_ENV)));
+        final int trustedKeyGeneration = requiredPositiveIntEnv(TRUSTED_KEY_GENERATION_ENV);
+        final PublicKey trustedPublicKey =
+                PersistentStagingEvidence.decodePublicKey(readRegular(Path.of(requiredEnv(TRUSTED_PUBLIC_KEY_ENV))));
+        final PersistentStagingEvidence.Verified gateEnvelope = PersistentStagingEvidence.readVerified(
+                Path.of(requiredEnv(GATE_C_ENV)), trustedPublicKey, trustedKeyGeneration);
         final JsonObject gate = gateEnvelope.payloadJson();
         require(gate, "gateCSchema", "nereus-delay.gate-c");
         require(gate, "gateCStatus", "PASS");
@@ -52,6 +67,8 @@ public final class PersistentStagingActivation {
         if (!COMMIT.matcher(candidateCommit).matches()) {
             throw new IOException("Gate C candidate commit is not a lowercase 40-hex commit");
         }
+        final String runningCommit = RunningArtifactIdentity.requireCleanSourceCommit();
+        require(runningCommit, candidateCommit, "running artifact source commit");
         require(gate, "ndipPackageDigest", EXPECTED_PACKAGE_DIGEST);
         require(gate, "p1SourceLock", EXPECTED_P1_LOCK);
         final String gateClassification = requiredField(gate, "environmentClassification");
@@ -66,7 +83,7 @@ public final class PersistentStagingActivation {
         final Path assessmentEnvelopePath = Path.of(requiredField(gate, "assessmentEnvelopePath"));
         final String assessmentEnvelopeSha256 = requiredField(gate, "assessmentEnvelopeSha256");
         final PersistentStagingEvidence.Verified assessmentEnvelope =
-                PersistentStagingEvidence.readVerified(assessmentEnvelopePath);
+                PersistentStagingEvidence.readVerified(assessmentEnvelopePath, trustedPublicKey, trustedKeyGeneration);
         requireDigest(assessmentEnvelope.envelopeDigest(), assessmentEnvelopeSha256, "assessment envelope");
         requireSameKey(gateEnvelope.publicKey(), assessmentEnvelope.publicKey(), "assessment envelope");
         final JsonObject assessment = assessmentEnvelope.payloadJson();
@@ -117,8 +134,8 @@ public final class PersistentStagingActivation {
         }
         manifest.requireWithinWindow(System.currentTimeMillis());
 
-        final PersistentStagingEvidence.Verified shadowEnvelope =
-                PersistentStagingEvidence.readVerified(Path.of(requiredEnv(SHADOW_ENV)));
+        final PersistentStagingEvidence.Verified shadowEnvelope = PersistentStagingEvidence.readVerified(
+                Path.of(requiredEnv(SHADOW_ENV)), trustedPublicKey, trustedKeyGeneration);
         requireSameKey(gateEnvelope.publicKey(), shadowEnvelope.publicKey(), "SHADOW envelope");
         final JsonObject shadow = shadowEnvelope.payloadJson();
         require(shadow, "shadowSchema", "nereus-delay.shadow-certification");
@@ -134,16 +151,54 @@ public final class PersistentStagingActivation {
         require(shadow, "attemptJournalLeak", "false");
         require(shadow, "generationIncarnationMix", "false");
 
-        final PersistentStagingEvidence.Verified policyEnvelope =
-                PersistentStagingEvidence.readVerified(Path.of(requiredEnv(POLICY_ENV)));
+        final PersistentStagingEvidence.Verified policyEnvelope = PersistentStagingEvidence.readVerified(
+                Path.of(requiredEnv(POLICY_ENV)), trustedPublicKey, trustedKeyGeneration);
         requireSameKey(gateEnvelope.publicKey(), policyEnvelope.publicKey(), "staging policy envelope");
         final JsonObject policy = policyEnvelope.payloadJson();
-        require(policy, "policySchema", "nereus-delay.persistent-staging-policy");
+        require(policy, "policySchema", "nereus-delay.handoff-policy-publication");
         require(policy, "policyStatus", "ENABLED");
         require(policy, "environmentId", environmentId);
         require(policy, "candidateCommit", candidateCommit);
         require(policy, "gateCEnvelopeSha256", Bytes.hex(gateEnvelope.envelopeDigest()));
         require(policy, "shadowEnvelopeSha256", Bytes.hex(shadowEnvelope.envelopeDigest()));
+        require(policy, "issuerKeyGeneration", Integer.toString(trustedKeyGeneration));
+        require(policy, "issuerPublicKeySha256", Bytes.hex(Bytes.sha256(trustedPublicKey.getEncoded())));
+        require(policy, "artifactSetDigest", Bytes.hex(manifest.artifacts().setDigest()));
+
+        final byte[] policyScopeDigest = decodeDigest(requiredField(policy, "policyScopeDigest"), "policy scope");
+        final long policyOxiaVersion = requiredPositiveLong(policy, "policyOxiaVersion");
+        final long policyGeneration = requiredNonZeroUnsignedLong(policy, "policyGeneration");
+        final OxiaSyncHandoffPolicyAuthority.ClientHandle policyHandle;
+        try {
+            policyHandle = OxiaSyncHandoffPolicyAuthority.connect(
+                    requiredEnv(OXIA_ENDPOINT_ENV),
+                    requiredEnv(OXIA_NAMESPACE_ENV),
+                    "nereus-delay-persistent-activation-"
+                            + ProcessHandle.current().pid(),
+                    Duration.ofSeconds(5),
+                    requiredEnv(POLICY_KEY_PREFIX_ENV));
+        } catch (OxiaException | RuntimeException failure) {
+            throw new IOException("cannot connect to the current Oxia handoff policy authority", failure);
+        }
+        final HandoffPolicyAuthority.Publication currentPolicy;
+        try {
+            currentPolicy = policyHandle.authority().requireCurrent(policyScopeDigest);
+            requireCurrentEnabledPolicy(
+                    currentPolicy,
+                    policyOxiaVersion,
+                    policyGeneration,
+                    policy,
+                    trustedPublicKey,
+                    trustedKeyGeneration,
+                    manifest.artifacts(),
+                    System.currentTimeMillis());
+        } catch (RuntimeException | IOException failure) {
+            policyHandle.close();
+            if (failure instanceof IOException ioFailure) {
+                throw ioFailure;
+            }
+            throw new IOException("current Oxia handoff policy does not authorize activation", failure);
+        }
 
         final GateCAuthorization gateC = new GateCAuthorization(
                 environmentId,
@@ -161,7 +216,23 @@ public final class PersistentStagingActivation {
                 gateC,
                 DeploymentSafetyGate.ShadowReadiness.REQUIREMENTS_PASS,
                 manifestGate,
-                candidateCommit);
+                runningCommit,
+                (candidateArtifacts, trustedNowEpochMs) -> {
+                    try {
+                        requireCurrentEnabledPolicy(
+                                policyHandle.authority().requireCurrent(policyScopeDigest),
+                                policyOxiaVersion,
+                                policyGeneration,
+                                policy,
+                                trustedPublicKey,
+                                trustedKeyGeneration,
+                                candidateArtifacts,
+                                trustedNowEpochMs);
+                    } catch (IOException failure) {
+                        throw new IllegalStateException(
+                                "live handoff policy authority rejected physical send", failure);
+                    }
+                });
         return new Loaded(
                 environmentId,
                 candidateCommit,
@@ -172,7 +243,11 @@ public final class PersistentStagingActivation {
                 physicalGate,
                 gateEnvelope.envelopeDigest(),
                 shadowEnvelope.envelopeDigest(),
-                policyEnvelope.envelopeDigest());
+                policyEnvelope.envelopeDigest(),
+                policyScopeDigest,
+                currentPolicy,
+                trustedPublicKey,
+                policyHandle);
     }
 
     /** Returns no authority for a normal SHADOW/managed Worker process. */
@@ -197,6 +272,19 @@ public final class PersistentStagingActivation {
             throw new IOException("required persistent staging authority environment is missing: " + name);
         }
         return value;
+    }
+
+    private static int requiredPositiveIntEnv(final String name) throws IOException {
+        final String value = requiredEnv(name);
+        try {
+            final int parsed = Integer.parseInt(value);
+            if (parsed <= 0) {
+                throw new NumberFormatException("non-positive");
+            }
+            return parsed;
+        } catch (NumberFormatException failure) {
+            throw new IOException("required persistent staging authority is not a positive integer: " + name, failure);
+        }
     }
 
     private static String requiredField(final JsonObject object, final String name) throws IOException {
@@ -238,6 +326,87 @@ public final class PersistentStagingActivation {
             throws IOException {
         if (!Bytes.constantTimeEquals(left.getEncoded(), right.getEncoded())) {
             throw new IOException(name + " is signed by another Ed25519 key");
+        }
+    }
+
+    private static long requiredPositiveLong(final JsonObject object, final String name) throws IOException {
+        final long value = requiredLong(object, name);
+        if (value <= 0) {
+            throw new IOException("receipt field must be positive: " + name);
+        }
+        return value;
+    }
+
+    private static long requiredNonZeroUnsignedLong(final JsonObject object, final String name) throws IOException {
+        final String value = requiredField(object, name);
+        try {
+            final long parsed = Long.parseUnsignedLong(value);
+            if (parsed == 0) {
+                throw new NumberFormatException("zero");
+            }
+            return parsed;
+        } catch (NumberFormatException failure) {
+            throw new IOException("receipt field is not a non-zero unsigned long: " + name, failure);
+        }
+    }
+
+    private static long requiredLong(final JsonObject object, final String name) throws IOException {
+        try {
+            return Long.parseLong(requiredField(object, name));
+        } catch (NumberFormatException failure) {
+            throw new IOException("receipt field is not a long: " + name, failure);
+        }
+    }
+
+    private static byte[] decodeDigest(final String value, final String name) throws IOException {
+        try {
+            final byte[] digest = Bytes.hexToBytes(value);
+            Bytes.requireLength(digest, 32, name);
+            return digest;
+        } catch (IllegalArgumentException failure) {
+            throw new IOException(name + " is not a canonical SHA-256 digest", failure);
+        }
+    }
+
+    private static void requireCurrentEnabledPolicy(
+            final HandoffPolicyAuthority.Publication publication,
+            final long expectedOxiaVersion,
+            final long expectedGeneration,
+            final JsonObject receipt,
+            final PublicKey trustedPublicKey,
+            final int trustedKeyGeneration,
+            final ArtifactGenerationSet artifacts,
+            final long trustedNowEpochMs)
+            throws IOException {
+        Objects.requireNonNull(publication, "publication");
+        Objects.requireNonNull(artifacts, "artifacts");
+        if (publication.oxiaVersion() != expectedOxiaVersion) {
+            throw new IOException("current handoff policy Oxia version differs from the publication receipt");
+        }
+        final HandoffPolicyHead head = publication.head();
+        final HandoffPolicySnapshot snapshot = head.snapshot();
+        if (head.mode() != HandoffPolicyMode.ENABLED
+                || head.generation() != expectedGeneration
+                || snapshot.issuerKeyGeneration() != trustedKeyGeneration
+                || !snapshot.verifySignature(trustedPublicKey)
+                || !Bytes.constantTimeEquals(snapshot.artifactGenerationSetDigest(), artifacts.setDigest())) {
+            throw new IOException("current handoff policy head is not an enabled trusted artifact-bound lease");
+        }
+        require(Bytes.hex(head.headDigest()), requiredField(receipt, "policyHeadDigest"), "policy head digest");
+        require(
+                Bytes.hex(snapshot.snapshotDigest()),
+                requiredField(receipt, "policySnapshotDigest"),
+                "policy snapshot digest");
+        require(
+                Long.toString(snapshot.validFromEpochMs()),
+                requiredField(receipt, "validFromEpochMs"),
+                "policy validFrom");
+        require(
+                Long.toString(snapshot.validUntilEpochMs()),
+                requiredField(receipt, "validUntilEpochMs"),
+                "policy validUntil");
+        if (trustedNowEpochMs < snapshot.validFromEpochMs() || trustedNowEpochMs >= snapshot.validUntilEpochMs()) {
+            throw new IOException("current handoff policy lease is not active at trusted time");
         }
     }
 
@@ -312,7 +481,12 @@ public final class PersistentStagingActivation {
             PhysicalSendActivationGate physicalGate,
             byte[] gateCEnvelopeDigest,
             byte[] shadowEnvelopeDigest,
-            byte[] policyEnvelopeDigest) {
+            byte[] policyEnvelopeDigest,
+            byte[] policyScopeDigest,
+            HandoffPolicyAuthority.Publication policyPublication,
+            PublicKey trustedPublicKey,
+            OxiaSyncHandoffPolicyAuthority.ClientHandle policyHandle)
+            implements AutoCloseable {
         public Loaded {
             Objects.requireNonNull(environmentId, "environmentId");
             Objects.requireNonNull(candidateCommit, "candidateCommit");
@@ -327,6 +501,11 @@ public final class PersistentStagingActivation {
             Bytes.requireLength(gateCEnvelopeDigest, 32, "gateCEnvelopeDigest");
             Bytes.requireLength(shadowEnvelopeDigest, 32, "shadowEnvelopeDigest");
             Bytes.requireLength(policyEnvelopeDigest, 32, "policyEnvelopeDigest");
+            policyScopeDigest = Bytes.copy(policyScopeDigest);
+            Bytes.requireLength(policyScopeDigest, 32, "policyScopeDigest");
+            Objects.requireNonNull(policyPublication, "policyPublication");
+            Objects.requireNonNull(trustedPublicKey, "trustedPublicKey");
+            Objects.requireNonNull(policyHandle, "policyHandle");
         }
 
         @Override
@@ -342,6 +521,16 @@ public final class PersistentStagingActivation {
         @Override
         public byte[] policyEnvelopeDigest() {
             return Bytes.copy(policyEnvelopeDigest);
+        }
+
+        @Override
+        public byte[] policyScopeDigest() {
+            return Bytes.copy(policyScopeDigest);
+        }
+
+        @Override
+        public void close() throws IOException {
+            policyHandle.close();
         }
     }
 }

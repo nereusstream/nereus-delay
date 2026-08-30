@@ -54,6 +54,26 @@ class PersistentStagingEvidenceTest {
         assertTrueSame(first, Files.readAllBytes(evidence));
     }
 
+    @Test
+    void configuredTrustRootRejectsAnotherValidSelfSignedEnvelope() throws Exception {
+        final KeyPair trusted = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final KeyPair attacker = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final Path evidence = tempDir.resolve("attacker.json");
+        PersistentStagingEvidence.writeSignedNew(
+                evidence,
+                "{}".getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                attacker.getPrivate(),
+                attacker.getPublic(),
+                4);
+
+        assertThrows(
+                java.io.IOException.class,
+                () -> PersistentStagingEvidence.readVerified(evidence, trusted.getPublic(), 4));
+        assertThrows(
+                java.io.IOException.class,
+                () -> PersistentStagingEvidence.readVerified(evidence, attacker.getPublic(), 3));
+    }
+
     private static void assertTrueSame(final byte[] expected, final byte[] actual) {
         assertArrayEquals(expected, actual);
         assertEquals(Arrays.hashCode(expected), Arrays.hashCode(actual));

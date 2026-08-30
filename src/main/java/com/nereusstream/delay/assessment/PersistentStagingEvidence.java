@@ -100,6 +100,21 @@ public final class PersistentStagingEvidence {
         return new Verified(normalized, payload, payloadJson, keyGeneration, publicKey, Bytes.sha256(encoded));
     }
 
+    /** Verifies an envelope against an independently configured trust root. */
+    public static Verified readVerified(
+            final Path path, final PublicKey expectedPublicKey, final int expectedKeyGeneration) throws IOException {
+        Objects.requireNonNull(expectedPublicKey, "expectedPublicKey");
+        if (expectedKeyGeneration <= 0) {
+            throw new IllegalArgumentException("expectedKeyGeneration must be positive");
+        }
+        final Verified verified = readVerified(path);
+        if (verified.keyGeneration() != expectedKeyGeneration
+                || !Bytes.constantTimeEquals(verified.publicKey().getEncoded(), expectedPublicKey.getEncoded())) {
+            throw new IOException("persistent staging evidence is not signed by the configured trust root");
+        }
+        return verified;
+    }
+
     public static PrivateKey decodePrivateKey(final byte[] encoded) {
         Objects.requireNonNull(encoded, "encoded");
         try {

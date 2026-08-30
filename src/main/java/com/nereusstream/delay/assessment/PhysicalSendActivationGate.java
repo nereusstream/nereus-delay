@@ -18,16 +18,19 @@ public final class PhysicalSendActivationGate {
     private final String environmentId;
     private final ArtifactGenerationSet artifacts;
     private final DataResetActivationGate persistentManifestGate;
+    private final LiveAuthorityGate liveAuthorityGate;
 
     private PhysicalSendActivationGate(
             final Mode mode,
             final String environmentId,
             final ArtifactGenerationSet artifacts,
-            final DataResetActivationGate persistentManifestGate) {
+            final DataResetActivationGate persistentManifestGate,
+            final LiveAuthorityGate liveAuthorityGate) {
         this.mode = Objects.requireNonNull(mode, "mode");
         this.environmentId = Objects.requireNonNull(environmentId, "environmentId");
         this.artifacts = Objects.requireNonNull(artifacts, "artifacts");
         this.persistentManifestGate = persistentManifestGate;
+        this.liveAuthorityGate = Objects.requireNonNull(liveAuthorityGate, "liveAuthorityGate");
     }
 
     /** Authorizes synthetic physical testing in one explicitly disposable execution. */
@@ -44,7 +47,11 @@ public final class PhysicalSendActivationGate {
                 DeploymentSafetyGate.LocalOperation.INTEGRATION_TEST);
         requireAuthorized(decision, "disposable physical testing");
         return new PhysicalSendActivationGate(
-                Mode.DISPOSABLE_LOCAL, exact.environmentId(), Objects.requireNonNull(artifacts, "artifacts"), null);
+                Mode.DISPOSABLE_LOCAL,
+                exact.environmentId(),
+                Objects.requireNonNull(artifacts, "artifacts"),
+                null,
+                (ignoredArtifacts, ignoredTime) -> {});
     }
 
     /**
@@ -57,7 +64,8 @@ public final class PhysicalSendActivationGate {
             final GateCAuthorization gateCAuthorization,
             final DeploymentSafetyGate.ShadowReadiness shadowReadiness,
             final DataResetActivationGate manifestGate,
-            final String runningSourceBaselineCommit) {
+            final String runningSourceBaselineCommit,
+            final LiveAuthorityGate liveAuthorityGate) {
         final GateCAuthorization gateC = Objects.requireNonNull(gateCAuthorization, "gateCAuthorization");
         final DataResetActivationGate exactManifestGate = Objects.requireNonNull(manifestGate, "manifestGate");
         final DeploymentSafetyGate.Decision decision = DeploymentSafetyGate.deployment(
@@ -76,7 +84,11 @@ public final class PhysicalSendActivationGate {
             throw new IllegalArgumentException("running source baseline differs from DataResetManifest");
         }
         return new PhysicalSendActivationGate(
-                Mode.PERSISTENT_ENABLED, gateC.environmentId(), exactManifestGate.artifacts(), exactManifestGate);
+                Mode.PERSISTENT_ENABLED,
+                gateC.environmentId(),
+                exactManifestGate.artifacts(),
+                exactManifestGate,
+                Objects.requireNonNull(liveAuthorityGate, "liveAuthorityGate"));
     }
 
     public Mode mode() {
@@ -104,6 +116,7 @@ public final class PhysicalSendActivationGate {
             persistentManifestGate.requirePhysicalSend(
                     candidate, persistentManifestGate.manifest().manifestDigest(), trustedNowEpochMs);
         }
+        liveAuthorityGate.requireCurrent(candidate, trustedNowEpochMs);
     }
 
     private static void requireAuthorized(final DeploymentSafetyGate.Decision decision, final String operation) {
@@ -115,5 +128,11 @@ public final class PhysicalSendActivationGate {
     public enum Mode {
         DISPOSABLE_LOCAL,
         PERSISTENT_ENABLED
+    }
+
+    /** Re-reads mutable deployment authority immediately before physical ownership. */
+    @FunctionalInterface
+    public interface LiveAuthorityGate {
+        void requireCurrent(ArtifactGenerationSet candidateArtifacts, long trustedNowEpochMs);
     }
 }
