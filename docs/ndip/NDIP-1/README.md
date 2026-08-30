@@ -58,6 +58,19 @@ python3 scripts/verify-ndip-package.py \
 `implementation=AUTHORIZED` 和 `local_disposable_testing=AUTHORIZED_WITH_EXACT_ATTESTATION`。
 receipt 同时固定 `gateCRequiredBeforeShadow=true` 与 `gateCRequiredBeforeEnabled=true`。
 
+## 2026-08-30 persistent staging certification 状态
+
+本工作包已在固定的本机持久化环境
+`environmentId=local-docker-staging-ndip1`（`classification=STAGING`）完成一次新的、候选版本绑定的
+G0 → Gate C → SHADOW → 最小 ENABLED canary。当前可审计结论是：Gate C `PASS`、SHADOW
+`PASS`、ENABLED canary `PASS`，随后已签发并验证 `DISABLED` rollback；这只授予该 exact staging
+环境的有限证据，不是 production authority，也不把 NDIP 状态改写为 production readiness。
+
+完整命令、环境拓扑、41 个条件 skip 的分类、签名 receipt、故障恢复和保留/回滚边界见
+[`06-Persistent-Staging-Gate-C-SHADOW-执行记录.md`](06-Persistent-Staging-Gate-C-SHADOW-执行记录.md)。
+该记录是非规范执行/运维材料；Accepted package 仍只由 `01`–`04` 和现有
+`acceptance-receipt.json` 定义。
+
 ## 文档地图
 
 1. [`01-调查与决策记录.md`](01-调查与决策记录.md)
@@ -79,6 +92,9 @@ receipt 同时固定 `gateCRequiredBeforeShadow=true` 与 `gateCRequiredBeforeEn
 7. [`05-Disposable-Local-Certification-执行记录.md`](05-Disposable-Local-Certification-执行记录.md)
    - 非规范地记录一次 source-bound `DISPOSABLE_LOCAL` 本地认证、矩阵结果和 exact cleanup；
      它不创建 Assessment scope，也不提供 deployment authority。
+8. [`06-Persistent-Staging-Gate-C-SHADOW-执行记录.md`](06-Persistent-Staging-Gate-C-SHADOW-执行记录.md)
+   - 非规范地记录固定本机 `STAGING` 环境的 G0、签名 Manifest、Gate C、SHADOW、最小 ENABLED
+     canary 和最终 DISABLED rollback；它不提供 production authority。
 
 旧的根目录稿件 `docs/修复 Pulsar Handoff 延迟投递.md` 已由本工作包替代，不再保留
 两份并行计划。
@@ -103,9 +119,11 @@ first persistent deployment / upgrade
     -> ENABLED
 ```
 
-当前没有真实 persistent deployment，不生成虚假 Assessment receipt。G0 状态是
-`NOT_APPLICABLE_FOR_IMPLEMENTATION / PENDING_DEPLOYMENT`：不阻塞 H1-H6，但 existing、staging、
-production、unknown 环境在 Gate C PASS 前继续 fail-closed。
+执行前没有真实 persistent deployment 时，不生成虚假 Assessment receipt；那一阶段的 G0 状态是
+`NOT_APPLICABLE_FOR_IMPLEMENTATION / PENDING_DEPLOYMENT`。本目录现已另有一份绑定
+`local-docker-staging-ndip1` 的真实执行记录：该 staging 的 G0、Gate C、SHADOW 和最小 canary
+已完成，最终策略保持 `DISABLED`；其他 existing、staging、production 或 unknown 环境仍不得
+借用这份 authority，继续 fail-closed。
 
 ## 2026-08-28 实现切片状态
 

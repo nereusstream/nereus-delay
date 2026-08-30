@@ -3,19 +3,47 @@
 ## 当前结论
 
 - Gate B：`PASS`
-- implementation：`H1-H6 code slices implemented; disposable-local certification PASS; deployment pending`
+- implementation：`H1-H6 code slices implemented; disposable-local certification PASS`
 - local disposable integration/recovery/fault testing：`ALLOWED_WITH_EXACT_ATTESTATION`
 - G0 tooling core：`implemented`
-- G0 lifecycle：`NOT_APPLICABLE_FOR_IMPLEMENTATION`
-- persistent environment assessment：`NOT_RUN`
-- authoritative assessment receipt：不存在
-- Gate C：`PENDING_DEPLOYMENT`，当前尚未要求提供真实 deployment scope
-- SHADOW：`BLOCKED_BY_GATE_C`
-- ENABLED：`BLOCKED_BY_GATE_C_AND_SHADOW_REQUIREMENTS`
+- G0 lifecycle：`PASS` for exact staging run `20260830014412-97404`
+- persistent environment assessment：`PASS_DIRECT_REPLACE`
+- authoritative assessment receipt：已生成、签名并验证；仅绑定 `local-docker-staging-ndip1`
+- Gate C：`PASS` for exact staging candidate/environment/resource state
+- SHADOW：`PASS`（随后已撤销 SHADOW candidate policy）
+- ENABLED：`PASS` for one-record staging canary；完成后已回到 `DISABLED`
 
-当前仓库尚未部署真实 nereus-delay 集群，也没有需要保留的旧 RocksDB、Oxia、Object Store、
-Worker 或 unresolved obligation 环境。因此不能构造权威 Assessment scope，也不得为了过门生成
-虚假 environment、placeholder PASS 或模拟 production receipt。
+本状态页现在记录的是一次真实、持久化、可重启的本机 staging 执行，而不是 production readiness。
+环境根目录为
+`/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay-staging/local-docker-staging-ndip1`；
+Docker Compose 资源、Oxia/MinIO/Pulsar bind mounts 和所有证据均保留。该 run 的 candidate commit
+为 `e7d67fe705d2cc0d87108ef2e07dd1340318fe69`，Accepted package digest 和 P1 source lock
+仍分别为 `13caab8ecdc201901f06e905f1c0bf9792780e50c6f5948f93abf2bdb8f4d21b` 与
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`。
+
+这不是可跨环境复用的通用 PASS：其他环境仍必须执行自己的只读 G0、signed Manifest 和 Gate C。
+不得把 staging receipt 复制到 production 或把本记录写成 NDIP production authority。
+
+执行前没有真实 persistent deployment 的历史状态不再是当前状态；其 `NOT_APPLICABLE_FOR_IMPLEMENTATION /
+PENDING_DEPLOYMENT` 文字保留在下方历史说明中，用于解释为什么 disposable receipt 不能替代本次
+staging evidence。当前 run 没有 unresolved `PUBLISHING / UNCERTAIN`，没有旧 generation 混用。
+
+本次权威证据入口：
+
+- G0 snapshot：`.../evidence/20260830014412-97404/g0/g0-snapshot.json`，snapshot digest
+  `5278f3ee4a4e278aecb597c7aa214e5d744a5d73e8431f99ae64c80c2b2d9cc5`；
+- signed DataResetAssessment：`.../authority/data-reset-assessment.signed.json`；assessment
+  outcome 为 `PASS_DIRECT_REPLACE`，执行 resolution 为 `RESET`；
+- signed DataResetManifest：`.../authority/data-reset-manifest.bin`，manifest digest
+  `4aeeba43be47b7bf528ddcb24b4a2b73cc9da47b5b6a58f008b59118d013a890`；
+- signed Gate C receipt：`.../authority/gate-c-receipt.signed.json`，SHA-256
+  `ed859a2a82a8fafa1a91c8f00d21374a71debeef3b04b80fb2bed185dfa2d1f3`；
+- signed SHADOW receipt：`.../authority/shadow-receipt.signed.json`，SHA-256
+  `806f8afad3f3d18049c880594f06b7fabefaf592b8cb5e253d2f36df7530ba6d`；
+- signed ENABLED canary receipt：`.../authority/enabled-canary-receipt.signed.json`，SHA-256
+  `61d06d050949d115cc144a8b80892eed3910789f4d87aceda9188b4dccb37932`；
+- signed final rollback policy：`.../authority/disabled-policy.signed.json`，最终状态为
+  `DISABLED`，active lease/send 均为 `0`。
 
 2026-08-28 的 `DISPOSABLE_LOCAL` certification runner 已在独占、可销毁环境中完成真实 native、
 recovery、fault、Oxia/MinIO 和 cleanup 矩阵；local receipt 为 `PASS`，24 个 cell 全部
