@@ -33,6 +33,7 @@ public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJo
     private final String replaySubscriptionName;
     private final Duration responseTimeout;
     private final int responseTimeoutMs;
+    private final ShardId shard;
     private final PulsarAttemptJournal journal;
     private final int replayedRecords;
     private int responseLossRecoveries;
@@ -104,6 +105,7 @@ public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJo
             throws PulsarClientException {
         this.client = Objects.requireNonNull(client, "client");
         this.producer = Objects.requireNonNull(producer, "producer");
+        this.shard = Objects.requireNonNull(shard, "shard");
         this.resource = Objects.requireNonNull(resource, "resource");
         this.expectedGuard = new TopicResourceGuard(
                 resource.authenticatedClusterId(),
@@ -115,7 +117,7 @@ public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJo
         if (!resource.physicalTopic().equals(producer.getTopic()) || resource.partition() != shard.partition()) {
             throw new IllegalArgumentException("Attempt Journal producer/resource/shard binding differs");
         }
-        this.journal = new PulsarAttemptJournal(shard, this, resource);
+        this.journal = new PulsarAttemptJournal(this.shard, this, resource);
         this.replayedRecords = replay(this.client, this.replaySubscriptionName);
     }
 
@@ -130,6 +132,18 @@ public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJo
     /** Number of ambiguous appends resolved by exact contiguous Journal readback. */
     public synchronized int responseLossRecoveries() {
         return responseLossRecoveries;
+    }
+
+    /**
+     * Closes and reopens this exact Journal as a fresh process would. This
+     * package-scoped certification seam exercises the production {@link
+     * #open(PulsarClient, ShardId, PulsarJournalResource, String, String,
+     * Duration)} path with the same durable replay subscription.
+     */
+    PulsarClientArtifactAttemptJournal reopenAfterCloseForTesting() throws PulsarClientException {
+        final String producerName = producer.getProducerName();
+        close();
+        return open(client, shard, resource, producerName, replaySubscriptionName, responseTimeout);
     }
 
     @Override
@@ -216,6 +230,14 @@ public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJo
         final GuardedConsumer<byte[]> consumer = PulsarClientArtifactSourceConsumerFactory.create(
                 client, expectedGuard, resource.physicalTopic(), subscriptionName);
         try {
+            PulsarClientArtifactRecoverySourcePositioner.awaitStableProof(
+                    consumer, expectedGuard, resource.physicalTopic(), resource.partition(), responseTimeout);
+            // InitialPosition.Earliest is only honored when a Pulsar
+            // subscription is first created. This durable subscription may
+            // already be ACKed to the tail by a prior process, so startup
+            // reconstruction must explicitly rewind it. Response-loss
+            // readback deliberately remains incremental and does not seek.
+            consumer.seek(MessageId.earliest);
             PulsarClientArtifactRecoverySourcePositioner.awaitStableProof(
                     consumer, expectedGuard, resource.physicalTopic(), resource.partition(), responseTimeout);
             @SuppressWarnings("deprecation")

@@ -29,6 +29,14 @@ G0 also requires an explicit signed internal-only data-disposition decision
 and 13/13 post-operation readback; environment classification alone cannot
 authorize reset.
 
+The final production-path review additionally requires startup Journal replay
+to seek the earliest retained record even when its durable subscription was
+previously ACKed to the tail. Persistent activation closes the signed
+Assessment outcome, Gate C resolution, data disposition, candidate scope,
+Manifest resources/readback, G0 observations and 41/41 audit as one chain.
+Canary receipts carry path/digest pairs for raw evidence, and the independent
+validator rechecks those files plus the binary Manifest signature.
+
 Certification freshness is resolved dynamically. A local staging PASS is
 usable for a checkout only if its persistent `deployment/current.json` points
 to an immutable final summary for the exact HEAD and the independent validator

@@ -59,19 +59,19 @@ Assessment INCOMPLETE
 G0 必须枚举 tenant、route、shard、eligible Worker closed exact set，以及以下 13 类资源；每类
 恰好由一个只读 adapter 读取并绑定 identity，缺少、重复或 substitution 均拒绝：
 
-1. Command/system topic；
-2. RocksDB Store；
-3. Checkpoint Catalog；
-4. Profile/Oxia state；
-5. runtime policy；
-6. payload reservation/Object Store；
-7. Pulsar Attempt Journal；
-8. evidence topic/cursor；
-9. query/dedupe state；
-10. `PUBLISHING / UNCERTAIN` obligation index；
-11. resource incarnation；
-12. Worker registry；
-13. candidate deployment resources。
+1. Command Topic；
+2. System Topic；
+3. RocksDB Store；
+4. Checkpoint Catalog；
+5. Profile/Oxia state；
+6. runtime policy；
+7. payload reservation/Object Store；
+8. Pulsar Attempt Journal；
+9. evidence topic/cursor；
+10. query/dedupe state；
+11. `PUBLISHING / UNCERTAIN` obligation index；
+12. resource incarnation registry；
+13. Worker registry。
 
 当前 persistent runner 对真实 Pulsar、Oxia、MinIO 和 RocksDB 做只读 inventory：
 
@@ -144,9 +144,11 @@ state 不是 `DISABLED`，则该 HEAD 的 Gate C/canary 状态仍为 pending/blo
 ## 验证边界
 
 独立验证器 `e2e/validate-ndip1-persistent-certification.py` 不复用 runner 的签名判断；它重新计算
-domain-separated Ed25519 签名、固定 trust root、source/package/P1 binding、13-resource G0/Manifest、
-Gate C 41/41、SHADOW `0/0/0`、单调 policy head、AUTO_FAST `1/1/0`、Managed Handoff `1/1/1`、
-Attempt Journal mapping/ownership/published chain、response-loss resolution 和 rollback `DISABLED`。
+domain-separated Ed25519 envelope 和 binary Manifest 签名、固定 trust root、source/package/P1
+binding、13-resource G0/Manifest、41 行 skip audit、raw canary evidence path/digest、Gate C 41/41、
+SHADOW `0/0/0`、单调 policy head、AUTO_FAST `1/1/0`、Managed Handoff `1/1/1`、Attempt Journal
+mapping/ownership/published chain 及同 subscription 重启完整回放、response-loss resolution 和 rollback
+`DISABLED`。
 
 通过本机 staging 认证仍只表示 `productionAuthority=false` 的环境级候选证据，不表示 NDIP 已进入
 `Implemented`，也不提供 production deployment、release、容量、长期 soak 或跨环境 authority。

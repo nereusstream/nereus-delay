@@ -24,6 +24,15 @@ without an automatic resend. Persistent activation revalidates the frozen
 lease at Admission and immediately before ownership; stale, expired,
 scope-mismatched, disabled, or non-advancing policy generations fail closed.
 
+The independent review also closed three certification-path defects. Startup
+Attempt Journal reconstruction now explicitly rewinds an existing durable
+replay subscription before rebuilding all retained records. Activation checks
+the signed Assessment-to-resolution and data-disposition chain together with
+the exact G0/Manifest 13-resource readback and 41/41 audit. Signed canary
+receipts bind every raw evidence file by SHA-256, while the independent
+validator verifies the binary Manifest signature and both AUTO_FAST and
+Managed evidence bodies instead of trusting path-only sidecars.
+
 Current evidence is deliberately not encoded as a static commit or run id in
 this file. A disposable receipt is current only when the generation-2 verifier
 binds all 24 cells and three source-locked supporting checks to the exact

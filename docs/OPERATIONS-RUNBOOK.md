@@ -2061,6 +2061,14 @@ only through
 Managed Handoff 1/1/1, and final DISABLED rollback. It remains local staging
 evidence with `productionAuthority=false`.
 
+The Managed canary must also reopen the same durable Attempt Journal
+subscription and replay exactly `MAPPED / OWNERSHIP_STARTED / PUBLISHED` from
+earliest retained data. Gate C carries digests for G0, its 13 observations,
+the 41-row audit and Manifest readback; canary evidence uses closed
+`{path,sha256}` references. Any missing/mutated sidecar or a binary Manifest
+signature failure blocks the independent validator and prevents updating the
+current deployment pointer.
+
 ## 2026-08-28 NDIP-1 disposable local certification — da15290e (historical)
 
 The current disposable entry point is

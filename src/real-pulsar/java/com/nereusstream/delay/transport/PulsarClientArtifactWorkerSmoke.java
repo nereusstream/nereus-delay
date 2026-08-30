@@ -2820,7 +2820,7 @@ public final class PulsarClientArtifactWorkerSmoke {
         }
         final JsonObject value = new JsonObject();
         value.addProperty("schema", "nereus-delay.managed-handoff-canary-evidence");
-        value.addProperty("schemaGeneration", 1);
+        value.addProperty("schemaGeneration", 2);
         value.addProperty("verdict", "PASS");
         value.addProperty("productionPath", true);
         value.addProperty("productionAuthority", false);
@@ -2834,6 +2834,9 @@ public final class PulsarClientArtifactWorkerSmoke {
         value.addProperty(
                 "policyGeneration",
                 Long.toUnsignedString(descriptor.handoffPolicySnapshot().generation()));
+        value.addProperty(
+                "policyScopeDigest",
+                Bytes.hex(descriptor.handoffPolicySnapshot().policyScopeDigest()));
         value.addProperty(
                 "policySnapshotDigest",
                 Bytes.hex(descriptor.handoffPolicySnapshot().snapshotDigest()));
@@ -2850,7 +2853,23 @@ public final class PulsarClientArtifactWorkerSmoke {
         value.addProperty("admissionPositionSha256", Bytes.hex(Bytes.sha256(admissionPosition.canonicalBytes())));
         value.addProperty("outcomePositionSha256", Bytes.hex(Bytes.sha256(outcomePosition.canonicalBytes())));
         value.addProperty("destinationResponseLossResolved", bridge.destinationResponseEvidenceResolved());
-        value.addProperty("attemptJournalResponseLossRecoveries", bridge.attemptJournalResponseLossRecoveries());
+        final int responseLossRecoveries = bridge.attemptJournalResponseLossRecoveries();
+        value.addProperty("attemptJournalResponseLossRecoveries", responseLossRecoveries);
+        final int startupReplayRecords = bridge.restartAttemptJournalAndReplay();
+        final List<PulsarAttemptJournal.JournalRecord> replayedRecords = bridge.journalRecords();
+        if (startupReplayRecords != expectedKinds.size()
+                || !replayedRecords.stream()
+                        .map(PulsarAttemptJournal.JournalRecord::kind)
+                        .toList()
+                        .equals(expectedKinds)
+                || replayedRecords.stream()
+                        .anyMatch(record ->
+                                !Arrays.equals(mappingId, record.mapping().mappingId()))) {
+            throw new IllegalStateException(
+                    "Managed Handoff Attempt Journal did not reconstruct the exact durable state after restart");
+        }
+        value.addProperty("attemptJournalStartupReplayRecords", startupReplayRecords);
+        value.addProperty("attemptJournalStartupReplayVerified", true);
         value.add("journal", journal);
         PersistentStagingEvidence.writeNew(
                 Path.of(configured), (GSON.toJson(value) + "\n").getBytes(StandardCharsets.UTF_8));
@@ -2953,7 +2972,7 @@ public final class PulsarClientArtifactWorkerSmoke {
         private final WorkerPhysicalPublishExecutor executor;
         private final RecordingMutationAppender appender;
         private final AutoCloseable appenderResource;
-        private final PulsarClientArtifactAttemptJournal journalResource;
+        private PulsarClientArtifactAttemptJournal journalResource;
         private final AutoCloseable physicalExecutorResource;
         private final ArtifactGenerationSet artifacts;
         private final ProfileCatalogManagedNativeEligibilityAuthority managedHandoffAuthority;
@@ -3098,6 +3117,11 @@ public final class PulsarClientArtifactWorkerSmoke {
 
         int attemptJournalResponseLossRecoveries() {
             return journalResource.responseLossRecoveries();
+        }
+
+        int restartAttemptJournalAndReplay() throws PulsarClientException {
+            journalResource = journalResource.reopenAfterCloseForTesting();
+            return journalResource.replayedRecords();
         }
 
         List<PulsarAttemptJournal.JournalRecord> journalRecords() {

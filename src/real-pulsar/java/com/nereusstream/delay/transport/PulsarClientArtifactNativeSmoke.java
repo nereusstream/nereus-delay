@@ -381,9 +381,11 @@ public final class PulsarClientArtifactNativeSmoke {
         }
         final JsonObject value = new JsonObject();
         value.addProperty("schema", "nereus-delay.persistent-native-canary");
-        value.addProperty("schemaGeneration", 1);
+        value.addProperty("schemaGeneration", 2);
         value.addProperty("environmentId", activation.environmentId());
         value.addProperty("candidateCommit", activation.candidateCommit());
+        value.addProperty("productionPath", true);
+        value.addProperty("productionAuthority", false);
         value.addProperty("nativeAdmission", 1);
         value.addProperty("nativeSend", 1);
         value.addProperty("handedOff", 0);
@@ -392,6 +394,7 @@ public final class PulsarClientArtifactNativeSmoke {
         value.addProperty("policyGeneration", Long.toUnsignedString(handoff.generation()));
         value.addProperty("policySnapshotDigest", Bytes.hex(handoff.snapshotDigest()));
         value.addProperty("deliverAtEpochMs", deliverAtEpochMs);
+        value.addProperty("brokerPersistenceTimeEpochMs", result.brokerEntryTimestampEpochMs());
         value.addProperty("ledgerId", result.ledgerId());
         value.addProperty("entryId", result.entryId());
         value.addProperty("batchIndex", result.batchIndex());
@@ -400,6 +403,8 @@ public final class PulsarClientArtifactNativeSmoke {
         value.addProperty("preparedRecordHash", Bytes.hex(record.preparedRecordHash()));
         value.addProperty("sendCommandSha256", Bytes.hex(ack.sendCommandSha256()));
         value.addProperty("authenticatedResponseCommandSha256", Bytes.hex(ack.authenticatedResponseSha256()));
+        value.addProperty("p1SourceLock", Bytes.hex(PulsarSourceLock.digest()));
+        value.addProperty("artifactSetDigest", Bytes.hex(activation.artifacts().setDigest()));
         value.addProperty("verdict", "PASS");
         PersistentStagingEvidence.writeNew(
                 Path.of(configured), (GSON.toJson(value) + "\n").getBytes(StandardCharsets.UTF_8));

@@ -149,6 +149,7 @@ class PersistentCertificationValidatorTest(unittest.TestCase):
         digest = "56" * 32
         value = {
             "schema": "nereus-delay.managed-handoff-canary-evidence",
+            "schemaGeneration": 2,
             "verdict": "PASS",
             "productionPath": True,
             "productionAuthority": False,
@@ -160,9 +161,12 @@ class PersistentCertificationValidatorTest(unittest.TestCase):
             "brokerPersistenceTimeEpochMs": 110,
             "deliverAtEpochMs": 120,
             "policySnapshotDigest": digest,
+            "policyScopeDigest": "57" * 32,
             "p1SourceLock": "78" * 20,
             "destinationResponseLossResolved": True,
             "attemptJournalResponseLossRecoveries": 3,
+            "attemptJournalStartupReplayRecords": 3,
+            "attemptJournalStartupReplayVerified": True,
             "sequenceId": 7,
             "journal": [
                 {"kind": "MAPPED", "sequenceId": 7},
@@ -185,11 +189,118 @@ class PersistentCertificationValidatorTest(unittest.TestCase):
             value[field] = "9a" * 32
         path.write_text(json.dumps(value), encoding="utf-8")
 
-        VALIDATOR.verify_managed_handoff_evidence(path, digest, "78" * 20)
+        VALIDATOR.verify_managed_handoff_evidence(path, "57" * 32, digest, "9a" * 32, "78" * 20)
         value["brokerPersistenceTimeEpochMs"] = 120
         path.write_text(json.dumps(value), encoding="utf-8")
         with self.assertRaises(VALIDATOR.VerificationError):
-            VALIDATOR.verify_managed_handoff_evidence(path, digest, "78" * 20)
+            VALIDATOR.verify_managed_handoff_evidence(path, "57" * 32, digest, "9a" * 32, "78" * 20)
+
+    def test_verifies_manifest_domain_digest_and_signature(self) -> None:
+        def varint(value: int) -> bytes:
+            encoded = bytearray()
+            while value >= 0x80:
+                encoded.append((value & 0x7F) | 0x80)
+                value >>= 7
+            encoded.append(value)
+            return bytes(encoded)
+
+        def uint(field: int, value: int) -> bytes:
+            return varint(field << 3) + varint(value)
+
+        def blob(field: int, value: bytes) -> bytes:
+            return varint((field << 3) | 2) + varint(len(value)) + value
+
+        canonical = b"".join((
+            uint(1, 1),
+            blob(2, b"scope"),
+            blob(3, b"commit"),
+            uint(4, 1),
+            blob(5, b"artifacts"),
+            blob(6, b"resource"),
+            blob(7, b"evidence"),
+            blob(8, b"obligations"),
+            blob(9, b"worker"),
+            blob(10, b"created"),
+            blob(11, b"window"),
+            uint(12, 1),
+        ))
+        digest = hashlib.sha256(VALIDATOR.MANIFEST_DIGEST_DOMAIN + canonical).digest()
+        signature_input = VALIDATOR.MANIFEST_SIGNATURE_DOMAIN + digest + (1).to_bytes(4, "big")
+        message_path = self.root / "manifest-signature-input.bin"
+        signature_path = self.root / "manifest-signature.bin"
+        message_path.write_bytes(signature_input)
+        subprocess.run(
+            [
+                "openssl", "pkeyutl", "-sign", "-inkey", str(self.private_key), "-keyform", "DER",
+                "-rawin", "-in", str(message_path), "-out", str(signature_path),
+            ],
+            check=True,
+            capture_output=True,
+        )
+        manifest = self.root / "manifest.bin"
+        manifest.write_bytes(canonical + blob(13, digest) + blob(14, signature_path.read_bytes()))
+
+        VALIDATOR.verify_manifest_signature(manifest, self.public_key.read_bytes(), digest.hex())
+
+        tampered = bytearray(manifest.read_bytes())
+        tampered[3] ^= 1
+        manifest.write_bytes(tampered)
+        with self.assertRaises(VALIDATOR.VerificationError):
+            VALIDATOR.verify_manifest_signature(manifest, self.public_key.read_bytes(), digest.hex())
+
+    def test_evidence_reference_binds_raw_file_digest(self) -> None:
+        evidence = self.root / "run" / "native.json"
+        evidence.parent.mkdir()
+        evidence.write_text('{"status":"PASS"}\n', encoding="utf-8")
+        reference = {"native": {"path": str(evidence), "sha256": hashlib.sha256(evidence.read_bytes()).hexdigest()}}
+
+        self.assertEqual(
+            evidence.resolve(),
+            VALIDATOR.require_evidence_ref(reference, "native", evidence.parent.resolve(), "native evidence"),
+        )
+        evidence.write_text('{"status":"FAIL"}\n', encoding="utf-8")
+        with self.assertRaises(VALIDATOR.VerificationError):
+            VALIDATOR.require_evidence_ref(reference, "native", evidence.parent.resolve(), "native evidence")
+
+    def test_native_evidence_is_policy_artifact_and_time_bound(self) -> None:
+        path = self.root / "native.json"
+        candidate = "12" * 20
+        value = {
+            "schema": "nereus-delay.persistent-native-canary",
+            "schemaGeneration": 2,
+            "environmentId": "staging",
+            "candidateCommit": candidate,
+            "productionPath": True,
+            "productionAuthority": False,
+            "nativeAdmission": 1,
+            "nativeSend": 1,
+            "handedOff": 0,
+            "targetPhysicalTopic": "persistent://public/default/canary",
+            "policyScopeDigest": "34" * 32,
+            "policySnapshotDigest": "56" * 32,
+            "artifactSetDigest": "78" * 32,
+            "p1SourceLock": "9a" * 20,
+            "brokerPersistenceTimeEpochMs": 100,
+            "deliverAtEpochMs": 110,
+            "sequenceId": 7,
+            "preparedRecordHash": "ab" * 32,
+            "sendCommandSha256": "bc" * 32,
+            "authenticatedResponseCommandSha256": "cd" * 32,
+            "verdict": "PASS",
+        }
+        path.write_text(json.dumps(value), encoding="utf-8")
+
+        VALIDATOR.verify_native_evidence(
+            path, candidate, "staging", "56" * 32, "78" * 32, "9a" * 20,
+            "persistent://public/default/canary",
+        )
+        value["brokerPersistenceTimeEpochMs"] = 110
+        path.write_text(json.dumps(value), encoding="utf-8")
+        with self.assertRaises(VALIDATOR.VerificationError):
+            VALIDATOR.verify_native_evidence(
+                path, candidate, "staging", "56" * 32, "78" * 32, "9a" * 20,
+                "persistent://public/default/canary",
+            )
 
 
 if __name__ == "__main__":

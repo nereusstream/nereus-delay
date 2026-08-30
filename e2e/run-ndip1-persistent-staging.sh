@@ -2147,7 +2147,11 @@ write_gate_c_receipt() {
     --arg manifestReadbackSha256 "$(sha256_file "${run_dir}/authority/manifest-operation-readback.json")" \
     --argjson passedChecks "${passed_checks}" \
     --arg g0SnapshotPath "${run_dir}/g0/g0-snapshot.json" \
+    --arg g0SnapshotSha256 "$(sha256_file "${run_dir}/g0/g0-snapshot.json")" \
+    --arg g0ObservationsPath "${run_dir}/g0/resource-observations.json" \
+    --arg g0ObservationsSha256 "$(sha256_file "${run_dir}/g0/resource-observations.json")" \
     --arg skipAuditPath "${run_dir}/authority/staging-skip-audit.json" \
+    --arg skipAuditSha256 "$(sha256_file "${run_dir}/authority/staging-skip-audit.json")" \
     '{gateCSchema:$schema,gateCSchemaGeneration:1,gateCStatus:$status,environmentId:$environmentId,
       environmentClassification:$classification,candidateCommit:$candidateCommit,ndipPackageDigest:$packageDigest,
       p1SourceLock:$p1Lock,resolution:$resolution,assessmentEnvelopePath:$assessmentEnvelopePath,
@@ -2158,7 +2162,10 @@ write_gate_c_receipt() {
       dataDispositionPath:$dataDispositionPath,dataDispositionSha256:$dataDispositionSha256,
       manifestReadbackPath:$manifestReadbackPath,manifestReadbackSha256:$manifestReadbackSha256,
       startupAssignmentGate:true,noOldGeneration:true,noUnresolvedPublishing:true,noUnresolvedUncertain:true,
-      freshness:true,applicableChecks:41,passedChecks:$passedChecks,g0SnapshotPath:$g0SnapshotPath,skipAuditPath:$skipAuditPath,
+      freshness:true,applicableChecks:41,passedChecks:$passedChecks,
+      g0SnapshotPath:$g0SnapshotPath,g0SnapshotSha256:$g0SnapshotSha256,
+      g0ObservationsPath:$g0ObservationsPath,g0ObservationsSha256:$g0ObservationsSha256,
+      skipAuditPath:$skipAuditPath,skipAuditSha256:$skipAuditSha256,productionAuthority:false,
       evidence:{realOxia:true,realMinio:true,realPulsarP1:true,realGateway:true,realWorker:true,
         oxiaAdminReady:true,oxiaCoordinatorRestart:true,brokerFailover:true,workerOwnershipTransfer:true,responseLossRecovery:true}}' \
     >"${payload}"
@@ -2549,6 +2556,17 @@ run_enabled_canary() {
   unset NEREUS_DELAY_PULSAR_LISTENER_NAME
   local native_evidence="${canary_dir}/native-canary-evidence.json"
   [[ -s "${native_evidence}" ]] || fail "ENABLED canary did not persist machine-readable native evidence"
+  jq -e --arg environmentId "${environment_id}" --arg candidateCommit "${candidate_commit}" \
+    --arg p1Lock "${p1_source_lock}" \
+    '.schema == "nereus-delay.persistent-native-canary" and .schemaGeneration == 2 and
+     .environmentId == $environmentId and .candidateCommit == $candidateCommit and
+     .productionPath == true and .productionAuthority == false and .verdict == "PASS" and
+     .nativeAdmission == 1 and .nativeSend == 1 and .handedOff == 0 and .p1SourceLock == $p1Lock and
+     .brokerPersistenceTimeEpochMs < .deliverAtEpochMs and
+     all([.policyScopeDigest,.policySnapshotDigest,.preparedRecordHash,.sendCommandSha256,
+       .authenticatedResponseCommandSha256,.artifactSetDigest][]; test("^[0-9a-f]{64}$"))' \
+    "${native_evidence}" >/dev/null \
+    || fail "AUTO_FAST canary evidence is not current-source/P1/policy bound"
 
   local managed_source_topic="${worker_topic}-managed-handoff"
   local managed_evidence="${canary_dir}/managed-handoff-evidence.json"
@@ -2576,17 +2594,22 @@ run_enabled_canary() {
 
   [[ -s "${managed_evidence}" ]] || fail "Managed Handoff canary did not persist machine evidence"
   jq -e --arg policySnapshot "$(jq -r '.policySnapshotDigest' "${native_evidence}")" \
+    --arg policyScope "$(jq -r '.policyScopeDigest' "${native_evidence}")" \
+    --arg artifactSet "$(jq -r '.artifactSetDigest' "${native_evidence}")" \
     --arg p1Lock "${p1_source_lock}" \
     '.schema == "nereus-delay.managed-handoff-canary-evidence" and
+     .schemaGeneration == 2 and
      .verdict == "PASS" and .productionPath == true and .productionAuthority == false and
      .nativeAdmission == 1 and .nativeSend == 1 and .handedOff == 1 and
      .deliveryContract == "PULSAR_NATIVE_DELIVERY" and
      .actionAtEpochMs < .brokerPersistenceTimeEpochMs and
      .brokerPersistenceTimeEpochMs < .deliverAtEpochMs and
-     .policySnapshotDigest == $policySnapshot and .p1SourceLock == $p1Lock and
+     .policyScopeDigest == $policyScope and .policySnapshotDigest == $policySnapshot and
+     .artifactSetDigest == $artifactSet and .p1SourceLock == $p1Lock and
      .destinationResponseLossResolved == true and .attemptJournalResponseLossRecoveries == 3 and
+     .attemptJournalStartupReplayRecords == 3 and .attemptJournalStartupReplayVerified == true and
      [.journal[].kind] == ["MAPPED","OWNERSHIP_STARTED","PUBLISHED"] and
-     all([.preparedPublishHash,.recordTemplateHash,.preparedRecordHash,.sendCommandSha256,
+     all([.policyScopeDigest,.preparedPublishHash,.recordTemplateHash,.preparedRecordHash,.sendCommandSha256,
        .authenticatedResponseCommandSha256,.artifactSetDigest][]; test("^[0-9a-f]{64}$"))' \
     "${managed_evidence}" >/dev/null \
     || fail "Managed Handoff canary evidence is incomplete or not source/Journal/P1 bound"
@@ -2640,14 +2663,22 @@ run_enabled_canary() {
     --arg topic "${native_topic}" --arg deliverAt "${deliver_at}" \
     --argjson nativeAdmission "${native_admission}" --argjson nativeSend "${native_send}" \
     --argjson handedOff "${handed_off}" --arg nativeEvidence "${native_evidence}" \
+    --arg nativeEvidenceSha256 "$(sha256_file "${native_evidence}")" \
     --arg managedEvidence "${managed_evidence}" \
+    --arg managedEvidenceSha256 "$(sha256_file "${managed_evidence}")" \
     --arg managedLog "${run_dir}/logs/real-enabled-managed-handoff.log" \
+    --arg managedLogSha256 "$(sha256_file "${run_dir}/logs/real-enabled-managed-handoff.log")" \
     --arg stats "${canary_dir}/native-topic-stats.json" \
+    --arg statsSha256 "$(sha256_file "${canary_dir}/native-topic-stats.json")" \
     --arg internalStats "${canary_dir}/native-topic-internal-stats.json" \
+    --arg internalStatsSha256 "$(sha256_file "${canary_dir}/native-topic-internal-stats.json")" \
     --arg brokerFailoverBefore "${broker_failover_before}" \
+    --arg brokerFailoverBeforeSha256 "$(sha256_file "${broker_failover_before}")" \
     --arg brokerFailoverAfter "${broker_failover_after}" \
-    --arg log "${canary_log}" --arg activatedAt "$(now_epoch_ms)" \
-    '{canarySchema:$schema,canarySchemaGeneration:1,canaryStatus:$status,environmentId:$environmentId,
+    --arg brokerFailoverAfterSha256 "$(sha256_file "${broker_failover_after}")" \
+    --arg log "${canary_log}" --arg logSha256 "$(sha256_file "${canary_log}")" \
+    --arg activatedAt "$(now_epoch_ms)" \
+    '{canarySchema:$schema,canarySchemaGeneration:2,canaryStatus:$status,environmentId:$environmentId,
       candidateCommit:$candidateCommit,ndipPackageDigest:$packageDigest,p1SourceLock:$p1Lock,
       gateCEnvelopeSha256:$gateC,shadowEnvelopeSha256:$shadow,enabledPolicyEnvelopeSha256:$policyDigest,
       enabledPolicy:$policy,profile:"ndip1-enabled-canary-profile",topic:$topic,
@@ -2657,10 +2688,14 @@ run_enabled_canary() {
         managedHandoff:{nativeAdmission:1,nativeSend:1,handedOff:1}},
       targetRecordReconciled:true,responseLossRecovery:true,brokerFailoverRecovery:true,
       workerOwnershipUnknownDoesNotFallback:true,ordinaryPathUnaffected:true,activatedAtEpochMs:($activatedAt|tonumber),
-      evidence:{nativeCanary:$nativeEvidence,managedHandoff:$managedEvidence,
-        managedHandoffLog:$managedLog,log:$log,stats:$stats,internalStats:$internalStats,
-        brokerFailoverBefore:$brokerFailoverBefore,
-        brokerFailoverAfter:$brokerFailoverAfter,productionAuthority:false}}' \
+      evidence:{nativeCanary:{path:$nativeEvidence,sha256:$nativeEvidenceSha256},
+        managedHandoff:{path:$managedEvidence,sha256:$managedEvidenceSha256},
+        managedHandoffLog:{path:$managedLog,sha256:$managedLogSha256},
+        log:{path:$log,sha256:$logSha256},stats:{path:$stats,sha256:$statsSha256},
+        internalStats:{path:$internalStats,sha256:$internalStatsSha256},
+        brokerFailoverBefore:{path:$brokerFailoverBefore,sha256:$brokerFailoverBeforeSha256},
+        brokerFailoverAfter:{path:$brokerFailoverAfter,sha256:$brokerFailoverAfterSha256},
+        productionAuthority:false}}' \
     >"${run_dir}/authority/enabled-canary-receipt.json"
   sign_staging_payload enabled-canary-receipt "${run_dir}/authority/enabled-canary-receipt.json" \
     "${run_dir}/authority/enabled-canary-receipt.signed.json"
@@ -2739,13 +2774,14 @@ PY
   [[ "${active_send_count}" == 0 && "${active_lease_count}" == 0 ]] \
     || fail "rollback retained an active send or unexpired ENABLED lease"
   jq -n --arg schema "nereus-delay.ndip1-rollback" --arg status PASS \
-    --arg environmentId "${environment_id}" --arg policy "${disabled_policy_envelope}" \
+    --arg environmentId "${environment_id}" --arg candidateCommit "${candidate_commit}" \
+    --arg policy "${disabled_policy_envelope}" \
     --arg policyDigest "${disabled_policy_envelope_sha256}" --arg verificationLog "${verification_log}" \
     --arg canaryReceipt "${canary_receipt}" --arg canaryDigest "${canary_receipt_sha256}" \
     --argjson activeNativeProcessCount "${native_process_count}" \
     --argjson activeWorkerProcessCount "${worker_process_count}" \
     --argjson activeLeaseCount "${active_lease_count}" --argjson activeSendCount "${active_send_count}" \
-    '{schema:$schema,status:$status,environmentId:$environmentId,finalPolicy:$policy,
+    '{schema:$schema,status:$status,environmentId:$environmentId,candidateCommit:$candidateCommit,finalPolicy:$policy,
       finalPolicyEnvelopeSha256:$policyDigest,disabledActivationRejected:true,
       activeNativeProcessCount:$activeNativeProcessCount,activeWorkerProcessCount:$activeWorkerProcessCount,
       activeLeaseCount:$activeLeaseCount,activeSendCount:$activeSendCount,
@@ -2754,14 +2790,20 @@ PY
     >"${run_dir}/authority/rollback-receipt.json"
   sign_staging_payload rollback-receipt "${run_dir}/authority/rollback-receipt.json" \
     "${run_dir}/authority/rollback-receipt.signed.json"
-  jq -n --arg environmentId "${environment_id}" --arg policy "${disabled_policy_envelope}" \
+  jq -n --arg environmentId "${environment_id}" --arg candidateCommit "${candidate_commit}" \
+    --arg policy "${disabled_policy_envelope}" \
     --arg policyDigest "${disabled_policy_envelope_sha256}" \
     --arg receipt "${run_dir}/authority/rollback-receipt.signed.json" \
     --arg digest "$(sha256_file "${run_dir}/authority/rollback-receipt.signed.json")" \
+    --argjson activeNativeProcessCount "${native_process_count}" \
+    --argjson activeWorkerProcessCount "${worker_process_count}" \
     --argjson activeLeaseCount "${active_lease_count}" --argjson activeSendCount "${active_send_count}" \
     '{schema:"nereus-delay.ndip1-final-state",status:"DISABLED",environmentId:$environmentId,
+      candidateCommit:$candidateCommit,productionAuthority:false,
       disabledPolicy:$policy,disabledPolicyEnvelopeSha256:$policyDigest,rollbackReceipt:$receipt,
-      rollbackReceiptSha256:$digest,activeLeaseCount:$activeLeaseCount,activeSendCount:$activeSendCount}' \
+      rollbackReceiptSha256:$digest,activeNativeProcessCount:$activeNativeProcessCount,
+      activeWorkerProcessCount:$activeWorkerProcessCount,
+      activeLeaseCount:$activeLeaseCount,activeSendCount:$activeSendCount}' \
     >"${run_dir}/authority/final-state.json"
 }
 

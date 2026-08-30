@@ -75,7 +75,7 @@ exact 24/24 disposable receipt
   -> signed ENABLED lease
   -> AUTO_FAST canary 1/1/0
   -> Managed Handoff canary 1/1/1
-  -> response-loss resolution / Attempt Journal evidence
+  -> response-loss resolution / Attempt Journal restart replay evidence
   -> signed DISABLED policy + lease expiry / rollback audit
   -> independent validator
   -> immutable final summary
@@ -176,7 +176,9 @@ Admission frozen snapshot → physical lease gate → Attempt Journal mapping-be
 Outcome source log。证据必须绑定 `preparedPublishHash`、`preparedRecordHash`、
 `sendCommandSha256`、`authenticatedResponseCommandSha256`、target message identity 与 Attempt
 Journal 的 `MAPPED / OWNERSHIP_STARTED / PUBLISHED` 记录。response-loss 只能通过 evidence/query
-resolution，不允许盲目 resend。
+resolution，不允许盲目 resend。canary 还必须关闭并重开同一个 durable Journal subscription，从
+`MessageId.earliest` 重建完整三记录状态；只依赖已有 subscription 的 `InitialPosition.Earliest` 不算
+重启恢复证明。
 
 ### Rollback 与独立验证
 
@@ -195,8 +197,9 @@ productionAuthority=false
 
 独立 validator 使用标准 Python 与 OpenSSL 重新计算 domain-separated Ed25519 签名，不调用 runner
 的验证函数。它同时重验 data disposition、G0/Manifest/readback、Gate C、SHADOW、完整 policy
-generation chain、双路径 canary、Managed physical record/Journal chain 和 rollback。其 machine receipt
-也进入 final summary binding。
+generation chain、双路径 canary、Managed physical record/Journal chain 和 rollback。binary
+`DataResetManifest` 的 logical digest/Ed25519 签名，以及 canary 引用的八份 raw evidence 文件摘要也
+由独立 validator 重算；其 machine receipt 进入 final summary binding。
 
 ## 历史执行记录
 
