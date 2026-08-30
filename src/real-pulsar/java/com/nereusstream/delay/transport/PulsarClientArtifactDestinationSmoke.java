@@ -161,7 +161,8 @@ public final class PulsarClientArtifactDestinationSmoke {
         final byte[] producerNameHash = Bytes.sha256(Bytes.utf8(producerName));
         final AtomicReference<GuardedMessageId> responseLostMessage = new AtomicReference<>();
         final AtomicBoolean responseEvidenceResolved = new AtomicBoolean();
-        try (PulsarClient client = PulsarClientArtifactClientBuilder.builder(serviceUrl).build()) {
+        try (PulsarClient client =
+                PulsarClientArtifactClientBuilder.builder(serviceUrl).build()) {
             final Producer<byte[]> producer = PulsarClientArtifactProducerFactory.create(
                     client, CLUSTER, INCARNATION, physicalTopic, CREATION_TIMESTAMP, producerName);
             final Producer<byte[]> transportProducer = responseLossProducer(producer, responseLostMessage);
@@ -330,7 +331,8 @@ public final class PulsarClientArtifactDestinationSmoke {
             throw new IllegalStateException("fresh-process Pulsar SEND evidence did not verify as PUBLISHED");
         }
 
-        try (PulsarClient client = PulsarClientArtifactClientBuilder.builder(serviceUrl).build()) {
+        try (PulsarClient client =
+                PulsarClientArtifactClientBuilder.builder(serviceUrl).build()) {
             final int duplicateCount = requireExactlyOnePayload(client, physicalTopic, request.payload());
             if (duplicateCount != 0) {
                 throw new IllegalStateException(

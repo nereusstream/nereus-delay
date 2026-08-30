@@ -38,7 +38,8 @@ public final class PulsarClientArtifactRealServiceSmoke {
         final HttpClient admin = HttpClient.newHttpClient();
         createTopic(admin, adminUrl, topic, OLD_INCARNATION, OLD_CREATION_TIMESTAMP);
 
-        try (PulsarClient client = PulsarClientArtifactClientBuilder.builder(serviceUrl).build()) {
+        try (PulsarClient client =
+                PulsarClientArtifactClientBuilder.builder(serviceUrl).build()) {
             final Producer<byte[]> oldProducer = PulsarClientArtifactProducerFactory.create(
                     client,
                     CLUSTER,

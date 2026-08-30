@@ -203,7 +203,8 @@ public final class PulsarClientArtifactNativeMatrixSmoke {
         boolean expiryTriggered = false;
         boolean targetLedgerTrimmed = false;
         String riskObservation = "subscription behavior matched the explicit Pulsar native contract";
-        try (PulsarClient client = PulsarClientArtifactClientBuilder.builder(serviceUrl).build();
+        try (PulsarClient client =
+                        PulsarClientArtifactClientBuilder.builder(serviceUrl).build();
                 Producer<byte[]> producer = PulsarClientArtifactProducerFactory.create(
                         client, CLUSTER, incarnation, physicalTopic, creationTimestamp, producerName);
                 PulsarClientArtifactSendTransport transport = new PulsarClientArtifactSendTransport(
@@ -448,7 +449,8 @@ public final class PulsarClientArtifactNativeMatrixSmoke {
                 "unload native retention topic");
         final byte[] triggerPayload = Bytes.utf8("ndip1-zero-retention-rollover-" + topic);
         final TopicResourceGuard guard = new TopicResourceGuard(CLUSTER, incarnation, creationTimestamp);
-        try (PulsarClient client = PulsarClientArtifactClientBuilder.builder(serviceUrl).build();
+        try (PulsarClient client =
+                        PulsarClientArtifactClientBuilder.builder(serviceUrl).build();
                 Producer<byte[]> producer = PulsarClientArtifactProducerFactory.create(
                         client,
                         CLUSTER,

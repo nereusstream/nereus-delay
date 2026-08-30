@@ -240,7 +240,8 @@ public final class PulsarClientArtifactNativeSmoke {
         final AuthenticatedTenantContext tenant = new AuthenticatedTenantContext(
                 tenantScope, Bytes.sha256(Bytes.utf8("native-smoke-routing")), principalScope);
 
-        try (PulsarClient client = PulsarClientArtifactClientBuilder.builder(serviceUrl).build();
+        try (PulsarClient client =
+                        PulsarClientArtifactClientBuilder.builder(serviceUrl).build();
                 Producer<byte[]> producer = PulsarClientArtifactProducerFactory.create(
                         client, CLUSTER, INCARNATION, physicalTopic, CREATION_TIMESTAMP, producerName)) {
             final PulsarClientArtifactSendTransport recordSender = new PulsarClientArtifactSendTransport(

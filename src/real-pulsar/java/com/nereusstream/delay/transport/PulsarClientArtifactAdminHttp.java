@@ -22,11 +22,7 @@ final class PulsarClientArtifactAdminHttp {
     }
 
     static HttpResponse<String> request(
-            final HttpClient client,
-            final String path,
-            final String method,
-            final String body,
-            final Duration timeout)
+            final HttpClient client, final String path, final String method, final String body, final Duration timeout)
             throws Exception {
         URI next = URI.create(path);
         validateInitial(next);
@@ -36,13 +32,13 @@ final class PulsarClientArtifactAdminHttp {
             if (!visited.add(next)) {
                 throw new IllegalStateException("Pulsar admin redirect loop: " + next);
             }
-            final HttpRequest.Builder builder = HttpRequest.newBuilder(next)
-                    .header("Content-Type", "application/json");
+            final HttpRequest.Builder builder = HttpRequest.newBuilder(next).header("Content-Type", "application/json");
             if (timeout != null) {
                 builder.timeout(timeout);
             }
             final HttpRequest request = buildRequest(builder, method, body);
-            final HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            final HttpResponse<String> response =
+                    client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             if (response.statusCode() != 307 && response.statusCode() != 308) {
                 return response;
             }
@@ -63,16 +59,17 @@ final class PulsarClientArtifactAdminHttp {
         throw new IllegalStateException("Pulsar admin redirect handling did not converge: " + path);
     }
 
-    private static HttpRequest buildRequest(
-            final HttpRequest.Builder builder, final String method, final String body) {
+    private static HttpRequest buildRequest(final HttpRequest.Builder builder, final String method, final String body) {
         final String requestBody = body == null ? "" : body;
         return switch (method) {
             case "DELETE" -> builder.DELETE().build();
             case "GET" -> builder.GET().build();
-            case "POST" -> builder.POST(HttpRequest.BodyPublishers.ofString(requestBody, StandardCharsets.UTF_8))
-                    .build();
-            case "PUT" -> builder.PUT(HttpRequest.BodyPublishers.ofString(requestBody, StandardCharsets.UTF_8))
-                    .build();
+            case "POST" ->
+                builder.POST(HttpRequest.BodyPublishers.ofString(requestBody, StandardCharsets.UTF_8))
+                        .build();
+            case "PUT" ->
+                builder.PUT(HttpRequest.BodyPublishers.ofString(requestBody, StandardCharsets.UTF_8))
+                        .build();
             default -> throw new IllegalArgumentException("unsupported HTTP method: " + method);
         };
     }

@@ -94,8 +94,8 @@ public final class PulsarClientArtifactBrokerProcessCrashStateSmoke {
         Exception lastFailure = null;
         for (int attempt = 1; attempt <= ADMIN_REQUEST_ATTEMPTS; attempt++) {
             try {
-                final HttpResponse<String> response = PulsarClientArtifactAdminHttp.request(
-                        client, url, "GET", "", java.time.Duration.ofSeconds(20));
+                final HttpResponse<String> response =
+                        PulsarClientArtifactAdminHttp.request(client, url, "GET", "", java.time.Duration.ofSeconds(20));
                 lastResponse = new AdminResponse(response.statusCode(), response.body());
                 if (response.statusCode() != 500
                         && response.statusCode() != 502

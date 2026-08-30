@@ -1571,7 +1571,8 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
         final String assignmentPrefix = "nereus-delay/pulsar-large-payload-multi-assignment/" + UUID.randomUUID();
         final String gatewayPrefix = "nereus-delay/pulsar-large-payload-multi-gateway/" + UUID.randomUUID();
 
-        try (PulsarClient client = PulsarClientArtifactClientBuilder.builder(serviceUrl).build();
+        try (PulsarClient client =
+                        PulsarClientArtifactClientBuilder.builder(serviceUrl).build();
                 GuardedConsumer<byte[]> destinationConsumer0 = PulsarClientArtifactSourceConsumerFactory.create(
                         client,
                         new TopicResourceGuard(CLUSTER, DESTINATION_INCARNATION, DESTINATION_CREATION_TIMESTAMP),
@@ -2314,7 +2315,8 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
         final String assignmentPrefix = "nereus-delay/pulsar-large-payload-assignment/" + UUID.randomUUID();
         final String gatewayPrefix = "nereus-delay/pulsar-large-payload-gateway/" + UUID.randomUUID();
 
-        try (PulsarClient client = PulsarClientArtifactClientBuilder.builder(serviceUrl).build()) {
+        try (PulsarClient client =
+                PulsarClientArtifactClientBuilder.builder(serviceUrl).build()) {
             final PulsarSourcePosition activationPosition = sendFrameAndPosition(
                     client,
                     sourceGuard,

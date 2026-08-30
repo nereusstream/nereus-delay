@@ -54,7 +54,8 @@ public final class PulsarClientArtifactSourceSmoke {
         final String physicalTopic = "persistent://public/default/" + topic;
         final HttpClient admin = HttpClient.newHttpClient();
         createTopic(admin, adminUrl, topic);
-        try (PulsarClient client = PulsarClientArtifactClientBuilder.builder(serviceUrl).build()) {
+        try (PulsarClient client =
+                PulsarClientArtifactClientBuilder.builder(serviceUrl).build()) {
             final TopicResourceGuard guard = new TopicResourceGuard(CLUSTER, INCARNATION, CREATION_TIMESTAMP);
             final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
             final PreparedCommand firstCommand = command(shard, "source-one");

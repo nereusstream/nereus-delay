@@ -14,8 +14,8 @@ public final class PulsarClientArtifactClientBuilder {
     }
 
     public static ClientBuilder builder(final String serviceUrl) {
-        final ClientBuilder clientBuilder = PulsarClient.builder()
-                .serviceUrl(Objects.requireNonNull(serviceUrl, "serviceUrl"));
+        final ClientBuilder clientBuilder =
+                PulsarClient.builder().serviceUrl(Objects.requireNonNull(serviceUrl, "serviceUrl"));
         final String listenerName = System.getenv("NEREUS_DELAY_PULSAR_LISTENER_NAME");
         if (listenerName != null && !listenerName.isBlank()) {
             clientBuilder.listenerName(listenerName);

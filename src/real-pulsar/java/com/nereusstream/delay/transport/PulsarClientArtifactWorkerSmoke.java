@@ -170,8 +170,7 @@ public final class PulsarClientArtifactWorkerSmoke {
     private static final long LEASE_DURATION_MS = 60_000;
     private static final long SYSTEM_MUTATION_RETRY_WINDOW_MS = 60_000;
     private static final long DUE_DISCOVERY_MAX_BYTES = 900_000;
-    private static final String PREPARED_RECORD_RETENTION_SUBSCRIPTION =
-            "nereus-delay-prepared-record-retention";
+    private static final String PREPARED_RECORD_RETENTION_SUBSCRIPTION = "nereus-delay-prepared-record-retention";
     // Test-only source authority fixture. A real Worker receives this pinned
     // verification/signing authority from the source-control plane; it must
     // not generate a new verification key during process recovery.
