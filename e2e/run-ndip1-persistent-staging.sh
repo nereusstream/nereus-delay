@@ -26,7 +26,7 @@ compose_file_staging="${script_dir}/docker-compose.ndip1-staging.yml"
 
 pulsar_checkout="${NEREUS_DELAY_PULSAR_CHECKOUT:-${delay_root}/../pulsar-worktrees/nereus-delay-p1}"
 oxia_base_checkout="${NEREUS_DELAY_OXIA_CHECKOUT:-${delay_root}/../oxia}"
-oxia_checkout="${staging_root}/source/oxia-staging-v2"
+oxia_checkout="${staging_root}/source/oxia-staging-persistent"
 oxia_cli="${oxia_checkout}/bin/oxia"
 oxia_base_sha=""
 oxia_patch_sha256=""
@@ -162,7 +162,7 @@ docker compose version >/dev/null 2>&1 || fail "docker compose is unavailable"
 
 prepare_oxia_staging_checkout() {
   local source_root="${staging_root}/source"
-  local source_manifest="${source_root}/oxia-staging-v2-source.json"
+  local source_manifest="${source_root}/oxia-staging-persistent-source.json"
   local source_manifest_tmp="${source_manifest}.tmp"
   local base_commit patch_digest patched_commit
 
@@ -201,7 +201,7 @@ prepare_oxia_staging_checkout() {
         >"${run_dir}/logs/oxia-staging-source-commit.log" 2>&1 \
         || fail "could not commit the Oxia staging patch"
     patched_commit="$(git -C "${oxia_checkout}" rev-parse HEAD)"
-    printf '%s\n' "${patched_commit}" >"${source_root}/oxia-staging-v2-commit.txt"
+    printf '%s\n' "${patched_commit}" >"${source_root}/oxia-staging-persistent-commit.txt"
     jq -n --arg schema "nereus-delay.ndip1-oxia-staging-source" \
       --arg baseCheckout "${oxia_base_checkout}" --arg baseCommit "${base_commit}" \
       --arg patchPath "${oxia_patch}" --arg patchSha256 "${patch_digest}" \
@@ -247,11 +247,11 @@ prepare_oxia_staging_checkout() {
   oxia_base_sha="${base_commit}"
   oxia_patch_sha256="${patch_digest}"
   oxia_source_manifest_sha256="$(shasum -a 256 "${source_manifest}" | awk '{print $1}')"
-  cp -p "${source_manifest}" "${run_dir}/g0/oxia-staging-v2-source.json"
-  cp -p "${oxia_patch}" "${run_dir}/g0/oxia-staging-v2-source.patch"
-  [[ "$(shasum -a 256 "${run_dir}/g0/oxia-staging-v2-source.json" | awk '{print $1}')" == \
+  cp -p "${source_manifest}" "${run_dir}/g0/oxia-staging-persistent-source.json"
+  cp -p "${oxia_patch}" "${run_dir}/g0/oxia-staging-persistent-source.patch"
+  [[ "$(shasum -a 256 "${run_dir}/g0/oxia-staging-persistent-source.json" | awk '{print $1}')" == \
     "${oxia_source_manifest_sha256}" ]] || fail "G0 Oxia source manifest copy changed"
-  [[ "$(shasum -a 256 "${run_dir}/g0/oxia-staging-v2-source.patch" | awk '{print $1}')" == \
+  [[ "$(shasum -a 256 "${run_dir}/g0/oxia-staging-persistent-source.patch" | awk '{print $1}')" == \
     "${oxia_patch_sha256}" ]] || fail "G0 Oxia staging patch copy changed"
 }
 
@@ -712,7 +712,7 @@ write_environment_snapshot() {
     --arg p1SourceLock "${p1_source_lock}" --arg oxiaSource "${oxia_sha}" \
     --arg oxiaBaseSource "${oxia_base_sha}" --arg oxiaPatchSha256 "${oxia_patch_sha256}" \
     --arg oxiaSourceCheckout "${oxia_checkout}" \
-    --arg oxiaSourceManifest "${run_dir}/g0/oxia-staging-v2-source.json" \
+    --arg oxiaSourceManifest "${run_dir}/g0/oxia-staging-persistent-source.json" \
     --arg oxiaSourceManifestSha256 "${oxia_source_manifest_sha256}" \
     --arg pulsarSource "${pulsar_sha}" --arg pulsarRef "${pulsar_ref}" \
     --arg packageDigest "${accepted_package_digest}" \
