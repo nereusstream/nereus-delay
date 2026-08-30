@@ -26,12 +26,12 @@ compose_file_staging="${script_dir}/docker-compose.ndip1-staging.yml"
 
 pulsar_checkout="${NEREUS_DELAY_PULSAR_CHECKOUT:-${delay_root}/../pulsar-worktrees/nereus-delay-p1}"
 oxia_base_checkout="${NEREUS_DELAY_OXIA_CHECKOUT:-${delay_root}/../oxia}"
-oxia_checkout="${staging_root}/source/oxia-staging"
+oxia_checkout="${staging_root}/source/oxia-staging-v2"
 oxia_cli="${oxia_checkout}/bin/oxia"
 oxia_base_sha=""
 oxia_patch_sha256=""
 oxia_source_manifest_sha256=""
-oxia_patch="${script_dir}/oxia-patches/raft-status-watch-replay.patch"
+oxia_patch="${script_dir}/oxia-patches/raft-status-watch-replay-buffer.patch"
 oxia_expected_base_sha="37a17bef17202d5fd6e23282da5fd26d94865484"
 pulsar_tarball="${NEREUS_DELAY_PULSAR_TARBALL:-${pulsar_checkout}/distribution/server/build/distributions/apache-pulsar-5.0.0-M1-bin.tar.gz}"
 pulsar_client_cp="${pulsar_checkout}/pulsar-client/build/libs/pulsar-client-original-5.0.0-M1.jar:${pulsar_checkout}/pulsar-client-api/build/libs/pulsar-client-api-5.0.0-M1.jar:${pulsar_checkout}/pulsar-common/build/libs/pulsar-common-5.0.0-M1.jar"
@@ -162,7 +162,7 @@ docker compose version >/dev/null 2>&1 || fail "docker compose is unavailable"
 
 prepare_oxia_staging_checkout() {
   local source_root="${staging_root}/source"
-  local source_manifest="${source_root}/oxia-staging-source.json"
+  local source_manifest="${source_root}/oxia-staging-v2-source.json"
   local source_manifest_tmp="${source_manifest}.tmp"
   local base_commit patch_digest patched_commit
 
@@ -201,7 +201,7 @@ prepare_oxia_staging_checkout() {
         >"${run_dir}/logs/oxia-staging-source-commit.log" 2>&1 \
         || fail "could not commit the Oxia staging patch"
     patched_commit="$(git -C "${oxia_checkout}" rev-parse HEAD)"
-    printf '%s\n' "${patched_commit}" >"${source_root}/oxia-staging-commit.txt"
+    printf '%s\n' "${patched_commit}" >"${source_root}/oxia-staging-v2-commit.txt"
     jq -n --arg schema "nereus-delay.ndip1-oxia-staging-source" \
       --arg baseCheckout "${oxia_base_checkout}" --arg baseCommit "${base_commit}" \
       --arg patchPath "${oxia_patch}" --arg patchSha256 "${patch_digest}" \
@@ -247,11 +247,11 @@ prepare_oxia_staging_checkout() {
   oxia_base_sha="${base_commit}"
   oxia_patch_sha256="${patch_digest}"
   oxia_source_manifest_sha256="$(shasum -a 256 "${source_manifest}" | awk '{print $1}')"
-  cp -p "${source_manifest}" "${run_dir}/g0/oxia-staging-source.json"
-  cp -p "${oxia_patch}" "${run_dir}/g0/oxia-staging-source.patch"
-  [[ "$(shasum -a 256 "${run_dir}/g0/oxia-staging-source.json" | awk '{print $1}')" == \
+  cp -p "${source_manifest}" "${run_dir}/g0/oxia-staging-v2-source.json"
+  cp -p "${oxia_patch}" "${run_dir}/g0/oxia-staging-v2-source.patch"
+  [[ "$(shasum -a 256 "${run_dir}/g0/oxia-staging-v2-source.json" | awk '{print $1}')" == \
     "${oxia_source_manifest_sha256}" ]] || fail "G0 Oxia source manifest copy changed"
-  [[ "$(shasum -a 256 "${run_dir}/g0/oxia-staging-source.patch" | awk '{print $1}')" == \
+  [[ "$(shasum -a 256 "${run_dir}/g0/oxia-staging-v2-source.patch" | awk '{print $1}')" == \
     "${oxia_patch_sha256}" ]] || fail "G0 Oxia staging patch copy changed"
 }
 
@@ -484,6 +484,27 @@ oxia_client() {
     --service-address "${oxia_endpoint}" --namespace default --request-timeout 5s "$@"
 }
 
+wait_for_oxia_admin_ready() {
+  local deadline=$((SECONDS + 180)) attempts=0 output
+  : >"${run_dir}/logs/oxia-admin-ready-attempts.log"
+  while (( SECONDS < deadline )); do
+    attempts=$((attempts + 1))
+    if output="$(oxia_admin dataserver get -o json 2>/dev/null)"; then
+      printf 'attempt=%s ready=true\n' "${attempts}" >>"${run_dir}/logs/oxia-admin-ready-attempts.log"
+      printf '%s\n' "${output}" >"${run_dir}/g0/oxia-admin-ready.json"
+      jq -n --arg schema "nereus-delay.oxia-admin-readiness" --arg status PASS \
+        --argjson attempts "${attempts}" --arg outputSha256 "$(printf '%s' "${output}" | shasum -a 256 | awk '{print $1}')" \
+        '{schema:$schema,schemaGeneration:1,status:$status,attempts:$attempts,
+          command:"oxia admin dataserver get -o json",outputSha256:$outputSha256}' \
+        >"${run_dir}/g0/oxia-admin-readiness.json"
+      return 0
+    fi
+    printf 'attempt=%s ready=false\n' "${attempts}" >>"${run_dir}/logs/oxia-admin-ready-attempts.log"
+    sleep 2
+  done
+  fail "Oxia admin API did not become ready after coordinator election"
+}
+
 wait_for_namespace() {
   local deadline=$((SECONDS + 180)) view
   while (( SECONDS < deadline )); do
@@ -504,6 +525,7 @@ bootstrap_oxia() {
   wait_for_oxia_service data-server-1 6648
   wait_for_oxia_service data-server-2 6648
   wait_for_oxia_service data-server-3 6648
+  wait_for_oxia_admin_ready
   local output
   if ! output="$(oxia_admin dataserver get ds-1 -o json 2>/dev/null)"; then
     oxia_admin dataserver create ds-1 --public "127.0.0.1:${data_server_1_port}" \
@@ -685,7 +707,7 @@ write_environment_snapshot() {
     --arg p1SourceLock "${p1_source_lock}" --arg oxiaSource "${oxia_sha}" \
     --arg oxiaBaseSource "${oxia_base_sha}" --arg oxiaPatchSha256 "${oxia_patch_sha256}" \
     --arg oxiaSourceCheckout "${oxia_checkout}" \
-    --arg oxiaSourceManifest "${run_dir}/g0/oxia-staging-source.json" \
+    --arg oxiaSourceManifest "${run_dir}/g0/oxia-staging-v2-source.json" \
     --arg oxiaSourceManifestSha256 "${oxia_source_manifest_sha256}" \
     --arg pulsarSource "${pulsar_sha}" --arg pulsarRef "${pulsar_ref}" \
     --arg packageDigest "${accepted_package_digest}" \
@@ -1612,6 +1634,8 @@ write_gate_c_receipt() {
     || fail "manifest readback did not prove each operation"
   [[ -s "${run_dir}/results/gate-c-p1-worker-managed.json" ]] \
     || fail "P1 managed Worker result is missing"
+  [[ "$(jq -r '.status' "${run_dir}/g0/oxia-admin-readiness.json")" == PASS ]] \
+    || fail "Oxia admin readiness gate is not PASS"
   [[ "$(jq -r '.status' "${run_dir}/chaos/oxia-coordinator-restart/receipt.json")" == PASS ]] \
     || fail "persistent Oxia coordinator restart gate is not PASS"
   local passed_checks
@@ -1655,7 +1679,7 @@ write_gate_c_receipt() {
       startupAssignmentGate:true,noOldGeneration:true,noUnresolvedPublishing:true,noUnresolvedUncertain:true,
       freshness:true,applicableChecks:41,passedChecks:$passedChecks,g0SnapshotPath:$g0SnapshotPath,skipAuditPath:$skipAuditPath,
       evidence:{realOxia:true,realMinio:true,realPulsarP1:true,realGateway:true,realWorker:true,
-        oxiaCoordinatorRestart:true,brokerFailover:true,workerOwnershipTransfer:true,responseLossRecovery:true}}' \
+        oxiaAdminReady:true,oxiaCoordinatorRestart:true,brokerFailover:true,workerOwnershipTransfer:true,responseLossRecovery:true}}' \
     >"${payload}"
   jq -n --arg payloadPath "${payload}" \
     --arg signedEnvelopePath "${run_dir}/authority/gate-c-receipt.signed.json" \

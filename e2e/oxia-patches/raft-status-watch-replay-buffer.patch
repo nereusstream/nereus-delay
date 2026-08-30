@@ -1,0 +1,112 @@
+diff --git a/oxiad/coordinator/metadata/factory.go b/oxiad/coordinator/metadata/factory.go
+--- a/oxiad/coordinator/metadata/factory.go
++++ b/oxiad/coordinator/metadata/factory.go
+@@ -38,16 +38,58 @@
+-type Factory struct {
+-	mu sync.Mutex
+-
+-	statusProvider  provider.Provider[*commonproto.ClusterStatus]
+-	configProvider  provider.Provider[*commonproto.ClusterConfiguration]
+-	coordinatorName string
+-	raft            *raft.Raft
+-	raftInterceptor raft.Interceptor
+-}
+-
+-func (f *Factory) OnApplied(key string, data []byte, version int64) {
+-	if f.raftInterceptor == nil {
+-		return
+-	}
+-	f.raftInterceptor.OnApplied(key, data, version)
+-}
++type Factory struct {
++	mu sync.Mutex
++
++	statusProvider  provider.Provider[*commonproto.ClusterStatus]
++	configProvider  provider.Provider[*commonproto.ClusterConfiguration]
++	coordinatorName string
++	raft            *raft.Raft
++	raftInterceptor raft.Interceptor
++}
++
++type raftApply struct {
++	key     string
++	data    []byte
++	version int64
++}
++
++type raftInterceptorFanout struct {
++	mu           sync.Mutex
++	interceptors []raft.Interceptor
++	pending      []raftApply
++}
++
++func (f *raftInterceptorFanout) OnApplied(key string, data []byte, version int64) {
++	f.mu.Lock()
++	defer f.mu.Unlock()
++	if len(f.interceptors) == 0 {
++		f.pending = append(f.pending, raftApply{
++			key:     key,
++			data:    append([]byte(nil), data...),
++			version: version,
++		})
++		return
++	}
++	f.applyLocked(key, data, version)
++}
++
++func (f *raftInterceptorFanout) applyLocked(key string, data []byte, version int64) {
++	for _, interceptor := range f.interceptors {
++		interceptor.OnApplied(key, data, version)
++	}
++}
++
++func (f *raftInterceptorFanout) SetInterceptors(interceptors ...raft.Interceptor) {
++	f.mu.Lock()
++	defer f.mu.Unlock()
++	f.interceptors = append([]raft.Interceptor(nil), interceptors...)
++	for _, apply := range f.pending {
++		f.applyLocked(apply.key, apply.data, apply.version)
++	}
++	f.pending = nil
++}
++
++func (f *Factory) OnApplied(key string, data []byte, version int64) {
++	if f.raftInterceptor == nil {
++		return
++	}
++	f.raftInterceptor.OnApplied(key, data, version)
++}
+@@ -89,15 +131,18 @@
+-	case metadatacommon.NameRaft:
+-		if factory.raft, err = raft.New(meta.Raft.Address, meta.Raft.BootstrapNodes, meta.Raft.DataDir, factory); err != nil {
+-			return nil, fmt.Errorf("failed to create raft metadata provider: %w", err)
+-		}
+-		factory.configProvider = raft.NewProvider(ctx, factory.raft, metadatacodec.ClusterConfigCodec, metadatacommon.WatchEnabled)
+-		// Raft apply callbacks only drive the config watch today.
+-		// Status watch is intentionally unsupported; if we add it later,
+-		// this needs to fan out to the status provider too.
+-		configProvider, ok := factory.configProvider.(*raft.Provider[*commonproto.ClusterConfiguration])
+-		if !ok {
+-			return nil, errors.New("failed to create raft config provider")
+-		}
+-		factory.raftInterceptor = configProvider
+-		factory.statusProvider = raft.NewProvider(ctx, factory.raft, metadatacodec.ClusterStatusCodec, metadatacommon.WatchDisabled)
+-	default:
++	case metadatacommon.NameRaft:
++		fanout := &raftInterceptorFanout{}
++		factory.raftInterceptor = fanout
++		if factory.raft, err = raft.New(meta.Raft.Address, meta.Raft.BootstrapNodes, meta.Raft.DataDir, fanout); err != nil {
++			return nil, fmt.Errorf("failed to create raft metadata provider: %w", err)
++		}
++		factory.configProvider = raft.NewProvider(ctx, factory.raft, metadatacodec.ClusterConfigCodec, metadatacommon.WatchEnabled)
++		configProvider, ok := factory.configProvider.(*raft.Provider[*commonproto.ClusterConfiguration])
++		if !ok {
++			return nil, errors.New("failed to create raft config provider")
++		}
++		factory.statusProvider = raft.NewProvider(ctx, factory.raft, metadatacodec.ClusterStatusCodec, metadatacommon.WatchDisabled)
++		statusProvider, ok := factory.statusProvider.(*raft.Provider[*commonproto.ClusterStatus])
++		if !ok {
++			return nil, errors.New("failed to create raft status provider")
++		}
++		fanout.SetInterceptors(configProvider, statusProvider)
++	default:
