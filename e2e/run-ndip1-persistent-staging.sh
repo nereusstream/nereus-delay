@@ -485,21 +485,25 @@ oxia_client() {
 }
 
 wait_for_oxia_admin_ready() {
-  local deadline=$((SECONDS + 180)) attempts=0 output
-  : >"${run_dir}/logs/oxia-admin-ready-attempts.log"
+  local phase="${1:-initial}" deadline=$((SECONDS + 180)) attempts=0 output
+  local attempts_path="${run_dir}/logs/oxia-admin-ready-${phase}-attempts.log"
+  local output_path="${run_dir}/g0/oxia-admin-ready-${phase}.json"
+  local receipt_path="${run_dir}/g0/oxia-admin-readiness-${phase}.json"
+  : >"${attempts_path}"
   while (( SECONDS < deadline )); do
     attempts=$((attempts + 1))
     if output="$(oxia_admin dataserver get -o json 2>/dev/null)"; then
-      printf 'attempt=%s ready=true\n' "${attempts}" >>"${run_dir}/logs/oxia-admin-ready-attempts.log"
-      printf '%s\n' "${output}" >"${run_dir}/g0/oxia-admin-ready.json"
+      printf 'attempt=%s ready=true\n' "${attempts}" >>"${attempts_path}"
+      printf '%s\n' "${output}" >"${output_path}"
       jq -n --arg schema "nereus-delay.oxia-admin-readiness" --arg status PASS \
+        --arg phase "${phase}" --arg outputPath "${output_path}" \
         --argjson attempts "${attempts}" --arg outputSha256 "$(printf '%s' "${output}" | shasum -a 256 | awk '{print $1}')" \
         '{schema:$schema,schemaGeneration:1,status:$status,attempts:$attempts,
-          command:"oxia admin dataserver get -o json",outputSha256:$outputSha256}' \
-        >"${run_dir}/g0/oxia-admin-readiness.json"
+          phase:$phase,command:"oxia admin dataserver get -o json",outputPath:$outputPath,
+          outputSha256:$outputSha256}' >"${receipt_path}"
       return 0
     fi
-    printf 'attempt=%s ready=false\n' "${attempts}" >>"${run_dir}/logs/oxia-admin-ready-attempts.log"
+    printf 'attempt=%s ready=false\n' "${attempts}" >>"${attempts_path}"
     sleep 2
   done
   fail "Oxia admin API did not become ready after coordinator election"
@@ -525,7 +529,7 @@ bootstrap_oxia() {
   wait_for_oxia_service data-server-1 6648
   wait_for_oxia_service data-server-2 6648
   wait_for_oxia_service data-server-3 6648
-  wait_for_oxia_admin_ready
+  wait_for_oxia_admin_ready initial
   local output
   if ! output="$(oxia_admin dataserver get ds-1 -o json 2>/dev/null)"; then
     oxia_admin dataserver create ds-1 --public "127.0.0.1:${data_server_1_port}" \
@@ -569,6 +573,7 @@ run_oxia_coordinator_restart() {
   wait_for_oxia_service coordinator-1 6651
   wait_for_oxia_service coordinator-2 6651
   wait_for_oxia_service coordinator-3 6651
+  wait_for_oxia_admin_ready after-coordinator-restart
   "${compose[@]}" ps --all >"${restart_dir}/after-ps.txt"
   container_id="$("${compose[@]}" ps -q coordinator-1)"
   [[ -n "${container_id}" ]] || fail "Oxia coordinator-1 container is missing after restart"
@@ -1634,8 +1639,10 @@ write_gate_c_receipt() {
     || fail "manifest readback did not prove each operation"
   [[ -s "${run_dir}/results/gate-c-p1-worker-managed.json" ]] \
     || fail "P1 managed Worker result is missing"
-  [[ "$(jq -r '.status' "${run_dir}/g0/oxia-admin-readiness.json")" == PASS ]] \
+  [[ "$(jq -r '.status' "${run_dir}/g0/oxia-admin-readiness-initial.json")" == PASS ]] \
     || fail "Oxia admin readiness gate is not PASS"
+  [[ "$(jq -r '.status' "${run_dir}/g0/oxia-admin-readiness-after-coordinator-restart.json")" == PASS ]] \
+    || fail "Oxia admin readiness after coordinator restart is not PASS"
   [[ "$(jq -r '.status' "${run_dir}/chaos/oxia-coordinator-restart/receipt.json")" == PASS ]] \
     || fail "persistent Oxia coordinator restart gate is not PASS"
   local passed_checks
