@@ -22,12 +22,12 @@ digest、审查基线和接受结论，因此 Gate B 为 PASS。
 
 Gate B PASS 是 implementation authorization：H1-H6 可按切片依赖顺序实施，带 exact
 `DISPOSABLE_LOCAL` attestation 的本地集成/恢复/故障测试也被允许。Gate C 是
-deployment/upgrade authorization；它仍严格阻止 persistent environment mutation、SHADOW 和
-ENABLED。H0 不改变权威语义，不受这一命名桥接阻塞。
+deployment/upgrade authorization；在具体环境完成 G0、签名 Manifest 和 Gate C 前仍严格阻止
+该环境的 persistent mutation、SHADOW 和 ENABLED。H0 不改变权威语义，不受这一命名桥接阻塞。
 
-本轮实现开始时的前置状态为 `H1 READY`；H1→H6 已按依赖顺序完成代码切片，当前
-disposable-local 认证矩阵也已闭合。下一个生命周期阶段仍是等待明确的 persistent
-deployment 后执行 G0/Gate C，不是直接进入激活。
+本轮实现开始时的前置状态为 `H1 READY`；H1→H6 已按依赖顺序完成代码切片，disposable-local
+认证矩阵也已闭合。随后已在固定的 `local-docker-staging-ndip1` 上执行 G0/Gate C/SHADOW 和
+最小 canary；该环境最终保持 `DISABLED`，其他环境仍须独立执行同一组门禁。
 
 `normative package digest` 不包含本 README 和 candidate/final receipt，避免自引用与操作文本
 改变设计身份。仓库不保存会话执行提示词；需要时由用户请求并在会话内临时生成。摘要固定
@@ -162,8 +162,8 @@ cell；完整 24-cell disposable certification 曾在 `main@da15290e` 通过。
 这里的“已实现”仅表示代码/本地 disposable 验证边界；它不表示 NDIP 已进入
 `Implemented`，也不生成 production Manifest、Gate C、SHADOW、ENABLED 或 cutover
 evidence。H0 仍然 fail-closed，缺少 exact current generation、signed manifest 或能力
-gate 时不得触碰 Producer/物理适配器。由于没有真实 persistent deployment，Gate C 仍为
-`PENDING_DEPLOYMENT`，SHADOW/ENABLED 继续阻断。
+gate 时不得触碰 Producer/物理适配器。2026-08-30 的 exact staging evidence 见上方执行记录；
+Accepted package receipt 自身仍保持 `gate_c=PENDING_DEPLOYMENT`，不被 staging 结果改写。
 
 ## 2026-08-28 disposable local certification
 
@@ -182,9 +182,10 @@ binding、证据路径与 cleanup 审计见
 不得从本 README 的历史 SHA 推断。
 
 这只是 local disposable certification receipt/report；它不创建真实 DataResetAssessment
-scope，不是 Gate C authority，也不允许 SHADOW 或 ENABLED。当前 G0 仍为
-`NOT_APPLICABLE_FOR_IMPLEMENTATION / PENDING_DEPLOYMENT`，Gate C 仍为
-`PENDING_DEPLOYMENT`。
+scope，不是 Gate C authority，也不允许 SHADOW 或 ENABLED。该 disposable receipt 仍不能替代
+上方 exact staging run 的 G0/Gate C authority；当前 staging 结论见本 README 的 2026-08-30
+状态段和 `06-Persistent-Staging-Gate-C-SHADOW-执行记录.md`，Accepted package receipt 自身仍为
+`gate_c=PENDING_DEPLOYMENT`。
 
 本轮 H1-H6 代码切片的历史锚点为
 `main@c7c99d377dc9e8bb786032173d62d1981011a4e2`；独立审查前的 disposable certification 绑定
@@ -266,19 +267,19 @@ head 投影，防止 policy disabled 或 lead 缩小时 native head 阻塞 ordin
 | 范围 | 设计详细度 | 当前状态 | 前置条件 |
 |---|---|---:|---|
 | H0 | patch-ready，五个生产入口与测试落点已固定 | complete；不得重复实施 | 已有 code/docs receipt |
-| G0 | read-only compatibility/reset assessment tooling 与 receipt | core implemented；`NOT_APPLICABLE_FOR_IMPLEMENTATION / PENDING_DEPLOYMENT` | 仅在真实 persistent environment 明确后运行；不得修改运行资源 |
+| G0 | read-only compatibility/reset assessment tooling 与 receipt | core implemented；exact local staging `PASS_DIRECT_REPLACE` | 其他真实 persistent environment 仍需独立运行；不得修改运行资源 |
 | H1 | code-level contract/store slice | **implemented; disposable certification passed** | focused/full gates passed |
 | H2 | signed policy/scheduler/admission slice | **implemented; disposable certification passed** | H1 + focused/full gates passed |
 | H3 | Attempt Journal/physical handoff slice | **implemented; disposable certification passed** | H2 + focused/full gates passed |
 | H4 | P1 encoder/transport/evidence slice | **implemented; 24-cell source-locked certification passed** | H3 + source-locked P1 gates passed |
 | H5 | AUTO_FAST contract/timestamp/recovery slice | **implemented; disposable certification passed** | H4 + focused/full gates passed |
-| H6 | activation/reset/generation-barrier slice | **implemented; disposable tests passed; deployment evidence pending** | H5 + exact environment gates |
+| H6 | activation/reset/generation-barrier slice | **implemented; disposable tests and exact staging evidence passed** | H5 + each environment's exact gates |
 | local disposable testing | synthetic integration/recovery/fault environment | **ALLOWED; current 24-cell run PASS** | Gate B PASS + exact complete disposable attestation |
-| SHADOW | environment-specific deployment | blocked | exact environment Gate C PASS |
-| ENABLED | controlled native delivery activation | blocked | Gate C PASS + SHADOW requirements PASS + signed Manifest/source lock/Worker barrier |
+| SHADOW | environment-specific deployment | **exact local staging PASS; other environments blocked** | exact environment Gate C PASS |
+| ENABLED | controlled native delivery activation | **exact local staging canary PASS, then DISABLED** | Gate C PASS + SHADOW requirements PASS + signed Manifest/source lock/Worker barrier |
 
 H1-H6 代码切片完成后仍需在每个发布/部署边界重核最新源码签名、P1 source lock 和生成号
 占用；这属于正常的 source-drift 审计，不得借此重新打开本文已经关闭的产品契约。G0 pure
 evaluator、closed inventory、本地 receipt writer、`DeploymentSafetyGate` 与 H6 manifest gate
-均已实现；真实 environment 出现前不提供虚假 scope 或 PASS。需要执行提示词时由用户在
+均已实现；没有该环境自己的新鲜 scope 时不提供虚假 scope 或 PASS。需要执行提示词时由用户在
 会话中另行请求，不写入仓库。
