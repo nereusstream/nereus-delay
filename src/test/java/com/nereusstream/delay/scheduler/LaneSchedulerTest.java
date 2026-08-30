@@ -993,6 +993,45 @@ class LaneSchedulerTest {
     }
 
     @Test
+    void rotatingDiscoveryRevisitsTheSingletonRecoveryCursorAfterAFullWrap() {
+        final DestinationLaneId lane = lane(52);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 52);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("ready-singleton-cursor-wrap"));
+        final SourcePosition source = new KafkaSourcePosition(shardId, "cluster", UUID.randomUUID(), 4, null, 1_004);
+        final LaneRecord laneRecord =
+                new LaneRecord(lane, new byte[16], 1, 1, AdmissionGate.OPEN, RuntimeReadiness.READY, 2, 1_000);
+        final DelayMessageId messageId = DelayMessageId.random(shardId);
+        final MessageRecord message = new MessageRecord(
+                MessageStatus.SCHEDULED,
+                3,
+                4,
+                1_000,
+                9_000,
+                lane,
+                OrderingMode.BEST_EFFORT,
+                new byte[] {1, 2, 3},
+                source.canonicalBytes());
+        final ReadyFixture fixture = readyFixture(laneRecord, messageId, source, message);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore store = ShardStore.open(config, shardId, resources)) {
+            store.write(batch -> putReady(batch, fixture));
+            final PersistentLaneScheduler scheduler = PersistentLaneScheduler.defaults(store);
+            scheduler.register(laneRecord);
+            assertEquals(1, scheduler.rebuildFromAuthoritativeReady(1));
+
+            // Recovery decoded this key without trusted time and left it as
+            // the discovery cursor. A live-policy refresh must revisit the
+            // same physical key after a complete wrap. Corrupting the value
+            // makes that revisit observable and proves the cursor is not a
+            // permanent exclusion.
+            store.write(batch -> batch.putValue(ColumnFamily.TIMELINE, 3, fixture.readyKey(), new byte[] {1}));
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> scheduler.discoverReady(new SchedulerBudget(1, 1_024, 1_000_000_000)));
+        }
+    }
+
+    @Test
     void fencedRecoveryAcceptsCanonicalTimelineWorkRefValue() {
         final DestinationLaneId lane = lane(8);
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 8);

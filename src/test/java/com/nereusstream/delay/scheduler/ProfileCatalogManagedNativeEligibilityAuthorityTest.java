@@ -44,10 +44,16 @@ import com.nereusstream.delay.protocol.TargetPartitionHashInput;
 import com.nereusstream.delay.protocol.TargetPartitionPolicy;
 import com.nereusstream.delay.protocol.TimingCapability;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
+import com.nereusstream.delay.runtime.GenerationAggregateState;
+import com.nereusstream.delay.runtime.GenerationRuntimeIndex;
+import com.nereusstream.delay.runtime.MessageRecord;
+import com.nereusstream.delay.runtime.MessageStatus;
 import com.nereusstream.delay.runtime.ProfileCatalog;
+import com.nereusstream.delay.runtime.TimelineWorkRef;
 import com.nereusstream.delay.semantic.HandoffPolicyAuthority;
 import com.nereusstream.delay.semantic.InMemoryHandoffPolicyAuthority;
 import com.nereusstream.delay.semantic.InMemoryHandoffPolicyTrustStore;
+import com.nereusstream.delay.store.KeyCodec;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.util.List;
@@ -56,6 +62,45 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 class ProfileCatalogManagedNativeEligibilityAuthorityTest {
+    @Test
+    void schedulerKeepsTheStaticMaximumBoundaryButSelectsTheDynamicPolicyCandidate() throws Exception {
+        final Fixture fixture = Fixture.create();
+        final DelayMessageId messageId = fixture.binding.delayMessageId();
+        final DestinationLaneId laneId = fixture.binding.laneId();
+        final byte[] timelineKey = KeyCodec.timelineDue(
+                laneId,
+                fixture.materialization.deliverAtEpochMs(),
+                fixture.trustPosition.sourceOrderToken(),
+                messageId,
+                0);
+        final MessageRecord message = MessageRecord.current(
+                MessageStatus.SCHEDULED,
+                0,
+                1,
+                fixture.materialization.deliverAtEpochMs(),
+                fixture.materialization.expireAtEpochMs(),
+                1_500,
+                laneId,
+                OrderingMode.BEST_EFFORT,
+                NativeDeliveryPolicy.ALLOW_MANAGED_HANDOFF,
+                Bytes.utf8("payload"),
+                fixture.trustPosition.canonicalBytes(),
+                null,
+                fixture.materialization.deliverAtEpochMs(),
+                GenerationRuntimeIndex.timeline(
+                        GenerationAggregateState.SCHEDULED,
+                        TimelineWorkRef.initial(timelineKey, fixture.materialization.deliverAtEpochMs(), 1),
+                        1));
+
+        final HandoffEligibilityResolver.Decision decision =
+                fixture.gate.resolve(message, fixture.binding, exactTime(1_950));
+
+        assertEquals(HandoffEligibilityAction.MANAGED_NATIVE_CANDIDATE, decision.action());
+        assertEquals(1_900, decision.candidateAtEpochMs());
+        assertEquals(1_900, decision.effectiveEligibleAtEpochMs());
+        assertEquals(fixture.publication.head().ref(fixture.publication.oxiaVersion()), decision.policyHeadRef());
+    }
+
     @Test
     void admissionFreezesTheExactCasStableCurrentHead() throws Exception {
         final Fixture fixture = Fixture.create();

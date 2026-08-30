@@ -973,6 +973,17 @@ public final class PulsarClientArtifactWorkerSmoke {
             throw new IllegalStateException(
                     "source-applied physical Schedule did not create the expected scheduled message");
         }
+        if (bridge.managedHandoffSnapshot() != null) {
+            final long staticCandidateAt = Math.subtractExact(
+                    message.deliverAtEpochMs(), PersistentStagingNativeCanaryIdentity.MAX_HANDOFF_LEAD_MS);
+            if (message.earliestNativeCandidateAtEpochMs() != staticCandidateAt) {
+                throw new IllegalStateException(
+                        "Managed Handoff durable candidate does not use the destination profile maximum lead: "
+                                + message.earliestNativeCandidateAtEpochMs()
+                                + " != "
+                                + staticCandidateAt);
+            }
+        }
         delayShard.activateLaneReadiness(
                 bridge.laneId(),
                 bridge.laneIncarnation(),
@@ -1028,6 +1039,7 @@ public final class PulsarClientArtifactWorkerSmoke {
             return finishAdmissionRecoveryHold(runtime, delayShard, workClasses, bridge, client, physicalTurn);
         }
         WorkerShardRuntime.DueClaimPublishPhysicalTurn dueClaimPublish = null;
+        TrustedUtcIntervalEvidence lastDueEvidence = null;
         // A large payload can exceed the Lane's initial DRR quantum. Spend a
         // bounded number of ordinary due turns to accumulate the exact head
         // credit; keep every submitted due task inside its WorkClass cap.
@@ -1040,6 +1052,7 @@ public final class PulsarClientArtifactWorkerSmoke {
                 throw new IllegalStateException("Managed Handoff missed its pre-delivery Admission interval");
             }
             final TrustedUtcIntervalEvidence dueEvidence = evidence(dueEarliest, dueLatest, "pulsar-worker-due-clock");
+            lastDueEvidence = dueEvidence;
             final long dueTaskRequestBytes = Math.addExact(44L, dueEvidence.canonicalBytes().length);
             final long dueDiscoveryBytes = Math.min(
                     Math.max(DUE_DISCOVERY_MAX_BYTES, (long) payload.length),
@@ -1064,9 +1077,32 @@ public final class PulsarClientArtifactWorkerSmoke {
             }
         }
         final var dueClaim = dueClaimPublish.dueClaimPublishTurn();
-        final var claimResult = dueClaim.claimResult()
-                .orElseThrow(
-                        () -> new IllegalStateException("provider-driven Worker turn did not return a Claim result"));
+        if (dueClaim.claimResult().isEmpty()) {
+            final String diagnostic;
+            if (bridge.managedHandoffAuthority() == null || lastDueEvidence == null) {
+                diagnostic = "ordinary path; discovered="
+                        + dueClaim.dueClaimTurn().dueTurn().discoveredItems();
+            } else {
+                final var decision = bridge.managedHandoffAuthority()
+                        .resolve(message, delayShard.getScheduleBinding(physicalMessageId), lastDueEvidence);
+                diagnostic = "managed decision="
+                        + decision.action()
+                        + "/"
+                        + decision.reason()
+                        + ", effectiveEligibleAt="
+                        + decision.effectiveEligibleAtEpochMs()
+                        + ", earliestNativeCandidateAt="
+                        + message.earliestNativeCandidateAtEpochMs()
+                        + ", deliverAt="
+                        + message.deliverAtEpochMs()
+                        + ", policyLead="
+                        + bridge.managedHandoffSnapshot().effectiveLeadMs()
+                        + ", discovered="
+                        + dueClaim.dueClaimTurn().dueTurn().discoveredItems();
+            }
+            throw new IllegalStateException("provider-driven Worker turn did not return a Claim result: " + diagnostic);
+        }
+        final var claimResult = dueClaim.claimResult().orElseThrow();
         if (claimResult.kind() != ClaimHandoffWorkClassExecutor.ResultKind.CLAIMED) {
             throw new IllegalStateException("provider-driven Worker Claim was not admitted: " + claimResult.kind());
         }
@@ -4086,7 +4122,10 @@ public final class PulsarClientArtifactWorkerSmoke {
                         trustStore,
                         activation.artifacts(),
                         () -> Objects.requireNonNull(trustPosition.get(), "Managed Handoff source trust position"));
-        return new ManagedHandoffConfiguration(activation, identity, trustStore, trustPosition, authority);
+        final ManagedHandoffConfiguration configuration =
+                new ManagedHandoffConfiguration(activation, identity, trustStore, trustPosition, authority);
+        configuration.effectiveLeadMs();
+        return configuration;
     }
 
     private static ProfileCatalog profileCatalog(final PersistentStagingNativeCanaryIdentity.Identity identity) {
@@ -4206,7 +4245,9 @@ public final class PulsarClientArtifactWorkerSmoke {
                             canonicalLaneTuple(tenantScope, destinationPhysicalTopic, intent.profile(), capability, 0);
                     final Long actionAt = managedHandoff == null
                             ? null
-                            : Math.subtractExact(intent.deliverAtEpochMs(), managedHandoff.effectiveLeadMs());
+                            : Math.subtractExact(
+                                    intent.deliverAtEpochMs(),
+                                    PersistentStagingNativeCanaryIdentity.MAX_HANDOFF_LEAD_MS);
                     return new ResolvedSchedule(
                             DestinationLaneId.derive(tuple), tuple, intent.inlinePayload(), null, actionAt);
                 }

@@ -169,9 +169,11 @@ RESET：operator 必须显式签署 `RESET_INTERNAL_ONLY` 或 `CREATE_NEW_INTERN
 用户数据；Manifest 操作后必须逐个 read back 全部 13 类资源。最终 certification 还必须由与 runner
 独立的 verifier 重新验证完整签名与证据链。
 
-持久化认证实跑还关闭了两个只在真实 policy/失败顺序下出现的组合缺口：Managed Schedule 的
-`actionAt` 必须按 Admission 将冻结的 exact `effectiveLeadMs` 计算，不能拿 profile 上限代替；失败
-rollback 必须重新读取 Pulsar 当前 topic stats 并把摘要绑定进签名 receipt，不能依赖成功 canary
+持久化认证实跑还关闭了只在真实恢复、policy 与失败顺序组合下出现的缺口。持久
+`earliestNativeCandidateAt` 必须使用 Profile 的 `maxHandoffLeadMs`，它只是最早唤醒边界；Claim
+的实际 `actionAt` 才由当前签名 snapshot 的 `effectiveLeadMs` 推导。恢复后的环形 READY 扫描必须在
+完整一圈后重新检查游标 key，才能把同一物理 head 从 ordinary 投影刷新为当前 native 投影。失败
+rollback 则必须重新读取 Pulsar 当前 topic stats 并把摘要绑定进签名 receipt，不能依赖成功 canary
 稍后才会生成的 stats 文件。相关 blocked run 与证据边界记录在 `06`；当前是否形成 staging PASS
 仍只由 current pointer 和独立 verifier 决定。
 

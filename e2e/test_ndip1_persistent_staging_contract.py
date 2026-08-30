@@ -28,15 +28,16 @@ class PersistentStagingContractTest(unittest.TestCase):
         self.assertEqual(1, enabled_canary.count('--arg p1Lock "${p1_source_lock}"'))
         self.assertIn('rg -e "current (Oxia )?handoff policy"', runner)
 
-    def test_managed_handoff_schedule_uses_the_frozen_policy_lead(self) -> None:
+    def test_managed_handoff_separates_static_profile_boundary_from_runtime_policy_lead(self) -> None:
         source = WORKER_SMOKE.read_text(encoding="utf-8")
         resolver = source.split("private static ScheduleResolver scheduleResolver(", 1)[1]
-        self.assertIn("intent.deliverAtEpochMs(), managedHandoff.effectiveLeadMs()", resolver)
-        self.assertNotIn(
+        self.assertIn(
             "intent.deliverAtEpochMs(),\n"
             "                                    PersistentStagingNativeCanaryIdentity.MAX_HANDOFF_LEAD_MS",
             resolver,
         )
+        self.assertNotIn("intent.deliverAtEpochMs(), managedHandoff.effectiveLeadMs()", resolver)
+        self.assertIn("bridge.managedHandoffSnapshot().effectiveLeadMs()", source)
         self.assertIn("effectiveLeadMs <= 0", source)
         self.assertIn(
             "effectiveLeadMs > PersistentStagingNativeCanaryIdentity.MAX_HANDOFF_LEAD_MS",

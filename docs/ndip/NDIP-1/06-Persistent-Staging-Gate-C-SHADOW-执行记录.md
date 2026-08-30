@@ -272,15 +272,21 @@ commit；AUTO_FAST、Managed Handoff 和 `ArtifactGenerationSet` 的物理证据
 run `20260830104711-17324` 在候选
 `e46dba0371095913da298a623b4ff883c569e643` 上完成了 13/13 Manifest readback、Gate C 41/41、
 SHADOW `0/0/0` 和 AUTO_FAST `1/1/0`，随后在 Managed Handoff 的 provider-driven Claim 前
-fail-closed。真实 ENABLED snapshot 的 `effectiveLeadMs=7000`，而 Worker canary 的 Schedule
-resolver 曾错误地用 destination profile 的 `maxHandoffLeadMs=15000` 生成 `actionAt`。Admission
-按冻结 snapshot 要求 exact lead，二者不相等，因此 32 个有界 due turn 都不能产生 Claim。该 run
-没有 Managed evidence、canary receipt、rollback receipt 或 current-pointer authority。
+fail-closed。后续源码复核纠正了该 run 的初步归因：Profile 的 `maxHandoffLeadMs=15000` 本来就应
+生成持久 `earliestNativeCandidateAt`，真实 ENABLED snapshot 的 `effectiveLeadMs=7000` 只在当前
+policy eligibility 与 Claim materialization 中生成实际 `actionAt`；把二者合并反而违反 accepted
+设计。真正缺口是恢复后的 READY 游标永久排除了游标 key：恢复阶段没有 trusted time，只装入
+ordinary 投影；唯一 READY head 随后无法被 current-policy 扫描重新访问，因此 32 个有界 due turn
+都不能产生 Claim。该 run 没有 Managed evidence、canary receipt、rollback receipt 或
+current-pointer authority。
 
 这次失败同时证明旧 rollback 依赖顺序不闭合：失败发生在常规
 `canary/native-topic-stats.json` 生成前，清理却读取该文件，导致二级 rollback 审计中止。当前
-Worker canary 从已加载并冻结的 policy publication 读取 exact `effectiveLeadMs`，拒绝小于等于零或
-大于 profile 上限的 lead，并给 prepare/resume 留出固定 30 秒 canary horizon。rollback 不再依赖
+修复后环形 READY 扫描会在遍历 tail 与 wrapped prefix 后重新检查游标 key，现有
+`discoveredHeads` 继续承担重复 Claim fence；Worker canary 同时断言持久候选等于 Profile 最大 lead，
+并从已加载 policy publication 读取 actual `effectiveLeadMs` 用于等待、eligibility 与诊断，拒绝
+小于等于零或大于 profile 上限的 lead，并给 prepare/resume 留出固定 30 秒 canary horizon。
+rollback 不再依赖
 canary 成功路径的文件，而是在旧 ENABLED lease 到期后通过 Pulsar Admin 重新读取 exact native
 topic；HTTP 200 必须得到 closed publishers 集合且数量为零，HTTP 404 只表示 topic 不存在，其他
 状态全部 fail-closed。该 live stats 的 path、digest 和 HTTP status 进入 generation-2 签名 rollback receipt，独立

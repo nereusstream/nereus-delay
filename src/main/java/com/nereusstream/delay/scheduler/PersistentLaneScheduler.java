@@ -895,8 +895,11 @@ public final class PersistentLaneScheduler {
         // first key and the caller asks for a one-entry discovery turn.
         final int tailLimit = limit == Integer.MAX_VALUE ? limit : Math.addExact(limit, 1);
         final List<ShardStore.KeyValue> tail = store.scan(ColumnFamily.TIMELINE, lastScannedReadyKey, upper, tailLimit);
+        ShardStore.KeyValue cursorEntry = null;
         for (ShardStore.KeyValue entry : tail) {
-            if (!Arrays.equals(entry.key(), lastScannedReadyKey)) {
+            if (Arrays.equals(entry.key(), lastScannedReadyKey)) {
+                cursorEntry = entry;
+            } else {
                 result.add(entry);
             }
             if (result.size() == limit) {
@@ -907,12 +910,24 @@ public final class PersistentLaneScheduler {
         if (remaining > 0) {
             final List<ShardStore.KeyValue> head =
                     store.scan(ColumnFamily.TIMELINE, prefix, lastScannedReadyKey, remaining);
-            if (!head.isEmpty()) {
-                result.addAll(head);
+            result.addAll(head);
+            if (result.size() == limit) {
                 return new ReadyScan(List.copyOf(result), true);
             }
         }
-        return new ReadyScan(List.copyOf(result), false);
+        // The cursor marks the last visited key, not a permanently excluded
+        // key. Revisit it only after the tail and wrapped prefix have both
+        // been exhausted. This is required for a singleton READY namespace
+        // and for live Managed Handoff policy refresh: recovery initially
+        // restores the immutable ordinary projection without trusted time,
+        // then a later authoritative turn must be able to replace that same
+        // physical head with its current process-local native projection.
+        // discoveredHeads remains the duplicate-Claim fence.
+        if (cursorEntry != null && result.size() < limit) {
+            result.add(cursorEntry);
+            return new ReadyScan(List.copyOf(result), true);
+        }
+        return new ReadyScan(List.copyOf(result), !result.isEmpty());
     }
 
     private static long incrementWrapGeneration(final long current) {
