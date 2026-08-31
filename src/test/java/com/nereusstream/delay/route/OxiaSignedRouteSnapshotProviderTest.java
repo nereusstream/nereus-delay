@@ -177,6 +177,30 @@ class OxiaSignedRouteSnapshotProviderTest {
     }
 
     @Test
+    void explicitSessionReconnectReplacesAFactoryManagedAuthorityClient() throws Exception {
+        final FakeRouteClient previousAuthority = new FakeRouteClient();
+        final FakeRouteClient replacementAuthority = new FakeRouteClient();
+        replacementAuthority.put("/replacement-session-prime", bytes(32, 90), Set.of(PutOption.AsEphemeralRecord));
+        final FakeRouteClient notification = new FakeRouteClient();
+        final OxiaRouteAuthoritySession session = new OxiaRouteAuthoritySession(
+                previousAuthority, () -> replacementAuthority, notification, null, "/nereus/route");
+        try {
+            session.startSession();
+            final byte[] firstIdentity = session.sessionIdentity();
+
+            session.reconnectSession();
+
+            assertEquals(1, previousAuthority.closeCount());
+            assertFalse(java.util.Arrays.equals(firstIdentity, session.sessionIdentity()));
+            assertNull(session.get("/nereus/route/missing"));
+        } finally {
+            session.close();
+        }
+        assertEquals(1, replacementAuthority.closeCount());
+        assertEquals(1, notification.closeCount());
+    }
+
+    @Test
     void sessionCloseAttemptsTheIndependentWatchClientAfterAuthorityCloseFails() {
         final FakeRouteClient authority = new FakeRouteClient();
         final FakeRouteClient notification = new FakeRouteClient();

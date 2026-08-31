@@ -36,7 +36,8 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
     private static final byte[] SESSION_DOMAIN = Bytes.utf8("nereus-delay-route-session\0");
     private static final SecureRandom RANDOM = new SecureRandom();
 
-    private final OxiaRouteRecordClient delegate;
+    private OxiaRouteRecordClient delegate;
+    private final java.util.function.Supplier<OxiaRouteRecordClient> delegateFactory;
     private final java.util.function.Supplier<OxiaRouteRecordClient> notificationDelegateFactory;
     private OxiaRouteRecordClient notificationDelegate;
     private final String sessionPrefix;
@@ -55,7 +56,7 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
 
     /** Package-private deterministic constructor for Route authority tests. */
     OxiaRouteAuthoritySession(final OxiaRouteRecordClient delegate, final String keyPrefix) {
-        this(delegate, delegate, null, keyPrefix);
+        this(delegate, null, delegate, null, keyPrefix);
     }
 
     /** Package-private composition constructor for deterministic session-fence tests. */
@@ -64,7 +65,18 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
             final OxiaRouteRecordClient notificationDelegate,
             final java.util.function.Supplier<OxiaRouteRecordClient> notificationDelegateFactory,
             final String keyPrefix) {
+        this(delegate, null, notificationDelegate, notificationDelegateFactory, keyPrefix);
+    }
+
+    /** Package-private composition constructor for deterministic client-recovery tests. */
+    OxiaRouteAuthoritySession(
+            final OxiaRouteRecordClient delegate,
+            final java.util.function.Supplier<OxiaRouteRecordClient> delegateFactory,
+            final OxiaRouteRecordClient notificationDelegate,
+            final java.util.function.Supplier<OxiaRouteRecordClient> notificationDelegateFactory,
+            final String keyPrefix) {
         this.delegate = Objects.requireNonNull(delegate, "delegate");
+        this.delegateFactory = delegateFactory;
         this.notificationDelegate = Objects.requireNonNull(notificationDelegate, "notificationDelegate");
         this.notificationDelegateFactory = notificationDelegateFactory;
         final String prefix = canonicalKeyPrefix(keyPrefix);
@@ -104,6 +116,11 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
                     .syncClient();
             return new OxiaRouteAuthoritySession(
                     new SyncRecordClient(sessionClient),
+                    () -> createAuthorityClient(
+                            serviceAddress,
+                            canonicalNamespace,
+                            canonicalClientIdentifier + "-route-reconnect-" + UUID.randomUUID(),
+                            sessionTimeout),
                     new SyncRecordClient(notificationClient),
                     () -> createNotificationClient(
                             serviceAddress,
@@ -118,6 +135,22 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
                 failure.addSuppressed(closeFailure);
             }
             throw failure;
+        }
+    }
+
+    private static OxiaRouteRecordClient createAuthorityClient(
+            final String serviceAddress,
+            final String namespace,
+            final String clientIdentifier,
+            final Duration sessionTimeout) {
+        try {
+            return new SyncRecordClient(OxiaClientBuilder.create(serviceAddress)
+                    .namespace(namespace)
+                    .clientIdentifier(canonicalText(clientIdentifier, "clientIdentifier"))
+                    .sessionTimeout(sessionTimeout)
+                    .syncClient());
+        } catch (OxiaException failure) {
+            throw new IllegalStateException("failed to create Oxia Route authority client", failure);
         }
     }
 
@@ -176,6 +209,10 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
     @Override
     public synchronized void reconnectSession() {
         requireNotClosed();
+        if (delegateFactory != null) {
+            replaceAuthorityDelegate();
+            return;
+        }
         if (started) {
             try {
                 requireSession();
@@ -188,6 +225,26 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
         }
         rotateMarker();
         startSession();
+    }
+
+    private void replaceAuthorityDelegate() {
+        final OxiaRouteRecordClient replacement =
+                Objects.requireNonNull(delegateFactory.get(), "delegateFactory returned null");
+        final OxiaRouteRecordClient previous = delegate;
+        delegate = replacement;
+        clearSession();
+        rotateMarker();
+        try {
+            previous.close();
+            startSession();
+        } catch (RuntimeException | Error failure) {
+            try {
+                replacement.close();
+            } catch (RuntimeException | Error closeFailure) {
+                failure.addSuppressed(closeFailure);
+            }
+            throw failure;
+        }
     }
 
     /** Replaces the notification client after a service restart and starts a fresh offset-tracked stream. */
