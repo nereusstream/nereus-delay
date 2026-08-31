@@ -16,6 +16,8 @@
   `main@8aa6237526b2d047091d107c336934eed5aa8eb8`
 - Managed physical-time / non-submission proof 闭环提交：
   `main@e97facf1cc31c101d46b54af598b1f9d92f7de13`
+- Managed native prepared-record activation 装配闭环提交：
+  `main@4eeff43144aced28931e5b054299dc07be00daae`
 - 整理日期：`2026-08-31`
 
 仓库的 Accepted `NDP-0001` 持续演进规则保持不变。Accepted
@@ -223,6 +225,22 @@ opaque/null proof 一律降为 `UNKNOWN`。新 owner 的 Journal recovery 则不
 只解释/退休旧 owner 的 mapping，绝不重新发送。focused tests、完整 `./gradlew check` 和
 source-locked P1 编译已经通过；仍须由该提交之后的新 exact 24/24 receipt 与完整 persistent run
 形成环境 authority。
+
+候选 `827d9c47af98f6aadb7ec5029298e76ac72202aa` 的 run `20260831131814-77467`
+随后完成 Gate C 41/41、SHADOW `0/0/0` 与 AUTO_FAST `1/1/0`，但 Managed Handoff 在
+Attempt Journal 已持久化 `MAPPED / OWNERSHIP_STARTED` 后返回
+`UNKNOWN / PULSAR_EVIDENCE_DIVERGENCE`。只读源码与物理证据对照确认，业务 target 没有发生
+Managed SEND：Worker composition 仍调用 adapter 与 real transport 的默认 H0 构造器，两层
+`nativePreparedDeliveryEnabled` 都是 `false`；target Topic 中已有的一条业务消息属于前一个
+AUTO_FAST canary。ownership marker 之后的拒绝不能被伪装成 definitive non-publication，所以
+UNKNOWN 是正确的 fail-closed 终态。
+
+`main@4eeff43144aced28931e5b054299dc07be00daae` 把同一个闭合 activation 决策同时传给
+`PinnedPulsarDestinationAdapter` 与 `PulsarClientArtifactDestinationTransport`。该位只有在 exact
+persistent activation 已成功生成 `ManagedHandoffConfiguration` 时为 true；普通构造器、缺失
+Gate C/SHADOW/Manifest/source binding、ordinary Managed 与 direct bypass 仍保持 H0。单测固定
+“默认 0 transport call、显式 activation 后 prepared record 恰好一次到达 transport”，完整 staging
+canary 仍必须从新 HEAD 重新认证 `.deliverAt(...)`、SEND/ACK、三条 Journal 记录及重启回放。
 
 这里的“已实现”仅表示代码与环境认证工具边界；它不表示 NDIP 已进入 `Implemented`，也不产生
 production authority。H0 仍然 fail-closed，缺少 exact current generation、signed manifest 或

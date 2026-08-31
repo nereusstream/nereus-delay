@@ -17732,3 +17732,27 @@ text artifact and is scanned for forbidden native-send markers. Focused tests
 cover the valid WAL case and fail-closed behavior for malformed or forbidden
 text evidence. The blocked run did not issue SHADOW/ENABLED authority or
 advance the current deployment pointer.
+
+## 2026-08-31 NDIP-1 Managed native activation composition closure
+
+Persistent run `20260831131814-77467` reached Gate C 41/41, SHADOW `0/0/0`
+and AUTO_FAST `1/1/0`, then stopped fail-closed during the Managed canary.
+The Attempt Journal contained `MAPPED` and `OWNERSHIP_STARTED`, but no Managed
+target SEND occurred and the result remained
+`UNKNOWN / PULSAR_EVIDENCE_DIVERGENCE`. The one existing target message was
+the earlier AUTO_FAST record. Rollback returned the environment to `DISABLED`
+with every active process, Worker, lease and send count at zero.
+
+The production-composition gap was two unchanged H0 defaults: both
+`PinnedPulsarDestinationAdapter` and
+`PulsarClientArtifactDestinationTransport` were constructed with native
+prepared delivery disabled even after exact persistent activation had created
+the Managed Handoff configuration. Commit
+`4eeff43144aced28931e5b054299dc07be00daae` derives one closed activation bit
+from that configuration and supplies it to both layers. Missing activation,
+ordinary constructors and direct bypasses remain disabled; the frozen policy,
+physical-send authority and Attempt Journal checks still execute before SEND.
+Focused adapter/Worker tests, full Gradle `check`, and source-locked P1 compile
+pass. This source fix is not staging authority: an exact receipt and complete
+new persistent run remain required, and only the independently validated
+current pointer may report their result.

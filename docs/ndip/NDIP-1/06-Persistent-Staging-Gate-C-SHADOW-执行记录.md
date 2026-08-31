@@ -382,6 +382,28 @@ physical-send activation 影响：它只读取/退休既有 Journal mapping，�
 P1 `compileRealPulsar` 均通过，但修复提交仍不是 staging PASS；后续必须绑定更新后的最终 HEAD
 重新生成 exact 24/24 disposable receipt，并从头运行完整 persistent certification。
 
+run `20260831131814-77467` 在候选
+`827d9c47af98f6aadb7ec5029298e76ac72202aa` 上完成 Gate C 41/41、218 秒 SHADOW `0/0/0`
+与 AUTO_FAST `1/1/0`，Managed Handoff 则在 Attempt Journal 已持久化 `MAPPED` 和
+`OWNERSHIP_STARTED` 后返回 `UNKNOWN / PULSAR_EVIDENCE_DIVERGENCE`。失败路径签发并验证了
+rollback，环境回到 `DISABLED`，active native process/Worker/lease/send 全部为零；该 run 没有
+Managed evidence、完整 canary receipt、final summary 或 current-pointer authority。
+
+物理证据与源码交叉检查排除了“PUBLISHED Journal response-loss 恢复失败”：Managed 业务 target
+没有被触碰，target Topic 中唯一业务消息来自此前的 AUTO_FAST canary。真实缺口是 Worker
+composition 在 persistent activation 已生成 `ManagedHandoffConfiguration` 后，仍调用 adapter 和
+transport 的默认构造器；两个 `nativePreparedDeliveryEnabled=false` H0 门在 ownership marker
+之后拒绝了 native prepared record。此时不能安全退休 mapping，也不能把拒绝提升为 definitive
+non-publication，因此 executor 正确保留 UNKNOWN。
+
+`main@4eeff43144aced28931e5b054299dc07be00daae` 只在 exact Managed persistent activation 存在时，
+用同一个局部 activation 位同时打开 adapter 与 source-locked P1 transport 的 native prepared-record
+门。默认构造器和其他调用路径不变；Admission frozen snapshot、physical activation gate、frozen
+lease recheck、Attempt Journal ownership marker 仍在真正 SEND 前逐层 fail-closed。新增测试先证明
+默认 adapter 不调用 transport，再证明显式 activation 后同一 native record 恰好一次到达 prepared
+transport。该提交及测试仍不是环境认证；新 run 必须绑定其后的最终 HEAD，重新生成 24/24 receipt
+并从 Gate C 起完整执行。
+
 ## Authority 边界
 
 即使 current pointer 对某个 HEAD 验证 PASS，也只说明固定本机 staging 的 bounded 候选认证：
