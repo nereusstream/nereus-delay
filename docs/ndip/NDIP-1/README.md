@@ -14,6 +14,8 @@
   `main@da15290e47b9255403c92e4ebba3c7d5189edb75`
 - Oxia Route authority 重连闭环提交：
   `main@8aa6237526b2d047091d107c336934eed5aa8eb8`
+- Managed physical-time / non-submission proof 闭环提交：
+  `main@e97facf1cc31c101d46b54af598b1f9d92f7de13`
 - 整理日期：`2026-08-31`
 
 仓库的 Accepted `NDP-0001` 持续演进规则保持不变。Accepted
@@ -181,9 +183,12 @@ rollback 则必须重新读取 Pulsar 当前 topic stats 并把摘要绑定进�
 
 真实 Pulsar source 的 append 成功与同一 Worker 非阻塞 receive 立即可见不是同一个边界。
 `runSourceBoundPhysicalPublish` 在有界 source turns 内尚未读到 Admission 时返回可重试的
-`SOURCE_TURN_LIMIT`，不围栏、不创建 attempt、也不触碰 destination。Persistent Worker/certification
+`SOURCE_TURN_LIMIT`，不围栏、不创建 attempt、也不触碰 destination。物理 trusted-time interval
+与 Admission decision interval 暂时重叠时返回 `PHYSICAL_DEFERRED`，同样不创建 Journal mapping、
+不取得 Producer ownership。Persistent Worker/certification
 调用方必须保留同一 `publishAttemptId` 与 Admission Source Position，在后续 bounded turns 中重试；
-不得把传播延迟误报为 attempt 丢失，也不得重新 append Admission。real-client canary 对该重试增加
+不得把传播或 safe-time 收敛延迟误报为 definitive non-publication，也不得重新 append Admission。
+real-client canary 对这两类重试增加
 30 秒总时限，超时或任何其他状态继续 fail-closed。
 
 后续持久化实跑还定位到 real Worker 的 Profile authority 组合缺口：合法 native Admission 虽已写入
@@ -202,6 +207,22 @@ Route authority 在显式 reconnect 时关闭旧 client、创建 fresh client、
 session identity，再从同一持久 authority 重建 cache；watch client 仍保留 Oxia 的 offset-tracked
 重试语义。真实 stop/start 定点测试已经通过，但该提交仍须新的 exact disposable receipt 与完整
 persistent run 才能形成 staging authority。
+
+候选 `9518ec0bae054dcf9a51115fa966569bffdf26e1` 的 run `20260831115134-69791` 随后完成了
+13/13 Manifest readback、Gate C 41/41、226 秒 SHADOW `0/0/0` 和 AUTO_FAST `1/1/0`，但
+Managed Handoff 在 physical trusted-time interval 与 Admission decision interval 暂时重叠时，错误地
+构造了没有 typed `PublishEvidence` 的 definitive result，Outcome handoff 因而以
+`NullPointerException: PublishEvidence` fail-closed。签名 rollback 已恢复 `DISABLED`，四项 active
+计数均为零；该 run 没有完整 canary receipt、final summary 或 current-pointer authority。
+
+`main@e97facf1cc31c101d46b54af598b1f9d92f7de13` 将这种 interval overlap 改为 Producer/Journal
+之前的有界 `PHYSICAL_DEFERRED`，并使 real-client 在同一 attempt 上重采 trusted time。所有本地
+definitive pre-library rejection 现在都携带 closed `AdapterNonSubmissionEvidence`，其 channel、request
+hash、prepared hash、owner、conformance generation 与 stable code 在 Outcome 交界处逐项复核；旧的
+opaque/null proof 一律降为 `UNKNOWN`。新 owner 的 Journal recovery 则不读取当前 send activation，
+只解释/退休旧 owner 的 mapping，绝不重新发送。focused tests、完整 `./gradlew check` 和
+source-locked P1 编译已经通过；仍须由该提交之后的新 exact 24/24 receipt 与完整 persistent run
+形成环境 authority。
 
 这里的“已实现”仅表示代码与环境认证工具边界；它不表示 NDIP 已进入 `Implemented`，也不产生
 production authority。H0 仍然 fail-closed，缺少 exact current generation、signed manifest 或

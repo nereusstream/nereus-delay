@@ -570,6 +570,33 @@ The Broker record appends the hash after computing it. Kafka appends, after call
 | 18 | `AdapterNonSubmissionEvidence` | 1 `ChannelResourceIdentity`; 2 `ExternalDeliveryIdentity`; 3 exact prepared/export envelope hash[32]; 4 `AdapterNonSubmissionKind`; 5 exact local request SHA-256[32]; 6 activated Adapter conformance version `uint32`; 7 `StableCode`; valid only as `VERIFIED_NOT_PUBLISHED` |
 | 19 | `BrokerDefinitiveRejectionEvidence` | 1 `AdapterKind`; 2 target `BrokerResourceIdentity`; 3 partition `uint32`; 4 `ExternalDeliveryIdentity`; 5 exact prepared/export envelope hash[32]; 6 exact Broker request SHA-256[32]; 7 unsigned wire error code `uint32`; 8 authenticated response SHA-256[32]; 9 activated rejection-classifier version `uint32`; valid only as `VERIFIED_NOT_PUBLISHED` |
 
+For the current Adapter conformance generation, `AdapterNonSubmissionEvidence`
+field 5 is exactly:
+
+```text
+SHA-256(
+  "nereus-delay-destination-publish-request\0" ||
+  canonicalProtobuf(
+    1 DestinationLaneId bytes[32];
+    2 lane incarnation[16];
+    3 DelayMessageId bytes[41];
+    4 generation uint32 bits;
+    5 PublishAttemptId[32];
+    6 actionAtEpochMs uint64;
+    7 deliverAtEpochMs uint64;
+    8 SHA-256(payload)[32];
+    9 SHA-256(adapter metadata)[32]
+  )
+)
+```
+
+Field 6 is `1`. A business Outcome may accept this branch as definitive only
+after validating the exact Admission channel, Publish Attempt owner, prepared
+hash, complete request commitment, conformance generation and result
+`StableCode`. A missing, opaque or mismatched branch is `UNKNOWN`; it must not
+be projected as definitive non-publication merely because the local code path
+did not intend to call a transport.
+
 Current generation-2 `PulsarSendAckEvidence` replaces the legacy eleven-field
 Pulsar branch for new evidence. Its exact fields are: 1 schema generation=2;
 2 target; 3 partition; 4 ledger; 5 entry; 6 normalized batch index; 7 batch

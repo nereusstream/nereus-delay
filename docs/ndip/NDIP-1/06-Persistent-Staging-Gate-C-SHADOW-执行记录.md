@@ -302,11 +302,12 @@ Managed Handoff 已能产生 provider-driven Claim。该 run 随后在 Admission
 把可重试的 source propagation 边界误报为 durable attempt 未保留。失败清理已发布签名
 `DISABLED` head，未生成 Managed evidence、canary receipt、rollback receipt 或 current pointer。
 
-当前 real-client harness 只对 ENQUEUED 的同一 `publishAttemptId` 和同一 Admission Source Position
+该轮 real-client harness 修复只对 ENQUEUED 的同一 `publishAttemptId` 和同一 Admission Source Position
 续跑 bounded source turns：每轮仍使用 runtime 的 16-turn 上限，轮间 25ms，wall-clock 总上限 30 秒；
 它不重新 append Admission，也不改变 payload/attempt identity。只有
 `SOURCE_TURN_LIMIT` 可续跑；其他状态立即按详细 status、source-turn 与 last-source-turn 证据
-fail-closed。`PHYSICAL_SUBMITTED` 验证先于 attempt 解包，因此后续失败不再被错误诊断覆盖。该修复
+fail-closed；后文记录的 physical safe-time 修复再把 `PHYSICAL_DEFERRED` 纳入同一有界重试。
+`PHYSICAL_SUBMITTED` 验证先于 attempt 解包，因此后续失败不再被错误诊断覆盖。该修复
 仍须由新 HEAD 的完整 disposable 与 persistent certification 重新证明，不能晋升上述 blocked run。
 
 run `20260830131642-82551` 在候选
@@ -352,6 +353,34 @@ fail-closed。notification client 不被无 offset 的新 watch 替换，继续�
 identity 旋转；同一 persistent staging 集群上的精确 `data-server-1` stop/start、client-readiness、
 20 秒 expiry-grace 定点测试在 47 秒内通过。该 focused PASS 只证明修复方向，仍不能晋升失败 run；
 必须由该提交之后的新 exact 24/24 receipt 和完整 persistent certification 重新签发 authority。
+
+run `20260831115134-69791` 在候选
+`9518ec0bae054dcf9a51115fa966569bffdf26e1` 上验证了 Route reconnect 修复，并完成 13/13 Manifest
+readback、Gate C 41/41、226 秒 SHADOW `0/0/0` 与 AUTO_FAST `1/1/0`。Gate C 签名 envelope SHA-256
+为 `d51bc8bf99c93706b7a832c7ee593035e376f512d139303dd209dcefaa29066c`，SHADOW envelope SHA-256
+为 `fe1cb3c648a780ab5db68ea93ece09b3f71d0bb419832ba557641c7ade1c6197`。Managed Handoff 随后在
+业务 target SEND 前以 `FAILED / NullPointerException: PublishEvidence` 停止，因此没有 Managed
+evidence、完整 canary receipt、final summary 或 current-pointer authority。失败清理签发并验证了
+generation-2 rollback receipt，终态为 `DISABLED`、active native process/Worker/lease/send 全部为零，
+`productionAuthority=false`。
+
+源码调查确认根因由两个边界叠加形成。Admission 冻结的 decision time 是一个有界 interval，紧接着
+取得的 physical trusted-time sample 可能暂时仍与它重叠；旧 executor 把这个可重试 safe-time
+边界误作 definitive non-publication。该结果又只携带 `evidence=null`，而 source-log Outcome factory
+要求所有 definitive 结果都能解码为 typed `PublishEvidence`，于是正确地拒绝了无证明状态，但只留下
+了 NPE 诊断。业务 target 的 Producer 可以在 composition 初始化时存在，但此次失败没有调用其
+message builder/SEND；Attempt Journal 也不应因暂时 overlap 创建 mapping。
+
+`main@e97facf1cc31c101d46b54af598b1f9d92f7de13` 修复这两个生产边界：首次 frozen-lease 验证移到
+Attempt Journal mapping 前，interval overlap 返回 `PHYSICAL_DEFERRED`，real-client 只保留同一
+`publishAttemptId`/Admission 并在 30 秒有界窗口内重采 trusted time；其他已证明的 pre-library
+拒绝创建 closed `AdapterNonSubmissionEvidence`。该证据的 channel、Publish Attempt owner、prepared
+hash、完整 request hash、Adapter conformance generation 与 stable code 在 Outcome 交界处逐项绑定，
+任何 null、opaque 或错配 proof 都降为 `UNKNOWN`。此外，foreign-owner recovery 不再受当前
+physical-send activation 影响：它只读取/退休既有 Journal mapping，返回
+`RECOVERY_FIRST_SEND_UNCERTAIN`，不触碰 target。focused tests、完整 `./gradlew check` 与 source-locked
+P1 `compileRealPulsar` 均通过，但修复提交仍不是 staging PASS；后续必须绑定更新后的最终 HEAD
+重新生成 exact 24/24 disposable receipt，并从头运行完整 persistent certification。
 
 ## Authority 边界
 
