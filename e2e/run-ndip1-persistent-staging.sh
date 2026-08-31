@@ -2661,7 +2661,7 @@ run_enabled_canary() {
     --arg packageDigest "${accepted_package_digest}" --arg p1Lock "${p1_source_lock}" \
     --arg gateC "${gate_c_receipt_sha256}" --arg shadow "${shadow_receipt_sha256}" \
     --arg policy "${enabled_policy_envelope}" --arg policyDigest "${enabled_policy_envelope_sha256}" \
-    --arg topic "${native_topic}" --arg deliverAt "${deliver_at}" \
+    --arg topic "persistent://public/default/${native_topic}" --arg deliverAt "${deliver_at}" \
     --argjson nativeAdmission "${native_admission}" --argjson nativeSend "${native_send}" \
     --argjson handedOff "${handed_off}" --arg nativeEvidence "${native_evidence}" \
     --arg nativeEvidenceSha256 "$(sha256_file "${native_evidence}")" \

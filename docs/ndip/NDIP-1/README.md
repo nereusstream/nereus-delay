@@ -424,3 +424,12 @@ JSON string，而 closed validator 要求 number/boolean。该 run 没有写 cur
 runner 现以 canonical JSON number `0` 和 boolean `false` 写入这些字段，并由 contract test 固定
 字段类型；validator 不做字符串兼容或 coercion。后续仍须在包含此 runner 修复的 clean final HEAD
 上重新生成 disposable receipt 并完整重跑。
+
+候选 `ac9443c2975625ed233cf3d112c961219c06e9cc` 的 run `20260831172823-43610`
+证明 SHADOW closed types 修复生效，并再次完成 Gate C、SHADOW、两条 canary 与零活动资源 rollback。
+最终 validator 随后发现 canary receipt 的 `topic` 是 bare topic name，而 AUTO_FAST raw evidence
+绑定的是完整 `persistent://public/default/...` physical topic。exact target 比较因此正确拒绝晋升。
+
+canary receipt writer 现直接写入完整 physical topic URI，不在 validator 中做字符串补全。对该
+immutable blocked run 的只读继续验证表明，仅规范化此已知字段后完整 validator 可 PASS；仍必须在
+后续 clean HEAD 上重新签发全部 source-bound 证据，不能晋升旧 run。

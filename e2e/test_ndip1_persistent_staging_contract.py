@@ -40,6 +40,11 @@ class PersistentStagingContractTest(unittest.TestCase):
         )[0]
         self.assertEqual(2, enabled_canary.count('--arg p1Lock "${p1_source_lock_digest}"'))
         self.assertEqual(1, enabled_canary.count('--arg p1Lock "${p1_source_lock}"'))
+        self.assertIn(
+            '--arg topic "persistent://public/default/${native_topic}"',
+            enabled_canary,
+        )
+        self.assertNotIn('--arg topic "${native_topic}"', enabled_canary)
         self.assertIn('rg -e "current (Oxia )?handoff policy"', runner)
 
     def test_managed_handoff_separates_static_profile_boundary_from_runtime_policy_lead(self) -> None:

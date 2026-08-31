@@ -491,6 +491,24 @@ The runner now emits numeric `0` and boolean `false`, and a contract test fixes
 those exact types. The blocked run remains immutable and did not update the
 current pointer.
 
+## 2026-09-01 AUTO_FAST canonical physical-target closure
+
+Run `20260831172823-43610` on
+`ac9443c2975625ed233cf3d112c961219c06e9cc` verified the SHADOW closed-type
+fix and again completed Gate C 41/41, a 214-second SHADOW observation,
+AUTO_FAST `1/1/0`, Managed Handoff `1/1/1`, and rollback to `DISABLED` with all
+four active counts zero.
+
+The final validator then found that the signed canary receipt stored the bare
+topic name while the raw AUTO_FAST evidence stored the canonical physical
+target `persistent://public/default/...`. Exact comparison correctly rejected
+the mismatch. The receipt writer now emits the complete physical URI; the
+validator is unchanged and performs no target normalization. A read-only
+continuation of the validator against the immutable blocked run, normalizing
+only this known value in memory, reached full PASS and exposed no later
+failure. The blocked run itself remains non-authoritative and did not update
+the current pointer.
+
 ## Authority 边界
 
 即使 current pointer 对某个 HEAD 验证 PASS，也只说明固定本机 staging 的 bounded 候选认证：

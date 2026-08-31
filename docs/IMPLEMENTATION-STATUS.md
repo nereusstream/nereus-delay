@@ -17842,3 +17842,19 @@ and unresolved/leak flags as booleans. The validator remains strict and does
 not coerce strings. A runner contract regression fixes these types. The run is
 immutable, produced no current pointer, and cannot substitute for a new full
 certification on the subsequent clean HEAD.
+
+## 2026-09-01 NDIP-1 AUTO_FAST physical-target receipt closure
+
+Persistent run `20260831172823-43610` on
+`ac9443c2975625ed233cf3d112c961219c06e9cc` verified numeric/boolean SHADOW
+fields and completed Gate C 41/41, 214-second SHADOW, both canary branches,
+and zero-resource rollback. Independent validation still blocked because the
+signed canary receipt used a bare Pulsar topic name while AUTO_FAST raw
+evidence used the complete `persistent://public/default/...` target.
+
+The canary writer now records the canonical physical URI and the validator
+continues to require exact equality. A read-only in-memory continuation of the
+blocked run's validator, changing only this known comparison input, reached
+full PASS; the original evidence was not modified. The blocked run remains
+immutable and grants no current-pointer authority; a new exact disposable and
+persistent chain is still required for the subsequent clean HEAD.
