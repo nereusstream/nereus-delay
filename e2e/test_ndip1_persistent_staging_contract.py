@@ -45,6 +45,35 @@ class PersistentStagingContractTest(unittest.TestCase):
         )
         self.assertIn("MANAGED_HANDOFF_CANARY_DELAY_MS = 30_000", source)
 
+    def test_managed_handoff_worker_binds_catalog_activation_and_channel_credential(self) -> None:
+        source = WORKER_SMOKE.read_text(encoding="utf-8")
+        shard_composition = source.split("final DelayShard delayShard = new DelayShard(", 1)[1].split(
+            "final OwnerIdentity ownerIdentity", 1
+        )[0]
+        self.assertIn(
+            "managedHandoff == null ? null : managedHandoff.profileCatalog()",
+            shard_composition,
+        )
+
+        active_branch = source.split(
+            "managedProfileActivation = managedHandoff == null", 1
+        )[1].split("recoveredDestinationOutcome = null;", 1)[0]
+        self.assertLess(
+            active_branch.index("appendManagedProfileActivation("),
+            active_branch.index('activeCommand = managedHandoff == null ? command(shard, "worker-active")'),
+        )
+        self.assertIn("requireManagedProfileActivationApplied(", source)
+        self.assertIn("ProfileAcceptance.ACTIVE_FOR_FIRST_BINDING", source)
+        self.assertIn("lease.requireBinding(exactBinding)", source)
+        self.assertIn("lease.requireProtectedBy(exactProtection)", source)
+
+        catalog = source.split("private record ManagedHandoffProfileCatalog(", 1)[1].split(
+            "static final class PhysicalPublishBridge", 1
+        )[0]
+        self.assertIn("return destination.ref().equals(profile) ? head : null", catalog)
+        self.assertIn("binding.bindingDigest(), head.bindingDigest()", catalog)
+        self.assertNotIn("resolveHead(final ProfileRef profile) {\n                return null;", catalog)
+
     def test_managed_handoff_retries_bounded_source_propagation_without_changing_identity(self) -> None:
         source = WORKER_SMOKE.read_text(encoding="utf-8")
         helper = source.split(

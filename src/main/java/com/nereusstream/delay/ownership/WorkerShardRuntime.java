@@ -663,10 +663,17 @@ public final class WorkerShardRuntime implements AutoCloseable {
             }
             if (admissionApplied) {
                 ownedShard.fence();
+                final var mutationResult = lastSourceTurn == null || lastSourceTurn.appliedOutcome() == null
+                        ? null
+                        : lastSourceTurn.appliedOutcome().systemMutationResult();
+                final String durableResult = mutationResult == null
+                        ? "no durable System Mutation result"
+                        : mutationResult.applyStatus() + "/" + mutationResult.stableCode();
                 return SourceBoundPhysicalPublishTurn.sourceAppliedWithoutAttempt(
                         sourceTurns,
                         lastSourceTurn,
-                        new IllegalStateException("Admission source apply did not create its PUBLISHING ledger"));
+                        new IllegalStateException(
+                                "Admission source apply did not create its PUBLISHING ledger: " + durableResult));
             }
             if (sourceTurns >= maxSourceTurns) {
                 return SourceBoundPhysicalPublishTurn.sourceTurnLimit(sourceTurns, lastSourceTurn);
