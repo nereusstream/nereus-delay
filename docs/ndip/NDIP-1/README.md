@@ -18,6 +18,8 @@
   `main@e97facf1cc31c101d46b54af598b1f9d92f7de13`
 - Managed native prepared-record activation 装配闭环提交：
   `main@4eeff43144aced28931e5b054299dc07be00daae`
+- Managed generation-2 ACK / `HANDED_OFF` 终态闭环提交：
+  `main@1587ea08651647c0f7912fd2c17b5a96f1c7fa35`
 - 整理日期：`2026-08-31`
 
 仓库的 Accepted `NDP-0001` 持续演进规则保持不变。Accepted
@@ -241,6 +243,22 @@ persistent activation 已成功生成 `ManagedHandoffConfiguration` 时为 true�
 Gate C/SHADOW/Manifest/source binding、ordinary Managed 与 direct bypass 仍保持 H0。单测固定
 “默认 0 transport call、显式 activation 后 prepared record 恰好一次到达 transport”，完整 staging
 canary 仍必须从新 HEAD 重新认证 `.deliverAt(...)`、SEND/ACK、三条 Journal 记录及重启回放。
+
+候选 `2a146ba14e9061266f23708f70c1cc2905899c08` 的 run `20260831144322-57679`
+随后完成 Gate C 41/41、SHADOW `0/0/0` 和 AUTO_FAST `1/1/0`，并首次证明 Managed 业务
+target SEND 与三条 Attempt Journal 记录已经真实发生。source-log `PUBLISH_OUTCOME` 却被应用为
+`APPLIED / STALE_SYSTEM_MUTATION`。根因不是 SEND、Journal 或 retry window：generation-2 Pulsar
+ACK 的 field 1 是 evidence schema generation、target 位于 field 2，而 Handoff 终态校验仍按旧
+11-field 分支从 field 1 解 target；异常被 Outcome 边界按 fail-closed 规则折叠为 stale。即使该
+绑定通过，real-client harness 也仍错误地固定期待 ordinary `PUBLISHED`，而 native handoff 的正确
+聚合终态是 `HANDED_OFF`。失败 run 已签名 rollback 至 `DISABLED`，没有生成 final authority。
+
+`main@1587ea08651647c0f7912fd2c17b5a96f1c7fa35` 按 ACK branch shape 选择 generation-1/2 的
+target、partition 和 prepared hash 字段，并让 real-client 对 Managed Handoff 验证 `HANDED_OFF`
+终态；wire side effect 仍保持 definitive `PUBLISHED`，普通 Managed 路径仍验证 `PUBLISHED`。
+generation-2 target/partition/prepared-hash 回归测试、完整 `./gradlew check` 与 source-locked P1
+编译均通过。该源码修复仍须由其后的最终文档 HEAD 重新生成 exact 24/24 receipt，并从头完成
+persistent certification，不能晋升失败 run。
 
 这里的“已实现”仅表示代码与环境认证工具边界；它不表示 NDIP 已进入 `Implemented`，也不产生
 production authority。H0 仍然 fail-closed，缺少 exact current generation、signed manifest 或

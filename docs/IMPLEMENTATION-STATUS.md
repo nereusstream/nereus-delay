@@ -17756,3 +17756,28 @@ Focused adapter/Worker tests, full Gradle `check`, and source-locked P1 compile
 pass. This source fix is not staging authority: an exact receipt and complete
 new persistent run remain required, and only the independently validated
 current pointer may report their result.
+
+## 2026-08-31 NDIP-1 generation-2 Handoff ACK terminal closure
+
+Persistent run `20260831144322-57679` reached Gate C 41/41, SHADOW `0/0/0`
+and AUTO_FAST `1/1/0`. The Managed path then performed the real business
+target SEND and persisted all three Attempt Journal records, but source-log
+Outcome apply returned `APPLIED / STALE_SYSTEM_MUTATION`. Signed rollback
+returned the environment to `DISABLED` with active native process, Worker,
+lease and send counts all zero; the run produced no final authority.
+
+The production defect was a generation-2 field-layout mismatch. The current
+22-field Pulsar ACK stores its evidence schema generation in field 1 and its
+target in field 2, while certified Handoff binding still decoded the target
+from the legacy field 1. The legal P1 ACK therefore failed terminal evidence
+binding and was folded fail-closed into stale Outcome. The real-client harness
+also expected `PUBLISHED` for every success even though a certified early
+native handoff must close as `HANDED_OFF`.
+
+Commit `1587ea08651647c0f7912fd2c17b5a96f1c7fa35` selects target, partition and
+prepared-hash fields from the closed ACK generation and verifies the correct
+terminal status per delivery contract. A complete generation-2 ACK regression
+test binds target, partition, prepared hash and Publish Attempt owner to the
+frozen Admission. The focused test, full Gradle `check`, and source-locked P1
+compile pass. A fresh exact disposable receipt and complete persistent run on
+the later final documentation HEAD remain mandatory before any staging claim.

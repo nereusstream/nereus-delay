@@ -404,6 +404,27 @@ lease recheck、Attempt Journal ownership marker 仍在真正 SEND 前逐层 fai
 transport。该提交及测试仍不是环境认证；新 run 必须绑定其后的最终 HEAD，重新生成 24/24 receipt
 并从 Gate C 起完整执行。
 
+run `20260831144322-57679` 在候选
+`2a146ba14e9061266f23708f70c1cc2905899c08` 上完成 13/13 Manifest readback、Gate C 41/41、
+209 秒 SHADOW `0/0/0` 与 AUTO_FAST `1/1/0`。Managed canary 随后真实写入业务 target，并在
+Attempt Journal 持久化三条记录；这证明前一轮 activation 装配缺口已关闭。source-log Outcome
+apply 却返回 `APPLIED / STALE_SYSTEM_MUTATION`，runner 因而停止并完成签名 rollback；最终仍为
+`DISABLED`、active native process/Worker/lease/send 全部为零，未生成 final summary 或更新 pointer。
+
+源码逐字段审查确认 generation-2 Pulsar ACK 的 closed branch 以 field 1 编码 evidence schema
+generation、field 2 编码 target；`PublishEvidence.requireCertifiedPulsarHandoffBinding` 却只对
+partition 与 prepared hash 区分 generation，target 仍固定从旧分支 field 1 解码。合法 P1 ACK
+因此在选择 `HANDED_OFF` 终态时抛出异常，并被 Outcome 边界按 fail-closed 规则折叠为 stale。
+real-client harness 的后置断言同时仍固定期待 ordinary `PUBLISHED`，即使 binding 修复也会错误
+拒绝正确的 `HANDED_OFF` 聚合终态。
+
+`main@1587ea08651647c0f7912fd2c17b5a96f1c7fa35` 关闭了这两个末端缺口：generation-1 与
+generation-2 ACK 分别从其 closed field layout 读取 target/partition/prepared hash；Managed
+native handoff 验证 `HANDED_OFF`，ordinary Managed 仍验证 `PUBLISHED`。新增回归测试构造完整
+22-field ACK，并同时要求 Publish Attempt owner 与 frozen Admission 绑定通过。focused test、完整
+`./gradlew check` 和 source-locked P1 `compileRealPulsar` 均通过；这些仍只是源码证据，必须由该
+提交之后的新最终 HEAD 重新签发 disposable 与完整 persistent authority。
+
 ## Authority 边界
 
 即使 current pointer 对某个 HEAD 验证 PASS，也只说明固定本机 staging 的 bounded 候选认证：
