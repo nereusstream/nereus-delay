@@ -425,6 +425,25 @@ native handoff 验证 `HANDED_OFF`，ordinary Managed 仍验证 `PUBLISHED`。�
 `./gradlew check` 和 source-locked P1 `compileRealPulsar` 均通过；这些仍只是源码证据，必须由该
 提交之后的新最终 HEAD 重新签发 disposable 与完整 persistent authority。
 
+run `20260831152826-94852` 在候选
+`c76255eafc90696777065a299dd90e9f7110b6d8` 上完成 Gate C 41/41、217 秒 SHADOW `0/0/0`、
+AUTO_FAST `1/1/0` 与 Managed Handoff `1/1/1`。Managed path 的 Broker persistence time 位于
+`actionAt` 与 `deliverAt` 之间，source Outcome 关闭为 `HANDED_OFF`；destination response-loss、
+Attempt Journal 三次 committed-position recovery、`MAPPED / OWNERSHIP_STARTED / PUBLISHED` 和
+3-record startup replay 全部通过。该结果直接证明 generation-2 ACK 代码缺口已关闭。
+
+认证仍在最终 independent validator 处 fail-closed：`DataResetAssessmentReceiptWriter` 按契约把
+sidecar 写成 canonical JSON 加一个 LF，`PersistentStagingAuthorityTool` 却曾对无 LF 的内存 bytes
+签名。Gate C 当时只分别验证 sidecar digest 和 envelope signature，最终链验证进一步要求二者
+byte-identical，因此正确报出 `assessment sidecar differs from signed payload`。runner 未更新 pointer，
+而是签发并验证 rollback；终态 `DISABLED`，active native process/Worker/lease/send 全部为零。
+
+`main@65ba1a92cec1870e2a5196c7ec3540cbe5174e87` 让 authority tool 对刚写入的 regular
+Assessment sidecar 做 readback，并用同一 exact LF-terminated bytes 签名。validator 的字节比较、
+digest、signature 与 trust-root 检查全部保持不变。新增 Java 回归测试验证 sidecar 与 verified
+envelope payload 完全一致，persistent validator/contract Python tests 和完整 `./gradlew check`
+通过；失败 run 仍不可晋升，必须在更新后的最终 HEAD 从 disposable receipt 开始完整重跑。
+
 ## Authority 边界
 
 即使 current pointer 对某个 HEAD 验证 PASS，也只说明固定本机 staging 的 bounded 候选认证：

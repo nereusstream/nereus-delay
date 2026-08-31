@@ -17781,3 +17781,29 @@ test binds target, partition, prepared hash and Publish Attempt owner to the
 frozen Admission. The focused test, full Gradle `check`, and source-locked P1
 compile pass. A fresh exact disposable receipt and complete persistent run on
 the later final documentation HEAD remain mandatory before any staging claim.
+
+## 2026-08-31 NDIP-1 exact Assessment sidecar signature closure
+
+Persistent run `20260831152826-94852` proved the full business path through
+Gate C 41/41, a 217-second SHADOW `0/0/0`, AUTO_FAST `1/1/0`, and Managed
+Handoff `1/1/1`. The Managed evidence closed `HANDED_OFF`, placed Broker
+persistence strictly between action and delivery time, resolved destination
+response loss, recovered all three Attempt Journal committed positions, and
+replayed the three journal records at startup.
+
+The final independent validator nevertheless blocked certification because
+the DataResetAssessment sidecar differed from its signed payload. The writer's
+contract appends exactly one LF to canonical JSON, while the authority tool
+signed the pre-persistence JSON bytes without that LF. Gate C verified each
+artifact separately; the final closed-chain validator correctly required the
+two representations to be byte-identical. Rollback completed with final state
+`DISABLED` and zero active native processes, Workers, leases, and sends; no
+current deployment pointer was published.
+
+Commit `65ba1a92cec1870e2a5196c7ec3540cbe5174e87` rereads the regular Assessment
+sidecar and signs those exact LF-terminated bytes. It does not weaken the
+validator or signature scheme. A regression test now requires the verified
+envelope payload to equal the persisted sidecar byte for byte. Focused Java
+and persistent-validator Python tests plus full Gradle `check` pass. The
+blocked run remains immutable and a later final HEAD must repeat both
+disposable and persistent certification from the beginning.

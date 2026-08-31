@@ -20,6 +20,8 @@
   `main@4eeff43144aced28931e5b054299dc07be00daae`
 - Managed generation-2 ACK / `HANDED_OFF` 终态闭环提交：
   `main@1587ea08651647c0f7912fd2c17b5a96f1c7fa35`
+- Assessment exact sidecar signature 闭环提交：
+  `main@65ba1a92cec1870e2a5196c7ec3540cbe5174e87`
 - 整理日期：`2026-08-31`
 
 仓库的 Accepted `NDP-0001` 持续演进规则保持不变。Accepted
@@ -259,6 +261,21 @@ target、partition 和 prepared hash 字段，并让 real-client 对 Managed Han
 generation-2 target/partition/prepared-hash 回归测试、完整 `./gradlew check` 与 source-locked P1
 编译均通过。该源码修复仍须由其后的最终文档 HEAD 重新生成 exact 24/24 receipt，并从头完成
 persistent certification，不能晋升失败 run。
+
+候选 `c76255eafc90696777065a299dd90e9f7110b6d8` 的 run `20260831152826-94852`
+验证了 generation-2 ACK 修复：Gate C 41/41、217 秒 SHADOW `0/0/0`、AUTO_FAST `1/1/0`
+以及 Managed Handoff `1/1/1` 全部通过；Managed evidence 同时证明
+`actionAt < brokerPersistenceTime < deliverAt`、source-applied `HANDED_OFF`、destination response-loss
+解析、三次 Attempt Journal committed-position 恢复和 3/3 startup replay。最终独立 validator 仍
+正确拒绝认证，原因为 Assessment sidecar 与 signed payload 字节不同；runner 随即签名 rollback 至
+`DISABLED`，四项 active 计数为零，未写 current pointer。
+
+差异来自 Assessment writer 的既定 LF 契约：sidecar 是 canonical JSON 加一个结尾 LF，而 authority
+tool 曾对不含 LF 的内存 JSON 签名。`main@65ba1a92cec1870e2a5196c7ec3540cbe5174e87`
+不放宽 validator，而是对落盘 sidecar 做 regular-file readback，并把同一 exact bytes 作为签名
+payload。新增测试要求 LF-terminated sidecar 与 verified envelope payload 字节完全一致；focused
+Java/Python tests 与完整 `./gradlew check` 已通过。失败 run 保持 immutable，仍须在后续最终 HEAD
+上重新签发完整 disposable 与 persistent chain。
 
 这里的“已实现”仅表示代码与环境认证工具边界；它不表示 NDIP 已进入 `Implemented`，也不产生
 production authority。H0 仍然 fail-closed，缺少 exact current generation、signed manifest 或
