@@ -163,6 +163,36 @@ class PublishEvidenceTest {
     }
 
     @Test
+    void certifiedPulsarHandoffAcceptsGenerationTwoAckFieldLayout() {
+        final BrokerResourceIdentity target = BrokerResourceIdentity.pulsar(new PulsarBrokerResourceIdentity(
+                "cluster", hash("pulsar-generation-two-resource"), "persistent://tenant/ns/topic", 1));
+        final PublishAdmissionBodyTest.Fixture fixture = PublishAdmissionBodyTest.Fixture.createWithProfiles(
+                new ShardId(RouteIncarnation.random(), 22),
+                new ProfileRef(Bytes.utf8("destination"), 1, hash("destination-hash"), ProfileKind.DESTINATION)
+                        .canonicalBytes(),
+                new ProfileRef(Bytes.utf8("capability"), 2, hash("capability-hash"), ProfileKind.DELIVERY_CAPABILITY)
+                        .canonicalBytes(),
+                target,
+                AdapterKind.PULSAR,
+                1_500,
+                0);
+        final PublishAdmissionBody admission = PublishAdmissionBody.decode(fixture.body());
+        final ChannelResourceIdentity channel =
+                ChannelResourceIdentity.decode(admission.channel().canonicalBytes());
+        final PublishEvidence evidence = PublishEvidence.create(
+                PublishEvidenceKind.PULSAR_SEND_ACK,
+                EvidenceVerificationStatus.VERIFIED_PUBLISHED,
+                pulsarAckGenerationTwoBranch(
+                        admission,
+                        channel.targetResource(),
+                        channel.physicalPartition(),
+                        admission.preparedPublishHash()));
+
+        evidence.requireBusinessMutation(admission.publishAttemptId(), true);
+        evidence.requireCertifiedPulsarHandoffBinding(admission);
+    }
+
+    @Test
     void operatorAttestationRequiresEvidenceVerifierProfile() {
         final byte[] attemptId = hash("operator-attempt");
         final byte[] validBranch = operatorBranch(attemptId, ProfileKind.EVIDENCE_VERIFIER);
@@ -227,6 +257,47 @@ class PublishEvidenceTest {
                             .canonicalBytes());
             CanonicalProtobuf.bytes(output, 10, preparedHash);
             CanonicalProtobuf.bytes(output, 11, hash("response"));
+        });
+    }
+
+    private static byte[] pulsarAckGenerationTwoBranch(
+            final PublishAdmissionBody admission,
+            final BrokerResourceIdentity target,
+            final long partition,
+            final byte[] preparedHash) {
+        final byte[] producerHash = hash("generation-two-producer");
+        final long sequenceId = 42;
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.uint32(output, 1, 2);
+            CanonicalProtobuf.bytes(output, 2, target.canonicalBytes());
+            CanonicalProtobuf.uint32(output, 3, partition);
+            CanonicalProtobuf.uint64(output, 4, 17);
+            CanonicalProtobuf.uint64(output, 5, 23);
+            CanonicalProtobuf.uint32(output, 6, 0);
+            CanonicalProtobuf.uint32(output, 7, 1);
+            CanonicalProtobuf.uint64(output, 8, 2_001);
+            CanonicalProtobuf.bytes(output, 9, producerHash);
+            CanonicalProtobuf.uint32(output, 10, 22);
+            CanonicalProtobuf.uint64(output, 11, 3);
+            CanonicalProtobuf.uint64(output, 12, 4);
+            CanonicalProtobuf.uint64(output, 13, sequenceId);
+            CanonicalProtobuf.bytes(
+                    output,
+                    14,
+                    ExternalDeliveryIdentity.publishAttempt(admission.publishAttemptId())
+                            .canonicalBytes());
+            CanonicalProtobuf.bytes(output, 15, preparedHash);
+            CanonicalProtobuf.bytes(output, 16, hash("generation-two-template"));
+            CanonicalProtobuf.bytes(output, 17, hash("generation-two-record"));
+            CanonicalProtobuf.bytes(
+                    output,
+                    18,
+                    PulsarSequenceAuthority.managedJournal(hash("generation-two-mapping"), sequenceId, producerHash)
+                            .canonicalBytes());
+            CanonicalProtobuf.bytes(output, 19, hash("generation-two-send"));
+            CanonicalProtobuf.bytes(output, 20, hash("generation-two-response"));
+            CanonicalProtobuf.bytes(output, 21, hash("generation-two-p1-source-lock"));
+            CanonicalProtobuf.bytes(output, 22, hash("generation-two-artifact-set"));
         });
     }
 

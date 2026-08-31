@@ -1567,10 +1567,14 @@ public final class PulsarClientArtifactWorkerSmoke {
             throw new IllegalStateException("source-applied typed Publish Outcome has a non-Pulsar source position");
         }
         final var finalMessage = delayShard.getMessage(attempt.delayMessageId());
+        final MessageStatus expectedTerminalStatus =
+                managedHandoff ? MessageStatus.HANDED_OFF : MessageStatus.PUBLISHED;
         if (finalMessage == null
-                || finalMessage.status() != MessageStatus.PUBLISHED
+                || finalMessage.status() != expectedTerminalStatus
                 || delayShard.findOpenPublishAttempt(publishAttemptId) != null) {
-            throw new IllegalStateException("source-applied typed Publish Outcome did not close the PUBLISHED attempt");
+            throw new IllegalStateException("source-applied typed Publish Outcome did not close the expected "
+                    + expectedTerminalStatus
+                    + " attempt");
         }
         requirePayload(client, bridge.destinationPhysicalTopic(), payload, managedHandoff ? 4 : 1);
         if (bridge.destinationResponseLoss()) {

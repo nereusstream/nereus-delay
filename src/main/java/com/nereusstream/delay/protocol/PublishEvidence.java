@@ -127,7 +127,9 @@ public final class PublishEvidence {
         }
         final List<CanonicalProtobuf.Reader.Field> fields =
                 QueryCodecSupport.read(branch, "Pulsar Send Ack evidence branch");
-        final BrokerResourceIdentity target = BrokerResourceIdentity.decode(nested(fields, 1));
+        final boolean generation2 = fields.size() == 22;
+        final int targetField = generation2 ? 2 : 1;
+        final BrokerResourceIdentity target = BrokerResourceIdentity.decode(nested(fields, targetField));
         final ChannelResourceIdentity channel =
                 ChannelResourceIdentity.decode(admission.channel().canonicalBytes());
         if (channel.adapterKind() != AdapterKind.PULSAR || target.kind() != BrokerResourceIdentity.Kind.PULSAR) {
@@ -136,7 +138,6 @@ public final class PublishEvidence {
         if (!Arrays.equals(target.canonicalBytes(), channel.targetResource().canonicalBytes())) {
             throw new IllegalArgumentException("certified Pulsar handoff target mismatch");
         }
-        final boolean generation2 = fields.size() == 22;
         final int partitionField = generation2 ? 3 : 2;
         final int preparedHashField = generation2 ? 15 : 10;
         if (uint(fields, partitionField) != channel.physicalPartition()) {
