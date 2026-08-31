@@ -12,7 +12,9 @@
   `main@62cb5e322edbc98e9a97c0d15dc017b06cdf5fd7`
 - Disposable-local 24-cell 认证代码与 source anchor：
   `main@da15290e47b9255403c92e4ebba3c7d5189edb75`
-- 整理日期：`2026-08-30`
+- Oxia Route authority 重连闭环提交：
+  `main@8aa6237526b2d047091d107c336934eed5aa8eb8`
+- 整理日期：`2026-08-31`
 
 仓库的 Accepted `NDP-0001` 持续演进规则保持不变。Accepted
 [`NDP-0002`](../../proposals/0002-register-ndip-governance.md) 已完成一次性治理桥接；本工作包
@@ -191,6 +193,15 @@ Admission，补齐与 Manifest/policy 绑定的 credential binding、Head、prot
 并要求 Destination Profile 的签名 source-ordered activation 在业务 Schedule 前完成 apply/ACK。
 该缺口、失败 run 与 fail-safe rollback 的逐项证据记录在 `06`；修复提交本身仍不是 staging PASS，
 必须由该 HEAD 之后的新 exact disposable receipt 和完整 persistent certification 证明。
+
+随后候选 `e68ef9ea68e0fb44ffda4fdffe5ec68fd98a728a` 的 persistent run
+`20260831111813-39459` 在 Gate C 的真实 Oxia Route provider restart 检查中 fail-closed：新建 Oxia
+client 已恢复读服务，但 provider 的显式 session reconnect 仍复用重启前的 authority client，最终由
+其内部 60 秒请求超时终止。`main@8aa6237526b2d047091d107c336934eed5aa8eb8` 使 factory-managed
+Route authority 在显式 reconnect 时关闭旧 client、创建 fresh client、旋转 ephemeral marker 和
+session identity，再从同一持久 authority 重建 cache；watch client 仍保留 Oxia 的 offset-tracked
+重试语义。真实 stop/start 定点测试已经通过，但该提交仍须新的 exact disposable receipt 与完整
+persistent run 才能形成 staging authority。
 
 这里的“已实现”仅表示代码与环境认证工具边界；它不表示 NDIP 已进入 `Implemented`，也不产生
 production authority。H0 仍然 fail-closed，缺少 exact current generation、signed manifest 或

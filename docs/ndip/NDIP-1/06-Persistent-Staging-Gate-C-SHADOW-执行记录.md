@@ -334,6 +334,25 @@ durable `applyStatus/stableCode`，但继续 fail-closed 围栏。source contrac
 完整 `./gradlew check` 和 source-locked P1 `compileRealPulsar` 已通过；它仍须由该提交之后的新 exact
 24/24 receipt 与完整 persistent run 重新认证，不能反向晋升 `20260830131642-82551`。
 
+run `20260831111813-39459` 在候选
+`e68ef9ea68e0fb44ffda4fdffe5ec68fd98a728a` 上完成了 exact disposable receipt 校验、持久资源只读
+inventory、G0 Assessment、签名 Manifest 及 readback，并继续执行 Gate C 的真实恢复检查。它在
+`OxiaRealRouteAuthoritySmokeTest.signedRouteProviderRecoversAfterRealOxiaRestart` 失败：runner 已在
+节点 restart 后用 fresh CLI client 证明 `127.0.0.1:16681` 可读，并等待超过 15 秒 session timeout
+的 20 秒 grace；测试内的旧 authority `SyncOxiaClient` 仍在 60 秒后抛出 `TimeoutException`。run
+因此写入 `BLOCKED`，未签发 Gate C receipt，未进入 SHADOW/ENABLED，也没有更新 current pointer。
+
+源码调查确认 `OxiaRouteAuthoritySession.reconnectSession()` 只旋转 marker，却从未替换 connect
+工厂创建的 authority client；因此该失败不是简单的等待预算不足。提交
+`main@8aa6237526b2d047091d107c336934eed5aa8eb8` 为 factory-managed session 增加 fresh authority
+client replacement：replacement 创建成功后接管 delegate，旧 client 必须关闭，然后才创建新的
+ephemeral marker/session identity 并执行 authority read；任何创建、关闭或 start 失败都继续
+fail-closed。notification client 不被无 offset 的新 watch 替换，继续依赖 Oxia 原生 offset-tracked
+重试，避免跳过下一条 committed Route event。确定性测试验证旧/new client 的关闭边界和 session
+identity 旋转；同一 persistent staging 集群上的精确 `data-server-1` stop/start、client-readiness、
+20 秒 expiry-grace 定点测试在 47 秒内通过。该 focused PASS 只证明修复方向，仍不能晋升失败 run；
+必须由该提交之后的新 exact 24/24 receipt 和完整 persistent certification 重新签发 authority。
+
 ## Authority 边界
 
 即使 current pointer 对某个 HEAD 验证 PASS，也只说明固定本机 staging 的 bounded 候选认证：
