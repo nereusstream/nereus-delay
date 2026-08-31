@@ -125,14 +125,21 @@ public final class PersistentStagingAuthorityTool {
         final Path receiptPath = persistentPath(text(config, "receiptPath"));
         final Path envelopePath = persistentPath(text(config, "signedEnvelopePath"));
         final KeyMaterial key = keyMaterial(config);
-        DataResetAssessmentReceiptWriter.writeNew(receiptPath, receipt);
+        final byte[] persistedPayload = writeAssessmentPayload(receiptPath, receipt);
         PersistentStagingEvidence.writeSignedNew(
-                envelopePath, receipt.canonicalJsonBytes(), key.privateKey(), key.publicKey(), key.generation());
+                envelopePath, persistedPayload, key.privateKey(), key.publicKey(), key.generation());
         System.out.println("assessmentReceipt=" + receiptPath);
         System.out.println("assessmentEnvelope=" + envelopePath);
         System.out.println("assessmentDigest=" + Bytes.hex(receipt.assessmentDigest()));
         System.out.println("assessmentScopeDigest=" + Bytes.hex(scope.scopeDigest()));
         System.out.println("assessmentOutcome=" + receipt.outcome());
+    }
+
+    /** Writes and rereads the exact LF-terminated Assessment sidecar used as the signed payload. */
+    static byte[] writeAssessmentPayload(final Path receiptPath, final DataResetAssessmentReceipt receipt)
+            throws IOException {
+        DataResetAssessmentReceiptWriter.writeNew(receiptPath, receipt);
+        return readRegular(receiptPath);
     }
 
     private static void writeManifest(final JsonObject config) throws Exception {

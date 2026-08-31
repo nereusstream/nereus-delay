@@ -14,6 +14,7 @@ import com.nereusstream.delay.runtime.TrustedUtcInterval;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.KeyPairGenerator;
 import java.util.Arrays;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -44,6 +45,22 @@ class DataResetAssessmentReceiptWriterTest {
         assertThrows(
                 IOException.class,
                 () -> DataResetAssessmentReceiptWriter.writeNew(linked.resolve("assessment.json"), receipt()));
+    }
+
+    @Test
+    void authorityPayloadIsTheExactLfTerminatedSidecar(@TempDir final Path temporary) throws Exception {
+        final DataResetAssessmentReceipt receipt = receipt();
+        final Path target = temporary.resolve("assessment.json");
+        final byte[] payload = PersistentStagingAuthorityTool.writeAssessmentPayload(target, receipt);
+        final var keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final Path envelope = temporary.resolve("assessment.signed.json");
+
+        PersistentStagingEvidence.writeSignedNew(envelope, payload, keyPair.getPrivate(), keyPair.getPublic(), 1);
+
+        assertArrayEquals(
+                Files.readAllBytes(target),
+                PersistentStagingEvidence.readVerified(envelope).payload());
+        assertEquals('\n', payload[payload.length - 1]);
     }
 
     private static DataResetAssessmentReceipt receipt() {
