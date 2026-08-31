@@ -309,6 +309,31 @@ Managed Handoff 已能产生 provider-driven Claim。该 run 随后在 Admission
 fail-closed。`PHYSICAL_SUBMITTED` 验证先于 attempt 解包，因此后续失败不再被错误诊断覆盖。该修复
 仍须由新 HEAD 的完整 disposable 与 persistent certification 重新证明，不能晋升上述 blocked run。
 
+run `20260830131642-82551` 在候选
+`efd07d90c605338bf4e4a15ed5a646afc23ff2d3` 上完成了 13/13 Manifest readback、Gate C 41/41、
+244 秒 SHADOW `0/0/0` 和 AUTO_FAST `1/1/0`。Managed Handoff 的 Admission 随后已经真实写入
+source log，传播重试也读取并 ACK 了该 exact position，但 durable apply result 为
+`REJECTED / STALE_SYSTEM_MUTATION`，因此没有生成 `PUBLISHING` ledger，runtime 正确围栏并停止
+destination SEND。失败清理签发并验证了 `DISABLED` rollback；终态为零 active lease/send/Worker/native
+process。该 run 没有 Managed evidence、canary receipt、final summary 或 current-pointer authority。
+
+对失败 RocksDB 和 source frame 的只读解码证明 Admission 自身是合法的：冻结 contract 为
+`PULSAR_NATIVE_DELIVERY`，`actionAt = deliverAt - 7000`，Profile 上限为 15000，decision interval、
+broker time、policy generation/scope/signature 均通过逐项校验。真正缺口位于 real Worker 组合：
+`DelayShard` 曾以 `profileCatalog=null` 创建，导致 Admission apply 落入 ordinary Managed 分支并错误
+要求 `actionAt == deliverAt`；与此同时 staging catalog 的 credential Head 也是空值，不能只补一个
+constructor 参数绕过 source-ordered Profile activation。
+
+`main@80e5b580bae92f875437d9332f4c14357ac4d689` 关闭了这一组合缺口。Managed Worker 现在把同一个
+closed Profile catalog 注入 Schedule resolver 与 Admission validator；catalog 提供与当前 Manifest/
+policy 绑定的 immutable credential binding、Head 和 protection，Channel lease 必须逐项匹配该 binding
+和 protection。Destination Profile activation 先作为签名 `APPLY_SHARD_CONTROL` mutation 经 guarded
+P1 source append、source apply 和 ACK，再允许业务 Schedule；Managed 路径不再发送一个 catalog
+不可解析的普通 active 占位命令。若 Admission 已 source-applied 却没有 ledger，诊断同时保留实际
+durable `applyStatus/stableCode`，但继续 fail-closed 围栏。source contract、focused runtime tests、
+完整 `./gradlew check` 和 source-locked P1 `compileRealPulsar` 已通过；它仍须由该提交之后的新 exact
+24/24 receipt 与完整 persistent run 重新认证，不能反向晋升 `20260830131642-82551`。
+
 ## Authority 边界
 
 即使 current pointer 对某个 HEAD 验证 PASS，也只说明固定本机 staging 的 bounded 候选认证：

@@ -184,6 +184,14 @@ rollback 则必须重新读取 Pulsar 当前 topic stats 并把摘要绑定进�
 不得把传播延迟误报为 attempt 丢失，也不得重新 append Admission。real-client canary 对该重试增加
 30 秒总时限，超时或任何其他状态继续 fail-closed。
 
+后续持久化实跑还定位到 real Worker 的 Profile authority 组合缺口：合法 native Admission 虽已写入
+source log，却因 `DelayShard` 未注入 catalog 而被 ordinary Managed 的 `actionAt == deliverAt` 规则
+拒绝。`main@80e5b580bae92f875437d9332f4c14357ac4d689` 将同一 closed catalog 同时接入 Schedule 与
+Admission，补齐与 Manifest/policy 绑定的 credential binding、Head、protection 和 Channel lease，
+并要求 Destination Profile 的签名 source-ordered activation 在业务 Schedule 前完成 apply/ACK。
+该缺口、失败 run 与 fail-safe rollback 的逐项证据记录在 `06`；修复提交本身仍不是 staging PASS，
+必须由该 HEAD 之后的新 exact disposable receipt 和完整 persistent certification 证明。
+
 这里的“已实现”仅表示代码与环境认证工具边界；它不表示 NDIP 已进入 `Implemented`，也不产生
 production authority。H0 仍然 fail-closed，缺少 exact current generation、signed manifest 或
 能力 gate 时不得触碰 Producer/物理适配器。exact staging evidence 必须按上方 current-pointer
