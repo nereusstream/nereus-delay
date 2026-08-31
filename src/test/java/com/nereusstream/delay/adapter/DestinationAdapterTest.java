@@ -4,18 +4,32 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import com.nereusstream.delay.protocol.ArtifactGenerationSet;
 import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.DelayMessageId;
+import com.nereusstream.delay.protocol.DeliveryContract;
+import com.nereusstream.delay.protocol.DeliveryMode;
 import com.nereusstream.delay.protocol.DestinationLaneId;
+import com.nereusstream.delay.protocol.ExternalDeliveryIdentity;
 import com.nereusstream.delay.protocol.KafkaBrokerResourceIdentity;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
+import com.nereusstream.delay.protocol.PayloadForPublish;
 import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity;
+import com.nereusstream.delay.protocol.PulsarKey;
+import com.nereusstream.delay.protocol.PulsarPreparedRecord;
+import com.nereusstream.delay.protocol.PulsarRecordTemplate;
+import com.nereusstream.delay.protocol.PulsarReservedProperties;
+import com.nereusstream.delay.protocol.PulsarSequenceAuthority;
+import com.nereusstream.delay.protocol.PulsarSourceLock;
 import com.nereusstream.delay.protocol.PulsarSourcePosition;
+import com.nereusstream.delay.protocol.ReservedPublishMetadata;
+import com.nereusstream.delay.protocol.ResolvedPayload;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.StableCode;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -23,6 +37,52 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 class DestinationAdapterTest {
+    @Test
+    void nativePreparedRecordRequiresExplicitActivationAndReachesTransportWhenEnabled() {
+        final NativePreparedFixture fixture = nativePreparedFixture();
+        final AtomicInteger calls = new AtomicInteger();
+        final PinnedPulsarDestinationAdapter.PulsarDestinationTransport transport =
+                new PinnedPulsarDestinationAdapter.PulsarDestinationTransport() {
+                    @Override
+                    public CompletableFuture<DestinationPublishResult> publish(final PulsarDestinationRequest request) {
+                        throw new AssertionError("native prepared record used the payload-only transport boundary");
+                    }
+
+                    @Override
+                    public CompletableFuture<DestinationPublishResult> publishPreparedRecord(
+                            final PulsarPreparedRecord record, final ArtifactGenerationSet artifacts) {
+                        calls.incrementAndGet();
+                        assertEquals(fixture.record(), record);
+                        assertEquals(fixture.artifacts(), artifacts);
+                        return CompletableFuture.completedFuture(DestinationPublishResult.published(
+                                fixture.targetIdentity(),
+                                fixture.resource().partition(),
+                                record.externalIdentity().identity(),
+                                1_950,
+                                Bytes.utf8("native-prepared-evidence")));
+                    }
+                };
+
+        try (PinnedPulsarDestinationAdapter blocked =
+                new PinnedPulsarDestinationAdapter(fixture.resource(), transport)) {
+            final DestinationPublishResult result = blocked.publishPreparedRecord(fixture.record(), fixture.artifacts())
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(DestinationPublishResult.Disposition.DEFINITIVELY_NOT_PUBLISHED, result.disposition());
+            assertEquals(StableCode.CAPABILITY_UNAVAILABLE, result.stableCode());
+            assertEquals(0, calls.get());
+        }
+
+        try (PinnedPulsarDestinationAdapter enabled = new PinnedPulsarDestinationAdapter(
+                fixture.resource(), transport, PulsarDestinationTimingPolicy.ordinaryManaged(), true)) {
+            final DestinationPublishResult result = enabled.publishPreparedRecord(fixture.record(), fixture.artifacts())
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(DestinationPublishResult.Disposition.PUBLISHED, result.disposition());
+            assertEquals(1, calls.get());
+        }
+    }
+
     @Test
     void destinationCloseFailureCanBeRetriedWhileAdapterRemainsFenced() {
         final KafkaTargetResource resource = new KafkaTargetResource("cluster", UUID.randomUUID(), 0);
@@ -356,6 +416,68 @@ class DestinationAdapterTest {
                         null,
                         -1));
     }
+
+    private static NativePreparedFixture nativePreparedFixture() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
+        final DelayMessageId messageId = DelayMessageId.random(shard);
+        final byte[] attemptId = Bytes.sha256(Bytes.utf8("native-prepared-attempt"));
+        final ReservedPublishMetadata reserved = new ReservedPublishMetadata(
+                shard.routeIncarnation(),
+                shard.unsignedPartition(),
+                messageId,
+                0,
+                attemptId,
+                Bytes.sha256(Bytes.utf8("native-prepared-destination")),
+                Bytes.sha256(Bytes.utf8("native-prepared-capability")),
+                2_000,
+                DeliveryMode.MANAGED);
+        final ArtifactGenerationSet artifacts = ArtifactGenerationSet.current(
+                1, PulsarSourceLock.digest(), Bytes.sha256(Bytes.utf8("native-prepared-schema")));
+        final PulsarTargetResource resource = new PulsarTargetResource(
+                "cluster",
+                Bytes.sha256(Bytes.utf8("native-prepared-resource")),
+                "persistent://tenant/ns/native-prepared-partition-0",
+                8_300,
+                0);
+        final BrokerResourceIdentity targetIdentity = BrokerResourceIdentity.pulsar(new PulsarBrokerResourceIdentity(
+                resource.authenticatedClusterId(),
+                resource.resourceIncarnation(),
+                resource.physicalTopic(),
+                resource.physicalTopicCreationTimestamp()));
+        final byte[] payload = Bytes.utf8("native-prepared-payload");
+        final PulsarRecordTemplate template = new PulsarRecordTemplate(
+                targetIdentity,
+                resource.partition(),
+                PulsarKey.none(),
+                null,
+                List.of(),
+                null,
+                reserved,
+                DeliveryContract.PULSAR_NATIVE_DELIVERY,
+                2_000L,
+                PayloadForPublish.inline(payload),
+                artifacts.setDigest());
+        final byte[] preparedHash = Bytes.sha256(Bytes.utf8("native-prepared-hash"));
+        final PulsarPreparedRecord record = new PulsarPreparedRecord(
+                template,
+                template.recordTemplateHash(),
+                ResolvedPayload.of(payload),
+                PulsarSequenceAuthority.managedJournal(
+                        Bytes.sha256(Bytes.utf8("native-prepared-mapping")),
+                        0,
+                        Bytes.sha256(Bytes.utf8("native-prepared-producer"))),
+                ExternalDeliveryIdentity.publishAttempt(attemptId),
+                preparedHash,
+                PulsarReservedProperties.all(reserved, attemptId, preparedHash),
+                artifacts.setDigest());
+        return new NativePreparedFixture(resource, targetIdentity, record, artifacts);
+    }
+
+    private record NativePreparedFixture(
+            PulsarTargetResource resource,
+            BrokerResourceIdentity targetIdentity,
+            PulsarPreparedRecord record,
+            ArtifactGenerationSet artifacts) {}
 
     @Test
     void targetResourcesRejectNonCanonicalBrokerIdentityText() {

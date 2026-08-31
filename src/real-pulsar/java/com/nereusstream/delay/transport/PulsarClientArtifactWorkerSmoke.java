@@ -9,6 +9,7 @@ import com.nereusstream.delay.adapter.DestinationPublishResult;
 import com.nereusstream.delay.adapter.PinnedPulsarDestinationAdapter;
 import com.nereusstream.delay.adapter.PulsarAttemptJournal;
 import com.nereusstream.delay.adapter.PulsarDestinationRequest;
+import com.nereusstream.delay.adapter.PulsarDestinationTimingPolicy;
 import com.nereusstream.delay.adapter.PulsarJournalResource;
 import com.nereusstream.delay.adapter.PulsarSendAckEvidence;
 import com.nereusstream.delay.adapter.PulsarSendRequest;
@@ -2410,6 +2411,10 @@ public final class PulsarClientArtifactWorkerSmoke {
         } else {
             evidenceProvider = null;
         }
+        // The default constructors intentionally preserve H0. Only the exact
+        // persistent activation that produced this Managed configuration may
+        // open both native prepared-record gates.
+        final boolean nativePreparedDeliveryEnabled = managedHandoff != null;
         final com.nereusstream.delay.transport.PulsarClientArtifactDestinationTransport transport =
                 new PulsarClientArtifactDestinationTransport(
                         producer,
@@ -2419,14 +2424,19 @@ public final class PulsarClientArtifactWorkerSmoke {
                         DESTINATION_CREATION_TIMESTAMP,
                         destinationPartition,
                         producerNameHash,
-                        evidenceProvider);
+                        evidenceProvider,
+                        nativePreparedDeliveryEnabled);
         final PulsarTargetResource destinationTarget = new PulsarTargetResource(
                 CLUSTER,
                 DESTINATION_INCARNATION,
                 destinationPhysicalTopic,
                 DESTINATION_CREATION_TIMESTAMP,
                 destinationPartition);
-        final PinnedPulsarDestinationAdapter adapter = new PinnedPulsarDestinationAdapter(destinationTarget, transport);
+        final PinnedPulsarDestinationAdapter adapter = new PinnedPulsarDestinationAdapter(
+                destinationTarget,
+                transport,
+                PulsarDestinationTimingPolicy.ordinaryManaged(),
+                nativePreparedDeliveryEnabled);
         final ShardLogMutationAppender realAppender;
         if (suppliedAppender == null) {
             final String mutationProducerName = "pulsar-worker-mutation-" + UUID.randomUUID();
