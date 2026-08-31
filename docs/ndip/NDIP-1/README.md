@@ -414,3 +414,13 @@ evaluator、closed inventory、本地 receipt writer、`DeploymentSafetyGate` �
 payload 完全相等。激活加载器不再做 newline normalization，回归测试同时证明 exact bytes 可通过、
 旧的无 LF payload 必须拒绝。仍须在包含此修复的 clean final HEAD 上从 disposable receipt 开始
 重新执行完整 persistent chain。
+
+候选 `212f7ef0fe64bdf6e37d932e011811657d92d12d` 的 run `20260831165033-13641`
+首次让修复后的 production `verify-activation` 通过，并完成 Gate C 41/41、207 秒 SHADOW、
+AUTO_FAST `1/1/0`、Managed Handoff `1/1/1` 和最终 `DISABLED` rollback；四项 active 计数均为零。
+最终独立 validator 仍正确拒绝认证：SHADOW receipt writer 把 `0/0/0` 和四个 false 状态编码成
+JSON string，而 closed validator 要求 number/boolean。该 run 没有写 current pointer。
+
+runner 现以 canonical JSON number `0` 和 boolean `false` 写入这些字段，并由 contract test 固定
+字段类型；validator 不做字符串兼容或 coercion。后续仍须在包含此 runner 修复的 clean final HEAD
+上重新生成 disposable receipt 并完整重跑。

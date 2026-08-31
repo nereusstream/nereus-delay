@@ -2505,8 +2505,8 @@ run_shadow_observation() {
       coverage:{normalRun:true,workerRestart:true,workerOwnershipTransfer:true,brokerRestart:true,
         brokerFailover:true,oxiaUnavailable:true,minioUnavailable:true,policyUpdate:true,
         candidateAdd:true,candidateCancel:true,stateRebuild:true},
-      nativeAdmission:"0",nativeSend:"0",handedOff:"0",unresolvedPublishing:"false",
-      unresolvedUncertain:"false",attemptJournalLeak:"false",generationIncarnationMix:"false",
+      nativeAdmission:0,nativeSend:0,handedOff:0,unresolvedPublishing:false,
+      unresolvedUncertain:false,attemptJournalLeak:false,generationIncarnationMix:false,
       evidence:{shadowDir:$shadowDir,validationLog:$validationLog,ownershipTransfer:$ownershipEvidence,
         brokerRestart:$brokerEvidence,minioOutage:$minioEvidence,productionAuthority:false}}' \
     >"${run_dir}/authority/shadow-receipt.json"

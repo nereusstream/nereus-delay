@@ -19,6 +19,20 @@ WORKER_SMOKE = (
 
 
 class PersistentStagingContractTest(unittest.TestCase):
+    def test_shadow_receipt_uses_closed_numeric_and_boolean_types(self) -> None:
+        runner = RUNNER.read_text(encoding="utf-8")
+        shadow_receipt = runner.split(
+            'jq -n --arg schema "nereus-delay.shadow-certification"', 1
+        )[1].split('>"${run_dir}/authority/shadow-receipt.json"', 1)[0]
+        self.assertIn("nativeAdmission:0,nativeSend:0,handedOff:0", shadow_receipt)
+        self.assertIn(
+            "unresolvedPublishing:false,\n"
+            "      unresolvedUncertain:false,attemptJournalLeak:false,generationIncarnationMix:false",
+            shadow_receipt,
+        )
+        self.assertNotIn('nativeAdmission:"0"', shadow_receipt)
+        self.assertNotIn('unresolvedPublishing:"false"', shadow_receipt)
+
     def test_enabled_evidence_uses_canonical_p1_digest_and_closed_stale_head_error(self) -> None:
         runner = RUNNER.read_text(encoding="utf-8")
         enabled_canary = runner.split("run_enabled_canary() {", 1)[1].split(

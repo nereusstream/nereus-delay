@@ -468,6 +468,29 @@ newline-stripped payload. This closes the signer, activation loader, and
 independent-validator contract to one representation. A clean later HEAD must
 still repeat disposable and persistent certification end to end.
 
+## 2026-09-01 SHADOW receipt closed-type closure
+
+Run `20260831164813-11570` first stopped before Gate C because the retained
+staging final summary made the environment `EXISTING`, while the invocation
+declared `CREATE_NEW_INTERNAL_ONLY`. No authority was issued. The replacement
+run `20260831165033-13641` used the required explicit `RESET_INTERNAL_ONLY`
+decision and candidate `212f7ef0fe64bdf6e37d932e011811657d92d12d`.
+
+That run completed Gate C 41/41, a 207-second SHADOW observation, AUTO_FAST
+`1/1/0`, Managed Handoff `1/1/1`, and signed rollback to `DISABLED`. Managed
+evidence placed Broker persistence strictly between `actionAt` and
+`deliverAt`, resolved destination response loss, recovered all three Attempt
+Journal committed positions, and verified three-record startup replay. Final
+state reported zero active native processes, Workers, leases, and sends.
+
+The independent validator still blocked promotion because the SHADOW receipt
+encoded `nativeAdmission`, `nativeSend`, and `handedOff` as JSON strings, and
+encoded the four unresolved/leak flags as string `"false"`. The closed schema
+requires numbers and booleans; coercion would hide a writer/schema mismatch.
+The runner now emits numeric `0` and boolean `false`, and a contract test fixes
+those exact types. The blocked run remains immutable and did not update the
+current pointer.
+
 ## Authority 边界
 
 即使 current pointer 对某个 HEAD 验证 PASS，也只说明固定本机 staging 的 bounded 候选认证：

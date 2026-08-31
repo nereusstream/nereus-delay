@@ -17825,3 +17825,20 @@ failed run published and read back a `DISABLED` policy head, but the same old
 comparison prevented a complete rollback receipt, so it remains immutable
 `BLOCKED` and grants no current-pointer authority. Certification must restart
 on the clean final HEAD with a new exact disposable receipt.
+
+## 2026-09-01 NDIP-1 SHADOW receipt closed-type closure
+
+Persistent run `20260831165033-13641` on
+`212f7ef0fe64bdf6e37d932e011811657d92d12d` verified the activation exact-byte
+fix in the production loader and completed Gate C 41/41, 207-second SHADOW,
+AUTO_FAST `1/1/0`, Managed Handoff `1/1/1`, and signed rollback to `DISABLED`.
+Final state contained zero active native processes, Workers, leases, and
+sends. The run nevertheless remained `BLOCKED` because the independent
+validator found SHADOW counters and safety flags encoded as strings rather
+than their closed JSON number/boolean types.
+
+The runner now writes `nativeAdmission/nativeSend/handedOff` as numeric zero
+and unresolved/leak flags as booleans. The validator remains strict and does
+not coerce strings. A runner contract regression fixes these types. The run is
+immutable, produced no current pointer, and cannot substitute for a new full
+certification on the subsequent clean HEAD.
