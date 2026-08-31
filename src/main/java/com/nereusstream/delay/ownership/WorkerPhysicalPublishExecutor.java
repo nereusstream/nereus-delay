@@ -1,5 +1,6 @@
 package com.nereusstream.delay.ownership;
 
+import com.nereusstream.delay.adapter.AdapterNonSubmissionEvidence;
 import com.nereusstream.delay.adapter.BoundedDestinationPublishAdapter;
 import com.nereusstream.delay.adapter.DestinationPhysicalAdmission;
 import com.nereusstream.delay.adapter.DestinationPublishAdapter;
@@ -14,6 +15,8 @@ import com.nereusstream.delay.protocol.DeliveryContract;
 import com.nereusstream.delay.protocol.PayloadForPublish;
 import com.nereusstream.delay.protocol.PreparedPublishDescriptor;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
+import com.nereusstream.delay.protocol.PublishEvidence;
+import com.nereusstream.delay.protocol.PublishEvidenceKind;
 import com.nereusstream.delay.protocol.PulsarPreparedRecord;
 import com.nereusstream.delay.protocol.ResolvedPayload;
 import com.nereusstream.delay.protocol.SourcePosition;
@@ -280,24 +283,36 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
         final PublishAttemptLedger exactAttempt = requirePublishingAttempt(attempt);
         final DestinationPublishRequest request = prepareRequest(exactAttempt, payload);
         final LongSupplier clock = Objects.requireNonNull(ownerClock, "ownerClock");
-        try {
-            requirePhysicalArtifact(exactContext, exactAttempt, clock);
-        } catch (RuntimeException failure) {
-            return handoff(
-                    exactAttempt,
-                    request,
-                    DestinationPublishResult.definitelyNotPublished(StableCode.CAPABILITY_UNAVAILABLE, null),
-                    clock);
-        }
         final boolean recoveryOwner =
                 exactContext.ownerEpoch() != 0 && exactContext.ownerEpoch() != exactAttempt.ownerEpoch();
         if (!recoveryOwner) {
+            try {
+                requirePhysicalArtifact(exactContext, exactAttempt, clock);
+            } catch (RuntimeException failure) {
+                return handoff(
+                        exactAttempt,
+                        request,
+                        localNotPublished(exactAttempt, request, StableCode.CAPABILITY_UNAVAILABLE),
+                        clock);
+            }
             final Decision initial = checkGate(exactAttempt, request, clock);
             if (initial.kind() == DecisionKind.DEFERRED) {
                 return Submission.deferred(exactAttempt, request, initial);
             }
             if (initial.kind() == DecisionKind.DEFINITIVELY_NOT_PUBLISHED) {
-                return handoff(exactAttempt, request, initial.result(), clock);
+                return handoff(exactAttempt, request, localNotPublished(exactAttempt, request, initial.code()), clock);
+            }
+            try {
+                requireFrozenHandoffLease(exactContext, exactAttempt);
+            } catch (HandoffTimeOverlapException overlap) {
+                return Submission.deferred(
+                        exactAttempt, request, Decision.deferred(StableCode.CAPABILITY_UNAVAILABLE, null));
+            } catch (RuntimeException unavailable) {
+                return handoff(
+                        exactAttempt,
+                        request,
+                        localNotPublished(exactAttempt, request, StableCode.CAPABILITY_UNAVAILABLE),
+                        clock);
             }
         }
 
@@ -346,18 +361,6 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
         }
 
         final PulsarPreparedRecord record = preparePulsarRecord(exactAttempt, mapping, artifacts, payload);
-        try {
-            requireFrozenHandoffLease(exactContext, exactAttempt);
-        } catch (RuntimeException unavailable) {
-            return retireBeforeOwnershipAndHandoff(
-                    exactContext,
-                    exactAttempt,
-                    request,
-                    exactJournal,
-                    mapping,
-                    DestinationPublishResult.definitelyNotPublished(StableCode.CAPABILITY_UNAVAILABLE, null),
-                    clock);
-        }
         final Decision ownershipGate = checkGate(exactAttempt, request, clock);
         if (ownershipGate.kind() == DecisionKind.DEFERRED) {
             return Submission.deferred(
@@ -365,7 +368,13 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
         }
         if (ownershipGate.kind() == DecisionKind.DEFINITIVELY_NOT_PUBLISHED) {
             return retireBeforeOwnershipAndHandoff(
-                    exactContext, exactAttempt, request, exactJournal, mapping, ownershipGate.result(), clock);
+                    exactContext,
+                    exactAttempt,
+                    request,
+                    exactJournal,
+                    mapping,
+                    localNotPublished(exactAttempt, request, ownershipGate.code()),
+                    clock);
         }
         try {
             requirePhysicalArtifact(exactContext, exactAttempt, clock);
@@ -386,7 +395,7 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
                                 (ignoredRecord, ignoredArtifacts) -> {
                                     final Decision late = checkGate(exactAttempt, request, clock);
                                     if (late.kind() == DecisionKind.DEFINITIVELY_NOT_PUBLISHED) {
-                                        return late.result();
+                                        return localNotPublished(exactAttempt, request, late.code());
                                     }
                                     if (late.kind() == DecisionKind.DEFERRED) {
                                         return DestinationPublishResult.unknown(late.code(), late.evidence());
@@ -400,8 +409,8 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
                                     try {
                                         requireFrozenHandoffLease(exactContext, exactAttempt);
                                     } catch (RuntimeException unavailable) {
-                                        return DestinationPublishResult.definitelyNotPublished(
-                                                StableCode.CAPABILITY_UNAVAILABLE, null);
+                                        return localNotPublished(
+                                                exactAttempt, request, StableCode.CAPABILITY_UNAVAILABLE);
                                     }
                                     try {
                                         exactJournal.markOwnershipStarted(mapping);
@@ -524,7 +533,7 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
         final TrustedUtcIntervalEvidence trustedTime =
                 Objects.requireNonNull(context.trustedTimeSupplier().get(), "physical handoff trusted-time evidence");
         if (trustedTime.earliestEpochMs() < admission.decisionTime().latestEpochMs()) {
-            throw new IllegalArgumentException("physical handoff time regressed behind Admission");
+            throw new HandoffTimeOverlapException();
         }
         descriptor.handoffPolicySnapshot().requireActiveAt(trustedTime);
         if (!Arrays.equals(
@@ -581,7 +590,7 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
             return handoff(
                     exactAttempt,
                     exactRequest,
-                    DestinationPublishResult.definitelyNotPublished(StableCode.CAPABILITY_UNAVAILABLE, null),
+                    localNotPublished(exactAttempt, exactRequest, StableCode.CAPABILITY_UNAVAILABLE),
                     clock);
         }
 
@@ -590,7 +599,8 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
             return Submission.deferred(exactAttempt, exactRequest, initial);
         }
         if (initial.kind() == DecisionKind.DEFINITIVELY_NOT_PUBLISHED) {
-            return handoff(exactAttempt, exactRequest, initial.result(), clock);
+            return handoff(
+                    exactAttempt, exactRequest, localNotPublished(exactAttempt, exactRequest, initial.code()), clock);
         }
 
         final Submission submission = Submission.pending(exactAttempt, exactRequest);
@@ -617,12 +627,46 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
     private void completeResult(
             final Submission submission, final DestinationPublishResult result, final LongSupplier ownerClock) {
         try {
-            final DestinationPublishResult exact = Objects.requireNonNull(result, "destination publish result");
+            final DestinationPublishResult exact = requireProofBearingDefinitiveResult(
+                    submission.attempt(),
+                    submission.request(),
+                    Objects.requireNonNull(result, "destination publish result"));
             final SystemMutation mutation = outcomeFactory.create(submission.attempt(), submission.request(), exact);
             outcomeSink.submit(Objects.requireNonNull(mutation, "outcome mutation"), ownerClock);
             submission.complete(exact, mutation);
         } catch (RuntimeException | Error failure) {
             fail(submission, failure);
+        }
+    }
+
+    /**
+     * A local code or opaque byte string is not a definitive non-publication
+     * proof. Preserve fail-closed progress by projecting an unproved
+     * definitive adapter result to UNKNOWN before it reaches the source-log
+     * Outcome factory. This prevents a malformed local rejection from either
+     * crashing Outcome handoff or being applied as NOT_PUBLISHED.
+     */
+    private static DestinationPublishResult requireProofBearingDefinitiveResult(
+            final PublishAttemptLedger attempt,
+            final DestinationPublishRequest request,
+            final DestinationPublishResult result) {
+        if (result.disposition() != DestinationPublishResult.Disposition.DEFINITIVELY_NOT_PUBLISHED) {
+            return result;
+        }
+        try {
+            final PublishEvidence evidence = PublishEvidence.decode(result.evidence());
+            evidence.requireBusinessMutation(attempt.publishAttemptId(), false);
+            if (evidence.evidenceKind() == PublishEvidenceKind.ADAPTER_NON_SUBMISSION) {
+                AdapterNonSubmissionEvidence.requireExactBinding(
+                        evidence,
+                        PublishAdmissionBody.decode(attempt.admissionBytes()),
+                        request,
+                        attempt.preparedPublishHash(),
+                        result.stableCode());
+            }
+            return result;
+        } catch (RuntimeException invalidEvidence) {
+            return DestinationPublishResult.unknown(StableCode.DESTINATION_OUTCOME_UNKNOWN, null);
         }
     }
 
@@ -663,9 +707,36 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
         }
         return switch (decision.kind()) {
             case ALLOWED -> null;
-            case DEFINITIVELY_NOT_PUBLISHED -> decision.result();
+            case DEFINITIVELY_NOT_PUBLISHED -> localNotPublished(attempt, request, decision.code());
             case DEFERRED -> DestinationPublishResult.unknown(decision.code(), decision.evidence());
         };
+    }
+
+    /** Creates the closed AdapterNonSubmission proof for a gate that ran before library ownership. */
+    private static DestinationPublishResult localNotPublished(
+            final PublishAttemptLedger attempt, final DestinationPublishRequest request, final StableCode code) {
+        final PublishAdmissionBody admission;
+        try {
+            admission = PublishAdmissionBody.decode(attempt.admissionBytes());
+        } catch (RuntimeException legacyOrCorruptAdmission) {
+            // An opaque legacy/corrupt Admission cannot bind the closed proof
+            // branch. It remains UNKNOWN even when this process knows that it
+            // did not call the adapter.
+            return DestinationPublishResult.unknown(StableCode.DESTINATION_OUTCOME_UNKNOWN, null);
+        }
+        final byte[] evidence = AdapterNonSubmissionEvidence.beforeLibraryOwnership(
+                        admission, request, attempt.preparedPublishHash(), code)
+                .canonicalBytes();
+        return DestinationPublishResult.definitelyNotPublished(code, evidence);
+    }
+
+    /** Retryable trusted-time interval overlap detected before Producer ownership. */
+    private static final class HandoffTimeOverlapException extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+
+        private HandoffTimeOverlapException() {
+            super("physical handoff trusted-time interval overlaps Admission");
+        }
     }
 
     private void fail(final Submission submission, final Throwable failure) {
@@ -849,13 +920,6 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
 
         public static Decision definitivelyNotPublished(final StableCode code, final byte[] evidence) {
             return new Decision(DecisionKind.DEFINITIVELY_NOT_PUBLISHED, code, evidence);
-        }
-
-        private DestinationPublishResult result() {
-            if (kind != DecisionKind.DEFINITIVELY_NOT_PUBLISHED) {
-                throw new IllegalStateException("gate decision has no definitive result");
-            }
-            return DestinationPublishResult.definitelyNotPublished(code, evidence);
         }
 
         @Override

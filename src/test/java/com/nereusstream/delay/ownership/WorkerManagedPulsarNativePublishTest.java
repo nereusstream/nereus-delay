@@ -1,7 +1,9 @@
 package com.nereusstream.delay.ownership;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import com.nereusstream.delay.adapter.AdapterNonSubmissionEvidence;
 import com.nereusstream.delay.adapter.BoundedDestinationPublishAdapter;
 import com.nereusstream.delay.adapter.DestinationPhysicalAdmission;
 import com.nereusstream.delay.adapter.DestinationPublishAdapter;
@@ -42,6 +44,7 @@ import com.nereusstream.delay.protocol.PreparedPublishDescriptor;
 import com.nereusstream.delay.protocol.ProfileKind;
 import com.nereusstream.delay.protocol.ProfileRef;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
+import com.nereusstream.delay.protocol.PublishEvidence;
 import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity;
 import com.nereusstream.delay.protocol.PulsarKey;
 import com.nereusstream.delay.protocol.PulsarMetadata;
@@ -114,7 +117,7 @@ class WorkerManagedPulsarNativePublishTest {
     }
 
     @Test
-    void expiredFrozenLeaseRetiresMappingWithoutProducerOwnershipOrTargetCall() throws Exception {
+    void expiredFrozenLeaseStopsBeforeJournalOrProducerOwnership() throws Exception {
         final Fixture fixture = Fixture.create();
         final AtomicInteger preparedCalls = new AtomicInteger();
         final AtomicInteger leaseChecks = new AtomicInteger();
@@ -123,10 +126,10 @@ class WorkerManagedPulsarNativePublishTest {
                 fixture.executor(preparedAdapter(preparedCalls, sent), leaseChecks, exactTime(3_000));
 
         try (executor) {
-            final WorkerPhysicalPublishExecutor.Submission submission = executor.submit(
-                    fixture.attempt,
-                    WorkerPhysicalPublishExecutor.prepareRequest(fixture.attempt, fixture.payload),
-                    () -> 3_000);
+            final DestinationPublishRequest request =
+                    WorkerPhysicalPublishExecutor.prepareRequest(fixture.attempt, fixture.payload);
+            final WorkerPhysicalPublishExecutor.Submission submission =
+                    executor.submit(fixture.attempt, request, () -> 3_000);
 
             assertEquals(WorkerPhysicalPublishExecutor.SubmissionState.OUTCOME_HANDOFF_QUEUED, submission.state());
             assertEquals(0, preparedCalls.get());
@@ -138,19 +141,47 @@ class WorkerManagedPulsarNativePublishTest {
             assertEquals(
                     StableCode.CAPABILITY_UNAVAILABLE,
                     submission.physicalResult().orElseThrow().stableCode());
-            assertEquals(
-                    List.of(
-                            PulsarAttemptJournal.RecordKind.MAPPED,
-                            PulsarAttemptJournal.RecordKind.RETIRED_NOT_PUBLISHED),
-                    fixture.journal.records().stream()
-                            .map(PulsarAttemptJournal.JournalRecord::kind)
-                            .toList());
+            final PublishEvidence evidence = PublishEvidence.decode(
+                    submission.physicalResult().orElseThrow().evidence());
+            AdapterNonSubmissionEvidence.requireExactBinding(
+                    evidence,
+                    PublishAdmissionBody.decode(fixture.attempt.admissionBytes()),
+                    request,
+                    fixture.attempt.preparedPublishHash(),
+                    StableCode.CAPABILITY_UNAVAILABLE);
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> AdapterNonSubmissionEvidence.requireExactBinding(
+                            evidence,
+                            PublishAdmissionBody.decode(fixture.attempt.admissionBytes()),
+                            request,
+                            fixture.attempt.preparedPublishHash(),
+                            StableCode.CREDENTIAL_BINDING_DRIFT));
+            final DestinationPublishRequest tamperedRequest = new DestinationPublishRequest(
+                    request.laneId(),
+                    request.laneIncarnation(),
+                    request.delayMessageId(),
+                    request.generation(),
+                    request.publishAttemptId(),
+                    request.actionAtEpochMs(),
+                    request.deliverAtEpochMs(),
+                    Bytes.utf8("tampered-payload"),
+                    request.adapterMetadata());
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> AdapterNonSubmissionEvidence.requireExactBinding(
+                            evidence,
+                            PublishAdmissionBody.decode(fixture.attempt.admissionBytes()),
+                            tamperedRequest,
+                            fixture.attempt.preparedPublishHash(),
+                            StableCode.CAPABILITY_UNAVAILABLE));
+            assertTrue(fixture.journal.records().isEmpty());
             assertEquals(0, fixture.admission.workerSnapshot().activeRequests());
         }
     }
 
     @Test
-    void physicalTimeRegressionBehindAdmissionRetiresBeforeProducerOwnership() throws Exception {
+    void physicalTimeOverlapWithAdmissionDefersBeforeJournalOrProducerOwnership() throws Exception {
         final Fixture fixture = Fixture.create();
         final AtomicInteger preparedCalls = new AtomicInteger();
         final AtomicInteger leaseChecks = new AtomicInteger();
@@ -164,19 +195,17 @@ class WorkerManagedPulsarNativePublishTest {
                     WorkerPhysicalPublishExecutor.prepareRequest(fixture.attempt, fixture.payload),
                     () -> 1_899);
 
-            assertEquals(WorkerPhysicalPublishExecutor.SubmissionState.OUTCOME_HANDOFF_QUEUED, submission.state());
+            assertEquals(WorkerPhysicalPublishExecutor.SubmissionState.DEFERRED, submission.state());
             assertEquals(0, preparedCalls.get());
             assertEquals(0, leaseChecks.get());
             assertEquals(
-                    DestinationPublishResult.Disposition.DEFINITIVELY_NOT_PUBLISHED,
+                    DestinationPublishResult.Disposition.UNKNOWN,
                     submission.physicalResult().orElseThrow().disposition());
             assertEquals(
-                    List.of(
-                            PulsarAttemptJournal.RecordKind.MAPPED,
-                            PulsarAttemptJournal.RecordKind.RETIRED_NOT_PUBLISHED),
-                    fixture.journal.records().stream()
-                            .map(PulsarAttemptJournal.JournalRecord::kind)
-                            .toList());
+                    StableCode.CAPABILITY_UNAVAILABLE,
+                    submission.physicalResult().orElseThrow().stableCode());
+            assertTrue(fixture.journal.records().isEmpty());
+            assertTrue(submission.physicalCall().isEmpty());
         }
     }
 
@@ -206,6 +235,46 @@ class WorkerManagedPulsarNativePublishTest {
             assertEquals(
                     StableCode.CAPABILITY_UNAVAILABLE,
                     submission.physicalResult().orElseThrow().stableCode());
+        }
+    }
+
+    @Test
+    void foreignOwnerRecoveryDoesNotRequireLiveSendActivationOrTouchTarget() throws Exception {
+        final Fixture fixture = Fixture.create();
+        final AtomicInteger preparedCalls = new AtomicInteger();
+        final AtomicInteger leaseChecks = new AtomicInteger();
+        final AtomicReference<PulsarPreparedRecord> sent = new AtomicReference<>();
+        final WorkerPhysicalPublishExecutor executor = fixture.executor(
+                preparedAdapter(preparedCalls, sent),
+                leaseChecks,
+                fixture.validPhysicalTime,
+                null,
+                fixture.owner.ownerEpoch() + 1);
+
+        try (executor) {
+            final WorkerPhysicalPublishExecutor.Submission submission = executor.submit(
+                    fixture.attempt,
+                    WorkerPhysicalPublishExecutor.prepareRequest(fixture.attempt, fixture.payload),
+                    () -> 1_950);
+
+            assertEquals(WorkerPhysicalPublishExecutor.SubmissionState.OUTCOME_HANDOFF_QUEUED, submission.state());
+            assertEquals(0, preparedCalls.get());
+            assertEquals(0, leaseChecks.get());
+            assertTrue(sent.get() == null);
+            assertEquals(
+                    DestinationPublishResult.Disposition.UNKNOWN,
+                    submission.physicalResult().orElseThrow().disposition());
+            assertEquals(
+                    StableCode.RECOVERY_FIRST_SEND_UNCERTAIN,
+                    submission.physicalResult().orElseThrow().stableCode());
+            assertEquals(
+                    List.of(
+                            PulsarAttemptJournal.RecordKind.MAPPED,
+                            PulsarAttemptJournal.RecordKind.RETIRED_NOT_PUBLISHED),
+                    fixture.journal.records().stream()
+                            .map(PulsarAttemptJournal.JournalRecord::kind)
+                            .toList());
+            assertTrue(submission.physicalCall().isEmpty());
         }
     }
 
@@ -431,6 +500,15 @@ class WorkerManagedPulsarNativePublishTest {
                 final AtomicInteger leaseChecks,
                 final TrustedUtcIntervalEvidence physicalTime,
                 final PhysicalSendActivationGate activationGate) {
+            return executor(adapter, leaseChecks, physicalTime, activationGate, owner.ownerEpoch());
+        }
+
+        private WorkerPhysicalPublishExecutor executor(
+                final DestinationPublishAdapter adapter,
+                final AtomicInteger leaseChecks,
+                final TrustedUtcIntervalEvidence physicalTime,
+                final PhysicalSendActivationGate activationGate,
+                final long contextOwnerEpoch) {
             final WorkerPhysicalPublishExecutor result = new WorkerPhysicalPublishExecutor(
                     new BoundedDestinationPublishAdapter(adapter, admission, workClasses(), Runnable::run),
                     (mutation, ownerClock) -> {},
@@ -458,14 +536,19 @@ class WorkerManagedPulsarNativePublishTest {
                                 final PublishAttemptLedger ignoredAttempt, final byte[] ignoredPosition) {}
                     },
                     (ignoredAdmission, ignoredArtifacts, ignoredTime, ignoredPosition) -> {
-                        assertEquals(
-                                PulsarAttemptJournal.AttemptState.MAPPED,
-                                journal.state(
-                                        journal.records().getFirst().mapping().mappingId()));
-                        leaseChecks.incrementAndGet();
+                        if (leaseChecks.getAndIncrement() > 0) {
+                            assertEquals(
+                                    PulsarAttemptJournal.AttemptState.MAPPED,
+                                    journal.state(journal.records()
+                                            .getFirst()
+                                            .mapping()
+                                            .mappingId()));
+                        } else {
+                            assertTrue(journal.records().isEmpty());
+                        }
                     },
                     () -> physicalTime,
-                    owner.ownerEpoch()));
+                    contextOwnerEpoch));
             return result;
         }
 

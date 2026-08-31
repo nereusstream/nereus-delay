@@ -157,7 +157,7 @@ class WorkerPhysicalPublishExecutorTest {
     }
 
     @Test
-    void earlyManagedRequestIsDefinitivelyRejectedBeforePhysicalAdmission() {
+    void opaqueEarlyManagedRequestFailsClosedBeforePhysicalAdmission() {
         final Fixture fixture = new Fixture();
         final AtomicInteger gateCalls = new AtomicInteger();
         final AtomicInteger delegateCalls = new AtomicInteger();
@@ -176,10 +176,10 @@ class WorkerPhysicalPublishExecutorTest {
 
             assertEquals(WorkerPhysicalPublishExecutor.SubmissionState.OUTCOME_HANDOFF_QUEUED, submission.state());
             assertEquals(
-                    DestinationPublishResult.Disposition.DEFINITIVELY_NOT_PUBLISHED,
+                    DestinationPublishResult.Disposition.UNKNOWN,
                     submission.physicalResult().orElseThrow().disposition());
             assertEquals(
-                    StableCode.CAPABILITY_UNAVAILABLE,
+                    StableCode.DESTINATION_OUTCOME_UNKNOWN,
                     submission.physicalResult().orElseThrow().stableCode());
             assertEquals(0, gateCalls.get());
             assertEquals(0, delegateCalls.get());
@@ -190,7 +190,7 @@ class WorkerPhysicalPublishExecutorTest {
     }
 
     @Test
-    void lateGateRecheckPreventsTheDelegateCallAndHandsOffDefinitiveResult() {
+    void opaqueLateGateRecheckPreventsTheDelegateCallAndHandsOffUnknown() {
         final Fixture fixture = new Fixture();
         final AtomicInteger gateCalls = new AtomicInteger();
         final AtomicInteger delegateCalls = new AtomicInteger();
@@ -214,11 +214,10 @@ class WorkerPhysicalPublishExecutorTest {
             assertEquals(2, gateCalls.get());
             assertEquals(0, delegateCalls.get());
             assertEquals(
-                    StableCode.CREDENTIAL_BINDING_DRIFT,
+                    StableCode.DESTINATION_OUTCOME_UNKNOWN,
                     submission.physicalResult().orElseThrow().stableCode());
             assertEquals(
-                    DestinationPublishResult.Disposition.DEFINITIVELY_NOT_PUBLISHED,
-                    handed.get().disposition());
+                    DestinationPublishResult.Disposition.UNKNOWN, handed.get().disposition());
         }
     }
 
@@ -228,6 +227,27 @@ class WorkerPhysicalPublishExecutorTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> WorkerPhysicalPublishExecutor.prepareRequest(fixture.attempt, fixture.request.payload()));
+    }
+
+    @Test
+    void unprovedDefinitiveAdapterResultIsHandedOffAsUnknown() {
+        final Fixture fixture = new Fixture();
+        final AtomicReference<DestinationPublishResult> handed = new AtomicReference<>();
+        final DestinationPublishAdapter delegate = ignored -> CompletableFuture.completedFuture(
+                DestinationPublishResult.definitelyNotPublished(StableCode.CAPABILITY_UNAVAILABLE, null));
+        final WorkerPhysicalPublishExecutor executor =
+                fixture.executor(delegate, handed::set, ignored -> WorkerPhysicalPublishExecutor.Decision.allowed());
+
+        try (executor) {
+            final WorkerPhysicalPublishExecutor.Submission submission =
+                    executor.submit(fixture.attempt, fixture.request, () -> 1_000);
+
+            assertEquals(WorkerPhysicalPublishExecutor.SubmissionState.OUTCOME_HANDOFF_QUEUED, submission.state());
+            assertEquals(
+                    DestinationPublishResult.Disposition.UNKNOWN, handed.get().disposition());
+            assertEquals(StableCode.DESTINATION_OUTCOME_UNKNOWN, handed.get().stableCode());
+            assertTrue(handed.get().evidence() == null);
+        }
     }
 
     @Test

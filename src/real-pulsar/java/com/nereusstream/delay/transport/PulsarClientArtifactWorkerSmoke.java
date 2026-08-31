@@ -1277,8 +1277,13 @@ public final class PulsarClientArtifactWorkerSmoke {
         WorkerShardRuntime.SourceBoundPhysicalPublishTurn turn =
                 Objects.requireNonNull(initialTurn, "initial physical turn");
         final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
-        while (turn.status() == WorkerShardRuntime.SourceBoundPhysicalPublishStatus.SOURCE_TURN_LIMIT
+        while ((turn.status() == WorkerShardRuntime.SourceBoundPhysicalPublishStatus.SOURCE_TURN_LIMIT
+                        || turn.status() == WorkerShardRuntime.SourceBoundPhysicalPublishStatus.PHYSICAL_DEFERRED)
                 && System.nanoTime() < deadline) {
+            // A trusted physical-time interval may initially overlap the
+            // interval frozen by Admission. Model the production scheduler's
+            // bounded retry instead of converting that overlap into a false
+            // definitive non-publication result.
             TimeUnit.MILLISECONDS.sleep(25);
             turn = runtime.runSourceBoundPhysicalPublish(
                     publishAttemptId,
