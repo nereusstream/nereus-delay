@@ -444,6 +444,30 @@ digest、signature 与 trust-root 检查全部保持不变。新增 Java 回归�
 envelope payload 完全一致，persistent validator/contract Python tests 和完整 `./gradlew check`
 通过；失败 run 仍不可晋升，必须在更新后的最终 HEAD 从 disposable receipt 开始完整重跑。
 
+## 2026-09-01 activation exact Assessment binding closure
+
+Persistent run `20260831160805-80044` on candidate
+`db56a6a6b16ca14fa683c7a748fcd99c476e6e0b` completed Gate C 41/41 and a
+209-second SHADOW observation with native admission/send/handoff all zero.
+Before AUTO_FAST, production `verify-activation` rejected the otherwise valid
+Assessment pair. Direct byte inspection showed the sidecar and signed payload
+were both 7,348 bytes with the same SHA-256 and one terminal LF.
+
+The remaining production loader still called `stripSingleTrailingNewline`
+before comparing the sidecar with the signed payload. That legacy behavior was
+compatible with the old incorrect signer but necessarily rejected the fixed
+exact-byte envelope. The failed run published and read back a `DISABLED`
+policy head; the same loader mismatch prevented completion of its signed
+rollback receipt, so the run remains blocked and cannot advance the current
+pointer.
+
+The loader now compares the complete sidecar bytes with the verified envelope
+payload in constant time and performs no newline normalization. A focused
+regression accepts the exact LF-terminated pair and rejects the former
+newline-stripped payload. This closes the signer, activation loader, and
+independent-validator contract to one representation. A clean later HEAD must
+still repeat disposable and persistent certification end to end.
+
 ## Authority 边界
 
 即使 current pointer 对某个 HEAD 验证 PASS，也只说明固定本机 staging 的 bounded 候选认证：

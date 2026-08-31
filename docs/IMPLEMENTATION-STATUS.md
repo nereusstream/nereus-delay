@@ -17807,3 +17807,21 @@ envelope payload to equal the persisted sidecar byte for byte. Focused Java
 and persistent-validator Python tests plus full Gradle `check` pass. The
 blocked run remains immutable and a later final HEAD must repeat both
 disposable and persistent certification from the beginning.
+
+## 2026-09-01 NDIP-1 activation exact Assessment binding closure
+
+Persistent run `20260831160805-80044` on candidate
+`db56a6a6b16ca14fa683c7a748fcd99c476e6e0b` completed Gate C 41/41 and a
+209-second SHADOW `0/0/0`, then failed closed in production
+`verify-activation` before AUTO_FAST. The Assessment sidecar and signed payload
+were both 7,348 bytes with the same SHA-256 and one terminal LF; the activation
+loader nevertheless stripped that LF before comparison and therefore rejected
+the corrected exact-byte evidence.
+
+The loader now shares one persisted-byte contract with the signer and
+independent validator and performs no newline normalization. A regression test
+accepts the exact LF-terminated pair and rejects the former no-LF payload. The
+failed run published and read back a `DISABLED` policy head, but the same old
+comparison prevented a complete rollback receipt, so it remains immutable
+`BLOCKED` and grants no current-pointer authority. Certification must restart
+on the clean final HEAD with a new exact disposable receipt.

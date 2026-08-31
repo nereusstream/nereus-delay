@@ -400,3 +400,17 @@ H1-H6 代码切片完成后仍需在每个发布/部署边界重核最新源码�
 evaluator、closed inventory、本地 receipt writer、`DeploymentSafetyGate` 与 H6 manifest gate
 均已实现；没有该环境自己的新鲜 scope 时不提供虚假 scope 或 PASS。需要执行提示词时由用户在
 会话中另行请求，不写入仓库。
+
+## 2026-09-01 activation exact-byte binding closure
+
+候选 `db56a6a6b16ca14fa683c7a748fcd99c476e6e0b` 的 run `20260831160805-80044`
+再次完成 Gate C 41/41 和 209 秒 SHADOW `0/0/0`，但在 AUTO_FAST 前的生产
+`verify-activation` fail-closed。新 Assessment sidecar 与 envelope payload 当时已经 exact-byte
+一致；激活加载器却仍删除 sidecar 的末尾 LF 后再比较，因而拒绝了正确签名。失败处理已发布并
+读回 `DISABLED` policy head；同一旧比较也使该 blocked run 无法生成完整 rollback receipt，因此
+该 run 不得晋升或写 current pointer。
+
+后续源码统一采用唯一契约：Assessment sidecar 的完整落盘 bytes（包括唯一末尾 LF）必须与签名
+payload 完全相等。激活加载器不再做 newline normalization，回归测试同时证明 exact bytes 可通过、
+旧的无 LF payload 必须拒绝。仍须在包含此修复的 clean final HEAD 上从 disposable receipt 开始
+重新执行完整 persistent chain。

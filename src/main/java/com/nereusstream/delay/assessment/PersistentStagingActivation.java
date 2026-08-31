@@ -136,10 +136,7 @@ public final class PersistentStagingActivation {
         final byte[] assessmentReceipt = readRegular(assessmentReceiptPath);
         requireDigest(
                 Bytes.sha256(assessmentReceipt), requiredField(gate, "assessmentReceiptSha256"), "assessment receipt");
-        final byte[] expectedAssessmentPayload = stripSingleTrailingNewline(assessmentReceipt);
-        if (!Bytes.constantTimeEquals(expectedAssessmentPayload, assessmentEnvelope.payload())) {
-            throw new IOException("assessment receipt and signed assessment envelope differ");
-        }
+        requireExactAssessmentBinding(assessmentReceipt, assessmentEnvelope.payload());
 
         final Path dispositionPath = Path.of(requiredField(gate, "dataDispositionPath"));
         final PersistentStagingEvidence.Verified dispositionEnvelope =
@@ -836,11 +833,11 @@ public final class PersistentStagingActivation {
         return subjects;
     }
 
-    private static byte[] stripSingleTrailingNewline(final byte[] value) {
-        if (value.length > 0 && value[value.length - 1] == '\n') {
-            return java.util.Arrays.copyOf(value, value.length - 1);
+    static void requireExactAssessmentBinding(final byte[] assessmentReceipt, final byte[] signedPayload)
+            throws IOException {
+        if (!Bytes.constantTimeEquals(assessmentReceipt, signedPayload)) {
+            throw new IOException("assessment receipt and signed assessment envelope differ");
         }
-        return value.clone();
     }
 
     private static byte[] decodeBase64(final String value) throws IOException {

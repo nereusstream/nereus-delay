@@ -5,9 +5,22 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.Test;
 
 class PersistentStagingActivationTest {
+    @Test
+    void assessmentSidecarMustExactlyMatchTheSignedPayloadIncludingTerminalLf() throws Exception {
+        final byte[] persistedSidecar = "{\"outcome\":\"PASS_RETAIN\"}\n".getBytes(StandardCharsets.UTF_8);
+
+        PersistentStagingActivation.requireExactAssessmentBinding(persistedSidecar, persistedSidecar.clone());
+
+        final byte[] legacyPayload = "{\"outcome\":\"PASS_RETAIN\"}".getBytes(StandardCharsets.UTF_8);
+        assertThrows(
+                IOException.class,
+                () -> PersistentStagingActivation.requireExactAssessmentBinding(persistedSidecar, legacyPayload));
+    }
+
     @Test
     void gateResolutionMustMatchTheSignedAssessmentOutcome() throws Exception {
         PersistentStagingActivation.requireResolutionBinding(
