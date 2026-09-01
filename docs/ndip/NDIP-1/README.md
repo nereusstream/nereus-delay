@@ -433,3 +433,22 @@ runner 现以 canonical JSON number `0` 和 boolean `false` 写入这些字段�
 canary receipt writer 现直接写入完整 physical topic URI，不在 validator 中做字符串补全。对该
 immutable blocked run 的只读继续验证表明，仅规范化此已知字段后完整 validator 可 PASS；仍必须在
 后续 clean HEAD 上重新签发全部 source-bound 证据，不能晋升旧 run。
+
+## 2026-09-01 persistent staging full-chain closure
+
+候选 `106fdde98e696297127de3a2751ac2bc210757d7` 的 run `20260831180613-73283`
+在新的 exact 24/24 disposable receipt 上完成了完整闭环：13/13 Manifest readback、Gate C
+41/41、205 秒 SHADOW `0/0/0`、AUTO_FAST `1/1/0`、Managed Handoff `1/1/1`、response-loss
+resolution、Attempt Journal 三条 committed-position recovery/startup replay，以及最终
+`DISABLED` rollback。Broker persistence time 严格位于 Managed `actionAt` 与 `deliverAt` 之间；
+四项 active process/Worker/lease/send 计数均为零。
+
+独立 validator 重验了固定 trust root、所有签名 payload 的 exact bytes、Assessment/Manifest、
+raw evidence digest、canonical physical Topic、policy chain 和 current pointer 后返回 `PASS`，并由
+runner 原子更新 `deployment/current.json`。这首次证明 Assessment exact-byte、SHADOW closed type
+与 physical-target 三项修复在同一真实生产组合路径中共同闭合。
+
+该 run 是上述缺口的 immutable reference evidence，不是后续 checkout 的静态 authority。本文及
+其他非规范文档的提交会产生新 HEAD；当前 checkout 是否仍有本机 staging authority，继续只按本文
+开头定义的 current pointer、exact candidate equality 和独立 validator 判断，不从这里的历史 SHA
+或 run id 推断。

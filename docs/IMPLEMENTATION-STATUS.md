@@ -17858,3 +17858,29 @@ blocked run's validator, changing only this known comparison input, reached
 full PASS; the original evidence was not modified. The blocked run remains
 immutable and grants no current-pointer authority; a new exact disposable and
 persistent chain is still required for the subsequent clean HEAD.
+
+## 2026-09-01 NDIP-1 persistent staging full-chain certification closure
+
+Persistent run `20260831180613-73283` on
+`106fdde98e696297127de3a2751ac2bc210757d7` supplied the required new
+generation-3 disposable receipt and closed the complete chain. It passed
+13/13 Manifest readback, Gate C 41/41, a 205-second SHADOW `0/0/0`, AUTO_FAST
+`1/1/0`, Managed Handoff `1/1/1`, destination response-loss resolution, all
+three Attempt Journal committed-position recoveries and three-record startup
+replay. Managed Broker persistence was strictly inside the frozen
+`actionAt < persistence < deliverAt` interval.
+
+The final independent validator verified the external trust root, exact
+Assessment and receipt payload bytes, binary Manifest signature, canonical
+physical Topic, raw P1 SEND/ACK evidence digests, policy generation chain, and
+DISABLED rollback. All active native process, Worker, lease, and send counts
+were zero before the runner atomically updated the persistent deployment
+pointer. The result remains local staging evidence with
+`productionAuthority=false`; it does not grant production deployment or
+change NDIP-1 from `Accepted` to `Implemented`.
+
+This literal run is retained only as immutable closure evidence. The
+authoritative current result remains dynamic: after any later source or
+documentation commit, `deployment/current.json` must name that exact HEAD and
+the independent validator must pass again. Historical PASS is never carried
+forward by prose.

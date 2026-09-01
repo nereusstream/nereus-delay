@@ -509,6 +509,34 @@ only this known value in memory, reached full PASS and exposed no later
 failure. The blocked run itself remains non-authoritative and did not update
 the current pointer.
 
+## 2026-09-01 complete persistent staging certification closure
+
+Run `20260831180613-73283` on candidate
+`106fdde98e696297127de3a2751ac2bc210757d7` started from a new retained,
+generation-3 disposable receipt with all 24 cells passing. It completed 13/13
+Manifest readback, Gate C 41/41, a 205-second SHADOW observation with numeric
+`0/0/0` counters and boolean safety flags, AUTO_FAST `1/1/0`, and Managed
+Handoff `1/1/1`.
+
+Managed evidence placed Broker persistence strictly between `actionAt` and
+`deliverAt`, resolved destination response loss, recovered all three Attempt
+Journal committed positions, and replayed exactly `MAPPED /
+OWNERSHIP_STARTED / PUBLISHED` after restart. The signed canary receipt and
+raw P1 evidence bound the same canonical
+`persistent://public/default/...` physical topic. Rollback published and read
+back `DISABLED`, rejected the stale ENABLED activation, waited past the frozen
+lease boundary, and ended with native process, Worker, lease, and send counts
+all zero.
+
+The independent validator returned `PASS` after rechecking the fixed external
+trust root, exact signed payload bytes, Assessment/Manifest chain, policy
+generations, all raw evidence digests, and final rollback. Only then did the
+runner atomically publish `deployment/current.json`. This run is immutable
+reference evidence for the three closure fixes; after any later source or
+documentation commit, current authority must again be resolved from an exact
+HEAD-matching pointer and a fresh independent validation rather than inferred
+from this historical run id.
+
 ## Authority 边界
 
 即使 current pointer 对某个 HEAD 验证 PASS，也只说明固定本机 staging 的 bounded 候选认证：
