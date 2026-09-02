@@ -7,6 +7,30 @@ normative requirements in [`Nereus Delay 设计.md`](Nereus%20Delay%20设计.md)
 the [`Current Protocol Registry`](PROTOCOL-REGISTRY.md), or the Accepted ADRs.
 An unchecked item is not an implementation permission; it is a release blocker.
 
+## 2026-09-02 NDIP-1 implementation and lifecycle closure
+
+NDIP-1 is now `Implemented`. The closed implementation receipt preserves the
+historical Accepted authority, binds the Implemented normative package, and
+binds certified runtime source `b4e077e9978f262cdb93cf3562ea12eee32430e2`
+through `NDIP_RUNTIME_SOURCE` digest
+`03ce17ede4b9e70e2f70dd2bbef681087f529159549a4cd979d0d7aa34fa9948`.
+It also binds the complete fixed-staging certification at run
+`20260901055333-78920`: disposable 24/24 plus 3/3, G0/Manifest 13/13, Gate C
+41/41, SHADOW 0/0/0, AUTO_FAST 1/1/0, Managed Handoff 1/1/1, three Attempt
+Journal startup replay records, and final DISABLED with zero active lease/send.
+
+This closes the accepted implementation scope and proposal lifecycle only.
+Target-environment deployment, performance/scale scenarios and production
+rollout are separate future work; the closure explicitly remains
+`productionAuthority=false`. No new deployment, certification run or load test
+is part of this transition. When later performance work begins, Handoff must be
+included in its multi-scenario matrix without reopening NDIP-1 implementation.
+
+Current source identity no longer depends on repository HEAD equality.
+README, execution-record and other non-runtime changes are outside the closed
+runtime digest. Changes to registered runnable source, build inputs, path set or
+non-governance `build.gradle` bytes still fail closed.
+
 ## 2026-08-30 NDIP-1 production-path closure and certification model
 
 The current implementation no longer relies on the earlier fixture-only or
@@ -36,9 +60,10 @@ Managed evidence bodies instead of trusting path-only sidecars.
 Current evidence is deliberately not encoded as a static commit or run id in
 this file. A disposable receipt is current only when the generation-3 verifier
 binds all 24 cells and three source-locked supporting checks to the exact
-checkout, including every raw log digest. Persistent staging is current only when
+certified source, including every raw log digest. Persistent staging is current only when
 `nereus-delay-staging/local-docker-staging-ndip1/deployment/current.json`
-points to an immutable final summary for that same HEAD and the independent
+points to an immutable final summary whose certified runtime-source digest
+matches the current scoped checkout, and the independent
 validator verifies G0, signed data disposition, 13/13 readback, Gate C 41/41,
 SHADOW 0/0/0, AUTO_FAST 1/1/0, Managed Handoff 1/1/1, and final DISABLED
 rollback. This remains `productionAuthority=false`; other environments and
@@ -17876,11 +17901,12 @@ physical Topic, raw P1 SEND/ACK evidence digests, policy generation chain, and
 DISABLED rollback. All active native process, Worker, lease, and send counts
 were zero before the runner atomically updated the persistent deployment
 pointer. The result remains local staging evidence with
-`productionAuthority=false`; it does not grant production deployment or
-change NDIP-1 from `Accepted` to `Implemented`.
+`productionAuthority=false`; at the time the run itself did not grant
+production deployment or self-promote the NDIP lifecycle.
 
-This literal run is retained only as immutable closure evidence. The
-authoritative current result remains dynamic: after any later source or
-documentation commit, `deployment/current.json` must name that exact HEAD and
-the independent validator must pass again. Historical PASS is never carried
-forward by prose.
+This literal run is retained as historical evidence. The later current-pointer
+run `20260901055333-78920` binds certified runtime source `b4e077e9...` and is
+the implementation receipt's complete certification source. The current
+checkout is equivalent only when its closed runtime-source digest matches;
+documentation-only commits no longer require the pointer to name their HEAD.
+Historical PASS is never rebound or carried forward by prose.

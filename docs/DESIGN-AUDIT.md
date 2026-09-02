@@ -2,7 +2,7 @@
 
 状态：PASS / current design semantics closed
 Spec revision：`DESIGN-BASELINE-2026-08-25`
-审计日期：2026-08-15
+审计日期：2026-09-02
 性质：验收证据索引；不覆盖主设计、Protocol Registry 或 Accepted ADR
 
 ## 结论
@@ -10,6 +10,30 @@ Spec revision：`DESIGN-BASELINE-2026-08-25`
 当前设计的业务语义、线性化点、fencing 范围、物理持久边界、故障隔离、恢复/GC 保护关系、公开错误模型和发布停止条件已经闭合。审计未留下需要实现自行选择的语义分支。
 
 **Open semantic questions: none.**
+
+## 2026-09-02 NDIP-1 lifecycle and source-authority closure
+
+Audit result: NDIP-1 implementation and proposal lifecycle are closed as
+`Implemented`. Accepted NDIP-2 separates proposal, environment and release
+lifecycle. The implementation receipt binds the historical Accepted package,
+the current Implemented normative package, certified runtime source
+`b4e077e9978f262cdb93cf3562ea12eee32430e2`, and fixed-staging run
+`20260901055333-78920`. That run completed the declared disposable, Gate C,
+SHADOW, dual-canary, recovery and safe rollback evidence but remains
+`productionAuthority=false`.
+
+The audit found no reason to keep NDIP-1 in an implementation state while a
+future environment deployment or performance campaign is not active. Those
+activities are separate release work and cannot retroactively change the
+implementation result. Handoff remains a required later performance scenario,
+not an open implementation slice.
+
+The exact-source authority model now compares a closed scoped runtime digest
+rather than repository HEAD. Non-runtime README, execution-record, receipt and
+status changes do not invalidate the certified runtime identity. Runtime source,
+registered path-set, build dependency or non-governance build-script drift
+still fails closed. This changes governance/source interpretation only; no
+runtime, wire, Store or P1 source-lock semantics changed.
 
 ## 2026-08-30 NDIP-1 physical-chain and certification audit
 
@@ -39,7 +63,8 @@ validator rechecks those files plus the binary Manifest signature.
 
 Certification freshness is resolved dynamically. A local staging PASS is
 usable for a checkout only if its persistent `deployment/current.json` points
-to an immutable final summary for the exact HEAD and the independent validator
+to an immutable final summary whose certified runtime-source digest matches
+the checkout and the independent validator
 rechecks the complete signature/evidence chain, including AUTO_FAST 1/1/0,
 Managed Handoff 1/1/1, and final DISABLED rollback. That evidence remains
 environment-specific and `productionAuthority=false`.

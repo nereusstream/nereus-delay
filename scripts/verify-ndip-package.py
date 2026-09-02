@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import re
+import subprocess
 import sys
 from datetime import date
 from pathlib import Path
@@ -16,7 +17,7 @@ from typing import Any
 PACKAGE_DOMAIN = b"nereus-delay-ndip-package\0"
 PACKAGE_DOMAIN_LABEL = r"nereus-delay-ndip-package\0"
 RECEIPT_SCHEMA = "nereus-delay.ndip.acceptance-receipt"
-RECEIPT_SCHEMA_GENERATION = 2
+RECEIPT_SCHEMA_GENERATIONS = {2, 3}
 HEX_256 = re.compile(r"[0-9a-f]{64}\Z")
 GIT_COMMIT = re.compile(r"[0-9a-f]{40}\Z")
 ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}\Z")
@@ -27,7 +28,25 @@ EXPECTED_PACKAGES = {
         "docs/ndip/NDIP-1/02-NDIP-1-Pulsar-Native-Delivery.md",
         "docs/ndip/NDIP-1/03-实施计划.md",
         "docs/ndip/NDIP-1/04-代码级目标设计.md",
-    )
+    ),
+    "NDIP-2": (
+        "docs/ndip/NDIP-2/01-NDIP-生命周期与认证源码权威分层.md",
+        "docs/ndip/NDIP-2/02-实施计划.md",
+        "docs/ndip/NDIP-2/03-代码级目标设计.md",
+    ),
+}
+
+STATUS_MARKERS = {
+    "NDIP-1": {
+        "docs/ndip/NDIP-1/02-NDIP-1-Pulsar-Native-Delivery.md": "- Status: {status}",
+        "docs/ndip/NDIP-1/03-实施计划.md": "- 当前状态：`{status}`",
+        "docs/ndip/NDIP-1/04-代码级目标设计.md": "- 提案状态：`{status}`",
+    },
+    "NDIP-2": {
+        "docs/ndip/NDIP-2/01-NDIP-生命周期与认证源码权威分层.md": "- Status: {status}",
+        "docs/ndip/NDIP-2/02-实施计划.md": "- 当前状态：`{status}`",
+        "docs/ndip/NDIP-2/03-代码级目标设计.md": "- 提案状态：`{status}`",
+    },
 }
 
 
@@ -48,6 +67,13 @@ def parse_args() -> argparse.Namespace:
         "--require-accepted",
         action="store_true",
         help="fail unless the receipt is a complete ACCEPTED receipt",
+    )
+    parser.add_argument(
+        "--source-commit",
+        help=(
+            "verify the receipt against immutable package bytes at this historical "
+            "commit instead of the current checkout"
+        ),
     )
     return parser.parse_args()
 
@@ -154,13 +180,15 @@ def validate_receipt_shape(
     )
     if receipt["receiptSchema"] != RECEIPT_SCHEMA:
         raise VerificationError("unknown receiptSchema")
-    if (
-        type(receipt["receiptSchemaGeneration"]) is not int
-        or receipt["receiptSchemaGeneration"] != RECEIPT_SCHEMA_GENERATION
-    ):
+    generation = receipt["receiptSchemaGeneration"]
+    if type(generation) is not int or generation not in RECEIPT_SCHEMA_GENERATIONS:
         raise VerificationError("unknown receiptSchemaGeneration")
 
     proposal_id = require_string(receipt["proposalId"], "proposalId")
+    if generation == 2 and proposal_id != "NDIP-1":
+        raise VerificationError("receipt schema generation 2 is reserved for NDIP-1")
+    if generation == 3 and proposal_id != "NDIP-2":
+        raise VerificationError("receipt schema generation 3 is reserved for NDIP-2")
     expected_paths = EXPECTED_PACKAGES.get(proposal_id)
     if expected_paths is None:
         raise VerificationError(f"proposal is not registered by verifier: {proposal_id}")
@@ -190,11 +218,14 @@ def validate_receipt_shape(
         {"proposalId", "requiredStatus", "observedStatus"},
         "governanceBridge",
     )
-    if bridge != {
+    expected_bridge = {
         "proposalId": "NDP-0002",
         "requiredStatus": "ACCEPTED",
-        "observedStatus": "DRAFT" if status == "CANDIDATE" else "ACCEPTED",
-    }:
+        "observedStatus": (
+            "DRAFT" if generation == 2 and status == "CANDIDATE" else "ACCEPTED"
+        ),
+    }
+    if bridge != expected_bridge:
         raise VerificationError("governanceBridge does not match receipt status")
 
     normative = require_closed_object(
@@ -243,17 +274,18 @@ def validate_receipt_shape(
             f"normativePackage.files do not match registered paths for {proposal_id}"
         )
 
-    baseline = require_closed_object(
-        receipt["reviewBaseline"],
+    baseline_keys = (
         {
             "mainCommit",
             "designBaselineCommit",
             "h0ImplementationCommit",
             "h0DocumentationCommit",
             "p1SourceLockCommit",
-        },
-        "reviewBaseline",
+        }
+        if generation == 2
+        else {"mainCommit", "governanceBaselineCommit"}
     )
+    baseline = require_closed_object(receipt["reviewBaseline"], baseline_keys, "reviewBaseline")
     for key, value in baseline.items():
         require_commit(value, f"reviewBaseline.{key}")
 
@@ -262,25 +294,29 @@ def validate_receipt_shape(
         {"status", "acceptedBy", "acceptedAt", "decisionReference"},
         "decision",
     )
-    authorization = require_closed_object(
-        receipt["authorization"],
+    authorization_keys = (
         {
             "gateB",
             "implementationAuthorized",
             "localDisposableTestingAuthorized",
             "gateCRequiredBeforeShadow",
             "gateCRequiredBeforeEnabled",
-        },
-        "authorization",
+        }
+        if generation == 2
+        else {"gateB", "implementationAuthorized", "deploymentAuthority"}
     )
-    if authorization["gateCRequiredBeforeShadow"] is not True:
-        raise VerificationError(
-            "authorization.gateCRequiredBeforeShadow must be true"
-        )
-    if authorization["gateCRequiredBeforeEnabled"] is not True:
-        raise VerificationError(
-            "authorization.gateCRequiredBeforeEnabled must be true"
-        )
+    authorization = require_closed_object(receipt["authorization"], authorization_keys, "authorization")
+    if generation == 2:
+        if authorization["gateCRequiredBeforeShadow"] is not True:
+            raise VerificationError(
+                "authorization.gateCRequiredBeforeShadow must be true"
+            )
+        if authorization["gateCRequiredBeforeEnabled"] is not True:
+            raise VerificationError(
+                "authorization.gateCRequiredBeforeEnabled must be true"
+            )
+    elif authorization["deploymentAuthority"] is not False:
+        raise VerificationError("NDIP-2 acceptance must not grant deployment authority")
 
     if status == "CANDIDATE":
         if receipt["authority"] is not False:
@@ -298,7 +334,7 @@ def validate_receipt_shape(
             raise VerificationError(
                 "candidate must not authorize H1 through H6 implementation"
             )
-        if authorization["localDisposableTestingAuthorized"] is not False:
+        if generation == 2 and authorization["localDisposableTestingAuthorized"] is not False:
             raise VerificationError(
                 "candidate must not authorize local disposable testing"
             )
@@ -316,7 +352,7 @@ def validate_receipt_shape(
             raise VerificationError(
                 "accepted Gate B must authorize H1 through H6 implementation"
             )
-        if authorization["localDisposableTestingAuthorized"] is not True:
+        if generation == 2 and authorization["localDisposableTestingAuthorized"] is not True:
             raise VerificationError(
                 "accepted Gate B must authorize local disposable testing"
             )
@@ -324,21 +360,43 @@ def validate_receipt_shape(
     return proposal_id, expected_paths, package_digest
 
 
-def verify_repository_status(receipt_status: str, root: Path) -> None:
+def git_file_bytes(root: Path, source_commit: str, path_text: str) -> bytes:
+    require_commit(source_commit, "source-commit")
+    process = subprocess.run(
+        ["git", "show", f"{source_commit}:{path_text}"],
+        cwd=root,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if process.returncode != 0:
+        error = process.stderr.decode("utf-8", errors="replace").strip()
+        raise VerificationError(
+            f"cannot read {path_text} at source commit {source_commit}: {error}"
+        )
+    return process.stdout
+
+
+def verify_repository_status(
+    proposal_id: str,
+    receipt_status: str,
+    generation: int,
+    root: Path,
+    source_commit: str | None = None,
+) -> None:
     expected_status = "Draft" if receipt_status == "CANDIDATE" else "Accepted"
-    checks = {
-        "docs/proposals/0002-register-ndip-governance.md": (
-            f"- Status: {expected_status}"
-        ),
-        "docs/ndip/NDIP-1/02-NDIP-1-Pulsar-Native-Delivery.md": (
-            f"- Status: {expected_status}"
-        ),
-        "docs/ndip/NDIP-1/03-实施计划.md": f"- 当前状态：`{expected_status}`",
-        "docs/ndip/NDIP-1/04-代码级目标设计.md": f"- 提案状态：`{expected_status}`",
-    }
+    ndp_status = expected_status if generation == 2 else "Accepted"
+    checks = {"docs/proposals/0002-register-ndip-governance.md": f"- Status: {ndp_status}"}
+    for path_text, marker in STATUS_MARKERS[proposal_id].items():
+        checks[path_text] = marker.format(status=expected_status)
     for path_text, marker in checks.items():
         try:
-            text = (root / path_text).read_text(encoding="utf-8", errors="strict")
+            data = (
+                (root / path_text).read_bytes()
+                if source_commit is None
+                else git_file_bytes(root, source_commit, path_text)
+            )
+            text = data.decode("utf-8", errors="strict")
         except (OSError, UnicodeDecodeError) as exc:
             raise VerificationError(
                 f"cannot verify proposal status in {path_text}: {exc}"
@@ -350,14 +408,18 @@ def verify_repository_status(receipt_status: str, root: Path) -> None:
 
 
 def calculate_package(
-    paths: tuple[str, ...], root: Path
+    paths: tuple[str, ...], root: Path, source_commit: str | None = None
 ) -> tuple[str, list[tuple[str, str]]]:
     material = bytearray(PACKAGE_DOMAIN)
     file_digests: list[tuple[str, str]] = []
     for path_text in paths:
         path = root / path_text
         try:
-            data = path.read_bytes()
+            data = (
+                path.read_bytes()
+                if source_commit is None
+                else git_file_bytes(root, source_commit, path_text)
+            )
         except OSError as exc:
             raise VerificationError(f"cannot read normative file {path_text}: {exc}") from exc
         if data.startswith(b"\xef\xbb\xbf"):
@@ -413,8 +475,24 @@ def main() -> int:
         proposal_id, paths, expected_package_digest = validate_receipt_shape(
             receipt, package_dir, receipt_path, root
         )
-        verify_repository_status(receipt["receiptStatus"], root)
-        actual_package_digest, file_digests = calculate_package(paths, root)
+        source_commit = args.source_commit
+        if source_commit is not None:
+            require_commit(source_commit, "source-commit")
+            historical_receipt = git_file_bytes(
+                root, source_commit, repository_relative(receipt_path, root, "receipt")
+            )
+            if historical_receipt != receipt_path.read_bytes():
+                raise VerificationError(
+                    "current receipt bytes differ from the preserved historical receipt"
+                )
+        verify_repository_status(
+            proposal_id,
+            receipt["receiptStatus"],
+            receipt["receiptSchemaGeneration"],
+            root,
+            source_commit,
+        )
+        actual_package_digest, file_digests = calculate_package(paths, root, source_commit)
         verify_file_digests(receipt, file_digests)
         if actual_package_digest != expected_package_digest:
             raise VerificationError(
@@ -429,6 +507,8 @@ def main() -> int:
     print(f"proposal={proposal_id}")
     print(f"receipt_status={receipt['receiptStatus']}")
     print(f"authority={str(receipt['authority']).lower()}")
+    if args.source_commit is not None:
+        print(f"package_source_commit={args.source_commit}")
     for path, digest in file_digests:
         print(f"file_sha256 {digest} {path}")
     print(f"package_sha256={actual_package_digest}")
@@ -436,13 +516,17 @@ def main() -> int:
         print("gate_b=PENDING (candidate integrity only; no acceptance authority)")
         print("implementation=BLOCKED")
         print("local_disposable_testing=BLOCKED")
-    else:
+    elif receipt["receiptSchemaGeneration"] == 2:
         print("gate_b=PASS")
         print("implementation=AUTHORIZED")
         print("local_disposable_testing=AUTHORIZED_WITH_EXACT_ATTESTATION")
         print("gate_c=PENDING_DEPLOYMENT")
         print("shadow=BLOCKED_BY_GATE_C")
         print("enabled=BLOCKED_BY_GATE_C_AND_SHADOW_REQUIREMENTS")
+    else:
+        print("gate_b=PASS")
+        print("implementation=AUTHORIZED")
+        print("deployment_authority=false")
     return 0
 
 

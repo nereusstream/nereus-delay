@@ -3,6 +3,10 @@
 > 本文件是非规范的实施/运维记录。它保存历史基线并定义当前 receipt 的读取方式，不能作为
 > DataResetAssessment scope、Gate C authority、SHADOW 或 ENABLED 的输入凭证。
 
+> 2026-09-02，维护者将绑定 `b4e077e9…` 的 exact 24/24 + 3/3 receipt 作为
+> NDIP-1 implementation closure evidence 的一部分。该决定不改写 receipt 的 `authority=false`，
+> 也不使它成为 deployment authority。
+
 ## 独立审查后的当前认证契约
 
 独立生产路径审查在 `main@913a2a2e` 关闭了 Attempt Journal response-loss、canonical
@@ -57,14 +61,15 @@ focused no-skip proof 任一缺失，cell 都保持 `EXECUTED_FAIL`。receipt �
   和 volume 剩余集合全部为空；
 - authority：`false`；Gate C：`false`；SHADOW：`false`；ENABLED：`false`。
 
-这关闭了 NDIP-1 当前定义的 disposable-local native/recovery/fault 矩阵，但不是
-production deployment 或 release certification。Gate C 仍为 `PENDING_DEPLOYMENT`。
+这关闭了 NDIP-1 当时定义的 disposable-local native/recovery/fault 矩阵，但不是
+production deployment 或 release certification。历史 Accepted receipt 的 Gate C 保持
+`PENDING_DEPLOYMENT`。
 
 ## 边界
 
 `DISPOSABLE_LOCAL` 只能创建本次独占、可销毁的 synthetic 测试资源。它不创建真实
-`DataResetAssessment` scope，也不改变当前 G0 `NOT_APPLICABLE_FOR_IMPLEMENTATION /
-PENDING_DEPLOYMENT` 结论。未来 Gate C 验证必须在明确分类为 `EXISTING`、
+`DataResetAssessment` scope，也不改变该历史 run 当时的 G0
+`NOT_APPLICABLE_FOR_IMPLEMENTATION / PENDING_DEPLOYMENT` 结论。未来 Gate C 验证必须在明确分类为 `EXISTING`、
 `STAGING` 或 `PRODUCTION` 的持久化环境中执行真实 G0；不得重命名本地环境复用本记录。
 
 ## 运行入口与 source binding
@@ -207,7 +212,7 @@ volumesRemaining=[]
 本次 PASS 不能替代 persistent G0。未来需要先明确 `EXISTING`、`STAGING` 或
 `PRODUCTION` environment identity、scope、tenant/route/shard、Worker exact set、resource
 inventory、外部保留义务和可信时间区间，再执行真实 G0 并生成独立 Gate C 审查输入。
-Accepted package receipt 中的 Gate C 始终为 `PENDING_DEPLOYMENT`。固定本机 staging 是否已有
+historical Accepted package receipt 中的 Gate C 始终为 `PENDING_DEPLOYMENT`。固定本机 staging 是否已有
 候选级 Gate C/SHADOW/canary 证据，应按
 [`06-Persistent-Staging-Gate-C-SHADOW-执行记录.md`](06-Persistent-Staging-Gate-C-SHADOW-执行记录.md)
 中的 `deployment/current.json` 与独立 verifier 读取；该证据也不能授予其他环境或 production。

@@ -1,18 +1,24 @@
 # NDIP-1：显式 Pulsar Native Delivery 与 Handoff
 
-- Status: Accepted
+- Status: Implemented
 - Authors: Nereus Delay maintainers
 - Created: 2026-08-27
 - Discussion: `docs/ndip/NDIP-1/`
 - Baseline: `main@8915d21ed325a90ec305201ca85ab8daea3803dc`
 - Supersedes: Gate B PASS 后有界修订当前全局 not-before、固定 Handoff lead 和 Pulsar guarded timing 约束；Gate C 仍保护 deployment
 - Superseded by:
-- Implementation status: H0 implemented (fail-closed)；Managed Handoff 与 AUTO_FAST 物理 record 链路仍未闭环
+- Implemented: 2026-09-02
+- Implementation status: CLOSED；H0-H6、Managed Handoff、AUTO_FAST、recovery 与 required certification 已闭环
 
 > NDIP 表示 Nereus Delay Improvement Proposal。`NDP-0002` 与本提案已于 2026-08-27 经
 > 维护者接受，final receipt 已绑定 post-transition exact normative package。Gate B PASS 授权
 > H1-H6 按 predecessor 顺序实施，并允许 exact disposable local tests；Gate C 仍保护 persistent
 > deployment、SHADOW 和 ENABLED。
+
+> 维护者于 2026-09-02 根据 Accepted `NDIP-2` 关闭 NDIP-1 implementation 与 proposal
+> lifecycle。`implementation-receipt.json` 绑定原 Accepted authority、Implemented normative
+> package、certified runtime source 和完整 fixed-staging certification。部署、性能/规模和
+> production rollout 是后续独立工作，且当前 `productionAuthority=false`。
 
 > 当前 NDIP gate 由 Accepted `NDP-0002` 注册。本文的 Accepted authority 由最终
 > `acceptance-receipt.json`、README 定义的 exact normative package digest 和维护者决定共同
@@ -28,10 +34,10 @@
 真实 SEND/ACK evidence 和 recovery 闭环，并让 AUTO_FAST 与 Managed Handoff 受同一显式
 消息策略约束，但保持两者不同的 ownership/unknown 状态机。
 
-Gate B 前只实现了 H0：所有 Managed early request 和有效 AUTO_FAST native request 都在
-Producer ownership 前 fail-closed。当前 Gate B 已 PASS，H1 READY；H2-H6 依次等待前置 slice。
-当前没有真实 persistent deployment，G0 为 `NOT_APPLICABLE_FOR_IMPLEMENTATION /
-PENDING_DEPLOYMENT`，不阻塞实现，但 SHADOW/ENABLED 仍等待 Gate C。
+Gate B 前只实现了 H0；随后 H1-H6 按 predecessor 顺序全部完成。exact
+disposable-local 24/24 + 3/3 和 fixed staging 上的 G0、Gate C 41/41、SHADOW、双路
+canary、recovery 与 final DISABLED rollback 已经闭环。其他 target environment 仍为
+`PENDING_DEPLOYMENT`，这不阻塞本 NDIP 的 Implemented lifecycle。
 
 ## 动机
 
@@ -78,7 +84,7 @@ PENDING_DEPLOYMENT`，不阻塞实现，但 SHADOW/ENABLED 仍等待 Gate C。
 - 不建立永久双轨、并行产品线或无限期兼容 reader；
 - 不根据 `actionAt < deliverAt` 猜测业务 outcome。
 
-## 当前约束
+## Accepted 审查时的约束（历史输入）
 
 1. 当前 runtime 权威设计仍将 `deliverAt` 定义为 earliest consumer visibility；只有完成 H1
    contract slice 并同步对应权威文档后才能按本 Accepted NDIP 有界修订。persistent deployment
@@ -491,11 +497,11 @@ Nereus 可以观测和告警，但不把诊断结果描述为 capability certifi
 - no-producer-touch、no-physical-admission、no-reservation-leak 测试；
 - Implementation Status 只按真实完成情况更新。
 
-当前真实状态：H0 已在 `main@7cb377ca9dd3135792237af0f027076630d5e4f3` 合入。聚焦测试、完整
+H0 切片当时的真实状态：H0 已在 `main@7cb377ca9dd3135792237af0f027076630d5e4f3` 合入。聚焦测试、完整
 `./gradlew test`、`./gradlew check`，以及 source-locked P1
 `pulsar-worktrees/nereus-delay-p1@0a2536484cd3932801a98dc88ff112b2df88a1c7` 的 `compileRealPulsar` 与 no-Broker
 `runRealPulsarH0Smoke` 均已通过；完整 physical record、`.deliverAt(...)`、Journal、evidence
-和 H1-H6 仍未实现。
+和 H1-H6 在该历史切片时点仍未实现。
 
 ### G0：deployment 前的只读 DataResetAssessment
 
@@ -505,7 +511,8 @@ Nereus 可以观测和告警，但不把诊断结果描述为 capability certifi
 - receipt 绑定 exact NDIP package digest、source baseline、assessment scope、observed resource
   identities、trusted observation time 和 evidence digests；
 - closed outcome 映射为 RESET / RETAIN / MIGRATE candidate，不能直接授权 SHADOW/ENABLED；
-- 没有真实 deployment 时为 `NOT_APPLICABLE_FOR_IMPLEMENTATION / PENDING_DEPLOYMENT`，不生成
+- 没有某个 target environment 的 exact deployment scope 时为
+  `NOT_APPLICABLE_FOR_IMPLEMENTATION / PENDING_DEPLOYMENT`，不生成
   虚假 scope、placeholder PASS 或 receipt。
 
 ### H1：治理 receipt 证明 Accepted 后的 closed contracts 与 generation
@@ -550,7 +557,7 @@ Nereus 可以观测和告警，但不把诊断结果描述为 capability certifi
 - fresh resource incarnation 和 Worker barrier；
 - activation smoke、restart/recovery、mixed generation rejection；
 - 同步主设计、Protocol Registry、ADR、Implementation Status、Design Audit、Runbook 和 gate；
-- 全部完成后将 NDIP 标记 Implemented。
+- 全部完成后通过 closed implementation receipt 将 NDIP 标记 Implemented。
 
 ## 验证与发布 gate
 
@@ -642,7 +649,7 @@ Nereus 可以观测和告警，但不把诊断结果描述为 capability certifi
 H0 是当前 authority-preserving 的 fail-closed 修复。回滚只允许回到同样禁止 Managed early
 send 与 AUTO_FAST native send 的状态，不得恢复任一未闭环 physical reachability。
 
-### Accepted 但尚未激活
+### Implemented 但 target environment 尚未激活
 
 保持 runtime policy `DISABLED`，不签发 ENABLED lease，不激活新 generation；可以回滚新
 binary 和未启用的 control-plane 配置。
@@ -697,18 +704,18 @@ Admission 绑定 template；Journal 后产生 final record。`preparedRecordHash
 和逐字段 golden vectors关联，不要求 hash 数值相等。
 
 字段表、dual-head scheduler、Journal ownership marker、exact evidence branch 和类级落点见
-[`04-代码级目标设计.md`](04-代码级目标设计.md)。本 Accepted NDIP 不再把这些决定留给编码者任选。
+[`04-代码级目标设计.md`](04-代码级目标设计.md)。本 Implemented NDIP 不再把这些决定留给编码者任选。
 
 ## 权威文档同步清单
 
-- [ ] 主设计
-- [ ] Protocol Registry
-- [ ] ADR / ADR index
-- [ ] Implementation Status
-- [ ] Design Audit
-- [ ] Operations Runbook
-- [ ] 自动化 gate 与测试
+- [x] 主设计
+- [x] Protocol Registry
+- [x] ADR / ADR index
+- [x] Implementation Status
+- [x] Design Audit
+- [x] Operations Runbook
+- [x] 自动化 gate 与测试
 
-NDIP-1 已 Accepted 且 Gate B PASS，H1 可开始；H2-H6 与 authority docs 按 slice 同步。Gate C 尚未
-通过，因此 deployment/SHADOW/ENABLED 相关复选框保持未完成，不能把 implementation authority
-误报成环境 activation authority。
+NDIP-1 已 `Implemented`，implementation 与 proposal lifecycle 为 `CLOSED`。fixed staging
+certification 仍为 `productionAuthority=false`；其他环境的 deployment/SHADOW/ENABLED、性能/规模和
+production rollout 后续独立进行，不能把 lifecycle authority 误报成环境 activation authority。

@@ -52,5 +52,6 @@ NDP 记录“为什么以及如何改变”；被接受后，当前结论必须�
 
 - [`NDP-0001`](0001-adopt-continuous-design-evolution.md)：Accepted，采用单一持续演进设计主线。
 - [`NDP-0002`](0002-register-ndip-governance.md)：Accepted，注册 NDIP 工作包、exact package digest
-  与外置接受凭证；2026-08-27 amendment 明确 Gate B 授权 implementation，Gate C 只保护
-  persistent deployment、SHADOW 与 ENABLED。
+  和外置 acceptance receipt；2026-08-27 amendment 明确 Gate B 授权 implementation，
+  Gate C 只保护 persistent deployment、SHADOW 与 ENABLED。其 Implemented/deployment
+  耦合解释已由 Accepted [`NDIP-2`](../ndip/NDIP-2/README.md) 替代；其余 bootstrap 规则保持有效。

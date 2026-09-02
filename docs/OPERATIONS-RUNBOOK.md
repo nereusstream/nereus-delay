@@ -8,6 +8,26 @@ authorization to edit RocksDB, Oxia records, Broker offsets or Object Store
 objects directly. Every state-changing action must be a source-ordered,
 authenticated mutation with an exact identity and an auditable receipt.
 
+## 0. NDIP-1 lifecycle versus later operations
+
+NDIP-1 is `Implemented`: its implementation and proposal lifecycle are closed
+by the 2026-09-02 implementation receipt. This status does not certify a new
+target environment and does not grant deployment, performance/scale or
+production rollout authority. The bound fixed-staging evidence remains
+`productionAuthority=false`.
+
+Later deployment must start as a separate environment workflow with its own
+G0, signed Manifest, Gate C, SHADOW, bounded canary and safe final state.
+Performance and scale work must define fresh scenarios and thresholds and must
+include Handoff behavior. Neither workflow reopens NDIP-1 implementation, and
+neither may reuse the fixed-staging receipt as authority for another
+environment.
+
+For source identity, compare the closed `NDIP_RUNTIME_SOURCE` digest through
+`scripts/verify-ndip-implementation.py`; do not require repository HEAD equality
+for README or execution-record changes. Any runtime/build/path-set mismatch
+still fails closed and requires new source-bound evidence before activation.
+
 ## 1. Common preflight and stop conditions
 
 Before any action, record:

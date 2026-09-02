@@ -135,8 +135,10 @@ NEREUS_DELAY_STAGING_ROOT=/absolute/path/to/local-docker-staging-ndip1 \
 
 最新可用结果只从 `${NEREUS_DELAY_STAGING_ROOT}/deployment/current.json` 读取。该指针只有在整个
 run 完成、独立 validator PASS、rollback 回到 `DISABLED` 后才写入；它绑定 immutable final summary
-及 scope digests。若 pointer 缺失、summary candidate 不等于待认证 HEAD、签名/digest 无效或 final
-state 不是 `DISABLED`，则该 HEAD 的 Gate C/canary 状态仍为 pending/blocked。
+及 scope digests。若 pointer 缺失、签名/digest 无效、final state 不是 `DISABLED`，或
+`NDIP_RUNTIME_SOURCE` 无法证明当前 checkout 与 summary candidate 具有相同 runtime
+source digest，则该 runtime source 的 Gate C/canary 状态仍为 pending/blocked。README、执行记录和
+receipt 变化不进入该 runtime digest。
 
 历史 run `20260830035421-73816` 绑定旧候选且只有 AUTO_FAST 单路径 canary，仅保留为历史证据，
 不得替代当前 Worker/Managed Handoff 链路认证。
@@ -150,5 +152,7 @@ SHADOW `0/0/0`、单调 policy head、AUTO_FAST `1/1/0`、Managed Handoff `1/1/1
 mapping/ownership/published chain 及同 subscription 重启完整回放、response-loss resolution 和 rollback
 `DISABLED`。
 
-通过本机 staging 认证仍只表示 `productionAuthority=false` 的环境级候选证据，不表示 NDIP 已进入
-`Implemented`，也不提供 production deployment、release、容量、长期 soak 或跨环境 authority。
+通过本机 staging 认证仍只表示 `productionAuthority=false` 的环境级证据。维护者已在
+2026-09-02 将它作为 NDIP-1 implementation closure evidence 的一部分，因此 NDIP-1 当前为
+`Implemented`；这不改变该证据的环境级身份，也不提供 production deployment、release、容量、
+长期 soak 或跨环境 authority。

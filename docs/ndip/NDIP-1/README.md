@@ -4,7 +4,8 @@
 
 - 工作包目录：`docs/ndip/NDIP-1/`
 - 当前改进提案：`NDIP-1`
-- 提案状态：`Accepted`
+- 提案状态：`Implemented`
+- Implemented 日期：`2026-09-02`
 - 审查基线：`main@8915d21ed325a90ec305201ca85ab8daea3803dc`
 - H0 实现提交：`main@7cb377ca9dd3135792237af0f027076630d5e4f3`
 - H1-H6 实现提交：`main@c7c99d377dc9e8bb786032173d62d1981011a4e2`
@@ -22,13 +23,20 @@
   `main@1587ea08651647c0f7912fd2c17b5a96f1c7fa35`
 - Assessment exact sidecar signature 闭环提交：
   `main@65ba1a92cec1870e2a5196c7ec3540cbe5174e87`
-- 整理日期：`2026-08-31`
+- 最终 certified runtime source：`main@b4e077e9978f262cdb93cf3562ea12eee32430e2`
+- 整理日期：`2026-09-02`
 
 仓库的 Accepted `NDP-0001` 持续演进规则保持不变。Accepted
 [`NDP-0002`](../../proposals/0002-register-ndip-governance.md) 已完成一次性治理桥接；本工作包
 及后续改进提案统一使用 `NDIP`（Nereus Delay Improvement Proposal）编号。`NDIP-1` 已由
 维护者明确接受，final `acceptance-receipt.json` 绑定 post-transition exact normative package
 digest、审查基线和接受结论，因此 Gate B 为 PASS。
+
+Accepted [`NDIP-2`](../NDIP-2/README.md) 将 proposal lifecycle、environment lifecycle 和 release
+lifecycle 分开。维护者于 2026-09-02 明确关闭 NDIP-1 implementation 与 proposal
+lifecycle；`implementation-receipt.json` 绑定历史 Accepted authority、当前 Implemented
+normative package、certified runtime source 和 complete certification evidence。该决定不提供
+deployment、performance/scale 或 production rollout authority。
 
 Gate B PASS 是 implementation authorization：H1-H6 可按切片依赖顺序实施，带 exact
 `DISPOSABLE_LOCAL` attestation 的本地集成/恢复/故障测试也被允许。Gate C 是
@@ -40,7 +48,7 @@ Managed Handoff 的真实 Worker/Admission/Attempt Journal/P1 transport/Outcome 
 authority、显式数据处置和独立认证 verifier 纳入同一闭环。disposable-local 与 persistent
 staging 的“当前结果”均按 exact source binding 解析，不能由本文中的历史提交或 run id 推断。
 
-`normative package digest` 不包含本 README 和 candidate/final receipt，避免自引用与操作文本
+`normative package digest` 不包含本 README 和 acceptance/implementation receipt，避免自引用与操作文本
 改变设计身份。仓库不保存会话执行提示词；需要时由用户请求并在会话内临时生成。摘要固定
 包含 `01`、`02`、`03`、`04` 四个文件；每个 path 必须是
 **相对于仓库根目录的 UTF-8 POSIX path**，不允许绝对路径、`.`、`..`、反斜杠或 Unicode
@@ -54,20 +62,29 @@ SHA-256(
 )
 ```
 
-Accepted 后任一 normative file 改动都必须产生新的治理审查/摘要绑定，不能沿用旧 receipt。
+Accepted 后任一 normative file 改动都必须产生新的治理审查/摘要绑定，不能沿用旧
+Accepted package digest。历史 `acceptance-receipt.json` 保持原 bytes，Implemented transition 由
+`implementation-receipt.json` 绑定新 normative package。
 
-摘要校验命令为：
+历史 Accepted package 校验命令为：
 
 ```bash
 python3 scripts/verify-ndip-package.py \
   --package-dir docs/ndip/NDIP-1 \
   --receipt docs/ndip/NDIP-1/acceptance-receipt.json \
+  --source-commit 77ffa61136c0cd401244ebea4375a5a18b097b17 \
   --require-accepted
 ```
 
-校验成功必须输出 `receipt_status=ACCEPTED`、`authority=true`、`gate_b=PASS`、
-`implementation=AUTHORIZED` 和 `local_disposable_testing=AUTHORIZED_WITH_EXACT_ATTESTATION`。
-receipt 同时固定 `gateCRequiredBeforeShadow=true` 与 `gateCRequiredBeforeEnabled=true`。
+当前 Implemented closure 校验命令为：
+
+```bash
+python3 scripts/verify-ndip-implementation.py
+```
+
+校验成功必须输出 `receipt_status=IMPLEMENTED`、`implementation=CLOSED`、
+`lifecycle=CLOSED`、certified runtime-source digest 以及三个 `SEPARATE_FUTURE_WORK`，同时固定
+`production_authority=false`。
 
 ## Persistent staging certification 状态解析
 
@@ -75,37 +92,64 @@ receipt 同时固定 `gateCRequiredBeforeShadow=true` 与 `gateCRequiredBeforeEn
 认证不复制进本 README，而由持久化指针
 `nereus-delay-staging/local-docker-staging-ndip1/deployment/current.json` 指向一个 immutable
 final summary。只有当独立 verifier 验证 trust root、签名、source/package/P1 lock、显式数据处置、
-G0、13/13 Manifest readback、Gate C 41/41、SHADOW、双路径 canary、rollback，且 summary 的
-candidate commit 等于待认证 checkout 时，才能把该 run 解释为该候选的 staging PASS。
+G0、13/13 Manifest readback、Gate C 41/41、SHADOW、双路径 canary 和 rollback 时，才能把该 run
+解释为其原始 candidate 的 staging PASS。当前 checkout 是否仍为同一认证 runtime source，
+由 `NDIP_RUNTIME_SOURCE` scoped digest 判断，不再由 repository HEAD 字符串相等判断。
+
+current pointer 现指向 run `20260901055333-78920`，原始 candidate 为
+`b4e077e9978f262cdb93cf3562ea12eee32430e2`。它完成 exact 24/24 + 3/3 前置、Gate C
+41/41、SHADOW、AUTO_FAST `1/1/0`、Managed Handoff `1/1/1`、response-loss/Journal recovery
+和 final DISABLED rollback；独立 verifier PASS，且 `productionAuthority=false`。
 
 `20260830035421-73816` 是旧候选上的历史单路径 run，不得认证当前源码。完整入口、指针协议、
 证据结构和历史边界见
 [`06-Persistent-Staging-Gate-C-SHADOW-执行记录.md`](06-Persistent-Staging-Gate-C-SHADOW-执行记录.md)。
-该记录是非规范执行/运维材料；Accepted package 仍只由 `01`–`04` 和现有
-`acceptance-receipt.json` 定义。
+该记录是非规范执行/运维材料；Implemented normative package 仍只由 `01`–`04` 和
+`implementation-receipt.json` 定义，历史 Accepted authority 保留在 `acceptance-receipt.json`。
+
+## 2026-09-02 Implemented closure
+
+NDIP-1 当前阶段固定为：
+
+```text
+Implementation CLOSED
+    -> proposal lifecycle CLOSED / Implemented
+    -> target deployment, performance/scale, production rollout are separate future work
+```
+
+closure 使用 current pointer 指向的 `20260901055333-78920` 完整 certification，而不是
+早期单路或 blocked run。该证据绑定 `b4e077e9…`、Accepted package digest
+`13caab8e…` 和 P1 source lock `0a253648…`，独立验证结果为 PASS。
+
+本次不部署新环境，不重跑 24/24、Gate C、SHADOW 或 canary，也不执行压测。
+后续单独开始环境部署与压测时，应把 Handoff 优化纳入多场景矩阵，但不回溯性重开
+NDIP-1 implementation lifecycle。
 
 ## 文档地图
 
 1. [`01-调查与决策记录.md`](01-调查与决策记录.md)
    - 记录源码现状、问题根因、已经确认的产品决策和被淘汰的旧结论。
 2. [`02-NDIP-1-Pulsar-Native-Delivery.md`](02-NDIP-1-Pulsar-Native-Delivery.md)
-   - 沿用现行提案必填结构、已 Accepted 的 NDIP 改进提案，是本工作包的设计权威入口。
+   - 沿用现行提案必填结构、已 Implemented 的 NDIP 改进提案，是本工作包的设计权威入口。
 3. [`03-实施计划.md`](03-实施计划.md)
    - 按治理门、依赖关系、代码切片和验证 gate 组织的实施计划。
 4. [`04-代码级目标设计.md`](04-代码级目标设计.md)
    - 固定 exact enum/wire、schema、hash、dual-head scheduler、Journal、P1 transport、evidence
      和 activation 契约，是实现会话的代码级输入。
 5. [`acceptance-receipt.json`](acceptance-receipt.json)
-   - 绑定 Accepted post-transition exact bytes 和维护者决定；它证明 Gate B 与 implementation
-     authority，不提供 Gate C 或 activation authority。
-6. [`G0-DataResetAssessment-执行状态.md`](G0-DataResetAssessment-执行状态.md)
+   - 保留 Accepted post-transition exact bytes 和维护者决定；它是历史 Gate B authority，
+     不由 Implemented status 改写。
+6. [`implementation-receipt.json`](implementation-receipt.json)
+   - 绑定 Implemented normative package、certified runtime source、complete certification 和维护者
+     lifecycle closure；明确 `productionAuthority=false`。
+7. [`G0-DataResetAssessment-执行状态.md`](G0-DataResetAssessment-执行状态.md)
    - 记录只读 G0 tooling、lifecycle safety guard、验证证据和 pending deployment；它不是
      Assessment receipt 或 Gate C
      authority。
-7. [`05-Disposable-Local-Certification-执行记录.md`](05-Disposable-Local-Certification-执行记录.md)
+8. [`05-Disposable-Local-Certification-执行记录.md`](05-Disposable-Local-Certification-执行记录.md)
    - 非规范地记录一次 source-bound `DISPOSABLE_LOCAL` 本地认证、矩阵结果和 exact cleanup；
      它不创建 Assessment scope，也不提供 deployment authority。
-8. [`06-Persistent-Staging-Gate-C-SHADOW-执行记录.md`](06-Persistent-Staging-Gate-C-SHADOW-执行记录.md)
+9. [`06-Persistent-Staging-Gate-C-SHADOW-执行记录.md`](06-Persistent-Staging-Gate-C-SHADOW-执行记录.md)
    - 非规范地记录固定本机 `STAGING` 环境的 G0、签名 Manifest、Gate C、SHADOW、最小 ENABLED
      canary 和最终 DISABLED rollback；它不提供 production authority。
 
@@ -117,25 +161,32 @@ candidate commit 等于待认证 checkout 时，才能把该 run 解释为该候
 ```text
 NDP-0002 Accepted
 + final NDIP-1 acceptance receipt binds exact package digest
-    -> Gate B PASS（当前）
-    -> H1-H6 按前置顺序实现；当前代码切片与 disposable-local 认证已完成
-    -> exact disposable local integration/recovery/fault testing ALLOWED
+    -> Gate B PASS（历史 implementation authorization）
 
 H1 -> H2 -> H3 -> H4(.deliverAt) -> H5 -> H6
-    -> local disposable integration/recovery/fault tests
+    -> exact disposable 24/24 + 3/3
+    -> complete fixed-staging certification
 
-first persistent deployment / upgrade
+NDIP-2 Accepted + implementation receipt
+    -> implementation CLOSED
+    -> proposal lifecycle Implemented（当前）
+
+each future target deployment / upgrade
     -> G0 DataResetAssessment
     -> Gate C PASS
     -> SHADOW
     -> SHADOW requirements PASS + Gate C PASS
-    -> ENABLED
+    -> bounded ENABLED/canary + safe final state
+
+separate future release work
+    -> performance/scale scenarios
+    -> production rollout
 ```
 
-执行前没有真实 persistent deployment 时，不生成虚假 Assessment receipt；那一阶段的 G0 状态是
-`NOT_APPLICABLE_FOR_IMPLEMENTATION / PENDING_DEPLOYMENT`。固定本机 staging 的当前状态只能由
-上述 current pointer 与独立 verifier 解析；其他 existing、staging、production 或 unknown 环境
-不得借用该环境的 authority，继续 fail-closed。
+没有某个 target environment 的 exact scope 时，不生成虚假 Assessment receipt；该环境保持
+`PENDING_DEPLOYMENT`。固定本机 staging 的 certification 只能由 current pointer、独立
+verifier 和 scoped runtime-source digest 解析；其他 existing、staging、production 或 unknown
+环境不得借用该环境的 authority，继续 fail-closed。
 
 ## 2026-08-28 实现切片状态
 
@@ -277,10 +328,10 @@ payload。新增测试要求 LF-terminated sidecar 与 verified envelope payload
 Java/Python tests 与完整 `./gradlew check` 已通过。失败 run 保持 immutable，仍须在后续最终 HEAD
 上重新签发完整 disposable 与 persistent chain。
 
-这里的“已实现”仅表示代码与环境认证工具边界；它不表示 NDIP 已进入 `Implemented`，也不产生
-production authority。H0 仍然 fail-closed，缺少 exact current generation、signed manifest 或
-能力 gate 时不得触碰 Producer/物理适配器。exact staging evidence 必须按上方 current-pointer
-规则解释；Accepted package receipt 自身仍保持 `gate_c=PENDING_DEPLOYMENT`，不被环境结果改写。
+在该历史切片时点，“已实现”仅表示代码与环境认证工具边界，尚未产生 lifecycle 或
+production authority。随后 complete certification 和 2026-09-02 implementation receipt 已单独关闭
+NDIP lifecycle，但仍不产生 production authority。H0 继续 fail-closed，缺少 exact current
+generation、signed manifest 或能力 gate 时不得触碰 Producer/物理适配器。
 
 ## 2026-08-28 disposable local certification
 
@@ -323,9 +374,9 @@ record 的 Pulsar native 物理入口都必须在 Producer ownership 前确定�
 Managed 使用 Worker、adapter 和 real transport 三层门；AUTO_FAST 使用 adapter 和 real
 transport 两层门。两条路径都必须提供 no-producer-touch 证明。
 
-## H0 实施状态
+## H0 实施状态（历史切片）
 
-H0 已在 `main@7cb377ca9dd3135792237af0f027076630d5e4f3` 实现并推送。当前结果是
+H0 已在 `main@7cb377ca9dd3135792237af0f027076630d5e4f3` 实现并推送。该切片结果是
 fail-closed：Managed early request 和有效 AUTO_FAST native request 都在 Producer ownership
 前返回 stable `CAPABILITY_UNAVAILABLE`；Worker 路径同时不取得 physical admission、不调用
 adapter/delegate，并排队既有 source-log Outcome handoff。两个 real transport 的 direct bypass
@@ -342,11 +393,11 @@ adapter/delegate，并排队既有 source-log Outcome handoff。两个 real tran
 
 这不是部署、SHADOW、ENABLED 或 release certification：disposable-local real Broker behavior
 matrix 已闭合，但生产 DataResetAssessment、Gate C、persistent reset receipt 和 cutover 仍未执行。
-当前代码切片已经实现
+2026-08-28 时点的代码切片已经实现
 `.deliverAt(...)` 的 generation-bound projection、无损 record/Attempt Journal、P1 evidence、
 AUTO_FAST timestamp alignment 和 activation gates，但 H0 仍作为缺少 exact generation/manifest/
-capability 的 fail-closed fallback。NDIP-1 虽为 `Accepted`，在 Gate C 与后续生产证据完成前不得
-标记 `Implemented`。
+capability 的 fail-closed fallback。当时 NDIP-1 仍为 `Accepted`；该历史判定已由后来的
+complete certification 和 Implemented closure 收束，不得将它误读为当前状态。
 
 ## 当前结论
 
@@ -362,7 +413,7 @@ Handoff 方向成立，但它不是 ordinary Managed 语义的透明优化。最
 
 ## 代码级就绪结论
 
-此前的 R1-R6 已在本 Accepted NDIP 中收敛为唯一答案，详见
+此前的 R1-R6 已在本 Implemented NDIP 中收敛为唯一答案，详见
 [`04-代码级目标设计.md`](04-代码级目标设计.md)：
 
 - Schedule policy 与 actual contract 分权，不增加 `DispatchMode`；
@@ -392,8 +443,11 @@ head 投影，防止 policy disabled 或 lead 缩小时 native head 阻塞 ordin
 | H5 | AUTO_FAST contract/timestamp/recovery slice | **implemented; disposable certification passed** | H4 + focused/full gates passed |
 | H6 | activation/reset/generation-barrier slice | **implemented；exact staging 结果只由 current pointer 决定** | H5 + each environment's exact gates |
 | local disposable testing | synthetic integration/recovery/fault environment | **ALLOWED；当前 PASS 由 exact 24-cell receipt verifier 决定** | Gate B PASS + exact complete disposable attestation |
+| NDIP-1 lifecycle | accepted implementation scope | **Implemented / CLOSED** | implementation receipt + complete certification |
 | SHADOW | environment-specific deployment | **由 exact current staging receipt 决定；其他环境 blocked** | exact environment Gate C PASS |
 | ENABLED | controlled native delivery activation | **仅允许 bounded canary；完成后必须回到 DISABLED** | Gate C PASS + SHADOW requirements PASS + signed Manifest/source lock/Worker barrier |
+| performance/scale | release evidence | **separate future work** | 后续独立场景和阈值 |
+| production rollout | release authority | **separate future work / no authority** | 后续 target-bound 治理 |
 
 H1-H6 代码切片完成后仍需在每个发布/部署边界重核最新源码签名、P1 source lock 和生成号
 占用；这属于正常的 source-drift 审计，不得借此重新打开本文已经关闭的产品契约。G0 pure
@@ -448,7 +502,7 @@ raw evidence digest、canonical physical Topic、policy chain 和 current pointe
 runner 原子更新 `deployment/current.json`。这首次证明 Assessment exact-byte、SHADOW closed type
 与 physical-target 三项修复在同一真实生产组合路径中共同闭合。
 
-该 run 是上述缺口的 immutable reference evidence，不是后续 checkout 的静态 authority。本文及
-其他非规范文档的提交会产生新 HEAD；当前 checkout 是否仍有本机 staging authority，继续只按本文
-开头定义的 current pointer、exact candidate equality 和独立 validator 判断，不从这里的历史 SHA
-或 run id 推断。
+该 run 是上述缺口的 immutable reference evidence。原始 evidence 仍 exact 绑定它的 candidate，
+当前 checkout 是否与该 candidate 具有同一 runtime source authority，则由
+`NDIP_RUNTIME_SOURCE` digest 解析。因此 README、执行记录或 receipt 变更不会自动要求
+重跑认证；registered runtime/build input 变化仍必须 fail-closed。

@@ -6,7 +6,7 @@
 - Amended: 2026-08-27（Gate B / Gate C 生命周期分权）
 - Discussion: `docs/ndip/NDIP-1/`
 - Supersedes: Accepted 后替代后续改进提案继续使用 NDP 身份与 `docs/proposals/` 入口的规则
-- Superseded by:
+- Superseded by: `NDIP-2` 替代 Implemented 与 deployment/production completion 耦合的部分解释；其余规则保持有效
 
 > 本提案于 2026-08-27 经 Nereus Delay 维护者明确接受，并在同日明确修订生命周期：
 > `Gate B = implementation authorization`，`Gate C = deployment / upgrade authorization`。
@@ -216,6 +216,11 @@ NDP-0001 的持续设计演进、兼容策略和无项目版本线规则不被�
 
 Accepted 后若 NDIP 治理需要修改，使用新的 NDIP supersede；不恢复并行 proposal authority，
 不删除历史 NDP。H0 runtime 不依赖治理 receipt，治理回滚不得开放 native physical path。
+
+2026-09-02，维护者按本条接受 `NDIP-2`。它不改变本提案的 Gate B / Gate C
+分权、外置 acceptance receipt 或 fail-closed 边界；仅把 proposal `Implemented` 与后续
+target deployment、performance/scale 及 production rollout 分开，并引入 scoped runtime-source
+authority。
 
 ## 未决问题
 

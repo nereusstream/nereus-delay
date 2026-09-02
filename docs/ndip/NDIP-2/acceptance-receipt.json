@@ -1,0 +1,48 @@
+{
+  "receiptSchema": "nereus-delay.ndip.acceptance-receipt",
+  "receiptSchemaGeneration": 3,
+  "proposalId": "NDIP-2",
+  "receiptStatus": "ACCEPTED",
+  "authority": true,
+  "preparedAt": "2026-09-02",
+  "governanceBridge": {
+    "proposalId": "NDP-0002",
+    "requiredStatus": "ACCEPTED",
+    "observedStatus": "ACCEPTED"
+  },
+  "normativePackage": {
+    "digestAlgorithm": "SHA-256",
+    "digestDomain": "nereus-delay-ndip-package\\0",
+    "pathBase": "repository-root",
+    "files": [
+      {
+        "path": "docs/ndip/NDIP-2/01-NDIP-生命周期与认证源码权威分层.md",
+        "sha256": "0a105fb2b73d63cabddf42d0ba3d5a9590b4edddd47242495f196bf56d15f642"
+      },
+      {
+        "path": "docs/ndip/NDIP-2/02-实施计划.md",
+        "sha256": "c882ecaa32413cb9e177243cf3efe91b97810c3cc10be81e61e7e458030c4ffa"
+      },
+      {
+        "path": "docs/ndip/NDIP-2/03-代码级目标设计.md",
+        "sha256": "ec1ba68ab3ac91aa667647e6289cd252b99da84d899f42f879821d6e5d7752e9"
+      }
+    ],
+    "digest": "856e1d768210a31fc9aad811af3a93c1de33189cc03c65bc1e36d57affbf10db"
+  },
+  "reviewBaseline": {
+    "mainCommit": "b4e077e9978f262cdb93cf3562ea12eee32430e2",
+    "governanceBaselineCommit": "b4e077e9978f262cdb93cf3562ea12eee32430e2"
+  },
+  "decision": {
+    "status": "ACCEPTED",
+    "acceptedBy": "Nereus Delay maintainers",
+    "acceptedAt": "2026-09-02",
+    "decisionReference": "Maintainer decision: close NDIP-1 implementation and lifecycle; separate deployment, performance/scale, and production rollout, 2026-09-02"
+  },
+  "authorization": {
+    "gateB": "PASS",
+    "implementationAuthorized": true,
+    "deploymentAuthority": false
+  }
+}

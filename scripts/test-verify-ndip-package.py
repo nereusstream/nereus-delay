@@ -11,6 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 VERIFIER_PATH = ROOT / "scripts/verify-ndip-package.py"
+NDIP1_ACCEPTED_TRANSITION_COMMIT = "77ffa61136c0cd401244ebea4375a5a18b097b17"
 SPEC = importlib.util.spec_from_file_location("verify_ndip_package", VERIFIER_PATH)
 if SPEC is None or SPEC.loader is None:
     raise RuntimeError("cannot load NDIP verifier")
@@ -28,7 +29,9 @@ class VerifyNdipPackageTest(unittest.TestCase):
         _, paths, package_digest = VERIFIER.validate_receipt_shape(
             self.receipt, self.package_dir, self.receipt_path, ROOT
         )
-        actual_digest, files = VERIFIER.calculate_package(paths, ROOT)
+        actual_digest, files = VERIFIER.calculate_package(
+            paths, ROOT, NDIP1_ACCEPTED_TRANSITION_COMMIT
+        )
         VERIFIER.verify_file_digests(self.receipt, files)
 
         self.assertEqual(package_digest, actual_digest)
@@ -40,6 +43,24 @@ class VerifyNdipPackageTest(unittest.TestCase):
             True,
             self.receipt["authorization"]["localDisposableTestingAuthorized"],
         )
+
+    def test_ndip2_accepted_receipt_binds_current_package_without_deployment_authority(
+        self,
+    ) -> None:
+        package_dir = ROOT / "docs/ndip/NDIP-2"
+        receipt_path = package_dir / "acceptance-receipt.json"
+        receipt = VERIFIER.load_receipt(receipt_path)
+        proposal_id, paths, package_digest = VERIFIER.validate_receipt_shape(
+            receipt, package_dir, receipt_path, ROOT
+        )
+        actual_digest, files = VERIFIER.calculate_package(paths, ROOT)
+        VERIFIER.verify_file_digests(receipt, files)
+
+        self.assertEqual("NDIP-2", proposal_id)
+        self.assertEqual(package_digest, actual_digest)
+        self.assertEqual("PASS", receipt["authorization"]["gateB"])
+        self.assertIs(True, receipt["authorization"]["implementationAuthorized"])
+        self.assertIs(False, receipt["authorization"]["deploymentAuthority"])
 
     def test_candidate_cannot_claim_implementation_authority(self) -> None:
         candidate = self._candidate()

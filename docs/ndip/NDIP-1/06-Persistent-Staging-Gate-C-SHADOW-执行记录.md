@@ -1,7 +1,8 @@
 # NDIP-1 Persistent Staging Gate C / SHADOW 执行记录
 
-> 本文件是非规范的 staging 认证与运维说明。它不修改 Accepted `01`–`04`，不改变
-> `acceptance-receipt.json` 的 digest，也不提供 production authority。
+> 本文件是非规范的 staging 认证与运维说明。它不修改 Implemented `01`–`04`，不改变
+> historical `acceptance-receipt.json` 或 `implementation-receipt.json` 的 digest，也不提供
+> production authority。
 
 ## 当前状态的唯一读取方式
 
@@ -19,16 +20,19 @@ root=/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay-staging/local-do
 <root>/deployment/current.json
 ```
 
-pointer 指向一个 immutable final summary。某个 checkout 只有同时满足以下条件，才可声称拥有本机
-staging 候选认证：
+pointer 指向一个 immutable final summary。某个 checkout 只有同时满足以下条件，才可声称与本机
+staging 认证绑定同一 runtime source authority：
 
 1. pointer、final summary 与所有引用 artifact 存在且 digest 匹配；
-2. final summary 的 `candidateCommit` 等于该 checkout 的 exact HEAD；
-3. Accepted NDIP package digest 和 P1 source lock 等于仓库当前固定值；
-4. 所有 authority envelope 由固定外部 staging trust root 验证；
-5. `e2e/validate-ndip1-persistent-certification.py` 返回 PASS；
-6. final state 为 `DISABLED`，active lease/send/Worker/native process 均为 0；
-7. `productionAuthority=false`。
+2. final summary 的 `candidateCommit` 与 evidence 仍 exact 相等；
+3. `implementation-receipt.json` 的 `NDIP_RUNTIME_SOURCE` digest 同时匹配原 candidate
+   和当前 checkout；
+4. historical Accepted package digest、Implemented package digest 和 P1 source lock 各自匹配其
+   receipt；
+5. 所有 authority envelope 由固定外部 staging trust root 验证；
+6. `e2e/validate-ndip1-persistent-certification.py` 返回 PASS；
+7. final state 为 `DISABLED`，active lease/send/Worker/native process 均为 0；
+8. `productionAuthority=false`。
 
 pointer 只在整个 pipeline 和独立验证全部完成后原子更新。中断、BLOCKED 或失败 run 不会替换
 current pointer，也不得被手工提升为 authority。
@@ -532,19 +536,47 @@ The independent validator returned `PASS` after rechecking the fixed external
 trust root, exact signed payload bytes, Assessment/Manifest chain, policy
 generations, all raw evidence digests, and final rollback. Only then did the
 runner atomically publish `deployment/current.json`. This run is immutable
-reference evidence for the three closure fixes; after any later source or
-documentation commit, current authority must again be resolved from an exact
-HEAD-matching pointer and a fresh independent validation rather than inferred
-from this historical run id.
+reference evidence for the three closure fixes. At the time, current authority
+still used exact HEAD equality. Accepted NDIP-2 later replaced that checkout
+comparison with the closed runtime-source digest while preserving this run's
+exact candidate binding.
+
+## 2026-09-02 lifecycle-closure certification binding
+
+Current pointer run `20260901055333-78920` binds candidate
+`b4e077e9978f262cdb93cf3562ea12eee32430e2` and the retained generation-3
+disposable run `20260901054312-70003-624`. Read-only independent revalidation
+confirmed exact disposable 24/24 plus 3/3 supporting checks, G0 and 13/13
+Manifest readback, Gate C 41/41, SHADOW `0/0/0`, AUTO_FAST `1/1/0`, Managed
+Handoff `1/1/1`, three Attempt Journal startup replay records, response-loss
+resolution, and final `DISABLED` with active lease/send counts both zero.
+
+The final summary SHA-256 is
+`f98c946916f66d3c9b19c723ce80f9161c2e0fdcc016df06dffe6b93ebac906b`;
+the signed independent-validation envelope SHA-256 is
+`a4b07808a404f514785fe1359099c157e17bde406128de934bd6d8705818f1ed`.
+The retained disposable verifier log SHA-256 is
+`79d83534a0851066b1930de46802177d974f911f4e1895393775ab0fca56a388`;
+it records the original receipt as a non-authoritative PASS with 24/24 and
+zero uncovered cells. These remain external immutable artifacts. No receipt
+or run was copied, rewritten, or rebound.
+
+The maintainer decision on 2026-09-02 uses this complete certification as
+NDIP-1 implementation-closure evidence. The evidence itself remains
+`classification=STAGING` and `productionAuthority=false`. No deployment,
+performance/scale run, or production rollout was performed for this lifecycle
+transition.
 
 ## Authority 边界
 
-即使 current pointer 对某个 HEAD 验证 PASS，也只说明固定本机 staging 的 bounded 候选认证：
+即使 current pointer 对某个 certified runtime source 验证 PASS，也只说明固定本机 staging 的
+bounded 认证：
 
 - `productionAuthority=false`；
 - 不提供 production 数据处置、部署或升级 authority；
 - 不证明长时 soak、容量、SLO、跨 region/tenant、operator rotation 或 release readiness；
-- 不把 NDIP-1 状态改为 `Implemented`；
+- run 本身不自动改变 NDIP lifecycle；2026-09-02 的维护者决定与 closed
+  implementation receipt 已将 NDIP-1 标记为 `Implemented`；
 - 其他环境仍须独立 G0、Manifest、Gate C、SHADOW、canary 和 rollback。
 
 Docker staging infrastructure、bind mounts、source overlay、历史/当前 immutable artifacts 均保留，

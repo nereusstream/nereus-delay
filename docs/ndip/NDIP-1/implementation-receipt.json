@@ -1,0 +1,120 @@
+{
+  "receiptSchema": "nereus-delay.ndip.implementation-receipt",
+  "receiptSchemaGeneration": 1,
+  "proposalId": "NDIP-1",
+  "receiptStatus": "IMPLEMENTED",
+  "authority": true,
+  "preparedAt": "2026-09-02",
+  "governanceAuthority": {
+    "proposalId": "NDIP-2",
+    "requiredStatus": "ACCEPTED",
+    "acceptanceReceipt": "docs/ndip/NDIP-2/acceptance-receipt.json",
+    "acceptanceReceiptSha256": "3150de471708481d691377ce91bd855664eda4066cdd3eda1372996646db171f"
+  },
+  "acceptedPackageHistory": {
+    "receiptPath": "docs/ndip/NDIP-1/acceptance-receipt.json",
+    "receiptSha256": "31ef091925764e6bad03a5510de4b3a11fde75f42432d31c86c7602bcf62f4eb",
+    "transitionCommit": "77ffa61136c0cd401244ebea4375a5a18b097b17",
+    "normativePackageDigest": "13caab8ecdc201901f06e905f1c0bf9792780e50c6f5948f93abf2bdb8f4d21b"
+  },
+  "implementedNormativePackage": {
+    "digestAlgorithm": "SHA-256",
+    "digestDomain": "nereus-delay-ndip-package\\0",
+    "pathBase": "repository-root",
+    "files": [
+      {
+        "path": "docs/ndip/NDIP-1/01-调查与决策记录.md",
+        "sha256": "73130de9b053497814cc2c1290da87ecc293c7c6fe65ebe6b4df439c200d9b2a"
+      },
+      {
+        "path": "docs/ndip/NDIP-1/02-NDIP-1-Pulsar-Native-Delivery.md",
+        "sha256": "9248fb7c7390d558d0533ded53b3110d6c8c9f096349ee64a54a41d154d9665f"
+      },
+      {
+        "path": "docs/ndip/NDIP-1/03-实施计划.md",
+        "sha256": "9234cbf060cdd8f6c89568eb47ae9925cf42095540311088399f00569e05ba1d"
+      },
+      {
+        "path": "docs/ndip/NDIP-1/04-代码级目标设计.md",
+        "sha256": "6d37a3e41f55f15cc0b829e862faba6668108d16fcda152573f9dc9caa37af81"
+      }
+    ],
+    "digest": "792ca54e239d884ba6f95315747f565bab57ee0fc02338a77369cb19bbe8e8a7"
+  },
+  "runtimeSourceAuthority": {
+    "digestAlgorithm": "SHA-256",
+    "digestDomain": "nereus-delay-runtime-source-authority\\0",
+    "scope": "NDIP_RUNTIME_SOURCE",
+    "certifiedCommit": "b4e077e9978f262cdb93cf3562ea12eee32430e2",
+    "fileCount": 835,
+    "digest": "03ce17ede4b9e70e2f70dd2bbef681087f529159549a4cd979d0d7aa34fa9948"
+  },
+  "certificationToolingHistory": {
+    "digestAlgorithm": "SHA-256",
+    "digestDomain": "nereus-delay-certification-tooling\\0",
+    "scope": "NDIP_CERTIFICATION_TOOLING",
+    "certifiedCommit": "b4e077e9978f262cdb93cf3562ea12eee32430e2",
+    "fileCount": 73,
+    "digest": "4ea393ae27f6967368e2c8a94e546536927fc25e4968a903d5a22b4ded2400cc"
+  },
+  "certificationEvidence": {
+    "disposableLocal": {
+      "classification": "DISPOSABLE_LOCAL",
+      "runId": "20260901054312-70003-624",
+      "candidateCommit": "b4e077e9978f262cdb93cf3562ea12eee32430e2",
+      "acceptedPackageDigest": "13caab8ecdc201901f06e905f1c0bf9792780e50c6f5948f93abf2bdb8f4d21b",
+      "p1SourceLock": "0a2536484cd3932801a98dc88ff112b2df88a1c7",
+      "receiptSha256": "f82c50667410608b03bac4767553183dabc03c42ae286bc42bd0c5de754fa286",
+      "stagingVerifierLogSha256": "79d83534a0851066b1930de46802177d974f911f4e1895393775ab0fca56a388",
+      "matrixPassed": 24,
+      "matrixTotal": 24,
+      "supportingChecksPassed": 3,
+      "supportingChecksTotal": 3,
+      "status": "PASS",
+      "authority": false
+    },
+    "persistentStaging": {
+      "classification": "STAGING",
+      "environmentId": "local-docker-staging-ndip1",
+      "runId": "20260901055333-78920",
+      "candidateCommit": "b4e077e9978f262cdb93cf3562ea12eee32430e2",
+      "acceptedPackageDigest": "13caab8ecdc201901f06e905f1c0bf9792780e50c6f5948f93abf2bdb8f4d21b",
+      "p1SourceLock": "0a2536484cd3932801a98dc88ff112b2df88a1c7",
+      "finalSummarySha256": "f98c946916f66d3c9b19c723ce80f9161c2e0fdcc016df06dffe6b93ebac906b",
+      "signedValidationSha256": "a4b07808a404f514785fe1359099c157e17bde406128de934bd6d8705818f1ed",
+      "signedValidationPayloadSha256": "a7abaabc09140b9d083890042d311e7d233cc9e1c76d9a2525fc5d2aaef174e7",
+      "trustedPublicKeySha256": "30203c4b062509461bb3520f30487193afbe3959c37ccc4268957f478d03f94a",
+      "gateC": "41/41",
+      "manifestReadback": "13/13",
+      "shadow": "PASS_0_0_0",
+      "autoFastCanary": "PASS_1_1_0",
+      "managedHandoffCanary": "PASS_1_1_1",
+      "attemptJournalStartupReplayRecords": 3,
+      "finalPolicy": "DISABLED",
+      "activeLeaseCount": 0,
+      "activeSendCount": 0,
+      "status": "PASS",
+      "productionAuthority": false
+    },
+    "productionAuthority": false
+  },
+  "decision": {
+    "status": "IMPLEMENTED",
+    "implementedBy": "Nereus Delay maintainers",
+    "implementedAt": "2026-09-02",
+    "decisionReference": "Maintainer decision: NDIP-1 implementation and lifecycle are complete; deployment, performance/scale, and production rollout remain separate future work, 2026-09-02"
+  },
+  "closure": {
+    "implementation": "CLOSED",
+    "lifecycle": "CLOSED",
+    "deployment": "SEPARATE_FUTURE_WORK",
+    "performanceAndScale": "SEPARATE_FUTURE_WORK",
+    "productionRollout": "SEPARATE_FUTURE_WORK",
+    "productionAuthority": false,
+    "deferredScopes": [
+      "target-environment deployment",
+      "performance and scale scenarios",
+      "production rollout"
+    ]
+  }
+}

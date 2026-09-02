@@ -66,7 +66,7 @@ sourceSets {
 
 def runningArtifactIdentityDir = layout.buildDirectory.dir('generated/resources/source-identity')
 tasks.register('generateRunningArtifactIdentity') {
-    description = 'Generates the source commit and cleanliness bound into the runnable artifact.'
+    description = 'Generates the certified runtime-source commit or exact fallback HEAD into the runnable artifact.'
     outputs.dir(runningArtifactIdentityDir)
     outputs.upToDateWhen { false }
     doLast {
@@ -86,10 +86,27 @@ tasks.register('generateRunningArtifactIdentity') {
             throw new GradleException('git returned a non-canonical source commit')
         }
         def trackedStatus = runGit(['status', '--porcelain'])
+        def resolvedCommit = commit
+        def resolvedClean = trackedStatus.isEmpty()
+        def lifecycleVerifier = new ProcessBuilder([
+                'python3', '-B', 'scripts/verify-ndip-implementation.py',
+                '--resolve-running-source-commit'
+        ])
+                .directory(rootDir)
+                .redirectErrorStream(true)
+                .start()
+        def certifiedCommit = lifecycleVerifier.inputStream.getText('UTF-8').trim()
+        if (lifecycleVerifier.waitFor() == 0) {
+            if (!(certifiedCommit ==~ /[0-9a-f]{40}/)) {
+                throw new GradleException('NDIP lifecycle verifier returned a non-canonical certified commit')
+            }
+            resolvedCommit = certifiedCommit
+            resolvedClean = true
+        }
         def outputDir = runningArtifactIdentityDir.get().asFile
         def identity = new File(outputDir, 'META-INF/nereus-delay-source-identity.properties')
         identity.parentFile.mkdirs()
-        identity.setText("sourceCommit=${commit}\ntrackedSourceClean=${trackedStatus.isEmpty()}\n", 'UTF-8')
+        identity.setText("sourceCommit=${resolvedCommit}\ntrackedSourceClean=${resolvedClean}\n", 'UTF-8')
     }
 }
 
@@ -1079,6 +1096,12 @@ def designDocumentPaths = [
         'docs/ndip/NDIP-1/README.md',
         'docs/ndip/NDIP-1/G0-DataResetAssessment-执行状态.md',
         'docs/ndip/NDIP-1/acceptance-receipt.json',
+        'docs/ndip/NDIP-1/implementation-receipt.json',
+        'docs/ndip/NDIP-2/README.md',
+        'docs/ndip/NDIP-2/01-NDIP-生命周期与认证源码权威分层.md',
+        'docs/ndip/NDIP-2/02-实施计划.md',
+        'docs/ndip/NDIP-2/03-代码级目标设计.md',
+        'docs/ndip/NDIP-2/acceptance-receipt.json',
         'docs/adr/README.md',
         'docs/adr/0043-share-one-semantic-core-across-direct-sdk-and-delay-gateway.md',
         'docs/adr/0044-use-first-class-guarded-broker-transports.md'
@@ -1086,12 +1109,30 @@ def designDocumentPaths = [
 
 tasks.register('verifyNdip1PackageAccepted', Exec) {
     group = 'verification'
-    description = 'Verifies the accepted NDIP-1 package and its final Gate B receipt.'
+    description = 'Verifies the preserved NDIP-1 Accepted package at its immutable transition commit.'
     workingDir projectDir
     commandLine 'python3', '-B', 'scripts/verify-ndip-package.py',
             '--package-dir', 'docs/ndip/NDIP-1',
             '--receipt', 'docs/ndip/NDIP-1/acceptance-receipt.json',
+            '--source-commit', '77ffa61136c0cd401244ebea4375a5a18b097b17',
             '--require-accepted'
+}
+
+tasks.register('verifyNdip2PackageAccepted', Exec) {
+    group = 'verification'
+    description = 'Verifies the current Accepted NDIP-2 lifecycle/source-authority package.'
+    workingDir projectDir
+    commandLine 'python3', '-B', 'scripts/verify-ndip-package.py',
+            '--package-dir', 'docs/ndip/NDIP-2',
+            '--receipt', 'docs/ndip/NDIP-2/acceptance-receipt.json',
+            '--require-accepted'
+}
+
+tasks.register('verifyNdip1Implemented', Exec) {
+    group = 'verification'
+    description = 'Verifies NDIP-1 Implemented lifecycle closure and current scoped runtime-source equivalence.'
+    workingDir projectDir
+    commandLine 'python3', '-B', 'scripts/verify-ndip-implementation.py'
 }
 
 tasks.register('testNdip1PackageVerifier', Exec) {
@@ -1099,6 +1140,13 @@ tasks.register('testNdip1PackageVerifier', Exec) {
     description = 'Runs focused closed-schema and lifecycle tests for the NDIP package verifier.'
     workingDir projectDir
     commandLine 'python3', '-B', 'scripts/test-verify-ndip-package.py'
+}
+
+tasks.register('testNdip1ImplementationVerifier', Exec) {
+    group = 'verification'
+    description = 'Runs scoped source-authority and lifecycle-closure fail-closed tests.'
+    workingDir projectDir
+    commandLine 'python3', '-B', 'scripts/test-verify-ndip-implementation.py'
 }
 
 tasks.register('testNdip1PersistentCertificationValidators', Exec) {
@@ -1116,7 +1164,10 @@ tasks.register('checkDocumentation') {
     group = 'verification'
     description = 'Checks current authority documents, accepted proposals, NDIP receipts, and baseline revision.'
     dependsOn tasks.named('verifyNdip1PackageAccepted')
+    dependsOn tasks.named('verifyNdip2PackageAccepted')
+    dependsOn tasks.named('verifyNdip1Implemented')
     dependsOn tasks.named('testNdip1PackageVerifier')
+    dependsOn tasks.named('testNdip1ImplementationVerifier')
     doLast {
         designDocumentPaths.each { path ->
             if (!file(path).isFile()) {
@@ -1139,6 +1190,7 @@ tasks.register('checkDocumentation') {
         def ndipIndex = read('docs/ndip/README.md')
         def ndipPackageReadme = read('docs/ndip/NDIP-1/README.md')
         def dataResetAssessmentStatus = read('docs/ndip/NDIP-1/G0-DataResetAssessment-执行状态.md')
+        def ndip2PackageReadme = read('docs/ndip/NDIP-2/README.md')
 
         [
                 [design, '本文是 Nereus Delay 当前实现与验收基线'],
@@ -1161,14 +1213,21 @@ tasks.register('checkDocumentation') {
                 [ndipGovernanceProposal, 'Status: Accepted'],
                 [ndipGovernanceProposal, 'candidate 永远不产生 authority'],
                 [ndipIndex, 'NDIP-1'],
+                [ndipIndex, 'NDIP-2'],
                 [ndipIndex, 'Gate B PASS'],
-                [ndipPackageReadme, '提案状态：`Accepted`'],
+                [ndipIndex, 'implementation/lifecycle CLOSED'],
+                [ndipPackageReadme, '提案状态：`Implemented`'],
                 [ndipPackageReadme, 'acceptance-receipt.json'],
-                [ndipPackageReadme, 'H1 READY'],
-                [dataResetAssessmentStatus, 'NOT_APPLICABLE_FOR_IMPLEMENTATION'],
+                [ndipPackageReadme, 'implementation-receipt.json'],
+                [ndipPackageReadme, 'productionAuthority=false'],
+                [ndip2PackageReadme, '提案状态：`Accepted`'],
+                [ndip2PackageReadme, 'scoped runtime-source authority'],
+                [dataResetAssessmentStatus, '`Implemented`'],
                 [dataResetAssessmentStatus, 'PENDING_DEPLOYMENT'],
                 [status, revision],
-                [audit, revision]
+                [status, 'NDIP-1 implementation and lifecycle closure'],
+                [audit, revision],
+                [audit, 'NDIP-1 lifecycle and source-authority closure']
         ].each { entry ->
             if (!entry[0].contains(entry[1])) {
                 throw new GradleException("documentation invariant is missing: ${entry[1]}")
@@ -1178,6 +1237,10 @@ tasks.register('checkDocumentation') {
         if (file('docs/ndip/NDIP-1/acceptance-receipt.candidate.json').exists()) {
             throw new GradleException(
                     'NDIP-1 candidate receipt must not remain after the Accepted transition')
+        }
+        if (file('docs/ndip/NDIP-2/acceptance-receipt.candidate.json').exists()) {
+            throw new GradleException(
+                    'NDIP-2 candidate receipt must not remain after the Accepted transition')
         }
 
         def revisionMarkers = [
