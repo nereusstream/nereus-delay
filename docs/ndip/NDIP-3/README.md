@@ -12,6 +12,7 @@
 2. [实施计划](02-实施计划.md)：依赖、交付边界及验证要求。
 3. [代码级设计](03-代码级设计.md)：实际调用链、接口与状态决定，随切片同步。
 4. [Target 身份与索引契约](05-Target身份与索引契约.md)：B1 已固定的物理身份、key、queue/domain/head/work/Message/runtime/Expiry/ORDER_STATE 编码及拒绝边界。
+5. [执行与控制兼容契约](06-执行与控制兼容契约.md)：B2 已实现的规范化执行/控制引用、有界注册规划和稳定拒绝；本切片仍在实施。
 
 README、执行状态、用户决策记录、测量和 receipt 不进入 normative package。
 当前完整设计保留导入时的 Draft/PLANNED 描述；它是启动基线，不代表新增权限障碍，
@@ -29,6 +30,14 @@ B1 身份与存储契约已验证：物理身份、候选/严格顺序 key、Tar
 B1 的验收范围按原设计 §17.3，后续责任见字段契约 §19：B2–B6 引用与行为、C1/E5 原子
 mutation、格式激活和 B6/F1 转换继续完成。B1 VERIFIED 不代表提案接受、Target 新 runtime
 或完整方案完成；A2 仍为 IN_PROGRESS。
+
+B2 正在实施：执行/控制 scope 的完整对象与独立向量、有界注册规划、五个稳定拒绝码
+已实现。已有 offered contract 可以覆盖较弱要求，独立 Pause/credential/permit 集合
+保持不同域；注册规划绑定 queue revision/digest，禁止 DRAINING 绕过与 generation 回绕。
+source-bound membership、完整 Schedule binding、通道身份/旧 attempt 冻结与 teardown
+仍需 B2 完成，活动 Store/source 路径尚未接入这些对象。
+本批完整 check 通过：1800 项 Java 测试、失败/错误 0、外部 skip 41；B2 专项 20 项
+零 skip，加上 B1 70 项共 90 项 Target 契约回归。证据见 `evidence/b2-compatibility-results.json`。
 
 [29 项状态清单](progress.json) 是实施进度入口；[执行记录](04-执行记录.md) 保存实际命令、
 源码身份、测试和环境结果。仅当全部必做实现及证据实际闭合才办理 Implemented。

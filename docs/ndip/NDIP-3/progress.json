@@ -62,8 +62,13 @@
     {
       "id": "B2",
       "title": "执行控制兼容及有界域",
-      "status": "PLANNED",
-      "evidence": []
+      "status": "IN_PROGRESS",
+      "evidence": [
+        "evidence/b2-compatibility-results.json",
+        "evidence/b2-compatibility-check.log",
+        "evidence/b2-final-docs-check.log"
+      ],
+      "progress": "Normalized immutable dispatch/control reference codecs, directional requirement coverage, bounded single/K-domain registration planning and five stable rejection codes implemented. Full source-bound membership and Schedule binding authority, channel identity and old-attempt freezing, teardown and complete support matrix remain B2 work; source-ordered mutation and production activation are not claimed. Full check passed 1800 Java tests with 0 failures/errors and 41 external skips; 90 B1/B2 contract tests had no skips."
     },
     {
       "id": "B3",

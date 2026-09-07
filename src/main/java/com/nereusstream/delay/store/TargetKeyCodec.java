@@ -18,6 +18,8 @@ public final class TargetKeyCodec {
     public static final int STATE_TAG = 9;
     public static final int ORDER_STATE_TAG = 10;
     public static final int IDENTITY_TAG = 11;
+    public static final int DISPATCH_COMPATIBILITY_TAG = 12;
+    public static final int CONTROL_SCOPE_TAG = 13;
     public static final int MESSAGE_TAG = 5;
     public static final int MAX_DOMAIN_SLOT = 0xffff;
     public static final int CANDIDATE_PREFIX_BYTES = 2 + TargetPartitionId.LENGTH + 2 + 8;
@@ -363,6 +365,23 @@ public final class TargetKeyCodec {
 
     public static byte[] identity(final TargetPartitionId target) {
         return Bytes.concat(new byte[] {IDENTITY_TAG, KEY_FORMAT}, target.bytes());
+    }
+
+    public static byte[] dispatchCompatibility(final byte[] digest) {
+        requireAssignedDigest(digest, "dispatchCompatibilityDigest");
+        return Bytes.concat(new byte[] {DISPATCH_COMPATIBILITY_TAG, KEY_FORMAT}, digest);
+    }
+
+    public static byte[] controlScope(final byte[] digest) {
+        requireAssignedDigest(digest, "controlScopeDigest");
+        return Bytes.concat(new byte[] {CONTROL_SCOPE_TAG, KEY_FORMAT}, digest);
+    }
+
+    private static void requireAssignedDigest(final byte[] digest, final String name) {
+        Bytes.requireLength(digest, 32, name);
+        if (Arrays.equals(digest, new byte[32])) {
+            throw new IllegalArgumentException(name + " is unassigned");
+        }
     }
 
     private static void requireOrderingDomain(final byte[] orderingDomain) {

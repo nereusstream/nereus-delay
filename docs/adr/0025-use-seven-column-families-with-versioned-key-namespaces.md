@@ -119,3 +119,13 @@ remove a barrier while attempts remain unresolved. The bounded codecs preserve o
 strict semantics under contract 1; contract 2 is reserved for the explicit Admission
 watermark. B5/E5 define and activate late-insertion behavior, with B6/F1 proving the
 old-data transition. These reservations remain inactive and do not add a column family.
+
+
+B2 additionally reserves immutable execution/control contracts at meta tags 0c/0d,
+with keys `tag + 01 + digest[32]` and NV types 18/19. Their closed canonical byte
+bounds are 1049187 and 2396. Domain summaries reference the entire verified objects;
+content equality and offered-requirement coverage are distinct. The bounded registration
+planner validates all non-VACANT references and keeps slot generation history, without
+writing source results or granting execution authority. Group membership, Schedule binding,
+channel freezing and teardown remain B2 work. The [B2 contract](../ndip/NDIP-3/06-执行与控制兼容契约.md)
+records these obligations; the active format and existing seven CFs remain unchanged.

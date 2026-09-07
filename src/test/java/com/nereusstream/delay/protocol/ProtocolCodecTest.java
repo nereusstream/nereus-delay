@@ -1259,7 +1259,7 @@ class ProtocolCodecTest {
                     values.add(code.wireValue()), "duplicate stable code: " + code.wireValue());
             assertEquals(code, StableCode.fromWire(code.wireValue()));
         }
-        assertEquals(103, values.size());
+        assertEquals(108, values.size());
         assertThrows(IllegalArgumentException.class, () -> StableCode.fromWire(0x7fff));
     }
 

@@ -5944,3 +5944,18 @@ B1 按原设计 §17.3 验收身份、存储字段、独立向量和旧 reader �
 原子 mutation、激活和迁移属于 B2–B6/C1/E5/F1，不反向成为 B1 的循环前置。B7 仍需
 完整交叉契约和真实接受记录。`checkTargetIdentityVectors` 已接入常规 `check`；B1 局部
 验证不代表新 runtime、真实 Broker/恢复认证、完整方案或 production authority。
+
+
+### NDIP-3 B2 执行/控制兼容的第一批实现
+
+[执行与控制兼容契约](ndip/NDIP-3/06-执行与控制兼容契约.md) 固定规范化的执行要求、
+额外控制/permit 集合及有界注册规划。已有执行契约可以覆盖较弱的 Profile 要求，
+但授权、outcome、恢复身份和完整阻塞控制集合必须满足共队条件；Profile version、
+retry、payload 与 bucket 本身不拆分执行域。A 独立暂停/B 健康的组合在基础单域拒绝
+新绑定，不能混入一个前缀后靠向后扫描补救。
+
+dispatch/control 的完整对象通过 meta 0c/0d、reserved NV 18/19 引用；基础域数=1，
+schema=64 的边界供 E2 使用。注册规划精确绑定 queue revision/digest、优先匹配 ACTIVE、
+拒绝 DRAINING、保持 generation 不回绕。它不授予发送权限或提交 source 结果。
+完整 membership/Schedule binding、通道身份/旧 attempt 冻结与 teardown 仍由 B2 完成，
+C1/C2 的实际 mutation/通道池和 D/E 的真实验证继续执行。当前 B2 为 IN_PROGRESS。

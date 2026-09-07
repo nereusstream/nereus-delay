@@ -32,6 +32,14 @@ Independent vector checking is part of the standard check task. B1 evidence is i
 scope; B2–B6 reference/behavior contracts, C1/E5 atomic mutations and activation, and B6/F1
 migration remain required in their respective slices. B7 still requires a complete accepted
 package. A2 remains in progress independently of B1.
+B2 is in progress: normalized dispatch/control references, requirement coverage, bounded
+registration planning and five stable rejection codes are implemented. Independent vectors
+cover four delivery-capability branches, complete control/permit groups and byte/count bounds.
+Source-bound membership and Schedule binding authority, channel identity and old-attempt
+freezing, teardown and the full support matrix remain B2 obligations. The planner does not
+write source results or activate the reserved NV 18/19 format. The full check passed 1800 Java
+tests with zero failures/errors and 41 external skips; 20 B2 tests and 70 B1 regression
+tests had no skips. Evidence is in `docs/ndip/NDIP-3/evidence/b2-compatibility-results.json`.
 No active Target scheduling runtime, Broker certification or migration is claimed yet. The user authorized
 full implementation and incremental publication on main. NDIP-1 remains closed;
 its historical evidence does not certify changed runtime source.
