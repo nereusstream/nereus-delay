@@ -35,11 +35,16 @@ package. A2 remains in progress independently of B1.
 B2 is in progress: normalized dispatch/control references, requirement coverage, bounded
 registration planning and five stable rejection codes are implemented. Independent vectors
 cover four delivery-capability branches, complete control/permit groups and byte/count bounds.
-Source-bound membership and Schedule binding authority, channel identity and old-attempt
-freezing, teardown and the full support matrix remain B2 obligations. The planner does not
-write source results or activate the reserved NV 18/19 format. The full check passed 1800 Java
+Exact Schedule/Prepare bindings and immutable channel/lease identities are now implemented,
+including bounded nested decoding, source/locator/queue projections and frozen renewal rules.
+Teardown and the managed capability matrix are fixed in the B2 record contract; the complete
+membership grant and shared credential/guarantee authority remain B2 work. Actual source
+mutation, channel pools and teardown remain C1/C2 work. Reserved NV 18..21 are inactive. The full check passed 1800 Java
 tests with zero failures/errors and 41 external skips; 20 B2 tests and 70 B1 regression
 tests had no skips. Evidence is in `docs/ndip/NDIP-3/evidence/b2-compatibility-results.json`.
+The binding/channel batch adds 18 tests: the full check now has 1818 Java tests with
+zero failures/errors and 41 external skips; all 108 Target contract tests had no skips.
+Exact evidence is in `docs/ndip/NDIP-3/evidence/b2-binding-channel-results.json`.
 No active Target scheduling runtime, Broker certification or migration is claimed yet. The user authorized
 full implementation and incremental publication on main. NDIP-1 remains closed;
 its historical evidence does not certify changed runtime source.

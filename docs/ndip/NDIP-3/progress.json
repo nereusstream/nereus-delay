@@ -66,9 +66,11 @@
       "evidence": [
         "evidence/b2-compatibility-results.json",
         "evidence/b2-compatibility-check.log",
-        "evidence/b2-final-docs-check.log"
+        "evidence/b2-final-docs-check.log",
+        "evidence/b2-binding-channel-results.json",
+        "evidence/b2-binding-channel-check.log"
       ],
-      "progress": "Normalized immutable dispatch/control reference codecs, directional requirement coverage, bounded single/K-domain registration planning and five stable rejection codes implemented. Full source-bound membership and Schedule binding authority, channel identity and old-attempt freezing, teardown and complete support matrix remain B2 work; source-ordered mutation and production activation are not claimed. Full check passed 1800 Java tests with 0 failures/errors and 41 external skips; 90 B1/B2 contract tests had no skips."
+      "progress": "Execution/control references and bounded registration planning are implemented. Exact Schedule/Prepare body and source bindings, immutable channel/lease identities, Store/locator/queue projections and frozen renewal helpers are implemented; teardown rules and the managed support matrix are fixed. Complete source-bound membership grant and shared credential/guarantee authority remain B2 work. C1/C2 actual mutation, activation, channel pools and teardown are not certified; all remaining 29-slice obligations remain in scope. Full check: 1818 Java tests, 0 failures/errors and 41 external skips; 108 Target contract tests have no skips."
     },
     {
       "id": "B3",

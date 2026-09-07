@@ -20,7 +20,9 @@ public final class TargetKeyCodec {
     public static final int IDENTITY_TAG = 11;
     public static final int DISPATCH_COMPATIBILITY_TAG = 12;
     public static final int CONTROL_SCOPE_TAG = 13;
+    public static final int CHANNEL_IDENTITY_TAG = 14;
     public static final int MESSAGE_TAG = 5;
+    public static final int SCHEDULE_BINDING_TAG = 6;
     public static final int MAX_DOMAIN_SLOT = 0xffff;
     public static final int CANDIDATE_PREFIX_BYTES = 2 + TargetPartitionId.LENGTH + 2 + 8;
 
@@ -375,6 +377,16 @@ public final class TargetKeyCodec {
     public static byte[] controlScope(final byte[] digest) {
         requireAssignedDigest(digest, "controlScopeDigest");
         return Bytes.concat(new byte[] {CONTROL_SCOPE_TAG, KEY_FORMAT}, digest);
+    }
+
+    public static byte[] channelIdentity(final byte[] digest) {
+        requireAssignedDigest(digest, "channelIdentityDigest");
+        return Bytes.concat(new byte[] {CHANNEL_IDENTITY_TAG, KEY_FORMAT}, digest);
+    }
+
+    public static byte[] scheduleBinding(final byte[] digest) {
+        requireAssignedDigest(digest, "scheduleBindingDigest");
+        return Bytes.concat(new byte[] {SCHEDULE_BINDING_TAG, KEY_FORMAT}, digest);
     }
 
     private static void requireAssignedDigest(final byte[] digest, final String name) {

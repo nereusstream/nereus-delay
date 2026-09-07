@@ -129,3 +129,15 @@ planner validates all non-VACANT references and keeps slot generation history, w
 writing source results or granting execution authority. Group membership, Schedule binding,
 channel freezing and teardown remain B2 work. The [B2 contract](../ndip/NDIP-3/06-执行与控制兼容契约.md)
 records these obligations; the active format and existing seven CFs remain unchanged.
+
+
+B2 reserves exact Target Schedule bindings at id tag 06 / NV 21 and immutable channel
+identities at meta tag 0e / NV 20; both keys use `tag + 01 + digest[32]`. Store decoders
+also verify the source Shard. Binding bodies retain exact Schedule/Prepare bytes and the
+original authorization source, with bounded preflight before legacy nested decoders.
+Channel renewals preserve the producer/sequence domain while advancing channel generation
+and replacing the complete lease; a new identity cannot overwrite an old frozen attempt.
+Canonical bounds are 20976072 bytes per binding and 1279 per channel identity. The
+[record contract](../ndip/NDIP-3/07-Schedule绑定与通道身份契约.md) fixes lifetime/teardown rules;
+complete membership grants, actual reference retirement and format activation remain
+separate B2/C1/C2/B6/F1 work. No column family or active Lane format is changed.

@@ -5959,3 +5959,22 @@ schema=64 的边界供 E2 使用。注册规划精确绑定 queue revision/diges
 拒绝 DRAINING、保持 generation 不回绕。它不授予发送权限或提交 source 结果。
 完整 membership/Schedule binding、通道身份/旧 attempt 冻结与 teardown 仍由 B2 完成，
 C1/C2 的实际 mutation/通道池和 D/E 的真实验证继续执行。当前 B2 为 IN_PROGRESS。
+
+
+### NDIP-3 B2 精确 Schedule 绑定与通道身份
+
+[绑定/通道契约](ndip/NDIP-3/07-Schedule绑定与通道身份契约.md) 已实现完整 Schedule/
+Prepare body、授权 source、required/offered/control 引用和 Message locator 的静态
+校验。Prepare source 与 Commit 后的 Message source 分离；原命令 bytes 和历史的
+FORBID 默认保留，不能由兼容解码获得 Native 权限。body 的嵌套长度和 field/count
+检查先于原 decoder 的列表分配，binding canonical 上限 20976072 bytes。
+
+TargetChannelIdentity 固定 source Shard、Target、accounting/domain、channel slot/
+generation、resource guard 和完整 credential lease。续期保持 stable producer/
+transactional identity、sequence/journal 域，channelGeneration 恰好加一且禁止回绕；
+旧 attempt 继续要求精确冻结身份。普通关闭、逻辑 refcount 归零和 lease 到期均不单独
+授权释放未决/zombie/Journal/恢复保护。通道 identity 上限 1279 bytes。
+
+meta 0e/NV 20 与 id 06/NV 21 只是新格式预留。B2 的完整 membership grant/共同
+credential 与保证权威仍在实施；C1/C2 接入实际 source 原子 mutation、通道池与
+teardown，B3 决定 Native scope。新静态 codec 不认证发送权限、Broker 或迁移。

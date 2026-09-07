@@ -2126,3 +2126,29 @@ producer 的受控上限必须落在候选认证上限以内，实际保证与�
 至多 64，E2 完成前不激活 K>1。已匹配的 ACTIVE 域优先，DRAINING 拒绝新绑定，
 VACANT generation 禁止回绕。本文及测试不提供 source/binding/通道权限；完整
 membership、Schedule binding、通道冻结与 teardown 仍属于 B2 未完成范围。
+
+
+### NDIP-3 B2：精确绑定与通道身份预留（未激活）
+
+[精确字段、身份公式及边界](ndip/NDIP-3/07-Schedule绑定与通道身份契约.md) 固定
+TargetScheduleBinding 与 TargetChannelIdentity。前者使用 id `06 01 + digest[32]`、
+reserved NV 21；后者使用 meta `0e 01 + digest[32]`、reserved NV 20。canonical 上限
+分别为 20976072/1279 bytes，Store 解码必须核对 exact key 和 source Shard。
+
+binding 保留完整 Schedule/Prepare canonical body 和其 source，required/offered/control/
+membership refs、accounting/domain 及可选 Native/ordering 投影。bounded preflight
+限定 body、metadata/header/property 数量、Profile/retry 与对象身份，再调用原 exact
+decoder；不重写旧 prepared bytes 或 omitted-policy intent。membershipGrantRef 的
+完整对象和 source-bound 权威仍由 B2 闭合，引用 hash 本身不是授权。
+
+channel 的 producer identity 为 `nd-target-` 加 domain-separated SHA-256 的 lowercase
+hex，输入覆盖 source Shard、Target、accounting/domain、kind、channelSlot、dispatch/
+control refs。续期排除 channelGeneration/credential generation 对 stable producer 名称
+的影响，但 holder scope 包含整个 context 且使用独立 Target hash domain；不得沿用
+Lane holder scope。完整 lease 的续期必须形成恰好加一的新 channel generation，不能
+替换旧 attempt 冻结身份或重置 sequence/evidence generation。
+
+新对象只容纳 managed baseline、Kafka receipt、Pulsar Journal 三种 channel kind。
+Native managed handoff 保留原 outcome 类别并另验 B3 共同 policy；不能改成 direct
+AUTO_FAST 的 kind。teardown/支持矩阵见契约 §3/§4，实际 C1/C2/D 验证继续执行。
+有效 CRC 的 NV 20/21 仍由活动 Lane reader 拒绝，format 1 与 NV 1..11 未切换。
