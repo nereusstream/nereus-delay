@@ -43,8 +43,12 @@
     {
       "id": "B1",
       "title": "Target 身份与最终 schema",
-      "status": "PLANNED",
-      "evidence": []
+      "status": "IN_PROGRESS",
+      "evidence": [
+        "evidence/b1-identity-key-results.json",
+        "evidence/b1-identity-key-check.log"
+      ],
+      "progress": "Physical Target identity and bounded canonical codec, final domain slot/generation candidate key layout, independent golden vectors and Lane-reader format refusal probe implemented. Complete value schema/presence/digest and activation remain pending."
     },
     {
       "id": "B2",

@@ -18,6 +18,9 @@ discovery/dependency budgets are implemented. Whole HeadPlan bindings and explic
 head/source/Claim/recovery retry paths are integrated. The compatibility constructors still
 use an unbounded read policy; the maximum legal mutation envelope and mandatory activation
 configuration remain incomplete, so A2 is not verified.
+B1 identity and key codecs are in progress: bounded physical Target tuples, independent
+identity/key vectors and the final domain slot/generation key prefix are implemented.
+The complete Target state schema, activation and migration remain pending.
 No Target runtime, Broker certification or migration is claimed yet. The user authorized
 full implementation and incremental publication on main. NDIP-1 remains closed;
 its historical evidence does not certify changed runtime source.

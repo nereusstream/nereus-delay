@@ -2013,3 +2013,19 @@ DUE/ORDERED/NATIVE 各自取首个非 exact deletion-overlay 的完整 key，然
 unsigned key 比较 included candidate；ORDERED 不改按 retry eligibility 排列后继。
 head 查询完成不构成完整队尾审计；正式激活和 READY rebuild 保留显式完整检查。
 Target/domain 的新协议仍由 NDIP-3 B1–B7 另行闭合。
+
+
+### NDIP-3 B1：新物理 Target 身份与 key 预留（未激活）
+
+[精确字段、长度、hash 域及向量](ndip/NDIP-3/05-Target身份与索引契约.md) 固定
+`CanonicalTargetPartition` version 1 与 nominal `TargetPartitionId[32]`。它沿用闭合
+BrokerResourceIdentity，加入物理 uint32 partition；SHA-256 域为
+`UTF8("nereus-delay-target-partition") || 0x00 || canonicalTuple`。旧 §4.1 的
+`TARGET_PARTITION_HASH` 仍只负责 Profile 分区选择，不改变旧 preimage。
+
+预留 timeline tag `08 TARGET_DUE`、`09 TARGET_NATIVE`、`0a TARGET_EXPIRY` 和
+meta tag `09 TARGET_STATE`，key format=1；候选的 slot:u16/domainGeneration:u64
+从基础单域起即存在。Lane NATIVE tag 07 已由 NDIP-1 使用，不能重分配。
+预留 storeFormatVersion=2 为 Target 数据的拒绝边界；当前 writer/reader 仍为 format 1，
+codec 存在不授予新格式写入、Accepted、迁移或 production authority。B1 的完整 value
+schema/presence/digest、严格顺序索引与 B2–B4 引用仍在工作包继续闭合。

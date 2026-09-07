@@ -1,0 +1,130 @@
+{
+  "scope": "B1 physical Target identity and base key codec reservations; complete Target state/value schema, activation and runtime integration remain pending",
+  "baseCommit": "c3ff048b60201c984d849c92cfc68c951a808b8c",
+  "localDate": "2026-09-08",
+  "sourceFiles": {
+    "src/main/java/com/nereusstream/delay/protocol/CanonicalTargetPartition.java": "13a16e1f5c0bef8c10b43e827a6c95a4d466959697b94bc873d737d7e9ff2389",
+    "src/main/java/com/nereusstream/delay/protocol/TargetPartitionId.java": "d49953cb3f1de5301d07bafd122b152db74d053fed9b18a701b3440e8d735bce",
+    "src/main/java/com/nereusstream/delay/store/TargetKeyCodec.java": "3558479fe31c49f92174c3d18e9dcbcbb443eabac3f84e082b728850409c3a88"
+  },
+  "unchangedReaderSources": {
+    "src/main/java/com/nereusstream/delay/store/ShardStore.java": "28c3137b39c081d085f1e7a874978ea5b3c75c38b27b04cad0be91c95f7f080d",
+    "src/main/java/com/nereusstream/delay/store/StoreMetadata.java": "52b05ff850caebd809d26ee7693c8f16a61a0781b10e7d06779c0e9a670d44df",
+    "src/main/java/com/nereusstream/delay/protocol/CanonicalLaneTuple.java": "25d4b2dfcaac48b8a2f22d20ea5252472b6afaff1b76d4d05f39c6715d262efd",
+    "src/main/java/com/nereusstream/delay/protocol/BrokerResourceIdentity.java": "cdfd1870b58de2b8e2a66e8fb0acc5eb63df5ffb85c36013909cd3f29ca8c9e5",
+    "src/main/java/com/nereusstream/delay/protocol/KafkaBrokerResourceIdentity.java": "a69f86c46fd0d396306bb5dd9e7317cc1e4c477fff48f944bf3bf29e27b97147",
+    "src/main/java/com/nereusstream/delay/protocol/PulsarBrokerResourceIdentity.java": "25bb96bfc9ef9b4daa214467b626b86aa81be43f9c08a27b3a9cfedd1867a87f"
+  },
+  "testFiles": {
+    "src/test/java/com/nereusstream/delay/protocol/TargetPartitionIdentityTest.java": "a265f719a758e5ff8548195892343608505297336fbd9f9508211086f36e563b",
+    "src/test/java/com/nereusstream/delay/store/TargetKeyCodecTest.java": "0433375a071bc84201b58c1ecd84ce84b9c1dd1ebe276196520fd87ec31c8913"
+  },
+  "goldenVectors": {
+    "file": "src/test/resources/ndip3/target-identity-vectors.properties",
+    "sha256": "bd37ad15ac3e5301823f75f7e29e3658edfc15a681f249bfb6c9cbd9e51e3047",
+    "generator": "scripts/generate-ndip3-target-identity-vectors.py",
+    "generatorSha256": "b7ac1a347cc0a040aa2d1913a8357dd824dc3d7f224397618d0f41804fe8789d",
+    "verification": "NDIP-3 target identity/key vectors PASS sha256=bd37ad15ac3e5301823f75f7e29e3658edfc15a681f249bfb6c9cbd9e51e3047"
+  },
+  "command": "./gradlew spotlessApply check --console=plain",
+  "checkResult": "PASS",
+  "checkLogSha256": "02a40c5acb5d281f07d56b905ff55fb980a23058faa030488d505fd656d365fa",
+  "javaResults": {
+    "tests": 1722,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 41
+  },
+  "newClassResults": {
+    "com.nereusstream.delay.protocol.TargetPartitionIdentityTest": {
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.nereusstream.delay.store.TargetKeyCodecTest": {
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "newCases": [
+    "decoderRejectsUnknownVersionsBranchesMalformedLengthsAndNoncanonicalText()",
+    "profileTenantOrderingKeyAndBucketDoNotSplitThePhysicalTarget()",
+    "byteBoundsIncludeMultibyteTextAndRejectUnassignedResources()",
+    "kafkaAndPulsarMatchIndependentCanonicalAndHashVectors()",
+    "retainedIdentityBytesCannotBeMutatedThroughCallerArrays()",
+    "mismatchedKafkaUuidAndPinnedPulsarTokenCannotBeMerged()",
+    "clusterIncarnationPhysicalTopicCreationAndPartitionRemainDistinct()",
+    "candidateTokenIsCopiedOnConstructionAndAccess()",
+    "domainGenerationAndSlotAreInThePrefixBeforeTimeAndUnsignedSourceOrder()",
+    "candidateExpiryAndStateMatchIndependentGoldenVectors()",
+    "laneFormatReaderRefusesTargetFormatBeforeOpeningForApplication()",
+    "closedDecoderRejectsLegacyTagsUnknownFormatsAndInvalidComponents()"
+  ],
+  "bounds": {
+    "canonicalTargetBytes": 1048897,
+    "clusterUtf8Bytes": 256,
+    "pulsarPhysicalTopicUtf8Bytes": 1048576,
+    "candidatePrefixBytes": 44,
+    "kafkaCandidateKeyBytes": 106,
+    "pulsarCandidateKeyBytes": 118,
+    "expiryKeyBytes": 87,
+    "stateKeyBytes": 34,
+    "domainSlotMaximum": 65535,
+    "domainGeneration": "nonzero uint64; all bit patterns preserved; reuse lifecycle is pending"
+  },
+  "readerRefusal": "Unchanged baseline Lane-format ShardStore and StoreMetadata reject a RocksDB fixture with reserved Target format marker 2 before application opens; tested with identity format 1 and 2. This is not a released-binary compatibility matrix or a working format-2 runtime.",
+  "pending": [
+    "A2 maximum legal complete head mutation envelope and mandatory finite activation policy",
+    "B1 TargetQueueState value fields/presence/digest, complete strict-order schema and protocol activation",
+    "B2-B7 and all later slices, Broker/recovery certification, migration and retirement"
+  ],
+  "skippedCases": [
+    "com.nereusstream.delay.gateway.OxiaRealGatewayAdmissionSmokeTest.admissionPoolsAndExpiryWorkAgainstRealService()",
+    "com.nereusstream.delay.gateway.OxiaRealGatewayAuditSinkSmokeTest.auditEventIsDurableAndExactlyDeduplicatedAgainstRealService()",
+    "com.nereusstream.delay.gateway.OxiaRealGatewayGrpcSmokeTest.concurrentDuplicateRequestsAcrossTwoGatewayServersUseOneDurableAttempt()",
+    "com.nereusstream.delay.gateway.OxiaRealGatewayGrpcSmokeTest.gatewayDurableRecordsRecoverAfterOxiaSessionChurn()",
+    "com.nereusstream.delay.gateway.OxiaRealGatewayGrpcSmokeTest.authenticatedScheduleIsNetworkBoundAndExactlyIdempotentAgainstRealOxia()",
+    "com.nereusstream.delay.gateway.OxiaRealGatewayGrpcSmokeTest.rotatedGatewayCertificatesRejectOldClientAndReuseDurableOutcome()",
+    "com.nereusstream.delay.gateway.OxiaRealGatewayGrpcSmokeTest.gatewayRecoversAfterCommittedOxiaAttemptResponseLoss()",
+    "com.nereusstream.delay.gateway.OxiaRealGatewayGrpcSmokeTest.gatewayRecoversAcrossRealOxiaDataServerFailover()",
+    "com.nereusstream.delay.gateway.OxiaRealGatewayGrpcSmokeTest.gatewayRecoversAfterCommittedOxiaRetryAttemptResponseLoss()",
+    "com.nereusstream.delay.ownership.OxiaRealControlAuthoritySmokeTest.freshProcessPhaseReopensDurableControlAuthority()",
+    "com.nereusstream.delay.ownership.OxiaRealControlAuthoritySmokeTest.controlTargetRegistrationCasAndReopenWorkAgainstRealService()",
+    "com.nereusstream.delay.ownership.OxiaRealControlAuthoritySmokeTest.controlOperationCasAndReopenWorkAgainstRealService()",
+    "com.nereusstream.delay.ownership.OxiaRealProtocolCapabilitySmokeTest.eligibleReaderSetIsSessionBoundAndActivationEvidenceIsExact()",
+    "com.nereusstream.delay.ownership.OxiaRealServiceSmokeTest.ownerLeaseCasAndEphemeralSessionWorkAgainstRealService()",
+    "com.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest.signedRouteNotificationsRefreshAStartedProviderAgainstRealService()",
+    "com.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest.signedRoutePublicationHeadCasAndRefreshWorkAgainstRealService()",
+    "com.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest.signedRouteProviderRecoversAfterRealOxiaRestart()",
+    "com.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest.signedRouteNotificationsRecoverAfterRealOxiaRestart()",
+    "com.nereusstream.delay.route.OxiaRealRouteWorkerAssignmentSmokeTest.signedRoutePublicationFeedsSessionBoundWorkerAssignmentAuthority()",
+    "com.nereusstream.delay.route.OxiaRealRouteWorkerAssignmentSmokeTest.signedRoutePublicationPlacesTwoShardsAcrossTwoWorkersWithSessionBoundCas()",
+    "com.nereusstream.delay.runtime.CredentialBindingDurableChaosTest.rotatesProtectedCredentialBindingAcrossFreshProcess()",
+    "com.nereusstream.delay.runtime.OxiaRealProfileCatalogSmokeTest.profileHeadProtectionLeaseAndRotationReopenAgainstRealService()",
+    "com.nereusstream.delay.scheduler.LongGcDurableChaosTest.realLongGcPausePreservesDurableDueAdmission()",
+    "com.nereusstream.delay.scheduler.TargetIsolationDurableChaosTest.targetIsolationSurvivesFreshProcessRecovery()",
+    "com.nereusstream.delay.store.LocalStorageDurableChaosTest.localStorageFailureSurvivesFreshProcessRecovery()",
+    "com.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest.workerCheckpointRuntimeRemainsPendingWhenMinioCommitFailsBeforeProviderWrite()",
+    "com.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest.workerCheckpointRuntimePublishesAtomicIntentAndCatalogAgainstRealService()",
+    "com.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest.workerCheckpointRuntimePublishesToRealMinioAndOxia()",
+    "com.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest.recoveryPinIsSessionBoundAndExpiresWithTheRealPublicationSession()",
+    "com.nereusstream.delay.store.OxiaRealCheckpointReapingSmokeTest.realOxiaOwnerAbandonmentReapsExactMinioCheckpointPrefix()",
+    "com.nereusstream.delay.store.OxiaRealObjectStoreCredentialRenewalSmokeTest.renewsRealOxiaLeaseAndFencesTheLiveAdapterAtHeadRotation()",
+    "com.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest.checkpointUploadIntentCasAndReopenWorkAgainstRealService()",
+    "com.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest.freshProcessPhaseReopensDurableRecoveryAuthorities()",
+    "com.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest.recoveryCatalogCasAndLocalReuseValidationWorkAgainstRealService()",
+    "com.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest.recoveryPinIsSessionBoundAndExpiresWithTheRealOxiaSession()",
+    "com.nereusstream.delay.store.S3CompatibleMinioRealSmokeTest.realMinioTimeoutAfterCommitResolvesByExactReadback()",
+    "com.nereusstream.delay.store.S3CompatibleMinioRealSmokeTest.realMinioCredentialConfigurationDriftFailsClosed()",
+    "com.nereusstream.delay.store.S3CompatibleMinioRealSmokeTest.realMinioFiveHundredBeforeCommitRemainsFailClosed()",
+    "com.nereusstream.delay.store.S3CompatibleMinioRealSmokeTest.realMinioFaultRecoveryRunsInFreshProcess()",
+    "com.nereusstream.delay.store.S3CompatibleMinioRealSmokeTest.realMinioFiveHundredAfterCommitResolvesByExactReadback()",
+    "com.nereusstream.delay.store.S3CompatibleMinioRealSmokeTest.immutableCheckpointUploadsIdempotentlyAndRestoresAgainstMinio()"
+  ],
+  "brokerCertification": false,
+  "productionAuthority": false,
+  "sliceComplete": false
+}

@@ -76,3 +76,13 @@ Each installation lives at:
 ```
 
 Restore populates a unique temp directory, verifies manifest/file checksums, DB and shard identity, format, and replay availability, then generates and WAL-syncs a fresh Store Incarnation. It closes install mode before atomically replacing and fsyncing the checksummed `ACTIVE` pointer, then opens normally. The checkpoint creator's Store token is never reused, files are never copied over an open database, and two shard identities never share one DB directory.
+
+
+## NDIP-3 Target format work in progress
+
+The [Target identity and key contract](../ndip/NDIP-3/05-Target身份与索引契约.md) reserves
+separate DUE/NATIVE/EXPIRY and Target-state tags inside the existing application CFs.
+Candidate keys include domain slot and nonzero generation from the first single-domain
+implementation. Store format 2 is reserved as the old-reader refusal boundary; new tags
+alone do not prove refusal because legacy readers can ignore unknown prefixes. Current
+application writers remain on format 1 until the complete schema and migration gates close.

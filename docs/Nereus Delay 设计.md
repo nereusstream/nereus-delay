@@ -5901,3 +5901,13 @@ READY tail/wrap 与 Lane、Message、timeline、native binding 读取共用记�
 证明成立后才映射为 source/Claim/recovery 的本地重试；不生成业务拒绝码或推进源记录。
 新构造器可提供有限 HeadReadPolicy，但旧构造器保留的无耗尽兼容 policy 尚待正式激活配置
 和最大合法依赖 envelope 证明替换，因此 A2 仍未验收，NDIP-3 不授予 production authority。
+
+
+### NDIP-3 B1 身份与 key 契约实施中
+
+新的物理 Target 身份和基础候选 key 已在
+[身份与索引契约](ndip/NDIP-3/05-Target身份与索引契约.md) 固定。身份只含精确 Broker
+资源与物理 partition，保留完整 canonical 资源用于碰撞/绑定核对；不改变旧 Profile
+选择 partition 的算法。新 key 从单域首版就携带 domain slot/generation，并预留独立
+Store format 2 以拒绝旧 reader。完整 TargetQueueState schema、业务接入和转换尚未完成；
+本批不改变正式 Store 的 format 1，也不关闭 A2 的整体资源证明义务。
