@@ -50,6 +50,8 @@ public final class ControlOperationAuthorization {
 
     private static ControlRole[] requiredRoles(final PreparedControlOperation prepared) {
         return switch (prepared.kind()) {
+            case GRANT_TARGET_MEMBERSHIP, CLOSE_TARGET_MEMBERSHIP ->
+                new ControlRole[] {ControlRole.TENANT_POLICY_ADMINISTRATOR, ControlRole.PLATFORM_OPERATOR};
             case STOP_NEW_SCHEDULES,
                     PAUSE_DESTINATION_LANE,
                     RESUME_DESTINATION_LANE,

@@ -1300,6 +1300,13 @@ tasks.register('checkTargetMembershipVectors', Exec) {
     commandLine 'python3', '-B', 'scripts/generate-ndip3-target-membership-vectors.py'
 }
 
+tasks.register('checkTargetMembershipControlVectors', Exec) {
+    group = 'verification'
+    description = 'Checks NDIP-3 membership policy and source Control wire vectors.'
+    workingDir projectDir
+    commandLine 'python3', '-B', 'scripts/generate-ndip3-target-membership-control-vectors.py'
+}
+
 tasks.named('check').configure {
     dependsOn tasks.named('checkDocumentation')
     dependsOn tasks.named('checkProjectVersionMarkers')
@@ -1308,6 +1315,7 @@ tasks.named('check').configure {
     dependsOn tasks.named('checkTargetCompatibilityVectors')
     dependsOn tasks.named('checkTargetBindingChannelVectors')
     dependsOn tasks.named('checkTargetMembershipVectors')
+    dependsOn tasks.named('checkTargetMembershipControlVectors')
 }
 
 jacocoTestReport {

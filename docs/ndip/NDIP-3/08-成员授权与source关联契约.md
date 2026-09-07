@@ -1,10 +1,11 @@
 # NDIP-3 B2：成员授权与 source 关联契约
 
-Status: Draft / IN_PROGRESS
+Status: Draft / 契约冻结；切片验收见 progress.json。
 
 本节补全 `TargetScheduleBinding.membershipGrantRef` 引用对象及静态授权校验。
-完整对象已实现；发放/关闭操作的 Control/SystemMutation wire 分配、认证权威记录与
-source apply 装配尚未闭合，B2 仍为 IN_PROGRESS。本文不是运行时发送或生产权限凭证。
+完整对象已实现；发放/关闭 Control/SystemMutation wire、不可变策略及认证注册校验
+见 [§09](09-成员策略与认证控制契约.md)。实际 source apply 和权威后端装配由 C1 完成。
+本文不是运行时发送或生产权限凭证。
 
 ## 1. 权威必须证明什么
 
@@ -123,7 +124,7 @@ checkpoint 保护解除后才允许按 C1/C2/B6/F1 引用退休协议回收。
 授权对象、控制组遗漏、tenant/Profile、关闭后历史重放、Prepare、unsigned source、
 共享 provider、plan snapshot、bounds 与旧 reader 拒绝。
 
-下一批 B2 必须闭合发放/关闭 Control/SystemMutation 的明确 wire 和认证注册记录、
-authorityPolicyRef 的真实对象解析及完整授权校验输入，随后按原 §17.3 做整个 B2 审核。
-当前 authority seam 的契约测试不冒充这些生产权威实现。C1/C2 的实际原子写入、有限
+发放/关闭 Control/SystemMutation wire、精确已登记对象与双签名验证、完整
+authorityPolicyRef 对象及授权输入已在 [§09](09-成员策略与认证控制契约.md) 冻结；
+原 §17.3 验收对应也在那里逐项列出。authority seam 的契约测试不冒充生产后端装配。C1/C2 的实际原子写入、有限
 装配、通道池与 teardown 和 D/E/F 的 Broker/恢复/迁移证据继续保留原切片责任。

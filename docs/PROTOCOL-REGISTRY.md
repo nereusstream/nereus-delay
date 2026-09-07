@@ -2125,7 +2125,7 @@ producer 的受控上限必须落在候选认证上限以内，实际保证与�
 有界 planner 核对全部非 VACANT 域、refs 和 queue snapshot；基础域数=1，schema
 至多 64，E2 完成前不激活 K>1。已匹配的 ACTIVE 域优先，DRAINING 拒绝新绑定，
 VACANT generation 禁止回绕。本文及测试不提供 source/binding/通道权限；完整
-membership、Schedule binding、通道冻结与 teardown 仍属于 B2 未完成范围。
+membership、Schedule binding、通道冻结与 teardown 见后续 B2 契约，实际运行由 C1/C2 实施。
 
 
 ### NDIP-3 B2：精确绑定与通道身份预留（未激活）
@@ -2139,7 +2139,7 @@ binding 保留完整 Schedule/Prepare canonical body 和其 source，required/of
 membership refs、accounting/domain 及可选 Native/ordering 投影。bounded preflight
 限定 body、metadata/header/property 数量、Profile/retry 与对象身份，再调用原 exact
 decoder；不重写旧 prepared bytes 或 omitted-policy intent。membershipGrantRef 的
-完整对象和 source-bound 权威仍由 B2 闭合，引用 hash 本身不是授权。
+完整对象及认证 Control/policy 见 §08/§09，引用 hash 本身不是授权。
 
 channel 的 producer identity 为 `nd-target-` 加 domain-separated SHA-256 的 lowercase
 hex，输入覆盖 source Shard、Target、accounting/domain、kind、channelSlot、dispatch/
@@ -2160,5 +2160,21 @@ TargetMembershipGrant reserved NV type 22，meta key `0f 01 + digest[32]`。
 8-field pre-append registration、完整 required/offered/control 对象和 source 关联；
 canonical bounds 分别 3149936 / 2101194 bytes。当前 reader 仍仅接受 NV 1..11。
 静态首次绑定校验复用 UNAUTHORIZED、PROFILE_VERSION_NOT_ACTIVE_AT_SOURCE_POSITION
-和 PROFILE_DEPRECATED_FOR_NEW_USE。发放/关闭 Control/SystemMutation 编号与认证策略
-权威仍待 B2 完成；没有以字段预留激活新的 source command。
+和 PROFILE_DEPRECATED_FOR_NEW_USE。发放/关闭编号及认证策略见下节；
+没有以字段预留激活新的 source command。
+
+
+### NDIP-3 B2 成员策略和认证控制（预留，未激活）
+
+[§09 字段及认证顺序](ndip/NDIP-3/09-成员策略与认证控制契约.md) 是这些新增编号的
+完整定义：NV 23 / meta `10 01 + digest[32]` 固定九字段 TargetMembershipPolicy；
+ControlOperationKind 16/17、Request oneof 16/17 分别 GRANT/CLOSE_TARGET_MEMBERSHIP，
+ApplyShardControl kind 和 ControlPayload tag 为 15/16。SystemMutationType 仍为 1。
+policy/request branch/source body 的 bounds 为 1052039/3153314/3153474 bytes。
+
+两操作均要求 TENANT_POLICY_ADMINISTRATOR + PLATFORM_OPERATOR、精确单 SHARD target
+(index=0)、不可变完整登记、双 Ed25519 签名和 source-bound 策略/资源证明。CLOSE
+expectedPriorControlVersion 必须显式为 0；重复关闭保留最早 source，GRANT 不带此字段。
+旧 Control/Mutation hash 和 signature 公式不改；author 另与 Prepared author 精确比对。
+旧 ApplyShardControlBody 仍拒绝 kind 15/16，活动 format 1 / NV 1..11 不变。C1 在格式
+激活后接入有限预算、权威快照、Result/SourceAdvance 原子提交和历史去重保留。

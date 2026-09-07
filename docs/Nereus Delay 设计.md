@@ -5957,8 +5957,8 @@ retry、payload 与 bucket 本身不拆分执行域。A 独立暂停/B 健康的
 dispatch/control 的完整对象通过 meta 0c/0d、reserved NV 18/19 引用；基础域数=1，
 schema=64 的边界供 E2 使用。注册规划精确绑定 queue revision/digest、优先匹配 ACTIVE、
 拒绝 DRAINING、保持 generation 不回绕。它不授予发送权限或提交 source 结果。
-完整 membership/Schedule binding、通道身份/旧 attempt 冻结与 teardown 仍由 B2 完成，
-C1/C2 的实际 mutation/通道池和 D/E 的真实验证继续执行。当前 B2 为 IN_PROGRESS。
+完整 membership/Schedule binding、通道身份/旧 attempt 冻结与 teardown 见以下契约，
+C1/C2 的实际 mutation/通道池和 D/E 的真实验证继续执行。B2 验收按原 §17.3。
 
 
 ### NDIP-3 B2 精确 Schedule 绑定与通道身份
@@ -5975,8 +5975,7 @@ transactional identity、sequence/journal 域，channelGeneration 恰好加一�
 旧 attempt 继续要求精确冻结身份。普通关闭、逻辑 refcount 归零和 lease 到期均不单独
 授权释放未决/zombie/Journal/恢复保护。通道 identity 上限 1279 bytes。
 
-meta 0e/NV 20 与 id 06/NV 21 只是新格式预留。B2 的完整 membership grant/共同
-credential 与保证权威仍在实施；C1/C2 接入实际 source 原子 mutation、通道池与
+meta 0e/NV 20 与 id 06/NV 21 只是新格式预留。B2 的完整 grant/共同 credential 策略和认证契约见 §08/§09；C1/C2 接入实际 source 原子 mutation、通道池与
 teardown，B3 决定 Native scope。新静态 codec 不认证发送权限、Broker 或迁移。
 
 ### NDIP-3 B2 完整成员对象与 source 关联
@@ -5985,5 +5984,14 @@ teardown，B3 决定 Native scope。新静态 codec 不认证发送权限、Brok
 required/offered/control 和认证 source 注册身份。预准备内容不包含未来 source 位置或
 自身 mutation digest；应用后按实际记录形成 grant。first-binding closure 不重写已接受
 binding/Prepare/attempt，合法共同 credential provider 轮换仍保留原身份保护。
-meta 0f / NV 22 只预留；发放/关闭 wire、策略对象解析和认证权威仍是 B2 未闭合项，
+meta 0f / NV 22 只预留；发放/关闭 wire、完整策略和认证控制校验见 §09，
 C1/C2 后续装配实际 source 原子写入和通道 gate。完整 codec/静态 seam 不认证生产运行。
+
+
+### NDIP-3 B2 成员策略与认证控制
+
+[§09 完整契约及原 B2 验收对应](ndip/NDIP-3/09-成员策略与认证控制契约.md) 固定
+TargetMembershipPolicy（meta 10 / NV 23）、Control op 16/17、ApplyShardControl kind
+15/16，以及精确登记、双签名、actor/角色/资源 proof、完整策略和首次 source 校验。
+旧 Lane reader 仍拒绝新语义及 NV 23；本地 Store 重开保留拒绝结果、不安装新对象。
+B2 设计验收不替代 C1 受保护快照/权威后端装配/原子提交、C2 通道池、D/E/F 实证。

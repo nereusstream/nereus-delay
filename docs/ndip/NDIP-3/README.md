@@ -12,9 +12,10 @@
 2. [实施计划](02-实施计划.md)：依赖、交付边界及验证要求。
 3. [代码级设计](03-代码级设计.md)：实际调用链、接口与状态决定，随切片同步。
 4. [Target 身份与索引契约](05-Target身份与索引契约.md)：B1 已固定的物理身份、key、queue/domain/head/work/Message/runtime/Expiry/ORDER_STATE 编码及拒绝边界。
-5. [执行与控制兼容契约](06-执行与控制兼容契约.md)：B2 已实现的规范化执行/控制引用、有界注册规划和稳定拒绝；本切片仍在实施。
+5. [执行与控制兼容契约](06-执行与控制兼容契约.md)：B2 已实现的规范化执行/控制引用、有界注册规划和稳定拒绝；切片验收按原设计 §17.3。
 6. [Schedule 绑定与通道身份契约](07-Schedule绑定与通道身份契约.md)：精确 source/body、固定通道/lease scope、旧 attempt 冻结和 teardown 边界。
-7. [成员授权与 source 关联契约](08-成员授权与source关联契约.md)：完整 grant、pre-append 注册内容、source 快照/关闭和精确绑定关联；生产权威仍待闭合。
+7. [成员授权与 source 关联契约](08-成员授权与source关联契约.md)：完整 grant、pre-append 注册内容、source 快照/关闭和精确绑定关联；生产后端装配由 C1 完成。
+8. [成员策略与认证控制契约](09-成员策略与认证控制契约.md)：完整 policy、双签名/角色/资源授权、发放/关闭 wire、首次应用和原 B2 验收对应。
 
 README、执行状态、用户决策记录、测量和 receipt 不进入 normative package。
 当前完整设计保留导入时的 Draft/PLANNED 描述；它是启动基线，不代表新增权限障碍，
@@ -33,12 +34,11 @@ B1 的验收范围按原设计 §17.3，后续责任见字段契约 §19：B2–
 mutation、格式激活和 B6/F1 转换继续完成。B1 VERIFIED 不代表提案接受、Target 新 runtime
 或完整方案完成；A2 仍为 IN_PROGRESS。
 
-B2 正在实施：执行/控制 scope 的完整对象与独立向量、有界注册规划、五个稳定拒绝码
+B2 按原 §17.3 设计/契约验收为 VERIFIED：执行/控制 scope 的完整对象与独立向量、有界注册规划、五个稳定拒绝码
 已实现。已有 offered contract 可以覆盖较弱要求，独立 Pause/credential/permit 集合
 保持不同域；注册规划绑定 queue revision/digest，禁止 DRAINING 绕过与 generation 回绕。
 完整 Schedule/Prepare binding 与不可变 channel/lease identity 已实现，续期保持 producer/
-sequence 域且禁止覆盖旧冻结身份。完整 membership grant 编码及 source 快照校验已实现；认证发放/关闭 wire 与策略
-权威仍待 B2 完成；活动 Store/source 路径尚未接入这些对象，实际通道池/teardown 由 C2 实施。
+sequence 域且禁止覆盖旧冻结身份。完整 membership grant 编码及 source 快照校验已实现；认证发放/关闭 wire、完整策略与授权校验输入已冻结；活动 Store/source 路径尚未接入这些对象，实际通道池/teardown 由 C2 实施。
 兼容规划基础批次完整 check 通过：1800 项 Java 测试、失败/错误 0、外部 skip 41；B2 专项 20 项
 零 skip，加上 B1 70 项共 90 项 Target 契约回归。证据见 `evidence/b2-compatibility-results.json`。
 绑定/通道批次增加 18 项专项；完整 check 为 1818 项 Java 测试、失败/错误 0、外部 skip
@@ -47,6 +47,11 @@ sequence 域且禁止覆盖旧冻结身份。完整 membership grant 编码及 s
 membership 批次增加 13 项专项；完整 check 通过 1831 项 Java 测试、失败/错误 0、
 外部 skip 41，Target 契约九类共 121 项零 skip。源码、独立向量和检查结果见
 `evidence/b2-membership-results.json`。
+
+认证策略/Control 批次增加 15 项专项；最终完整 check 为 1846 项 Java 测试、失败/错误
+0、外部 skip 41，十类 Target 契约共 136 项零 skip。原 §17.3 七项验收逐项绑定契约与
+测试，B2 VERIFIED 仅代表该设计/字段范围；精确证据见 `evidence/b2-results.json`。
+C1 权威后端/原子提交、C2 通道运行、D–F 真实验证与迁移清退继续实施，下一项为 B3。
 
 [29 项状态清单](progress.json) 是实施进度入口；[执行记录](04-执行记录.md) 保存实际命令、
 源码身份、测试和环境结果。仅当全部必做实现及证据实际闭合才办理 Implemented。

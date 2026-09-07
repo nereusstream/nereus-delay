@@ -276,6 +276,20 @@ public final class PreparedControlOperation {
             throw new IllegalArgumentException("Control Operation requires at least one target");
         }
         switch (kind) {
+            case GRANT_TARGET_MEMBERSHIP, CLOSE_TARGET_MEMBERSHIP -> {
+                requireOnlyKinds(values, ControlTargetKind.SHARD);
+                requireCount(values, ControlTargetKind.SHARD, 1, 1);
+                requireMutationPresence(values, ControlTargetKind.SHARD, true);
+                final var membership = branch(request, TargetMembershipControlRequest.class);
+                if (values.getFirst().targetIndex() != 0
+                        || !values.getFirst()
+                                .shard()
+                                .shardId()
+                                .equals(membership.policy().controls().sourceShard())) {
+                    throw new IllegalArgumentException(
+                            "membership Control target must be its exact source Shard at index 0");
+                }
+            }
             case STOP_NEW_SCHEDULES -> {
                 requireOnlyKinds(values, ControlTargetKind.ROUTE, ControlTargetKind.SHARD);
                 requireCount(values, ControlTargetKind.ROUTE, 1, 1);

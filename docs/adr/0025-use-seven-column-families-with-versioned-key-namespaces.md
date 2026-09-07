@@ -127,7 +127,7 @@ bounds are 1049187 and 2396. Domain summaries reference the entire verified obje
 content equality and offered-requirement coverage are distinct. The bounded registration
 planner validates all non-VACANT references and keeps slot generation history, without
 writing source results or granting execution authority. Group membership, Schedule binding,
-channel freezing and teardown remain B2 work. The [B2 contract](../ndip/NDIP-3/06-执行与控制兼容契约.md)
+channel freezing and teardown are specified in the following B2 contracts. The [B2 contract](../ndip/NDIP-3/06-执行与控制兼容契约.md)
 records these obligations; the active format and existing seven CFs remain unchanged.
 
 
@@ -139,13 +139,22 @@ Channel renewals preserve the producer/sequence domain while advancing channel g
 and replacing the complete lease; a new identity cannot overwrite an old frozen attempt.
 Canonical bounds are 20976072 bytes per binding and 1279 per channel identity. The
 [record contract](../ndip/NDIP-3/07-Schedule绑定与通道身份契约.md) fixes lifetime/teardown rules;
-complete membership grants, actual reference retirement and format activation remain
-separate B2/C1/C2/B6/F1 work. No column family or active Lane format is changed.
+complete grants are specified below, while actual reference retirement and format activation
+remain C1/C2/B6/F1 work. No column family or active Lane format is changed.
 
 B2 reserves full Target membership grants at meta tag 0f / NV 22, using the same
 34-byte content-addressed key shape. The canonical bound is 3149936 bytes; its
 pre-append registration bound is 2101194. Full source identity is added after
 authenticated source apply; decoding is not issuer authentication. The
 [membership contract](../ndip/NDIP-3/08-成员授权与source关联契约.md) preserves
-historical binding/attempt protection and leaves issuance/closure wire and
-policy authority incomplete. The active seven-CF Lane format remains unchanged.
+historical binding/attempt protection; the issuance/closure wire and complete policy are
+defined by the [authenticated Control contract](../ndip/NDIP-3/09-成员策略与认证控制契约.md). The active seven-CF Lane format remains unchanged.
+
+
+The immutable membership policy reserves meta tag 10 / NV 23, with a 1052039-byte
+canonical bound. Authenticated Control operations 16/17 use ApplyShardControl kinds
+15/16, exact target registration and two source-authorized signatures. The pure verifier
+returns first-application grant/closure changes; C1 must provide protected authority
+snapshots and atomically commit state with Result/SourceAdvance after deduplication.
+The active Lane Store still rejects these kinds and NV 23, including after local reopen.
+These contracts do not activate the new format or certify a deployed authority backend.

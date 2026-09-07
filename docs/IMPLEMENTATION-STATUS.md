@@ -32,14 +32,15 @@ Independent vector checking is part of the standard check task. B1 evidence is i
 scope; B2–B6 reference/behavior contracts, C1/E5 atomic mutations and activation, and B6/F1
 migration remain required in their respective slices. B7 still requires a complete accepted
 package. A2 remains in progress independently of B1.
-B2 is in progress: normalized dispatch/control references, requirement coverage, bounded
+B2 is VERIFIED for the original section 17.3 design/contract acceptance: normalized dispatch/control references, requirement coverage, bounded
 registration planning and five stable rejection codes are implemented. Independent vectors
 cover four delivery-capability branches, complete control/permit groups and byte/count bounds.
 Exact Schedule/Prepare bindings and immutable channel/lease identities are now implemented,
 including bounded nested decoding, source/locator/queue projections and frozen renewal rules.
 Teardown and the managed capability matrix are fixed in the B2 record contract; the complete
-membership grant codec and source-snapshot checks are now implemented. Authenticated issuance/closure wire and the policy authority remain B2 work. Actual source
-mutation, channel pools and teardown remain C1/C2 work. Reserved NV 18..22 are inactive. The full check passed 1800 Java
+membership grant codec and source-snapshot checks are now implemented. Authenticated issuance/closure wire, immutable policy and exact registered dual-signature
+verification are now implemented. Actual policy/key authority backend assembly and atomic source
+mutation, channel pools and teardown remain C1/C2 work. Reserved NV 18..23 are inactive. The full check passed 1800 Java
 tests with zero failures/errors and 41 external skips; 20 B2 tests and 70 B1 regression
 tests had no skips. Evidence is in `docs/ndip/NDIP-3/evidence/b2-compatibility-results.json`.
 The binding/channel batch added 18 tests: its full check passed 1818 Java tests with
@@ -48,6 +49,12 @@ Exact evidence is in `docs/ndip/NDIP-3/evidence/b2-binding-channel-results.json`
 The membership batch adds 13 tests: the full check passed 1831 Java tests with zero
 failures/errors and 41 external skips; 121 Target contract tests have no skips.
 Membership source, vector and check evidence is in `docs/ndip/NDIP-3/evidence/b2-membership-results.json`.
+The authenticated policy/Control batch adds 15 tests. The final full check passed 1846 Java
+tests with zero failures/errors and 41 external skips; all 136 Target contract tests passed
+without skips. `docs/ndip/NDIP-3/evidence/b2-results.json` binds the exact current source,
+contracts, independent vectors, checks and all seven original B2 acceptance requirements.
+B2 verification covers design/schema freeze, while C1 authority backends/atomic source apply,
+C2 actual channel pools, B3 Native policy and all D–F runtime/environment evidence remain required.
 No active Target scheduling runtime, Broker certification or migration is claimed yet. The user authorized
 full implementation and incremental publication on main. NDIP-1 remains closed;
 its historical evidence does not certify changed runtime source.

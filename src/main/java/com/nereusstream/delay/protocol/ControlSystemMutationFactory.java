@@ -36,8 +36,11 @@ public final class ControlSystemMutationFactory {
         final byte[] logicalIdentity =
                 switch (type) {
                     case APPLY_SHARD_CONTROL ->
-                        controlRef.logicalOperationIdentity(
-                                ApplyShardControlBody.decode(canonicalBody).controlKind());
+                        prepared.request().branch() instanceof TargetMembershipControlRequest
+                                ? TargetMembershipControlBody.decode(canonicalBody)
+                                        .logicalIdentity()
+                                : controlRef.logicalOperationIdentity(ApplyShardControlBody.decode(canonicalBody)
+                                        .controlKind());
                     case REPLAY_DEAD_LETTER, RESOLVE_UNCERTAIN -> controlRef.logicalOperationIdentity(type);
                     default -> throw new IllegalArgumentException("unsupported Control target mutation type");
                 };

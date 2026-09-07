@@ -51,6 +51,16 @@ public final class ControlTargetMutationBinding {
         final byte[] expectedLogicalIdentity;
         switch (mutation.type()) {
             case APPLY_SHARD_CONTROL -> {
+                if (prepared.request().branch() instanceof TargetMembershipControlRequest expected) {
+                    final var body = TargetMembershipControlBody.decode(mutation.canonicalBody());
+                    requireControlRef(expectedControlRef, body.controlRef());
+                    if (!expected.equals(body.request())) {
+                        throw new IllegalArgumentException(
+                                "membership Control payload differs from the registered request");
+                    }
+                    expectedLogicalIdentity = body.logicalIdentity();
+                    break;
+                }
                 final ApplyShardControlBody body = ApplyShardControlBody.decode(mutation.canonicalBody());
                 requireControlRef(expectedControlRef, body.controlRef());
                 validateApplyTarget(prepared.kind(), target, body);
@@ -78,6 +88,8 @@ public final class ControlTargetMutationBinding {
     static SystemMutationType expectedMutationType(
             final ControlOperationKind operationKind, final ControlTargetKind targetKind) {
         return switch (operationKind) {
+            case GRANT_TARGET_MEMBERSHIP, CLOSE_TARGET_MEMBERSHIP ->
+                requireTargetKind(targetKind, ControlTargetKind.SHARD, SystemMutationType.APPLY_SHARD_CONTROL);
             case REPLAY_DEAD_LETTER ->
                 requireTargetKind(targetKind, ControlTargetKind.MESSAGE, SystemMutationType.REPLAY_DEAD_LETTER);
             case RESOLVE_UNCERTAIN ->
