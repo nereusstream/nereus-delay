@@ -26,9 +26,11 @@
       "status": "IN_PROGRESS",
       "evidence": [
         "evidence/a2-storage-foundation-results.json",
-        "evidence/a2-storage-foundation-check.log"
+        "evidence/a2-storage-foundation-check.log",
+        "evidence/a2-ready-discovery-results.json",
+        "evidence/a2-ready-discovery-check.log"
       ],
-      "progress": "Read-result, shared point-read scope and Store view binding foundations added; mutation/source/discovery integration and activation-envelope proof pending."
+      "progress": "Shared READY discovery/dependency budgets and guarded cursor publication verified. Finite-budget head mutation/control/Claim and source/recovery retry integration, maximum legal mutation envelope and consecutive elapsed diagnostics remain pending."
     },
     {
       "id": "A3",

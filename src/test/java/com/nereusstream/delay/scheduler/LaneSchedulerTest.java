@@ -1496,6 +1496,238 @@ class LaneSchedulerTest {
         }
     }
 
+    @Test
+    void incompleteReadyDependencyDoesNotPublishQueueOrCursorAndRetryStartsFresh() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 36);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("ready-dependency-budget"));
+        final ReadyFixture fixture = budgetFixture(shardId, 52);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore store = ShardStore.open(config, shardId, resources)) {
+            store.write(batch -> putReady(batch, fixture));
+            final LaneScheduler delegate = LaneScheduler.defaults();
+            final PersistentLaneScheduler scheduler = new PersistentLaneScheduler(store, delegate, owner(1), () -> 0);
+            scheduler.register(fixture.lane());
+            final long readyBytes = storedBytes(store, ColumnFamily.TIMELINE, fixture.readyKey());
+            final long laneBytes = storedBytes(
+                    store, ColumnFamily.META, KeyCodec.metaLane(fixture.lane().laneId()));
+            final long messageBytes = storedBytes(store, ColumnFamily.ID, KeyCodec.idMessage(fixture.messageId()));
+            final long maxBytes = readyBytes + laneBytes + messageBytes - 1;
+            final long writes = store.operationStatistics().nativeWriteCalls();
+            assertEquals(List.of(), scheduler.discoverReady(new SchedulerBudget(1, maxBytes, 1_000)));
+            final var incomplete = scheduler.discoveryReadStatistics();
+            assertEquals(3, incomplete.actualRecords());
+            assertEquals(readyBytes + laneBytes + messageBytes, incomplete.actualBytes());
+            assertEquals(readyBytes + laneBytes, incomplete.chargedBytes());
+            assertEquals(com.nereusstream.delay.store.BoundedReadBudget.Exhaustion.BYTES, incomplete.exhaustion());
+            assertEquals(1, incomplete.deniedReads());
+            assertEquals(null, scheduler.discoveryCursor().lastScannedReadyKey());
+            assertEquals(0, scheduler.discoveryCursor().wrapGeneration());
+            assertEquals(0, delegate.snapshot().lanes().get(0).pendingItems());
+            assertEquals(writes, store.operationStatistics().nativeWriteCalls());
+            assertEquals(
+                    List.of(fixture.messageId()),
+                    scheduler.discoverReady(new SchedulerBudget(1, 10_000, 1_000)).stream()
+                            .map(ScheduleWorkItem::messageId)
+                            .toList());
+            assertEquals(5, scheduler.discoveryReadStatistics().actualRecords());
+            assertEquals(null, scheduler.discoveryReadStatistics().exhaustion());
+            assertEquals(writes + 1, store.operationStatistics().nativeWriteCalls());
+        }
+    }
+
+    @Test
+    void readyTailAndWrapShareDependencyBudgetAndCursorStopsAtLastCompleteProjection() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 37);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("ready-tail-wrap-budget"));
+        final ReadyFixture first = budgetFixture(shardId, 53);
+        final ReadyFixture middle = budgetFixture(shardId, 54);
+        final ReadyFixture last = budgetFixture(shardId, 55);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore store = ShardStore.open(config, shardId, resources)) {
+            store.write(batch -> {
+                putReady(batch, first);
+                putReady(batch, middle);
+                putReady(batch, last);
+            });
+            final PersistentLaneScheduler scheduler =
+                    new PersistentLaneScheduler(store, LaneScheduler.defaults(), owner(1), () -> 0);
+            for (ReadyFixture fixture : List.of(first, middle, last)) {
+                scheduler.register(fixture.lane());
+            }
+            assertEquals(
+                    2,
+                    scheduler
+                            .discoverReady(new SchedulerBudget(2, 10_000, 1_000))
+                            .size());
+            org.junit.jupiter.api.Assertions.assertArrayEquals(
+                    middle.readyKey(), scheduler.discoveryCursor().lastScannedReadyKey());
+            final long lastBytes = storedBytes(store, ColumnFamily.TIMELINE, last.readyKey())
+                    + 2
+                            * storedBytes(
+                                    store,
+                                    ColumnFamily.META,
+                                    KeyCodec.metaLane(last.lane().laneId()))
+                    + storedBytes(store, ColumnFamily.ID, KeyCodec.idMessage(last.messageId()))
+                    + storedBytes(store, ColumnFamily.TIMELINE, last.timelineKey());
+            final long firstReadyBytes = storedBytes(store, ColumnFamily.TIMELINE, first.readyKey());
+            final long firstLaneBytes = storedBytes(
+                    store, ColumnFamily.META, KeyCodec.metaLane(first.lane().laneId()));
+            final long writes = store.operationStatistics().nativeWriteCalls();
+            assertEquals(
+                    List.of(last.messageId()),
+                    scheduler
+                            .discoverReady(
+                                    new SchedulerBudget(3, lastBytes + firstReadyBytes + firstLaneBytes - 1, 1_000))
+                            .stream()
+                            .map(ScheduleWorkItem::messageId)
+                            .toList());
+            assertEquals(7, scheduler.discoveryReadStatistics().actualRecords());
+            assertEquals(
+                    lastBytes + firstReadyBytes + firstLaneBytes,
+                    scheduler.discoveryReadStatistics().actualBytes());
+            assertEquals(
+                    lastBytes + firstReadyBytes,
+                    scheduler.discoveryReadStatistics().chargedBytes());
+            assertEquals(
+                    com.nereusstream.delay.store.BoundedReadBudget.Exhaustion.BYTES,
+                    scheduler.discoveryReadStatistics().exhaustion());
+            org.junit.jupiter.api.Assertions.assertArrayEquals(
+                    last.readyKey(), scheduler.discoveryCursor().lastScannedReadyKey());
+            assertEquals(0, scheduler.discoveryCursor().wrapGeneration());
+            assertEquals(writes + 1, store.operationStatistics().nativeWriteCalls());
+            assertEquals(List.of(), scheduler.discoverReady(new SchedulerBudget(1, 10_000, 1_000)));
+            org.junit.jupiter.api.Assertions.assertArrayEquals(
+                    first.readyKey(), scheduler.discoveryCursor().lastScannedReadyKey());
+            assertEquals(1, scheduler.discoveryCursor().wrapGeneration());
+        }
+    }
+
+    @Test
+    void elapsedReadyDependencyKeepsItsPhysicalRecordAndDoesNotPublishPartialWork() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 38);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("ready-elapsed-dependency"));
+        final ReadyFixture fixture = budgetFixture(shardId, 56);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore store = ShardStore.open(config, shardId, resources)) {
+            store.write(batch -> putReady(batch, fixture));
+            final java.util.concurrent.atomic.AtomicLong clock = new java.util.concurrent.atomic.AtomicLong();
+            final LaneScheduler delegate = LaneScheduler.defaults();
+            final PersistentLaneScheduler scheduler =
+                    new PersistentLaneScheduler(store, delegate, owner(1), clock::getAndIncrement);
+            scheduler.register(fixture.lane());
+            final long writes = store.operationStatistics().nativeWriteCalls();
+            assertEquals(List.of(), scheduler.discoverReady(new SchedulerBudget(1, 10_000, 3)));
+            assertEquals(1, scheduler.discoveryReadStatistics().actualRecords());
+            assertEquals(
+                    com.nereusstream.delay.store.BoundedReadBudget.Exhaustion.ELAPSED,
+                    scheduler.discoveryReadStatistics().exhaustion());
+            assertEquals(null, scheduler.discoveryCursor().lastScannedReadyKey());
+            assertEquals(writes, store.operationStatistics().nativeWriteCalls());
+            assertEquals(0, delegate.snapshot().lanes().get(0).pendingItems());
+            assertEquals(
+                    1,
+                    scheduler
+                            .discoverReady(new SchedulerBudget(1, 10_000, 1_000))
+                            .size());
+        }
+    }
+
+    @Test
+    void aFutureNativeProjectionInWrappedRangeDoesNotAdvanceTheEligibleCursorWrap() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 39);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("ready-future-wrap"));
+        final DestinationLaneId nativeLane = lane(57);
+        final LaneRecord nativeLaneRecord =
+                new LaneRecord(nativeLane, new byte[16], 1, 1, AdmissionGate.OPEN, RuntimeReadiness.READY, 1, 1_000);
+        final SourcePosition source = new KafkaSourcePosition(shardId, "cluster", UUID.randomUUID(), 0, null, 1_000);
+        final DelayMessageId nativeId = DelayMessageId.random(shardId);
+        final MessageRecord nativeMessage = new MessageRecord(
+                MessageStatus.SCHEDULED,
+                1,
+                1,
+                3_000,
+                9_000,
+                1_000,
+                nativeLane,
+                OrderingMode.BEST_EFFORT,
+                com.nereusstream.delay.protocol.NativeDeliveryPolicy.ALLOW_MANAGED_HANDOFF,
+                new byte[] {1},
+                source.canonicalBytes(),
+                null,
+                0);
+        final ReadyFixture ordinary = readyFixture(nativeLaneRecord, nativeId, source, nativeMessage, 3_000);
+        final byte[] nativeKey =
+                KeyCodec.timelineNativeCandidate(nativeLane, 1_000, source.sourceOrderToken(), nativeId, 1);
+        final ReadyIndexValue dual = ordinary.ready()
+                .withNativeHead(
+                        ReadyIndexValue.nativeCandidate(nativeLane, 1_000, 1, nativeId, 1, Bytes.sha256(nativeKey)));
+        final ReadyFixture first = new ReadyFixture(
+                nativeLaneRecord,
+                nativeId,
+                nativeMessage,
+                KeyCodec.timelineReady(1_000, nativeLane, 1),
+                ordinary.timelineKey(),
+                dual);
+        final ReadyFixture middle = budgetFixture(shardId, 58);
+        final ReadyFixture last = budgetFixture(shardId, 59);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore store = ShardStore.open(config, shardId, resources)) {
+            store.write(batch -> {
+                putReady(batch, first);
+                putReady(batch, middle);
+                putReady(batch, last);
+                batch.putValue(
+                        ColumnFamily.TIMELINE,
+                        1,
+                        nativeKey,
+                        new com.nereusstream.delay.runtime.NativeCandidateRef(nativeId, 1, 1_000, nativeKey)
+                                .canonicalBytes());
+            });
+            final PersistentLaneScheduler scheduler =
+                    new PersistentLaneScheduler(store, LaneScheduler.defaults(), owner(1), () -> 0);
+            for (ReadyFixture fixture : List.of(first, middle, last)) {
+                scheduler.register(fixture.lane());
+            }
+            assertEquals(
+                    List.of(middle.messageId()),
+                    scheduler.discoverReady(1_000, new SchedulerBudget(2, 10_000, 1_000)).stream()
+                            .map(ScheduleWorkItem::messageId)
+                            .toList());
+            assertEquals(
+                    List.of(last.messageId()),
+                    scheduler.discoverReady(1_000, new SchedulerBudget(2, 10_000, 1_000)).stream()
+                            .map(ScheduleWorkItem::messageId)
+                            .toList());
+            assertEquals(12, scheduler.discoveryReadStatistics().actualRecords());
+            org.junit.jupiter.api.Assertions.assertArrayEquals(
+                    last.readyKey(), scheduler.discoveryCursor().lastScannedReadyKey());
+            assertEquals(0, scheduler.discoveryCursor().wrapGeneration());
+        }
+    }
+
+    private static long storedBytes(final ShardStore store, final ColumnFamily family, final byte[] key) {
+        return (long) key.length + store.get(family, key).length;
+    }
+
+    private static ReadyFixture budgetFixture(final ShardId shardId, final int laneMarker) {
+        final DestinationLaneId lane = lane(laneMarker);
+        final LaneRecord laneRecord =
+                new LaneRecord(lane, new byte[16], 1, 1, AdmissionGate.OPEN, RuntimeReadiness.READY, 1, 1_000);
+        final SourcePosition source = new KafkaSourcePosition(shardId, "cluster", UUID.randomUUID(), 0, null, 1_000);
+        final DelayMessageId messageId = DelayMessageId.random(shardId);
+        final MessageRecord message = new MessageRecord(
+                MessageStatus.SCHEDULED,
+                1,
+                1,
+                1_000,
+                9_000,
+                lane,
+                OrderingMode.BEST_EFFORT,
+                new byte[] {1},
+                source.canonicalBytes());
+        return readyFixture(laneRecord, messageId, source, message);
+    }
+
     private static LaneRecord record(final DestinationLaneId lane, final int weight) {
         return new LaneRecord(lane, new byte[16], 1, 0, AdmissionGate.OPEN, RuntimeReadiness.READY, weight, 0);
     }

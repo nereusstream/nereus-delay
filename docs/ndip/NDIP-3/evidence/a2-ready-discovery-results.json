@@ -1,0 +1,112 @@
+{
+  "scope": "A2 READY discovery integration and Store publication boundary; head mutation/source integration and full activation-envelope proof remain pending",
+  "baseCommit": "a61df6b09ba4fc873acf6cc6c079fdf1e4713d53",
+  "sourceFiles": {
+    "src/main/java/com/nereusstream/delay/scheduler/PersistentLaneScheduler.java": "678bc6727483e5ae5e4e4c75a08ca22ee12379c594244bd2c3c4e2c1810c45e1",
+    "src/main/java/com/nereusstream/delay/store/BoundedReadBudget.java": "c261d3700d21a0e2ba016661f6295c1d9ab852e49b6c11980ede2e5363a45fbe",
+    "src/main/java/com/nereusstream/delay/store/ShardStore.java": "416cd8301513a5fa42cf116f5fe2467adf457f6f95c4bb862a43a628cf3630f1",
+    "src/main/java/com/nereusstream/delay/store/ReadIncompleteException.java": "343f667e473137e6e16f7434e696248d9de6333954c6bbb5277e3056a572d45d"
+  },
+  "testFiles": {
+    "src/test/java/com/nereusstream/delay/scheduler/LaneSchedulerTest.java": "9ca9f812796e52ddf7bc503510d0591c91d58eb0541a6085bafc9e1019a7a338",
+    "src/test/java/com/nereusstream/delay/store/ShardReadPlanTest.java": "24b96d6ac68f31920f6c8103ae3cc5e604254005032f3024694fe2b981fa81a9",
+    "src/test/java/com/nereusstream/delay/ownership/ClaimHandoffWorkClassExecutorTest.java": "28b1ea5026c984df629dac044830f7f20cef0ab7669eafdb958c019fe459e1fa"
+  },
+  "command": "./gradlew spotlessApply check --console=plain",
+  "checkResult": "PASS",
+  "javaResults": {
+    "tests": 1701,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 41
+  },
+  "affectedClassResults": {
+    "com.nereusstream.delay.ownership.ClaimHandoffWorkClassExecutorTest": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.nereusstream.delay.ownership.DueSchedulerWorkClassExecutorTest": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.nereusstream.delay.scheduler.LaneSchedulerTest": {
+      "tests": 50,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.nereusstream.delay.store.ShardReadPlanTest": {
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "newCases": [
+    "incompleteReadyDependencyDoesNotPublishQueueOrCursorAndRetryStartsFresh",
+    "readyTailAndWrapShareDependencyBudgetAndCursorStopsAtLastCompleteProjection",
+    "elapsedReadyDependencyKeepsItsPhysicalRecordAndDoesNotPublishPartialWork",
+    "aFutureNativeProjectionInWrappedRangeDoesNotAdvanceTheEligibleCursorWrap",
+    "readViewPublicationRejectsChangedViewsBeforeCallingTheAction",
+    "visitorDependencyExhaustionReturnsAnExplicitStopAndClosesItsIterator",
+    "completedProjectionWorkSharesTheDeadlineWithoutResettingItsPhysicalReadAllowance"
+  ],
+  "readAccounting": {
+    "ordinaryProjectionRecords": 5,
+    "ordinaryWithNativeIndexRecords": 7,
+    "withNativeBindingMaximumRecordsByCallGraph": 8,
+    "recordsCap": "min(Integer.MAX_VALUE, 8 * SchedulerBudget.maxMessages)",
+    "bytes": "one shared exact key/value byte budget across tail, wrap and dependency reads; rejected physical returns included in actual bytes",
+    "scope": "application-visible reads only; excludes physical block IO, decode copies and policy RPC resource certification"
+  },
+  "skippedCases": [
+    "com.nereusstream.delay.gateway.OxiaRealGatewayAdmissionSmokeTest.admissionPoolsAndExpiryWorkAgainstRealService()",
+    "com.nereusstream.delay.gateway.OxiaRealGatewayAuditSinkSmokeTest.auditEventIsDurableAndExactlyDeduplicatedAgainstRealService()",
+    "com.nereusstream.delay.gateway.OxiaRealGatewayGrpcSmokeTest.concurrentDuplicateRequestsAcrossTwoGatewayServersUseOneDurableAttempt()",
+    "com.nereusstream.delay.gateway.OxiaRealGatewayGrpcSmokeTest.gatewayDurableRecordsRecoverAfterOxiaSessionChurn()",
+    "com.nereusstream.delay.gateway.OxiaRealGatewayGrpcSmokeTest.authenticatedScheduleIsNetworkBoundAndExactlyIdempotentAgainstRealOxia()",
+    "com.nereusstream.delay.gateway.OxiaRealGatewayGrpcSmokeTest.rotatedGatewayCertificatesRejectOldClientAndReuseDurableOutcome()",
+    "com.nereusstream.delay.gateway.OxiaRealGatewayGrpcSmokeTest.gatewayRecoversAfterCommittedOxiaAttemptResponseLoss()",
+    "com.nereusstream.delay.gateway.OxiaRealGatewayGrpcSmokeTest.gatewayRecoversAcrossRealOxiaDataServerFailover()",
+    "com.nereusstream.delay.gateway.OxiaRealGatewayGrpcSmokeTest.gatewayRecoversAfterCommittedOxiaRetryAttemptResponseLoss()",
+    "com.nereusstream.delay.ownership.OxiaRealControlAuthoritySmokeTest.freshProcessPhaseReopensDurableControlAuthority()",
+    "com.nereusstream.delay.ownership.OxiaRealControlAuthoritySmokeTest.controlTargetRegistrationCasAndReopenWorkAgainstRealService()",
+    "com.nereusstream.delay.ownership.OxiaRealControlAuthoritySmokeTest.controlOperationCasAndReopenWorkAgainstRealService()",
+    "com.nereusstream.delay.ownership.OxiaRealProtocolCapabilitySmokeTest.eligibleReaderSetIsSessionBoundAndActivationEvidenceIsExact()",
+    "com.nereusstream.delay.ownership.OxiaRealServiceSmokeTest.ownerLeaseCasAndEphemeralSessionWorkAgainstRealService()",
+    "com.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest.signedRouteNotificationsRefreshAStartedProviderAgainstRealService()",
+    "com.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest.signedRoutePublicationHeadCasAndRefreshWorkAgainstRealService()",
+    "com.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest.signedRouteProviderRecoversAfterRealOxiaRestart()",
+    "com.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest.signedRouteNotificationsRecoverAfterRealOxiaRestart()",
+    "com.nereusstream.delay.route.OxiaRealRouteWorkerAssignmentSmokeTest.signedRoutePublicationFeedsSessionBoundWorkerAssignmentAuthority()",
+    "com.nereusstream.delay.route.OxiaRealRouteWorkerAssignmentSmokeTest.signedRoutePublicationPlacesTwoShardsAcrossTwoWorkersWithSessionBoundCas()",
+    "com.nereusstream.delay.runtime.CredentialBindingDurableChaosTest.rotatesProtectedCredentialBindingAcrossFreshProcess()",
+    "com.nereusstream.delay.runtime.OxiaRealProfileCatalogSmokeTest.profileHeadProtectionLeaseAndRotationReopenAgainstRealService()",
+    "com.nereusstream.delay.scheduler.LongGcDurableChaosTest.realLongGcPausePreservesDurableDueAdmission()",
+    "com.nereusstream.delay.scheduler.TargetIsolationDurableChaosTest.targetIsolationSurvivesFreshProcessRecovery()",
+    "com.nereusstream.delay.store.LocalStorageDurableChaosTest.localStorageFailureSurvivesFreshProcessRecovery()",
+    "com.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest.workerCheckpointRuntimeRemainsPendingWhenMinioCommitFailsBeforeProviderWrite()",
+    "com.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest.workerCheckpointRuntimePublishesAtomicIntentAndCatalogAgainstRealService()",
+    "com.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest.workerCheckpointRuntimePublishesToRealMinioAndOxia()",
+    "com.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest.recoveryPinIsSessionBoundAndExpiresWithTheRealPublicationSession()",
+    "com.nereusstream.delay.store.OxiaRealCheckpointReapingSmokeTest.realOxiaOwnerAbandonmentReapsExactMinioCheckpointPrefix()",
+    "com.nereusstream.delay.store.OxiaRealObjectStoreCredentialRenewalSmokeTest.renewsRealOxiaLeaseAndFencesTheLiveAdapterAtHeadRotation()",
+    "com.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest.checkpointUploadIntentCasAndReopenWorkAgainstRealService()",
+    "com.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest.freshProcessPhaseReopensDurableRecoveryAuthorities()",
+    "com.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest.recoveryCatalogCasAndLocalReuseValidationWorkAgainstRealService()",
+    "com.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest.recoveryPinIsSessionBoundAndExpiresWithTheRealOxiaSession()",
+    "com.nereusstream.delay.store.S3CompatibleMinioRealSmokeTest.realMinioTimeoutAfterCommitResolvesByExactReadback()",
+    "com.nereusstream.delay.store.S3CompatibleMinioRealSmokeTest.realMinioCredentialConfigurationDriftFailsClosed()",
+    "com.nereusstream.delay.store.S3CompatibleMinioRealSmokeTest.realMinioFiveHundredBeforeCommitRemainsFailClosed()",
+    "com.nereusstream.delay.store.S3CompatibleMinioRealSmokeTest.realMinioFaultRecoveryRunsInFreshProcess()",
+    "com.nereusstream.delay.store.S3CompatibleMinioRealSmokeTest.realMinioFiveHundredAfterCommitResolvesByExactReadback()",
+    "com.nereusstream.delay.store.S3CompatibleMinioRealSmokeTest.immutableCheckpointUploadsIdempotentlyAndRestoresAgainstMinio()"
+  ],
+  "brokerCertification": false,
+  "productionAuthority": false,
+  "sliceComplete": false
+}

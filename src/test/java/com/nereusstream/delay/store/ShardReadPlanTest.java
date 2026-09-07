@@ -137,6 +137,82 @@ class ShardReadPlanTest {
         }
     }
 
+    @Test
+    void readViewPublicationRejectsChangedViewsBeforeCallingTheAction() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("publication-view"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore store = ShardStore.open(config, shard(), resources)) {
+            final var plan = store.readWithBudget(budget(100), () -> 42);
+            final java.util.concurrent.atomic.AtomicInteger published = new java.util.concurrent.atomic.AtomicInteger();
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> store.readWithBudget(
+                            budget(100), () -> store.withReadView(plan.view(), published::incrementAndGet)));
+            assertEquals(0, published.get());
+            store.withReadView(plan.view(), () -> {
+                org.junit.jupiter.api.Assertions.assertTrue(Thread.holdsLock(store));
+                store.write(batch -> batch.requireReadView(plan.view()));
+                return published.incrementAndGet();
+            });
+            assertEquals(1, published.get());
+            assertThrows(
+                    IllegalStateException.class, () -> store.withReadView(plan.view(), published::incrementAndGet));
+            assertEquals(1, published.get());
+        }
+    }
+
+    @Test
+    void visitorDependencyExhaustionReturnsAnExplicitStopAndClosesItsIterator() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("visitor-dependency"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore store = ShardStore.open(config, shard(), resources)) {
+            store.write(batch -> {
+                batch.put(ColumnFamily.TIMELINE, new byte[] {99, 0}, new byte[] {1});
+                batch.put(ColumnFamily.TIMELINE, new byte[] {99, 1}, new byte[] {2});
+                batch.put(ColumnFamily.ID, new byte[] {99}, new byte[] {3});
+            });
+            final BoundedReadBudget budget = budget(4);
+            final var plan = store.readWithBudget(
+                    budget,
+                    () -> store.visitResult(
+                            ColumnFamily.TIMELINE, new byte[] {99}, new byte[] {100}, 2, budget, (entry, ignored) -> {
+                                store.get(ColumnFamily.ID, new byte[] {99});
+                                return true;
+                            }));
+            assertEquals(ShardStore.VisitStop.INCOMPLETE, plan.value().stop());
+            assertEquals(BoundedReadBudget.Exhaustion.BYTES, plan.value().reason());
+            assertEquals(1, plan.value().visited());
+            assertEquals(2, budget.actualRecords());
+            assertEquals(5, budget.actualBytes());
+            store.write(batch -> batch.requireReadView(plan.view()));
+            assertEquals(
+                    2,
+                    store.scan(ColumnFamily.TIMELINE, new byte[] {99}, new byte[] {100}, 2)
+                            .size());
+        }
+    }
+
+    @Test
+    void completedProjectionWorkSharesTheDeadlineWithoutResettingItsPhysicalReadAllowance() {
+        final AtomicLong clock = new AtomicLong();
+        final BoundedReadBudget budget = new BoundedReadBudget(1, 3, 10, clock::get);
+        org.junit.jupiter.api.Assertions.assertTrue(budget.beforeRead());
+        org.junit.jupiter.api.Assertions.assertTrue(budget.tryCharge(2, 1));
+        org.junit.jupiter.api.Assertions.assertFalse(budget.beforeRead());
+        org.junit.jupiter.api.Assertions.assertTrue(budget.beforeTimedWork());
+        clock.set(10);
+        org.junit.jupiter.api.Assertions.assertFalse(budget.beforeTimedWork());
+        assertEquals(1, budget.actualRecords());
+        assertEquals(3, budget.actualBytes());
+        assertEquals(1, budget.deniedReads());
+        assertEquals(BoundedReadBudget.Exhaustion.RECORDS, budget.exhaustion());
+        final BoundedReadBudget deadlineOnly = new BoundedReadBudget(10, 10, clock::get);
+        clock.set(20);
+        org.junit.jupiter.api.Assertions.assertFalse(deadlineOnly.beforeTimedWork());
+        assertEquals(BoundedReadBudget.Exhaustion.ELAPSED, deadlineOnly.exhaustion());
+        assertEquals(0, deadlineOnly.actualRecords());
+    }
+
     private static BoundedReadBudget budget(final long bytes) {
         return new BoundedReadBudget(bytes, 1_000, () -> 0);
     }

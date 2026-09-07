@@ -5884,3 +5884,13 @@ exact mutation overlay 排除的 key，并与本次新增候选比较。DUE 保�
 单消息每前缀最多访问两个应用候选；这一界限不代表底层 I/O 次数或整个 Schedule 已为常数成本。
 正常 mutation 严格校验被选候选；正式激活和 fenced READY rebuild 显式审计全前缀。
 预算/提交屏障和 Target 架构的未完成范围在 [NDIP-3](ndip/NDIP-3/README.md) 跟踪。
+
+
+### NDIP-3 A2 的 READY discovery 实现进展
+
+READY tail/wrap 与 Lane、Message、timeline、native binding 读取共用记录/字节/时间预算。
+只有完整校验的投影才能发布进程队列和 durable discovery/fairness；未完成项不推进 cursor，
+已完成 tail 不因未完成 wrap 或未来 wrapped 候选增加已到期 cursor 的 wrap generation。
+发布前重新验证 Store/Owner 读取视图，native policy callback 在 Store monitor 外执行。
+这是 A2 的 discovery 部分，完整 head mutation/source 重试和资源 envelope 验收仍未完成；
+范围与证据持续记录在 [NDIP-3](ndip/NDIP-3/README.md)。

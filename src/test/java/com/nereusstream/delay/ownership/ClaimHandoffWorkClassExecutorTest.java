@@ -125,7 +125,6 @@ class ClaimHandoffWorkClassExecutorTest {
         final KafkaSourcePosition source =
                 new KafkaSourcePosition(shardId, "claim-work-cluster", topic, 0, null, 1_000);
         final TrustedUtcIntervalEvidence evidence = evidence();
-        final SchedulerBudget budget = new SchedulerBudget(1, 4_096, 1_000_000_000);
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("claim-work-store"));
 
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
@@ -197,7 +196,21 @@ class ClaimHandoffWorkClassExecutorTest {
                     KeyCodec.metaLane(laneId),
                     LaneRecordEnvelope.active(activeLane).canonicalBytes()));
             com.nereusstream.delay.scheduler.PersistentLaneSchedulerTestSupport.register(scheduler, lane);
-            scheduler.discoverReady(evidence, budget);
+            // Discovery charges the complete stored projection, including both
+            // Lane validations, Message and timeline, rather than only READY.
+            final byte[] timelineKey = message.runtimeIndex().timeline().encodedTimelineKey();
+            final byte[] laneKey = KeyCodec.metaLane(laneId);
+            final byte[] messageKey = KeyCodec.idMessage(schedule.delayMessageId());
+            final long discoveryBytes = (long) readyKey.length
+                    + store.get(ColumnFamily.TIMELINE, readyKey).length
+                    + 2L * (laneKey.length + store.get(ColumnFamily.META, laneKey).length)
+                    + messageKey.length
+                    + store.get(ColumnFamily.ID, messageKey).length
+                    + timelineKey.length
+                    + store.get(ColumnFamily.TIMELINE, timelineKey).length;
+            final SchedulerBudget budget = new SchedulerBudget(1, discoveryBytes, 1_000_000_000);
+            assertEquals(1, scheduler.discoverReady(evidence, budget).size());
+            assertEquals(discoveryBytes, scheduler.discoveryReadStatistics().actualBytes());
 
             final ClaimExecutionAdmission permits = new ClaimExecutionAdmission(1, payload.length);
             permits.registerShard(new ClaimExecutionAdmission.ShardSpec(shardId, 1, payload.length));

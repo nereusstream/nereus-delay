@@ -45,11 +45,7 @@ public final class BoundedReadBudget {
 
     /** Checks all shared limits before another seek, entry or point read is initiated. */
     public boolean beforeRead() {
-        final long now = readClock();
-        if (now < lastObservedNanos) {
-            throw new IllegalStateException("bounded read monotonic clock moved backwards");
-        }
-        lastObservedNanos = now;
+        final long now = observeClock();
         if (exhaustion == null) {
             if (now - startedNanos >= maxElapsedNanos) {
                 exhaustion = Exhaustion.ELAPSED;
@@ -64,6 +60,29 @@ public final class BoundedReadBudget {
             return false;
         }
         return true;
+    }
+
+    /**
+     * Deadline check for completing an already-read projection outside the Store
+     * lock. A physical-read byte/record limit does not invalidate completed inputs.
+     */
+    public boolean beforeTimedWork() {
+        if (observeClock() - startedNanos >= maxElapsedNanos) {
+            if (exhaustion == null) {
+                exhaustion = Exhaustion.ELAPSED;
+            }
+            return false;
+        }
+        return true;
+    }
+
+    private long observeClock() {
+        final long now = readClock();
+        if (now < lastObservedNanos) {
+            throw new IllegalStateException("bounded read monotonic clock moved backwards");
+        }
+        lastObservedNanos = now;
+        return now;
     }
 
     /**

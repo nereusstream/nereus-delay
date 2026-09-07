@@ -2092,6 +2092,15 @@ public final class ShardStore implements AutoCloseable {
 
     public record ReadPlan<T>(T value, ReadView view) {}
 
+    /** Publishes a completed read plan under the same Store monitor used by its commit fence. */
+    public synchronized <T> T withReadView(final ReadView view, final java.util.function.Supplier<T> action) {
+        requireReadView(Objects.requireNonNull(view, "view"));
+        if (activeReadBudget != null) {
+            throw new IllegalStateException("cannot publish while a Store read plan is active");
+        }
+        return Objects.requireNonNull(action, "action").get();
+    }
+
     /** Process-only binding; cannot be reconstructed for another Store incarnation. */
     public static final class ReadView {
         private final ShardStore store;
@@ -2128,6 +2137,9 @@ public final class ShardStore implements AutoCloseable {
         }
         try {
             final byte[] value = db.get(handles.get(family), key);
+            if (value != null && family == ColumnFamily.TIMELINE && key.length >= 2 && key[0] == 3 && key[1] == 1) {
+                readyEntriesRead++;
+            }
             if (activeReadBudget != null && !activeReadBudget.tryCharge(key.length, value == null ? 0 : value.length)) {
                 throw activeReadBudget.incomplete();
             }
@@ -2282,7 +2294,19 @@ public final class ShardStore implements AutoCloseable {
                         break;
                     }
                     visited++;
-                    if (!entryVisitor.visit(new KeyValue(key, value), readBudget)) {
+                    final boolean continueVisit;
+                    try {
+                        continueVisit = entryVisitor.visit(new KeyValue(key, value), readBudget);
+                    } catch (ReadIncompleteException incomplete) {
+                        if (readBudget.exhaustion() != incomplete.reason()) {
+                            throw incomplete;
+                        }
+                        // Preserve iterator.status() below even when a dependent
+                        // point read yields. Native I/O failure outranks a budget yield.
+                        stop = VisitStop.INCOMPLETE;
+                        break;
+                    }
+                    if (!continueVisit) {
                         stop = VisitStop.VISITOR_STOPPED;
                         break;
                     }

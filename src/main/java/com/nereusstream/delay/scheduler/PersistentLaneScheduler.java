@@ -21,8 +21,10 @@ import com.nereusstream.delay.runtime.ReadyIndexValue;
 import com.nereusstream.delay.runtime.RuntimeReadiness;
 import com.nereusstream.delay.runtime.TimelineEntry;
 import com.nereusstream.delay.runtime.TimelineWorkRef;
+import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.ColumnFamily;
 import com.nereusstream.delay.store.KeyCodec;
+import com.nereusstream.delay.store.ReadIncompleteException;
 import com.nereusstream.delay.store.ShardStore;
 import com.nereusstream.delay.store.ValueEnvelope;
 import java.util.ArrayList;
@@ -45,6 +47,10 @@ import java.util.function.LongSupplier;
  */
 public final class PersistentLaneScheduler {
     private static final int VALUE_TYPE = 5;
+    // READY + Lane + Message + timeline + typed Lane, plus native Message,
+    // native timeline and binding. maxMessages remains a logical head limit;
+    // every dependent physical record is also charged to this derived cap.
+    private static final int MAX_RECORDS_PER_READY_PROJECTION = 8;
     private final ShardStore store;
     private final LaneScheduler delegate;
     private final OwnerIdentity owner;
@@ -63,6 +69,7 @@ public final class PersistentLaneScheduler {
     private long wrapGeneration;
     private boolean recoveryFirstPass = true;
     private boolean persistedRestored;
+    private DiscoveryReadStatistics lastDiscoveryRead = new DiscoveryReadStatistics(0, 0, 0, 0, null);
 
     PersistentLaneScheduler(final ShardStore store, final LaneScheduler delegate) {
         this(store, delegate, defaultOwner(store), System::nanoTime, null);
@@ -356,110 +363,132 @@ public final class PersistentLaneScheduler {
         final RuntimeSnapshot before = runtimeSnapshot();
         final List<ScheduleWorkItem> offered = new ArrayList<>();
         try {
-            final long startedNanos = readClock();
-            final ReadyScan readyScan = scanReadyEntries(budget.maxMessages());
-            final List<ShardStore.KeyValue> entries = readyScan.entries();
-            final List<ReadyProjection> projections = new ArrayList<>();
-            final Set<DestinationLaneId> scannedLanes = new HashSet<>();
-            long scannedBytes = 0;
-            byte[] lastEligibleReadyKey = null;
-            for (ShardStore.KeyValue entry : entries) {
-                if (elapsedSince(startedNanos, readClock()) >= budget.maxElapsedNanos()) {
-                    break;
-                }
-                final long entryBytes = Math.addExact(entry.key().length, entry.value().length);
-                // A valid READY projection must fit every certified scheduler
-                // byte cap. Do not make a first-entry exception that bypasses
-                // the cap; activation/configuration is responsible for proving
-                // that admitted work and its durable projection fit.
-                if (entryBytes > budget.maxBytes()) {
-                    throw new IllegalStateException("READY discovery entry exceeds byte budget");
-                }
-                if (entryBytes > budget.maxBytes() - scannedBytes) {
-                    break;
-                }
-                scannedBytes = Math.addExact(scannedBytes, entryBytes);
-                final ReadyProjection projection = decodeReadyProjection(entry, evidence);
-                if (!scannedLanes.add(projection.lane().laneId())) {
-                    throw new IllegalStateException("multiple READY heads discovered for Lane: "
-                            + projection.lane().laneId());
-                }
-                projections.add(projection);
-                if (projection.items().stream().anyMatch(item -> item.eligibleAtEpochMs() <= dueThroughEpochMs)) {
-                    lastEligibleReadyKey = entry.key();
-                }
-            }
-
-            final List<ScheduleWorkItem> toOffer = new ArrayList<>();
-            final List<ScheduleWorkItem> newlyPromoted = new ArrayList<>();
-            final Map<DestinationLaneId, DiscoveredHead> nextHeads = new HashMap<>();
-            for (ReadyProjection projection : projections) {
-                final DestinationLaneId laneId = projection.lane().laneId();
-                final List<ScheduleWorkItem> items = projection.items();
-                final List<ScheduleWorkItem> queued = delegate.queueSnapshot().getOrDefault(laneId, List.of());
-                final DiscoveredHead known = discoveredHeads.get(laneId);
-                if (!queued.isEmpty()) {
-                    if (known != null
-                            && Arrays.equals(known.readyKey(), projection.readyKey())
-                            && sameItemsExact(queued, known.items())
-                            && !sameItemsExact(queued, items)) {
-                        delegate.replaceLanePending(laneId, items);
-                        nextHeads.put(laneId, new DiscoveredHead(items, projection.readyKey()));
-                        for (ScheduleWorkItem item : items) {
-                            if (item.eligibleAtEpochMs() <= dueThroughEpochMs) {
-                                toOffer.add(item);
-                            }
-                        }
-                        continue;
+            final BoundedReadBudget readBudget = new BoundedReadBudget(
+                    (int) Math.min(Integer.MAX_VALUE, (long) budget.maxMessages() * MAX_RECORDS_PER_READY_PROJECTION),
+                    budget.maxBytes(),
+                    budget.maxElapsedNanos(),
+                    this::readClock);
+            try {
+                final ShardStore.ReadPlan<ReadyScan> plan = store.readWithBudget(
+                        readBudget, () -> readReadyProjections(budget.maxMessages(), evidence, readBudget));
+                // Policy authority may consult another component (including its Shard
+                // source position). Never invoke that callback under the Store monitor.
+                final List<ReadyProjection> resolved = new ArrayList<>();
+                for (ReadyProjection projection : plan.value().projections()) {
+                    if (projection.nativeResolution() != null && !readBudget.beforeTimedWork()) {
+                        break;
                     }
-                    if (!samePendingItems(queued, items)) {
-                        throw new IllegalStateException(
-                                "in-memory READY head differs from authoritative READY: " + laneId);
-                    }
-                    if (known != null && !sameHead(known, projection)) {
-                        throw new IllegalStateException(
-                                "in-memory READY key differs from authoritative READY: " + laneId);
-                    }
-                    nextHeads.put(laneId, new DiscoveredHead(items, projection.readyKey()));
-                    continue;
+                    resolved.add(resolveNativeProjection(projection, evidence));
                 }
-                if (known != null && sameHead(known, projection)) {
-                    nextHeads.put(laneId, known);
-                    continue;
-                }
-                nextHeads.put(laneId, new DiscoveredHead(items, projection.readyKey()));
-                newlyPromoted.addAll(items);
-                for (ScheduleWorkItem item : items) {
-                    if (item.eligibleAtEpochMs() <= dueThroughEpochMs) {
-                        toOffer.add(item);
-                    }
-                }
+                final ReadyScan completed = new ReadyScan(
+                        resolved, Math.min(resolved.size(), plan.value().firstWrappedProjection()));
+                return store.withReadView(
+                        plan.view(), () -> publishReadyProjections(dueThroughEpochMs, completed, plan.view(), offered));
+            } finally {
+                lastDiscoveryRead = new DiscoveryReadStatistics(
+                        readBudget.actualRecords(),
+                        readBudget.actualBytes(),
+                        readBudget.chargedBytes(),
+                        readBudget.deniedReads(),
+                        readBudget.exhaustion());
             }
-            for (ScheduleWorkItem item : newlyPromoted) {
-                delegate.activateLane(item.laneId());
-                delegate.offer(item);
-                offered.add(item);
-            }
-            // Do not consume a future READY key in the durable cursor. The
-            // future item may be retained in this process-local queue, but a
-            // restart must be able to rediscover it before its due turn. READY
-            // keys are ordered by eligibility, so the last eligible key is the
-            // safe cursor boundary for this time-bounded discovery turn.
-            if (lastEligibleReadyKey != null) {
-                lastScannedReadyKey = lastEligibleReadyKey;
-            }
-            discoveredHeads.putAll(nextHeads);
-            if (lastEligibleReadyKey != null) {
-                final long nextWrapGeneration =
-                        readyScan.wrapped() ? incrementWrapGeneration(wrapGeneration) : wrapGeneration;
-                persist(nextWrapGeneration);
-            }
-            return List.copyOf(toOffer);
         } catch (RuntimeException | Error failure) {
             rollbackRuntime(before, List.of(), offered, null, failure, null);
             throw failure;
         }
     }
+
+    private List<ScheduleWorkItem> publishReadyProjections(
+            final long dueThroughEpochMs,
+            final ReadyScan readyScan,
+            final ShardStore.ReadView view,
+            final List<ScheduleWorkItem> offered) {
+        final List<ReadyProjection> projections = readyScan.projections();
+        byte[] lastEligibleReadyKey = null;
+        boolean eligibleCursorWrapped = false;
+        for (int index = 0; index < projections.size(); index++) {
+            final ReadyProjection projection = projections.get(index);
+            if (projection.items().stream().anyMatch(item -> item.eligibleAtEpochMs() <= dueThroughEpochMs)) {
+                lastEligibleReadyKey = projection.readyKey();
+                eligibleCursorWrapped = index >= readyScan.firstWrappedProjection();
+            }
+        }
+        final List<ScheduleWorkItem> toOffer = new ArrayList<>();
+        final List<ScheduleWorkItem> newlyPromoted = new ArrayList<>();
+        final Map<DestinationLaneId, DiscoveredHead> nextHeads = new HashMap<>();
+        for (ReadyProjection projection : projections) {
+            final DestinationLaneId laneId = projection.lane().laneId();
+            final List<ScheduleWorkItem> items = projection.items();
+            final List<ScheduleWorkItem> queued = delegate.queueSnapshot().getOrDefault(laneId, List.of());
+            final DiscoveredHead known = discoveredHeads.get(laneId);
+            if (!queued.isEmpty()) {
+                if (known != null
+                        && Arrays.equals(known.readyKey(), projection.readyKey())
+                        && sameItemsExact(queued, known.items())
+                        && !sameItemsExact(queued, items)) {
+                    delegate.replaceLanePending(laneId, items);
+                    nextHeads.put(laneId, new DiscoveredHead(items, projection.readyKey()));
+                    for (ScheduleWorkItem item : items) {
+                        if (item.eligibleAtEpochMs() <= dueThroughEpochMs) {
+                            toOffer.add(item);
+                        }
+                    }
+                    continue;
+                }
+                if (!samePendingItems(queued, items)) {
+                    throw new IllegalStateException("in-memory READY head differs from authoritative READY: " + laneId);
+                }
+                if (known != null && !sameHead(known, projection)) {
+                    throw new IllegalStateException("in-memory READY key differs from authoritative READY: " + laneId);
+                }
+                nextHeads.put(laneId, new DiscoveredHead(items, projection.readyKey()));
+                continue;
+            }
+            if (known != null && sameHead(known, projection)) {
+                nextHeads.put(laneId, known);
+                continue;
+            }
+            nextHeads.put(laneId, new DiscoveredHead(items, projection.readyKey()));
+            newlyPromoted.addAll(items);
+            for (ScheduleWorkItem item : items) {
+                if (item.eligibleAtEpochMs() <= dueThroughEpochMs) {
+                    toOffer.add(item);
+                }
+            }
+        }
+        for (ScheduleWorkItem item : newlyPromoted) {
+            delegate.activateLane(item.laneId());
+            delegate.offer(item);
+            offered.add(item);
+        }
+        // Do not consume a future READY key in the durable cursor. The
+        // future item may be retained in this process-local queue, but a
+        // restart must be able to rediscover it before its due turn. READY
+        // keys are ordered by eligibility, so the last eligible key is the
+        // safe cursor boundary for this time-bounded discovery turn.
+        if (lastEligibleReadyKey != null) {
+            lastScannedReadyKey = lastEligibleReadyKey;
+        }
+        discoveredHeads.putAll(nextHeads);
+        if (lastEligibleReadyKey != null) {
+            final long nextWrapGeneration =
+                    eligibleCursorWrapped ? incrementWrapGeneration(wrapGeneration) : wrapGeneration;
+            persist(nextWrapGeneration, view);
+        }
+        return List.copyOf(toOffer);
+    }
+
+    /** Actual Store reads for the most recent discovery, including dependency and rejected reads. */
+    public synchronized DiscoveryReadStatistics discoveryReadStatistics() {
+        return lastDiscoveryRead;
+    }
+
+    public record DiscoveryReadStatistics(
+            long actualRecords,
+            long actualBytes,
+            long chargedBytes,
+            long deniedReads,
+            BoundedReadBudget.Exhaustion exhaustion) {}
 
     /** Returns the current durable discovery cursor projection. */
     public synchronized SchedulerProjections.ReadyDiscoveryCursor discoveryCursor() {
@@ -702,14 +731,6 @@ public final class PersistentLaneScheduler {
         return now;
     }
 
-    private static long elapsedSince(final long start, final long end) {
-        try {
-            return Math.subtractExact(end, start);
-        } catch (ArithmeticException overflow) {
-            return Long.MAX_VALUE;
-        }
-    }
-
     synchronized void markBlocked(final DestinationLaneId laneId) {
         requireRegisteredLane(laneId);
         final RuntimeSnapshot before = runtimeSnapshot();
@@ -821,6 +842,10 @@ public final class PersistentLaneScheduler {
     }
 
     private void persist(final long persistedWrapGeneration) {
+        persist(persistedWrapGeneration, null);
+    }
+
+    private void persist(final long persistedWrapGeneration, final ShardStore.ReadView view) {
         final LaneScheduler.SchedulerSnapshot snapshot = delegate.snapshot();
         final long nextRingGeneration = ringGeneration == Long.MAX_VALUE ? Long.MAX_VALUE : ringGeneration + 1;
         final long persistedRingGeneration = Math.max(1, nextRingGeneration);
@@ -867,6 +892,9 @@ public final class PersistentLaneScheduler {
                 new SchedulerProjections.Round(snapshot.roundGeneration(), owner, recoveryFirstPass);
         final SchedulerProjections.LastServedMap lastServedMap = new SchedulerProjections.LastServedMap(lastServed);
         store.write(batch -> {
+            if (view != null) {
+                batch.requireReadView(view);
+            }
             batch.putValue(ColumnFamily.META, VALUE_TYPE, KeyCodec.metaScheduler(1), discovery.canonicalBytes());
             batch.putValue(ColumnFamily.META, VALUE_TYPE, KeyCodec.metaScheduler(2), activeRing.canonicalBytes());
             batch.putValue(ColumnFamily.META, VALUE_TYPE, KeyCodec.metaScheduler(3), deficitMap.canonicalBytes());
@@ -880,54 +908,84 @@ public final class PersistentLaneScheduler {
         wrapGeneration = persistedWrapGeneration;
     }
 
-    private ReadyScan scanReadyEntries(final int limit) {
+    private ReadyScan readReadyProjections(
+            final int limit, final TrustedUtcIntervalEvidence evidence, final BoundedReadBudget budget) {
         final byte[] prefix = new byte[] {3, 1};
         final byte[] upper = new byte[] {4, 1};
+        final List<ReadyProjection> projections = new ArrayList<>();
+        final Set<DestinationLaneId> scannedLanes = new HashSet<>();
         if (lastScannedReadyKey == null) {
-            return new ReadyScan(store.scan(ColumnFamily.TIMELINE, prefix, upper, limit), false);
+            readReadyRange(prefix, upper, limit, evidence, budget, projections, scannedLanes);
+            return new ReadyScan(projections, projections.size());
         }
         if (!hasPrefix(lastScannedReadyKey, prefix)) {
             throw new IllegalStateException("persisted READY discovery cursor is outside READY namespace");
         }
-        final List<ShardStore.KeyValue> result = new ArrayList<>();
-        // The lower bound is inclusive. Read one extra entry so the cursor
-        // itself does not consume the whole bounded slice when it is the
-        // first key and the caller asks for a one-entry discovery turn.
-        final int tailLimit = limit == Integer.MAX_VALUE ? limit : Math.addExact(limit, 1);
-        final List<ShardStore.KeyValue> tail = store.scan(ColumnFamily.TIMELINE, lastScannedReadyKey, upper, tailLimit);
-        ShardStore.KeyValue cursorEntry = null;
-        for (ShardStore.KeyValue entry : tail) {
-            if (Arrays.equals(entry.key(), lastScannedReadyKey)) {
-                cursorEntry = entry;
-            } else {
-                result.add(entry);
-            }
-            if (result.size() == limit) {
-                return new ReadyScan(List.copyOf(result), false);
-            }
+        // Appending a zero byte is the exclusive successor of this exact key.
+        // No cursor row is fetched merely to skip it, and malformed longer keys
+        // still reach the decoder instead of being skipped by a numeric increment.
+        final byte[] tailStart = Arrays.copyOf(lastScannedReadyKey, lastScannedReadyKey.length + 1);
+        final ShardStore.VisitStop tail =
+                readReadyRange(tailStart, upper, limit, evidence, budget, projections, scannedLanes);
+        if (tail != ShardStore.VisitStop.RANGE_END || projections.size() == limit) {
+            return new ReadyScan(projections, projections.size());
         }
-        final int remaining = limit - result.size();
-        if (remaining > 0) {
-            final List<ShardStore.KeyValue> head =
-                    store.scan(ColumnFamily.TIMELINE, prefix, lastScannedReadyKey, remaining);
-            result.addAll(head);
-            if (result.size() == limit) {
-                return new ReadyScan(List.copyOf(result), true);
+        final int tailCompleted = projections.size();
+        final ShardStore.VisitStop head =
+                readReadyRange(prefix, lastScannedReadyKey, limit, evidence, budget, projections, scannedLanes);
+        if (head != ShardStore.VisitStop.RANGE_END || projections.size() == limit) {
+            return new ReadyScan(projections, tailCompleted);
+        }
+        // Revisit the exact cursor only after both ranges were proven exhausted.
+        // This preserves singleton discovery and live native policy refresh.
+        try {
+            final byte[] cursorValue = store.get(ColumnFamily.TIMELINE, lastScannedReadyKey);
+            if (cursorValue != null) {
+                appendReadyProjection(
+                        new ShardStore.KeyValue(lastScannedReadyKey, cursorValue), evidence, projections, scannedLanes);
             }
+        } catch (ReadIncompleteException incomplete) {
+            // A failed dependency has not appended a projection or advanced the cursor.
         }
-        // The cursor marks the last visited key, not a permanently excluded
-        // key. Revisit it only after the tail and wrapped prefix have both
-        // been exhausted. This is required for a singleton READY namespace
-        // and for live Managed Handoff policy refresh: recovery initially
-        // restores the immutable ordinary projection without trusted time,
-        // then a later authoritative turn must be able to replace that same
-        // physical head with its current process-local native projection.
-        // discoveredHeads remains the duplicate-Claim fence.
-        if (cursorEntry != null && result.size() < limit) {
-            result.add(cursorEntry);
-            return new ReadyScan(List.copyOf(result), true);
+        return new ReadyScan(projections, tailCompleted);
+    }
+
+    private ShardStore.VisitStop readReadyRange(
+            final byte[] lower,
+            final byte[] upper,
+            final int limit,
+            final TrustedUtcIntervalEvidence evidence,
+            final BoundedReadBudget budget,
+            final List<ReadyProjection> projections,
+            final Set<DestinationLaneId> scannedLanes) {
+        try {
+            return store.visitResult(
+                            ColumnFamily.TIMELINE,
+                            lower,
+                            upper,
+                            limit - projections.size(),
+                            budget,
+                            (entry, ignored) -> {
+                                appendReadyProjection(entry, evidence, projections, scannedLanes);
+                                return projections.size() < limit;
+                            })
+                    .stop();
+        } catch (ReadIncompleteException incomplete) {
+            return ShardStore.VisitStop.INCOMPLETE;
         }
-        return new ReadyScan(List.copyOf(result), !result.isEmpty());
+    }
+
+    private void appendReadyProjection(
+            final ShardStore.KeyValue entry,
+            final TrustedUtcIntervalEvidence evidence,
+            final List<ReadyProjection> projections,
+            final Set<DestinationLaneId> scannedLanes) {
+        final ReadyProjection projection = decodeStoredReadyProjection(entry, evidence);
+        if (!scannedLanes.add(projection.lane().laneId())) {
+            throw new IllegalStateException("multiple READY heads discovered for Lane: "
+                    + projection.lane().laneId());
+        }
+        projections.add(projection);
     }
 
     private static long incrementWrapGeneration(final long current) {
@@ -945,6 +1003,11 @@ public final class PersistentLaneScheduler {
     }
 
     private ReadyProjection decodeReadyProjection(
+            final ShardStore.KeyValue entry, final TrustedUtcIntervalEvidence evidence) {
+        return resolveNativeProjection(decodeStoredReadyProjection(entry, evidence), evidence);
+    }
+
+    private ReadyProjection decodeStoredReadyProjection(
             final ShardStore.KeyValue entry, final TrustedUtcIntervalEvidence evidence) {
         final ReadyKey key = decodeReadyKey(entry.key());
         final ReadyIndexValue value =
@@ -1048,33 +1111,43 @@ public final class PersistentLaneScheduler {
                 ScheduleWorkItem.CandidateKind.ORDINARY,
                 null,
                 accountedBytes));
-        HandoffEligibilityAction nativeAction = null;
+        NativeResolution nativeResolution = null;
         if (value.nativeHead() != null) {
             final ReadyIndexValue nativeHead = value.nativeHead();
             final MessageRecord nativeMessage = validateNativeReadyHead(nativeHead, key.laneId());
             if (evidence != null && nativeEligibilityAuthority != null) {
-                final HandoffEligibilityResolver.Decision decision = nativeEligibilityAuthority.resolve(
-                        nativeMessage, readScheduleBinding(nativeHead.messageId()), evidence);
-                nativeAction = decision.action();
-                if (decision.reason() == HandoffEligibilityReason.ELIGIBLE
-                        && (decision.action() == HandoffEligibilityAction.MANAGED_NATIVE_CANDIDATE
-                                || decision.action() == HandoffEligibilityAction.WAIT_UNTIL)
-                        && decision.policyHeadRef() != null
-                        && decision.policySnapshot() != null) {
-                    final long nativeBytes = Math.max(1, nativeMessage.payloadLength());
-                    items.add(new ScheduleWorkItem(
-                            key.laneId(),
-                            nativeHead.messageId(),
-                            nativeHead.generation(),
-                            value.persistentWakeAtEpochMs(),
-                            decision.effectiveEligibleAtEpochMs(),
-                            ScheduleWorkItem.CandidateKind.MANAGED_NATIVE,
-                            decision.policyHeadRef(),
-                            nativeBytes));
-                }
+                nativeResolution =
+                        new NativeResolution(nativeHead, nativeMessage, readScheduleBinding(nativeHead.messageId()));
             }
         }
-        return new ReadyProjection(lane, items, entry.key(), nativeAction);
+        return new ReadyProjection(lane, items, entry.key(), null, nativeResolution);
+    }
+
+    private ReadyProjection resolveNativeProjection(
+            final ReadyProjection projection, final TrustedUtcIntervalEvidence evidence) {
+        final NativeResolution pending = projection.nativeResolution();
+        if (pending == null) {
+            return projection;
+        }
+        final HandoffEligibilityResolver.Decision decision =
+                nativeEligibilityAuthority.resolve(pending.message(), pending.binding(), evidence);
+        final List<ScheduleWorkItem> items = new ArrayList<>(projection.items());
+        if (decision.reason() == HandoffEligibilityReason.ELIGIBLE
+                && (decision.action() == HandoffEligibilityAction.MANAGED_NATIVE_CANDIDATE
+                        || decision.action() == HandoffEligibilityAction.WAIT_UNTIL)
+                && decision.policyHeadRef() != null
+                && decision.policySnapshot() != null) {
+            items.add(new ScheduleWorkItem(
+                    projection.lane().laneId(),
+                    pending.head().messageId(),
+                    pending.head().generation(),
+                    projection.items().get(0).persistentWakeAtEpochMs(),
+                    decision.effectiveEligibleAtEpochMs(),
+                    ScheduleWorkItem.CandidateKind.MANAGED_NATIVE,
+                    decision.policyHeadRef(),
+                    Math.max(1, pending.message().payloadLength())));
+        }
+        return new ReadyProjection(projection.lane(), items, projection.readyKey(), decision.action(), null);
     }
 
     private MessageRecord validateNativeReadyHead(
@@ -1486,7 +1559,11 @@ public final class PersistentLaneScheduler {
     private record ReadyKey(DestinationLaneId laneId, long nextEligibleAtEpochMs, long laneVersion) {}
 
     private record ReadyProjection(
-            LaneRecord lane, List<ScheduleWorkItem> items, byte[] readyKey, HandoffEligibilityAction nativeAction) {
+            LaneRecord lane,
+            List<ScheduleWorkItem> items,
+            byte[] readyKey,
+            HandoffEligibilityAction nativeAction,
+            NativeResolution nativeResolution) {
         private ReadyProjection {
             Objects.requireNonNull(lane, "lane");
             items = List.copyOf(items);
@@ -1501,6 +1578,8 @@ public final class PersistentLaneScheduler {
             return Bytes.copy(readyKey);
         }
     }
+
+    private record NativeResolution(ReadyIndexValue head, MessageRecord message, ScheduleBinding binding) {}
 
     private record DiscoveredHead(List<ScheduleWorkItem> items, byte[] readyKey) {
         private DiscoveredHead {
@@ -1532,9 +1611,9 @@ public final class PersistentLaneScheduler {
         }
     }
 
-    private record ReadyScan(List<ShardStore.KeyValue> entries, boolean wrapped) {
+    private record ReadyScan(List<ReadyProjection> projections, int firstWrappedProjection) {
         private ReadyScan {
-            entries = List.copyOf(entries);
+            projections = List.copyOf(projections);
         }
     }
 }
