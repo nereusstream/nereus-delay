@@ -28,9 +28,11 @@
         "evidence/a2-storage-foundation-results.json",
         "evidence/a2-storage-foundation-check.log",
         "evidence/a2-ready-discovery-results.json",
-        "evidence/a2-ready-discovery-check.log"
+        "evidence/a2-ready-discovery-check.log",
+        "evidence/a2-head-integration-results.json",
+        "evidence/a2-head-integration-check.log"
       ],
-      "progress": "Shared READY discovery/dependency budgets and guarded cursor publication verified. Finite-budget head mutation/control/Claim and source/recovery retry integration, maximum legal mutation envelope and consecutive elapsed diagnostics remain pending."
+      "progress": "Shared READY discovery and head mutation/control/Claim plans, pre-batch view guards, source/recovery zero-write retries and consecutive elapsed diagnostics verified. Maximum legal mutation envelope and mandatory finite production activation remain pending; compatibility constructors are not certified."
     },
     {
       "id": "A3",

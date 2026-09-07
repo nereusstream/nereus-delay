@@ -14,8 +14,10 @@ Target partition queue and scheduling hot-path redesign. The complete reviewed
 design is imported from its exact 1648-line input. A0 is verified: the full-scan reference tests and fixed-cardinality probes
 record 120/2016 candidate and Message reads at N=16/64, L=1. A1 is verified: ordered prefix lookup reads 15/63 candidates for the same series,
 and 1/2 candidates for head/successor at backlog 1k, 10k and 100k. A2 is in progress: explicit bounded-read outcomes, Store view bindings and shared READY
-discovery/dependency budgets are implemented. Finite-budget head mutation/source integration
-and the maximum legal mutation envelope proof are not yet complete.
+discovery/dependency budgets are implemented. Whole HeadPlan bindings and explicit-policy
+head/source/Claim/recovery retry paths are integrated. The compatibility constructors still
+use an unbounded read policy; the maximum legal mutation envelope and mandatory activation
+configuration remain incomplete, so A2 is not verified.
 No Target runtime, Broker certification or migration is claimed yet. The user authorized
 full implementation and incremental publication on main. NDIP-1 remains closed;
 its historical evidence does not certify changed runtime source.

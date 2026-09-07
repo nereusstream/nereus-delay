@@ -22,7 +22,9 @@ import java.util.function.LongSupplier;
  * <p>An ordinary apply failure is captured in the returned
  * {@link Submission}; {@link OwnedDelayShard} has already fenced the local
  * owner when the WriteBatch/authority result is unproven, and the physical
- * Broker record remains the retry authority. The generic work registry must
+ * Broker record remains the retry authority. A proven zero-write head read
+ * exhaustion is reported separately by the coordinator for local resubmission
+ * with the same source entry and a fresh owner check. The generic work registry must
  * not create a second retry stream. A fatal {@link Error} is recorded and
  * rethrown into the event-loop fatal-stop path.</p>
  */

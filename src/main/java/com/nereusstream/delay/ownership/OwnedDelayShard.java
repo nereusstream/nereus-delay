@@ -25,6 +25,7 @@ import com.nereusstream.delay.runtime.AttemptLedgerState;
 import com.nereusstream.delay.runtime.ClaimRecord;
 import com.nereusstream.delay.runtime.CommandResult;
 import com.nereusstream.delay.runtime.DelayShard;
+import com.nereusstream.delay.runtime.HeadReadIncompleteException;
 import com.nereusstream.delay.runtime.LaneRecord;
 import com.nereusstream.delay.runtime.PublishAttemptLedger;
 import com.nereusstream.delay.runtime.SystemMutationResult;
@@ -116,6 +117,10 @@ public final class OwnedDelayShard {
         }
         try {
             return delegate.apply(command, position);
+        } catch (HeadReadIncompleteException incomplete) {
+            // DelayShard proved the whole mutation made no Store/source change.
+            // Keep the exact entry and recheck authority when it is retried.
+            throw incomplete;
         } catch (ShardStore.RocksDbWriteFailure failure) {
             // A native batch failure can leave commit status unknown. Close
             // the owner gate immediately; source replay must retain the
@@ -237,6 +242,10 @@ public final class OwnedDelayShard {
         final SystemMutationResult applied;
         try {
             applied = delegate.applySystemMutation(mutationRecord.mutation(), position, verificationKey);
+        } catch (HeadReadIncompleteException incomplete) {
+            // DelayShard proved the whole mutation made no Store/source change.
+            // Keep the exact entry and recheck authority when it is retried.
+            throw incomplete;
         } catch (ShardStore.RocksDbWriteFailure failure) {
             state = ShardLifecycleState.FENCED;
             throw failure;
@@ -300,6 +309,10 @@ public final class OwnedDelayShard {
                     delegate.applySystemMutation(mutationRecord.mutation(), position, verificationKey);
             final SystemMutationResult projected = replaySystemMutationResultAt(position, applied);
             return SourceReplayOutcome.systemMutation(position, projected);
+        } catch (HeadReadIncompleteException incomplete) {
+            // DelayShard proved the whole mutation made no Store/source change.
+            // Keep the exact entry and recheck authority when it is retried.
+            throw incomplete;
         } catch (ShardStore.RocksDbWriteFailure failure) {
             state = ShardLifecycleState.FENCED;
             throw failure;
@@ -1041,14 +1054,16 @@ public final class OwnedDelayShard {
         final AuthorIdentity author = AuthorIdentity.owner(
                 owner.deploymentId(), owner.workerRunId(), owner.ownerEpoch(), owner.leaseFencingDigest());
         try {
-            final ClaimRecord claim = delegate.claimForPublish(
+            final ClaimRecord claim = delegate.runReadRetryableMutation(() -> delegate.claimForPublish(
                     item.messageId(),
                     author,
                     claimDeadlineEpochMs,
                     currentMaterialization,
-                    Objects.requireNonNull(claimedCharge, "claimedCharge"));
+                    Objects.requireNonNull(claimedCharge, "claimedCharge")));
             scheduler.completeClaim(item);
             return claim;
+        } catch (HeadReadIncompleteException incomplete) {
+            throw incomplete;
         } catch (RuntimeException | Error failure) {
             state = ShardLifecycleState.FENCED;
             throw failure;
@@ -1174,8 +1189,8 @@ public final class OwnedDelayShard {
             throw new IllegalArgumentException("Lane activation certificate belongs to another Owner");
         }
         ensureAuthoritativeCatchup(authority, nowEpochMs);
-        return delegate.activateLaneReadiness(
-                laneId, lane.laneIncarnation(), proof.channel(), proof.readyCertificate(), proof.evidenceCursors());
+        return delegate.runReadRetryableMutation(() -> delegate.activateLaneReadiness(
+                laneId, lane.laneIncarnation(), proof.channel(), proof.readyCertificate(), proof.evidenceCursors()));
     }
 
     /**
@@ -1445,6 +1460,10 @@ public final class OwnedDelayShard {
             final CommandResult appliedResult;
             try {
                 appliedResult = delegate.apply(record.command(), position);
+            } catch (HeadReadIncompleteException incomplete) {
+                // DelayShard proved the whole mutation made no Store/source change.
+                // Keep the exact entry and recheck authority when it is retried.
+                throw incomplete;
             } catch (ShardStore.RocksDbWriteFailure failure) {
                 state = ShardLifecycleState.FENCED;
                 throw failure;
@@ -1544,6 +1563,10 @@ public final class OwnedDelayShard {
             final SystemMutationResult appliedResult;
             try {
                 appliedResult = delegate.applySystemMutation(record.mutation(), position, verificationKey);
+            } catch (HeadReadIncompleteException incomplete) {
+                // DelayShard proved the whole mutation made no Store/source change.
+                // Keep the exact entry and recheck authority when it is retried.
+                throw incomplete;
             } catch (ShardStore.RocksDbWriteFailure failure) {
                 state = ShardLifecycleState.FENCED;
                 throw failure;
@@ -1646,6 +1669,10 @@ public final class OwnedDelayShard {
                 final CommandResult result;
                 try {
                     result = delegate.apply(commandRecord.command(), position);
+                } catch (HeadReadIncompleteException incomplete) {
+                    // DelayShard proved the whole mutation made no Store/source change.
+                    // Keep the exact entry and recheck authority when it is retried.
+                    throw incomplete;
                 } catch (ShardStore.RocksDbWriteFailure failure) {
                     state = ShardLifecycleState.FENCED;
                     throw failure;
@@ -1667,6 +1694,10 @@ public final class OwnedDelayShard {
                 final SystemMutationResult result;
                 try {
                     result = delegate.applySystemMutation(mutationRecord.mutation(), position, verificationKey);
+                } catch (HeadReadIncompleteException incomplete) {
+                    // DelayShard proved the whole mutation made no Store/source change.
+                    // Keep the exact entry and recheck authority when it is retried.
+                    throw incomplete;
                 } catch (ShardStore.RocksDbWriteFailure failure) {
                     state = ShardLifecycleState.FENCED;
                     throw failure;

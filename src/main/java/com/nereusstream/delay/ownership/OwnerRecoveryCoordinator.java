@@ -147,6 +147,9 @@ public final class OwnerRecoveryCoordinator {
                 }
                 entryBytes = canonicalReplayBytes(entry);
             }
+            if (pendingSubmission == null) {
+                pendingSubmission = sourceApply.submitRecovery(entry, clock);
+            }
             final SourceApplyWorkClassExecutor.Submission submission = pendingSubmission;
             final long elapsedNanos = System.nanoTime() - startedNanos;
             final long remainingNanos = Math.max(1L, turnBudget.maxElapsedNanos() - elapsedNanos);
@@ -178,6 +181,14 @@ public final class OwnerRecoveryCoordinator {
                     .outcome()
                     .orElseThrow(
                             () -> new IllegalStateException("recovery source action completed without an outcome"));
+            if (applied.failure() instanceof com.nereusstream.delay.runtime.HeadReadIncompleteException incomplete) {
+                pendingSubmission = null;
+                turnNumber = thisTurn;
+                if (dispatchFailure != null) {
+                    throwUnchecked(dispatchFailure);
+                }
+                return new OwnerRecoveryTurn(outcomes, false, thisTurn, false, null, incomplete.reason());
+            }
             if (applied.failure() != null) {
                 pendingEntry = null;
                 pendingSubmission = null;

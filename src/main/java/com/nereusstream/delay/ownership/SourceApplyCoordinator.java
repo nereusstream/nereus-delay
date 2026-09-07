@@ -1,5 +1,6 @@
 package com.nereusstream.delay.ownership;
 
+import com.nereusstream.delay.runtime.HeadReadIncompleteException;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import com.nereusstream.delay.scheduler.WorkClassTask;
@@ -123,6 +124,13 @@ public final class SourceApplyCoordinator {
                 if (observed == null) {
                     return TurnResult.failed(TurnStatus.WORK_CLASS_FAILURE, pending.entry, failure);
                 }
+                if (observed.failure() instanceof HeadReadIncompleteException) {
+                    // A different selected action may have failed after this
+                    // source read yielded. Never hide that error as a read retry.
+                    pending.submission = null;
+                    ownedShard.fence();
+                    return TurnResult.failed(TurnStatus.WORK_CLASS_FAILURE, pending.entry, failure);
+                }
             }
             final SourceApplyWorkClassExecutor.ApplyOutcome applied =
                     pending.submission.outcome().orElse(null);
@@ -130,10 +138,16 @@ public final class SourceApplyCoordinator {
                 return TurnResult.waiting(pending.entry, pending.submission.task());
             }
             if (applied.failure() != null) {
-                // The executor has already fenced an unproven local boundary;
-                // retain the exact source record for a fresh owner/store.
+                // An incomplete read has a proven zero-write boundary; retain
+                // the exact source record and submit a fresh bounded evaluation.
+                // Other failures still require the existing fenced recovery path.
                 pending.submission = null;
-                return TurnResult.failed(TurnStatus.APPLY_FAILURE, pending.entry, applied.failure());
+                return TurnResult.failed(
+                        applied.failure() instanceof HeadReadIncompleteException
+                                ? TurnStatus.READ_INCOMPLETE
+                                : TurnStatus.APPLY_FAILURE,
+                        pending.entry,
+                        applied.failure());
             }
             pending.appliedOutcome = Objects.requireNonNull(applied.result(), "source apply result");
         }
@@ -241,6 +255,7 @@ public final class SourceApplyCoordinator {
         SUBMISSION_REJECTED,
         WORK_CLASS_FAILURE,
         APPLY_FAILURE,
+        READ_INCOMPLETE,
         ACK_DEFINITIVELY_NOT_ACKED,
         ACK_UNKNOWN,
         CURSOR_ADVANCE_FAILURE

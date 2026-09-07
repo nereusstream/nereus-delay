@@ -688,6 +688,7 @@ public final class WorkerShardRuntime implements AutoCloseable {
                 continue;
             }
             if (lastSourceTurn.status() == SourceApplyCoordinator.TurnStatus.WAITING_FOR_SOURCE
+                    || lastSourceTurn.status() == SourceApplyCoordinator.TurnStatus.READ_INCOMPLETE
                     || lastSourceTurn.status() == SourceApplyCoordinator.TurnStatus.WAITING_FOR_WORK_CLASS) {
                 if (sourceTurns >= maxSourceTurns) {
                     return SourceBoundPhysicalPublishTurn.sourceTurnLimit(sourceTurns, lastSourceTurn);
@@ -807,6 +808,7 @@ public final class WorkerShardRuntime implements AutoCloseable {
                 return new UnknownAdmissionResolution(replayed.position(), sourceTurns + 1, lastSourceTurn, null);
             }
             if (lastSourceTurn.status() == SourceApplyCoordinator.TurnStatus.WAITING_FOR_SOURCE
+                    || lastSourceTurn.status() == SourceApplyCoordinator.TurnStatus.READ_INCOMPLETE
                     || lastSourceTurn.status() == SourceApplyCoordinator.TurnStatus.WAITING_FOR_WORK_CLASS
                     || lastSourceTurn.status() == SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED) {
                 continue;

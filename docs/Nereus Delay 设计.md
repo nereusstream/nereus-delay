@@ -5894,3 +5894,10 @@ READY tail/wrap 与 Lane、Message、timeline、native binding 读取共用记�
 发布前重新验证 Store/Owner 读取视图，native policy callback 在 Store monitor 外执行。
 这是 A2 的 discovery 部分，完整 head mutation/source 重试和资源 envelope 验收仍未完成；
 范围与证据持续记录在 [NDIP-3](ndip/NDIP-3/README.md)。
+
+
+消息 mutation 的 HeadPlan 已接入同一读取 scope，完成投影携带 Store/Owner、mutationSequence
+及 applied source view，并在业务 batch 中重新核对。预算耗尽只有在整个 mutation 的零写入
+证明成立后才映射为 source/Claim/recovery 的本地重试；不生成业务拒绝码或推进源记录。
+新构造器可提供有限 HeadReadPolicy，但旧构造器保留的无耗尽兼容 policy 尚待正式激活配置
+和最大合法依赖 envelope 证明替换，因此 A2 仍未验收，NDIP-3 不授予 production authority。

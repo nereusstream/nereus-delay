@@ -100,6 +100,7 @@ import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.ColumnFamily;
 import com.nereusstream.delay.store.IngressFenceState;
 import com.nereusstream.delay.store.KeyCodec;
+import com.nereusstream.delay.store.ReadIncompleteException;
 import com.nereusstream.delay.store.RecoveryCatalogAuthority;
 import com.nereusstream.delay.store.ShardStore;
 import com.nereusstream.delay.store.SloObservationOutboxLimits;
@@ -152,6 +153,10 @@ public final class DelayShard {
     private static final int DEDUPE_POSITION_VALUE_TYPE = 3;
 
     private final ShardStore store;
+    private final HeadReadPolicy headReadPolicy;
+    private BoundedReadBudget activeHeadReadBudget;
+    private HeadPlanReadStatistics lastHeadPlanRead = new HeadPlanReadStatistics(0, 0, 0, 0, null, 0);
+    private long consecutiveElapsedHeadYields;
     private final DelayShardConfig config;
     private final PayloadProofTrustSet payloadProofTrustSet;
     private final PayloadProofTrustSetControlCatalog payloadProofTrustSetControlCatalog;
@@ -459,7 +464,41 @@ public final class DelayShard {
             final SloObjective dueAdmissionSloObjective,
             final SloObservationOutboxLimits sloObservationOutboxLimits,
             final DataResetActivationGate dataResetActivationGate) {
+        this(
+                store,
+                config,
+                payloadProofTrustSet,
+                capacityEnvelope,
+                scheduleResolver,
+                payloadProofTrustSetControlCatalog,
+                retryPolicyCatalog,
+                controlTargetRegistrationAuthority,
+                profileCatalog,
+                commandAppliedSloObjective,
+                dueAdmissionSloObjective,
+                sloObservationOutboxLimits,
+                dataResetActivationGate,
+                HeadReadPolicy.compatibility());
+    }
+
+    /** Full dependency constructor with an explicit shared head-read policy. */
+    public DelayShard(
+            final ShardStore store,
+            final DelayShardConfig config,
+            final PayloadProofTrustSet payloadProofTrustSet,
+            final ShardCapacityEnvelope capacityEnvelope,
+            final ScheduleResolver scheduleResolver,
+            final PayloadProofTrustSetControlCatalog payloadProofTrustSetControlCatalog,
+            final RetryPolicyCatalog retryPolicyCatalog,
+            final ControlTargetRegistrationAuthority controlTargetRegistrationAuthority,
+            final ProfileCatalog profileCatalog,
+            final SloObjective commandAppliedSloObjective,
+            final SloObjective dueAdmissionSloObjective,
+            final SloObservationOutboxLimits sloObservationOutboxLimits,
+            final DataResetActivationGate dataResetActivationGate,
+            final HeadReadPolicy headReadPolicy) {
         this.store = Objects.requireNonNull(store, "store");
+        this.headReadPolicy = Objects.requireNonNull(headReadPolicy, "headReadPolicy");
         this.config = Objects.requireNonNull(config, "config");
         this.payloadProofTrustSet = payloadProofTrustSet;
         this.payloadProofTrustSetControlCatalog = payloadProofTrustSetControlCatalog;
@@ -710,6 +749,10 @@ public final class DelayShard {
     }
 
     public synchronized CommandResult apply(final PreparedCommand command, final SourcePosition sourcePosition) {
+        return runReadRetryableMutation(() -> applyCommand(command, sourcePosition));
+    }
+
+    private CommandResult applyCommand(final PreparedCommand command, final SourcePosition sourcePosition) {
         Objects.requireNonNull(command, "command");
         Objects.requireNonNull(sourcePosition, "sourcePosition");
         lastResolvedSchedule = null;
@@ -1616,7 +1659,7 @@ public final class DelayShard {
         final SourcePosition schedulePosition = SourcePositionCodec.decode(current.scheduleSourcePosition());
         final Map<com.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections =
                 readyProjections(schedulePosition, messageId, current, next, null, nextLaneQuota);
-        store.write(batch -> {
+        writeReadyProjections(projections.values(), batch -> {
             batch.delete(ColumnFamily.TIMELINE, timelineKey);
             deleteNativeCandidateIndex(batch, messageId, current);
             batch.putValue(ColumnFamily.INFLIGHT, ClaimRecord.VALUE_TYPE, claim.encodedKey(), claim.encode());
@@ -1755,7 +1798,7 @@ public final class DelayShard {
         final SourcePosition schedulePosition = SourcePositionCodec.decode(current.scheduleSourcePosition());
         final Map<com.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections =
                 readyProjections(schedulePosition, claim.delayMessageId(), current, revokedNext, null, nextLaneQuota);
-        store.write(batch -> {
+        writeReadyProjections(projections.values(), batch -> {
             batch.delete(ColumnFamily.INFLIGHT, claim.encodedKey());
             batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(claim.delayMessageId()), revokedNext.encode());
             batch.putValue(
@@ -2188,6 +2231,11 @@ public final class DelayShard {
      */
     public synchronized SystemMutationResult applySystemMutation(
             final SystemMutation mutation, final SourcePosition sourcePosition, final PublicKey verificationKey) {
+        return runReadRetryableMutation(() -> applySystemMutationInTurn(mutation, sourcePosition, verificationKey));
+    }
+
+    private SystemMutationResult applySystemMutationInTurn(
+            final SystemMutation mutation, final SourcePosition sourcePosition, final PublicKey verificationKey) {
         Objects.requireNonNull(mutation, "mutation");
         Objects.requireNonNull(verificationKey, "verificationKey");
         validateMutationShard(mutation, sourcePosition);
@@ -2477,8 +2525,6 @@ public final class DelayShard {
         } catch (IllegalStateException exception) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED, StableCode.INTEGRITY_ERROR);
         }
-        final TimelineCandidate candidate =
-                body.controlKind() == 9 ? findLaneCandidate(target.laneId(), null, null, null, null) : null;
         LaneQuotaUsageProjection nextLaneQuota = body.controlKind() == 11
                         && (closeAccounting.pendingMessages() != 0
                                 || closeAccounting.pendingBytes() != 0
@@ -2503,10 +2549,15 @@ public final class DelayShard {
                     Math.max(1, nextQuota.usageRevision()));
         }
         final LaneQuotaUsageProjection projectedLaneQuota = nextLaneQuota;
-        final LaneProjection projection = projectLane(target.laneId(), current, next, candidate, projectedLaneQuota);
+        final LaneProjection projection = planLane(() -> projectLane(
+                target.laneId(),
+                current,
+                next,
+                body.controlKind() == 9 ? findLaneCandidate(target.laneId(), null, null, null, null) : null,
+                projectedLaneQuota));
         final SystemMutationResult result = SystemMutationResult.from(
                 mutation, ApplyStatus.APPLIED, StableCode.OK, sourcePosition.canonicalBytes());
-        store.write(batch -> {
+        writeReadyProjections(List.of(projection), batch -> {
             deleteReadyKey(batch, current);
             for (LaneClaimRollback rollback : rollbacks) {
                 batch.delete(ColumnFamily.INFLIGHT, rollback.claim().encodedKey());
@@ -3430,7 +3481,7 @@ public final class DelayShard {
                 : Map.of();
         final SystemMutationResult result = SystemMutationResult.from(
                 mutation, ApplyStatus.APPLIED, StableCode.ADMISSION_CAPACITY_GATED, sourcePosition.canonicalBytes());
-        store.write(batch -> {
+        writeReadyProjections(projections.values(), batch -> {
             if (revokeClaim) {
                 batch.delete(
                         ColumnFamily.INFLIGHT,
@@ -4000,7 +4051,7 @@ public final class DelayShard {
                 readyProjections(sourcePosition, body.messageId(), current, scheduled, null, laneQuotaUsage);
         final SystemMutationResult result = SystemMutationResult.from(
                 mutation, ApplyStatus.APPLIED, StableCode.OK, sourcePosition.canonicalBytes());
-        store.write(batch -> {
+        writeReadyProjections(projections.values(), batch -> {
             batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(body.messageId()), scheduledForWrite.encode());
             batch.putValue(
                     ColumnFamily.TIMELINE,
@@ -4422,7 +4473,7 @@ public final class DelayShard {
         final LaneQuotaUsageProjection projectedLaneQuota = nextLaneQuota;
         final Map<DestinationLaneId, LaneProjection> projections = readyProjections(
                 sourcePosition, ledger.delayMessageId(), current, scheduledForWrite, null, projectedLaneQuota);
-        store.write(batch -> {
+        writeReadyProjections(projections.values(), batch -> {
             if (priorTimelineKey != null) {
                 batch.delete(ColumnFamily.TIMELINE, priorTimelineKey);
                 deleteNativeCandidateIndex(batch, ledger.delayMessageId(), current);
@@ -4551,7 +4602,7 @@ public final class DelayShard {
                         terminalCode,
                         sourcePosition.canonicalBytes())
                 : originalResult;
-        store.write(batch -> {
+        writeReadyProjections(projections.values(), batch -> {
             if (currentWorkKey != null) {
                 batch.delete(ColumnFamily.TIMELINE, currentWorkKey);
                 deleteNativeCandidateIndex(batch, ledger.delayMessageId(), current);
@@ -4669,7 +4720,7 @@ public final class DelayShard {
                 readyProjections(sourcePosition, body.messageId(), current, terminalMessage, null, nextLaneQuota);
         final SystemMutationResult result = SystemMutationResult.from(
                 mutation, ApplyStatus.APPLIED, StableCode.DESTINATION_OUTCOME_UNKNOWN, sourcePosition.canonicalBytes());
-        store.write(batch -> {
+        writeReadyProjections(projections.values(), batch -> {
             batch.delete(ColumnFamily.TIMELINE, expiryKey(body.messageId(), current));
             batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(body.messageId()), terminalMessage.encode());
             batch.putValue(
@@ -4805,7 +4856,7 @@ public final class DelayShard {
                 readyProjections(sourcePosition, body.messageId(), current, next, null, nextLaneQuota);
         final SystemMutationResult result = SystemMutationResult.from(
                 mutation, ApplyStatus.APPLIED, StableCode.OK, sourcePosition.canonicalBytes());
-        store.write(batch -> {
+        writeReadyProjections(projections.values(), batch -> {
             batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(body.messageId()), nextForWrite.encode());
             batch.putValue(
                     ColumnFamily.TIMELINE,
@@ -4987,7 +5038,7 @@ public final class DelayShard {
         final SystemMutationResult result = SystemMutationResult.from(
                 mutation, ApplyStatus.APPLIED, StableCode.CLAIM_PERMANENT_FAILURE, sourcePosition.canonicalBytes());
         final MessageRecord terminalMessageForWrite = terminalMessage;
-        store.write(batch -> {
+        writeReadyProjections(projections.values(), batch -> {
             batch.delete(ColumnFamily.TIMELINE, sourceTimelineKey);
             deleteNativeCandidateIndex(batch, messageId, current);
             batch.delete(ColumnFamily.TIMELINE, expiryKey(messageId, current));
@@ -5507,6 +5558,7 @@ public final class DelayShard {
                 : CommandBodies.decodePrepareLarge(binding.canonicalBody())
                         .intentWithoutPayload()
                         .profile();
+        requireHeadPlanTime();
         final ProfileSemanticEnvelope destination = profileCatalog.resolve(destinationRef);
         if (destination == null
                 || !destination.ref().equals(destinationRef)
@@ -5516,6 +5568,7 @@ public final class DelayShard {
                     StableCode.ROUTE_SNAPSHOT_UNAVAILABLE,
                     "pinned Destination Profile is unavailable during actionAt derivation");
         }
+        requireHeadPlanTime();
         final ProfileSemanticEnvelope capability = profileCatalog.resolve(body.deliveryCapability());
         if (capability == null
                 || !capability.ref().equals(body.deliveryCapability())
@@ -5741,7 +5794,7 @@ public final class DelayShard {
             final Map<com.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections = readyProjections(
                     sourcePosition, ledger.delayMessageId(), current, terminalMessage, null, projectedLaneQuota);
             final MessageRecord terminalMessageForWrite = terminalMessage;
-            store.write(batch -> {
+            writeReadyProjections(projections.values(), batch -> {
                 batch.delete(ColumnFamily.INFLIGHT, ledger.encodedKey());
                 batch.putValue(
                         ColumnFamily.ID,
@@ -5815,7 +5868,7 @@ public final class DelayShard {
         final LaneQuotaUsageProjection nextLaneQuota = removeAttemptQuotaUsage(ledger);
         final Map<com.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections = readyProjections(
                 sourcePosition, ledger.delayMessageId(), current, scheduled, null, laneOverrides, nextLaneQuota);
-        store.write(batch -> {
+        writeReadyProjections(projections.values(), batch -> {
             batch.delete(ColumnFamily.INFLIGHT, ledger.encodedKey());
             batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(ledger.delayMessageId()), scheduledForWrite.encode());
             batch.putValue(
@@ -5951,7 +6004,7 @@ public final class DelayShard {
                 readyProjections(sourcePosition, messageId, current, next, null, projectedLaneQuota);
         final SystemMutationResult result = SystemMutationResult.from(
                 mutation, ApplyStatus.APPLIED, StableCode.OK, sourcePosition.canonicalBytes());
-        store.write(batch -> {
+        writeReadyProjections(projections.values(), batch -> {
             batch.delete(ColumnFamily.TIMELINE, claim == null ? timelineKey(messageId, current) : claim.timelineKey());
             deleteNativeCandidateIndex(batch, messageId, current);
             batch.delete(ColumnFamily.TIMELINE, expiryKey(messageId, current));
@@ -6712,7 +6765,7 @@ public final class DelayShard {
         final LaneQuotaUsageProjection projectedLaneQuota = nextLaneQuota;
         final Map<com.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections =
                 readyProjections(sourcePosition, admission.delayMessageId(), current, next, null, projectedLaneQuota);
-        store.write(batch -> {
+        writeReadyProjections(projections.values(), batch -> {
             batch.delete(ColumnFamily.TIMELINE, priorTimelineKey);
             deleteNativeCandidateIndex(batch, admission.delayMessageId(), current);
             batch.delete(ColumnFamily.TIMELINE, expiryKey(admission.delayMessageId(), current));
@@ -6959,7 +7012,7 @@ public final class DelayShard {
         final MessageRecord uncertainNext = next;
         final Map<com.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections =
                 readyProjections(sourcePosition, currentLedger.delayMessageId(), current, next, null);
-        store.write(batch -> {
+        writeReadyProjections(projections.values(), batch -> {
             batch.delete(ColumnFamily.INFLIGHT, currentLedger.encodedKey());
             batch.putValue(
                     ColumnFamily.INFLIGHT,
@@ -7121,7 +7174,7 @@ public final class DelayShard {
         final LaneQuotaUsageProjection projectedLaneQuota = nextLaneQuota;
         final Map<com.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections =
                 readyProjections(sourcePosition, ledger.delayMessageId(), current, next, null, projectedLaneQuota);
-        store.write(batch -> {
+        writeReadyProjections(projections.values(), batch -> {
             batch.delete(ColumnFamily.INFLIGHT, ledger.encodedKey());
             batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(ledger.delayMessageId()), publishedNext.encode());
             batch.putValue(
@@ -7274,7 +7327,7 @@ public final class DelayShard {
         final LaneQuotaUsageProjection projectedLaneQuota = nextLaneQuota;
         final Map<com.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections =
                 readyProjections(sourcePosition, ledger.delayMessageId(), current, next, null, projectedLaneQuota);
-        store.write(batch -> {
+        writeReadyProjections(projections.values(), batch -> {
             if (currentWorkKey != null) {
                 batch.delete(ColumnFamily.TIMELINE, currentWorkKey);
                 deleteNativeCandidateIndex(batch, ledger.delayMessageId(), current);
@@ -7703,9 +7756,9 @@ public final class DelayShard {
             throw new IllegalStateException("terminal lane cannot change readiness");
         }
         final LaneRecord next = current.withReadiness(readiness);
-        final TimelineCandidate candidate = findLaneCandidate(laneId, null, null, null, null);
-        final LaneProjection projection = projectLane(laneId, current, next, candidate);
-        store.write(batch -> {
+        final LaneProjection projection =
+                planLane(() -> projectLane(laneId, current, next, findLaneCandidate(laneId, null, null, null, null)));
+        writeReadyProjections(List.of(projection), batch -> {
             deleteReadyKey(batch, current);
             putReadyProjection(batch, projection);
         });
@@ -7782,9 +7835,9 @@ public final class DelayShard {
         }
         final LaneRecord next = current.withReadiness(RuntimeReadiness.READY);
         auditLaneCandidateIndexes(exactLaneId);
-        final TimelineCandidate candidate = findLaneCandidate(exactLaneId, null, null, null, null);
-        final LaneProjection projection = projectLane(exactLaneId, current, next, candidate);
-        store.write(batch -> {
+        final LaneProjection projection = planLane(
+                () -> projectLane(exactLaneId, current, next, findLaneCandidate(exactLaneId, null, null, null, null)));
+        writeReadyProjections(List.of(projection), batch -> {
             deleteReadyKey(batch, current);
             putReadyProjection(batch, projection, exactCertificate);
         });
@@ -7810,9 +7863,9 @@ public final class DelayShard {
             throw new IllegalArgumentException("physical retirement requires a terminal guard");
         }
         final LaneRecord next = current.withGate(Objects.requireNonNull(gate, "gate"));
-        final TimelineCandidate candidate = findLaneCandidate(laneId, null, null, null, null);
-        final LaneProjection projection = projectLane(laneId, current, next, candidate);
-        store.write(batch -> {
+        final LaneProjection projection =
+                planLane(() -> projectLane(laneId, current, next, findLaneCandidate(laneId, null, null, null, null)));
+        writeReadyProjections(List.of(projection), batch -> {
             deleteReadyKey(batch, current);
             putReadyProjection(batch, projection);
         });
@@ -7865,13 +7918,16 @@ public final class DelayShard {
                 || !isAtOrAfterExact(guard.terminalSourcePosition(), progress.intentSourcePosition())) {
             throw new IllegalStateException("retirement progress is not source-ordered and applied");
         }
-        if (findLaneCandidate(laneId, null, null, null, null) != null || hasLaneRuntimeWork(laneId)) {
+        final HeadPlan<Boolean> noWork = readHeadPlan(
+                () -> findLaneCandidate(laneId, null, null, null, null) == null && !hasLaneRuntimeWork(laneId));
+        if (!noWork.value()) {
             throw new IllegalStateException("lane still has pending or inflight work");
         }
         final ShardQuota nextQuota = quota.removeLane();
         final LaneQuotaUsageProjection nextLaneQuota =
                 laneQuotaUsage.removeLane(laneId, current.laneIncarnation(), Math.max(1, nextQuota.usageRevision()));
-        store.write(batch -> {
+        writeHeadPlan(noWork.binding(), batch -> {
+            requireHeadPlanBinding(batch, noWork.binding());
             deleteReadyKey(batch, current);
             batch.putValue(
                     ColumnFamily.META,
@@ -8160,19 +8216,17 @@ public final class DelayShard {
                 throw new IllegalStateException("duplicate or mismatched lane metadata");
             }
         }
-        final Map<com.nereusstream.delay.protocol.DestinationLaneId, TimelineCandidate> candidates = new HashMap<>();
-        final Map<com.nereusstream.delay.protocol.DestinationLaneId, NativeTimelineCandidate> nativeCandidates =
-                new HashMap<>();
-        for (var laneId : lanes.keySet()) {
+        final Map<DestinationLaneId, LaneProjection> projections = new HashMap<>();
+        for (var entry : lanes.entrySet()) {
+            final DestinationLaneId laneId = entry.getKey();
             auditLaneCandidateIndexes(laneId);
-            final TimelineCandidate candidate = findLaneCandidate(laneId, null, null, null, null);
-            if (candidate != null) {
-                candidates.put(laneId, candidate);
-            }
-            final NativeTimelineCandidate nativeCandidate = findLaneNativeCandidate(laneId, null, null, null, null);
-            if (nativeCandidate != null) {
-                nativeCandidates.put(laneId, nativeCandidate);
-            }
+            projections.put(
+                    laneId,
+                    planLane(() -> projectLane(
+                            laneId,
+                            entry.getValue(),
+                            entry.getValue(),
+                            findLaneCandidate(laneId, null, null, null, null))));
         }
         final int readyLimit = boundedLimitPlusOne(config.maxLanes());
         final List<com.nereusstream.delay.store.ShardStore.KeyValue> existingReady =
@@ -8180,20 +8234,7 @@ public final class DelayShard {
         if (existingReady.size() >= readyLimit && config.maxLanes() < Integer.MAX_VALUE) {
             throw new IllegalStateException("READY index exceeds configured maxLanes");
         }
-        final Map<com.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections = new HashMap<>();
-        for (var entry : lanes.entrySet()) {
-            final TimelineCandidate candidate = candidates.get(entry.getKey());
-            projections.put(
-                    entry.getKey(),
-                    projectLane(
-                            entry.getKey(),
-                            entry.getValue(),
-                            entry.getValue(),
-                            candidate,
-                            nativeCandidates.get(entry.getKey()),
-                            laneQuotaUsage));
-        }
-        store.write(batch -> {
+        writeReadyProjections(projections.values(), batch -> {
             for (var entry : existingReady) {
                 batch.delete(ColumnFamily.TIMELINE, entry.key());
             }
@@ -9399,7 +9440,7 @@ public final class DelayShard {
         final LaneQuotaUsageProjection projectedLaneQuota = nextLaneQuota;
         final Map<com.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections = readyProjections(
                 position, command.delayMessageId(), prior, persistedNext, reservation, projectedLaneQuota);
-        store.write(batch -> {
+        writeReadyProjections(projections.values(), batch -> {
             if (persistedNext != null) {
                 if (prior != null
                         && (prior.status() == MessageStatus.SCHEDULED || prior.status() == MessageStatus.CLAIMED)) {
@@ -9729,6 +9770,126 @@ public final class DelayShard {
         return null;
     }
 
+    /** Only a zero-write, unchanged-source mutation may yield for a local head retry. */
+    public synchronized <T> T runReadRetryableMutation(final java.util.function.Supplier<T> mutation) {
+        final ShardStore.ReadView before = store.captureReadView();
+        final long sequenceBefore = mutationSequence;
+        final SourcePosition sourceBefore = lastAppliedSourcePosition;
+        try {
+            return Objects.requireNonNull(mutation, "mutation").get();
+        } catch (ReadIncompleteException | HeadReadIncompleteException incomplete) {
+            store.withReadView(before, () -> {
+                requireHeadMutationState(sequenceBefore, sourceBefore);
+                return null;
+            });
+            throw incomplete instanceof HeadReadIncompleteException proven
+                    ? proven
+                    : new HeadReadIncompleteException((ReadIncompleteException) incomplete);
+        }
+    }
+
+    private void requireHeadPlanTime() {
+        if (activeHeadReadBudget != null && !activeHeadReadBudget.beforeTimedWork()) {
+            throw activeHeadReadBudget.incomplete();
+        }
+    }
+
+    private <T> HeadPlan<T> readHeadPlan(final java.util.function.Supplier<T> reader) {
+        if (activeHeadReadBudget != null) {
+            throw new IllegalStateException("nested head plan cannot reset its budget");
+        }
+        final long sequenceBefore = mutationSequence;
+        final SourcePosition sourceBefore = lastAppliedSourcePosition;
+        final BoundedReadBudget budget = headReadPolicy.newBudget();
+        activeHeadReadBudget = budget;
+        try {
+            final ShardStore.ReadPlan<T> plan = store.readWithBudget(budget, reader);
+            requireHeadMutationState(sequenceBefore, sourceBefore);
+            return new HeadPlan<>(plan.value(), new HeadPlanBinding(plan.view(), sequenceBefore, sourceBefore));
+        } finally {
+            activeHeadReadBudget = null;
+            consecutiveElapsedHeadYields = budget.exhaustion() == BoundedReadBudget.Exhaustion.ELAPSED
+                    ? Math.min(Long.MAX_VALUE - 1, consecutiveElapsedHeadYields) + 1
+                    : 0;
+            lastHeadPlanRead = new HeadPlanReadStatistics(
+                    budget.actualRecords(),
+                    budget.actualBytes(),
+                    budget.chargedBytes(),
+                    budget.deniedReads(),
+                    budget.exhaustion(),
+                    consecutiveElapsedHeadYields);
+            if (consecutiveElapsedHeadYields >= 3
+                    && (consecutiveElapsedHeadYields == 3
+                            || (consecutiveElapsedHeadYields & (consecutiveElapsedHeadYields - 1)) == 0)) {
+                System.getLogger(DelayShard.class.getName())
+                        .log(
+                                System.Logger.Level.WARNING,
+                                "Head read elapsed budget exhausted for {0} consecutive plans; "
+                                        + "check activated read limits and worker resources",
+                                consecutiveElapsedHeadYields);
+            }
+        }
+    }
+
+    private LaneProjection planLane(final java.util.function.Supplier<LaneProjection> reader) {
+        final HeadPlan<LaneProjection> plan = readHeadPlan(reader);
+        return plan.value().withBinding(plan.binding());
+    }
+
+    private void requireHeadMutationState(final long sequence, final SourcePosition source) {
+        if (mutationSequence != sequence || !Objects.equals(lastAppliedSourcePosition, source)) {
+            throw new IllegalStateException("head plan mutation/source view changed before commit");
+        }
+    }
+
+    private void writeHeadPlan(final HeadPlanBinding binding, final ShardStore.BatchOperation mutation) {
+        store.withReadView(binding.view(), () -> {
+            requireHeadMutationState(binding.mutationSequence(), binding.sourcePosition());
+            store.write(mutation);
+            return null;
+        });
+    }
+
+    private void writeReadyProjections(
+            final java.util.Collection<LaneProjection> projections, final ShardStore.BatchOperation mutation) {
+        if (projections.isEmpty()) {
+            store.write(mutation);
+            return;
+        }
+        final HeadPlanBinding first =
+                Objects.requireNonNull(projections.iterator().next().binding(), "complete head plan");
+        store.withReadView(first.view(), () -> {
+            // Hold the Store monitor from validating every projection through
+            // batch construction. A stale plan cannot even begin business puts.
+            for (LaneProjection projection : projections) {
+                final HeadPlanBinding binding = Objects.requireNonNull(projection.binding(), "complete head plan");
+                store.withReadView(binding.view(), () -> {
+                    requireHeadMutationState(binding.mutationSequence(), binding.sourcePosition());
+                    return null;
+                });
+            }
+            store.write(mutation);
+            return null;
+        });
+    }
+
+    private void requireHeadPlanBinding(final ShardStore.Batch batch, final HeadPlanBinding binding) {
+        requireHeadMutationState(binding.mutationSequence(), binding.sourcePosition());
+        batch.requireReadView(binding.view());
+    }
+
+    public synchronized HeadPlanReadStatistics headPlanReadStatistics() {
+        return lastHeadPlanRead;
+    }
+
+    public record HeadPlanReadStatistics(
+            long actualRecords,
+            long actualBytes,
+            long chargedBytes,
+            long deniedReads,
+            BoundedReadBudget.Exhaustion exhaustion,
+            long consecutiveElapsedYields) {}
+
     private Map<com.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> readyProjections(
             final SourcePosition position,
             final DelayMessageId messageId,
@@ -9765,6 +9926,21 @@ public final class DelayShard {
             final MessageRecord next,
             final PayloadReservation reservation,
             final Map<com.nereusstream.delay.protocol.DestinationLaneId, LaneRecord> laneOverrides,
+            final LaneQuotaUsageProjection projectedLaneQuota) {
+        final HeadPlan<Map<DestinationLaneId, LaneProjection>> plan = readHeadPlan(() -> calculateReadyProjections(
+                position, messageId, prior, next, reservation, laneOverrides, projectedLaneQuota));
+        final Map<DestinationLaneId, LaneProjection> bound = new HashMap<>();
+        plan.value().forEach((laneId, projection) -> bound.put(laneId, projection.withBinding(plan.binding())));
+        return Map.copyOf(bound);
+    }
+
+    private Map<DestinationLaneId, LaneProjection> calculateReadyProjections(
+            final SourcePosition position,
+            final DelayMessageId messageId,
+            final MessageRecord prior,
+            final MessageRecord next,
+            final PayloadReservation reservation,
+            final Map<DestinationLaneId, LaneRecord> laneOverrides,
             final LaneQuotaUsageProjection projectedLaneQuota) {
         final Set<com.nereusstream.delay.protocol.DestinationLaneId> laneIds = new HashSet<>();
         if (prior != null) {
@@ -9871,7 +10047,7 @@ public final class DelayShard {
                 : projectedLaneQuota.usageFor(
                         laneId, previousValue.asLaneRecord().laneIncarnation());
         return new LaneProjection(
-                previous, projected, ready, previousValue, laneUsage, earliestActionAt, projectedNextEligibleAt);
+                previous, projected, ready, previousValue, laneUsage, earliestActionAt, projectedNextEligibleAt, null);
     }
 
     private void deleteReadyKey(final ShardStore.Batch batch, final LaneRecord lane)
@@ -9891,6 +10067,7 @@ public final class DelayShard {
     private void putReadyProjection(
             final ShardStore.Batch batch, final LaneProjection projection, final ReadyCertificate activationCertificate)
             throws org.rocksdb.RocksDBException {
+        requireHeadPlanBinding(batch, Objects.requireNonNull(projection.binding(), "complete head plan binding"));
         final LaneValue previousValue = projection.previousValue();
         final byte[] laneValue;
         if (previousValue != null && previousValue.typedActiveState() != null) {
@@ -10049,15 +10226,23 @@ public final class DelayShard {
                 : null;
         for (byte tag = 1; tag <= 2; tag++) {
             final byte[] prefix = Bytes.concat(new byte[] {tag, 1}, laneId.bytes());
-            final HeadIndexUpdater.StoredHead stored = HeadIndexUpdater.firstStored(
-                    store, prefix, removedKey != null && removedKey[0] == tag ? List.of(removedKey) : List.of());
+            final byte namespace = tag;
+            final HeadReadResult<TimelineCandidate> stored = HeadIndexUpdater.read(
+                    store,
+                    prefix,
+                    removedKey != null && removedKey[0] == tag ? List.of(removedKey) : List.of(),
+                    Objects.requireNonNull(activeHeadReadBudget, "active head plan budget"),
+                    entry -> {
+                        headMessageGets++;
+                        return decodeTimelineCandidate(entry, namespace, laneId);
+                    });
             headCandidateKeysRead += stored.keysRead();
-            if (stored.entry() != null) {
-                headMessageGets++;
-                final TimelineCandidate candidate = decodeTimelineCandidate(stored.entry(), tag, laneId);
-                if (selected == null || candidate.compareTo(selected) < 0) {
-                    selected = candidate;
-                }
+            if (stored.kind() == HeadReadResult.Kind.INCOMPLETE) {
+                throw activeHeadReadBudget.incomplete();
+            }
+            final TimelineCandidate candidate = stored.candidate();
+            if (candidate != null && (selected == null || candidate.compareTo(selected) < 0)) {
+                selected = candidate;
             }
         }
         return selected;
@@ -10087,15 +10272,22 @@ public final class DelayShard {
                 ? nativeCandidateKey(excludedMessageId, excludedMessage)
                 : null;
         final byte[] prefix = Bytes.concat(new byte[] {7, 1}, laneId.bytes());
-        final HeadIndexUpdater.StoredHead stored =
-                HeadIndexUpdater.firstStored(store, prefix, removedKey == null ? List.of() : List.of(removedKey));
+        final HeadReadResult<NativeTimelineCandidate> stored = HeadIndexUpdater.read(
+                store,
+                prefix,
+                removedKey == null ? List.of() : List.of(removedKey),
+                Objects.requireNonNull(activeHeadReadBudget, "active head plan budget"),
+                entry -> {
+                    headMessageGets++;
+                    return decodeNativeTimelineCandidate(entry, laneId);
+                });
         headCandidateKeysRead += stored.keysRead();
-        if (stored.entry() != null) {
-            headMessageGets++;
-            final NativeTimelineCandidate candidate = decodeNativeTimelineCandidate(stored.entry(), laneId);
-            if (selected == null || candidate.compareTo(selected) < 0) {
-                selected = candidate;
-            }
+        if (stored.kind() == HeadReadResult.Kind.INCOMPLETE) {
+            throw activeHeadReadBudget.incomplete();
+        }
+        final NativeTimelineCandidate candidate = stored.candidate();
+        if (candidate != null && (selected == null || candidate.compareTo(selected) < 0)) {
+            selected = candidate;
         }
         return selected;
     }
@@ -11595,7 +11787,24 @@ public final class DelayShard {
             LaneValue previousValue,
             PublishAdmissionBody.ChargeVector laneUsage,
             Long earliestActionAtEpochMs,
-            Long nextEligibleAtEpochMs) {}
+            Long nextEligibleAtEpochMs,
+            HeadPlanBinding binding) {
+        private LaneProjection withBinding(final HeadPlanBinding completed) {
+            return new LaneProjection(
+                    previousLane,
+                    lane,
+                    readyValue,
+                    previousValue,
+                    laneUsage,
+                    earliestActionAtEpochMs,
+                    nextEligibleAtEpochMs,
+                    completed);
+        }
+    }
+
+    private record HeadPlan<T>(T value, HeadPlanBinding binding) {}
+
+    private record HeadPlanBinding(ShardStore.ReadView view, long mutationSequence, SourcePosition sourcePosition) {}
 
     private record LaneClaimRollback(ClaimRecord claim, MessageRecord nextMessage) {}
 

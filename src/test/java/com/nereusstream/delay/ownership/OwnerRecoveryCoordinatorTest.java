@@ -181,6 +181,82 @@ class OwnerRecoveryCoordinatorTest {
         }
     }
 
+    @Test
+    void recoveryRetainsAnIncompleteHeadEntryAndResubmitsBeforeAdvancingOrActivating() throws Exception {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 9);
+        final UUID topic = UUID.randomUUID();
+        final SourceAssignment assignment = new SourceAssignment(
+                shardId,
+                Bytes.sha256(Bytes.utf8("head-recovery")),
+                1,
+                new KafkaActivationBarrier(shardId, "cluster", topic, 1));
+        final InMemoryOwnerLeaseStore backend = new InMemoryOwnerLeaseStore();
+        final OwnerLease lease = backend.acquire(
+                        assignment, "head-recovery-worker", Bytes.sha256(Bytes.utf8("session")), 100, 100)
+                .orElseThrow();
+        final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("head-recovery"));
+        final CompatibleControlSnapshot snapshot = controlSnapshot(shardId);
+        final KafkaSourcePosition position = new KafkaSourcePosition(shardId, "cluster", topic, 0, null, 1_000);
+        final PreparedCommand command = schedule(shardId, "head-recovery");
+        final SourceReplayRecord entry = new SourceReplayRecord(command, position, null, null);
+        final SourceReplayCursor<SourceReplayEntry> cursor =
+                SourceReplayCursor.of(List.<SourceReplayEntry>of(entry).iterator());
+        final AtomicLong clock = new AtomicLong();
+        final java.util.concurrent.atomic.AtomicBoolean exhausted = new java.util.concurrent.atomic.AtomicBoolean(true);
+        final var policy = new com.nereusstream.delay.runtime.HeadReadPolicy(
+                100, 1_000_000, 10, () -> exhausted.get() ? clock.addAndGet(100) : clock.get());
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore store = ShardStore.open(config, shardId, resources)) {
+            store.recordControlSnapshot(snapshot);
+            final DelayShard shard = new DelayShard(
+                    store,
+                    DelayShardConfig.defaults(),
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    policy);
+            final OwnedDelayShard owned = new OwnedDelayShard(shard, lease);
+            final OwnerRecoveryCoordinator coordinator = new OwnerRecoveryCoordinator(
+                    owned,
+                    authority,
+                    assignment,
+                    SourceReplaySuccessor.strictKafka(),
+                    cursor,
+                    KeyPairGenerator.getInstance("Ed25519").generateKeyPair().getPublic(),
+                    snapshot,
+                    () -> 101,
+                    new ReplayTurnBudget(1, 1_000_000, 1_000_000_000),
+                    workClasses(1));
+            final OwnerRecoveryTurn first = coordinator.runTurn();
+            assertFalse(first.complete());
+            assertTrue(first.outcomes().isEmpty());
+            assertFalse(first.waitingForWorkClass());
+            assertEquals(
+                    com.nereusstream.delay.store.BoundedReadBudget.Exhaustion.ELAPSED, first.readIncompleteReason());
+            assertEquals(ShardLifecycleState.CATCHING_UP, owned.state());
+            assertEquals(entry, cursor.peek());
+            org.junit.jupiter.api.Assertions.assertNull(shard.lastAppliedSourcePosition());
+            org.junit.jupiter.api.Assertions.assertNull(shard.getCommandResult(command.commandId()));
+            exhausted.set(false);
+            final OwnerRecoveryTurn retry = coordinator.runTurn();
+            assertTrue(retry.complete());
+            assertEquals(1, retry.outcomes().size());
+            assertFalse(cursor.hasNext());
+            assertEquals(position, owned.lastCatchupPosition());
+            assertEquals(ShardLifecycleState.ACTIVE_FOR_COMMANDS, owned.state());
+            assertEquals(position, shard.lastAppliedSourcePosition());
+        }
+    }
+
     private static PreparedCommand schedule(final ShardId shardId, final String suffix) {
         return PreparedCommand.schedule(
                 shardId,

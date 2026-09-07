@@ -16,6 +16,7 @@ import com.nereusstream.delay.protocol.ScheduleIntent;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.runtime.DelayShard;
 import com.nereusstream.delay.runtime.DelayShardConfig;
+import com.nereusstream.delay.runtime.HeadReadPolicy;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClass;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
@@ -292,6 +293,100 @@ class SourceApplyCoordinatorTest {
         }
     }
 
+    @Test
+    void incompleteHeadReadRetainsExactSourceWithoutAckAndRetriesAgainstAFreshStoreView() throws Exception {
+        final java.util.concurrent.atomic.AtomicLong clock = new java.util.concurrent.atomic.AtomicLong();
+        final java.util.concurrent.atomic.AtomicBoolean exhausted = new java.util.concurrent.atomic.AtomicBoolean(true);
+        final HeadReadPolicy policy =
+                new HeadReadPolicy(100, 1_000_000, 10, () -> exhausted.get() ? clock.addAndGet(100) : clock.get());
+        try (Fixture fixture = new Fixture(tempDir.resolve("head-read-retry"), policy)) {
+            final SourceReplayRecord entry = fixture.entry("read-retry");
+            final AtomicInteger acknowledgements = new AtomicInteger();
+            final SourceApplyCoordinator coordinator = fixture.coordinator(entry, (ignored, outcome) -> {
+                acknowledgements.incrementAndGet();
+                return SourceAcknowledgement.AcknowledgementResult.acked();
+            });
+            final long writes = fixture.store.operationStatistics().nativeWriteCalls();
+            final var first = coordinator.runTurn(fixture.budget(), () -> 101);
+            assertEquals(SourceApplyCoordinator.TurnStatus.READ_INCOMPLETE, first.status());
+            assertEquals(ShardLifecycleState.ACTIVE_FOR_COMMANDS, fixture.owned.state());
+            assertEquals(entry, coordinator.pendingEntry().orElseThrow());
+            assertEquals(entry, fixture.source.peek());
+            assertEquals(0, acknowledgements.get());
+            assertEquals(writes, fixture.store.operationStatistics().nativeWriteCalls());
+            org.junit.jupiter.api.Assertions.assertNull(fixture.owned.shard().lastAppliedSourcePosition());
+            org.junit.jupiter.api.Assertions.assertNull(
+                    fixture.owned.shard().getCommandResult(entry.command().commandId()));
+            org.junit.jupiter.api.Assertions.assertNull(
+                    fixture.owned.shard().getMessage(entry.command().delayMessageId()));
+            // A fresh retry must acquire a new Store view; the discarded plan
+            // cannot be reused across even a same-owner metadata write.
+            fixture.store.recordOpenedOwnerEpoch(
+                    fixture.backend.current(fixture.shard).orElseThrow().ownerEpoch());
+            exhausted.set(false);
+            assertEquals(
+                    SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                    coordinator.runTurn(fixture.budget(), () -> 101).status());
+            assertEquals(1, acknowledgements.get());
+            assertFalse(fixture.source.hasNext());
+            assertTrue(coordinator.pendingEntry().isEmpty());
+        }
+    }
+
+    @Test
+    void ownerLossBetweenHeadReadRetriesStillFencesAndNeverAcknowledgesTheSource() throws Exception {
+        final java.util.concurrent.atomic.AtomicLong clock = new java.util.concurrent.atomic.AtomicLong();
+        final java.util.concurrent.atomic.AtomicBoolean exhausted = new java.util.concurrent.atomic.AtomicBoolean(true);
+        try (Fixture fixture = new Fixture(
+                tempDir.resolve("head-read-owner-loss"),
+                new HeadReadPolicy(100, 1_000_000, 10, () -> exhausted.get() ? clock.addAndGet(100) : clock.get()))) {
+            final SourceReplayRecord entry = fixture.entry("read-owner-loss");
+            final AtomicInteger acknowledgements = new AtomicInteger();
+            final SourceApplyCoordinator coordinator = fixture.coordinator(entry, (ignored, outcome) -> {
+                acknowledgements.incrementAndGet();
+                return SourceAcknowledgement.AcknowledgementResult.acked();
+            });
+            assertEquals(
+                    SourceApplyCoordinator.TurnStatus.READ_INCOMPLETE,
+                    coordinator.runTurn(fixture.budget(), () -> 101).status());
+            assertTrue(fixture.backend.release(
+                    fixture.backend.current(fixture.shard).orElseThrow()));
+            exhausted.set(false);
+            assertEquals(
+                    SourceApplyCoordinator.TurnStatus.APPLY_FAILURE,
+                    coordinator.runTurn(fixture.budget(), () -> 101).status());
+            assertEquals(ShardLifecycleState.FENCED, fixture.owned.state());
+            assertEquals(entry, fixture.source.peek());
+            assertEquals(entry, coordinator.pendingEntry().orElseThrow());
+            assertEquals(0, acknowledgements.get());
+            org.junit.jupiter.api.Assertions.assertNull(fixture.owned.shard().lastAppliedSourcePosition());
+        }
+    }
+
+    @Test
+    void unrelatedDispatcherFailureCannotBeReportedAsHeadReadRetry() throws Exception {
+        final java.util.concurrent.atomic.AtomicLong clock = new java.util.concurrent.atomic.AtomicLong();
+        try (Fixture fixture = new Fixture(
+                tempDir.resolve("head-read-dispatch-failure"),
+                new HeadReadPolicy(100, 1_000_000, 10, () -> clock.addAndGet(100)))) {
+            final SourceReplayRecord entry = fixture.entry("dispatch-failure");
+            final AtomicInteger acknowledgements = new AtomicInteger();
+            final SourceApplyCoordinator coordinator = fixture.coordinator(entry, (ignored, outcome) -> {
+                acknowledgements.incrementAndGet();
+                return SourceAcknowledgement.AcknowledgementResult.acked();
+            });
+            fixture.workClasses.submit(new WorkClassTask(WorkClass.QUERY, "unrelated-query-failure", 1), () -> {
+                throw new AssertionError("unrelated dispatcher failure");
+            });
+            final var result = coordinator.runTurn(new SchedulerBudget(2, 1_000_000, 1_000), () -> 101);
+            assertEquals(SourceApplyCoordinator.TurnStatus.WORK_CLASS_FAILURE, result.status());
+            assertEquals("unrelated dispatcher failure", result.failure().getMessage());
+            assertEquals(ShardLifecycleState.FENCED, fixture.owned.state());
+            assertEquals(entry, fixture.source.peek());
+            assertEquals(0, acknowledgements.get());
+        }
+    }
+
     private static WorkClassExecutionRegistry workClasses() {
         final EnumMap<WorkClass, WorkClassPolicy> policies = new EnumMap<>(WorkClass.class);
         for (WorkClass workClass : WorkClass.values()) {
@@ -329,6 +424,10 @@ class SourceApplyCoordinatorTest {
         private final ShardStore store;
 
         private Fixture(final Path root) throws Exception {
+            this(root, null);
+        }
+
+        private Fixture(final Path root, final HeadReadPolicy headReadPolicy) throws Exception {
             shard = new ShardId(RouteIncarnation.random(), 4);
             topic = UUID.randomUUID();
             final SourceAssignment assignment = new SourceAssignment(
@@ -342,7 +441,24 @@ class SourceApplyCoordinatorTest {
             final ShardStoreConfig config = ShardStoreConfig.defaults(root);
             resources = new SharedRocksDbResources(config);
             store = ShardStore.open(config, shard, resources);
-            owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+            final DelayShard delegate = headReadPolicy == null
+                    ? new DelayShard(store, DelayShardConfig.defaults())
+                    : new DelayShard(
+                            store,
+                            DelayShardConfig.defaults(),
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            headReadPolicy);
+            owned = new OwnedDelayShard(delegate, lease);
             owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
             owned.activateForCommands(authority, 101);
             verificationKey =

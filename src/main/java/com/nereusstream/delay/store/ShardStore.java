@@ -2075,7 +2075,7 @@ public final class ShardStore implements AutoCloseable {
         if (activeReadBudget != null) {
             throw new IllegalStateException("a Store read plan is already active");
         }
-        final ReadView view = new ReadView(this, successfulWriteCalls, db.getLatestSequenceNumber(), runtimeMetadata);
+        final ReadView view = captureReadView();
         activeReadBudget = budget;
         try {
             final T value = reader.get();
@@ -2091,6 +2091,12 @@ public final class ShardStore implements AutoCloseable {
     }
 
     public record ReadPlan<T>(T value, ReadView view) {}
+
+    /** Captures an opaque Store/Owner view before a caller begins a mutation. */
+    public synchronized ReadView captureReadView() {
+        ensureOpen();
+        return new ReadView(this, successfulWriteCalls, db.getLatestSequenceNumber(), runtimeMetadata);
+    }
 
     /** Publishes a completed read plan under the same Store monitor used by its commit fence. */
     public synchronized <T> T withReadView(final ReadView view, final java.util.function.Supplier<T> action) {

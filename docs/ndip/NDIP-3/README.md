@@ -18,8 +18,10 @@ README、执行状态、用户决策记录、测量和 receipt 不进入 normati
 
 ## 当前进展
 
-A0/A1 已验证，A2 正在实施；其 READY discovery 共享预算和视图提交绑定已通过专项与完整检查。
-head mutation/source 接入及资源上限证明仍未完成，当前 P0 进展不等于 Target 新架构或完整方案完成。
+A0/A1 已验证，A2 正在实施；READY discovery、head mutation/control/Claim 的共享预算、
+提交前视图校验及 source/recovery 本地重试已通过专项与完整检查。最大合法 mutation 的
+资源上限证明和正式装配的强制有限配置仍未完成，兼容构造器不作为资源认证。
+当前 P0 进展不等于 Target 新架构或完整方案完成。
 
 [29 项状态清单](progress.json) 是实施进度入口；[执行记录](04-执行记录.md) 保存实际命令、
 源码身份、测试和环境结果。仅当全部必做实现及证据实际闭合才办理 Implemented。

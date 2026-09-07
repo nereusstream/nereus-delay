@@ -134,7 +134,26 @@ class ClaimHandoffWorkClassExecutorTest {
                     Bytes.utf8("claim-work-worker"),
                     lease.ownerEpoch(),
                     Bytes.sha256(Bytes.utf8("claim-work-owner-fence")));
-            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults(), null, null, resolver);
+            final java.util.concurrent.atomic.AtomicLong headClock = new java.util.concurrent.atomic.AtomicLong();
+            final java.util.concurrent.atomic.AtomicBoolean exhaustHead =
+                    new java.util.concurrent.atomic.AtomicBoolean();
+            final var headPolicy = new com.nereusstream.delay.runtime.HeadReadPolicy(
+                    100, 1_000_000, 10, () -> exhaustHead.get() ? headClock.addAndGet(100) : headClock.get());
+            final DelayShard shard = new DelayShard(
+                    store,
+                    DelayShardConfig.defaults(),
+                    null,
+                    null,
+                    resolver,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    headPolicy);
             shard.apply(schedule, source);
             final OwnedDelayShard owned = new OwnedDelayShard(shard, lease, owner);
             owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
@@ -329,6 +348,29 @@ class ClaimHandoffWorkClassExecutorTest {
                     permitDeferred.result().orElseThrow().permitRejection());
             assertEquals(1, scheduler.snapshot().lanes().get(0).pendingItems());
             occupied.release();
+
+            final ScheduleWorkItem readDeferred =
+                    scheduler.poll(evidence.earliestEpochMs(), budget).get(0);
+            final long claimSequenceBefore = shard.claimSequence();
+            exhaustHead.set(true);
+            final ClaimHandoffWorkClassExecutor.Submission incomplete =
+                    executor.submit(readDeferred, evidence, 3_000, materialization, claimCharge, () -> 101);
+            workClasses.runTurn(new SchedulerBudget(1, 1_000_000, 1_000));
+            assertEquals(
+                    ClaimHandoffWorkClassExecutor.ResultKind.READ_INCOMPLETE,
+                    incomplete.result().orElseThrow().kind());
+            assertEquals(
+                    com.nereusstream.delay.store.BoundedReadBudget.Exhaustion.ELAPSED,
+                    incomplete.result().orElseThrow().readIncompleteReason());
+            assertEquals(ShardLifecycleState.ACTIVE_FOR_COMMANDS, owned.state());
+            assertEquals(claimSequenceBefore, shard.claimSequence());
+            assertEquals(
+                    MessageStatus.SCHEDULED,
+                    shard.getMessage(schedule.delayMessageId()).status());
+            assertEquals(0, permits.workerSnapshot().activeMessages());
+            assertEquals(0, permits.workerSnapshot().activeBytes());
+            assertEquals(1, scheduler.snapshot().lanes().get(0).pendingItems());
+            exhaustHead.set(false);
 
             final ScheduleWorkItem claimedItem =
                     scheduler.poll(evidence.earliestEpochMs(), budget).get(0);

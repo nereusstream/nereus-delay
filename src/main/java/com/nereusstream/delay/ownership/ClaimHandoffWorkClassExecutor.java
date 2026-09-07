@@ -179,6 +179,20 @@ public final class ClaimHandoffWorkClassExecutor {
             submission.complete(ClaimHandoffResult.claimed(claim, reservation));
             reservation = null;
             removeCompleted(submission);
+        } catch (com.nereusstream.delay.runtime.HeadReadIncompleteException incomplete) {
+            try {
+                if (reservation != null) {
+                    reservation.release();
+                    reservation = null;
+                }
+                scheduler.requeueFailedClaim(request.item);
+                submission.complete(ClaimHandoffResult.readIncomplete(incomplete.reason()));
+                removeCompleted(submission);
+            } catch (RuntimeException | Error recoveryFailure) {
+                recoveryFailure.addSuppressed(incomplete);
+                ownedShard.fence();
+                throw recoveryFailure;
+            }
         } catch (RuntimeException | Error failure) {
             if (reservation != null) {
                 try {
@@ -249,7 +263,8 @@ public final class ClaimHandoffWorkClassExecutor {
     public enum ResultKind {
         CLAIMED,
         PREREQUISITE_UNAVAILABLE,
-        PERMIT_UNAVAILABLE
+        PERMIT_UNAVAILABLE,
+        READ_INCOMPLETE
     }
 
     /** Completed local handoff result; the Claim permit stays active on success. */
@@ -258,16 +273,33 @@ public final class ClaimHandoffWorkClassExecutor {
             ClaimRecord claim,
             ClaimExecutionAdmission.Reservation reservation,
             PrerequisiteRejection prerequisiteRejection,
-            ClaimExecutionAdmission.Rejection permitRejection) {
+            ClaimExecutionAdmission.Rejection permitRejection,
+            com.nereusstream.delay.store.BoundedReadBudget.Exhaustion readIncompleteReason) {
+        public ClaimHandoffResult(
+                final ResultKind kind,
+                final ClaimRecord claim,
+                final ClaimExecutionAdmission.Reservation reservation,
+                final PrerequisiteRejection prerequisiteRejection,
+                final ClaimExecutionAdmission.Rejection permitRejection) {
+            this(kind, claim, reservation, prerequisiteRejection, permitRejection, null);
+        }
+
         public ClaimHandoffResult {
             Objects.requireNonNull(kind, "kind");
             final boolean claimed = kind == ResultKind.CLAIMED;
-            if (claimed != (claim != null && reservation != null)
-                    || claimed == (prerequisiteRejection != null || permitRejection != null)
+            if (claimed != (claim != null)
+                    || claimed != (reservation != null)
                     || (kind == ResultKind.PREREQUISITE_UNAVAILABLE) != (prerequisiteRejection != null)
-                    || (kind == ResultKind.PERMIT_UNAVAILABLE) != (permitRejection != null)) {
+                    || (kind == ResultKind.PERMIT_UNAVAILABLE) != (permitRejection != null)
+                    || (kind == ResultKind.READ_INCOMPLETE) != (readIncompleteReason != null)) {
                 throw new IllegalArgumentException("invalid Claim handoff result");
             }
+        }
+
+        private static ClaimHandoffResult readIncomplete(
+                final com.nereusstream.delay.store.BoundedReadBudget.Exhaustion reason) {
+            return new ClaimHandoffResult(
+                    ResultKind.READ_INCOMPLETE, null, null, null, null, Objects.requireNonNull(reason, "reason"));
         }
 
         private static ClaimHandoffResult claimed(
