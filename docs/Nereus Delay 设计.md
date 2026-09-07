@@ -5925,3 +5925,10 @@ source、计费/域 generation 定位和 semantic/instance digest。普通与 Na
 同一初次工作；FIFO 业务顺序不随 retry eligibility 改变。新格式完整 SourcePosition
 实行明确字节边界，超限旧数据需迁移冲突处理。上述 codec 和 NV type 14 尚未接入
 活动 writer；完整 Message/runtime/Expiry/ORDER_STATE 及 B2–B4 引用契约继续实施。
+
+
+Target Message/runtime 与 Expiry 编码已固定：单一 runtime 聚合、current work 与原未决
+attempt 引用并存，终态仍保留未决义务；Expiry 投影不随 Claim/retry 刷新。新格式限制
+refs 数量和完整 Message/payload 字节，超限旧数据须保留并列为迁移冲突。id tag 05、
+NV type 15/16 尚未激活，Source/Owner/binding/Claim/Admission/义务增删的实际 gate、
+ORDER_STATE、完整引用和 mutation 契约继续实施。

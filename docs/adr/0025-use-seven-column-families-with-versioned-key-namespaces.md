@@ -102,3 +102,11 @@ than maintained as an extra independently updated key. Full Source Positions ret
 registered wire identity with explicit Target-format text limits. The byte bounds and
 semantic/instance digest rules are fixed in the B1 contract; they neither activate the
 format nor replace Message, binding, source, Owner and obligation checks during C1.
+
+
+The Target Message uses a separate id tag 05 and reserved NV type 15; its bounded runtime
+is the sole aggregate-state projection and retains exact open-attempt references even
+when terminal. Reserved NV type 16 carries a stable generation/expiry projection. Inline
+and committed object payloads have closed byte bounds. None of these reservations alters
+the active Lane reader or removes obligations; capacity before Admission and exact
+retirement evidence remain runtime/migration gates.

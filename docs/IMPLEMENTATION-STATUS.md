@@ -23,9 +23,10 @@ identity/key vectors and the final domain slot/generation key prefix are impleme
 Target queue/domain/head summaries now have bounded canonical schemas and generation-history
 checks; physical identity is stored separately. Embedded Message locators and complete
 reversible work now retain retry authority with bounded full Source Positions. Full
-Message/runtime/Expiry/ORDER_STATE schemas, reference contracts, activation and migration
+Message/runtime and Expiry codecs now preserve bounded exact obligations and committed
+payload identity. ORDER_STATE, reference/mutation contracts, activation and migration
 remain pending.
-No Target runtime, Broker certification or migration is claimed yet. The user authorized
+No active Target scheduling runtime, Broker certification or migration is claimed yet. The user authorized
 full implementation and incremental publication on main. NDIP-1 remains closed;
 its historical evidence does not certify changed runtime source.
 

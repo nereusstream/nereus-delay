@@ -18,6 +18,7 @@ public final class TargetKeyCodec {
     public static final int STATE_TAG = 9;
     public static final int ORDER_STATE_TAG = 10;
     public static final int IDENTITY_TAG = 11;
+    public static final int MESSAGE_TAG = 5;
     public static final int MAX_DOMAIN_SLOT = 0xffff;
     public static final int CANDIDATE_PREFIX_BYTES = 2 + TargetPartitionId.LENGTH + 2 + 8;
 
@@ -354,6 +355,10 @@ public final class TargetKeyCodec {
     public static byte[] orderState(final TargetPartitionId target, final byte[] orderingDomain) {
         requireOrderingDomain(orderingDomain);
         return Bytes.concat(new byte[] {ORDER_STATE_TAG, KEY_FORMAT}, target.bytes(), orderingDomain);
+    }
+
+    public static byte[] message(final DelayMessageId messageId) {
+        return Bytes.concat(new byte[] {MESSAGE_TAG, KEY_FORMAT}, messageId.bytes());
     }
 
     public static byte[] identity(final TargetPartitionId target) {

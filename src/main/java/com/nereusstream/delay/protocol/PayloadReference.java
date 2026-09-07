@@ -119,6 +119,13 @@ public record PayloadReference(
         return proofId == null ? null : Bytes.copy(proofId);
     }
 
+    /** Checks new-format resource limits without copying any variable-length identity component. */
+    public int maximumIdentityComponentBytes() {
+        return Math.max(
+                Math.max(container.length, objectKey.length),
+                Math.max(immutableObjectVersion.length, etag == null ? 0 : etag.length));
+    }
+
     public boolean hasCommitIdentity() {
         return reservationId != null;
     }

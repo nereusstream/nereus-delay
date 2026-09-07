@@ -3,7 +3,7 @@
 Status: Draft / B1 IN_PROGRESS
 
 本节固定 B1 的物理身份、基础/严格顺序 key、TargetQueueState、域/head、消息定位及 work 编码。
-完整 Message envelope、Expiry value、ORDER_STATE、B2–B4 引用定义、协议激活及迁移转换
+ORDER_STATE、B2–B4 引用及 mutation 契约、协议激活和迁移转换
 仍未闭合，B1 不作 VERIFIED。
 本批 codec 尚未接入业务 writer。A2 的最大合法 mutation envelope 仍须包括 Message、
 Lane、binding、source 与旧 inflight 依赖，不能由本文 Target 字节上限替代。
@@ -233,8 +233,8 @@ Target identity、accounting incarnation、native cap 在此后继关系中不�
 
 这些边界只覆盖本节编码，不是完整 A2 读取预算、实际 JVM/RocksDB 内存或认证容量。
 A2 仍需 Message/runtime/source/binding/legacy 数据边界和强制有限装配；B1 仍需
-后续已固定的 work/locator 见 §10–§12；完整 Message/Expiry/ORDER_STATE、B2–B4 ref
-对象和协议激活仍待闭合。
+后续已固定的 work/locator 见 §10–§12；Message/runtime/Expiry 的后续固定内容见 §13–§16，ORDER_STATE、B2–B4 ref
+对象、mutation 契约和协议激活仍待闭合。
 原 Lane/Store format 1 业务路径尚未切换，真实 Broker、迁移、权限和最终完整目标均未完成。
 
 ## 10. TargetMessageLocator：Message 的目标定位投影
@@ -340,6 +340,120 @@ UTF-8/NFC/非空白/无 NUL、完整 uint64 ledger/entry/offset 和 uint32 batch
 隐式替换资源身份。新边界尚未应用到活动 Lane reader，超限旧数据在 B6/F1 转换审计中
 必须形成冲突并阻止激活，不能跳过该消息或修改历史 SourcePosition 使它通过。
 
-本批不完成 Target Message 的完整 payload/runtime envelope、Expiry value、ORDER_STATE、
-B2–B4 引用对象或格式激活，也不完成 A2 的全 mutation 资源证明。上述 SourcePosition
+Message 的 payload/runtime envelope 与 Expiry value 后续固定于 §13–§16；ORDER_STATE、
+B2–B4 引用和 mutation 对象及格式激活仍待完成，A2 全 mutation 资源证明亦未完成。上述 SourcePosition
 边界是新格式实际执行的编码约束，仍需由正式入口和受控迁移接入后才能用于容量配置。
+
+## 13. TargetGenerationRuntimeIndex
+
+新 Message 使用单一聚合状态来源，不再复制一份可以与 current work/obligation 矛盾的
+旧 MessageStatus。runtime 是一个 generation 的闭合 protobuf，字段如下：
+
+| field | 类型 / presence |
+|---|---|
+| 1 | schema_version:uint32=1 |
+| 2 | message_generation:uint32，完整位模式 |
+| 3 | GenerationAggregateState，沿用已注册 1..11 |
+| 4 | CurrentSendWorkKind：1 NONE、2 TIMELINE、3 CLAIMED、4 PUBLISHING |
+| 5 | optional TargetTimelineWorkRef，当且仅当 current=TIMELINE |
+| 6 | optional claim_id[32]，非零，当且仅当 current=CLAIMED |
+| 7 | optional publish_attempt_id[32]，非零，当且仅当 current=PUBLISHING |
+| 8 | repeated AttemptObligationRef，0..1024，完整原 bytes |
+| 9 | admissions_used:uint32，0..Integer.MAX_VALUE |
+| 10 | uncertain_retry_admissions_used:uint32，不大于 field 9 |
+| 11 | possible_destination_duplicate:bool，必需 |
+| 12 | runtime_revision:uint64，非零，完整位模式 |
+| 13 | runtime_digest[32] |
+
+field 13 = SHA-256(`UTF8("nereus-delay-target-generation-runtime") || 0x00 || fields 1..12`)。
+field 8 严格按 publishAttemptId 的 unsigned bytes 递增，无重复 ID，全部 generation 等于
+field 2；沿用原 AttemptObligationRef 的 key/state/key-hash/ref-digest，额外核对 inflight
+key 的 lp32=32 和 key 内 attempt ID。不能改写旧 attempt 的 ID、Owner epoch 或 key。
+原 obligation-set digest 域和完整 refs bytes 保持，以支持精确义务集合比较。
+
+1024 是新格式的硬上限，不是已认证运行容量，也不截断既有列表。每个 ref canonical
+上限 158 bytes；解析时先限制 runtime 总体大小、1034 个字段和 1024 个 ref，单个嵌套
+ref 也先限制字节。旧数据或迁移计划超过上限必须列为冲突并保留原义务。C1/E6 必须在
+不可逆 Admission 之前取得可保留新 ref 的容量，不能先发出/Admission 再因格式超限
+丢弃该 attempt；正式容量配置、准入和恢复边界仍待集成验证。
+
+NONE 不带 work 分支；TIMELINE/CLAIMED/PUBLISHING 各有且只有对应分支。非终态
+PUBLISHING 必须有且只有一个匹配当前 attempt 的 PUBLISHING ref；其他非终态不能夹带
+PUBLISHING ref。存在任何 UNCERTAIN ref 时聚合必须为 UNCERTAIN；NONE 非终态必须有
+UNCERTAIN 义务，TIMELINE 必须为 UNCERTAIN_RETRY。没有该类义务时，TIMELINE 的
+聚合按 INITIAL/DEFINITIVE 分别为 SCHEDULED/RETRY_WAIT，CLAIMED/PUBLISHING 对应同名
+聚合。INITIAL 不能已消耗 Admission；TIMELINE 的 attemptNo 精确等于 admissionsUsed+1
+且不溢出，work 的 runtimeRevision 和 generation 必须与外层一致。
+
+PUBLISHED/HANDED_OFF/CANCELED/EXPIRED/DEAD_LETTER/SUPERSEDED 必须 current=NONE，
+**可以继续保留 PUBLISHING/UNCERTAIN refs**。聚合终态不证明旧 attempt 已完成，仍需
+既有 Outcome/evidence、取消冻结、physical lookup 与保护解除规则。source 变更必须验证
+counter 演进及每个 ref 的增删依据；codec 构造成功不提供义务释放证明。
+
+保守 runtime canonical 上限 **1,214,052 bytes**；包含最大 Target work 与 1024 个 ref 的
+独立向量实际 **1,214,014 bytes**。计数器表达累计 Admission，ref 数只表达当前未决集合，
+两者不能互相代替；admissionsUsed 不得小于未决 ref 数。
+
+## 14. TargetMessageRecord
+
+预留 `id_cf` **tag 05 TARGET_MESSAGE**，key=`05 01 + messageId[41]`，长度 43；不覆盖
+原 tag 01 MESSAGE、02 reservation、03 payload-ref、04 Schedule binding。预留 **NV type 15**。
+闭合 protobuf 除 payload oneof 外字段全部必需：
+
+| field | 类型 / 约束 |
+|---|---|
+| 1 | schema_version:uint32=1 |
+| 2 | TargetMessageLocator |
+| 3 | state_version:uint64，非零，完整位模式 |
+| 4 | deliver_at_epoch_ms:uint64，非负 long |
+| 5 | expire_at_epoch_ms:uint64，>=deliverAt |
+| 6 | retry_eligibility_at_epoch_ms:uint64，0..expireAt |
+| 7 | NativeDeliveryPolicy，沿用 1..3 |
+| 8 | 完整 canonical Schedule SourcePosition，受 §12 边界约束 |
+| 9 | payload oneof：inline bytes，0..16MiB；空 payload 也必须显式出现 |
+| 10 | payload oneof：有界 committed PayloadReference，见 §15 |
+| 11 | TargetGenerationRuntimeIndex |
+| 12 | message_digest[32] |
+
+field 12 = SHA-256(`UTF8("nereus-delay-target-message") || 0x00 || fields 1..11`)。
+field 9/10 必须且只能出现一个；内联 payload 上限不是 Route 认证值，原 command/body、
+Route.maxInlinePayloadBytes、quota 与 Broker 限制仍必须满足，不能据此自动接受 16MiB 命令。
+Message 的 source Shard 必须与 ID 一致，runtime generation 与 locator 相同；有 timeline
+时 locator、deliver/retry、source Shard/token 全部一致。FORBID 禁止 Native candidate，
+严格 FIFO 禁止任意 Native opt-in。非 timeline 状态仍保留业务时间、payload 和 Schedule
+source，Claim/Admission 的不可变 work/materialization 和独立 attempt 记录继续承担恢复义务。
+
+`requireTimelineProjection` 对完整 index value 和 Message.runtime 的 work 做精确相等
+校验，不能以同 ID 或相同 key 替代 work digest/revision/控制依据。Store decoder 检查
+新 exact key 与 source Shard；C1 仍需读取完整 binding、Target/domain、Owner、实时 policy
+和 obligation，并绑定同一个 plan。旧 reader 继续拒绝 type 15 和 Store format 2。
+
+Message canonical 的保守上限 **19,040,258 bytes**，逐项包含 locator、三个时间、state
+revision、完整 Schedule source、最大 payload 分支、完整 runtime 和 digest。最大字段
+宽度独立向量实际 **19,040,181 bytes**；decoder 在字段列表构造时限制为 11 个字段。
+该上限不包含单次 mutation 的全部其他读取、临时内存或 RocksDB 开销，不能替代 A2。
+
+## 15. Target 对象 payload 边界
+
+沿用 PayloadReference 的 committed version 2 原 wire bytes；container/objectKey/
+immutableObjectVersion/可选 etag 各最多 1MiB，完整编码最多 **4,194,460 bytes**。
+必须保留非零 object-store profile hash、reservationId/proofId、payload hash、完整长度和
+不可变对象版本；etag 缺省仍为缺省，不制造值。字节长度限制不解释或更改对象标识符。
+
+`maximumIdentityComponentBytes` 在不复制字段的情况下检查上限，避免为验证长度先复制
+任意大组件。旧 PayloadReference 的 reader/原 wire 行为不变；新 Target wrapper 要求
+committed proof identity。旧缺 proof identity 或超限对象不能直接写入新 Message；B6/F1
+必须从真实被保护的证据转换或列为冲突，不能补造 reservation/proof 或删除对象以绕过。
+
+## 16. TargetExpiryRef
+
+预留 **NV type 16**，用于既有预留 `timeline/TARGET_EXPIRY` key。字段为 1 schema=1、
+2 TargetMessageLocator、3 expireAt:uint64（非负 long）、4 expiryDigest[32]。
+field 4 = SHA-256(`UTF8("nereus-delay-target-expiry") || 0x00 || fields 1..3`)。
+canonical 上限 **272 bytes**。exact key、locator、expireAt 必须与当前非终态 Message
+一致；Claim/retry 不改变此引用，Reschedule/new generation 则替换它，终态移除可过期
+索引但不据此删除未决 attempt。原 index key 不含域 slot，完整 locator value 防止把
+过期费用/控制投影套用到另一个域或计费 incarnation。
+
+Message/runtime/Expiry codec 尚未接入活动 writer。ORDER_STATE、B2–B4 完整引用对象、
+Target Claim/Admission/控制 mutation 契约和格式激活仍待闭合；B1 与 A2 保持 IN_PROGRESS。

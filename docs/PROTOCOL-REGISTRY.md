@@ -2028,7 +2028,7 @@ meta tag `09 TARGET_STATE`，key format=1；候选的 slot:u16/domainGeneration:
 从基础单域起即存在。Lane NATIVE tag 07 已由 NDIP-1 使用，不能重分配。
 预留 storeFormatVersion=2 为 Target 数据的拒绝边界；当前 writer/reader 仍为 format 1，
 codec 存在不授予新格式写入、Accepted、迁移或 production authority。queue/domain/head
-及严格顺序 key 的后续固定内容见下一节；完整 Message/Expiry/ORDER_STATE 与 B2–B4 引用仍待闭合，work/locator 见后续小节。
+及严格顺序 key 的后续固定内容见下一节；ORDER_STATE 与 B2–B4 引用仍待闭合，work/locator/Message/runtime/Expiry 见后续小节。
 
 
 ### NDIP-3 B1：Target 持久摘要与身份记录预留（未激活）
@@ -2064,3 +2064,21 @@ control/source、Native 资格及 semantic/instance digest。两路初次候选�
 UTF-8 bytes、Pulsar topic 为 1MiB，并拒绝未分配资源；完整 source 上限 318/1048670。
 locator/work 上限 222/1049113。旧数据超限需转换冲突处理，不能静默丢弃或改写历史。
 全部 C1 Message/binding/runtime 投影及 Source/Owner/obligation gate 尚未接入。
+
+
+### NDIP-3 B1：完整 Message/runtime 与 Expiry 预留（未激活）
+
+[精确字段与拒绝规则](ndip/NDIP-3/05-Target身份与索引契约.md#13-targetgenerationruntimeindex)
+固定 TargetGenerationRuntimeIndex、TargetMessageRecord 和 TargetExpiryRef。新 id tag
+05 TARGET_MESSAGE 的 key 是 `05 01 + messageId[41]`；NV type 15 为 Message，16 为
+Expiry。原 id tag 01..04 和 ValueEnvelope 注册 1..11 不变，新增 type 仍被拒绝。
+
+runtime 具有单一 current-work oneof、generation、累计计数、duplicate 标记及最多 1024
+个原 AttemptObligationRef；终态仍可保留未决 ref。Message 持久化单一 runtime 聚合，
+完整 source/payload、时间、permission 与 locator 交叉校验；Expiry 投影不随 Claim/
+retry 变化。runtime/Message/Expiry 使用独立 digest 域，字段表锁定完整 preimage。
+
+保守 canonical 上限分别为 1214052/19040258/272 bytes；inline 最多 16MiB，对象引用
+的四个变长身份字段各最多 1MiB，完整引用最多 4194460 bytes 且必须有 committed proof
+identity。硬编码上限不提供容量认证，Admission 前容量兑现、义务增删证明、超限旧数据
+冲突处理、B2–B4 引用和 Target mutation 契约及格式激活仍须继续完成。

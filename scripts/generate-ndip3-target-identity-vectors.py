@@ -83,6 +83,7 @@ def expected_vectors():
     vectors["state.key"] = (bytes([9, 1]) + target).hex()
     append_state_vectors(vectors, target, message)
     append_work_vectors(vectors, message)
+    append_message_vectors(vectors, message)
     header = "# NDIP-3 version 1; independent Python hashlib/struct/protobuf wire/CRC32C generation.\n"
     return header + "".join(key + "=" + value + "\n" for key, value in vectors.items())
 
@@ -242,6 +243,85 @@ def append_work_vectors(vectors, message):
     vectors["work.maximum.length"] = str(len(raw))
     vectors["work.maximum.source.sha256"] = hashlib.sha256(source).hexdigest()
     vectors["work.maximum.source.length"] = str(len(source))
+
+
+def obligation(attempt, generation, state, owner=7):
+    key = bytes([2 if state == 1 else 3, 1]) + u64(owner) + u32(32) + attempt
+    fields = bytes_field(1, attempt) + uint_field(2, generation) + uint_field(3, state)
+    fields += bytes_field(4, key) + bytes_field(5, hashlib.sha256(key).digest())
+    return with_digest(fields, 6, b"nereus-delay-attempt-obligation-ref\0")
+
+
+def target_runtime(generation, aggregate, current, branch, refs, admissions, uncertain, duplicate, revision):
+    fields = uint_field(1, 1) + uint_field(2, generation) + uint_field(3, aggregate) + uint_field(4, current)
+    if branch is not None:
+        fields += bytes_field({2: 5, 3: 6, 4: 7}[current], branch)
+    fields += b"".join(bytes_field(8, ref) for ref in refs)
+    fields += uint_field(9, admissions) + uint_field(10, uncertain) + uint_field(11, 1 if duplicate else 0) + uint_field(12, revision)
+    return with_digest(fields, 13, b"nereus-delay-target-generation-runtime\0")
+
+
+def target_message(loc, revision, deliver, expiry, retry, native_policy, source, payload, runtime, object_backed=False):
+    fields = uint_field(1, 1) + bytes_field(2, loc) + uint_field(3, revision)
+    fields += uint_field(4, deliver) + uint_field(5, expiry) + uint_field(6, retry) + uint_field(7, native_policy)
+    fields += bytes_field(8, source) + bytes_field(10 if object_backed else 9, payload) + bytes_field(11, runtime)
+    return with_digest(fields, 12, b"nereus-delay-target-message\0")
+
+
+def maximum_message_components(vectors, message):
+    max64, max32 = (1 << 64) - 1, (1 << 32) - 1
+    target = bytes.fromhex(vectors["pulsar.id"])
+    topic = b"x" * (1 << 20)
+    prefix = b"\x02" + message[1:17] + u32(32) + bytes(range(32)) + u32(len(topic)) + topic + u32(3)
+    control_source = prefix + u64(max64) + u64(max64) + u32(max32 - 1) + u32(max32) + b"\x02" + u64((1 << 63) - 1)
+    source = prefix + u64(max64) + u64(max64 - 1) + u32(max32 - 1) + u32(max32) + b"\x02" + u64((1 << 63) - 1)
+    loc = locator(target, message, max32, 63, max64)
+    token = b"\x02" + u64(max64) + u64(max64 - 1) + u32(max32 - 1)
+    control = bytes_field(1, bytes([0x44]) * 32) + bytes_field(2, bytes([0x55]) * 32) + uint_field(3, max32)
+    work = work_ref(loc, 3, (1 << 63) - 1, (1 << 63) - 1, token, (1 << 31) - 1, max64,
+                    authority=3, control=control, position=control_source)
+    refs = [obligation(number.to_bytes(32, "big"), max32, 2, (1 << 63) - 1) for number in range(1, 1025)]
+    runtime = target_runtime(max32, 5, 2, work, refs, (1 << 31) - 2, (1 << 31) - 3, True, max64)
+    raw = target_message(loc, max64, (1 << 63) - 1, (1 << 63) - 1, (1 << 63) - 1, 1, source, bytes(1 << 24), runtime)
+    return runtime, raw
+
+
+def append_message_vectors(vectors, message):
+    initial = bytes.fromhex(vectors["work.native"])
+    loc = bytes.fromhex(vectors["locator.best"])
+    source = bytes.fromhex(vectors["work.schedule.source"])
+    publishing = obligation(bytes([0x77]) * 32, 2, 1)
+    uncertain = obligation(bytes([0x77]) * 32, 2, 2)
+    vectors["obligation.publishing"] = publishing.hex()
+    vectors["obligation.uncertain"] = uncertain.hex()
+    runtimes = {
+        "initial": target_runtime(2, 1, 2, initial, [], 0, 0, False, 5),
+        "claimed": target_runtime(2, 2, 3, bytes([0x66]) * 32, [], 0, 0, False, 6),
+        "publishing": target_runtime(2, 3, 4, bytes([0x77]) * 32, [publishing], 1, 0, False, 7),
+        "hold": target_runtime(2, 5, 1, None, [uncertain], 1, 0, False, 8),
+        "retry": target_runtime(2, 5, 2, bytes.fromhex(vectors["work.uncertain.pinned"]), [uncertain], 1, 0, True, 7),
+        "terminal": target_runtime(2, 9, 1, None, [uncertain], 1, 0, True, 9),
+    }
+    for name, runtime in runtimes.items():
+        vectors["runtime." + name] = runtime.hex()
+    descriptor = u32(2) + bytes([0xAA]) * 32
+    for value in [b"bucket", b"object", b"generation-1", b""]:
+        descriptor += u32(len(value)) + value
+    descriptor += u64(12) + bytes([0x33]) * 32 + bytes([0x22]) * 32 + bytes([0x44]) * 32
+    vectors["message.object.ref"] = descriptor.hex()
+    vectors["message.key"] = (b"\x05\x01" + message).hex()
+    for name, revision in [("initial", 5), ("claimed", 6), ("terminal", 9)]:
+        vectors["message." + name] = target_message(loc, revision, 100, 200, 100, 2, source, b"payload", runtimes[name]).hex()
+    vectors["message.object"] = target_message(loc, 5, 100, 200, 100, 2, source, descriptor, runtimes["initial"], object_backed=True).hex()
+    vectors["message.initial.value"] = value_envelope(15, bytes.fromhex(vectors["message.initial"])).hex()
+    expiry = with_digest(uint_field(1, 1) + bytes_field(2, loc) + uint_field(3, 200), 4, b"nereus-delay-target-expiry\0")
+    vectors["message.expiry"] = expiry.hex()
+    vectors["message.expiry.key"] = (b"\x0a\x01" + u64(200) + bytes.fromhex(vectors["pulsar.id"]) + message + u32(2)).hex()
+    vectors["message.expiry.value"] = value_envelope(16, expiry).hex()
+    maximum_runtime, maximum_message = maximum_message_components(vectors, message)
+    for name, raw in [("runtime.maximum", maximum_runtime), ("message.maximum", maximum_message)]:
+        vectors[name + ".sha256"] = hashlib.sha256(raw).hexdigest()
+        vectors[name + ".length"] = str(len(raw))
 
 
 def main():

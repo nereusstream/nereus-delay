@@ -591,11 +591,10 @@ class TargetWorkContractTest {
     @Test
     void reservedWorkValueTypeRemainsRejectedByTheLaneReaderWithValidCrc() {
         final byte[] value = bytes("work.native.value");
-        final int crc = ByteBuffer.wrap(value).getInt(value.length - 4);
+        final long crc = Bytes.readU32be(value, value.length - 4);
         assertEquals(crc, Bytes.crc32c(Arrays.copyOf(value, value.length - 4)));
         assertEquals(TargetTimelineWorkRef.VALUE_TYPE, Byte.toUnsignedInt(value[2]));
-        assertThrows(
-                IllegalArgumentException.class, () -> ValueEnvelope.decode(value, TargetTimelineWorkRef.VALUE_TYPE));
+        assertThrows(IllegalArgumentException.class, () -> ValueEnvelope.decodeAny(value));
     }
 
     @Test
