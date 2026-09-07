@@ -1,0 +1,130 @@
+{
+  "scope": "A1 original Lane/protocol ordered-head algorithm, exact deletion overlay, explicit rebuild/activation audit",
+  "baseCommit": "049dbd04e65a86a6f6169741d90b0ae8f611b611",
+  "sourceFiles": {
+    "src/main/java/com/nereusstream/delay/runtime/DelayShard.java": "76c34ef807eb2f6b12c8f55e3f4cafa8b46ac928e6d3e245ac161d52dbb41df3",
+    "src/main/java/com/nereusstream/delay/runtime/HeadIndexUpdater.java": "ad73afdc5136d46c3d17d3103ca3a48cb8542e513eac7f307fc18fb9bfb46e29",
+    "src/main/java/com/nereusstream/delay/store/ShardStore.java": "dbb02a8ef32ce0feaa0be8955c306a521ab85da7bcd278b8386d9f8a77b56cc2"
+  },
+  "command": "./gradlew spotlessApply check --console=plain",
+  "checkResult": "PASS",
+  "javaResults": {
+    "tests": 1688,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 41
+  },
+  "externalSkips": [
+    {
+      "suite": "com.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest",
+      "skipped": 4
+    },
+    {
+      "suite": "com.nereusstream.delay.store.S3CompatibleMinioRealSmokeTest",
+      "skipped": 6
+    },
+    {
+      "suite": "com.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest",
+      "skipped": 4
+    },
+    {
+      "suite": "com.nereusstream.delay.runtime.OxiaRealProfileCatalogSmokeTest",
+      "skipped": 1
+    },
+    {
+      "suite": "com.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest",
+      "skipped": 4
+    },
+    {
+      "suite": "com.nereusstream.delay.ownership.OxiaRealServiceSmokeTest",
+      "skipped": 1
+    },
+    {
+      "suite": "com.nereusstream.delay.scheduler.TargetIsolationDurableChaosTest",
+      "skipped": 1
+    },
+    {
+      "suite": "com.nereusstream.delay.store.LocalStorageDurableChaosTest",
+      "skipped": 1
+    },
+    {
+      "suite": "com.nereusstream.delay.ownership.OxiaRealProtocolCapabilitySmokeTest",
+      "skipped": 1
+    },
+    {
+      "suite": "com.nereusstream.delay.gateway.OxiaRealGatewayAdmissionSmokeTest",
+      "skipped": 1
+    },
+    {
+      "suite": "com.nereusstream.delay.gateway.OxiaRealGatewayGrpcSmokeTest",
+      "skipped": 7
+    },
+    {
+      "suite": "com.nereusstream.delay.store.OxiaRealCheckpointReapingSmokeTest",
+      "skipped": 1
+    },
+    {
+      "suite": "com.nereusstream.delay.ownership.OxiaRealControlAuthoritySmokeTest",
+      "skipped": 3
+    },
+    {
+      "suite": "com.nereusstream.delay.runtime.CredentialBindingDurableChaosTest",
+      "skipped": 1
+    },
+    {
+      "suite": "com.nereusstream.delay.scheduler.LongGcDurableChaosTest",
+      "skipped": 1
+    },
+    {
+      "suite": "com.nereusstream.delay.route.OxiaRealRouteWorkerAssignmentSmokeTest",
+      "skipped": 2
+    },
+    {
+      "suite": "com.nereusstream.delay.store.OxiaRealObjectStoreCredentialRenewalSmokeTest",
+      "skipped": 1
+    },
+    {
+      "suite": "com.nereusstream.delay.gateway.OxiaRealGatewayAuditSinkSmokeTest",
+      "skipped": 1
+    }
+  ],
+  "continuousSchedule": [
+    {
+      "N": 16,
+      "L": 1,
+      "candidateKeys": 15,
+      "messageGets": 15
+    },
+    {
+      "N": 64,
+      "L": 1,
+      "candidateKeys": 63,
+      "messageGets": 63
+    }
+  ],
+  "componentOnly": [
+    {
+      "N": 1000,
+      "first": 1,
+      "deleteHead": 2,
+      "deleteNonHead": 1,
+      "delete64": 65
+    },
+    {
+      "N": 10000,
+      "first": 1,
+      "deleteHead": 2,
+      "deleteNonHead": 1,
+      "delete64": 65
+    },
+    {
+      "N": 100000,
+      "first": 1,
+      "deleteHead": 2,
+      "deleteNonHead": 1,
+      "delete64": 65
+    }
+  ],
+  "brokerCertification": false,
+  "productionAuthority": false
+}

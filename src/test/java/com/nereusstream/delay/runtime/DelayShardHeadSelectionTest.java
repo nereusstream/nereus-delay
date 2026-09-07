@@ -2,6 +2,7 @@ package com.nereusstream.delay.runtime;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.AuthorIdentity;
 import com.nereusstream.delay.protocol.Bytes;
@@ -129,7 +130,7 @@ class DelayShardHeadSelectionTest {
                 }
                 final DelayShard.HeadReadStatistics reads = shard.headReadStatistics();
                 assertEquals(reads.candidateKeysRead(), reads.messageGets());
-                assertTrue(reads.candidateKeysRead() > 0);
+                assertEquals(count - 1, reads.candidateKeysRead());
                 final long quotaBytes = store.operationStatistics().quotaPreparedPutBytes() - quotaBefore;
                 assertTrue(quotaBytes > 0);
                 assertEquals(0, store.operationStatistics().schedulerPreparedPutBytes());
@@ -137,6 +138,56 @@ class DelayShardHeadSelectionTest {
                         "HEAD_MEASUREMENT N=%d L=1 candidateKeys=%d messageGets=%d quotaPreparedBytes=%d%n",
                         count, reads.candidateKeysRead(), reads.messageGets(), quotaBytes);
             }
+        }
+    }
+
+    @Test
+    void unrelatedMutationDoesNotAuditTailButRebuildAndSelectedCorruptionFailClosed() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("tail-corruption"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 9);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("tail-corruption"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final List<PreparedCommand> scheduled = new ArrayList<>();
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            for (int index = 0; index < 3; index++) {
+                final PreparedCommand command = PreparedCommand.schedule(
+                        shardId,
+                        new ScheduleIntent(
+                                lane, 2_000 + index, 20_000, OrderingMode.BEST_EFFORT, Bytes.utf8("payload")),
+                        30_000);
+                scheduled.add(command);
+                assertEquals(
+                        StableCode.SCHEDULED,
+                        shard.apply(command, position(shardId, index)).stableCode());
+            }
+            final byte[] corruptKey = KeyCodec.timelineDue(
+                    lane,
+                    2_001,
+                    position(shardId, 1).sourceOrderToken(),
+                    scheduled.get(1).delayMessageId(),
+                    0);
+            store.write(batch -> batch.put(ColumnFamily.TIMELINE, corruptKey, new byte[] {99}));
+            final PreparedCommand later = PreparedCommand.schedule(
+                    shardId,
+                    new ScheduleIntent(lane, 3_000, 20_000, OrderingMode.BEST_EFFORT, Bytes.utf8("later")),
+                    30_000);
+            assertEquals(
+                    StableCode.SCHEDULED,
+                    shard.apply(later, position(shardId, 3)).stableCode());
+            assertThrows(RuntimeException.class, shard::rebuildReadyIndexes);
+            final long sequence = shard.mutationSequence();
+            final long writes = store.operationStatistics().nativeWriteCalls();
+            assertThrows(
+                    RuntimeException.class,
+                    () -> shard.apply(
+                            PreparedCommand.cancel(shardId, scheduled.get(0).delayMessageId(), 0, 30_000),
+                            position(shardId, 4)));
+            assertEquals(sequence, shard.mutationSequence());
+            assertEquals(writes, store.operationStatistics().nativeWriteCalls());
+            assertEquals(
+                    MessageStatus.SCHEDULED,
+                    shard.getMessage(scheduled.get(0).delayMessageId()).status());
         }
     }
 

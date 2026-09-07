@@ -2005,3 +2005,11 @@ unsigned first64=15958759676622330853
 ```
 
 Release artifacts must add cross-language positive/negative vectors for every body, enum boundary, ID CRC, routing/Lane hash, Source Position variant, key min/max, generation/version overflow, value CRC, manifest and signature.这些生成文件可以机器生成，但输入 schema/domain/expected digest 必须引用本 revision；缺失任一 registered variant 时 release gate 失败。
+
+### NDIP-3 A1：现有索引比较规则的实现约束
+
+A1 不分配新 tag/value version，也不修改 Lane canonical identity 或 prepared bytes。
+DUE/ORDERED/NATIVE 各自取首个非 exact deletion-overlay 的完整 key，然后按原时间字段与
+unsigned key 比较 included candidate；ORDERED 不改按 retry eligibility 排列后继。
+head 查询完成不构成完整队尾审计；正式激活和 READY rebuild 保留显式完整检查。
+Target/domain 的新协议仍由 NDIP-3 B1–B7 另行闭合。

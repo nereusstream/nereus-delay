@@ -2478,7 +2478,7 @@ public final class DelayShard {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED, StableCode.INTEGRITY_ERROR);
         }
         final TimelineCandidate candidate =
-                body.controlKind() == 9 ? findLaneCandidate(target.laneId(), null, -1, null, null) : null;
+                body.controlKind() == 9 ? findLaneCandidate(target.laneId(), null, null, null, null) : null;
         LaneQuotaUsageProjection nextLaneQuota = body.controlKind() == 11
                         && (closeAccounting.pendingMessages() != 0
                                 || closeAccounting.pendingBytes() != 0
@@ -7703,7 +7703,7 @@ public final class DelayShard {
             throw new IllegalStateException("terminal lane cannot change readiness");
         }
         final LaneRecord next = current.withReadiness(readiness);
-        final TimelineCandidate candidate = findLaneCandidate(laneId, null, -1, null, null);
+        final TimelineCandidate candidate = findLaneCandidate(laneId, null, null, null, null);
         final LaneProjection projection = projectLane(laneId, current, next, candidate);
         store.write(batch -> {
             deleteReadyKey(batch, current);
@@ -7781,7 +7781,8 @@ public final class DelayShard {
             throw new IllegalStateException("Lane must return to RECOVERING_EVIDENCE before activation");
         }
         final LaneRecord next = current.withReadiness(RuntimeReadiness.READY);
-        final TimelineCandidate candidate = findLaneCandidate(exactLaneId, null, -1, null, null);
+        auditLaneCandidateIndexes(exactLaneId);
+        final TimelineCandidate candidate = findLaneCandidate(exactLaneId, null, null, null, null);
         final LaneProjection projection = projectLane(exactLaneId, current, next, candidate);
         store.write(batch -> {
             deleteReadyKey(batch, current);
@@ -7809,7 +7810,7 @@ public final class DelayShard {
             throw new IllegalArgumentException("physical retirement requires a terminal guard");
         }
         final LaneRecord next = current.withGate(Objects.requireNonNull(gate, "gate"));
-        final TimelineCandidate candidate = findLaneCandidate(laneId, null, -1, null, null);
+        final TimelineCandidate candidate = findLaneCandidate(laneId, null, null, null, null);
         final LaneProjection projection = projectLane(laneId, current, next, candidate);
         store.write(batch -> {
             deleteReadyKey(batch, current);
@@ -7864,7 +7865,7 @@ public final class DelayShard {
                 || !isAtOrAfterExact(guard.terminalSourcePosition(), progress.intentSourcePosition())) {
             throw new IllegalStateException("retirement progress is not source-ordered and applied");
         }
-        if (findLaneCandidate(laneId, null, -1, null, null) != null || hasLaneRuntimeWork(laneId)) {
+        if (findLaneCandidate(laneId, null, null, null, null) != null || hasLaneRuntimeWork(laneId)) {
             throw new IllegalStateException("lane still has pending or inflight work");
         }
         final ShardQuota nextQuota = quota.removeLane();
@@ -8163,11 +8164,12 @@ public final class DelayShard {
         final Map<com.nereusstream.delay.protocol.DestinationLaneId, NativeTimelineCandidate> nativeCandidates =
                 new HashMap<>();
         for (var laneId : lanes.keySet()) {
-            final TimelineCandidate candidate = findLaneCandidate(laneId, null, -1, null, null);
+            auditLaneCandidateIndexes(laneId);
+            final TimelineCandidate candidate = findLaneCandidate(laneId, null, null, null, null);
             if (candidate != null) {
                 candidates.put(laneId, candidate);
             }
-            final NativeTimelineCandidate nativeCandidate = findLaneNativeCandidate(laneId, null, -1, null, null);
+            final NativeTimelineCandidate nativeCandidate = findLaneNativeCandidate(laneId, null, null, null, null);
             if (nativeCandidate != null) {
                 nativeCandidates.put(laneId, nativeCandidate);
             }
@@ -9779,20 +9781,16 @@ public final class DelayShard {
             final LaneRecord previous = readLane(laneId);
             final LaneRecord base = laneOverrides.getOrDefault(
                     laneId, previous == null ? LaneRecord.initial(laneId, position) : previous);
-            final int excludedGeneration = prior != null
-                            && (prior.status() == MessageStatus.SCHEDULED || prior.status() == MessageStatus.CLAIMED)
-                    ? prior.generation()
-                    : -1;
             final TimelineCandidate candidate = findLaneCandidate(
                     laneId,
                     messageId,
-                    excludedGeneration,
+                    prior,
                     next != null && next.status() == MessageStatus.SCHEDULED ? messageId : null,
                     next);
             final NativeTimelineCandidate nativeCandidate = findLaneNativeCandidate(
                     laneId,
                     messageId,
-                    excludedGeneration,
+                    prior,
                     next != null && next.status() == MessageStatus.SCHEDULED ? messageId : null,
                     next);
             result.put(laneId, projectLane(laneId, previous, base, candidate, nativeCandidate, projectedLaneQuota));
@@ -9810,7 +9808,7 @@ public final class DelayShard {
                 previous,
                 base,
                 candidate,
-                findLaneNativeCandidate(laneId, null, -1, null, null),
+                findLaneNativeCandidate(laneId, null, null, null, null),
                 laneQuotaUsage);
     }
 
@@ -9825,7 +9823,7 @@ public final class DelayShard {
                 previous,
                 base,
                 candidate,
-                findLaneNativeCandidate(laneId, null, -1, null, null),
+                findLaneNativeCandidate(laneId, null, null, null, null),
                 projectedLaneQuota);
     }
 
@@ -10003,10 +10001,30 @@ public final class DelayShard {
                 null);
     }
 
+    /** Explicit fenced rebuild audit; deliberately absent from per-message head maintenance. */
+    private void auditLaneCandidateIndexes(final DestinationLaneId laneId) {
+        final int limit = boundedLimitPlusOne(config.maxPendingMessages());
+        for (byte tag : new byte[] {1, 2, 7}) {
+            final byte[] prefix = Bytes.concat(new byte[] {tag, 1}, laneId.bytes());
+            final List<ShardStore.KeyValue> entries =
+                    store.scan(ColumnFamily.TIMELINE, prefix, prefixUpperBound(prefix), limit);
+            if (entries.size() >= limit && config.maxPendingMessages() < Integer.MAX_VALUE) {
+                throw new IllegalStateException("timeline candidate audit exceeded configured bound");
+            }
+            for (ShardStore.KeyValue entry : entries) {
+                if (tag == 7) {
+                    decodeNativeTimelineCandidate(entry, laneId);
+                } else {
+                    decodeTimelineCandidate(entry, tag, laneId);
+                }
+            }
+        }
+    }
+
     private TimelineCandidate findLaneCandidate(
             final com.nereusstream.delay.protocol.DestinationLaneId laneId,
             final DelayMessageId excludedMessageId,
-            final int excludedGeneration,
+            final MessageRecord excludedMessage,
             final DelayMessageId includedMessageId,
             final MessageRecord includedMessage) {
         TimelineCandidate selected = null;
@@ -10023,22 +10041,20 @@ public final class DelayShard {
                     timelineKey(includedMessageId, includedMessage),
                     includedMessage.orderingMode() == com.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO);
         }
-        final int candidateLimit = boundedLimitPlusOne(config.maxPendingMessages());
+        final byte[] removedKey = excludedMessageId != null
+                        && excludedMessage != null
+                        && excludedMessage.status() == MessageStatus.SCHEDULED
+                        && excludedMessage.laneId().equals(laneId)
+                ? timelineKey(excludedMessageId, excludedMessage)
+                : null;
         for (byte tag = 1; tag <= 2; tag++) {
             final byte[] prefix = Bytes.concat(new byte[] {tag, 1}, laneId.bytes());
-            final List<com.nereusstream.delay.store.ShardStore.KeyValue> entries =
-                    store.scan(ColumnFamily.TIMELINE, prefix, prefixUpperBound(prefix), candidateLimit);
-            if (entries.size() >= candidateLimit && config.maxPendingMessages() < Integer.MAX_VALUE) {
-                throw new IllegalStateException("timeline candidate scan exceeded configured bound");
-            }
-            for (var entry : entries) {
-                headCandidateKeysRead++;
-                final TimelineCandidate candidate = decodeTimelineCandidate(entry, tag, laneId);
-                if (excludedMessageId != null
-                        && candidate.messageId().equals(excludedMessageId)
-                        && candidate.generation() == excludedGeneration) {
-                    continue;
-                }
+            final HeadIndexUpdater.StoredHead stored = HeadIndexUpdater.firstStored(
+                    store, prefix, removedKey != null && removedKey[0] == tag ? List.of(removedKey) : List.of());
+            headCandidateKeysRead += stored.keysRead();
+            if (stored.entry() != null) {
+                headMessageGets++;
+                final TimelineCandidate candidate = decodeTimelineCandidate(stored.entry(), tag, laneId);
                 if (selected == null || candidate.compareTo(selected) < 0) {
                     selected = candidate;
                 }
@@ -10050,7 +10066,7 @@ public final class DelayShard {
     private NativeTimelineCandidate findLaneNativeCandidate(
             final com.nereusstream.delay.protocol.DestinationLaneId laneId,
             final DelayMessageId excludedMessageId,
-            final int excludedGeneration,
+            final MessageRecord excludedMessage,
             final DelayMessageId includedMessageId,
             final MessageRecord includedMessage) {
         NativeTimelineCandidate selected = null;
@@ -10064,21 +10080,19 @@ public final class DelayShard {
                     includedMessage.earliestNativeCandidateAtEpochMs(),
                     nativeCandidateKey(includedMessageId, includedMessage));
         }
-        final int candidateLimit = boundedLimitPlusOne(config.maxPendingMessages());
+        final byte[] removedKey = excludedMessageId != null
+                        && excludedMessage != null
+                        && excludedMessage.laneId().equals(laneId)
+                        && hasNativeCandidateIndex(excludedMessage)
+                ? nativeCandidateKey(excludedMessageId, excludedMessage)
+                : null;
         final byte[] prefix = Bytes.concat(new byte[] {7, 1}, laneId.bytes());
-        final List<com.nereusstream.delay.store.ShardStore.KeyValue> entries =
-                store.scan(ColumnFamily.TIMELINE, prefix, prefixUpperBound(prefix), candidateLimit);
-        if (entries.size() >= candidateLimit && config.maxPendingMessages() < Integer.MAX_VALUE) {
-            throw new IllegalStateException("native candidate scan exceeded configured bound");
-        }
-        for (var entry : entries) {
-            headCandidateKeysRead++;
-            final NativeTimelineCandidate candidate = decodeNativeTimelineCandidate(entry, laneId);
-            if (excludedMessageId != null
-                    && candidate.messageId().equals(excludedMessageId)
-                    && candidate.generation() == excludedGeneration) {
-                continue;
-            }
+        final HeadIndexUpdater.StoredHead stored =
+                HeadIndexUpdater.firstStored(store, prefix, removedKey == null ? List.of() : List.of(removedKey));
+        headCandidateKeysRead += stored.keysRead();
+        if (stored.entry() != null) {
+            headMessageGets++;
+            final NativeTimelineCandidate candidate = decodeNativeTimelineCandidate(stored.entry(), laneId);
             if (selected == null || candidate.compareTo(selected) < 0) {
                 selected = candidate;
             }
@@ -10116,7 +10130,6 @@ public final class DelayShard {
         }
         final NativeCandidateRef value =
                 NativeCandidateRef.decode(ValueEnvelope.decode(entry.value(), 1).payload());
-        headMessageGets++;
         final MessageRecord message = getMessage(messageId);
         if (message == null
                 || !hasNativeCandidateIndex(message)
@@ -10192,7 +10205,6 @@ public final class DelayShard {
         input.get(messageBytes);
         final int generation = input.getInt();
         final DelayMessageId messageId = new DelayMessageId(messageBytes);
-        headMessageGets++;
         final MessageRecord message = getMessage(messageId);
         if (message == null
                 || message.status() != MessageStatus.SCHEDULED

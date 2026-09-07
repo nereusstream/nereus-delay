@@ -14,13 +14,16 @@
     {
       "id": "A1",
       "title": "有序 head 与 exact overlay",
-      "status": "IN_PROGRESS",
-      "evidence": []
+      "status": "VERIFIED",
+      "evidence": [
+        "evidence/a1-results.json",
+        "evidence/a1-check.log"
+      ]
     },
     {
       "id": "A2",
       "title": "共享预算与提交屏障",
-      "status": "PLANNED",
+      "status": "IN_PROGRESS",
       "evidence": []
     },
     {

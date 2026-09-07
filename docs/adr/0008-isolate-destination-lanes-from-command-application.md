@@ -24,3 +24,12 @@ Nereus Delay guarantees that a failed Destination Lane cannot stop Command appli
 - Source Position order remains strict: a later Command cannot overtake earlier records. This decision isolates destination publish failure, not ingress traffic floods; tenant command-rate controls and route/partition policy address ingress contention.
 
 An irreversible Break/Close is not erased by runtime retirement. After the source-ordered gate reaches `CLOSED` and all retirement preconditions hold, the same registered `meta_cf/LANE[destinationLaneId]` key atomically replaces the active Lane value with exact `LaneTerminalGuard(finalGate=RETIRED)`; there is no extra CF tag/namespace. The guard retains the final control version, last terminal source position, incarnation, Profile/canonical Lane identity and retire intent until the Route/Profile and every retained Prepared Command/Recovery Set reference are gone. The same old tuple can never recreate as `OPEN`; continued traffic uses a new Profile/Ordering Domain and therefore a different Lane ID.
+
+## Head maintenance implementation (2026-09-07, NDIP-3 A1)
+
+The original Lane identity and source-ordered mutation contract remain in use. Head maintenance
+seeks the first stored candidate outside the exact mutation deletion overlay and compares it with
+the inserted candidate. It preserves the original DUE/ORDERED/NATIVE comparators. Selected records
+are strictly validated; formal activation and fenced READY rebuilding explicitly audit the full
+candidate prefixes. The local lookup no longer claims to audit unrelated tail records. The full
+Target redesign and shared-budget work are tracked independently in NDIP-3.

@@ -5875,3 +5875,12 @@ promotion 到任何指定的 `main`。
 移动到 `/Users/liusinan/.Trash/nereus-delay-cleanup-20260822-full`，逐个确认
 不含 `.git`；当前十个 evidence tree、candidate lock 和仍被文档引用的历史目录
 均保留，未移动 source checkout 或代码。
+
+## 2026-09-07 原 Lane 取头实现说明（NDIP-3 A1）
+
+原 Lane/协议阶段的 head 维护利用 DUE、ORDERED、NATIVE 前缀的排序，读取首个不被当前
+exact mutation overlay 排除的 key，并与本次新增候选比较。DUE 保留 eligibleAt、ORDERED
+保留 deliverAt、NATIVE 保留 candidateAt，同时间保留完整 key unsigned 顺序。
+单消息每前缀最多访问两个应用候选；这一界限不代表底层 I/O 次数或整个 Schedule 已为常数成本。
+正常 mutation 严格校验被选候选；正式激活和 fenced READY rebuild 显式审计全前缀。
+预算/提交屏障和 Target 架构的未完成范围在 [NDIP-3](ndip/NDIP-3/README.md) 跟踪。
