@@ -81,8 +81,97 @@ def expected_vectors():
         ).hex()
     vectors["expiry.key"] = (bytes([10, 1]) + u64(200) + target + message + u32(2)).hex()
     vectors["state.key"] = (bytes([9, 1]) + target).hex()
+    append_state_vectors(vectors, target, message)
     header = "# NDIP-3 version 1; independent Python hashlib/struct/protobuf wire/CRC32C generation.\n"
     return header + "".join(key + "=" + value + "\n" for key, value in vectors.items())
+
+
+def with_digest(fields, field_number, domain):
+    return fields + bytes_field(field_number, hashlib.sha256(domain + fields).digest())
+
+
+def head_ref(key, message, generation, time):
+    fields = bytes_field(1, key) + bytes_field(2, message) + uint_field(3, generation) + uint_field(4, time)
+    return with_digest(fields, 5, b"nereus-delay-target-head\0")
+
+
+def domain_state(slot, generation, lifecycle, ordinary=None, native=None, native_scope=True):
+    fields = uint_field(1, slot) + uint_field(2, generation) + uint_field(3, lifecycle)
+    if lifecycle != 3:
+        fields += bytes_field(4, bytes([0xAA]) * 32) + bytes_field(5, bytes([0xBB]) * 32)
+        if native_scope:
+            fields += bytes_field(6, bytes([0xCC]) * 32)
+    if ordinary is not None:
+        fields += bytes_field(7, ordinary)
+    if native is not None:
+        fields += bytes_field(8, native)
+    return with_digest(fields, 9, b"nereus-delay-target-execution-domain\0")
+
+
+def queue_state(target, revision, control, admission, domains, maximum=False):
+    fields = uint_field(1, 1) + bytes_field(2, target) + uint_field(3, revision) + uint_field(4, control)
+    fields += uint_field(5, admission) + bytes_field(6, bytes(range(1, 17)))
+    fields += uint_field(7, (1 << 63) - 1 if maximum else 60000)
+    fields += b"".join(bytes_field(8, domain) for domain in domains)
+    return with_digest(fields, 9, b"nereus-delay-target-queue-state\0")
+
+
+def value_envelope(value_type, payload):
+    prefix = b"NV" + bytes([value_type, 1]) + u32(len(payload)) + payload
+    return prefix + u32(crc32c(prefix))
+
+
+def append_state_vectors(vectors, target, message):
+    target = bytes.fromhex(vectors["pulsar.id"])
+    token = b"\x01" + u64(7)
+    due_key = bytes([8, 1]) + target + b"\0\0" + u64(1) + u64(100) + token + message + u32(2)
+    vectors["queue.due.key"] = due_key.hex()
+    native_key = bytes([9, 1]) + target + b"\0\0" + u64(1) + u64(100) + token + message + u32(2)
+    vectors["native.kafka.key"] = native_key.hex()
+    ordering = bytes([0x11]) * 32
+    vectors["ordered.key"] = (bytes([11, 1]) + target + ordering + u64(90) + token + message + u32(2)).hex()
+    order_head = bytes([12, 1]) + target + b"\0\0" + u64(1) + u64(100) + ordering
+    vectors["order.head.key"] = order_head.hex()
+    vectors["order.state.key"] = (bytes([10, 1]) + target + ordering).hex()
+    vectors["identity.key"] = (bytes([11, 1]) + target).hex()
+    vectors["identity.value"] = value_envelope(13, bytes.fromhex(vectors["pulsar.canonical"])).hex()
+    ordinary = head_ref(due_key, message, 2, 100)
+    native = head_ref(native_key, message, 2, 100)
+    ordered = head_ref(order_head, message, 2, 100)
+    vectors["head.ordinary"] = ordinary.hex()
+    vectors["head.native"] = native.hex()
+    vectors["head.ordered"] = ordered.hex()
+    domains = {
+        "active": domain_state(0, 1, 1, ordinary, native),
+        "draining": domain_state(0, 1, 2, native_scope=True),
+        "vacant": domain_state(0, 1, 3),
+        "ordered": domain_state(0, 1, 1, ordered, native_scope=False),
+    }
+    for name, domain in domains.items():
+        vectors["domain." + name] = domain.hex()
+    for name, revision, control, gate, records in (
+        ("empty", 1, 1, 1, []),
+        ("active", 2, 1, 1, [domains["active"]]),
+        ("draining", 3, 1, 1, [domains["draining"]]),
+        ("vacant", 4, 1, 1, [domains["vacant"]]),
+        ("ordered", 2, 2, 2, [domains["ordered"]]),
+    ):
+        raw = queue_state(target, revision, control, gate, records)
+        vectors["queue." + name] = raw.hex()
+        vectors["queue." + name + ".sha256"] = hashlib.sha256(raw).hexdigest()
+    vectors["queue.active.value"] = value_envelope(12, bytes.fromhex(vectors["queue.active"])).hex()
+    maximum_domains = []
+    for slot in range(64):
+        keys = []
+        for tag in (8, 9):
+            key = bytes([tag, 1]) + target + struct.pack(">H", slot) + u64((1 << 64) - 1) + u64((1 << 63) - 1)
+            key += b"\x02" + u64((1 << 64) - 1) + u64((1 << 64) - 1) + u32((1 << 32) - 1)
+            key += message + u32((1 << 32) - 1)
+            keys.append(head_ref(key, message, (1 << 32) - 1, (1 << 63) - 1))
+        maximum_domains.append(domain_state(slot, (1 << 64) - 1, 1, keys[0], keys[1]))
+    maximum = queue_state(target, (1 << 64) - 1, (1 << 64) - 1, 2, maximum_domains, maximum=True)
+    vectors["queue.maximum.sha256"] = hashlib.sha256(maximum).hexdigest()
+    vectors["queue.maximum.length"] = str(len(maximum))
 
 
 def main():

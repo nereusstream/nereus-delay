@@ -2027,5 +2027,22 @@ BrokerResourceIdentity，加入物理 uint32 partition；SHA-256 域为
 meta tag `09 TARGET_STATE`，key format=1；候选的 slot:u16/domainGeneration:u64
 从基础单域起即存在。Lane NATIVE tag 07 已由 NDIP-1 使用，不能重分配。
 预留 storeFormatVersion=2 为 Target 数据的拒绝边界；当前 writer/reader 仍为 format 1，
-codec 存在不授予新格式写入、Accepted、迁移或 production authority。B1 的完整 value
-schema/presence/digest、严格顺序索引与 B2–B4 引用仍在工作包继续闭合。
+codec 存在不授予新格式写入、Accepted、迁移或 production authority。queue/domain/head
+及严格顺序 key 的后续固定内容见下一节；work/order-state/消息定位与 B2–B4 引用仍待闭合。
+
+
+### NDIP-3 B1：Target 持久摘要与身份记录预留（未激活）
+
+[完整 field/presence/digest 表](ndip/NDIP-3/05-Target身份与索引契约.md#6-targetheadref)
+固定 TargetHeadRef、TargetDomainState 和 TargetQueueState canonical protobuf。
+预留 NV type 12=TargetQueueState、13=CanonicalTargetPartition；当前 Lane reader
+继续只注册 1..11。新增 meta tag 0b TARGET_IDENTITY 存不可变完整资源 tuple，Target
+state 热更新不重写该 tuple。预留 timeline 0b TARGET_ORDERED、0c TARGET_ORDER_HEAD
+及 meta 0a TARGET_ORDER_STATE；其 key 的 business-order/eligibility 维度分别固定。
+
+Target state 字段依次为 1 schema=1、2 targetId、3 headRevision、4 controlVersion、
+5 OPEN/PAUSED/CLOSED、6 accountingIncarnation[16]、7 native lead cap、8 repeated
+domain、9 stateDigest。domain 的 ACTIVE/DRAINING/VACANT 转换保留连续 slot 历史，
+重用 generation 精确 +1、不回绕；完整 scope/ref 与外部退出 gate 仍需 B2/B3/E2。
+schema 最多 64 slots，canonical head/domain/state 上限为 214/587/37883 bytes；
+此编码上限不认证运行资源、不启用多域，也不授予 Slot/Store 的物理清退权限。

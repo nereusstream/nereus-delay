@@ -86,3 +86,11 @@ Candidate keys include domain slot and nonzero generation from the first single-
 implementation. Store format 2 is reserved as the old-reader refusal boundary; new tags
 alone do not prove refusal because legacy readers can ignore unknown prefixes. Current
 application writers remain on format 1 until the complete schema and migration gates close.
+
+
+The Target format reserves an immutable physical identity record separately from the
+hot Target queue state. Queue state contains bounded domain/head summaries and control
+versions; released slots retain generation history. FIFO business-order and eligible-head
+keys remain distinct. The [B1 field contract](../ndip/NDIP-3/05-Target身份与索引契约.md)
+reserves NV types 12/13, which the active Lane-format envelope reader continues to reject.
+These codecs do not activate Store format 2 or prove the external obligation-release gates.

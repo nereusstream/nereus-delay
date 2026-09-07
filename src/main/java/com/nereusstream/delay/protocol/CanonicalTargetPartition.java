@@ -1,5 +1,6 @@
 package com.nereusstream.delay.protocol;
 
+import com.nereusstream.delay.store.TargetKeyCodec;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
@@ -11,6 +12,9 @@ import java.util.Objects;
  */
 public record CanonicalTargetPartition(BrokerResourceIdentity resource, long physicalPartition) {
     public static final int VERSION = 1;
+    /** Reserved immutable identity value type for the Target Store format. */
+    public static final int VALUE_TYPE = 13;
+
     public static final int MAX_CLUSTER_BYTES = 256;
     public static final int MAX_PHYSICAL_TOPIC_BYTES = 1 << 20;
     // Version byte + lp32 + Broker oneof (tag/length) + maximum Pulsar fields + partition.
@@ -77,6 +81,14 @@ public record CanonicalTargetPartition(BrokerResourceIdentity resource, long phy
             throw new IllegalArgumentException("target tuple is not canonical");
         }
         return result;
+    }
+
+    public static CanonicalTargetPartition decodeForStore(final byte[] key, final byte[] encoded) {
+        final CanonicalTargetPartition target = decode(encoded);
+        if (!Arrays.equals(key, TargetKeyCodec.identity(target.id()))) {
+            throw new IllegalArgumentException("Target identity record key disagrees with its physical tuple");
+        }
+        return target;
     }
 
     /** Extracts physical fields only after the complete old Lane tuple has been validated. */

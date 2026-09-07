@@ -11,7 +11,7 @@
 1. [完整详细设计](01-目标分区队列与调度热路径设计.md)：原始 1648 行全文，包含 §17 全部任务及 §17.8 覆盖表。
 2. [实施计划](02-实施计划.md)：依赖、交付边界及验证要求。
 3. [代码级设计](03-代码级设计.md)：实际调用链、接口与状态决定，随切片同步。
-4. [Target 身份与索引契约](05-Target身份与索引契约.md)：B1 已固定的物理身份、key 布局及拒绝边界。
+4. [Target 身份与索引契约](05-Target身份与索引契约.md)：B1 已固定的物理身份、key、queue/domain/head 编码及拒绝边界。
 
 README、执行状态、用户决策记录、测量和 receipt 不进入 normative package。
 当前完整设计保留导入时的 Draft/PLANNED 描述；它是启动基线，不代表新增权限障碍，
@@ -22,8 +22,9 @@ README、执行状态、用户决策记录、测量和 receipt 不进入 normati
 A0/A1 已验证，A2 正在实施；READY discovery、head mutation/control/Claim 的共享预算、
 提交前视图校验及 source/recovery 本地重试已通过专项与完整检查。最大合法 mutation 的
 资源上限证明和正式装配的强制有限配置仍未完成，兼容构造器不作为资源认证。
-B1 在 A 期间推进契约与 codec：物理 Target 身份、基础 key 布局和 golden vectors 已加入，
-完整 value/schema 和激活仍未完成。当前进展不等于 Target 新架构或完整方案完成。
+B1 在 A 期间推进契约与 codec：物理身份、候选/严格顺序 key、TargetQueueState 与域/head
+摘要、generation 历史规则及 golden vectors 已加入；其余 work/order-state/消息定位
+和 ref/schema/激活仍未完成。当前进展不等于 Target 新架构或完整方案完成。
 
 [29 项状态清单](progress.json) 是实施进度入口；[执行记录](04-执行记录.md) 保存实际命令、
 源码身份、测试和环境结果。仅当全部必做实现及证据实际闭合才办理 Implemented。

@@ -5911,3 +5911,10 @@ READY tail/wrap 与 Lane、Message、timeline、native binding 读取共用记�
 选择 partition 的算法。新 key 从单域首版就携带 domain slot/generation，并预留独立
 Store format 2 以拒绝旧 reader。完整 TargetQueueState schema、业务接入和转换尚未完成；
 本批不改变正式 Store 的 format 1，也不关闭 A2 的整体资源证明义务。
+
+
+TargetQueueState 的字段、presence 与独立 digest，以及 ACTIVE/DRAINING/VACANT 域摘要
+和槽位 generation 历史，已在 B1 契约固定。完整物理资源放独立不可变 identity 记录；
+严格 FIFO 的 business-order 与 eligible-head key 分开。局部 canonical state 上限
+37,883 bytes 不认证完整 Message/读取/Worker 资源。当前 NV reader 仍拒绝预留 type
+12/13，业务 Store 未切换，B1 和 A2 继续保持实施中。
