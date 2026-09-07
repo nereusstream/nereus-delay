@@ -1,0 +1,167 @@
+{
+  "scope": "B1 embedded Message locator and complete reversible Target timeline work with bounded full Source Positions; full Message/runtime, Expiry, ORDER_STATE and protocol activation remain pending",
+  "baseCommit": "4d7b5d89a8a6572fbc49889b2b956a83ff6d3508",
+  "localDate": "2026-09-08",
+  "sourceFiles": {
+    "src/main/java/com/nereusstream/delay/protocol/TargetMessageLocator.java": "d013c2f9e3d22920c4dc264937c999950bb79d927dd0f024d084f627120fb076",
+    "src/main/java/com/nereusstream/delay/protocol/TargetSourcePosition.java": "1d795121eb7ea3afb4dd1cbe42d8415df3d15b3685aecd00ca80d8041889af22",
+    "src/main/java/com/nereusstream/delay/runtime/TargetTimelineWorkRef.java": "9ad2949114b3b3dcd865fc0be12b226674f3c7519760cbce5360da7ef6efae46"
+  },
+  "dependencySources": {
+    "src/main/java/com/nereusstream/delay/protocol/TargetQueueState.java": "34852dbfa164e708e9043971bd8a66dcbc86f3fa43b90d63a33f2d6817a2a1d0",
+    "src/main/java/com/nereusstream/delay/protocol/TargetDomainState.java": "548bdc20574ea24ebc4b899cd1bd7f4d021d7edeab830ae63a5879d808159187",
+    "src/main/java/com/nereusstream/delay/protocol/TargetHeadRef.java": "9a405b05c9d9c0661eb367cb5b1ab3277aa563d37364ed6398136ab707260d42",
+    "src/main/java/com/nereusstream/delay/store/TargetKeyCodec.java": "f535569991d50e7456734777d2b64f0b124586a882909e7a5ffa178961ad1c7f",
+    "src/main/java/com/nereusstream/delay/protocol/ControlRef.java": "f56b63ee106b1aad3aa156cadac075eb6aea3151510fcc953ffc8323f2d69c2f",
+    "src/main/java/com/nereusstream/delay/protocol/CanonicalProtobuf.java": "2bdc1a4346bd9f2b6e79a7d11bccb3d9dd7eefcda495a0a4efb53bac86e448e0",
+    "src/main/java/com/nereusstream/delay/protocol/QueryCodecSupport.java": "6645f4da09a5cd3a3d9efd2689b2293ca01b9816164881435ca20a8061263970"
+  },
+  "unchangedReaderSources": {
+    "src/main/java/com/nereusstream/delay/store/ValueEnvelope.java": "d9df1612365bbe33cb7726825902be79ee058e92bd8647ccd795d41470353ffe",
+    "src/main/java/com/nereusstream/delay/protocol/SourcePositionCodec.java": "3c1ac4494b3fc8e2a9955252ea783b83df207210ab75af10e3e3fbe156e88759",
+    "src/main/java/com/nereusstream/delay/protocol/KafkaSourcePosition.java": "40725c9702ca784a932d8db450be97dedc1911e4e580bc2c4cec5da0d471d636",
+    "src/main/java/com/nereusstream/delay/protocol/PulsarSourcePosition.java": "5156104ac98884c46a411c990b195aea1f5e576c030c8f3a183e5ab91ecfd239",
+    "src/main/java/com/nereusstream/delay/runtime/TimelineWorkRef.java": "cb1e732e57d2ebd5a4a409df700cf295d2786ab176bde74ae96218e3b9b406f3"
+  },
+  "contractFiles": {
+    "docs/ndip/NDIP-3/05-Target身份与索引契约.md": "238035ce16132c5b51d51f42eb8e737277c673c883f3701da6d0b8bf136fbe45"
+  },
+  "testFiles": {
+    "src/test/java/com/nereusstream/delay/protocol/TargetWorkContractTest.java": "466c4bbaa309d8fd0572f78ef75b5ede1ffd49e00fc753f5ab3cff00538c0b85"
+  },
+  "goldenVectors": {
+    "file": "src/test/resources/ndip3/target-identity-vectors.properties",
+    "sha256": "dd9f9162d2a95607dd768fc477953f09a3b1d77859975a5a5bcc00f85ae5699d",
+    "generator": "scripts/generate-ndip3-target-identity-vectors.py",
+    "generatorSha256": "3483e14f2fb5f40503bd7dd97f1103e86139e266bc45a067626b8305ca3908b7",
+    "verification": "NDIP-3 target identity/key vectors PASS sha256=dd9f9162d2a95607dd768fc477953f09a3b1d77859975a5a5bcc00f85ae5699d",
+    "priorEntriesPreserved": 36,
+    "maximumWorkCanonicalBytes": 1049075,
+    "maximumWorkCanonicalSha256": "884a250a3a2bc0ab86b83dd8816bd30087eeb606e68a9b6262f05cb10f718421",
+    "maximumFullSourceBytes": 1048670,
+    "maximumFullSourceSha256": "7d62acdb4c9f640061f732ae289d7d73dde643f6f6774194ebee26193fd52f9b"
+  },
+  "command": "./gradlew spotlessApply check --console=plain",
+  "checkResult": "PASS",
+  "checkLogSha256": "c2746897820b9a379a25581240bbb567be1fbc4135242701301b477d0f5a3a93",
+  "javaResults": {
+    "tests": 1750,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 41
+  },
+  "focusedClassResults": {
+    "com.nereusstream.delay.protocol.TargetPartitionIdentityTest": {
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.nereusstream.delay.protocol.TargetQueueStateTest": {
+      "tests": 15,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.nereusstream.delay.protocol.TargetWorkContractTest": {
+      "tests": 13,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.nereusstream.delay.store.TargetKeyCodecTest": {
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "newCases": [
+    "closedWorkDecoderRejectsUnknownDuplicateMissingMalformedAndOversizedFields()",
+    "nativeAndOrdinaryIndexesReferToOneInitialWorkAtBusinessDeliveryTime()",
+    "runtimeRevisionsChangeOnlyInstanceDigestWhileSemanticChangesFenceTheWork()",
+    "workKindOrderingNativeAndControlPresenceMustAgree()",
+    "newSourceLimitsPreserveCompleteIdentityAndRejectOutsizeOrUnassignedResources()",
+    "scheduleAndRetryControlRequireExactShardOrderAndPhysicalSource()",
+    "reservedWorkValueTypeRemainsRejectedByTheLaneReaderWithValidCrc()",
+    "callersCannotMutateRetainedLocatorWorkTokensOrDigests()",
+    "maximumFullSourceAndWorkMatchIndependentBoundsAndDigests()",
+    "queueProjectionRejectsReleasedReusedOrForeignAccountingAndNativeResources()",
+    "locatorEnforcesOrderingPresenceIdentityGenerationAndBoundedSlots()",
+    "strictRetryPreservesBusinessOrderWhileItsHeadUsesRetryEligibility()",
+    "independentGoldenWorkFormsRoundTripEveryBranch()"
+  ],
+  "bounds": {
+    "locatorCanonicalBytes": 222,
+    "workCanonicalBytes": 1049113,
+    "controlRefCanonicalBytes": 74,
+    "kafkaFullSourceCanonicalBytes": 318,
+    "pulsarFullSourceCanonicalBytes": 1048670,
+    "kafkaClusterUtf8Bytes": 256,
+    "pulsarTopicUtf8Bytes": 1048576,
+    "maximumWorkFieldCount": 14,
+    "domainSlotSchemaMaximum": 63,
+    "candidateAttemptMaximum": 2147483647
+  },
+  "projectionChecks": [
+    "Exact Message generation, target/domain generation and accounting incarnation",
+    "Ordinary and Native index keys resolve to the same initial work; Native time remains deliverAt",
+    "FIFO ORDERED preserves business deliverAt while its eligible head observes retry eligibility",
+    "Source Shard/order token and complete retry control source resource/order are checked against Schedule",
+    "Native requires initial best-effort work, Pulsar target and bound domain policy scope",
+    "Runtime-only revision changes preserve semantic digest and replace instance digest"
+  ],
+  "readerRefusal": "Independently encoded NV type 14 with a valid CRC32C is rejected by the unchanged Lane ValueEnvelope reader; the active writer remains on Store format 1. This is not a released-binary matrix or a Target-format activation result.",
+  "pending": [
+    "A2 maximum legal whole-mutation envelope and mandatory finite activation",
+    "Full Target Message/runtime, Expiry, ORDER_STATE and B2-B4 reference object contracts",
+    "C1 same-plan source/Owner/binding/policy/obligation gates and atomic writes",
+    "All remaining A-F slices, real Broker/recovery certification, applicable migration and retirement"
+  ],
+  "skippedCases": [
+    "com.nereusstream.delay.gateway.OxiaRealGatewayAdmissionSmokeTest.admissionPoolsAndExpiryWorkAgainstRealService()",
+    "com.nereusstream.delay.gateway.OxiaRealGatewayAuditSinkSmokeTest.auditEventIsDurableAndExactlyDeduplicatedAgainstRealService()",
+    "com.nereusstream.delay.gateway.OxiaRealGatewayGrpcSmokeTest.concurrentDuplicateRequestsAcrossTwoGatewayServersUseOneDurableAttempt()",
+    "com.nereusstream.delay.gateway.OxiaRealGatewayGrpcSmokeTest.gatewayDurableRecordsRecoverAfterOxiaSessionChurn()",
+    "com.nereusstream.delay.gateway.OxiaRealGatewayGrpcSmokeTest.authenticatedScheduleIsNetworkBoundAndExactlyIdempotentAgainstRealOxia()",
+    "com.nereusstream.delay.gateway.OxiaRealGatewayGrpcSmokeTest.rotatedGatewayCertificatesRejectOldClientAndReuseDurableOutcome()",
+    "com.nereusstream.delay.gateway.OxiaRealGatewayGrpcSmokeTest.gatewayRecoversAfterCommittedOxiaAttemptResponseLoss()",
+    "com.nereusstream.delay.gateway.OxiaRealGatewayGrpcSmokeTest.gatewayRecoversAcrossRealOxiaDataServerFailover()",
+    "com.nereusstream.delay.gateway.OxiaRealGatewayGrpcSmokeTest.gatewayRecoversAfterCommittedOxiaRetryAttemptResponseLoss()",
+    "com.nereusstream.delay.ownership.OxiaRealControlAuthoritySmokeTest.freshProcessPhaseReopensDurableControlAuthority()",
+    "com.nereusstream.delay.ownership.OxiaRealControlAuthoritySmokeTest.controlTargetRegistrationCasAndReopenWorkAgainstRealService()",
+    "com.nereusstream.delay.ownership.OxiaRealControlAuthoritySmokeTest.controlOperationCasAndReopenWorkAgainstRealService()",
+    "com.nereusstream.delay.ownership.OxiaRealProtocolCapabilitySmokeTest.eligibleReaderSetIsSessionBoundAndActivationEvidenceIsExact()",
+    "com.nereusstream.delay.ownership.OxiaRealServiceSmokeTest.ownerLeaseCasAndEphemeralSessionWorkAgainstRealService()",
+    "com.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest.signedRouteNotificationsRefreshAStartedProviderAgainstRealService()",
+    "com.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest.signedRoutePublicationHeadCasAndRefreshWorkAgainstRealService()",
+    "com.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest.signedRouteProviderRecoversAfterRealOxiaRestart()",
+    "com.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest.signedRouteNotificationsRecoverAfterRealOxiaRestart()",
+    "com.nereusstream.delay.route.OxiaRealRouteWorkerAssignmentSmokeTest.signedRoutePublicationFeedsSessionBoundWorkerAssignmentAuthority()",
+    "com.nereusstream.delay.route.OxiaRealRouteWorkerAssignmentSmokeTest.signedRoutePublicationPlacesTwoShardsAcrossTwoWorkersWithSessionBoundCas()",
+    "com.nereusstream.delay.runtime.CredentialBindingDurableChaosTest.rotatesProtectedCredentialBindingAcrossFreshProcess()",
+    "com.nereusstream.delay.runtime.OxiaRealProfileCatalogSmokeTest.profileHeadProtectionLeaseAndRotationReopenAgainstRealService()",
+    "com.nereusstream.delay.scheduler.LongGcDurableChaosTest.realLongGcPausePreservesDurableDueAdmission()",
+    "com.nereusstream.delay.scheduler.TargetIsolationDurableChaosTest.targetIsolationSurvivesFreshProcessRecovery()",
+    "com.nereusstream.delay.store.LocalStorageDurableChaosTest.localStorageFailureSurvivesFreshProcessRecovery()",
+    "com.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest.workerCheckpointRuntimeRemainsPendingWhenMinioCommitFailsBeforeProviderWrite()",
+    "com.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest.workerCheckpointRuntimePublishesAtomicIntentAndCatalogAgainstRealService()",
+    "com.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest.workerCheckpointRuntimePublishesToRealMinioAndOxia()",
+    "com.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest.recoveryPinIsSessionBoundAndExpiresWithTheRealPublicationSession()",
+    "com.nereusstream.delay.store.OxiaRealCheckpointReapingSmokeTest.realOxiaOwnerAbandonmentReapsExactMinioCheckpointPrefix()",
+    "com.nereusstream.delay.store.OxiaRealObjectStoreCredentialRenewalSmokeTest.renewsRealOxiaLeaseAndFencesTheLiveAdapterAtHeadRotation()",
+    "com.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest.checkpointUploadIntentCasAndReopenWorkAgainstRealService()",
+    "com.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest.freshProcessPhaseReopensDurableRecoveryAuthorities()",
+    "com.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest.recoveryCatalogCasAndLocalReuseValidationWorkAgainstRealService()",
+    "com.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest.recoveryPinIsSessionBoundAndExpiresWithTheRealOxiaSession()",
+    "com.nereusstream.delay.store.S3CompatibleMinioRealSmokeTest.realMinioTimeoutAfterCommitResolvesByExactReadback()",
+    "com.nereusstream.delay.store.S3CompatibleMinioRealSmokeTest.realMinioCredentialConfigurationDriftFailsClosed()",
+    "com.nereusstream.delay.store.S3CompatibleMinioRealSmokeTest.realMinioFiveHundredBeforeCommitRemainsFailClosed()",
+    "com.nereusstream.delay.store.S3CompatibleMinioRealSmokeTest.realMinioFaultRecoveryRunsInFreshProcess()",
+    "com.nereusstream.delay.store.S3CompatibleMinioRealSmokeTest.realMinioFiveHundredAfterCommitResolvesByExactReadback()",
+    "com.nereusstream.delay.store.S3CompatibleMinioRealSmokeTest.immutableCheckpointUploadsIdempotentlyAndRestoresAgainstMinio()"
+  ],
+  "brokerCertification": false,
+  "productionAuthority": false,
+  "sliceComplete": false
+}

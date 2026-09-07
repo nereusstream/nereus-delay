@@ -94,3 +94,11 @@ versions; released slots retain generation history. FIFO business-order and elig
 keys remain distinct. The [B1 field contract](../ndip/NDIP-3/05-Target身份与索引契约.md)
 reserves NV types 12/13, which the active Lane-format envelope reader continues to reject.
 These codecs do not activate Store format 2 or prove the external obligation-release gates.
+
+
+The Target format also reserves NV type 14 for a complete reversible work value shared
+by ordinary and optional Native indexes. Its locator is embedded in Message/work rather
+than maintained as an extra independently updated key. Full Source Positions retain their
+registered wire identity with explicit Target-format text limits. The byte bounds and
+semantic/instance digest rules are fixed in the B1 contract; they neither activate the
+format nor replace Message, binding, source, Owner and obligation checks during C1.

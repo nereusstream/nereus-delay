@@ -2028,7 +2028,7 @@ meta tag `09 TARGET_STATE`，key format=1；候选的 slot:u16/domainGeneration:
 从基础单域起即存在。Lane NATIVE tag 07 已由 NDIP-1 使用，不能重分配。
 预留 storeFormatVersion=2 为 Target 数据的拒绝边界；当前 writer/reader 仍为 format 1，
 codec 存在不授予新格式写入、Accepted、迁移或 production authority。queue/domain/head
-及严格顺序 key 的后续固定内容见下一节；work/order-state/消息定位与 B2–B4 引用仍待闭合。
+及严格顺序 key 的后续固定内容见下一节；完整 Message/Expiry/ORDER_STATE 与 B2–B4 引用仍待闭合，work/locator 见后续小节。
 
 
 ### NDIP-3 B1：Target 持久摘要与身份记录预留（未激活）
@@ -2046,3 +2046,21 @@ domain、9 stateDigest。domain 的 ACTIVE/DRAINING/VACANT 转换保留连续 sl
 重用 generation 精确 +1、不回绕；完整 scope/ref 与外部退出 gate 仍需 B2/B3/E2。
 schema 最多 64 slots，canonical head/domain/state 上限为 214/587/37883 bytes；
 此编码上限不认证运行资源、不启用多域，也不授予 Slot/Store 的物理清退权限。
+
+
+### NDIP-3 B1：Message 定位与完整工作预留（未激活）
+
+[Target work/locator/source 字段表](ndip/NDIP-3/05-Target身份与索引契约.md#10-targetmessagelocatormessage-的目标定位投影)
+固定嵌入式 TargetMessageLocator 和 TargetTimelineWorkRef，预留 NV type 14。
+原 ValueEnvelope reader 继续注册 1..11；有效 CRC 的 type 14 向量仍被拒绝。
+
+locator 包括 Message/generation、Target、slot/generation、accounting incarnation、
+ordering mode/domain、schedule binding digest 与 locator digest。work 包括该 locator、
+work kind、deliverAt/retryEligibility、source token、attempt、runtime revision、retry
+control/source、Native 资格及 semantic/instance digest。两路初次候选共享 work，Native
+不另增 attempt；FIFO business order 与可服务 eligibility 分开。精确 hash 域在字段表固定。
+
+完整 SourcePosition 延续原 wire 格式，Target decoder 额外限制 Kafka cluster 为 256
+UTF-8 bytes、Pulsar topic 为 1MiB，并拒绝未分配资源；完整 source 上限 318/1048670。
+locator/work 上限 222/1049113。旧数据超限需转换冲突处理，不能静默丢弃或改写历史。
+全部 C1 Message/binding/runtime 投影及 Source/Owner/obligation gate 尚未接入。

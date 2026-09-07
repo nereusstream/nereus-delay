@@ -5918,3 +5918,10 @@ TargetQueueState 的字段、presence 与独立 digest，以及 ACTIVE/DRAINING/
 严格 FIFO 的 business-order 与 eligible-head key 分开。局部 canonical state 上限
 37,883 bytes 不认证完整 Message/读取/Worker 资源。当前 NV reader 仍拒绝预留 type
 12/13，业务 Store 未切换，B1 和 A2 继续保持实施中。
+
+
+TargetMessageLocator 与 TargetTimelineWorkRef 已补充完整可逆工作字段、重试控制
+source、计费/域 generation 定位和 semantic/instance digest。普通与 Native 候选共享
+同一初次工作；FIFO 业务顺序不随 retry eligibility 改变。新格式完整 SourcePosition
+实行明确字节边界，超限旧数据需迁移冲突处理。上述 codec 和 NV type 14 尚未接入
+活动 writer；完整 Message/runtime/Expiry/ORDER_STATE 及 B2–B4 引用契约继续实施。

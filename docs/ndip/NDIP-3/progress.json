@@ -48,9 +48,11 @@
         "evidence/b1-identity-key-results.json",
         "evidence/b1-identity-key-check.log",
         "evidence/b1-target-state-results.json",
-        "evidence/b1-target-state-check.log"
+        "evidence/b1-target-state-check.log",
+        "evidence/b1-work-locator-results.json",
+        "evidence/b1-work-locator-check.log"
       ],
-      "progress": "Bounded physical identity and candidate/FIFO keys, canonical Target queue/domain/head summaries, immutable identity records, checked revisions and retained slot generation history implemented with independent vectors. Complete work/order-state/message-locator and reference contracts, activation and migration remain pending."
+      "progress": "Bounded physical identity, candidate/FIFO keys, queue/domain/head state and slot history, embedded Message locator and complete reversible work with bounded full Source Positions implemented with independent vectors. Full Message/runtime/Expiry/ORDER_STATE and reference object contracts, activation and migration remain pending."
     },
     {
       "id": "B2",

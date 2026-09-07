@@ -82,6 +82,7 @@ def expected_vectors():
     vectors["expiry.key"] = (bytes([10, 1]) + u64(200) + target + message + u32(2)).hex()
     vectors["state.key"] = (bytes([9, 1]) + target).hex()
     append_state_vectors(vectors, target, message)
+    append_work_vectors(vectors, message)
     header = "# NDIP-3 version 1; independent Python hashlib/struct/protobuf wire/CRC32C generation.\n"
     return header + "".join(key + "=" + value + "\n" for key, value in vectors.items())
 
@@ -172,6 +173,75 @@ def append_state_vectors(vectors, target, message):
     maximum = queue_state(target, (1 << 64) - 1, (1 << 64) - 1, 2, maximum_domains, maximum=True)
     vectors["queue.maximum.sha256"] = hashlib.sha256(maximum).hexdigest()
     vectors["queue.maximum.length"] = str(len(maximum))
+
+
+def locator(target, message, generation=2, slot=0, domain_generation=1, ordered=False):
+    fields = uint_field(1, 1) + bytes_field(2, message) + uint_field(3, generation) + bytes_field(4, target)
+    fields += uint_field(5, slot) + uint_field(6, domain_generation) + bytes_field(7, bytes(range(1, 17)))
+    fields += uint_field(8, 2 if ordered else 1)
+    if ordered:
+        fields += bytes_field(9, bytes([0x11]) * 32)
+    fields += bytes_field(10, bytes([0xDD]) * 32)
+    return with_digest(fields, 11, b"nereus-delay-target-message-locator\0")
+
+
+def work_ref(loc, kind, deliver, retry, token, attempt, revision, authority=1, control=None, position=None, native=False):
+    prefix = uint_field(1, 1) + bytes_field(2, loc) + uint_field(3, kind)
+    prefix += uint_field(4, deliver) + uint_field(5, retry) + bytes_field(6, token) + uint_field(7, attempt)
+    suffix = uint_field(9, authority)
+    if control is not None:
+        suffix += bytes_field(10, control) + bytes_field(11, position)
+    suffix += uint_field(12, 1 if native else 0)
+    semantic = hashlib.sha256(b"nereus-delay-target-work-semantic\0" + prefix + suffix).digest()
+    instance_fields = prefix + uint_field(8, revision) + suffix + bytes_field(13, semantic)
+    return with_digest(instance_fields, 14, b"nereus-delay-target-work-instance\0")
+
+
+def kafka_source(route, offset):
+    cluster = b"source-cluster"
+    return b"\x01" + route + u32(len(cluster)) + cluster + uuid.UUID("00112233-4455-6677-8899-aabbccddeeff").bytes + u32(3) + u64(offset) + b"\x01" + u32(4) + u64(90 if offset == 7 else 110)
+
+
+def append_work_vectors(vectors, message):
+    target = bytes.fromhex(vectors["pulsar.id"])
+    token = b"\x01" + u64(7)
+    best = locator(target, message)
+    fifo = locator(target, message, ordered=True)
+    vectors["locator.best"] = best.hex()
+    vectors["locator.fifo"] = fifo.hex()
+    route = message[1:17]
+    schedule = kafka_source(route, 7)
+    control_source = kafka_source(route, 9)
+    control = bytes_field(1, bytes([0x44]) * 32) + bytes_field(2, bytes([0x55]) * 32) + uint_field(3, 3)
+    vectors["work.schedule.source"] = schedule.hex()
+    vectors["work.control.source"] = control_source.hex()
+    vectors["work.control.ref"] = control.hex()
+    records = {
+        "initial": work_ref(best, 1, 100, 100, token, 1, 5),
+        "native": work_ref(best, 1, 100, 100, token, 1, 5, native=True),
+        "definitive": work_ref(best, 2, 100, 150, token, 2, 6),
+        "uncertain.pinned": work_ref(best, 3, 100, 150, token, 2, 7, authority=2),
+        "uncertain.control": work_ref(best, 3, 100, 150, token, 2, 8, authority=3, control=control, position=control_source),
+        "fifo.initial": work_ref(fifo, 1, 90, 90, token, 1, 5),
+        "fifo.retry": work_ref(fifo, 2, 90, 150, token, 2, 6),
+    }
+    for name, raw in records.items():
+        vectors["work." + name] = raw.hex()
+    vectors["work.native.value"] = value_envelope(14, records["native"]).hex()
+    topic = b"x" * (1 << 20)
+    max64 = (1 << 64) - 1
+    max32 = (1 << 32) - 1
+    source = b"\x02" + route + u32(32) + bytes(range(32)) + u32(len(topic)) + topic + u32(3)
+    source += u64(max64) + u64(max64) + u32(max32 - 1) + u32(max32) + b"\x02" + u64((1 << 63) - 1)
+    loc = locator(target, message, max32, 63, max64)
+    max_control = bytes_field(1, bytes([0x44]) * 32) + bytes_field(2, bytes([0x55]) * 32) + uint_field(3, max32)
+    max_token = b"\x02" + u64(max64) + u64(max64 - 1) + u32(max32 - 1)
+    raw = work_ref(loc, 3, (1 << 63) - 1, (1 << 63) - 1, max_token, (1 << 31) - 1, max64,
+                   authority=3, control=max_control, position=source)
+    vectors["work.maximum.sha256"] = hashlib.sha256(raw).hexdigest()
+    vectors["work.maximum.length"] = str(len(raw))
+    vectors["work.maximum.source.sha256"] = hashlib.sha256(source).hexdigest()
+    vectors["work.maximum.source.length"] = str(len(source))
 
 
 def main():

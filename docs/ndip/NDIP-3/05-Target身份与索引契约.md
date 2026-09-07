@@ -2,8 +2,8 @@
 
 Status: Draft / B1 IN_PROGRESS
 
-本节固定 B1 的物理身份、基础/严格顺序 key、TargetQueueState 和域/head 摘要编码。
-候选 work value、ORDER_STATE/消息定位、B2–B4 引用定义、协议激活及迁移转换
+本节固定 B1 的物理身份、基础/严格顺序 key、TargetQueueState、域/head、消息定位及 work 编码。
+完整 Message envelope、Expiry value、ORDER_STATE、B2–B4 引用定义、协议激活及迁移转换
 仍未闭合，B1 不作 VERIFIED。
 本批 codec 尚未接入业务 writer。A2 的最大合法 mutation envelope 仍须包括 Message、
 Lane、binding、source 与旧 inflight 依赖，不能由本文 Target 字节上限替代。
@@ -233,5 +233,113 @@ Target identity、accounting incarnation、native cap 在此后继关系中不�
 
 这些边界只覆盖本节编码，不是完整 A2 读取预算、实际 JVM/RocksDB 内存或认证容量。
 A2 仍需 Message/runtime/source/binding/legacy 数据边界和强制有限装配；B1 仍需
-Target timeline work、ORDER_STATE/消息定位、B2–B4 ref 对象和协议激活等完整契约。
+后续已固定的 work/locator 见 §10–§12；完整 Message/Expiry/ORDER_STATE、B2–B4 ref
+对象和协议激活仍待闭合。
 原 Lane/Store format 1 业务路径尚未切换，真实 Broker、迁移、权限和最终完整目标均未完成。
+
+## 10. TargetMessageLocator：Message 的目标定位投影
+
+定位信息嵌入新 Message/runtime work，不新建一份每次 mutation 都要同步的 locator key。
+它替代调度使用的 Lane 定位；原 Schedule/Profile/attempt 的不可变授权和保护仍单独保留。
+所有字段为闭合 canonical protobuf，只有 field 9 可以缺省。
+
+| field | 类型 / 约束 |
+|---|---|
+| 1 | schema_version:uint32=1 |
+| 2 | message_id[41] |
+| 3 | message_generation:uint32，完整无符号位模式 |
+| 4 | target_id[32] |
+| 5 | domain_slot:uint32，0..63 |
+| 6 | domain_generation:uint64，非零 |
+| 7 | accounting_incarnation[16]，非零 |
+| 8 | ordering_mode：1 BEST_EFFORT、2 DELIVERY_TIME_FIFO |
+| 9 | optional ordering_domain[32]，存在时非零；当且仅当 field 8=2 存在 |
+| 10 | schedule_binding_digest[32]，非零 |
+| 11 | locator_digest[32] |
+
+field 11 = SHA-256(`UTF8("nereus-delay-target-message-locator") || 0x00 || fields 1..10`)。
+field 10 引用 B2 的完整、不可变 Schedule binding 对象；其内容与授权检查仍需 B2/C1
+闭合，不能用任意非零 hash 绕过完整 binding、物理 tuple 和 Profile pin 校验。
+定位编码上限为 **222 bytes**，不包含 payload、凭证原文或 runtime revision。
+
+`requireMessageProjection` 校验精确 Message/generation；`requireQueueProjection` 校验
+Target、计费 incarnation、已分配 slot/generation 和非 VACANT 状态。它是当前可逆工作
+的投影检查，不是 Claim permission：PAUSED/CLOSED、DRAINING 的服务/新增规则和
+Owner、source、binding 等仍由 mutation gate 决定。历史 terminal Message 可以保留
+旧 locator，不得为了使其重新匹配现行 slot 而修改旧 generation 或计费身份。
+
+## 11. TargetTimelineWorkRef：完整可逆工作
+
+预留 **NV type 14**，用于 Target DUE/NATIVE/ORDERED value 及新 Message runtime 中
+同一 current work 的嵌入值；活动 Lane reader 仍只注册 1..11。两路候选存在时存完全
+相同的 work bytes，不能将 Native 当成另一个 attempt 或另一次发送。Claim 原子移除
+该 generation 的所有可逆索引并保留可恢复 work，Admission/UNKNOWN 义务继续独立保存。
+
+| field | 类型 / presence |
+|---|---|
+| 1 | schema_version:uint32=1 |
+| 2 | locator:TargetMessageLocator |
+| 3 | work_kind：1 INITIAL_SCHEDULE、2 DEFINITIVE_RETRY、3 UNCERTAIN_RETRY |
+| 4 | deliver_at_epoch_ms:uint64，非负 long 范围 |
+| 5 | retry_eligibility_at_epoch_ms:uint64，非负 long 范围 |
+| 6 | source_order_token，闭合 9/21-byte 变体 |
+| 7 | candidate_attempt_no:uint32，1..Integer.MAX_VALUE，沿用已注册 attempt 范围 |
+| 8 | runtime_revision:uint64，非零，完整无符号位模式 |
+| 9 | uncertain_retry_authority：1 NONE、2 PINNED_POLICY、3 CONTROL_OVERRIDE |
+| 10 | optional ControlRef，沿用完整 operationId/requestHash/targetIndex |
+| 11 | optional 完整 canonical SourcePosition，使用 §12 的有界格式 |
+| 12 | native_candidate:bool，必需出现，包括 false |
+| 13 | semantic_work_digest[32] |
+| 14 | work_instance_digest[32] |
+
+只有 field 10/11 可缺省，二者必须成对出现，当且仅当 authority=CONTROL_OVERRIDE。
+INITIAL 必须 attempt=1、retryEligibility=deliverAt；native_candidate=true 必须为
+INITIAL + BEST_EFFORT。UNKNOWN 重试不能成为初次 Native，严格 FIFO 不允许
+UNCERTAIN_RETRY；既有 strict 的 unresolved barrier/人工终结语义保留。
+work_kind=UNCERTAIN_RETRY 当且仅当 authority!=NONE，其他工作不能夹带重试授权。
+
+semantic digest = SHA-256(`UTF8("nereus-delay-target-work-semantic") || 0x00 ||
+canonical fields 1..7,9..12`)；instance digest = SHA-256(
+`UTF8("nereus-delay-target-work-instance") || 0x00 || canonical fields 1..13`)。
+只有 runtime revision 变化时，semantic 保持、instance 改变；Message、slot generation、
+计费、binding、顺序、Native 资格、重试时间或授权变化均改变 semantic。revision 的
+合法后继由 C1 的 runtime/source gate 检查，`withRuntimeRevision` 本身不提供该证明。
+无需再存一份可与这些字段矛盾的完整 key 或 key hash，索引由固定字段唯一派生：
+
+- BEST_EFFORT：DUE 时间为 max(deliverAt,retryEligibility)。
+- Native：只有 field 12=true 时有 NATIVE，时间永远为 deliverAt；实时 lead 不写入 work。
+- FIFO：ORDERED 永远按 deliverAt；可服务 ORDER_HEAD 按 max(deliverAt,retryEligibility)。
+  能派生 ORDER_HEAD 不代表 barrier 已解除，B5/C1/E5 仍必须验证 ORDER_STATE。
+
+`decodeForIndex` 校验完整 key 和 Schedule 的 source Shard/token；CONTROL_OVERRIDE
+的完整 SourcePosition 还必须与 Schedule 同一真实资源、且严格位于 Schedule 之后。
+`requireHeadProjection` 核对 Message/generation 和精确选择 key/eligibility；
+`requireQueueProjection` 核对 locator、物理 Target，且 Native 必须有 Pulsar 资源和
+域 policy scope。这些方法必须与完整 Message/runtime/binding、实时 Owner 和义务读取
+在同一个受预算约束的 plan 内使用，单独成功不提供重试或发送 authority。
+
+保守 canonical 上限为 **1,049,113 bytes**，按所有 field 的固定宽度、locator、ControlRef
+和 SourcePosition 上限逐项求和；decoder 在列表构造时最多接受 14 个字段。最大合法
+字段宽度的独立向量实际为 **1,049,075 bytes**。最大组合使用一个有界 Pulsar 控制
+source；普通及初次 Native work 不携带该控制 source，不会复制完整 Schedule payload。
+
+## 12. Target 格式内完整 SourcePosition 的资源上限
+
+沿用已注册的完整 Kafka/Pulsar canonical bytes，不把 SourcePosition 简化成 offset 或
+hash 来丢失真实资源、batch 或时间证据。Target 格式额外强制如下边界：
+
+| 字段 / 分支 | 上限 |
+|---|---|
+| Kafka authenticated cluster UTF-8 | 256 bytes，非零 native topic UUID |
+| Pulsar physical topic UTF-8 | 1,048,576 bytes，非零 32-byte resource incarnation |
+| Kafka 完整 canonical，含可选 leaderEpoch | 318 bytes |
+| Pulsar 完整 canonical，含 batch identity/timestamp | 1,048,670 bytes |
+
+UTF-8/NFC/非空白/无 NUL、完整 uint64 ledger/entry/offset 和 uint32 batch 身份继续沿用
+现有 typed decoder。解析嵌套 source 前先检查总体和分支字节界限；不截断、规范化或
+隐式替换资源身份。新边界尚未应用到活动 Lane reader，超限旧数据在 B6/F1 转换审计中
+必须形成冲突并阻止激活，不能跳过该消息或修改历史 SourcePosition 使它通过。
+
+本批不完成 Target Message 的完整 payload/runtime envelope、Expiry value、ORDER_STATE、
+B2–B4 引用对象或格式激活，也不完成 A2 的全 mutation 资源证明。上述 SourcePosition
+边界是新格式实际执行的编码约束，仍需由正式入口和受控迁移接入后才能用于容量配置。
