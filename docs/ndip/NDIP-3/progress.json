@@ -97,9 +97,11 @@
       "evidence": [
         "11-局部Quota与增量计费契约.md",
         "evidence/b4-counter-foundation-results.json",
-        "evidence/b4-counter-foundation-check.log"
+        "evidence/b4-counter-foundation-check.log",
+        "evidence/b4-accounting-results.json",
+        "evidence/b4-accounting-check.log"
       ],
-      "progress": "Independent identity/usage/counter/aggregate codecs, local revisions, source stamps, bounded delta and recovery arithmetic verified. Full original B4 per-operation billing, measurement/grant binding and incarnation/retirement rules remain incomplete; no active Target writer or real Store recovery certification."
+      "progress": "Independent counters/delta, fixed measurement artifact and guarded attempt reserve-to-retained transitions verified. Full operation delta matrix is documented; Target grant activation, unique owner/bookkeeping charge recipes and incarnation/retirement rules remain incomplete. No active Target writer or actual release/recovery authority is certified."
     },
     {
       "id": "B5",

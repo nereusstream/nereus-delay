@@ -1,8 +1,8 @@
 # NDIP-3 B4：局部 Quota 与增量计费契约
 
-状态：**IN_PROGRESS / 字段与增量运算基础已实现，B4 尚未冻结验收**。
+状态：**IN_PROGRESS / counter、计量及 attempt reserve 转换已实现，B4 尚未冻结验收**。
 本页与原设计 §11.1、§16.6、§17.3 的 B4 合读。它定义已落到代码的 counter 字段与
-局部计算边界；逐项业务 delta、完整计量 artifact、grant 关联和恢复来源闭合后才办理
+局部计算边界；逐项业务 owner、完整计量/grant 关联和恢复来源闭合后才办理
 B4 VERIFIED。当前 Lane writer、ValueEnvelope 的既有 reader 与持久 quota map 未改动。
 新对象的构造、编码及纯规划器均不授予 source apply、Store 激活或生产发送权限。
 
@@ -160,15 +160,161 @@ identity 的所有 tenant 资源维度之和不能超过主费用。共享 metad
 
 本批不将源码存在或局部测试冒充 B4 完整冻结。继续完成：
 
-- 逐维唯一费用来源及完整 byte/record 计量 artifact，特别是结果 reserve 转实占、
-  retained/object ownership、共享元数据和旧 attempt 的费用转移。
-- 原 §17.3 要求的完整业务 delta 表：Schedule、Cancel、Reschedule、reservation
-  commit/expire、Claim/revoke、Admission、definitive failure、UNKNOWN、Outcome、terminal、
-  retained release、旧 attempt 排空；绑定确定的 before/after ledger 与释放时点。
+- §7 已实现固定计量 artifact，§8 已实现 attempt reserve 转实占；仍须闭合每类真实
+  record 的唯一 owner、counter/budget 自身 bookkeeping 与共享元数据的有界费用来源。
+- §9 已列原 §17.3 的完整业务 delta 表；继续绑定每行的完整 before/after ledger、
+  非 attempt 的 payload/identity 保护与结果/控制记录来源，避免只由方法参数声明费用。
 - 新 cardinality/grant 关联、tenant Target/domain 计数来源、incarnation 分配/退休证明
   以及独立账本所有权交接的精确规则，保证不会因多个 Profile/domain 复制 grant。
-- 对上述规则的重复 replay、溢出、Outcome/UNKNOWN/旧 obligation 守恒向量，并将
-  B4 原始验收逐项绑定到规范、代码和证据。
+- 本批向量/测试已覆盖重复 mutation、溢出、Outcome/UNKNOWN/旧 obligation 的必要
+  算术与释放顺序；B4 最终仍须把完整 grant/owner/保护规则逐项绑定到原始验收证据。
 
 C4 的真实原子提交、内存发布、账本恢复、固定 K 随 L 增长的 Store 读写计量继续保留；
 它们不是本批纯 planner 测试的已完成结论。A2/A3、B5–B7、C–F 的责任没有缩减。
+
+## 7. 固定计量 artifact
+
+`TargetQuotaAccounting` schema 1 的 exact fields：1 schema=1；2 非零完整 Target schema
+bundle hash[32]；3 输入 CanonicalScheduleIntent.QUOTA_ACCOUNTING_VERSION=1；4 每个
+record 的固定 overhead bytes；5 Kafka adapter envelope overhead bytes；6 Pulsar
+adapter envelope overhead bytes；7 最小 DRR record cost bytes；8 digest[32]，域为
+`nereus-delay-target-quota-accounting\0`，覆盖 fields 1–7。
+
+Field 4–6 非负，field 7 正数，均不超过 Long.MAX_VALUE；没有隐式默认 artifact。
+常量由同一 source-activated Route/grant 选择，旧 charge 保留创建时完整 artifact。
+输入版本 1 延续既有公共 Schedule 编码，不意味着旧 Lane grant 自动适用新 Target
+费用。Schema bundle / artifact / grant 的绑定仍须通过下文未完成的完整授权检查。
+
+已实现的计量公式：
+
+```text
+accountedPublishBytes = payloadLength + canonicalAdapterMetadataLength + adapterEnvelopeOverhead
+schedulingCost = max(accountedPublishBytes, minimumRecordCost)
+storedRecordBytes = canonicalKeyLength + canonicalTypedPayloadLength + 12 + recordOverhead
+outcomeWalBytes = canonicalFramedWalRecordLength + recordOverhead
+```
+
+12 是 NV 的 type/version/length header 与 CRC 总字节；typed payload 不再包含该
+header。WAL 输入已经是完整 canonical frame，不能再加 NV header。方法只接受 checked
+非负长度，record key/WAL frame 非空；任何加法溢出在提交前拒绝，不读 SST、文件系统、
+压缩率或对象实际计费大小。调用端必须从经过 canonical 校验的冻结 bytes 取得长度，
+不能将方法参数当成可由客户端声明的费用。
+
+一个持久 NV record 只属于一个 record-byte 类：STATE→维度 3；RESULT→9/10；
+SYSTEM_MUTATION outbox→11/12；EVIDENCE→14/15；独立 WAL frame→13。完整 source/Broker
+writer 的共享 quota 仍受 51–55 与其权威 grant 约束，不因本地字节公式获得远端额度。
+应用 payload ownership（2/6/4）、执行 envelope（8）和已编码的存储副本是不同资源事实，
+不能把同一个 record 再同时塞进 STATE、RESULT、SYSTEM 或 EVIDENCE 两个类；也不能把
+outcome 的已分配 record 与覆盖它的 reserve 各加一次。
+
+本批提供 `activePayload/reservedPayload/retainedPayload/executionCharge/recordCharge/
+outcomeWalCharge` 的 checked 向量。它们不自动选择某条业务 mutation 的 record 集合。
+Counter/aggregate/charge bookkeeping 的自身存储归属和完整 reserve sizing 必须在
+B4 最终计量/grant 绑定中闭合，不能通过递归计算自身编码长度或默认为免费跳过。
+
+## 8. Attempt budget 与 reserve 转实占
+
+`TargetQuotaAttemptBudget` schema 1，预留 NV **28**，meta key
+`15 01 | PublishAttemptId[32]`。它保存独立计费生命周期，不重写旧 Admission 或 Journal。
+
+| field | exact 内容 |
+|---:|---|
+| 1 | schema=1 |
+| 2 | 完整 TargetMessageLocator，保留 message/generation/Target/domain/accounting/binding |
+| 3 | 已认证非零 tenant scope[32] |
+| 4 | 非零 PublishAttemptId[32] |
+| 5 | 精确已接受 Admission canonical bytes 的非零 digest[32] |
+| 6 | 完整冻结 TargetQuotaAccounting |
+| 7 | 冻结 accounted execution bytes，0..Long.MAX_VALUE |
+| 8 | 完整已承诺 reserve CapacityVector |
+| 9 | 上述 reserve 内已分配持久 records 的 CapacityVector |
+| 10 | phase：ADMITTED=1、UNKNOWN=2、RESOLVED_AWAITING_FLOOR=3、RETAINED=4、RELEASED=5 |
+| 11 | local raw uint64 revision，初值 1，精确 +1，不回绕 |
+| 12 | 完整最后 source mutation stamp |
+| 13 | 确定 resolution 的完整 mutation stamp，仅 phase 3–5 存在 |
+| 14 | 释放 reserve/retained 时检查的非零 Floor digest[32]，仅 phase 4/5 存在 |
+| 15 | 冻结非零 Recovery Lineage[16] |
+| 16 | `nereus-delay-target-quota-attempt-budget\0` + fields 1–15 的 digest[32] |
+
+Field 8/9 只允许维度 3/9–15，commitment 非零且逐维覆盖 allocated；active/retained payload、
+reservation、Claim/attempt execution、Target cardinality 和共享控制 pool 不混进该 reserve。
+Retained payload 的维度 4 始终属于 Message Identity 的唯一 payload owner，不能在多个
+attempt reserve 内各预留一份。Field 12 的 Source Shard 必须与 locator 的 message routing ID 相同。Field 13 在确定 resolution 时与 field 12 精确相等；phase 3 的最后 reserved writer
+可以继续在原 commitment 内 source-order 更新 allocated，field 12 随之推进，field 13
+保留首次确定结果。后续 source/sequence 严格推进；phase 4/5 的 field 12 必须严格晚于 field 13。
+ADMITTED revision 必须为 1；其它 phase 分别至少为 2、2、3、4。完整 envelope/key/source
+和 canonical/digest/bounds 校验不代表 Admission、tenant 或 Floor 已获权威认证。
+
+Counter 的主 owner 从完整 locator 的 Source Shard/Target/accountingIncarnation 派生，
+tenant owner 添加 field 3。始终使用这组冻结身份；不会因当前 Message 已变为新
+Generation、当前 queue 已换 incarnation、Profile 已升级或 channel 已关闭而改变。
+首次建立预算时 C4 必须解析完整 retained Admission/Binding/tenant grant，核对该预算
+与 exact attempt；field 5 的 hash 不能替代实际引用对象和 source authority。
+
+预算投影规则：
+
+| phase | 加到主 counter 的资源向量 |
+|---|---|
+| ADMITTED / UNKNOWN | commitment + 一个逻辑 attempt 的维度 7/8 |
+| RESOLVED_AWAITING_FLOOR | commitment；确定 Outcome 已 source-applied 后释放维度 7/8 |
+| RETAINED | allocated，未使用的 commitment 才可减去 |
+| RELEASED | 全零；历史 bytes 仍按实际保护/清退流程处理 |
+
+allocated 是 commitment 内部的实占投影，不是额外费用。写 UNKNOWN/outcome/evidence
+时更新 allocated，仍须 `allocated <= commitment`，不得借 tenant pending 额度补差。
+UNKNOWN/timeout 即使改变或减少 allocated，也保持完整 commitment 和 execution charge。
+`resolve` 只接受 VERIFIED_PUBLISHED / VERIFIED_NOT_PUBLISHED；外部调用端仍须验证
+exact attempt 的完整 evidence、Outcome 和当前 source authority，不能由 enum 自证。
+
+Unused reserve 的释放至少要求：已 RESOLVED；同 lineage 的 Floor 同时覆盖预算最后
+source 与 mutation sequence；同 offset 必须 metadata 全相同；Floor 严格早于本次
+释放 mutation 的 source/sequence。然后必须调用 `ReleaseAuthority`，验证当前 catalog
+ancestry、Recovery Pins、完整账本 owner、所有 reserved writer 已结束，且该权威快照
+在同一 batch 提交前仍有效。Floor DTO 本身不完成这些检查。
+
+Retained 减额只能逐维下降；还需同样的 Floor 条件和 `ReleaseAuthority` 对 actual
+provider/Store 删除确认、全部 retention/读/attempt/重放保护的验证。部分删除只减相应
+allocated，不能清空其它 record classes；全部清零进入 RELEASED 后不可恢复使用。
+异常或 fatal Error 不产生新预算值。上述权威 seam 尚无 C4 生产实现，本批只验证纯
+转换不会绕过调用或必要条件；不把允许所有请求的测试函数当作生产释放证明。
+
+逻辑 attempt 的维度 7/8 与 Worker physical/potential-zombie pool 分开。确定 Outcome
+关闭前者不会调用物理池释放；后者继续等待实际 request 完成或 certified fenced teardown。
+
+## 9. 原 §17.3 业务 delta 表
+
+记 `P(len)` 为 active Message/payload 的 1/2；`R(len)` 为未提交 reservation 的 5/6；
+`H(len)` 为唯一 retained payload ownership 的 4；`X` 为冻结 Claim 的 7/8；`B` 为
+上一节 exact attempt budget 的 effectiveCharge；`S` 为本次实际改变的分类 record charges。
+以下主 counter delta 由真实 before/after ledger 产生；tenant 投影相同可归属费用，
+aggregate 只加主来源。共享 records/identity 不因 Profile、bucket 或 slot 新增重复计费。
+
+| 业务路径 | 唯一来源及 delta | 释放时点与保持义务 |
+|---|---|---|
+| Schedule | 首次接受的 Message payload owner：`+P(len)`；`S(after)-S(before)` | target/domain/incarnation 数只取真实 registry 分配 delta；不按每条 Schedule 分配 slot |
+| Prepare reservation | 新 reservation：`+R(expectedLen)`；分类 record delta | 对象上传成功本身不改变 quota；未 source-accepted Commit 仍是 reservation |
+| reservation commit | 同一 reservation `-R(len)+P(len)`；proof/record delta | exact 已提交重试为零；不同 Proof/object 不得再加一份 Message/payload |
+| reservation expire/abandon | `-R(len)`；必要保留记录/对象进入对应实占或 `H` | 先由已闭合 source time/control 决定；cursor 物化不能再次减额；对象删除未确认不免除 retained |
+| Cancel | 合法可逆状态 `-P(len)`，有 Claim 时 `-X`；需要保留时 `+H(len)`，分类 record delta | TOO_LATE/NOT_FOUND 不改变业务 owner 费用；旧 admitted/UNKNOWN attempt 的 `B` 不变 |
+| Reschedule | 同一 payload owner 的 `P` 不变；若原 Claim 被合法撤销则 `-X`；仅真实 record/索引差额 | 不因 generation、timeline 或 sibling 改变再计 payload；不越过已经 Admission 的前置条件 |
+| Claim | 新 durable reversible Claim `+X`，Claim record 加入分类 `S` | timeline/READY 本身不增加 7/8；失败且没有持久 Claim 不收费 |
+| revoke/Claim 失效 | exact durable Claim `-X`，Claim record 删除/retained 转移 | 仅扣该 Claim 首次冻结 charge；不扣任何已 Admission attempt |
+| Admission | 消费 Claim 时 `-X`，建立 exact attempt `+B(ADMITTED)`；其它 record 按所属 reserve/分类更新 | 不重复加 active/payload；已有 old UNKNOWN attempt 继续独立计费；容量拒绝不创建 attempt |
+| definitive failure | exact verified NOT_PUBLISHED：`B(open)→B(RESOLVED_AWAITING_FLOOR)` | 只释放该 attempt 的逻辑 7/8；retry work 仍保有 `P`，future Claim 再产生自己的 `X` |
+| UNKNOWN | exact budget `B(open)→B(UNKNOWN)`，effective delta 为零；allocated 在 commitment 内更新 | 不释放 execution、reserve 或 physical/zombie；新 retry/Admission 不覆盖旧预算 |
+| Outcome/evidence resolution | 已验证 PUBLISHED/NOT_PUBLISHED 关闭 exact attempt，按 budget phase delta | stale/冲突/重复结果不收费或释放；UNKNOWN 不能借 transfer 字段授权确定释放 |
+| terminal/HANDED_OFF | 当前 generation `-P`，需要保留的唯一 payload owner 转 `H`；其它实际 record delta | 未决旧 attempt 的 `B` 与实际 request/zombie 保留；不因 Message aggregate 终态清空它们 |
+| checkpoint-safe reserve transfer | exact budget `commitment→allocated`，减未使用部分 | 仅当 §8 Floor 与完整 ReleaseAuthority 条件都成立；不把全部 commitment 当作 free |
+| retained release | exact guarded deletion：`-H` 或删除的 record charge；budget 按 allocated 逐维下降 | 实际删除、pins、Floor、重放/查询/导出窗口全部满足；logical terminal/TTL 单独不够 |
+| 旧 attempt 排空 | 对冻结的旧 generation/Target/accounting/Admission/artifact 执行同样 budget delta | 新 incarnation 不接受旧 release；旧 Lane reader/mapping 与新 owner 只能有一个 aggregate 来源 |
+
+同一实体的 payload 在 reservation、active 与 retained 三个 ownership bucket 中只占
+一个；DLQ Replay/new generation 复用同一不可变 payload 时执行 `-H+P`，不保留第二份
+ownership 费用。独立持久副本仍由它自己唯一的 record-byte 类计费。Old attempt 持有
+payload 引用是保护条件，不新造一份应用 payload ownership。
+
+表中的业务有效性、完整 `S` 集合、retire owner 以及 grant 准入仍须在 B4 最终绑定；
+本批用独立向量和转换测试覆盖 payload/Claim/attempt 的算术守恒与阶段释放，没有
+声称已把这些规则接入活动 DelayShard。逻辑 grant 下调时，已有工作 Claim/Admission/
+Outcome 的继续服务与独立 outcome/physical reserve gate 必须分开；不能把
+`permitsGrowth` 无区别应用于所有路径而堵住 drain。

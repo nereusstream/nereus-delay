@@ -6021,3 +6021,10 @@ counter identity/value、aggregate/local revision、完整 source stamp、有限
 显式新字段，不能重解释旧 Lane 维度或免除物理 request/zombie 资源计费。B4 仍为
 IN_PROGRESS，逐业务 delta、计量/grant 关联和保护证明继续闭合；当前活动 quota writer
 与旧格式不变，C4/D/E 的真实提交和恢复验证义务保留。
+
+B4 计量批次增加完整固定 artifact 与 attempt budget（NV 28/meta 15）：应用 payload
+ownership、execution envelope 与唯一分类 record charge 分开；UNKNOWN 保持完整费用，
+确定结果仅释放逻辑 7/8，unused reserve 及 retained 记录须后续 Floor/权限/实际删除
+证明。Retained payload 不进入 per-attempt reserve，避免多个重试放大同一 payload 的
+费用。完整业务 delta 表见 [B4 §9](ndip/NDIP-3/11-局部Quota与增量计费契约.md#9-原-173-业务-delta-表)；
+grant/owner/bookkeeping 和 incarnation 保护仍需闭合，活动 runtime 尚未采用新对象。

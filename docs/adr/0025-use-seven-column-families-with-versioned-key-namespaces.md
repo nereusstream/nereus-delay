@@ -174,3 +174,10 @@ Target cardinalities have explicit new fields and do not reinterpret legacy Lane
 capacity dimensions. This is an in-progress contract foundation: full billing/grant
 rules and C4 atomic runtime integration remain required. The current reader rejects
 these types, and no new column family or active quota writer is introduced.
+
+B4 additionally reserves the attempt accounting lifecycle at meta tag 15 / NV 28,
+keyed by the exact PublishAttemptId. Its complete locator, frozen accounting artifact,
+commitment/allocation and source/Floor stamps separate definitive logical completion
+from checkpoint-safe reserve transfer and guarded retained deletion. Per-attempt
+reserves exclude Message-owned retained payload. No active writer or old reader
+changes; the [B4 contract](../ndip/NDIP-3/11-局部Quota与增量计费契约.md) remains in progress.

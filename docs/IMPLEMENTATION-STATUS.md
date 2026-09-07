@@ -70,6 +70,14 @@ protection rules remain B4 requirements; C4 still owns actual source/batch/recov
 The B4 counter foundation full check passed 1887 Java tests with zero failures/errors and
 41 external skips. Its 21 focused cases have no skips; 24 independent encoding entries and
 all 297 JUnit XML files are bound by `docs/ndip/NDIP-3/evidence/b4-counter-foundation-results.json`.
+B4 now also includes an immutable measurement artifact and a typed attempt-budget lifecycle.
+UNKNOWN retains execution and reserve charges; definitive outcome, checkpoint-safe unused
+reserve release and guarded retained deletion are separate steps. Retained payload is owned
+once per Message Identity, outside per-attempt budgets. The full operation delta table is
+recorded, but grant/owner/bookkeeping and incarnation protections remain incomplete.
+The B4 accounting check passed 1906 Java tests, zero failures/errors, 41 external skips;
+19 new and all 40 quota-focused cases passed without skips. Thirty independent vectors
+and all 298 JUnit XML files are bound by `docs/ndip/NDIP-3/evidence/b4-accounting-results.json`.
 No active Target scheduling runtime, Broker certification or migration is claimed yet. The user authorized
 full implementation and incremental publication on main. NDIP-1 remains closed;
 its historical evidence does not certify changed runtime source.

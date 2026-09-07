@@ -74,6 +74,16 @@ B4 counter 基础批次完整 check 通过：1887 项 Java 测试、失败/错�
 归档见 `evidence/b4-counter-foundation-results.json`。B4 未冻结验收，下一步仍是其原始
 完整计费/grant/保护规则。
 
+B4 继续增加固定计量 artifact 与 attempt budget：UNKNOWN 保留 execution/reserve，
+确定结果与 checkpoint-safe reserve 转实占分开，retained 减额要求独立释放权限；
+retained payload 由 Message Identity 唯一持有，不按 attempt 重复预留。完整 delta 表
+见 §11 契约的 §9。Grant/owner/bookkeeping 与 incarnation 保护仍未全部冻结，B4 保持
+IN_PROGRESS；本批新增 schema 仍未进入活动 Store。
+
+B4 计量批次完整 check 通过：1906 项 Java 测试、失败/错误 0、外部 skip 41；
+新增 19 项专项、连同 counter 基础共 40 项 quota 测试零 skip。30 条独立向量、
+全部 298 份 JUnit XML 和精确来源见 `evidence/b4-accounting-results.json`。
+
 [29 项状态清单](progress.json) 是实施进度入口；[执行记录](04-执行记录.md) 保存实际命令、
 源码身份、测试和环境结果。仅当全部必做实现及证据实际闭合才办理 Implemented。
 

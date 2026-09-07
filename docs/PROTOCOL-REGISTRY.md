@@ -2213,3 +2213,16 @@ Usage 的既有 CapacityVector 仅允许维度 1–15/51–55 非零，旧 Lane 
 Counter local revision 与 aggregate revision 独立，仅真实变化递增；完整 source stamp
 仍受 Store source/sequence 约束。当前完整 grant、逐业务 delta 和 byte/record artifact
 尚未冻结，B4 保持 IN_PROGRESS。旧 NV 1–11 reader、meta/QUOTA 和七个 CF 保持原语义。
+
+B4 的 `TargetQuotaAccounting` schema 1 包含完整 schema bundle hash、固定 NV record/
+Kafka/Pulsar overhead 和 minimum scheduling cost；其 digest 域为
+`nereus-delay-target-quota-accounting\0`，bound 116 bytes。完整字段与计量方式见
+[契约 §7](ndip/NDIP-3/11-局部Quota与增量计费契约.md#7-固定计量-artifact)。
+
+`TargetQuotaAttemptBudget` schema 1 预留 NV 28 / meta `15 01 | PublishAttemptId[32]`；
+其完整 locator、tenant、Admission/artifact、lineage、commitment/allocated、五阶段与
+source/Floor 字段见 [契约 §8](ndip/NDIP-3/11-局部Quota与增量计费契约.md#8-attempt-budget-与-reserve-转实占)。
+Reserve 只允许 3/9–15，禁止在多个 attempt 内复制 Message 的 retained payload。
+UNKNOWN 不释放费用；确定 Outcome、checkpoint-safe reserve 转实占、实际 retained
+删除分三步，Floor DTO 不替代 ReleaseAuthority。旧 reader 仍拒绝 NV 28。
+B4 仍 IN_PROGRESS，grant/owner/bookkeeping 和生命周期保护的最终冻结尚未完成。
