@@ -68,9 +68,12 @@
         "evidence/b2-compatibility-check.log",
         "evidence/b2-final-docs-check.log",
         "evidence/b2-binding-channel-results.json",
-        "evidence/b2-binding-channel-check.log"
+        "evidence/b2-binding-channel-check.log",
+        "evidence/b2-membership-results.json",
+        "evidence/b2-membership-check.log",
+        "evidence/b2-membership-final-docs-check.log"
       ],
-      "progress": "Execution/control references and bounded registration planning are implemented. Exact Schedule/Prepare body and source bindings, immutable channel/lease identities, Store/locator/queue projections and frozen renewal helpers are implemented; teardown rules and the managed support matrix are fixed. Complete source-bound membership grant and shared credential/guarantee authority remain B2 work. C1/C2 actual mutation, activation, channel pools and teardown are not certified; all remaining 29-slice obligations remain in scope. Full check: 1818 Java tests, 0 failures/errors and 41 external skips; 108 Target contract tests have no skips."
+      "progress": "Execution/control, exact Schedule/Prepare and immutable channel contracts are implemented. Complete membership grant codecs, independent vectors, pre-append registration/source association and first-binding closure/Profile/plan snapshot checks are implemented. Authenticated issuance/closure wire, immutable policy authority and whole-B2 audit remain B2 work. C1/C2 mutation, activation and actual pools/teardown and all D/E/F evidence remain required; no active Target runtime or Broker certification is claimed. Full check: 1831 Java tests, 0 failures/errors, 41 external skips; 121 Target contract tests without skips."
     },
     {
       "id": "B3",

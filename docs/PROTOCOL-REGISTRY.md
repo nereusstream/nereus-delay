@@ -2152,3 +2152,13 @@ Lane holder scope。完整 lease 的续期必须形成恰好加一的新 channel
 Native managed handoff 保留原 outcome 类别并另验 B3 共同 policy；不能改成 direct
 AUTO_FAST 的 kind。teardown/支持矩阵见契约 §3/§4，实际 C1/C2/D 验证继续执行。
 有效 CRC 的 NV 20/21 仍由活动 Lane reader 拒绝，format 1 与 NV 1..11 未切换。
+
+### NDIP-3 B2 成员授权记录（预留，未激活）
+
+TargetMembershipGrant reserved NV type 22，meta key `0f 01 + digest[32]`。
+[成员授权契约](ndip/NDIP-3/08-成员授权与source关联契约.md) 固定 11-field grant 与
+8-field pre-append registration、完整 required/offered/control 对象和 source 关联；
+canonical bounds 分别 3149936 / 2101194 bytes。当前 reader 仍仅接受 NV 1..11。
+静态首次绑定校验复用 UNAUTHORIZED、PROFILE_VERSION_NOT_ACTIVE_AT_SOURCE_POSITION
+和 PROFILE_DEPRECATED_FOR_NEW_USE。发放/关闭 Control/SystemMutation 编号与认证策略
+权威仍待 B2 完成；没有以字段预留激活新的 source command。

@@ -141,3 +141,11 @@ Canonical bounds are 20976072 bytes per binding and 1279 per channel identity. T
 [record contract](../ndip/NDIP-3/07-Schedule绑定与通道身份契约.md) fixes lifetime/teardown rules;
 complete membership grants, actual reference retirement and format activation remain
 separate B2/C1/C2/B6/F1 work. No column family or active Lane format is changed.
+
+B2 reserves full Target membership grants at meta tag 0f / NV 22, using the same
+34-byte content-addressed key shape. The canonical bound is 3149936 bytes; its
+pre-append registration bound is 2101194. Full source identity is added after
+authenticated source apply; decoding is not issuer authentication. The
+[membership contract](../ndip/NDIP-3/08-成员授权与source关联契约.md) preserves
+historical binding/attempt protection and leaves issuance/closure wire and
+policy authority incomplete. The active seven-CF Lane format remains unchanged.

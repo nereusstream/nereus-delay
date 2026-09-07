@@ -21,6 +21,7 @@ public final class TargetKeyCodec {
     public static final int DISPATCH_COMPATIBILITY_TAG = 12;
     public static final int CONTROL_SCOPE_TAG = 13;
     public static final int CHANNEL_IDENTITY_TAG = 14;
+    public static final int MEMBERSHIP_GRANT_TAG = 15;
     public static final int MESSAGE_TAG = 5;
     public static final int SCHEDULE_BINDING_TAG = 6;
     public static final int MAX_DOMAIN_SLOT = 0xffff;
@@ -387,6 +388,11 @@ public final class TargetKeyCodec {
     public static byte[] scheduleBinding(final byte[] digest) {
         requireAssignedDigest(digest, "scheduleBindingDigest");
         return Bytes.concat(new byte[] {SCHEDULE_BINDING_TAG, KEY_FORMAT}, digest);
+    }
+
+    public static byte[] membershipGrant(final byte[] digest) {
+        requireAssignedDigest(digest, "membershipGrantDigest");
+        return Bytes.concat(new byte[] {MEMBERSHIP_GRANT_TAG, KEY_FORMAT}, digest);
     }
 
     private static void requireAssignedDigest(final byte[] digest, final String name) {

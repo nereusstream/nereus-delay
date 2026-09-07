@@ -3,7 +3,7 @@
 Status: Draft / IN_PROGRESS
 
 本节扩展 [执行/控制兼容契约](06-执行与控制兼容契约.md)。已实现精确绑定、不可变通道
-身份及静态投影/续期检查；完整 membership grant 对象和权威仍未闭合。C1/C2 承担
+身份及静态投影/续期检查；完整 membership grant 对象见 [成员授权契约](08-成员授权与source关联契约.md)，认证发放/关闭和策略权威仍未闭合。C1/C2 承担
 source/Owner 原子提交、Admission、实际通道池和 teardown，本文不授予运行时激活权限。
 
 ## 1. TargetScheduleBinding
@@ -30,7 +30,7 @@ closed canonical protobuf schema=1：
 | 10 | 非零 requiredDispatchRef[32] |
 | 11 | 非零 offeredDispatchRef[32] |
 | 12 | 非零 controlScopeRef[32] |
-| 13 | 非零 membershipGrantRef[32]；完整 grant 对象/权威是 B2 剩余工作 |
+| 13 | 非零 membershipGrantRef[32]；完整对象见 §08，生产权威仍待 B2 |
 | 14 | optional 非零 nativePolicyScopeRef[32] |
 | 15 | optional 非零 orderingDomain[32]，仅 DELIVERY_TIME_FIFO 必填 |
 | 16 | SHA-256(domain + canonical fields 1..15) |
@@ -191,7 +191,8 @@ NV 1..11，并拒绝有效 CRC 的 NV 20/21。
 strict/Prepare/committed object、最大完整记录、key 和有效 CRC envelope；新只读任务
 `checkTargetBindingChannelVectors` 纳入常规 check。
 
-B2 尚需定义并验证完整 membership grant、source-bound group completeness、共同
-credential/guarantee 授权对象及 source 注册关联，然后按原 §17.3 验收整个 B2。本文已
+完整 membership grant、静态 group/credential/guarantee 声明与 source 注册关联见
+[成员授权契约](08-成员授权与source关联契约.md)。B2 尚需完成认证发放/关闭 wire、
+策略权威和整个切片审核，然后按原 §17.3 验收整个 B2。本文已
 固定绑定/通道字段、冻结规则、teardown 与能力表；C1/C2 的实际 mutation/池/回收及
 D/E/F 证据仍按原切片执行，不反向成为 B2 设计验收的运行时前置。

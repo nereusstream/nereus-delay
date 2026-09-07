@@ -5978,3 +5978,12 @@ transactional identity、sequence/journal 域，channelGeneration 恰好加一�
 meta 0e/NV 20 与 id 06/NV 21 只是新格式预留。B2 的完整 membership grant/共同
 credential 与保证权威仍在实施；C1/C2 接入实际 source 原子 mutation、通道池与
 teardown，B3 决定 Native scope。新静态 codec 不认证发送权限、Broker 或迁移。
+
+### NDIP-3 B2 完整成员对象与 source 关联
+
+[成员授权契约](ndip/NDIP-3/08-成员授权与source关联契约.md) 固定完整 tenant/Profile、
+required/offered/control 和认证 source 注册身份。预准备内容不包含未来 source 位置或
+自身 mutation digest；应用后按实际记录形成 grant。first-binding closure 不重写已接受
+binding/Prepare/attempt，合法共同 credential provider 轮换仍保留原身份保护。
+meta 0f / NV 22 只预留；发放/关闭 wire、策略对象解析和认证权威仍是 B2 未闭合项，
+C1/C2 后续装配实际 source 原子写入和通道 gate。完整 codec/静态 seam 不认证生产运行。
