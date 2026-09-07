@@ -6012,3 +6012,12 @@ Admission 两次验证 current head 后冻结完整 snapshot。ownership 前按�
 
 meta 11/NV 24 与 meta 12/NV 25 仅预留给 scope/snapshot，活动 format 1 / NV 1..11 不变。
 C1/C2 实际状态/权威装配、B6/F1 转换及 D/E 的新 runtime/Broker 认证继续执行。
+
+### NDIP-3 B4 局部 quota 契约基础进展
+
+[局部 Quota 与增量计费契约](ndip/NDIP-3/11-局部Quota与增量计费契约.md) 已实现独立
+counter identity/value、aggregate/local revision、完整 source stamp、有限 point-lookup
+增量规划和恢复算术核对。Tenant 镜像不重复求和；Target/domain/incarnation 计数使用
+显式新字段，不能重解释旧 Lane 维度或免除物理 request/zombie 资源计费。B4 仍为
+IN_PROGRESS，逐业务 delta、计量/grant 关联和保护证明继续闭合；当前活动 quota writer
+与旧格式不变，C4/D/E 的真实提交和恢复验证义务保留。

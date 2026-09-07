@@ -25,6 +25,8 @@ public final class TargetKeyCodec {
     public static final int MEMBERSHIP_POLICY_TAG = 16;
     public static final int NATIVE_POLICY_SCOPE_TAG = 17;
     public static final int NATIVE_POLICY_SNAPSHOT_TAG = 18;
+    public static final int QUOTA_COUNTER_TAG = 19;
+    public static final int QUOTA_AGGREGATE_TAG = 20;
     public static final int MESSAGE_TAG = 5;
     public static final int SCHEDULE_BINDING_TAG = 6;
     public static final int MAX_DOMAIN_SLOT = 0xffff;

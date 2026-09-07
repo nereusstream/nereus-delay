@@ -63,6 +63,13 @@ passed 1866 Java tests with zero failures/errors and 41 external skips; all 156 
 contract tests passed without skips. Exact evidence and preserved JUnit XML are in
 `docs/ndip/NDIP-3/evidence/b3-results.json` and `b3-junit.zip`. Actual C1/C2 backend/Claim/
 Admission/ownership assembly and B6/F1 transition remain required.
+B4 is IN_PROGRESS: independent counter/aggregate codecs, local revisions, bounded delta
+planning and recovery arithmetic checks are implemented with 21 focused tests and independent
+Python vectors. Complete per-operation billing, measurement/grant binding and incarnation
+protection rules remain B4 requirements; C4 still owns actual source/batch/recovery integration.
+The B4 counter foundation full check passed 1887 Java tests with zero failures/errors and
+41 external skips. Its 21 focused cases have no skips; 24 independent encoding entries and
+all 297 JUnit XML files are bound by `docs/ndip/NDIP-3/evidence/b4-counter-foundation-results.json`.
 No active Target scheduling runtime, Broker certification or migration is claimed yet. The user authorized
 full implementation and incremental publication on main. NDIP-1 remains closed;
 its historical evidence does not certify changed runtime source.

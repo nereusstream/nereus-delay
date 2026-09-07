@@ -2199,3 +2199,17 @@ PublisherPermission/Activation/MemberApproval 必须解析完整历史 source �
 Mode/回退诊断 Reason=1..18 的封闭编号见 TargetNativePolicyChecks 与 B3 契约；它们是
 优化结果，不新增或替换 source StableCode。活动 reader、旧 HandoffPolicySnapshot/
 ArtifactGenerationSet 和当前 seven-CF format 不变，实际激活由 C1/C5/B6/F1 完成。
+
+### NDIP-3 B4 局部 quota 基础（预留，未激活）
+
+[字段与增量计费契约](ndip/NDIP-3/11-局部Quota与增量计费契约.md) 定义 schema 1 的
+TargetQuotaIdentity/Usage/Mutation/Counter/Aggregate。Counter 预留 meta tag `13`、NV 26；
+key 为 `13 01 | kind | sourceShard[20] | accountingIncarnation[16] | [target[32]] | [tenant[32]]`。
+Aggregate 预留 meta tag `14`、NV 27，key 为 `14 01 | sourceShard[20]`。Kind 1/3 为主计费，
+kind 2/4 为 tenant 镜像；aggregate 不重复加入镜像或独立账本的原始 reserve。
+
+Usage 的既有 CapacityVector 仅允许维度 1–15/51–55 非零，旧 Lane 16/17 与 Worker 物理
+维度不重解释。Target/domain/strict-domain/accounting-incarnation 计数使用新显式字段。
+Counter local revision 与 aggregate revision 独立，仅真实变化递增；完整 source stamp
+仍受 Store source/sequence 约束。当前完整 grant、逐业务 delta 和 byte/record artifact
+尚未冻结，B4 保持 IN_PROGRESS。旧 NV 1–11 reader、meta/QUOTA 和七个 CF 保持原语义。

@@ -165,3 +165,12 @@ snapshots at meta tag 12 / NV 25, both with 34-byte digest keys. Their bounds ar
 397/646 bytes. The new artifact/snapshot/head generations and precise authority
 requirements are fixed in the [B3 contract](../ndip/NDIP-3/10-Native共同策略与签名契约.md).
 Current Lane readers continue rejecting these envelopes; no CF or active format changes.
+
+NDIP-3 B4 reserves independent quota counters at meta tag 13 / NV 26 and a shard
+aggregate at meta tag 14 / NV 27. Their full identity keys, local revisions and
+source stamps are described in the [B4 contract](../ndip/NDIP-3/11-局部Quota与增量计费契约.md).
+Tenant counters are mirrors; only primary counters contribute to the aggregate.
+Target cardinalities have explicit new fields and do not reinterpret legacy Lane
+capacity dimensions. This is an in-progress contract foundation: full billing/grant
+rules and C4 atomic runtime integration remain required. The current reader rejects
+these types, and no new column family or active quota writer is introduced.

@@ -19,6 +19,8 @@
 
 9. [Native 共同策略与签名契约](10-Native共同策略与签名契约.md)：完整 scope/artifact、独立签名、发布/成员权限、Mode/ordinary 回退和 trust/Admission 顺序。
 
+10. [局部 Quota 与增量计费契约](11-局部Quota与增量计费契约.md)：B4 IN_PROGRESS，独立 counter/value、局部 revision、纯增量规划和原验收剩余义务。
+
 README、执行状态、用户决策记录、测量和 receipt 不进入 normative package。
 当前完整设计保留导入时的 Draft/PLANNED 描述；它是启动基线，不代表新增权限障碍，
 也不代表代码已经完成。后续 normative 变更与接受凭证必须绑定精确 bytes。
@@ -63,7 +65,14 @@ C1/C2 的真实权威后端、状态提交及通道/ownership 仍按原切片完
 B3 最终完整 check 通过：1866 项 Java 测试、失败/错误 0、外部 skip 41；Target 十一类
 契约共 156 项零 skip。精确源码、规范、38 条独立向量和原 B3 五项验收对应见
 `evidence/b3-results.json`；本次完整 JUnit XML 保存在 `evidence/b3-junit.zip`。
-下一项为 B4 quota。A2/A3、B4–B7、C–F 的未完成义务均保留，全部 29 项目标继续进行。
+B4 quota 已开始：独立 identity/counter/aggregate、有限增量规划与恢复算术核对已实现，
+21 项专项通过。完整业务 delta、grant/计量 artifact 与保护规则仍待冻结，B4 保持
+IN_PROGRESS。A2/A3、B4–B7、C–F 的未完成义务均保留，全部 29 项目标继续进行。
+
+B4 counter 基础批次完整 check 通过：1887 项 Java 测试、失败/错误 0、外部 skip 41；
+新增 21 项专项零 skip。24 条独立编码项与最大样本摘要、源码和全部 297 份 JUnit XML
+归档见 `evidence/b4-counter-foundation-results.json`。B4 未冻结验收，下一步仍是其原始
+完整计费/grant/保护规则。
 
 [29 项状态清单](progress.json) 是实施进度入口；[执行记录](04-执行记录.md) 保存实际命令、
 源码身份、测试和环境结果。仅当全部必做实现及证据实际闭合才办理 Implemented。

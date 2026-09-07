@@ -93,8 +93,13 @@
     {
       "id": "B4",
       "title": "quota 局部 revision 与 aggregate",
-      "status": "PLANNED",
-      "evidence": []
+      "status": "IN_PROGRESS",
+      "evidence": [
+        "11-局部Quota与增量计费契约.md",
+        "evidence/b4-counter-foundation-results.json",
+        "evidence/b4-counter-foundation-check.log"
+      ],
+      "progress": "Independent identity/usage/counter/aggregate codecs, local revisions, source stamps, bounded delta and recovery arithmetic verified. Full original B4 per-operation billing, measurement/grant binding and incarnation/retirement rules remain incomplete; no active Target writer or real Store recovery certification."
     },
     {
       "id": "B5",
