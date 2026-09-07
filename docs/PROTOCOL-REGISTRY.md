@@ -2211,8 +2211,8 @@ kind 2/4 为 tenant 镜像；aggregate 不重复加入镜像或独立账本的�
 Usage 的既有 CapacityVector 仅允许维度 1–15/51–55 非零，旧 Lane 16/17 与 Worker 物理
 维度不重解释。Target/domain/strict-domain/accounting-incarnation 计数使用新显式字段。
 Counter local revision 与 aggregate revision 独立，仅真实变化递增；完整 source stamp
-仍受 Store source/sequence 约束。当前完整 grant、逐业务 delta 和 byte/record artifact
-尚未冻结，B4 保持 IN_PROGRESS。旧 NV 1–11 reader、meta/QUOTA 和七个 CF 保持原语义。
+仍受 Store source/sequence 约束。完整 grant source 激活、逐业务 owner/bookkeeping 与
+incarnation 保护尚未冻结，B4 保持 IN_PROGRESS。旧 NV 1–11 reader、meta/QUOTA 和七个 CF 保持原语义。
 
 B4 的 `TargetQuotaAccounting` schema 1 包含完整 schema bundle hash、固定 NV record/
 Kafka/Pulsar overhead 和 minimum scheduling cost；其 digest 域为
@@ -2226,3 +2226,14 @@ Reserve 只允许 3/9–15，禁止在多个 attempt 内复制 Message 的 retai
 UNKNOWN 不释放费用；确定 Outcome、checkpoint-safe reserve 转实占、实际 retained
 删除分三步，Floor DTO 不替代 ReleaseAuthority。旧 reader 仍拒绝 NV 28。
 B4 仍 IN_PROGRESS，grant/owner/bookkeeping 和生命周期保护的最终冻结尚未完成。
+
+
+B4 进一步固定 `TargetQuotaScope` schema 1（Source Shard + tenantRoutingScope + optional
+Target）、`TargetQuotaTotal` schema 1（scope/usage/local revision/full mutation/digest）。
+Total 预留 NV 29 / meta `16 01 | 02 | sourceShard[20] | tenantRoutingScope[32] | targetId[32]`，
+全 key 87 bytes；只汇总该 Target 所有 incarnation 的 primary counters，不重复加入
+shard aggregate。完整新 `TargetQuotaGrant` 含 scope/id/version/计量 artifact/limit/tenant
+policy version/hash/digest，尚无独立 NV/meta 或新 source control 激活 branch；旧 QuotaGrantRef
+不扩展。Exact fields、上限、局部 revision 和 logical grant drain 规则见
+[契约 §10](ndip/NDIP-3/11-局部Quota与增量计费契约.md#10-跨-incarnation-的总额与完整-grant-artifact)。
+旧 ValueEnvelope reader 继续拒绝 NV 29；B4 尚未冻结完整 activation/owner/retirement。

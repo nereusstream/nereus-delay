@@ -1328,6 +1328,13 @@ tasks.register('checkTargetQuotaAccountingVectors', Exec) {
     commandLine 'python3', '-B', 'scripts/generate-ndip3-target-quota-accounting-vectors.py'
 }
 
+tasks.register('checkTargetQuotaScopeVectors', Exec) {
+    group = 'verification'
+    description = 'Checks independent all-incarnation Target quota totals and grant artifacts.'
+    workingDir projectDir
+    commandLine 'python3', '-B', 'scripts/generate-ndip3-target-quota-scope-vectors.py'
+}
+
 tasks.named('check').configure {
     dependsOn tasks.named('checkDocumentation')
     dependsOn tasks.named('checkProjectVersionMarkers')
@@ -1340,6 +1347,7 @@ tasks.named('check').configure {
     dependsOn tasks.named('checkTargetNativePolicyVectors')
     dependsOn tasks.named('checkTargetQuotaVectors')
     dependsOn tasks.named('checkTargetQuotaAccountingVectors')
+    dependsOn tasks.named('checkTargetQuotaScopeVectors')
 }
 
 jacocoTestReport {

@@ -65,7 +65,7 @@ contract tests passed without skips. Exact evidence and preserved JUnit XML are 
 Admission/ownership assembly and B6/F1 transition remain required.
 B4 is IN_PROGRESS: independent counter/aggregate codecs, local revisions, bounded delta
 planning and recovery arithmetic checks are implemented with 21 focused tests and independent
-Python vectors. Complete per-operation billing, measurement/grant binding and incarnation
+Python vectors. Complete per-record owner/bookkeeping recipes, grant source activation and incarnation
 protection rules remain B4 requirements; C4 still owns actual source/batch/recovery integration.
 The B4 counter foundation full check passed 1887 Java tests with zero failures/errors and
 41 external skips. Its 21 focused cases have no skips; 24 independent encoding entries and
@@ -17985,3 +17985,17 @@ the implementation receipt's complete certification source. The current
 checkout is equivalent only when its closed runtime-source digest matches;
 documentation-only commits no longer require the pointer to name their HEAD.
 Historical PASS is never rebound or carried forward by prose.
+
+
+B4 additionally implements all-incarnation Target totals (NV 29 / meta 16),
+complete scope/grant artifacts and a pure logical ingress/drain policy. A Target
+keeps its old retained charges inside the same grant scope; tenant mirrors never
+inflate the aggregate. Total updates remain bounded by affected Targets and use
+exact prior-byte guards. Grant source activation, record ownership/bookkeeping
+and protected incarnation lifecycle rules remain incomplete. No active Target
+writer or physical/Broker/recovery authority is certified by these contracts.
+
+The all-incarnation scope/grant milestone full check passed 1929 Java tests with zero
+failures/errors and 41 external skips. Its 23 new and all 63 quota-focused tests passed
+without skips. Eighteen independent vector entries and all 299 JUnit XML files are
+preserved in `docs/ndip/NDIP-3/evidence/b4-scope-results.json` and `b4-scope-junit.zip`.

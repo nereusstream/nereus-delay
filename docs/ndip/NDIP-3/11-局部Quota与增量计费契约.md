@@ -1,6 +1,6 @@
 # NDIP-3 B4：局部 Quota 与增量计费契约
 
-状态：**IN_PROGRESS / counter、计量及 attempt reserve 转换已实现，B4 尚未冻结验收**。
+状态：**IN_PROGRESS / counter、计量、attempt reserve、跨 incarnation 总额与 grant artifact 已实现，B4 尚未冻结验收**。
 本页与原设计 §11.1、§16.6、§17.3 的 B4 合读。它定义已落到代码的 counter 字段与
 局部计算边界；逐项业务 owner、完整计量/grant 关联和恢复来源闭合后才办理
 B4 VERIFIED。当前 Lane writer、ValueEnvelope 的既有 reader 与持久 quota map 未改动。
@@ -56,9 +56,9 @@ cache、IO、producer/thread、query/fetch 等 live Worker 维度同样为零；
 继续单独提供有自身生命周期的资源证明，持久 aggregate 的零值不表示这些资源免费。
 51–55 为共享 shard control/system-writer reserve，只能进入 SHARD/TENANT_SHARD。
 
-Field 3–6 是独立 Target 格式的计数，不能投影回旧 Lane grant 的 16/17 维。完整新
-grant/计量 artifact 的绑定仍在 B4 待闭合清单中；未绑定前禁止以既有 grant 自动授权
-这些新计数。Counter 约束：
+Field 3–6 是独立 Target 格式的计数，不能投影回旧 Lane grant 的 16/17 维。§10 的新
+grant artifact 完整携带这些计数与计量规则；其认证/source 激活仍待闭合，禁止以既有
+grant 自动授权这些新计数。Counter 约束：
 
 - 每个 Target 主/镜像 identity 的 Target 数最多 1，execution domain 数最多 64。
 - SHARD/TENANT_SHARD 不分配 Target 或 domain slot，也不能承担资源维度 1/2/5–8。
@@ -164,7 +164,8 @@ identity 的所有 tenant 资源维度之和不能超过主费用。共享 metad
   record 的唯一 owner、counter/budget 自身 bookkeeping 与共享元数据的有界费用来源。
 - §9 已列原 §17.3 的完整业务 delta 表；继续绑定每行的完整 before/after ledger、
   非 attempt 的 payload/identity 保护与结果/控制记录来源，避免只由方法参数声明费用。
-- 新 cardinality/grant 关联、tenant Target/domain 计数来源、incarnation 分配/退休证明
+- §10 已定义新 cardinality/grant artifact 和跨 incarnation 总额；完整 grant source
+  激活、tenant Target/domain 计数来源、incarnation 分配/退休证明
   以及独立账本所有权交接的精确规则，保证不会因多个 Profile/domain 复制 grant。
 - 本批向量/测试已覆盖重复 mutation、溢出、Outcome/UNKNOWN/旧 obligation 的必要
   算术与释放顺序；B4 最终仍须把完整 grant/owner/保护规则逐项绑定到原始验收证据。
@@ -318,3 +319,143 @@ payload 引用是保护条件，不新造一份应用 payload ownership。
 声称已把这些规则接入活动 DelayShard。逻辑 grant 下调时，已有工作 Claim/Admission/
 Outcome 的继续服务与独立 outcome/physical reserve gate 必须分开；不能把
 `permitsGrowth` 无区别应用于所有路径而堵住 drain。
+
+## 10. 跨 incarnation 的总额与完整 grant artifact
+
+### 10.1 Scope 与租户边界
+
+主设计 §5.4 已规定：每个 Ingress Route 只属于一个 tenant Security Domain，Route
+Incarnation 内的 `tenantRoutingScope[32]` 不变。新的 `TargetQuotaScope` 使用这个受认证
+的 routing scope；不能拿 payload tenant、Profile、调用者任意值或另一个 tenant hash
+代替它。Constructor/decoder 不提供 Route registry 认证，C4 从可信 Route binding 传入。
+
+Schema 1 的 exact fields：1 schema=1；2 sourceShard[20]；3 非零 tenantRoutingScope[32]；
+4 可选 TargetPartitionId[32]；5 `nereus-delay-target-quota-scope\0` + fields 1–4 的 digest。
+无 field 4 为整个 Source Shard，有 field 4 为该 shard 内一个 Target；bound 126 bytes。
+Scope **不含 accounting incarnation、Profile、bucket、channel 或 domain**。完整 scope
+是 grant 的额度边界，leaf counter identity 是历史费用的所有权边界，二者不互换。
+
+Shard grant 使用现有 primary aggregate，覆盖该 Route 上全部 Target 与无 Target 的
+共享 metadata/system 费用。共享 source-local 费用保守地占用该 shard 的 tenant cut，
+不从 tenant cap 中扣除后再向别处借容量。TENANT_SHARD 仍只镜像无 Target 的 SHARD
+counter，绝不是所有 tenant-target 的额外 rollup。Tenant mirror 用于归属核对/投影；
+不因镜像比 primary 小而放宽 primary Target/shard 上限。
+
+不同 Source Shard 的静态 grant 总和继续受 tenant hard policy 约束。本文没有增加跨
+Worker 瞬时共享额度；同一个物理 Target 跨 shard 的发送仍共用既定物理 request/byte
+pool。Policy authority 必须维持主设计 §18.2 的 shrink-before-increase、donor excess
+占用与 recipient placement reserve，不把本地对象合法解码当作全租户容量证明。
+
+### 10.2 TargetQuotaTotal
+
+为避免新 incarnation 再获得一份 full cap，每个 Target 在 Source Shard 内另存一个
+跨 incarnation 的 primary total，预留 **NV type 29 / meta tag 16（十六进制）**：
+
+```text
+key = 16 01 | 02 | sourceShard[20] | tenantRoutingScope[32] | targetId[32]
+```
+
+Key 固定 87 bytes；`02` 是 Target scope 分支。Shard scope 的 suffix 分支为 `01`，但
+不会为它分配 total record，Shard 总额沿用 NV 27 aggregate。完整 key、source 与 tenant
+必须同时校验。Total 的 exact fields：
+
+| field | 含义 |
+|---:|---|
+| 1 | schema=1 |
+| 2 | 完整 TargetQuotaScope，必须含 Target |
+| 3 | 完整 TargetQuotaUsage，各 accounting incarnation 的 TARGET primary usage 之和 |
+| 4 | 非零 raw uint64 local total revision |
+| 5 | 完整 TargetQuotaMutation |
+| 6 | `nereus-delay-target-quota-total\0` + fields 1–5 的 digest |
+
+总额是已有 primary counter 的派生视图，**不再加到 shard aggregate**；tenant mirror
+不进入它的求和。旧 attempt、retained payload/result、保护中的费用保留旧 leaf identity，
+同时持续占用这个稳定 scope 的上限。不会因新 generation 或新 accounting incarnation
+从 grant 视图中消失。
+
+整个 Target 的 `targets <= 1`，`executionDomains <= 64`，51–55 仍只能归无 Target 的
+Shard 费用；strict-domain 与 accounting-incarnation 使用 checked 总计。Queue rotation
+必须在同一个 delta 中把旧 incarnation 的 queue ownership 计数降为 0，才给新 incarnation
+计 1；旧 protected 费用及 incarnation 自身仍保留。Domain 也须有独立身份保护和唯一
+计数来源，不能给每个 incarnation 再分配 64 个 slot。该计数约束不替代 §6 尚待冻结的
+真实 allocation/retirement 证明。
+
+首次 total revision=1，之后每个改变该 Target primary leaf 的 mutation 精确 +1，即使
+incarnation 间转移的净 usage 为零，也记录其新的 last-touch stamp。没有 primary leaf
+变化时不读写 total；mirror-only 和 SHARD-only mutation 不更新它。Local total revision
+不大于 aggregate revision；每个 primary leaf revision 不大于其 total revision。所有
+last-touch source、raw sequence 及同位置 metadata/digest 必须相容。Total 还必须逐维覆盖
+每个 primary leaf，且被 shard aggregate 逐维覆盖；stamp 相容不能掩盖父视图少计费用。
+全零 total 可以记录
+已排空状态；稳定 scope 后续再使用必须沿用已有 revision，不能将它误作可复活的旧 leaf。
+Total 与最后的零 leaf tombstone 在本格式内保留，不能仅凭 zero usage 删除并重置 revision；
+其最终受保护清退与 Route/F1 恢复边界一并办理。
+
+### 10.3 同 batch 的有限 total delta 与恢复检查
+
+`TargetQuotaTotalsDelta.prepare` 从已有 immutable `TargetQuotaDelta.changes` 派生需要
+更新的 Target 集合，而不接受调用者另报一套 delta。显式 `maximumTouchedTargets > 0`；
+先拒绝过量/跨 tenant，之后每个受影响 Target 恰好一次 point lookup。所有旧主贡献先减，
+再加所有新主贡献，避免 Long.MAX_VALUE 附近的净零转移中间溢出。发现已有 leaf 缺少 total、
+lookup scope 错误、source/revision 不符或 arithmetic 错误时拒绝，不走热路径扫描重建。
+
+普通单 Target Schedule 的 quota 部分现在是：变化的 primary leaf、必要 tenant mirror、
+一个 Target total 和 shard aggregate，均与业务/结果/source 同 batch。相比仅 leaf 的基础
+规划增加一个固定 total write；不声称仍只有三条 quota 记录。旧新 incarnation 同时变化
+时，可能多写 leaf，但仍只写该 Target 的一个 total；复杂度取决于 K，不取决于全集 L。
+Bookkeeping 本身的费用与 mutation bytes 预算仍须按 §6 完成有限容量证明。
+
+在相同 Store mutation guard 内运行 composite `requireCurrent`：先校验 leaf/aggregate/
+Store sequence/source，再校验 total 的完整 prior bytes 或精确不存在。实际 WriteBatch
+成功之后才能发布这两个 immutable plan；失败/结果不确定时遵循 §4，不能先改 Map。
+
+`TargetQuotaTotalsDelta.audit` 仅在恢复/显式审计遍历全量 leaf 与 total，核对完整 scope 集合、
+所有 incarnation primary sum、tenant/source/revision。缺失、重复、多余、漏掉旧 retained
+费用均拒绝。必须先独立从真实业务账本重建并通过 `TargetQuotaDelta.audit`；从 leaf 求和
+只能证明投影一致，不能证明叶子账本正确。零 total 与相应零 leaf 也必须纳入审计。
+
+### 10.4 完整 grant artifact 与逻辑入口检查
+
+`TargetQuotaGrant` schema 1 的 exact fields：
+
+| field | 含义 |
+|---:|---|
+| 1 | schema=1 |
+| 2 | 完整 TargetQuotaScope |
+| 3 | 非零 grantId[32]，同 scope 的连续授权保持不变 |
+| 4 | 非零 raw uint64 grant version |
+| 5 | 完整 TargetQuotaAccounting |
+| 6 | 完整 TargetQuotaUsage limit，包含四个新的 cardinality 上限 |
+| 7 | 非零 raw uint64 tenant policy version |
+| 8 | 非零 tenant policy canonical hash[32] |
+| 9 | `nereus-delay-target-quota-grant\0` + fields 1–8 的 digest |
+
+Target branch 的 limit 同样约束 targets<=1、domains<=64、51–55 为零；Shard branch
+允许其完整范围。零 limit 合法，表示停止新增而保留排空。首次 version=1，后续 exact
+scope/grantId 不变且 checked +1；policy version 不回退，同 version 的 policy hash
+必须一致。原始 uint64 可跨 signed 边界，全一位值不能再递增。新 grant 的计量 artifact
+只约束新工作，旧 ledger 按自己冻结的 artifact 保留费用，不能以新常数重算历史费用。
+
+该 artifact **没有单独预留 NV/meta key，也没有接入旧 PUBLISH_QUOTA_GRANT branch**；
+旧 17 维 `QuotaGrantRef` 不变。B4 仍须冻结完整 authority registration、source control
+body、exact prior grant/source activation 和 transfer ref 关联；C4 实现真实后端、可信
+Route/policy 解析和 guarded apply。仅 `requireSuccessor`、digest 或 decoder 均不能发布
+额度，不能证明静态 cuts 总和或授权新 cardinality。
+
+`TargetQuotaGrantGate.evaluate` 固定以下纯逻辑策略：
+
+- FIRST_SCHEDULE、PREPARE、DLQ_REPLAY 在去重与完整业务检查之后，按 shard primary
+  aggregate 和跨 incarnation Target total 做逐维 growth 检查。两个当前 grant 的计量
+  artifact 必须与新工作完整 artifact 字节一致。返回 SHARD_LIMIT/TARGET_LIMIT 后仍按
+  Source Position 记录确定性拒绝；拒绝记录使用已预留的控制/结果容量。
+- Reservation commit/expire、Cancel、Reschedule、Claim/revoke、Admission、definitive
+  failure、UNKNOWN、Outcome、terminal、retained release、old-attempt drain 均属于已有
+  工作；经过完整 scope/历史 total 检查后返回 EXISTING_WORK_DRAIN，不用下调后的逻辑
+  grant 阻断它们。逻辑 execution/retained 费用的合法阶段转换可以增加某一维。
+- EXISTING_WORK_DRAIN 只说明本次不被 logical grant 下调阻断。真实既有 ledger、frozen
+  attempt reserve、Outcome/system-writer reserve、target execution permit、物理/zombie
+  pool 与合法状态转换必须各自通过；它不是发送或删除 permit。调用端不得将 first-seen
+  ingress 重标成既有工作，也不能用此纯策略代替签名、激活和 ledger ownership。
+
+以上 codec/纯规划/逻辑分支的专项验证不宣称实际 Store 原子性、Broker quota、生产
+activation 或恢复正确性；这些仍由 C4/D/E 与对应证据完成。

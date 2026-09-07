@@ -6028,3 +6028,12 @@ ownership、execution envelope 与唯一分类 record charge 分开；UNKNOWN �
 证明。Retained payload 不进入 per-attempt reserve，避免多个重试放大同一 payload 的
 费用。完整业务 delta 表见 [B4 §9](ndip/NDIP-3/11-局部Quota与增量计费契约.md#9-原-173-业务-delta-表)；
 grant/owner/bookkeeping 和 incarnation 保护仍需闭合，活动 runtime 尚未采用新对象。
+
+
+B4 的跨 incarnation 总额（NV 29/meta 16）持续累加旧、新 incarnation 的 primary
+费用；新 incarnation 不再获得一份独立 full Target cap。Source Route 单 tenant，shard
+grant 使用包含共享 source-local metadata 的 primary aggregate；tenant mirror 不重复
+加总。新的完整 grant artifact 携带 Target/cardinality/计量/tenant policy 绑定，逻辑入口
+检查保留 grant 下调后既有 Claim/Admission/Outcome 等继续排空的规则。source/control
+授权激活、完整 owner/bookkeeping 与 incarnation 保护仍待冻结，详见
+[B4 §10](ndip/NDIP-3/11-局部Quota与增量计费契约.md#10-跨-incarnation-的总额与完整-grant-artifact)。

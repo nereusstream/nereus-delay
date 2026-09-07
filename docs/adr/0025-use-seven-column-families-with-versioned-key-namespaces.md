@@ -181,3 +181,12 @@ commitment/allocation and source/Floor stamps separate definitive logical comple
 from checkpoint-safe reserve transfer and guarded retained deletion. Per-attempt
 reserves exclude Message-owned retained payload. No active writer or old reader
 changes; the [B4 contract](../ndip/NDIP-3/11-局部Quota与增量计费契约.md) remains in progress.
+
+
+B4 also reserves a derived all-incarnation Target total at meta tag 16 / NV 29:
+`16 01 | 02 | sourceShard[20] | tenantRoutingScope[32] | targetId[32]` (87 bytes).
+Only affected primary leaves update their Target total in the same batch. This total
+is never added again to the shard aggregate; tenant mirrors remain projections.
+The new complete quota grant artifact has no standalone NV/meta reservation and
+is not wired into the legacy grant control branch. Source activation and full
+bookkeeping/retirement remain incomplete; the old reader still rejects NV 29.

@@ -1,0 +1,2851 @@
+{
+  "slice": "B4",
+  "status": "IN_PROGRESS",
+  "milestone": "ALL_INCARNATION_TOTALS_AND_GRANT_ARTIFACTS",
+  "baseCommit": "2e8993f20dd73cee9dd2c3ed83af8a5aaef921a8",
+  "localDate": "2026-09-08",
+  "sliceComplete": false,
+  "all29SlicesComplete": false,
+  "packageAccepted": false,
+  "productionAuthority": false,
+  "activeTargetQuotaRuntime": false,
+  "brokerCertification": false,
+  "grantSourceActivationImplemented": false,
+  "actualStoreAtomicityOrRecoveryVerified": false,
+  "scope": "Stable Route tenant/shard/Target scope, derived all-incarnation Target total codec and bounded composite delta, full grant/measurement/cardinality/policy artifact and pure logical ingress/drain rules. Grant authority/source activation and full owner/bookkeeping/incarnation protection freeze remain incomplete.",
+  "sourceFiles": {
+    "src/main/java/com/nereusstream/delay/protocol/TargetQuotaGrant.java": "fce534d6d6c99bbc5d58c5f11b24744739083c9d82beab4e78a45af698566163",
+    "src/main/java/com/nereusstream/delay/protocol/TargetQuotaScope.java": "07e428530f77f254736637aae7eff0d7a7736340256ddc2f43e05e2cc091e63a",
+    "src/main/java/com/nereusstream/delay/protocol/TargetQuotaTotal.java": "86069bff0bbf451781dcbc8092daaa18b5565c8d8492b437e34e64c58853ce7c",
+    "src/main/java/com/nereusstream/delay/runtime/TargetQuotaGrantGate.java": "3a2466949a3425bed7342d028d5cdb34552fb378d074bd1e00d7e275dc1bd9b0",
+    "src/main/java/com/nereusstream/delay/runtime/TargetQuotaTotalsDelta.java": "8a36f8edb8f342b0911d4d21a199e2d7b8c8a8b12a4fc9c29ae852bd6834546f",
+    "src/main/java/com/nereusstream/delay/store/TargetKeyCodec.java": "04773a413d7365805e5ed9e073c3f324413d72cdcb8dc1c92ac9a708361330b5"
+  },
+  "testFiles": {
+    "src/test/java/com/nereusstream/delay/protocol/TargetQuotaScopeContractTest.java": "991a9b99c504163f37d6a53a8e77fd9b2c3daea9f2f0b086f2aedc093f81b856"
+  },
+  "vectors": {
+    "scripts/generate-ndip3-target-quota-scope-vectors.py": "638840d5b2528535443e6f45b2be214675334f6c4de5ae9b05fb94fc1efa0bcb",
+    "src/test/resources/ndip3/target-quota-scope-vectors.properties": "d5a93d1296a7775d3b489d5475df25b1fcf7f826ff431e6b3fa07c9b0c63360a"
+  },
+  "buildFiles": {
+    "build.gradle": "87dc02ea0d11f455e2b2e49fae406af8bbccfce2a8e742a7be0a73436bf9cb03",
+    "settings.gradle": "7a0a3db0b62e558029fa7176a2b32a23837779f9f17467512012d3ddf8eaf3c5"
+  },
+  "compiledSourceTrees": {
+    "src/main": {
+      "fileCount": 829,
+      "algorithm": "sha256(sorted UTF-8 path + NUL + file SHA-256 hex + LF)",
+      "sha256": "f7776d723ab612da4642133b7f31a75c0fde6118e7323ffdc93c5ee360ac85ec"
+    },
+    "src/test": {
+      "fileCount": 311,
+      "algorithm": "sha256(sorted UTF-8 path + NUL + file SHA-256 hex + LF)",
+      "sha256": "a739ede917676fe1b2058ab6059c309c243a40ba2944f8c61899efb7f21dd10e"
+    }
+  },
+  "legacyAndFoundationUnchanged": {
+    "scripts/generate-ndip3-target-quota-accounting-vectors.py": "72b3ab21298b5e7e39b2489e88c6575b5ef333ae1d06d00eb101a9a42ffd6820",
+    "scripts/generate-ndip3-target-quota-vectors.py": "1e3edf4925e5cc828fa8555b172d97c730e5d6e812ff201aff89ae47b47c5092",
+    "src/main/java/com/nereusstream/delay/protocol/CapacityDimension.java": "5aec01593ab4e7c839b1338dd0c48f0ae2422aef42d3cac695f260d604ff678b",
+    "src/main/java/com/nereusstream/delay/protocol/CapacityVector.java": "4cffcd4ce11e0083c75fbfe90f2aa23c4f539c2cfc6ea461d8e1eaf1015f8bb8",
+    "src/main/java/com/nereusstream/delay/protocol/LaneQuotaUsageEntry.java": "91e2e1b887d6d3403320791ae6877cb2903aa36456fc3bfe67a10f7359c1bb85",
+    "src/main/java/com/nereusstream/delay/protocol/LaneQuotaUsageMap.java": "1b82df668c1c756a4f288463c1a6f5f22df8940eb5a153dcda086b4386fbf924",
+    "src/main/java/com/nereusstream/delay/protocol/PublishAdmissionBody.java": "7112bc746b53ed7696cc07776f0733ce532f2602d3efeb9f0cdfa20821240e67",
+    "src/main/java/com/nereusstream/delay/protocol/QuotaGrantRef.java": "6c1aa8c708a739db715dcfd814249d025daa056672aa38305a1a3c494f232c33",
+    "src/main/java/com/nereusstream/delay/protocol/TargetQuotaAccounting.java": "7354b51a3be9ba18026b2cf9d93029d2a40bd76984621e562488efd2dc5cbee9",
+    "src/main/java/com/nereusstream/delay/protocol/TargetQuotaAggregate.java": "b8bcdc6dad38e782092436546a91d2f54a23a83f96f06ec48f037a231b710531",
+    "src/main/java/com/nereusstream/delay/protocol/TargetQuotaAttemptBudget.java": "f1e8a451cc966f636cd85d9b0fb56727dbe0754f41890f9c084d8c6746dd326e",
+    "src/main/java/com/nereusstream/delay/protocol/TargetQuotaCounter.java": "35efe0b50c407bbfd125cc09497b781d923ad3c0cadeb22f7c979eb0723d191a",
+    "src/main/java/com/nereusstream/delay/protocol/TargetQuotaIdentity.java": "5e4db4e055f0704262895c848a819ef4d3b9395794d3bd61ca0cf86a82079f52",
+    "src/main/java/com/nereusstream/delay/protocol/TargetQuotaMutation.java": "69d09faa87d2db60f1ca46da6ecba88b4b3cc20f74aa78aa0ed4efc6b10cb794",
+    "src/main/java/com/nereusstream/delay/protocol/TargetQuotaUsage.java": "28130fdff662e050a61fcebfb641d96d6fadf92696d62f22381da3fe57a05542",
+    "src/main/java/com/nereusstream/delay/runtime/DelayShard.java": "e3afd7c7aa69296f6c5e9e148b5f7430d8a66770b3eefa871b9c2214a10274c9",
+    "src/main/java/com/nereusstream/delay/runtime/LaneQuotaUsageProjection.java": "6b044e99a87e6d1222fcc18bb533af3fce293ecf9f41ef19f16fa2d850cf6432",
+    "src/main/java/com/nereusstream/delay/runtime/ShardQuota.java": "44b493b7468e6674a1dcab9b84f92acff01d237b2d99aeeafe90b6aad7a97477",
+    "src/main/java/com/nereusstream/delay/runtime/TargetQuotaDelta.java": "31806081289217d36273e63784dd1791bd8699042a2c5045dbc3458e95637933",
+    "src/main/java/com/nereusstream/delay/store/KeyCodec.java": "61d30d561bca1ebcb3b203726da9f9c7a285d8ee79a91cb816d46d57af36db95",
+    "src/main/java/com/nereusstream/delay/store/ShardStore.java": "28c3137b39c081d085f1e7a874978ea5b3c75c38b27b04cad0be91c95f7f080d",
+    "src/main/java/com/nereusstream/delay/store/ValueEnvelope.java": "d9df1612365bbe33cb7726825902be79ee058e92bd8647ccd795d41470353ffe",
+    "src/test/resources/ndip3/target-binding-channel-vectors.properties": "65b6405f9b70a96b98c7597ae25ae57a3be4d9e75cc16ed4b5fca30c59d697e9",
+    "src/test/resources/ndip3/target-compatibility-vectors.properties": "9c4189edbdcc3ab31314843ac714ee74995dafbc4b1775953a650ef6b51f2fdc",
+    "src/test/resources/ndip3/target-identity-vectors.properties": "e97a8734bc44f3da63cd55f6f5eb0faa899a6d01e61bf4991b0bf5020db51330",
+    "src/test/resources/ndip3/target-membership-control-vectors.properties": "83dfbdf7d4175b9574a0ef7ffeac769f39a1287fcbe7a1656ecb68b8415797ee",
+    "src/test/resources/ndip3/target-membership-vectors.properties": "51de0822a7447ee89095c4c461f3302d429f20b239bd7f85a521467c525a65b9",
+    "src/test/resources/ndip3/target-native-policy-vectors.properties": "e90027f6042b8bb0086efac26a571d25e1f56ceecb0346fac3665cf12d81df03",
+    "src/test/resources/ndip3/target-quota-accounting-vectors.properties": "48206645b9731cac6e02daddd9629367ec01409a035461ff0f75e74e14a9d8e8",
+    "src/test/resources/ndip3/target-quota-vectors.properties": "97219e0eb593a20e77e7a4d6bae64c45dd693b0dd5d8033b7a8e1c6ff185f0df"
+  },
+  "documents": {
+    "docs/IMPLEMENTATION-STATUS.md": "b3fd7a3c596d0772ef073d60be1306845b8dca81d36ac38f331224195f121949",
+    "docs/Nereus Delay 设计.md": "d291656b0959a06296d76795e8c38a0379fcf16a33a132ea76356b06ddaf89e7",
+    "docs/PROTOCOL-REGISTRY.md": "ead02fbf22b2e34bcbb97fcebc027e78c60a2caabec5d39d10600b203c76bea3",
+    "docs/adr/0025-use-seven-column-families-with-versioned-key-namespaces.md": "e59b66d366f842a9320a2bc7ff8b891ce6452772dd6939b31ef6b1f27165e027",
+    "docs/ndip/NDIP-3/01-目标分区队列与调度热路径设计.md": "1c874ad8d3bbfd3bc9b563cf5851fc2690d453934754bf69f2a1d89e23aa3786",
+    "docs/ndip/NDIP-3/02-实施计划.md": "9be5fe9f6f6af09041ec653d1dc894ba3284c66c2346f221ae263cd5c164b423",
+    "docs/ndip/NDIP-3/03-代码级设计.md": "44ec31e95fbdd75899bdd7ed9e3ddafc29b6afec80d13d1bc586579298090145",
+    "docs/ndip/NDIP-3/04-执行记录.md": "7ebd75d3f447f26cca414486444d5d8de9da91e098240ee48e4b68ff36b08e75",
+    "docs/ndip/NDIP-3/05-Target身份与索引契约.md": "973c0ac72c0cbc94e9923fe81db1aedb5994bb6309bc74be0695181ba770cbc1",
+    "docs/ndip/NDIP-3/06-执行与控制兼容契约.md": "a5b7eed240e46faf8b973db910bcdf886bdf45d54adf58d8ec33cb34ca031990",
+    "docs/ndip/NDIP-3/07-Schedule绑定与通道身份契约.md": "c7e485c8ba7299b423166cffc1808aa668a08ca3e4b0a690b1f34532baf3d6d3",
+    "docs/ndip/NDIP-3/08-成员授权与source关联契约.md": "6c851a610c68f2c62ad9b3ab83dd25b8db959f9cac16735b4cd836785258d5ad",
+    "docs/ndip/NDIP-3/09-成员策略与认证控制契约.md": "8207c1a5c1efd97c60bb8703d5bb812e2f1773a97c50b7ebdcd7dc8868a12063",
+    "docs/ndip/NDIP-3/10-Native共同策略与签名契约.md": "00756fcb8081883a6950426d79ee4f090a8ccc234bb1845661522878a0f422ed",
+    "docs/ndip/NDIP-3/11-局部Quota与增量计费契约.md": "c82fccac5766cc271a24c9aeb19fa46200d696faab81b1a8e8d9e6157365684d",
+    "docs/ndip/NDIP-3/README.md": "a03314a1890b4afc0f0976181f1b7672c7596cd996cb46a58526e44bd7a02fc3",
+    "docs/ndip/NDIP-3/decision-record.md": "4b87d8e427ce895e9d02425dd67909bb35b6596b1969ea03dcf435add3209f03",
+    "docs/ndip/NDIP-3/progress.json": "182585d70082f1c544b3f64f958a53d7ec6c7af742d6d1cbfcbf9619dc770f72"
+  },
+  "logs": {
+    "docs/ndip/NDIP-3/evidence/b4-scope-check.log": "b3c6bb832639134805e79d1a2b65f0e306e7cdc613b60b59d5c8d12fb5194d4b",
+    "docs/ndip/NDIP-3/evidence/b4-scope-final-docs.log": "eef4625257aa17a5eb00173ac669be07f0ecc03fc1cac4f1113d213cf5adff6a",
+    "docs/ndip/NDIP-3/evidence/b4-scope-focused.log": "e7be614ade601573ae792b17b4f3bffd1d9473a56c9fda24acd8421bff7e8402"
+  },
+  "checks": {
+    "focused": {
+      "path": "TEST-com.nereusstream.delay.protocol.TargetQuotaScopeContractTest.xml",
+      "name": "com.nereusstream.delay.protocol.TargetQuotaScopeContractTest",
+      "sha256": "9ccb685cf189e491c1153de299d285db622c151f97d8bd840a118f53549604ce",
+      "tests": 23,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "combinedQuotaFocusedTests": 63,
+    "fullJava": {
+      "tests": 1929,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 41
+    },
+    "junitXmlCount": 299,
+    "junitArchive": {
+      "path": "docs/ndip/NDIP-3/evidence/b4-scope-junit.zip",
+      "sha256": "de343c859f132c3accf03d7f3f56d72abfbcfba4df31450cc872d1f35e9c7411",
+      "bytes": 213172,
+      "entries": [
+        {
+          "path": "TEST-com.nereusstream.delay.adapter.AdapterIngressTest.xml",
+          "name": "com.nereusstream.delay.adapter.AdapterIngressTest",
+          "sha256": "fdb7c89eb1f072a34cb7af6377590ccd5f97141a71591df32231b45a420976e9",
+          "tests": 31,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.adapter.AdapterRequestIdentityTest.xml",
+          "name": "com.nereusstream.delay.adapter.AdapterRequestIdentityTest",
+          "sha256": "568b2a7c4913d868c3ffc689549800bbf3c09824d980debce1aafa36ed25a7be",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.adapter.BoundedDestinationPublishAdapterTest.xml",
+          "name": "com.nereusstream.delay.adapter.BoundedDestinationPublishAdapterTest",
+          "sha256": "1ef6bc97273edf94845332ca13a43144b18d23721de9396b0bbbe08bfb122489",
+          "tests": 19,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.adapter.CloseGuardTest.xml",
+          "name": "com.nereusstream.delay.adapter.CloseGuardTest",
+          "sha256": "999e0b03f3b45888b1611ae60aa0430cd548615ebddce31ee5792d28e0cba1fa",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.adapter.CommandResultRetentionPolicyTest.xml",
+          "name": "com.nereusstream.delay.adapter.CommandResultRetentionPolicyTest",
+          "sha256": "1a5c0287b092dd7813a0e7b107f1b6a13fc8aefcb19a616ab024968be2cbe587",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.adapter.ControlOperationQueryPolicyTest.xml",
+          "name": "com.nereusstream.delay.adapter.ControlOperationQueryPolicyTest",
+          "sha256": "25e7edbb519ed3d6a92f0ca2b5fcdb105332a7b182ed73a455f769940a196f85",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.adapter.DestinationAdapterTest.xml",
+          "name": "com.nereusstream.delay.adapter.DestinationAdapterTest",
+          "sha256": "4167065f947fab151e6de23252aad1f15a65f714a5d6807bda8e79055589e18e",
+          "tests": 17,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.adapter.DestinationPhysicalAdmissionTest.xml",
+          "name": "com.nereusstream.delay.adapter.DestinationPhysicalAdmissionTest",
+          "sha256": "d06905026d9aebe80954e196fa13ab03773b8bfb329ba8b568aa6b5828d91e13",
+          "tests": 10,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.adapter.FilesystemPayloadObjectStoreTest.xml",
+          "name": "com.nereusstream.delay.adapter.FilesystemPayloadObjectStoreTest",
+          "sha256": "f88e320d11a6f1237d3c3ef0eefec0eec98bd565b5cf14401c8f5e3261859032",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.adapter.InMemoryPayloadObjectStoreTest.xml",
+          "name": "com.nereusstream.delay.adapter.InMemoryPayloadObjectStoreTest",
+          "sha256": "ffab92ad517c798224227f90b6a4910a805ddc17430811121c028249ff7c4ff9",
+          "tests": 9,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.adapter.KafkaReceiptJournalTest.xml",
+          "name": "com.nereusstream.delay.adapter.KafkaReceiptJournalTest",
+          "sha256": "dee3c5f472161447cf00a24d9d725e4b707e861fb0ca138167bf48e6d4d41eb8",
+          "tests": 13,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.adapter.KafkaTransactionalDestinationAdapterTest.xml",
+          "name": "com.nereusstream.delay.adapter.KafkaTransactionalDestinationAdapterTest",
+          "sha256": "68e8c27c7124638255b82a5dc35cc6f3b34e29a6677e0391b916ad0539d2f39f",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.adapter.KafkaTransactionalPublishEvidenceTest.xml",
+          "name": "com.nereusstream.delay.adapter.KafkaTransactionalPublishEvidenceTest",
+          "sha256": "a07c11f9d7599d481987083c99e7b05a7380ec7ed0f0632be16dac4e0b343837",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.adapter.NativeSubmissionAdapterTest.xml",
+          "name": "com.nereusstream.delay.adapter.NativeSubmissionAdapterTest",
+          "sha256": "0882695a3e1e779dabb36f3367b23b244ab1225ef7ac857a89fd3a466a188772",
+          "tests": 14,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.adapter.PulsarAttemptJournalTest.xml",
+          "name": "com.nereusstream.delay.adapter.PulsarAttemptJournalTest",
+          "sha256": "2f062dc4d3ff0da00747e0d149a147ea844e3080910a8fcda92e3df82de1f629",
+          "tests": 24,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.adapter.PulsarSendAckEvidenceTest.xml",
+          "name": "com.nereusstream.delay.adapter.PulsarSendAckEvidenceTest",
+          "sha256": "01e5cd51a281babe8391787682c9d9effc07c9b0e7e09da20be1bcaca8341c41",
+          "tests": 5,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.adapter.S3CompatiblePayloadObjectStoreTest.xml",
+          "name": "com.nereusstream.delay.adapter.S3CompatiblePayloadObjectStoreTest",
+          "sha256": "971a1f3be17f54632a3cc706aa2ae180b8ec1b6f199d3b241b598bc450106224",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.assessment.DataResetAssessmentReceiptWriterTest.xml",
+          "name": "com.nereusstream.delay.assessment.DataResetAssessmentReceiptWriterTest",
+          "sha256": "56b42eda1889bb55692ce9fe721351d5d9103340527ae8585ed23655d237276a",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.assessment.DataResetAssessmentTest.xml",
+          "name": "com.nereusstream.delay.assessment.DataResetAssessmentTest",
+          "sha256": "734dea382554d1698c7f1b18a5c0238e332eec6b1247d35bbdf960efdbbcc669",
+          "tests": 7,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.assessment.DataResetInventoryCollectorTest.xml",
+          "name": "com.nereusstream.delay.assessment.DataResetInventoryCollectorTest",
+          "sha256": "a9737bf0a4ab1472cabc321d28cd4bbdb7e9e30835ac02c55631d39439a50d1c",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.assessment.DataResetManifestTest.xml",
+          "name": "com.nereusstream.delay.assessment.DataResetManifestTest",
+          "sha256": "d22685708fc2867f32b3420835ecc3a95f511aa013aa5e8782963b04d5bf97d5",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.assessment.DeploymentSafetyGateTest.xml",
+          "name": "com.nereusstream.delay.assessment.DeploymentSafetyGateTest",
+          "sha256": "81fffc09e106ba2b8b5e4b6048e2282024f54c12d863c74e1bf53b2c2c5121b2",
+          "tests": 5,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.assessment.PersistentStagingActivationTest.xml",
+          "name": "com.nereusstream.delay.assessment.PersistentStagingActivationTest",
+          "sha256": "d604ffd33f0d6ca89e655680f4f10a743acdcc485592f91a394db2402793a87e",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.assessment.PersistentStagingEvidenceTest.xml",
+          "name": "com.nereusstream.delay.assessment.PersistentStagingEvidenceTest",
+          "sha256": "bb06fa183562978f65a091c4b3e24f8e190232449094fd5f19a4b4213b6b6afd",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.assessment.PhysicalSendActivationGateTest.xml",
+          "name": "com.nereusstream.delay.assessment.PhysicalSendActivationGateTest",
+          "sha256": "792115229b244b385aa5e1d018b59d647ca2694e8f186e91ff4d7a0331900399",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.assessment.RunningArtifactIdentityTest.xml",
+          "name": "com.nereusstream.delay.assessment.RunningArtifactIdentityTest",
+          "sha256": "e6c91c6fd89d0a563a9d1e1e9144c467e17c2e8d780d68b9917cd138ae061604",
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.client.AutoFastScheduleTest.xml",
+          "name": "com.nereusstream.delay.client.AutoFastScheduleTest",
+          "sha256": "76166b0f6f716aab0ac69622cf5f2b95d8407491c721d97c7cf69f66f6b9e688",
+          "tests": 7,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.client.DefaultDelayClientTest.xml",
+          "name": "com.nereusstream.delay.client.DefaultDelayClientTest",
+          "sha256": "5fdc5543a0bda36b2860cc8c27b644927cdf56df1784195238b237a84156f87f",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.client.EmbeddedDelayServiceTest.xml",
+          "name": "com.nereusstream.delay.client.EmbeddedDelayServiceTest",
+          "sha256": "4efe11f07eed42a24274a1f075037a0ac54c6f3a1ed5b4a3c26c09e010403f9f",
+          "tests": 40,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.gateway.GatewayGrpcApiTest.xml",
+          "name": "com.nereusstream.delay.gateway.GatewayGrpcApiTest",
+          "sha256": "3b2c1755e64a5e4b1d46337a42221f8f2fe7520efe39951e716c234a58da0516",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.gateway.GatewayGrpcServiceTest.xml",
+          "name": "com.nereusstream.delay.gateway.GatewayGrpcServiceTest",
+          "sha256": "637c8a4e780170d75b180caeaf93c084c82f6dacd1f465dd905565c643890ff9",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.gateway.GatewayIngressServiceTest.xml",
+          "name": "com.nereusstream.delay.gateway.GatewayIngressServiceTest",
+          "sha256": "35efbade259358b434c6eb37dbe2a071dde3bf2ef44da98d44f9f264f326c6e3",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.gateway.GatewayPayloadGrpcServiceTest.xml",
+          "name": "com.nereusstream.delay.gateway.GatewayPayloadGrpcServiceTest",
+          "sha256": "d3ceaa974c650a9ff1a02ea7d142d1e4bc658d38c8668a80c17f1a454c15fbb5",
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.gateway.GatewayPayloadStoreAuthorityTest.xml",
+          "name": "com.nereusstream.delay.gateway.GatewayPayloadStoreAuthorityTest",
+          "sha256": "b223defb7d4143f2716778ae826615c5ef5fdda48d42464eccf480d7efb5aeea",
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.gateway.GatewayQueryGrpcServiceTest.xml",
+          "name": "com.nereusstream.delay.gateway.GatewayQueryGrpcServiceTest",
+          "sha256": "5f48e3cdd324b82add32f5a10c49d831bf28d19bec70e1c10406c04800e7071a",
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.gateway.GatewayScheduleServiceTest.xml",
+          "name": "com.nereusstream.delay.gateway.GatewayScheduleServiceTest",
+          "sha256": "d2a0d9e5c09f61f3689ba5ba9ba5abb7a68b58b2e915c6f49cb702ef273e2ab4",
+          "tests": 7,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.gateway.GatewaySecurityCompositionTest.xml",
+          "name": "com.nereusstream.delay.gateway.GatewaySecurityCompositionTest",
+          "sha256": "37dc3976008d1daee16b3913c99e8d3d5591d7b7c785ead40e1dca1c7ed38b1a",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.gateway.OxiaGatewayAdmissionControllerTest.xml",
+          "name": "com.nereusstream.delay.gateway.OxiaGatewayAdmissionControllerTest",
+          "sha256": "49669bfef3303374486b0861c26f0b8c4cd3723880dd279abde216ea9cafba79",
+          "tests": 6,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.gateway.OxiaGatewayAuditSinkTest.xml",
+          "name": "com.nereusstream.delay.gateway.OxiaGatewayAuditSinkTest",
+          "sha256": "fa398056e353855d1835dfb2c4741f17fbd34ad943fa30a11df7bf4358e9225d",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.gateway.OxiaGatewayIdempotencyStoreTest.xml",
+          "name": "com.nereusstream.delay.gateway.OxiaGatewayIdempotencyStoreTest",
+          "sha256": "91d09df766b217271187d99ce281f52873ac34cd9d58edf384d73c726eb654c5",
+          "tests": 11,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.gateway.OxiaRealGatewayAdmissionSmokeTest.xml",
+          "name": "com.nereusstream.delay.gateway.OxiaRealGatewayAdmissionSmokeTest",
+          "sha256": "7b387e352ca8a8ab07d3291d383572baaa93cee3f3e0618a020cc15c59ec1dc2",
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 1
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.gateway.OxiaRealGatewayAuditSinkSmokeTest.xml",
+          "name": "com.nereusstream.delay.gateway.OxiaRealGatewayAuditSinkSmokeTest",
+          "sha256": "57889516d79089436bb2ecdaf824b8ac9dc82e1f6147b5890625b7a3900a6841",
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 1
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.gateway.OxiaRealGatewayGrpcSmokeTest.xml",
+          "name": "com.nereusstream.delay.gateway.OxiaRealGatewayGrpcSmokeTest",
+          "sha256": "0fe122d28388356a75bcd5634cce1e56a2be65df9d762587e5c70ba79e8ae04f",
+          "tests": 7,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 7
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.gateway.RsaSha256GatewayJwtVerifierTest.xml",
+          "name": "com.nereusstream.delay.gateway.RsaSha256GatewayJwtVerifierTest",
+          "sha256": "8a22d87d7ec4e842541480289a667f654b67c05fe920732eb61cb11947d434a6",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.ClaimHandoffWorkClassExecutorTest.xml",
+          "name": "com.nereusstream.delay.ownership.ClaimHandoffWorkClassExecutorTest",
+          "sha256": "4233088e8c9577ff6db86b09c41d53daa59a187a66e52ae6c192ce9f0fdccea9",
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.ControlOperationAuthorityTest.xml",
+          "name": "com.nereusstream.delay.ownership.ControlOperationAuthorityTest",
+          "sha256": "d760473a74aa46746b25ddc916fdf93bc23dff6a2fdc87c76123fd39b4ac6e2d",
+          "tests": 8,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.ControlTargetRegistrationAuthorityTest.xml",
+          "name": "com.nereusstream.delay.ownership.ControlTargetRegistrationAuthorityTest",
+          "sha256": "62767f6b7daaed16aaa08c30d66f70164e150026676c070703629889ef8a2c7b",
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.ControlWorkClassExecutorTest.xml",
+          "name": "com.nereusstream.delay.ownership.ControlWorkClassExecutorTest",
+          "sha256": "2a254ef2f8611263b106afc3c86b960e90a48c7f09f1d12fb4a207fe7a207f12",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.DueSchedulerWorkClassExecutorTest.xml",
+          "name": "com.nereusstream.delay.ownership.DueSchedulerWorkClassExecutorTest",
+          "sha256": "fc3cf34d7eb85cd00ec9da7dabca4af6f9429e50eabe5cea49dc29446f76adb0",
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.ExpiryDiscoveryWorkClassExecutorTest.xml",
+          "name": "com.nereusstream.delay.ownership.ExpiryDiscoveryWorkClassExecutorTest",
+          "sha256": "28aec14c3b20b636ad2b9d2fee0cf0be8f98b660b72004232cd9284b08bba783",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.ExpiryWorkClassExecutorTest.xml",
+          "name": "com.nereusstream.delay.ownership.ExpiryWorkClassExecutorTest",
+          "sha256": "d7cbd6361bc8899c73779a27f5cb906b51c72104a545c1ae712d0c2655d4a969",
+          "tests": 5,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.GcWorkClassExecutorTest.xml",
+          "name": "com.nereusstream.delay.ownership.GcWorkClassExecutorTest",
+          "sha256": "66adf999c26c57519b8e3910294cf339083c4c1a0e80ced20b778cc694ceaa68",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.LaneActivationCoordinatorTest.xml",
+          "name": "com.nereusstream.delay.ownership.LaneActivationCoordinatorTest",
+          "sha256": "8be182688a95225eed68f4f920ca0d72db4495a356fdf0aadb24b8da7a57ea87",
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.LaneCloseWorkClassExecutorTest.xml",
+          "name": "com.nereusstream.delay.ownership.LaneCloseWorkClassExecutorTest",
+          "sha256": "4f29fd90944da8cde3d408aaaec967afca85873eb0def104a90c24db4c66f03c",
+          "tests": 8,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.LeaseFenceWorkClassExecutorTest.xml",
+          "name": "com.nereusstream.delay.ownership.LeaseFenceWorkClassExecutorTest",
+          "sha256": "8beb212d0005e6bfa2bdbddc019ff222c65cc13788e5884c634101dc2dd861ab",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.OutcomeWorkClassExecutorTest.xml",
+          "name": "com.nereusstream.delay.ownership.OutcomeWorkClassExecutorTest",
+          "sha256": "d9a9272037ab9ea9f110c72dd6c4205128b476edf6d7b3ac86c4e350e65da0d4",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.OwnerDrainCoordinatorTest.xml",
+          "name": "com.nereusstream.delay.ownership.OwnerDrainCoordinatorTest",
+          "sha256": "5fe87c5626c2250b690bf717bc25cfc16d533e7f638d1f08acc2f49412442e8b",
+          "tests": 18,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.OwnerLeaseTest.xml",
+          "name": "com.nereusstream.delay.ownership.OwnerLeaseTest",
+          "sha256": "33dd5dbeaf8a5e331ef8b7551496f8d843fd0b95ac6156ba262efb3f5b7f77b9",
+          "tests": 52,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.OwnerRecoveryCoordinatorTest.xml",
+          "name": "com.nereusstream.delay.ownership.OwnerRecoveryCoordinatorTest",
+          "sha256": "9928efa69b6c32c557a96441a6fe31a223adf2c83a0a39bd37130c36e549367d",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.OxiaControlTargetRegistrationAuthorityTest.xml",
+          "name": "com.nereusstream.delay.ownership.OxiaControlTargetRegistrationAuthorityTest",
+          "sha256": "355b3ef5b7d473d0ecea583f875c959ee349596cb2c2dacafd077bc72b5470a3",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.OxiaOwnerLeaseStoreTest.xml",
+          "name": "com.nereusstream.delay.ownership.OxiaOwnerLeaseStoreTest",
+          "sha256": "75d7c5277b88187b278dadd22ec32b789a6d632d22f682917996bc12ac01babe",
+          "tests": 10,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.OxiaRealControlAuthoritySmokeTest.xml",
+          "name": "com.nereusstream.delay.ownership.OxiaRealControlAuthoritySmokeTest",
+          "sha256": "c8a2d083360cc6239398cc7c9e52402e621930130104a4f9c719f57d13082427",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 3
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.OxiaRealProtocolCapabilitySmokeTest.xml",
+          "name": "com.nereusstream.delay.ownership.OxiaRealProtocolCapabilitySmokeTest",
+          "sha256": "cb7a294c7e74f5da785ab386926fd60caca0f215b233ba01c19606445f15fb2b",
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 1
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.OxiaRealServiceSmokeTest.xml",
+          "name": "com.nereusstream.delay.ownership.OxiaRealServiceSmokeTest",
+          "sha256": "c50b86ba272c2425a1db5ae034aa9fe1a5912e0923bb5aa18499d82a481bc445",
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 1
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.OxiaSyncControlOperationBackendTest.xml",
+          "name": "com.nereusstream.delay.ownership.OxiaSyncControlOperationBackendTest",
+          "sha256": "0cf376357d436041f10b3c4e7260df6ecf5321690b8b9ccba2951b0bd512cc5c",
+          "tests": 5,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.OxiaSyncControlTargetRegistrationBackendTest.xml",
+          "name": "com.nereusstream.delay.ownership.OxiaSyncControlTargetRegistrationBackendTest",
+          "sha256": "fdd8cf251b29253727a265c171f157a179fb57a9ebbd4ac9b33c27ea397b2fc2",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackendTest.xml",
+          "name": "com.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackendTest",
+          "sha256": "869b465475c16c5a7873a8444082f79c4bc75a036c02e21a12cb71bac3d13d87",
+          "tests": 15,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.OxiaSyncWorkerAssignmentBackendTest.xml",
+          "name": "com.nereusstream.delay.ownership.OxiaSyncWorkerAssignmentBackendTest",
+          "sha256": "d84f158184e06c200d91a06300e26297f77bea46ff6e5c81aebacf1a462a1599",
+          "tests": 5,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.PersistentControlOperationAuthorityTest.xml",
+          "name": "com.nereusstream.delay.ownership.PersistentControlOperationAuthorityTest",
+          "sha256": "37cbde65628ac854efdd9046696e331311ecc5066f9cdc7e9d7142a37481af8d",
+          "tests": 5,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.PersistentOwnerLeaseStoreTest.xml",
+          "name": "com.nereusstream.delay.ownership.PersistentOwnerLeaseStoreTest",
+          "sha256": "7b7cb51aee4c851f6e596c1e777f63a9032c9aa74ee17cab5d92bd29f20ef179",
+          "tests": 9,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.ProtocolActivationAuthorityCoordinatorTest.xml",
+          "name": "com.nereusstream.delay.ownership.ProtocolActivationAuthorityCoordinatorTest",
+          "sha256": "842cb13f8becfec053e425b3ef4d8b6c77b41d81a09d764ab354f4ccadf6c948",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.PublishAdmissionWorkClassExecutorTest.xml",
+          "name": "com.nereusstream.delay.ownership.PublishAdmissionWorkClassExecutorTest",
+          "sha256": "101470d3440b5f8c96c3fb5177a6a32e8c84b51b5817135b7d09ac278cfb8b18",
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.PulsarSourceReactivationTest.xml",
+          "name": "com.nereusstream.delay.ownership.PulsarSourceReactivationTest",
+          "sha256": "c94e7626c5bca03e7493a73884f10ef9e305cc93f39950946cc3f2b144bc6dca",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.QueryWorkClassExecutorTest.xml",
+          "name": "com.nereusstream.delay.ownership.QueryWorkClassExecutorTest",
+          "sha256": "c7d4ca0127bdbdb1463721bc8ad7d0f3951fde6ddc774821a7a6c82b46133400",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.ReservationExpiryDiscoveryWorkClassExecutorTest.xml",
+          "name": "com.nereusstream.delay.ownership.ReservationExpiryDiscoveryWorkClassExecutorTest",
+          "sha256": "d27146d375857e9c0f1c938563061706fd055cce7599ee68157a7e6849f981fb",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.ReservationExpiryWorkClassExecutorTest.xml",
+          "name": "com.nereusstream.delay.ownership.ReservationExpiryWorkClassExecutorTest",
+          "sha256": "9ae5ac59bf834d18e92484950647ff67795247e0faaa5ca0d7d3cf7ac874fad7",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.RouteSourceAssignmentResolverTest.xml",
+          "name": "com.nereusstream.delay.ownership.RouteSourceAssignmentResolverTest",
+          "sha256": "1b34f76512b8391dd5ba8b61a2e7152cf5498d30b58b657e28eb290eeb64ff40",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.RouteWorkerAssignmentCoordinatorTest.xml",
+          "name": "com.nereusstream.delay.ownership.RouteWorkerAssignmentCoordinatorTest",
+          "sha256": "985b1b4390f4fc858d6a7caad330c1e6c5cf7d48c86175dcbf89e5b0f2fe7708",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.SourceApplyCoordinatorTest.xml",
+          "name": "com.nereusstream.delay.ownership.SourceApplyCoordinatorTest",
+          "sha256": "ec661385dab220936f4c256461f244e26e86d8d762f510838fcbcbfe141bfbcb",
+          "tests": 11,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.SourceApplyWorkClassExecutorTest.xml",
+          "name": "com.nereusstream.delay.ownership.SourceApplyWorkClassExecutorTest",
+          "sha256": "f232e3a62113ba30ef35805b562e7869195e141fb9b98dc3056241d3e1add7e6",
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.SourceAssignmentCodecTest.xml",
+          "name": "com.nereusstream.delay.ownership.SourceAssignmentCodecTest",
+          "sha256": "a6f20ee940ac8e9cce6e4227eddc1acda9a084aec4beb6d1dfe8540efd340249",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.SourceAssignmentTest.xml",
+          "name": "com.nereusstream.delay.ownership.SourceAssignmentTest",
+          "sha256": "bb73b682e239cc600ec99639caba7caceb758c2f2a9c94f2c4fa4a023db1c76a",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.SourceReplayEntryTest.xml",
+          "name": "com.nereusstream.delay.ownership.SourceReplayEntryTest",
+          "sha256": "013b06d67075370d392f5b2baa2e25b569dbe329bfdf78b0a8b19f7656d92fe5",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.SourceReplaySuccessorTest.xml",
+          "name": "com.nereusstream.delay.ownership.SourceReplaySuccessorTest",
+          "sha256": "81544f06362afd395224769f3945117ac1623f89b6cdf38f61979c2af13f873d",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.WorkerAssignmentAuthorityTest.xml",
+          "name": "com.nereusstream.delay.ownership.WorkerAssignmentAuthorityTest",
+          "sha256": "c8e7804ebbc1a96acf56d93b18f9f0be0346a2857369b5f87179a635680df97d",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.WorkerAssignmentCoordinatorTest.xml",
+          "name": "com.nereusstream.delay.ownership.WorkerAssignmentCoordinatorTest",
+          "sha256": "2c2d5f1fec8628fa21201278d4b79808bf3c0eff6b774e5783f754860ede9690",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.WorkerManagedPulsarNativePublishTest.xml",
+          "name": "com.nereusstream.delay.ownership.WorkerManagedPulsarNativePublishTest",
+          "sha256": "d57687b75816e13e60a826e7ee3cef18a4457425fb26c5ad900880a09274a251",
+          "tests": 5,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.WorkerPhysicalPublishExecutorTest.xml",
+          "name": "com.nereusstream.delay.ownership.WorkerPhysicalPublishExecutorTest",
+          "sha256": "ebdf66afff3c3eaa853620b3157b95e1afaf10cc36c6533c532fdc08c5c39125",
+          "tests": 9,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.WorkerPublishOutcomeMutationFactoryTest.xml",
+          "name": "com.nereusstream.delay.ownership.WorkerPublishOutcomeMutationFactoryTest",
+          "sha256": "1d3349f15a1e8ba26ca952c670e0a1b72b610383d0e743870b70f60a8d06120d",
+          "tests": 5,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.WorkerShardFleetRuntimeTest.xml",
+          "name": "com.nereusstream.delay.ownership.WorkerShardFleetRuntimeTest",
+          "sha256": "936407fd9926f5fde75943e5c33ea7ccca35013b0796b6cd73c45fd771493a80",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.ownership.WorkerShardRuntimePhysicalLookupTest.xml",
+          "name": "com.nereusstream.delay.ownership.WorkerShardRuntimePhysicalLookupTest",
+          "sha256": "a5329ddcd676cc4ecbc3b87778780215c8a9a34a9ba2437be22891009e10593e",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.ActivationBarrierTest.xml",
+          "name": "com.nereusstream.delay.protocol.ActivationBarrierTest",
+          "sha256": "6cc30662876c10ef149d0c526ce92f3860fb29b515a93e2ac25716fb831325cc",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.ActiveLaneStateTest.xml",
+          "name": "com.nereusstream.delay.protocol.ActiveLaneStateTest",
+          "sha256": "eed41484695c6c05200e9811b7cae4c742c0f4804c9fa4bd4f8626079c835882",
+          "tests": 8,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.CanonicalLaneTupleTest.xml",
+          "name": "com.nereusstream.delay.protocol.CanonicalLaneTupleTest",
+          "sha256": "27138515af17e32940aa9a80cff7ccd7611ef2110f9160094b80647f7eec8ed2",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.CanonicalProtobufTest.xml",
+          "name": "com.nereusstream.delay.protocol.CanonicalProtobufTest",
+          "sha256": "c007314b4dc4b9e14cb52665ac8cf3088ed8ce4f58638eab4581c0ebe4b870d2",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.CanonicalScheduleIntentTest.xml",
+          "name": "com.nereusstream.delay.protocol.CanonicalScheduleIntentTest",
+          "sha256": "a06f61aa62c30b6206ea99c94d9679a5f4af9a6901e7feffed2156822efab276",
+          "tests": 5,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.CapacityVectorTest.xml",
+          "name": "com.nereusstream.delay.protocol.CapacityVectorTest",
+          "sha256": "2c0893fbd90e36c94aaab22cbb72998c8b4d0bdfc7c44c59ad90f03eee433c0b",
+          "tests": 5,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.ChannelResourceIdentityTest.xml",
+          "name": "com.nereusstream.delay.protocol.ChannelResourceIdentityTest",
+          "sha256": "9fe2c4b0325d95ec23a12d1fc5952c3f7ef30c50031e0a054e043ae41123fcbe",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.CheckpointCatalogResultTest.xml",
+          "name": "com.nereusstream.delay.protocol.CheckpointCatalogResultTest",
+          "sha256": "813a825af3d81278f2bb9578d4a3608b665b2a2a43d27ddc53ac6f919469d462",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.CheckpointControlResultTest.xml",
+          "name": "com.nereusstream.delay.protocol.CheckpointControlResultTest",
+          "sha256": "c02a8f9c05c859dd30f2963f4c1941cd37fcba4c4c199e3535a27d8defc9eba5",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.CheckpointResourceTest.xml",
+          "name": "com.nereusstream.delay.protocol.CheckpointResourceTest",
+          "sha256": "28f056587c3fdf6f78929a8c1a114dd69210545ef089f68f5f800ce5124a80fa",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.CheckpointUploadIntentTest.xml",
+          "name": "com.nereusstream.delay.protocol.CheckpointUploadIntentTest",
+          "sha256": "013b5530b7cb21f3a51e54f74ca5b12a7246e31d8c38db0003b26ac64f72e1fc",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.ClaimMaterializationTest.xml",
+          "name": "com.nereusstream.delay.protocol.ClaimMaterializationTest",
+          "sha256": "6c01e3ab4211ae8fe7607c73ce100f78a1b337105173002b4ceb6b922b8794ab",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.ClaimResultBodyTest.xml",
+          "name": "com.nereusstream.delay.protocol.ClaimResultBodyTest",
+          "sha256": "8add10becf4fcabedadeb448cdc36bbb967743aadc6333b8554c9f50f85ae1ec",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.ClientCommandBodyTest.xml",
+          "name": "com.nereusstream.delay.protocol.ClientCommandBodyTest",
+          "sha256": "5ba0dff8c595c2fa8ee93416eb657ad40f61690a01c33cdc9a4b1cf452fac51d",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.CommandProtocolTupleTest.xml",
+          "name": "com.nereusstream.delay.protocol.CommandProtocolTupleTest",
+          "sha256": "a59774350c011a49791cb8d05d9b93cfbba9cf7c9ed8caaea31dfa1e5d461bc9",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.CommitLargeScheduleBodyTest.xml",
+          "name": "com.nereusstream.delay.protocol.CommitLargeScheduleBodyTest",
+          "sha256": "0b88dd61f24ad7c247b6909bcdfa49fc93d99e0b7237d019e862a1dbceba8f2a",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.CompatibleControlSnapshotTest.xml",
+          "name": "com.nereusstream.delay.protocol.CompatibleControlSnapshotTest",
+          "sha256": "60279ee98f5120ee78d76dde0e7b9991a9588783ed468648c612f324241972f6",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.ControlOperationAuthorizationTest.xml",
+          "name": "com.nereusstream.delay.protocol.ControlOperationAuthorizationTest",
+          "sha256": "6eb77b99bf18c2370bf6fb4f0d1f9ad586d4b203d5439901edc29f84659fd325",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.ControlOperationQueryResponseTest.xml",
+          "name": "com.nereusstream.delay.protocol.ControlOperationQueryResponseTest",
+          "sha256": "df81117d4725e7d184d953927ada21f173faefa0c6f4018ca93a9206b9c3e3a9",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.ControlOperationRequestTest.xml",
+          "name": "com.nereusstream.delay.protocol.ControlOperationRequestTest",
+          "sha256": "fbb4336b5a0a9b1596b1d397d0c667f510fca74e39f6f5b7595fc810444df919",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.ControlOperationStateTransitionTest.xml",
+          "name": "com.nereusstream.delay.protocol.ControlOperationStateTransitionTest",
+          "sha256": "01896e1558dec9128c649093836e815bc3b1d7c23665b03ddd9e97986b070160",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.ControlRegistrationBindingTest.xml",
+          "name": "com.nereusstream.delay.protocol.ControlRegistrationBindingTest",
+          "sha256": "39e55523dda7114d0bc2d69b895e753aed0a5666c2a2490dcd853f7c580fe0f9",
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.ControlRegistrationOutcomeCodecTest.xml",
+          "name": "com.nereusstream.delay.protocol.ControlRegistrationOutcomeCodecTest",
+          "sha256": "11e70651f23c734e2a78e58b1d5c2cb97c073917f4f056e5620bd215fd38bcbf",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.ControlRegistrationProjectionTest.xml",
+          "name": "com.nereusstream.delay.protocol.ControlRegistrationProjectionTest",
+          "sha256": "83a0f5f4c2f3cf490b9cf4039ef8e5a8538fd3ca11b3e7e53a4531c4b15e14e3",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.ControlRequestSupportCodecTest.xml",
+          "name": "com.nereusstream.delay.protocol.ControlRequestSupportCodecTest",
+          "sha256": "dbcdf364e25ffc514ee59ae5907e0eb4a088ff1e0f8e62a55fba0cb4adebd072",
+          "tests": 5,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.ControlResultCodecTest.xml",
+          "name": "com.nereusstream.delay.protocol.ControlResultCodecTest",
+          "sha256": "1504dcd30fbe9fc3e3ef083cabf248161b6f565b3252d9b390a540e228a10c26",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.ControlSystemMutationFactoryTest.xml",
+          "name": "com.nereusstream.delay.protocol.ControlSystemMutationFactoryTest",
+          "sha256": "2e07f93d7bb392469f67e5c27eb028be6c773e0a37d60f017ca65245b58cebbc",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.ControlTargetRefTest.xml",
+          "name": "com.nereusstream.delay.protocol.ControlTargetRefTest",
+          "sha256": "61b6355bea30c29fcdb308984ae0d8eb97fabad3c1eff5528ed4d836d0e4a659",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.CredentialBindingTest.xml",
+          "name": "com.nereusstream.delay.protocol.CredentialBindingTest",
+          "sha256": "e38166afe9852b57fd1a8e9a43e3a30c181e9818781f44fb62e1cb65a799b4e6",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.DeliveryCapabilitySemanticTest.xml",
+          "name": "com.nereusstream.delay.protocol.DeliveryCapabilitySemanticTest",
+          "sha256": "516b171754845917ad77913b13d93eaf3c14b4b943e8eb7d80e4a9984175e717",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.DlqExportResultBodyTest.xml",
+          "name": "com.nereusstream.delay.protocol.DlqExportResultBodyTest",
+          "sha256": "feea361154ab99cb61d2c2d53bb629eb971e2dc0adbccaf965dbe15d2992a010",
+          "tests": 7,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.EvidenceCursorTest.xml",
+          "name": "com.nereusstream.delay.protocol.EvidenceCursorTest",
+          "sha256": "c557096512f243a952930157f10118dda16314ee0f191db17b59c8d7c378b058",
+          "tests": 7,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.ExternalResourceBranchTest.xml",
+          "name": "com.nereusstream.delay.protocol.ExternalResourceBranchTest",
+          "sha256": "0fd93e4aecf12eb7487e75e91d1dfdbc86df4af94f0c55596141096305d5f3a2",
+          "tests": 6,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.HandoffPolicySnapshotTest.xml",
+          "name": "com.nereusstream.delay.protocol.HandoffPolicySnapshotTest",
+          "sha256": "a9f76620ad887b49726a7b220276fc5a539de1759b67fdee1f3036077445299a",
+          "tests": 5,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.InitialRouteControlActivatePayloadTest.xml",
+          "name": "com.nereusstream.delay.protocol.InitialRouteControlActivatePayloadTest",
+          "sha256": "2e20fe50d3ff272807e872081ba309a26627ee02bb341832dc69626da24138aa",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.LaneQuotaUsageMapTest.xml",
+          "name": "com.nereusstream.delay.protocol.LaneQuotaUsageMapTest",
+          "sha256": "d0e8bf95c4e79017e4e19902af286e0ed235152a1c15850161d5f3bed3ac25fe",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.LaneRecordEnvelopeTest.xml",
+          "name": "com.nereusstream.delay.protocol.LaneRecordEnvelopeTest",
+          "sha256": "9ca7a852020cdc2454abc04faae5e134f78d18793826a2f5b8175ba1200d6555",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.LaneTerminalGuardTest.xml",
+          "name": "com.nereusstream.delay.protocol.LaneTerminalGuardTest",
+          "sha256": "4dbcfc12504e7844a2a847e0fd60bbea7d140e8f32030f045837b6e97946b40b",
+          "tests": 5,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.PayloadForPublishTest.xml",
+          "name": "com.nereusstream.delay.protocol.PayloadForPublishTest",
+          "sha256": "037169eb5a997b4e9ee30487eeafb044f296768e61862e6f3a34ed75f7f1a407",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.PayloadProofControlPayloadTest.xml",
+          "name": "com.nereusstream.delay.protocol.PayloadProofControlPayloadTest",
+          "sha256": "28e163ce6befd032aa34c367e899a60d63e418076cc1124f4ae6a98e99a778bb",
+          "tests": 5,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.PayloadProofTrustSetControlStateTest.xml",
+          "name": "com.nereusstream.delay.protocol.PayloadProofTrustSetControlStateTest",
+          "sha256": "00e8fdbc1d0458e327c458c4b8a505e37f3ddcac3820372a4dc41d36cfb66bf6",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.PayloadProofTrustSetSemanticTest.xml",
+          "name": "com.nereusstream.delay.protocol.PayloadProofTrustSetSemanticTest",
+          "sha256": "d41731ba06db2413caa40cad1f20ad55918eae1712547ece2c741d68616dc19d",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.PayloadReferenceTest.xml",
+          "name": "com.nereusstream.delay.protocol.PayloadReferenceTest",
+          "sha256": "7c6a447264e445b5dd7f3eab5ad963f6737fa6520ee2fd0091efa8dada0b096f",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.PreparedCommandTest.xml",
+          "name": "com.nereusstream.delay.protocol.PreparedCommandTest",
+          "sha256": "45302541b52a16a1fd6a31423863b7cb549f8550c41d1966d3d296c5bc9ebfbc",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.PreparedControlOperationTest.xml",
+          "name": "com.nereusstream.delay.protocol.PreparedControlOperationTest",
+          "sha256": "1f9630223784ad63d02562d246c4d8f33d8de5f56966b6f7c7f44b78a1fce08a",
+          "tests": 6,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.PreparedPublishDescriptorTest.xml",
+          "name": "com.nereusstream.delay.protocol.PreparedPublishDescriptorTest",
+          "sha256": "3e13e501f21b74a29b73d5794773fe8c8485269343199e8518326ab58388b593",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.ProfileBindingControlStateTest.xml",
+          "name": "com.nereusstream.delay.protocol.ProfileBindingControlStateTest",
+          "sha256": "7ba213f9e48411617f37c1f753b8a7a61b1391b93f2b49a851e86abdaccafee7",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.ProfileControlRequestTest.xml",
+          "name": "com.nereusstream.delay.protocol.ProfileControlRequestTest",
+          "sha256": "e5c1e7c5405b86818c48dae3d5af481e2e135bee85339770a0838b2e6579dad6",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.ProfileSemanticEnvelopeTest.xml",
+          "name": "com.nereusstream.delay.protocol.ProfileSemanticEnvelopeTest",
+          "sha256": "fbadd4dae269c3bed5a836cdd16e1f492f707590a7fd6ce5ada1eaa020dd7293",
+          "tests": 5,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.ProtocolActivationCutoverContractTest.xml",
+          "name": "com.nereusstream.delay.protocol.ProtocolActivationCutoverContractTest",
+          "sha256": "256e91be7e81c56d4aa29f7bfa953f6b5d34cd10dd78b865a04807470109f9b8",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.ProtocolActivationStateTest.xml",
+          "name": "com.nereusstream.delay.protocol.ProtocolActivationStateTest",
+          "sha256": "427d1836910464cbe9e08a95328e358313bf87c443ab0e34068c265db34817b8",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.ProtocolCapabilityDeclarationTest.xml",
+          "name": "com.nereusstream.delay.protocol.ProtocolCapabilityDeclarationTest",
+          "sha256": "2b824088d4375e8467b7dbcac21345ca797456784d67fd6848ec2651d5eca351",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.ProtocolCodecTest.xml",
+          "name": "com.nereusstream.delay.protocol.ProtocolCodecTest",
+          "sha256": "3e362644ae543a10b6cf7dc1971dc6cbdf8b4b11946bac841a8d1097f122b2ed",
+          "tests": 48,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.ProtocolVersionActivatePayloadTest.xml",
+          "name": "com.nereusstream.delay.protocol.ProtocolVersionActivatePayloadTest",
+          "sha256": "8259ad7c759db4caca07086205549781285a2ebb583e5b39fa83b7a823b7f672",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.PublishAdmissionBodyTest.xml",
+          "name": "com.nereusstream.delay.protocol.PublishAdmissionBodyTest",
+          "sha256": "3e247a98f1e45b3afde10b8814718e5b033a0f0628675edb8f0e47332d95842c",
+          "tests": 19,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.PublishEvidenceTest.xml",
+          "name": "com.nereusstream.delay.protocol.PublishEvidenceTest",
+          "sha256": "d5330e6c89df521f2ac0add608755bf487a0b7ae40df243001399bd366352b7f",
+          "tests": 7,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.PublishOutcomeBodyTest.xml",
+          "name": "com.nereusstream.delay.protocol.PublishOutcomeBodyTest",
+          "sha256": "ed984bb9e9edb52f8bfcc956e902ca2b99b27644f96a5af445531c6acccdc7e5",
+          "tests": 8,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.PulsarPreparedRecordTest.xml",
+          "name": "com.nereusstream.delay.protocol.PulsarPreparedRecordTest",
+          "sha256": "62383812f8df00d1fea3c492fc7fcbbe3d9f232023f7e4f55155908064ee1dc0",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.ReadyCertificateTest.xml",
+          "name": "com.nereusstream.delay.protocol.ReadyCertificateTest",
+          "sha256": "3c9f082560253b073b96896bcc8b5d3e0ae31c0baf4000c4eac1a8dc5d8ef1f5",
+          "tests": 6,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.RecoveryCandidateRefTest.xml",
+          "name": "com.nereusstream.delay.protocol.RecoveryCandidateRefTest",
+          "sha256": "eb6b7346fa2eef4de36641779e71df3b37207431818415d430d39063125bf2cf",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.RecoveryFloorRefTest.xml",
+          "name": "com.nereusstream.delay.protocol.RecoveryFloorRefTest",
+          "sha256": "ad85a41d8e4d20a3d64339d1fd483a8294a9395dbfd65eedc0c6ff580ad0ae4a",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.RecoveryInstallStateTest.xml",
+          "name": "com.nereusstream.delay.protocol.RecoveryInstallStateTest",
+          "sha256": "8ac8f4221f36aea51b93a118f03fd6184e6b354426b08e958d78120f19c8aca1",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.RecoveryPinTest.xml",
+          "name": "com.nereusstream.delay.protocol.RecoveryPinTest",
+          "sha256": "ea302071a4890cf9bb8ceee01f5daff354520265df7177d5b2c35e8b2f195546",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.RemainingClientCommandBodyTest.xml",
+          "name": "com.nereusstream.delay.protocol.RemainingClientCommandBodyTest",
+          "sha256": "5a940d9845783546a02562f90fc6432b6d35897bf162597e80fba92c7123f982",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.RemainingPreparedCommandTest.xml",
+          "name": "com.nereusstream.delay.protocol.RemainingPreparedCommandTest",
+          "sha256": "7a03eee995ae1eeec8ba90a31180758e34a665a439f7807dafca4e59bf6b7700",
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.ReplayDeadLetterBodyTest.xml",
+          "name": "com.nereusstream.delay.protocol.ReplayDeadLetterBodyTest",
+          "sha256": "f5d73d44cc912f7e7777cf1568e8d7680d6195d6942d07aa1b45882a6226c9b5",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.ResolveUncertainBodyTest.xml",
+          "name": "com.nereusstream.delay.protocol.ResolveUncertainBodyTest",
+          "sha256": "a98cc712474ba5be0975ef25ca449f3dbeb225a60842cdacef3b2d636f7ba0d1",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.ResourceDeleteConfirmedBodyTest.xml",
+          "name": "com.nereusstream.delay.protocol.ResourceDeleteConfirmedBodyTest",
+          "sha256": "4e05549f66dfdb5c02078b558e3f31f4a251b8b5ce439ce6194459d904840d6b",
+          "tests": 7,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.ResourceRetireIntentBodyTest.xml",
+          "name": "com.nereusstream.delay.protocol.ResourceRetireIntentBodyTest",
+          "sha256": "0376d13eecb5205b97e43cf99bdfee4ba8b3c176be4931bc90fc709ca66c3042",
+          "tests": 10,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.RetryPolicySemanticTest.xml",
+          "name": "com.nereusstream.delay.protocol.RetryPolicySemanticTest",
+          "sha256": "bde86b94f7b63519855a42b7587ad32a7b73762e04a820c4c8059158d977d77c",
+          "tests": 6,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.RouteSnapshotTest.xml",
+          "name": "com.nereusstream.delay.protocol.RouteSnapshotTest",
+          "sha256": "ce777164ac17f2a822d6aa5f72f921fa7f0bf44dc7af10436bb46db38cc003b6",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.ScheduleBindingTest.xml",
+          "name": "com.nereusstream.delay.protocol.ScheduleBindingTest",
+          "sha256": "7783d420d37ddaa78595be9b3789b5204f65317831dbc2fc1b3a7d696ba47354",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.SchedulerProjectionsTest.xml",
+          "name": "com.nereusstream.delay.protocol.SchedulerProjectionsTest",
+          "sha256": "1b6fe91720b76895f0a30529cc638544c38910b701c6f5ad03902143cce7909a",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.ShardCapacityEnvelopeTest.xml",
+          "name": "com.nereusstream.delay.protocol.ShardCapacityEnvelopeTest",
+          "sha256": "603a86b2d02cfc47f0c562735f60fa8c8822b487f7faf7c71bae41fba3598d73",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.ShardSubjectTest.xml",
+          "name": "com.nereusstream.delay.protocol.ShardSubjectTest",
+          "sha256": "739cad2a94beb23fb08acd544418cb07e8e41799d8539bf322258fdcc42560ad",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.SloAuthoritativeStartFactoryTest.xml",
+          "name": "com.nereusstream.delay.protocol.SloAuthoritativeStartFactoryTest",
+          "sha256": "619bb9f388eed0f6fb12742eff33fa0847411e7f92fb3c5352a353242d5fb970",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.SloObjectiveTest.xml",
+          "name": "com.nereusstream.delay.protocol.SloObjectiveTest",
+          "sha256": "37380021c4a1efd0f3b1d76337e2e19685f67e0367691130f66e0dbb3bcfae27",
+          "tests": 6,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.SloObservationOutboxTest.xml",
+          "name": "com.nereusstream.delay.protocol.SloObservationOutboxTest",
+          "sha256": "fa4b87658a64c9ec21006b47537834c2ef0597d95375c4820b40397f1ac3c69f",
+          "tests": 11,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.SourceActivationBarrierTest.xml",
+          "name": "com.nereusstream.delay.protocol.SourceActivationBarrierTest",
+          "sha256": "ca49d1ecb559674eb6514864b8b2181569818bb75e72434da14acdfa5937816e",
+          "tests": 10,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.TargetBindingChannelContractTest.xml",
+          "name": "com.nereusstream.delay.protocol.TargetBindingChannelContractTest",
+          "sha256": "0c26afe2d1ba38fd9310efca35caccab3b07f706727480781a39b66d21f96b7a",
+          "tests": 18,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.TargetMembershipContractTest.xml",
+          "name": "com.nereusstream.delay.protocol.TargetMembershipContractTest",
+          "sha256": "c1f93463ddffa5eeffc236d7e2e21986754cf10fa45018ea7f05926d977528a9",
+          "tests": 13,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.TargetMembershipControlTest.xml",
+          "name": "com.nereusstream.delay.protocol.TargetMembershipControlTest",
+          "sha256": "f5bbbb401f3372965c96dfe95c5c35ea7b7f55e2ca95fb097626c6abf2b59d06",
+          "tests": 15,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.TargetNativePolicyContractTest.xml",
+          "name": "com.nereusstream.delay.protocol.TargetNativePolicyContractTest",
+          "sha256": "2ebc2ac281856fba0f7cdd41174e806ad60299b1d0c194b575b9a78a1b48fabf",
+          "tests": 20,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.TargetPartitionIdentityTest.xml",
+          "name": "com.nereusstream.delay.protocol.TargetPartitionIdentityTest",
+          "sha256": "3cc22a4310ecf09252de8ae2afa76f5a677ebed2e4af486b046f0904d696ea9b",
+          "tests": 7,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.TargetQueueStateTest.xml",
+          "name": "com.nereusstream.delay.protocol.TargetQueueStateTest",
+          "sha256": "7ee45c1db297a2e96ff6eb15a0083e6b2149cdff31af0dfd907f4c06fa67a5bd",
+          "tests": 15,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.TargetQuotaAccountingContractTest.xml",
+          "name": "com.nereusstream.delay.protocol.TargetQuotaAccountingContractTest",
+          "sha256": "f53088b0eb24022b8e7bd78fdba8615bd273e112e0a372682562609a108d1623",
+          "tests": 19,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.TargetQuotaContractTest.xml",
+          "name": "com.nereusstream.delay.protocol.TargetQuotaContractTest",
+          "sha256": "48b08245a8f79c6f2e02b75690c2a2c8af59f7c43cad966d71fb1f91ea5930b8",
+          "tests": 21,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.TargetQuotaScopeContractTest.xml",
+          "name": "com.nereusstream.delay.protocol.TargetQuotaScopeContractTest",
+          "sha256": "9ccb685cf189e491c1153de299d285db622c151f97d8bd840a118f53549604ce",
+          "tests": 23,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.TargetWorkContractTest.xml",
+          "name": "com.nereusstream.delay.protocol.TargetWorkContractTest",
+          "sha256": "10ae370290c11f2484ae32f46d4f5f808e70f6bdea1602c9a6bab65424c39d2c",
+          "tests": 13,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.protocol.UnsignedInt32Test.xml",
+          "name": "com.nereusstream.delay.protocol.UnsignedInt32Test",
+          "sha256": "68c1c97c86392c1811edd0b286be9a57004e6f05ef4fe6447d5b5c726ca9a419",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.route.InMemorySignedRouteSnapshotProviderTest.xml",
+          "name": "com.nereusstream.delay.route.InMemorySignedRouteSnapshotProviderTest",
+          "sha256": "77784b84dfd32c8b69de76f5a2accce742807ba15a8c62ded58064b0cfadf93a",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest.xml",
+          "name": "com.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest",
+          "sha256": "60d954e324fbaf8887938ce984e22d3f086cf09df89b87521a2d15ff2a05dc75",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 4
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.route.OxiaRealRouteWorkerAssignmentSmokeTest.xml",
+          "name": "com.nereusstream.delay.route.OxiaRealRouteWorkerAssignmentSmokeTest",
+          "sha256": "1915a560fafdeca1d5c59b0e229565f09c2a9fb646d3e4794e1e965c7a7b65bb",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 2
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.route.OxiaRouteAuthoritySessionTest.xml",
+          "name": "com.nereusstream.delay.route.OxiaRouteAuthoritySessionTest",
+          "sha256": "7f22ff0811afc4b8b64109f5096e3332de9ef1921cf04d4e9532acd9d365fe13",
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.route.OxiaSignedRouteSnapshotProviderTest.xml",
+          "name": "com.nereusstream.delay.route.OxiaSignedRouteSnapshotProviderTest",
+          "sha256": "35ae480b855588b0a4214ba2f66593cd81c9128bbe02b2a1e99b4f8deca95f39",
+          "tests": 14,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.runtime.ClaimMaterializationRuntimeTest.xml",
+          "name": "com.nereusstream.delay.runtime.ClaimMaterializationRuntimeTest",
+          "sha256": "ac6c122b337beb9691a066fddb408a1a60b3508f9d6d914548e788c84f8d9a5e",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.runtime.ClaimRecordTest.xml",
+          "name": "com.nereusstream.delay.runtime.ClaimRecordTest",
+          "sha256": "03d8c2e5bf4136dc4c2bd502a9f00159997c819140bb56771f4e6f5b16327fd5",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.runtime.CommandDedupeRecordTest.xml",
+          "name": "com.nereusstream.delay.runtime.CommandDedupeRecordTest",
+          "sha256": "67a2b380beda8813103ae3dfacc6cf25dc5d7d322d19c62a4e4ccdab794234e6",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.runtime.CommandProtocolDedupeApplyTest.xml",
+          "name": "com.nereusstream.delay.runtime.CommandProtocolDedupeApplyTest",
+          "sha256": "16962a7cc8cb95825168804041161c7bf9b56a5486f008cd076747ce8ff1b4cc",
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.runtime.CredentialAttestationTrustSetTest.xml",
+          "name": "com.nereusstream.delay.runtime.CredentialAttestationTrustSetTest",
+          "sha256": "c019705f4b04ffecbe2da873a20f5681e39aa11f8d262dc37595baaea14760e0",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.runtime.CredentialBindingDurableChaosTest.xml",
+          "name": "com.nereusstream.delay.runtime.CredentialBindingDurableChaosTest",
+          "sha256": "5b3bbeda796e3d571a4a968a906034a7d98efeab829fb6a26d88e42fd712fcac",
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 1
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.runtime.DelayShardConfigTest.xml",
+          "name": "com.nereusstream.delay.runtime.DelayShardConfigTest",
+          "sha256": "63d21dc1687f113e4c1808628166039c050dddd631e6e886536b2038923f2bea",
+          "tests": 5,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.runtime.DelayShardHeadBudgetTest.xml",
+          "name": "com.nereusstream.delay.runtime.DelayShardHeadBudgetTest",
+          "sha256": "85772a11c76a9c423135bd6dc01bd82669f7d827cf791726474ae18b6afb63db",
+          "tests": 5,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.runtime.DelayShardHeadSelectionTest.xml",
+          "name": "com.nereusstream.delay.runtime.DelayShardHeadSelectionTest",
+          "sha256": "b451e5836e4e5b1d0bfc616121950ab3b8efa00c3a48e775c2a1aba23432baa5",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.runtime.DelayShardTest.xml",
+          "name": "com.nereusstream.delay.runtime.DelayShardTest",
+          "sha256": "266b32022188d05e5b55c55552439bc75894253e8f86ea385beb2dcdf79d1c3d",
+          "tests": 146,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.runtime.DlqExportApplyTest.xml",
+          "name": "com.nereusstream.delay.runtime.DlqExportApplyTest",
+          "sha256": "633edd60f6875087bb9f3c557d3f3caaa871a6d9bb85572a98d25f8c0f6fa886",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.runtime.DlqExportRecordTest.xml",
+          "name": "com.nereusstream.delay.runtime.DlqExportRecordTest",
+          "sha256": "7628ccb2eebb26ae490a8ec9c46a442ee19a11adc621e7acd3207a61164ecc3f",
+          "tests": 6,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.runtime.DurableResultTest.xml",
+          "name": "com.nereusstream.delay.runtime.DurableResultTest",
+          "sha256": "25500c27b18dfcee1bd6c97d0bf09d9fe3deb9e446216722fe9c2622b8c8f42f",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.runtime.GenerationRuntimeIndexTest.xml",
+          "name": "com.nereusstream.delay.runtime.GenerationRuntimeIndexTest",
+          "sha256": "356052894833bf491ced7fb7ae256a58bd8f9fb870b949fd7e0b817aaaf9d178",
+          "tests": 7,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.runtime.HeadIndexUpdaterTest.xml",
+          "name": "com.nereusstream.delay.runtime.HeadIndexUpdaterTest",
+          "sha256": "d8838a75d75e7bd04ad2b79d5e630a9f6c0f14e8c5a0a13b16349e62ecb55b46",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.runtime.InitialRouteControlApplyTest.xml",
+          "name": "com.nereusstream.delay.runtime.InitialRouteControlApplyTest",
+          "sha256": "97783d2321b337be52aae579a2c4cee6ec0fdee6dccb3c96dd1f2c9f6233e0da",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.runtime.LaneCloseMaterializationCursorTest.xml",
+          "name": "com.nereusstream.delay.runtime.LaneCloseMaterializationCursorTest",
+          "sha256": "83ca68b46cd141cddbef12912501ab8ea13c1a55f44ad25481ae7426835be5c9",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.runtime.LaneCloseMaterializerTest.xml",
+          "name": "com.nereusstream.delay.runtime.LaneCloseMaterializerTest",
+          "sha256": "b31f7911aec41b86d35a390fb53b2f0c716e05456fe992ff0f1ebe3a962eb7d5",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.runtime.LaneQuotaUsageProjectionTest.xml",
+          "name": "com.nereusstream.delay.runtime.LaneQuotaUsageProjectionTest",
+          "sha256": "8dcd946b7439a68f39fa7cc4ecbe5961eec23deebfff5e9cc75f57435dfc25ba",
+          "tests": 5,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.runtime.LaneRecordTest.xml",
+          "name": "com.nereusstream.delay.runtime.LaneRecordTest",
+          "sha256": "18a65a5f7e499468b2a20257c9657c0471c47ba405c52ec2e1eb6ed855fe69bc",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.runtime.MessageRecordTest.xml",
+          "name": "com.nereusstream.delay.runtime.MessageRecordTest",
+          "sha256": "bbe59a5a8dcc0ae5b193fc9655de5c04960b1fc06b3c95077516a30de6c86be6",
+          "tests": 6,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.runtime.NativeManagedScheduleProjectionTest.xml",
+          "name": "com.nereusstream.delay.runtime.NativeManagedScheduleProjectionTest",
+          "sha256": "9c74e67c78e410f2bf91bf779454b9613094a82064488fc3b1c20340c97a79e5",
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.runtime.OxiaObjectStoreCredentialLeaseActivatorTest.xml",
+          "name": "com.nereusstream.delay.runtime.OxiaObjectStoreCredentialLeaseActivatorTest",
+          "sha256": "ed7c4f44f85f7337dc77d6c9eda8a199667784b502dbb6c934c02c4620b3cd6d",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.runtime.OxiaRealProfileCatalogSmokeTest.xml",
+          "name": "com.nereusstream.delay.runtime.OxiaRealProfileCatalogSmokeTest",
+          "sha256": "142fd15c69a7920d162c21a1236e4ea974f4378192a376c4f0a1b7f29136e538",
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 1
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.runtime.OxiaSyncProfileCatalogBackendTest.xml",
+          "name": "com.nereusstream.delay.runtime.OxiaSyncProfileCatalogBackendTest",
+          "sha256": "ea69011dafebcec43dc7a7c33a514499833749be0eb00463fc4f83454172bef4",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.runtime.PayloadReservationTest.xml",
+          "name": "com.nereusstream.delay.runtime.PayloadReservationTest",
+          "sha256": "42b58d1c99b4f299f7e75a60b5336f3199b58905c1b90d0c849a5e728164a3c3",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.runtime.PolicyCatalogTest.xml",
+          "name": "com.nereusstream.delay.runtime.PolicyCatalogTest",
+          "sha256": "9d6601fafa5648fa60749831c247122e134ce14a18f2797ccf2e40ab60dc7b60",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.runtime.ProfileCatalogScheduleResolverTest.xml",
+          "name": "com.nereusstream.delay.runtime.ProfileCatalogScheduleResolverTest",
+          "sha256": "b8ef3af6c7d34b380883f15385ff33e624cadf947f8f2515ce4f6e0dac8e9b8f",
+          "tests": 8,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.runtime.ProfileCatalogTest.xml",
+          "name": "com.nereusstream.delay.runtime.ProfileCatalogTest",
+          "sha256": "2984596e0fffc9e0dc0b21eadeff851034c85719dc999f2f34e59f7048f74b1c",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.runtime.ProtocolVersionActivationApplyTest.xml",
+          "name": "com.nereusstream.delay.runtime.ProtocolVersionActivationApplyTest",
+          "sha256": "7ad37ea0495e134e9bde74a6979abb64ae15b2e227c9aa22cb62e8a808ecdd03",
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.runtime.PublishAttemptLedgerTest.xml",
+          "name": "com.nereusstream.delay.runtime.PublishAttemptLedgerTest",
+          "sha256": "692da5779ed9d733ef82a1c91ae3f3c58ac48b8f70ebb441ffdd81d7e54f52bb",
+          "tests": 7,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.runtime.ReadyIndexValueTest.xml",
+          "name": "com.nereusstream.delay.runtime.ReadyIndexValueTest",
+          "sha256": "8cdb22465fab2726001e7a0306ed96aaa5b27036650efc2edc3f4b0b3485254d",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.runtime.ResourceGcGuardTest.xml",
+          "name": "com.nereusstream.delay.runtime.ResourceGcGuardTest",
+          "sha256": "e995a9b6d242bc837751edd8832cf2513871d7d6b425abe993b8744ed0d543ab",
+          "tests": 15,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.runtime.RetiredMessageIdentityRecordTest.xml",
+          "name": "com.nereusstream.delay.runtime.RetiredMessageIdentityRecordTest",
+          "sha256": "a3a1d4555cfa8a162e9ea6e24245549372f3f684264fdec396c39ceae49c5e5b",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.runtime.ShardQuotaTest.xml",
+          "name": "com.nereusstream.delay.runtime.ShardQuotaTest",
+          "sha256": "a4efb8b7d9718f6fdaef2288c748d7ff6945db7b619d0e17543b8a802786543b",
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.runtime.TargetCompatibilityContractTest.xml",
+          "name": "com.nereusstream.delay.runtime.TargetCompatibilityContractTest",
+          "sha256": "ad845c08dcdd325ec078800473154fb34ac585c308bdf6cfb8a96fcc8f6972ab",
+          "tests": 20,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.runtime.TargetMessageContractTest.xml",
+          "name": "com.nereusstream.delay.runtime.TargetMessageContractTest",
+          "sha256": "fa8636c45ca2237576205a69142f6d10d483ab44ad294bc3b125e52379cc9617",
+          "tests": 15,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.runtime.TargetOrderContractTest.xml",
+          "name": "com.nereusstream.delay.runtime.TargetOrderContractTest",
+          "sha256": "bd9022a8ecaf92bdc5cf6a1bd3b2d39406e25a7751a2fd87ca178c3c8c2dd90c",
+          "tests": 15,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.runtime.TerminalGenerationRecordTest.xml",
+          "name": "com.nereusstream.delay.runtime.TerminalGenerationRecordTest",
+          "sha256": "044809dfc725b2c4a61aef48f75f6313d3068254730a097d2afd5ae9f4617463",
+          "tests": 5,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.runtime.TrustedUtcClockTest.xml",
+          "name": "com.nereusstream.delay.runtime.TrustedUtcClockTest",
+          "sha256": "58f4930478d3fe91f79a89b77c3cb8edb0de68ba87f9aa577c44f805d88e325d",
+          "tests": 6,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.scheduler.ClaimExecutionAdmissionTest.xml",
+          "name": "com.nereusstream.delay.scheduler.ClaimExecutionAdmissionTest",
+          "sha256": "df0478a5835a16ee4876169cc7d810614b8b34295960a80b70e491eaaabb26bf",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.scheduler.HandoffEligibilityResolverTest.xml",
+          "name": "com.nereusstream.delay.scheduler.HandoffEligibilityResolverTest",
+          "sha256": "d70b4057a76b46a5099a2f38f54bd8f7ba137160fc40b4018e967a5372173800",
+          "tests": 5,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.scheduler.LaneSchedulerTest.xml",
+          "name": "com.nereusstream.delay.scheduler.LaneSchedulerTest",
+          "sha256": "1cca5bde2b2edb45f55216d28e88ee31d777db9710d02edae6b283a3deb10faf",
+          "tests": 50,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.scheduler.LongGcDurableChaosTest.xml",
+          "name": "com.nereusstream.delay.scheduler.LongGcDurableChaosTest",
+          "sha256": "e66027d948e32573b77775cf8653d6724961df07fb62d14c7be4bfcbc425f44d",
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 1
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.scheduler.ProfileCatalogManagedNativeEligibilityAuthorityTest.xml",
+          "name": "com.nereusstream.delay.scheduler.ProfileCatalogManagedNativeEligibilityAuthorityTest",
+          "sha256": "c8c4e608900c466af22b6e72fedd76e28748e42087dcea78972d78e8cf43d6e3",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.scheduler.TargetIsolationDurableChaosTest.xml",
+          "name": "com.nereusstream.delay.scheduler.TargetIsolationDurableChaosTest",
+          "sha256": "1ccfc63cbd1b43257f19350f3ae97cf8027b6cdec8d2b6b0a9fc65a9bb822750",
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 1
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.scheduler.WorkClassDispatcherTest.xml",
+          "name": "com.nereusstream.delay.scheduler.WorkClassDispatcherTest",
+          "sha256": "8fe4d26db44fdd5de12e2f28d5fe0fb2b330d962b02e8ea92488afb8de74a4f2",
+          "tests": 5,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.scheduler.WorkClassEventLoopTest.xml",
+          "name": "com.nereusstream.delay.scheduler.WorkClassEventLoopTest",
+          "sha256": "3c1627d18c9528211ede7e3b7430a4b321d030b99a98e5ca55f2ceb505b4bcb8",
+          "tests": 8,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.scheduler.WorkClassExecutionRegistryTest.xml",
+          "name": "com.nereusstream.delay.scheduler.WorkClassExecutionRegistryTest",
+          "sha256": "e4e900d96b0c3bb42f3448628686e9229d1d9075f1a1fdb65ec4081859ee6171",
+          "tests": 7,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.scheduler.WorkClassResourcePoolTest.xml",
+          "name": "com.nereusstream.delay.scheduler.WorkClassResourcePoolTest",
+          "sha256": "6206eea035ed6423681fa68fd41277e16026450c3681a4b0b6a771b5e46c023c",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.scheduler.WorkClassRuntimeConfigTest.xml",
+          "name": "com.nereusstream.delay.scheduler.WorkClassRuntimeConfigTest",
+          "sha256": "b4da2b97c7540a5dc64c9d659625f70ca55eb5b0cf69ba970f80ebbb8617728e",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.scheduler.WorkClassSchedulerTest.xml",
+          "name": "com.nereusstream.delay.scheduler.WorkClassSchedulerTest",
+          "sha256": "efa3b5ec0af5e00b365b8e3e0440d3fb2dd7f5ce87c38a53102a8e446ba79b2b",
+          "tests": 8,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.scheduler.WorkerSchedulerTest.xml",
+          "name": "com.nereusstream.delay.scheduler.WorkerSchedulerTest",
+          "sha256": "8877edd977e5c52cb3854fcbd03a014835855ceae82ad03c20d31a5b589d4296",
+          "tests": 22,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.semantic.DefaultDelaySemanticCoreTest.xml",
+          "name": "com.nereusstream.delay.semantic.DefaultDelaySemanticCoreTest",
+          "sha256": "b7c1e81cbd66bdb3ea36e423cd1cc2bbc72dc97dd8e7e9113041a5733b889560",
+          "tests": 5,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.semantic.NativeCapabilitySnapshotIssuerTest.xml",
+          "name": "com.nereusstream.delay.semantic.NativeCapabilitySnapshotIssuerTest",
+          "sha256": "b4b16a720a8a65da197598b1785cc4e2f4eb19ab4d3a81c6d7f1fa626f119450",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.semantic.OxiaSyncHandoffPolicyAuthorityTest.xml",
+          "name": "com.nereusstream.delay.semantic.OxiaSyncHandoffPolicyAuthorityTest",
+          "sha256": "23d9bbf5335c2f78e5594da4c720d15d95bd9fa49b477c423e1ce5d15c6e5ef0",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.semantic.OxiaSyncHandoffPolicyTrustStoreTest.xml",
+          "name": "com.nereusstream.delay.semantic.OxiaSyncHandoffPolicyTrustStoreTest",
+          "sha256": "b653d825e4b89ac67238e7e068a40db3a0f333def1246e9cf9b63b2db5257e21",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.semantic.VerifiedNativePreparationSnapshotCacheTest.xml",
+          "name": "com.nereusstream.delay.semantic.VerifiedNativePreparationSnapshotCacheTest",
+          "sha256": "186f6069022775218198c1791d4e980e97b7d9ef5da13b8328742898347010d0",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.BoundedCapacitySloProbeTest.xml",
+          "name": "com.nereusstream.delay.store.BoundedCapacitySloProbeTest",
+          "sha256": "9d506b2a8d21e9516f303fba19fb87c209a0d2b99d2e7a1104826030645d3399",
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.CheckpointControlSnapshotVerifierTest.xml",
+          "name": "com.nereusstream.delay.store.CheckpointControlSnapshotVerifierTest",
+          "sha256": "bd3dd9446874ae14a2f1170b4ffe5e9f7c500c1127d73cd3c4474ebf0dc9a4be",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.CheckpointDeleteConfirmationComposerTest.xml",
+          "name": "com.nereusstream.delay.store.CheckpointDeleteConfirmationComposerTest",
+          "sha256": "49ba0ccc3b115fc8bbc459bba483e9b518931d8d3b3ae21da477a09117e32bef",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.CheckpointExecutionCoordinatorTest.xml",
+          "name": "com.nereusstream.delay.store.CheckpointExecutionCoordinatorTest",
+          "sha256": "69949b298d38abddf71a85ee02142483cf8768277c1227c06a1d06d7f2f61932",
+          "tests": 8,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.CheckpointManifestTest.xml",
+          "name": "com.nereusstream.delay.store.CheckpointManifestTest",
+          "sha256": "4a91061aa9519c338ed7081b73c5e221df74ec4dceece5f38ea793062fe11d75",
+          "tests": 9,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.CheckpointReapingGuardTest.xml",
+          "name": "com.nereusstream.delay.store.CheckpointReapingGuardTest",
+          "sha256": "1be0665674a09f4d7c8dc2a8106368a6471408dcedfd19acb2b56ac112cae4d4",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.CheckpointReapingOwnerProofIssuerTest.xml",
+          "name": "com.nereusstream.delay.store.CheckpointReapingOwnerProofIssuerTest",
+          "sha256": "ad1ba43b42085a43ad29a136b63cee89295799f6d220f1dcf4656726ccbabe48",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.CheckpointReapingSweepCoordinatorTest.xml",
+          "name": "com.nereusstream.delay.store.CheckpointReapingSweepCoordinatorTest",
+          "sha256": "ec32c3ed8908c9a675c49b868265519005022d5d68dd911a9d2aea1ab81c0420",
+          "tests": 6,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.CheckpointRestoreCoordinatorTest.xml",
+          "name": "com.nereusstream.delay.store.CheckpointRestoreCoordinatorTest",
+          "sha256": "16e595be8496b70876949be6f64ca1985eb07e9b608526ab47d605ba7e154b54",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.CheckpointSchedulerTest.xml",
+          "name": "com.nereusstream.delay.store.CheckpointSchedulerTest",
+          "sha256": "085bc2b94f4aabe9ecf0f67f62ac92944a52045e4e51f18ed56c9ba142e44d4d",
+          "tests": 10,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.CheckpointUploadCoordinatorTest.xml",
+          "name": "com.nereusstream.delay.store.CheckpointUploadCoordinatorTest",
+          "sha256": "cf0aacdf7a4b3cc9925c4a4e35fbe53b581a613a4a76aa7142ac10a8d8b36694",
+          "tests": 11,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.CheckpointUploadIntentStoreTest.xml",
+          "name": "com.nereusstream.delay.store.CheckpointUploadIntentStoreTest",
+          "sha256": "10c85978034ab9696a39caffceff9a5cc77334b4be4c746755102b73723fa5dc",
+          "tests": 11,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.FilesystemCheckpointDownloadAdapterTest.xml",
+          "name": "com.nereusstream.delay.store.FilesystemCheckpointDownloadAdapterTest",
+          "sha256": "665ccb3b0ae253099a7e1030e6a1d704f2238f2e9cd775f48c28febeb1c17806",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.FilesystemCheckpointUploadAdapterTest.xml",
+          "name": "com.nereusstream.delay.store.FilesystemCheckpointUploadAdapterTest",
+          "sha256": "45d9477c0ebf40b088e9a672cf07e34389297f80a3604a33bb6547f98a4a6e1a",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.KeyCodecTest.xml",
+          "name": "com.nereusstream.delay.store.KeyCodecTest",
+          "sha256": "71200705bc5eb02cfcd5a3508687059df5a47e5e5ef14669edaa660e8a8e8478",
+          "tests": 10,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.LocalStatePathGuardTest.xml",
+          "name": "com.nereusstream.delay.store.LocalStatePathGuardTest",
+          "sha256": "9dd4c3ca739a19487bd3bd3b8e2191e8d1feb75b78528ca9aec4453c6bcf7809",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.LocalStorageDurableChaosTest.xml",
+          "name": "com.nereusstream.delay.store.LocalStorageDurableChaosTest",
+          "sha256": "e7a52aab52a5beb3ebd3e2e283e62b8463df4044f4f80f62cab5569d837d8e20",
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 1
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.ObjectStoreCredentialUseLeaseGateTest.xml",
+          "name": "com.nereusstream.delay.store.ObjectStoreCredentialUseLeaseGateTest",
+          "sha256": "06907782fa976cefb17e3069033ea3e47b375c7c69b128c13edbfddb3fffe34e",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.ObjectStoreProviderOwnershipTrackerTest.xml",
+          "name": "com.nereusstream.delay.store.ObjectStoreProviderOwnershipTrackerTest",
+          "sha256": "7ffb0280faf6cb697167a4c3a45511f91a7ebbe17ebc51d9e401ca90e5bf5a4a",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest.xml",
+          "name": "com.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest",
+          "sha256": "c973ed46cc13d884bdd66706b613d510242757dd32204cc24deaf91b51d14719",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 4
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.OxiaRealCheckpointReapingSmokeTest.xml",
+          "name": "com.nereusstream.delay.store.OxiaRealCheckpointReapingSmokeTest",
+          "sha256": "99d848fb694e4e6c4d7a933c76713023b7e1cab2dd0bb4ed7f05f470bc8317e3",
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 1
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.OxiaRealObjectStoreCredentialRenewalSmokeTest.xml",
+          "name": "com.nereusstream.delay.store.OxiaRealObjectStoreCredentialRenewalSmokeTest",
+          "sha256": "5f02fa8e3643fb895b5451185602cd73e9d8a32c7f23e5d965509569f2b6bba7",
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 1
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest.xml",
+          "name": "com.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest",
+          "sha256": "1361afb63d32ceda9687803d35eb54d08a3979e6db2a44ec70dda94539a43a11",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 4
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackendTest.xml",
+          "name": "com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackendTest",
+          "sha256": "b1b4cb34f18b7b714c9d9f7c643943339465362dc528df30580dcf4dc90e636c",
+          "tests": 7,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.OxiaSyncCheckpointUploadIntentBackendTest.xml",
+          "name": "com.nereusstream.delay.store.OxiaSyncCheckpointUploadIntentBackendTest",
+          "sha256": "a655e68e08ba7418dcfb8c191d043e71d0eac586507d0c889a230a396a13e317",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.OxiaSyncRecoveryCatalogBackendTest.xml",
+          "name": "com.nereusstream.delay.store.OxiaSyncRecoveryCatalogBackendTest",
+          "sha256": "0a4f8fc38d1ae934fc41ead8312e5d3f8acaeefb1021b68fa8bbb4594eee1396",
+          "tests": 20,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.PersistentRecoveryCatalogTest.xml",
+          "name": "com.nereusstream.delay.store.PersistentRecoveryCatalogTest",
+          "sha256": "ffa29bbfdc51ac2947819484bec60045081b9c5af034e20b8cd04aee2d2c52dd",
+          "tests": 9,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.PersistentSloObservationCollectorTest.xml",
+          "name": "com.nereusstream.delay.store.PersistentSloObservationCollectorTest",
+          "sha256": "f4178c0637594763ed6a81f637ac3e277a31dae86f43b387d362c2267dd94ffa",
+          "tests": 5,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.RecoveryCatalogTest.xml",
+          "name": "com.nereusstream.delay.store.RecoveryCatalogTest",
+          "sha256": "9a0581a3772b8682e5cec1e6a669a5a1c62241763b557cedc9fe388f1454d88e",
+          "tests": 22,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.RenewableS3CompatibleCheckpointObjectStoreAdapterTest.xml",
+          "name": "com.nereusstream.delay.store.RenewableS3CompatibleCheckpointObjectStoreAdapterTest",
+          "sha256": "b6c3c687cae1089a4353c4f4f88283c939470404de88bbaa9cf6330cb22fce4a",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.RocksDbUsageLimitsTest.xml",
+          "name": "com.nereusstream.delay.store.RocksDbUsageLimitsTest",
+          "sha256": "627556fe0bd7b3bd606dced4be25a043ec10564128b143a645924b20890f89ae",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.S3CompatibleCheckpointObjectStoreAdapterTest.xml",
+          "name": "com.nereusstream.delay.store.S3CompatibleCheckpointObjectStoreAdapterTest",
+          "sha256": "8576a9ec2b85732d58642b4855d85bfbbdbc7b5a4a8e0ac5d9ca4c1ba0d7b91d",
+          "tests": 12,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.S3CompatibleMinioRealSmokeTest.xml",
+          "name": "com.nereusstream.delay.store.S3CompatibleMinioRealSmokeTest",
+          "sha256": "432e289fec9f75b57c67cadc72a2fd9c06a92cd63981935a1ac528915b0b3cfb",
+          "tests": 6,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 6
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.ShardReadPlanTest.xml",
+          "name": "com.nereusstream.delay.store.ShardReadPlanTest",
+          "sha256": "8288581b7590470d944c624c4d5d6f9861c26cf817ba7479ad2297d072959244",
+          "tests": 8,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.ShardStoreTest.xml",
+          "name": "com.nereusstream.delay.store.ShardStoreTest",
+          "sha256": "d1a742cd4980de064cca31d6edaf32c62dc22854dc5a2fdd0ca013471be46142",
+          "tests": 58,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.SharedRocksDbResourcesTest.xml",
+          "name": "com.nereusstream.delay.store.SharedRocksDbResourcesTest",
+          "sha256": "67ff624acfb55c8f1baed94655b71569501a7f0c10309ef7a77e75220bb5f7b5",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.SloObservationCollectorTest.xml",
+          "name": "com.nereusstream.delay.store.SloObservationCollectorTest",
+          "sha256": "c74d1d9848c19f0b4f1fbbf98ee3eacbf46a9704dea0068004c4b3d84913f584",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.SloObservationOutboxExportRateTest.xml",
+          "name": "com.nereusstream.delay.store.SloObservationOutboxExportRateTest",
+          "sha256": "ced48b67fb805fc906293b458afddd6a5fbe42a4b4ff76e12c453ccfc8059559",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.SloObservationOutboxStoreTest.xml",
+          "name": "com.nereusstream.delay.store.SloObservationOutboxStoreTest",
+          "sha256": "279d5ba662b3dd88526ac85f9c31d023793dad5e08b37da06da573de197ee679",
+          "tests": 12,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.StoreRecoveryMetadataTest.xml",
+          "name": "com.nereusstream.delay.store.StoreRecoveryMetadataTest",
+          "sha256": "22530a51985e759074f1b2864f907f6f775b04a8cbeea97c91dd7cbbbb6dee12",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.StoreRuntimeMetadataTest.xml",
+          "name": "com.nereusstream.delay.store.StoreRuntimeMetadataTest",
+          "sha256": "7da077d33af38c39865da7455c7dd2c1cecb147cd6eaca5c727ecf0118cd192a",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.TargetKeyCodecTest.xml",
+          "name": "com.nereusstream.delay.store.TargetKeyCodecTest",
+          "sha256": "f2cb710a516f8c617c5aa9bab79085d5c8670fef1507f6acac8bfb728e1b8a0f",
+          "tests": 5,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.ValueEnvelopeTest.xml",
+          "name": "com.nereusstream.delay.store.ValueEnvelopeTest",
+          "sha256": "4ab599316a80c5cff7a3580599378ec1ad13aff2cfadf9ae61ddcf9b60047f0b",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.VerifiedCredentialMaterialCacheTest.xml",
+          "name": "com.nereusstream.delay.store.VerifiedCredentialMaterialCacheTest",
+          "sha256": "657aff4cafd83d9a678209390bc825562481577d0b99a9c6df714266ad5795ee",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.WorkerCapacityAdmissionTest.xml",
+          "name": "com.nereusstream.delay.store.WorkerCapacityAdmissionTest",
+          "sha256": "a698320b5bfff6edb6d8c9827b3b72495ae3fd1df9c6daef90dfdd31d660e61b",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.WorkerNativeResourceLedgerTest.xml",
+          "name": "com.nereusstream.delay.store.WorkerNativeResourceLedgerTest",
+          "sha256": "3c8ad5fe0bb937e67086eee6a4a0ec44b2f5d0a55c76d5bf0f7a1b88a0d2e5d2",
+          "tests": 6,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.WorkerPlacementPolicyTest.xml",
+          "name": "com.nereusstream.delay.store.WorkerPlacementPolicyTest",
+          "sha256": "6294c46e81741244a45b4852093fb00bec1486ce359cf129fd379a91fddf0dfb",
+          "tests": 7,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.WorkerResourceEnvelopeTest.xml",
+          "name": "com.nereusstream.delay.store.WorkerResourceEnvelopeTest",
+          "sha256": "b511325c392b43dc556b0c56d2f9aa4fe1a32de90271bf42b2b32bcc7f89e338",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.WorkerRocksDbUsageMonitorTest.xml",
+          "name": "com.nereusstream.delay.store.WorkerRocksDbUsageMonitorTest",
+          "sha256": "1e3a7fc9abbea9ac717e5d1b825bb81884fd4043574d2e2171f84b25ea7f87e6",
+          "tests": 6,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.WorkerRuntimeResourceMonitorTest.xml",
+          "name": "com.nereusstream.delay.store.WorkerRuntimeResourceMonitorTest",
+          "sha256": "52dd260756587c151e5f50e1a7c6fe3ec527c8655d64cfc80e34280533abd6ee",
+          "tests": 6,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.WorkerRuntimeResourceProbeTest.xml",
+          "name": "com.nereusstream.delay.store.WorkerRuntimeResourceProbeTest",
+          "sha256": "5a1a0908426cc72525ba208628b4abfd3eff7970f00928b4bfff57cbdcec1989",
+          "tests": 6,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.store.WorkerRuntimeSafetyGateTest.xml",
+          "name": "com.nereusstream.delay.store.WorkerRuntimeSafetyGateTest",
+          "sha256": "bdc7dc15cf4281d6f15e5dd5ebfa2570851ef31cc5bd0fd0bfc87f32823ef10a",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.submission.PulsarNativeProductionCompositionTest.xml",
+          "name": "com.nereusstream.delay.submission.PulsarNativeProductionCompositionTest",
+          "sha256": "f39ed6c1da1ee7843f0c1b30e144b91cbbc624e524cb536c1f98729c15fb8965",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.transport.GuardedTransportOwnershipTest.xml",
+          "name": "com.nereusstream.delay.transport.GuardedTransportOwnershipTest",
+          "sha256": "48ccc18c7c933df7d863b251c9f2ab849e616146d8d0c03893e8f5d99034a260",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "path": "TEST-com.nereusstream.delay.transport.InMemoryCommandTransportRegistryTest.xml",
+          "name": "com.nereusstream.delay.transport.InMemoryCommandTransportRegistryTest",
+          "sha256": "43f9a082e0dcdd48dfeafb2f7444d298ebc3f76c56915f10df57fbf6ecc2aecc",
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        }
+      ]
+    },
+    "independentVectors": {
+      "entries": 18,
+      "checkTask": "checkTargetQuotaScopeVectors",
+      "generatorDependencies": {
+        "scripts/generate-ndip3-target-quota-accounting-vectors.py": "72b3ab21298b5e7e39b2489e88c6575b5ef333ae1d06d00eb101a9a42ffd6820",
+        "scripts/generate-ndip3-target-quota-vectors.py": "1e3edf4925e5cc828fa8555b172d97c730e5d6e812ff201aff89ae47b47c5092"
+      }
+    },
+    "completeCheckCommand": "./gradlew spotlessApply check --console=plain"
+  },
+  "provedContractProperties": [
+    "Grant scope excludes accounting incarnation, Profile and execution domain; current Route is tenant-isolated.",
+    "Old retained incarnation remains part of the Target total and shard aggregate; derived totals and tenant mirrors are never summed twice.",
+    "Changed primary leaves produce bounded point lookups and exact total prior-byte guards; mirror/shard-only/no-op changes do not update totals.",
+    "Net-zero incarnation transfer at Long.MAX_VALUE removes all priors before additions and advances the local total stamp.",
+    "Recovery projection audit rejects missing/extra/duplicate/misattributed totals and omitted old charges; real-ledger reconstruction remains separate.",
+    "New ingress checks shard and all-incarnation Target limits and complete measurement artifacts; closed existing-work operations bypass only the reduced logical grant.",
+    "Full closed wire/key/source checks, independent maximum branch vectors, unsigned revision/policy rules and old NV reader rejection."
+  ],
+  "originalB4Remaining": [
+    "Freeze full grant authority registration, exact prior grant, source control body/activation and transfer-plan association.",
+    "Close unique owner/charge recipes for every operation, including payload/identity protection, all bookkeeping records and finite capacity sizing.",
+    "Freeze accounting incarnation allocation/retirement, tenant/domain ownership and legacy handover.",
+    "Bind all original B4 acceptance items before VERIFIED."
+  ],
+  "followingRuntimeObligations": [
+    "C4 exact authenticated Route/policy binding and current grants; source dedupe, complete business validation and combined guarded atomic batch.",
+    "C4 post-commit publication, real ledger reconstruction, protected release/catalog/pins and physical/outcome gates.",
+    "D/E real Broker, old attempts, checkpoint/replay/fault recovery and cost evidence.",
+    "F applicable persistent-environment migration and protected old-path retirement."
+  ]
+}

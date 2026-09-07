@@ -92,3 +92,12 @@ B4 计量批次完整 check 通过：1906 项 Java 测试、失败/错误 0、�
 
 导入后的术语规范化：原示例 `Profile version 1/2` 使用显式 version 字样，以通过仓库
 项目版本命名门；未改变 Profile 版本的业务含义。原始输入 digest 仅绑定导入来源。
+
+B4 继续实现跨 incarnation Target total（NV 29/meta 16）、完整 scope/grant artifact 与
+逻辑入口/排空策略。旧 incarnation 的 retained 费用持续占用同一 Target 总额；一次局部
+变更只 point lookup 受影响 Target。Grant source 激活、完整 owner/bookkeeping 和
+incarnation 分配/回收保护尚未全部冻结，B4 仍 IN_PROGRESS；新对象尚未成为活动 writer。
+
+本批完整 check 通过：1929 项 Java 测试，失败/错误 0，外部 skip 41；新增 23 项、
+共 63 项 quota 专项无 skip。18 个独立向量条目、全部 299 份 JUnit XML 与精确来源
+保存在 `evidence/b4-scope-results.json` / `b4-scope-junit.zip`。B4 未办理 VERIFIED。
