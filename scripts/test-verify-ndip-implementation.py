@@ -8,6 +8,7 @@ import importlib.util
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -36,12 +37,12 @@ def build_gradle_sample(source_identity: bytes, documentation_governance: bytes)
 
 
 class VerifyNdipImplementationTest(unittest.TestCase):
-    def test_current_checkout_closes_the_exact_implemented_receipt(self) -> None:
+    def test_historical_source_closes_the_exact_implemented_receipt(self) -> None:
         receipt = VERIFIER.load_json(
             ROOT / "docs/ndip/NDIP-1/implementation-receipt.json",
             "implementation receipt",
         )
-        result = VERIFIER.verify_receipt(receipt, current_required=True)
+        result = VERIFIER.verify_receipt(receipt, current_required=False)
 
         self.assertEqual(
             "b4e077e9978f262cdb93cf3562ea12eee32430e2",
@@ -49,6 +50,26 @@ class VerifyNdipImplementationTest(unittest.TestCase):
         )
         self.assertEqual(835, result["runtimeSourceFileCount"])
         self.assertEqual("20260901055333-78920", result["stagingRunId"])
+
+    def test_current_equivalence_requires_exact_certified_paths_and_bytes(self) -> None:
+        receipt = VERIFIER.load_json(
+            ROOT / "docs/ndip/NDIP-1/implementation-receipt.json", "implementation receipt"
+        )
+        authority = receipt["runtimeSourceAuthority"]
+        historical = VERIFIER.source_from_git(
+            authority["certifiedCommit"], VERIFIER.RUNTIME_PREFIXES,
+            VERIFIER.RUNTIME_EXACT_PATHS, VERIFIER.RUNTIME_DOMAIN
+        )
+        with patch.object(VERIFIER, "source_from_current", return_value=historical):
+            VERIFIER.verify_source_authority(authority, current_required=True)
+        changed_digest = ("0" * 64, historical[1], historical[2])
+        with patch.object(VERIFIER, "source_from_current", return_value=changed_digest):
+            with self.assertRaisesRegex(VERIFIER.VerificationError, "digest differs"):
+                VERIFIER.verify_source_authority(authority, current_required=True)
+        missing_path = (historical[0], historical[1] - 1, historical[2][1:])
+        with patch.object(VERIFIER, "source_from_current", return_value=missing_path):
+            with self.assertRaisesRegex(VERIFIER.VerificationError, "path set differs"):
+                VERIFIER.verify_source_authority(authority, current_required=True)
 
     def test_receipt_unknown_root_field_fails_closed(self) -> None:
         receipt = VERIFIER.load_json(

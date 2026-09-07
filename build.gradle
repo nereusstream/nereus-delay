@@ -1135,6 +1135,15 @@ tasks.register('verifyNdip1Implemented', Exec) {
     commandLine 'python3', '-B', 'scripts/verify-ndip-implementation.py'
 }
 
+// A closed proposal stays historical when a later authorized NDIP changes runtime source.
+// Keep verifyNdip1Implemented as the strict opt-in equivalence gate for old certification reuse.
+tasks.register('verifyNdip1HistoricalClosure', Exec) {
+    group = 'verification'
+    description = 'Verifies the immutable NDIP-1 lifecycle receipt without certifying later runtime changes.'
+    workingDir projectDir
+    commandLine 'python3', '-B', 'scripts/verify-ndip-implementation.py', '--historical-only'
+}
+
 tasks.register('testNdip1PackageVerifier', Exec) {
     group = 'verification'
     description = 'Runs focused closed-schema and lifecycle tests for the NDIP package verifier.'
@@ -1165,7 +1174,7 @@ tasks.register('checkDocumentation') {
     description = 'Checks current authority documents, accepted proposals, NDIP receipts, and baseline revision.'
     dependsOn tasks.named('verifyNdip1PackageAccepted')
     dependsOn tasks.named('verifyNdip2PackageAccepted')
-    dependsOn tasks.named('verifyNdip1Implemented')
+    dependsOn tasks.named('verifyNdip1HistoricalClosure')
     dependsOn tasks.named('testNdip1PackageVerifier')
     dependsOn tasks.named('testNdip1ImplementationVerifier')
     doLast {

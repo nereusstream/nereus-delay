@@ -117,6 +117,28 @@ public final class ShardStore implements AutoCloseable {
     private StoreRecoveryMetadata recoveryMetadata;
     private CompatibleControlSnapshot controlSnapshot;
     private long closedIngressDeadlineThrough;
+    private long readyEntriesRead;
+    private long quotaPreparedPutBytes;
+    private long schedulerPreparedPutBytes;
+    private long nativeWriteCalls;
+    private long successfulWriteCalls;
+
+    /** Fixed-cardinality process probes. Prepared bytes include failed batches; writes count native calls. */
+    public synchronized OperationStatistics operationStatistics() {
+        return new OperationStatistics(
+                readyEntriesRead,
+                quotaPreparedPutBytes,
+                schedulerPreparedPutBytes,
+                nativeWriteCalls,
+                successfulWriteCalls);
+    }
+
+    public record OperationStatistics(
+            long readyEntriesRead,
+            long quotaPreparedPutBytes,
+            long schedulerPreparedPutBytes,
+            long nativeWriteCalls,
+            long successfulWriteCalls) {}
 
     /**
      * A synchronous RocksDB write failed after the batch operation reached the
@@ -2134,6 +2156,9 @@ public final class ShardStore implements AutoCloseable {
                     break;
                 }
                 final byte[] value = iterator.value();
+                if (family == ColumnFamily.TIMELINE && key.length >= 2 && key[0] == 3 && key[1] == 1) {
+                    readyEntriesRead++;
+                }
                 if (!readBudget.tryCharge(key.length, value.length)) {
                     break;
                 }
@@ -2160,8 +2185,10 @@ public final class ShardStore implements AutoCloseable {
                     new Batch(this, batch, handles, closedIngressDeadlineThrough, runtimeMetadata, controlSnapshot);
             operation.apply(pending);
             nativeWriteAttempted = true;
+            nativeWriteCalls++;
             try {
                 db.write(writeOptions, batch);
+                successfulWriteCalls++;
             } catch (RocksDBException exception) {
                 // RocksDB reports a native failure after the call boundary;
                 // the caller cannot safely infer that no bytes reached the
@@ -2651,6 +2678,13 @@ public final class ShardStore implements AutoCloseable {
 
         public void put(final ColumnFamily family, final byte[] key, final byte[] value) throws RocksDBException {
             batch.put(handle(family), key, value);
+            if (family == ColumnFamily.META && key.length >= 2 && key[1] == 1) {
+                if (key[0] == 3) {
+                    owner.quotaPreparedPutBytes += (long) key.length + value.length;
+                } else if (key[0] == 5) {
+                    owner.schedulerPreparedPutBytes += (long) key.length + value.length;
+                }
+            }
         }
 
         public void putValue(final ColumnFamily family, final int valueType, final byte[] key, final byte[] payload)

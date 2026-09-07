@@ -180,6 +180,16 @@ public final class DelayShard {
     private SourcePosition lastAppliedSourcePosition;
     private long closedIngressDeadlineThrough;
     private long mutationSequence;
+    private long headCandidateKeysRead;
+    private long headMessageGets;
+
+    /** Process-local logical reads; these counters are neither durable evidence nor physical I/O counts. */
+    public synchronized HeadReadStatistics headReadStatistics() {
+        return new HeadReadStatistics(headCandidateKeysRead, headMessageGets);
+    }
+
+    public record HeadReadStatistics(long candidateKeysRead, long messageGets) {}
+
     private long claimSequence;
     private ShardQuota quota;
     private LaneQuotaUsageProjection laneQuotaUsage;
@@ -10022,6 +10032,7 @@ public final class DelayShard {
                 throw new IllegalStateException("timeline candidate scan exceeded configured bound");
             }
             for (var entry : entries) {
+                headCandidateKeysRead++;
                 final TimelineCandidate candidate = decodeTimelineCandidate(entry, tag, laneId);
                 if (excludedMessageId != null
                         && candidate.messageId().equals(excludedMessageId)
@@ -10061,6 +10072,7 @@ public final class DelayShard {
             throw new IllegalStateException("native candidate scan exceeded configured bound");
         }
         for (var entry : entries) {
+            headCandidateKeysRead++;
             final NativeTimelineCandidate candidate = decodeNativeTimelineCandidate(entry, laneId);
             if (excludedMessageId != null
                     && candidate.messageId().equals(excludedMessageId)
@@ -10104,6 +10116,7 @@ public final class DelayShard {
         }
         final NativeCandidateRef value =
                 NativeCandidateRef.decode(ValueEnvelope.decode(entry.value(), 1).payload());
+        headMessageGets++;
         final MessageRecord message = getMessage(messageId);
         if (message == null
                 || !hasNativeCandidateIndex(message)
@@ -10179,6 +10192,7 @@ public final class DelayShard {
         input.get(messageBytes);
         final int generation = input.getInt();
         final DelayMessageId messageId = new DelayMessageId(messageBytes);
+        headMessageGets++;
         final MessageRecord message = getMessage(messageId);
         if (message == null
                 || message.status() != MessageStatus.SCHEDULED

@@ -1,0 +1,72 @@
+{
+  "scope": "A0 component-only baseline; original full-scan algorithm plus process probes",
+  "baseCommit": "b521b614fbe22d30381593637e60ab615e5906cc",
+  "seed": 20260907,
+  "payloadBytes": 7,
+  "command": "./gradlew test --tests *DelayShardHeadSelectionTest --tests *NativeManagedScheduleProjectionTest --tests *KeyCodecTest",
+  "sourceFiles": {
+    "src/main/java/com/nereusstream/delay/runtime/DelayShard.java": "78f67ccc91baa42b4d5ac722dc1d2c2428b2b5f1a7d8c9d68739507fe1ac4ece",
+    "src/main/java/com/nereusstream/delay/store/ShardStore.java": "dbb02a8ef32ce0feaa0be8955c306a521ab85da7bcd278b8386d9f8a77b56cc2",
+    "src/test/java/com/nereusstream/delay/runtime/DelayShardHeadSelectionTest.java": "0424fa80bac45a2a37fbeded9b502150018cc71a416ffb6b2c86f85039e537e5"
+  },
+  "measurements": [
+    {
+      "N": 16,
+      "L": 1,
+      "candidateKeys": 120,
+      "messageGets": 120,
+      "quotaPreparedBytes": 10016
+    },
+    {
+      "N": 64,
+      "L": 1,
+      "candidateKeys": 2016,
+      "messageGets": 2016,
+      "quotaPreparedBytes": 40156
+    }
+  ],
+  "suites": [
+    {
+      "name": "com.nereusstream.delay.runtime.DelayShardHeadSelectionTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "testCases": [
+        "smallBacklogMeasurementSeparatesCandidateReadsFromMessageGetsAndQuotaBytes()",
+        "committedHeadsMatchFullScanReferenceAcrossMutationsAndClaimRollback()"
+      ]
+    },
+    {
+      "name": "com.nereusstream.delay.runtime.NativeManagedScheduleProjectionTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "testCases": [
+        "explicitNativeScheduleKeepsOrdinaryDueAndMaintainsSeparateStaticCandidate()"
+      ]
+    },
+    {
+      "name": "com.nereusstream.delay.store.KeyCodecTest",
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "testCases": [
+        "controlReserveKeyRejectsUnknownClassAndInvalidGrantIdentity()",
+        "controlReserveKeyUsesRegisteredClassAndLengthPrefixedGrantIdentity()",
+        "gcRetireIntentKeyPreservesUnsignedResourceStateVersionBits()",
+        "inflightKeyPreservesUnsignedOwnerEpochBits()",
+        "terminalDlqExportKeyUsesRegisteredIdentityLayout()",
+        "timelineAndTerminalKeysPreserveUnsignedGenerationBits()",
+        "remainingRegisteredKeyNamespacesRejectInvalidComponents()",
+        "gcProtectionKeyPreservesUnsignedGenerationBits()",
+        "remainingRegisteredKeyNamespacesUseExactLayouts()",
+        "dedupePositionRequiresCanonicalSourcePositionBytes()"
+      ]
+    }
+  ],
+  "brokerExecuted": false,
+  "productionAuthority": false
+}

@@ -1,0 +1,183 @@
+{
+  "proposalId": "NDIP-3",
+  "baselineCommit": "b521b614fbe22d30381593637e60ab615e5906cc",
+  "productionAuthority": false,
+  "slices": [
+    {
+      "id": "A0",
+      "title": "基线与参考模型",
+      "status": "VERIFIED",
+      "evidence": [
+        "evidence/a0-baseline.json"
+      ]
+    },
+    {
+      "id": "A1",
+      "title": "有序 head 与 exact overlay",
+      "status": "IN_PROGRESS",
+      "evidence": []
+    },
+    {
+      "id": "A2",
+      "title": "共享预算与提交屏障",
+      "status": "PLANNED",
+      "evidence": []
+    },
+    {
+      "id": "A3",
+      "title": "审计及失败恢复",
+      "status": "PLANNED",
+      "evidence": []
+    },
+    {
+      "id": "B1",
+      "title": "Target 身份与最终 schema",
+      "status": "PLANNED",
+      "evidence": []
+    },
+    {
+      "id": "B2",
+      "title": "执行控制兼容及有界域",
+      "status": "PLANNED",
+      "evidence": []
+    },
+    {
+      "id": "B3",
+      "title": "Native 共同 policy",
+      "status": "PLANNED",
+      "evidence": []
+    },
+    {
+      "id": "B4",
+      "title": "quota 局部 revision 与 aggregate",
+      "status": "PLANNED",
+      "evidence": []
+    },
+    {
+      "id": "B5",
+      "title": "公平性唤醒和后续语义",
+      "status": "PLANNED",
+      "evidence": []
+    },
+    {
+      "id": "B6",
+      "title": "迁移旧 source replay 与回滚",
+      "status": "PLANNED",
+      "evidence": []
+    },
+    {
+      "id": "B7",
+      "title": "NDIP 规范 golden gate 闭合",
+      "status": "PLANNED",
+      "evidence": []
+    },
+    {
+      "id": "C1",
+      "title": "Target 持久投影与全部 mutation",
+      "status": "PLANNED",
+      "evidence": []
+    },
+    {
+      "id": "C2",
+      "title": "Worker 调度和兼容通道",
+      "status": "PLANNED",
+      "evidence": []
+    },
+    {
+      "id": "C3",
+      "title": "移除高频公平性写",
+      "status": "PLANNED",
+      "evidence": []
+    },
+    {
+      "id": "C4",
+      "title": "局部 counter 与增量 aggregate",
+      "status": "PLANNED",
+      "evidence": []
+    },
+    {
+      "id": "C5",
+      "title": "正式装配和旧路径清单",
+      "status": "PLANNED",
+      "evidence": []
+    },
+    {
+      "id": "D1",
+      "title": "真实 Broker 能力回归",
+      "status": "PLANNED",
+      "evidence": []
+    },
+    {
+      "id": "D2",
+      "title": "UNKNOWN 多 Shard 故障接管",
+      "status": "PLANNED",
+      "evidence": []
+    },
+    {
+      "id": "D3",
+      "title": "N 与 L 分组测量",
+      "status": "PLANNED",
+      "evidence": []
+    },
+    {
+      "id": "E1",
+      "title": "稳定 head 缓存和唤醒",
+      "status": "PLANNED",
+      "evidence": []
+    },
+    {
+      "id": "E2",
+      "title": "K 个不可互换域",
+      "status": "PLANNED",
+      "evidence": []
+    },
+    {
+      "id": "E3",
+      "title": "校验 wrapper 兼容入口",
+      "status": "PLANNED",
+      "evidence": []
+    },
+    {
+      "id": "E4",
+      "title": "指标与 durable 证据分层",
+      "status": "PLANNED",
+      "evidence": []
+    },
+    {
+      "id": "E5",
+      "title": "严格 barrier 和迟到契约",
+      "status": "PLANNED",
+      "evidence": []
+    },
+    {
+      "id": "E6",
+      "title": "配额背压运行配置统一",
+      "status": "PLANNED",
+      "evidence": []
+    },
+    {
+      "id": "E7",
+      "title": "最终完整集成回归",
+      "status": "PLANNED",
+      "evidence": []
+    },
+    {
+      "id": "F1",
+      "title": "适用持久环境受控迁移",
+      "status": "PLANNED",
+      "evidence": []
+    },
+    {
+      "id": "F2",
+      "title": "保护解除后的清退",
+      "status": "PLANNED",
+      "evidence": []
+    },
+    {
+      "id": "F3",
+      "title": "权威文档配置状态收尾",
+      "status": "PLANNED",
+      "evidence": []
+    }
+  ]
+}

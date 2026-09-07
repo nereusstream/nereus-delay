@@ -62,3 +62,6 @@ digest 和 receipt 的 canonical 规则由已接受的
   `productionAuthority=false`；其他 target deployment、性能/规模和 production rollout 后续独立进行。
 - [`NDIP-2`](NDIP-2/README.md)：Accepted；定义 lifecycle closure、environment/release 分轨和
   scoped certified runtime-source authority，不授予 deployment authority。
+
+- [`NDIP-3`](NDIP-3/README.md)：Draft；用户已授权完整 A–F、29 个切片实施，A0 已验证，当前执行 A1。
+  Target 新契约、完整实现、Broker 验证与环境迁移分别跟踪，不借用 NDIP-1 历史 authority。

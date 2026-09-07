@@ -43,3 +43,7 @@ Gradle 的 `checkDocumentation` verification task 会在 `check` 中执行，验
 权威文件存在、文档地图没有丢失主设计入口，并且主设计、Protocol Registry、ADR、
 Status 与 Audit 使用同一个当前设计基线修订号，并验证 Accepted NDP/NDIP、exact package
 receipt、Gate B implementation authority、Gate C deployment boundary 与版本命名残留 gate。
+
+当前热路径改造的完整实施入口为 [NDIP-3](ndip/NDIP-3/README.md)，其 29 个切片按实际
+实现和证据更新。`checkDocumentation` 验证 NDIP-1 历史关闭；复用其认证源码仍须独立通过
+`verifyNdip1Implemented` 的严格当前 runtime 等价检查，新 NDIP 不自动继承旧认证。
