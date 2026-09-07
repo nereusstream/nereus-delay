@@ -51,6 +51,16 @@ public final class ControlTargetMutationBinding {
         final byte[] expectedLogicalIdentity;
         switch (mutation.type()) {
             case APPLY_SHARD_CONTROL -> {
+                if (prepared.request().branch() instanceof TargetQuotaGrantControlRequest expected) {
+                    final var body = TargetQuotaGrantControlBody.decode(mutation.canonicalBody());
+                    requireControlRef(expectedControlRef, body.controlRef());
+                    if (!expected.equals(body.request())) {
+                        throw new IllegalArgumentException(
+                                "quota grant Control payload differs from its registered request");
+                    }
+                    expectedLogicalIdentity = body.logicalIdentity();
+                    break;
+                }
                 if (prepared.request().branch() instanceof TargetMembershipControlRequest expected) {
                     final var body = TargetMembershipControlBody.decode(mutation.canonicalBody());
                     requireControlRef(expectedControlRef, body.controlRef());
@@ -88,7 +98,7 @@ public final class ControlTargetMutationBinding {
     static SystemMutationType expectedMutationType(
             final ControlOperationKind operationKind, final ControlTargetKind targetKind) {
         return switch (operationKind) {
-            case GRANT_TARGET_MEMBERSHIP, CLOSE_TARGET_MEMBERSHIP ->
+            case GRANT_TARGET_MEMBERSHIP, CLOSE_TARGET_MEMBERSHIP, PUBLISH_TARGET_QUOTA_GRANT ->
                 requireTargetKind(targetKind, ControlTargetKind.SHARD, SystemMutationType.APPLY_SHARD_CONTROL);
             case REPLAY_DEAD_LETTER ->
                 requireTargetKind(targetKind, ControlTargetKind.MESSAGE, SystemMutationType.REPLAY_DEAD_LETTER);

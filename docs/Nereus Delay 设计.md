@@ -6019,7 +6019,7 @@ C1/C2 实际状态/权威装配、B6/F1 转换及 D/E 的新 runtime/Broker 认�
 counter identity/value、aggregate/local revision、完整 source stamp、有限 point-lookup
 增量规划和恢复算术核对。Tenant 镜像不重复求和；Target/domain/incarnation 计数使用
 显式新字段，不能重解释旧 Lane 维度或免除物理 request/zombie 资源计费。B4 仍为
-IN_PROGRESS，逐业务 delta、计量/grant 关联和保护证明继续闭合；当前活动 quota writer
+IN_PROGRESS，完整 owner/bookkeeping、有限容量和保护证明继续闭合；当前活动 quota writer
 与旧格式不变，C4/D/E 的真实提交和恢复验证义务保留。
 
 B4 计量批次增加完整固定 artifact 与 attempt budget（NV 28/meta 15）：应用 payload
@@ -6027,7 +6027,7 @@ ownership、execution envelope 与唯一分类 record charge 分开；UNKNOWN �
 确定结果仅释放逻辑 7/8，unused reserve 及 retained 记录须后续 Floor/权限/实际删除
 证明。Retained payload 不进入 per-attempt reserve，避免多个重试放大同一 payload 的
 费用。完整业务 delta 表见 [B4 §9](ndip/NDIP-3/11-局部Quota与增量计费契约.md#9-原-173-业务-delta-表)；
-grant/owner/bookkeeping 和 incarnation 保护仍需闭合，活动 runtime 尚未采用新对象。
+owner/bookkeeping 和 incarnation 保护仍需闭合，活动 runtime 尚未采用新对象。
 
 
 B4 的跨 incarnation 总额（NV 29/meta 16）持续累加旧、新 incarnation 的 primary
@@ -6035,5 +6035,13 @@ B4 的跨 incarnation 总额（NV 29/meta 16）持续累加旧、新 incarnation
 grant 使用包含共享 source-local metadata 的 primary aggregate；tenant mirror 不重复
 加总。新的完整 grant artifact 携带 Target/cardinality/计量/tenant policy 绑定，逻辑入口
 检查保留 grant 下调后既有 Claim/Admission/Outcome 等继续排空的规则。source/control
-授权激活、完整 owner/bookkeeping 与 incarnation 保护仍待冻结，详见
+授权激活契约见下文；完整 owner/bookkeeping 与 incarnation 保护仍待冻结，详见
 [B4 §10](ndip/NDIP-3/11-局部Quota与增量计费契约.md#10-跨-incarnation-的总额与完整-grant-artifact)。
+
+B4 已实现独立认证 quota grant Control 契约：operation 18 / ControlKind 17 绑定完整
+next/prior artifact、父 transfer plan 和唯一 SHARD 注册目标；activation 为 NV 30/meta 17。
+首次应用必须验证历史签名、角色/资源/Route、完整注册、精确 prior 与 source 顺序，并由
+强制 capacity authority 证明静态切分、物理预留和 transfer 顺序。计划绑定完整 Store
+read set；C4 仍须实现容量后端、source dedupe、activation/bookkeeping/Result/SourceAdvance
+同批提交及提交后发布。旧 Lane Store 拒绝该分支，重开后拒绝记录仍在。完整字段见
+[B4 §11](ndip/NDIP-3/11-局部Quota与增量计费契约.md#11-认证-grant-control-与-source-激活契约)。

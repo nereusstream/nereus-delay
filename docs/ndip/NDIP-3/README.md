@@ -77,7 +77,7 @@ B4 counter 基础批次完整 check 通过：1887 项 Java 测试、失败/错�
 B4 继续增加固定计量 artifact 与 attempt budget：UNKNOWN 保留 execution/reserve，
 确定结果与 checkpoint-safe reserve 转实占分开，retained 减额要求独立释放权限；
 retained payload 由 Message Identity 唯一持有，不按 attempt 重复预留。完整 delta 表
-见 §11 契约的 §9。Grant/owner/bookkeeping 与 incarnation 保护仍未全部冻结，B4 保持
+见 §11 契约的 §9。Owner/bookkeeping 与 incarnation 保护仍未全部冻结，B4 保持
 IN_PROGRESS；本批新增 schema 仍未进入活动 Store。
 
 B4 计量批次完整 check 通过：1906 项 Java 测试、失败/错误 0、外部 skip 41；
@@ -95,9 +95,20 @@ B4 计量批次完整 check 通过：1906 项 Java 测试、失败/错误 0、�
 
 B4 继续实现跨 incarnation Target total（NV 29/meta 16）、完整 scope/grant artifact 与
 逻辑入口/排空策略。旧 incarnation 的 retained 费用持续占用同一 Target 总额；一次局部
-变更只 point lookup 受影响 Target。Grant source 激活、完整 owner/bookkeeping 和
+变更只 point lookup 受影响 Target。Grant source 激活契约已实现，完整 owner/bookkeeping 和
 incarnation 分配/回收保护尚未全部冻结，B4 仍 IN_PROGRESS；新对象尚未成为活动 writer。
 
 本批完整 check 通过：1929 项 Java 测试，失败/错误 0，外部 skip 41；新增 23 项、
 共 63 项 quota 专项无 skip。18 个独立向量条目、全部 299 份 JUnit XML 与精确来源
 保存在 `evidence/b4-scope-results.json` / `b4-scope-junit.zip`。B4 未办理 VERIFIED。
+
+B4 grant control 批次已实现完整 prior/transfer 关联、operation 18 / ControlKind 17、
+NV 30/meta 17 激活记录、认证注册与首次 source 应用校验，以及提交前精确视图 guard。
+强制 capacity authority 的契约包含静态切分、物理预留与父 transfer plan；生产后端和
+新 Target Store 原子应用仍由 C4 实现。旧 Lane Store 拒绝新分支且重开后结果保持。
+
+本批完整 check：1952 项 Java 测试，失败/错误 0，外部 skip 41；新增 23 项、共 86 项
+quota 契约无 skip，包含 Control 支持回归的专项运行共 113 项。74 条独立向量及全部
+300 份 JUnit XML、检查前后不变的 1158 个输入见 `evidence/b4-grant-results.json` 与
+`b4-grant-junit.zip`。B4 继续闭合唯一 record owner/bookkeeping、有限容量与 incarnation
+分配/回收等原验收义务；没有活动 Target runtime、Broker 或新 Store 恢复认证。

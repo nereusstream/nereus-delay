@@ -128,6 +128,7 @@ public final class ControlOperationRequest {
             case PUBLISH_DESTINATION_PROFILE_VERSION -> PublishDestinationProfileRequest.decode(encoded);
             case DEPRECATE_DESTINATION_PROFILE_VERSION -> DeprecateDestinationProfileRequest.decode(encoded);
             case PUBLISH_QUOTA_GRANT -> PublishQuotaGrantRequest.decode(encoded);
+            case PUBLISH_TARGET_QUOTA_GRANT -> TargetQuotaGrantControlRequest.decode(encoded);
             case ROTATE_EQUIVALENT_SECRET_REFERENCE -> RotateEquivalentSecretRequest.decode(encoded);
             case GRANT_TARGET_MEMBERSHIP, CLOSE_TARGET_MEMBERSHIP ->
                 TargetMembershipControlRequest.decode(kind, encoded);
@@ -150,6 +151,7 @@ public final class ControlOperationRequest {
                     case PUBLISH_DESTINATION_PROFILE_VERSION -> branch instanceof PublishDestinationProfileRequest;
                     case DEPRECATE_DESTINATION_PROFILE_VERSION -> branch instanceof DeprecateDestinationProfileRequest;
                     case PUBLISH_QUOTA_GRANT -> branch instanceof PublishQuotaGrantRequest;
+                    case PUBLISH_TARGET_QUOTA_GRANT -> branch instanceof TargetQuotaGrantControlRequest;
                     case ROTATE_EQUIVALENT_SECRET_REFERENCE -> branch instanceof RotateEquivalentSecretRequest;
                     case GRANT_TARGET_MEMBERSHIP, CLOSE_TARGET_MEMBERSHIP ->
                         branch instanceof TargetMembershipControlRequest membership

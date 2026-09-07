@@ -65,7 +65,7 @@ contract tests passed without skips. Exact evidence and preserved JUnit XML are 
 Admission/ownership assembly and B6/F1 transition remain required.
 B4 is IN_PROGRESS: independent counter/aggregate codecs, local revisions, bounded delta
 planning and recovery arithmetic checks are implemented with 21 focused tests and independent
-Python vectors. Complete per-record owner/bookkeeping recipes, grant source activation and incarnation
+Python vectors. Complete per-record owner/bookkeeping recipes and incarnation
 protection rules remain B4 requirements; C4 still owns actual source/batch/recovery integration.
 The B4 counter foundation full check passed 1887 Java tests with zero failures/errors and
 41 external skips. Its 21 focused cases have no skips; 24 independent encoding entries and
@@ -74,10 +74,36 @@ B4 now also includes an immutable measurement artifact and a typed attempt-budge
 UNKNOWN retains execution and reserve charges; definitive outcome, checkpoint-safe unused
 reserve release and guarded retained deletion are separate steps. Retained payload is owned
 once per Message Identity, outside per-attempt budgets. The full operation delta table is
-recorded, but grant/owner/bookkeeping and incarnation protections remain incomplete.
+recorded, but owner/bookkeeping and incarnation protections remain incomplete.
 The B4 accounting check passed 1906 Java tests, zero failures/errors, 41 external skips;
 19 new and all 40 quota-focused cases passed without skips. Thirty independent vectors
 and all 298 JUnit XML files are bound by `docs/ndip/NDIP-3/evidence/b4-accounting-results.json`.
+B4 additionally implements all-incarnation Target totals (NV 29 / meta 16),
+complete scope/grant artifacts and a pure logical ingress/drain policy. A Target
+keeps its old retained charges inside the same grant scope; tenant mirrors never
+inflate the aggregate. Total updates remain bounded by affected Targets and use
+exact prior-byte guards. The grant source activation contract is implemented below;
+record ownership/bookkeeping and protected incarnation lifecycle rules remain incomplete. No active Target
+writer or physical/Broker/recovery authority is certified by these contracts.
+
+The all-incarnation scope/grant milestone full check passed 1929 Java tests with zero
+failures/errors and 41 external skips. Its 23 new and all 63 quota-focused tests passed
+without skips. Eighteen independent vector entries and all 299 JUnit XML files are
+preserved in `docs/ndip/NDIP-3/evidence/b4-scope-results.json` and `b4-scope-junit.zip`.
+
+B4 now includes authenticated grant publication: full next/prior artifacts and parent
+transfer references, Control operation 18 / APPLY kind 17, NV 30 / meta 17 activation,
+registered signatures/roles/Route checks and an exact first-source-application plan.
+Capacity authority is mandatory and receives the complete body/ControlRef and Store
+view; its production implementation and C4 atomic writer remain required. Legacy
+Lane rejection was verified through a real temporary RocksDB close/reopen.
+The grant control full check passed 1952 Java tests, zero failures/errors, 41 external
+skips. All 86 quota contracts and the 113-test focused run passed without skips.
+Seventy-four independent vector entries, all 300 JUnit XML files and 1158 unchanged
+check inputs are bound by `docs/ndip/NDIP-3/evidence/b4-grant-results.json`.
+B4 remains IN_PROGRESS for unique owner/bookkeeping, finite capacity sizing and
+protected incarnation allocation/retirement; no Target Store recovery is certified.
+
 No active Target scheduling runtime, Broker certification or migration is claimed yet. The user authorized
 full implementation and incremental publication on main. NDIP-1 remains closed;
 its historical evidence does not certify changed runtime source.
@@ -17985,17 +18011,3 @@ the implementation receipt's complete certification source. The current
 checkout is equivalent only when its closed runtime-source digest matches;
 documentation-only commits no longer require the pointer to name their HEAD.
 Historical PASS is never rebound or carried forward by prose.
-
-
-B4 additionally implements all-incarnation Target totals (NV 29 / meta 16),
-complete scope/grant artifacts and a pure logical ingress/drain policy. A Target
-keeps its old retained charges inside the same grant scope; tenant mirrors never
-inflate the aggregate. Total updates remain bounded by affected Targets and use
-exact prior-byte guards. Grant source activation, record ownership/bookkeeping
-and protected incarnation lifecycle rules remain incomplete. No active Target
-writer or physical/Broker/recovery authority is certified by these contracts.
-
-The all-incarnation scope/grant milestone full check passed 1929 Java tests with zero
-failures/errors and 41 external skips. Its 23 new and all 63 quota-focused tests passed
-without skips. Eighteen independent vector entries and all 299 JUnit XML files are
-preserved in `docs/ndip/NDIP-3/evidence/b4-scope-results.json` and `b4-scope-junit.zip`.

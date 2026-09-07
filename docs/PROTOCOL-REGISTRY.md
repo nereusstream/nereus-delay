@@ -2211,7 +2211,7 @@ kind 2/4 为 tenant 镜像；aggregate 不重复加入镜像或独立账本的�
 Usage 的既有 CapacityVector 仅允许维度 1–15/51–55 非零，旧 Lane 16/17 与 Worker 物理
 维度不重解释。Target/domain/strict-domain/accounting-incarnation 计数使用新显式字段。
 Counter local revision 与 aggregate revision 独立，仅真实变化递增；完整 source stamp
-仍受 Store source/sequence 约束。完整 grant source 激活、逐业务 owner/bookkeeping 与
+仍受 Store source/sequence 约束。Grant source 激活契约见本节末；逐业务 owner/bookkeeping 与
 incarnation 保护尚未冻结，B4 保持 IN_PROGRESS。旧 NV 1–11 reader、meta/QUOTA 和七个 CF 保持原语义。
 
 B4 的 `TargetQuotaAccounting` schema 1 包含完整 schema bundle hash、固定 NV record/
@@ -2225,7 +2225,7 @@ source/Floor 字段见 [契约 §8](ndip/NDIP-3/11-局部Quota与增量计费契
 Reserve 只允许 3/9–15，禁止在多个 attempt 内复制 Message 的 retained payload。
 UNKNOWN 不释放费用；确定 Outcome、checkpoint-safe reserve 转实占、实际 retained
 删除分三步，Floor DTO 不替代 ReleaseAuthority。旧 reader 仍拒绝 NV 28。
-B4 仍 IN_PROGRESS，grant/owner/bookkeeping 和生命周期保护的最终冻结尚未完成。
+B4 仍 IN_PROGRESS，owner/bookkeeping 和生命周期保护的最终冻结尚未完成。
 
 
 B4 进一步固定 `TargetQuotaScope` schema 1（Source Shard + tenantRoutingScope + optional
@@ -2233,7 +2233,26 @@ Target）、`TargetQuotaTotal` schema 1（scope/usage/local revision/full mutati
 Total 预留 NV 29 / meta `16 01 | 02 | sourceShard[20] | tenantRoutingScope[32] | targetId[32]`，
 全 key 87 bytes；只汇总该 Target 所有 incarnation 的 primary counters，不重复加入
 shard aggregate。完整新 `TargetQuotaGrant` 含 scope/id/version/计量 artifact/limit/tenant
-policy version/hash/digest，尚无独立 NV/meta 或新 source control 激活 branch；旧 QuotaGrantRef
+policy version/hash/digest；artifact 本身不占独立 NV/meta，完整激活投影见下文，旧 QuotaGrantRef
 不扩展。Exact fields、上限、局部 revision 和 logical grant drain 规则见
 [契约 §10](ndip/NDIP-3/11-局部Quota与增量计费契约.md#10-跨-incarnation-的总额与完整-grant-artifact)。
-旧 ValueEnvelope reader 继续拒绝 NV 29；B4 尚未冻结完整 activation/owner/retirement。
+旧 ValueEnvelope reader 继续拒绝 NV 29；B4 尚未冻结完整 owner/bookkeeping/retirement。
+
+`TargetQuotaGrantControlRequest` schema 1 注册 `PUBLISH_TARGET_QUOTA_GRANT=18`；完整
+next/prior grant 与可选 QuotaTransferPlanRef 进入 requestHash。新 APPLY_SHARD_CONTROL
+body 使用 ControlKind 17 / ControlPayload field 17；仅 SHARD targetIndex 0，注册前固定
+expected mutation ID/hash。Field 12 为 raw uint64 next version，field 14 始终 absent，
+完整 prior 只在 payload 出现一次。Semantic domain 为 `nereus-delay-target-quota-control\0`。
+旧 APPLY body/identity decoder 不重新解释该分支；当前 Lane Store 持久拒绝它。
+
+`TargetQuotaGrantActivation` schema 1 预留 NV 30 / meta
+`17 01 | scopeKind[1] | sourceShard[20] | tenantRoutingScope[32] | [targetId[32]]`，
+Shard/Target key 分别 55/87 bytes。完整 request、ControlRef、source mutation、accepted
+SystemMutation ID/hash 与 digest 写入投影；stamp digest 是完整签名 canonical envelope
+的 SHA-256，不是 semantic mutationHash，也不含外层 frame/CRC。没有递归 prior activation。
+Activation domain 为 `nereus-delay-target-quota-grant-activation\0`。
+
+[契约 §11](ndip/NDIP-3/11-局部Quota与增量计费契约.md#11-认证-grant-control-与-source-激活契约)
+固定签名/角色/资源/Route/注册/exact prior、source/sequence 及强制 capacity authority。
+纯首次应用 verifier 不提供生产容量后端、Result-first dedupe、原子 Store 写或内存发布；
+这些仍由 C4 实现。旧 reader 拒绝 NV 30，seven-CF 活动格式不变。

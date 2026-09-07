@@ -1,6 +1,6 @@
 # NDIP-3 B4：局部 Quota 与增量计费契约
 
-状态：**IN_PROGRESS / counter、计量、attempt reserve、跨 incarnation 总额与 grant artifact 已实现，B4 尚未冻结验收**。
+状态：**IN_PROGRESS / counter、计量、attempt reserve、跨 incarnation 总额与 grant 激活契约已实现，B4 尚未冻结验收**。
 本页与原设计 §11.1、§16.6、§17.3 的 B4 合读。它定义已落到代码的 counter 字段与
 局部计算边界；逐项业务 owner、完整计量/grant 关联和恢复来源闭合后才办理
 B4 VERIFIED。当前 Lane writer、ValueEnvelope 的既有 reader 与持久 quota map 未改动。
@@ -164,8 +164,8 @@ identity 的所有 tenant 资源维度之和不能超过主费用。共享 metad
   record 的唯一 owner、counter/budget 自身 bookkeeping 与共享元数据的有界费用来源。
 - §9 已列原 §17.3 的完整业务 delta 表；继续绑定每行的完整 before/after ledger、
   非 attempt 的 payload/identity 保护与结果/控制记录来源，避免只由方法参数声明费用。
-- §10 已定义新 cardinality/grant artifact 和跨 incarnation 总额；完整 grant source
-  激活、tenant Target/domain 计数来源、incarnation 分配/退休证明
+- §10–§11 已定义 cardinality/grant artifact、跨 incarnation 总额和认证 source/control
+  激活契约；仍须闭合 tenant Target/domain 计数来源、incarnation 分配/退休证明
   以及独立账本所有权交接的精确规则，保证不会因多个 Profile/domain 复制 grant。
 - 本批向量/测试已覆盖重复 mutation、溢出、Outcome/UNKNOWN/旧 obligation 的必要
   算术与释放顺序；B4 最终仍须把完整 grant/owner/保护规则逐项绑定到原始验收证据。
@@ -436,9 +436,9 @@ scope/grantId 不变且 checked +1；policy version 不回退，同 version 的 
 必须一致。原始 uint64 可跨 signed 边界，全一位值不能再递增。新 grant 的计量 artifact
 只约束新工作，旧 ledger 按自己冻结的 artifact 保留费用，不能以新常数重算历史费用。
 
-该 artifact **没有单独预留 NV/meta key，也没有接入旧 PUBLISH_QUOTA_GRANT branch**；
-旧 17 维 `QuotaGrantRef` 不变。B4 仍须冻结完整 authority registration、source control
-body、exact prior grant/source activation 和 transfer ref 关联；C4 实现真实后端、可信
+该 artifact 自身没有单独 NV/meta key，也没有接入旧 PUBLISH_QUOTA_GRANT branch；
+旧 17 维 `QuotaGrantRef` 不变。§11 的新 branch 与 NV 30 source 激活投影完整携带该
+artifact、prior grant、ControlRef 和 source stamp。C4 实现真实 authority 后端、可信
 Route/policy 解析和 guarded apply。仅 `requireSuccessor`、digest 或 decoder 均不能发布
 额度，不能证明静态 cuts 总和或授权新 cardinality。
 
@@ -459,3 +459,146 @@ Route/policy 解析和 guarded apply。仅 `requireSuccessor`、digest 或 decod
 
 以上 codec/纯规划/逻辑分支的专项验证不宣称实际 Store 原子性、Broker quota、生产
 activation 或恢复正确性；这些仍由 C4/D/E 与对应证据完成。
+
+## 11. 认证 grant control 与 source 激活契约
+
+### 11.1 完整前后 grant 的新 Control 分支
+
+`PUBLISH_TARGET_QUOTA_GRANT = 18` 是独立 ControlOperationKind；旧 branch 14 的
+17 维 QuotaGrantRef 和旧 reader 保持原义。RBAC 延续 quota publication 的
+PLATFORM_OPERATOR 要求，仍须匹配受认证 actor、role-set、resource-scope hash 和
+完整 resource scope proof；Platform 角色本身不授予任意租户资源权限。
+
+`TargetQuotaGrantControlRequest` schema 1 的 exact fields：
+
+| field | 含义 |
+|---:|---|
+| 1 | schema=1 |
+| 2 | 完整 next TargetQuotaGrant |
+| 3 | 可选完整 prior TargetQuotaGrant；仅首次 version=1 缺省 |
+| 4 | 可选完整既有 QuotaTransferPlanRef |
+
+Next 对 prior 执行 §10 的 exact scope/grantId/version/policy successor 规则。
+不能以 prior version/hash 标量代替完整旧 artifact，也不能省略更新前值。TransferRef
+的四个字段为独立 parent plan 的 operationId、requestHash、tenantPolicyVersion、planHash；
+两个 hash 在此 branch 都必须非零，policy version 必须等于 next grant 的版本引用。
+Parent plan operationId 不能等于本次 publication operationId，避免自引用请求。无 transfer
+ref 只表示不属于已有转移计划，不表示省略 tenant cut 或 physical reservation 检查。
+
+PreparedControlOperation 必须只有一个 SHARD target，index=0，完整 ShardSubject 与
+next.scope.sourceShard 相同，expectedMutationId/hash 成对存在。Target quota scope 留在
+完整 request 内，不复用旧 QUOTA_GRANT target branch，不跨多个 Source Shard 建立一个
+本地原子更新的假象。多 Shard 的收缩/转移仍由受信 parent plan 分步推进。
+
+Request 外层 oneof field=18；requestHash 延用 PreparedControlOperation 的既有域、
+operation kind 与 lp32(完整 outer request) 公式。先生成无自引用的 body，再计算 mutation
+ID/hash，最后将其放入 signed prepared target 并注册；canonical body 不含自身预期 ID/hash。
+
+### 11.2 新 ApplyShardControl kind 17
+
+`TargetQuotaGrantControlBody` exact fields：1 完整 ShardSubject；2 type=APPLY_SHARD_CONTROL=1；
+3 非负 retryUntil；10 完整 ControlRef；11 controlKind=17；12 next grant 的 raw uint64
+version；13 semanticHash[32]；15 ControlPayload，其唯一 oneof field=17，内容是完整
+TargetQuotaGrantControlRequest。**Field 14 始终缺省**：完整 prior 及其 raw uint64 version
+已在 field 15 的 signed request 内唯一编码，不改变旧外层 expected-prior scalar 的语义。
+
+Semantic hash 为 `SHA-256("nereus-delay-target-quota-control\0" || u16be(17) ||
+request.canonicalBytes)`。Logical identity 延用 `ControlRef.logicalOperationIdentity(17)`；
+System Mutation hash、ID、signature domains 和 source framing 不变。ControlRef 必须
+绑定此 request 的 hash、非零 operationId 和唯一 target index 0，body 的 Shard/retry
+必须与外层 signed mutation 一致，semanticVersion 必须等于完整 next grant version。
+
+ControlSystemMutationFactory 和 ControlTargetMutationBinding 已支持此独立分支并检查
+request/body/ref/target/expected mutation 的逐字关联。旧 ApplyShardControlBody、默认
+source semantic reader 和活动 Lane Store 仍拒绝 kind 17；C4 的 Target source reader
+须从新格式 body 自行导出 logical identity 后完整验证 envelope，不能信任调用方报出的 ID。
+旧 reader 的拒绝不是新 Target writer 已激活的证明。
+
+### 11.3 有 source 的完整激活记录
+
+`TargetQuotaGrantActivation` schema 1，预留 **NV 30 / meta tag 17（十六进制）**：
+
+```text
+17 01 | scopeKind:u8 | sourceShard[20] | tenantRoutingScope[32] | [targetId[32]]
+```
+
+ScopeKind=1 为 shard（key 55 bytes），2 为 Target（key 87 bytes）。Key/value/source/tenant
+同时校验。Value exact fields：
+
+| field | 含义 |
+|---:|---|
+| 1 | schema=1 |
+| 2 | 完整 TargetQuotaGrantControlRequest，含 next、可选 prior 与 transfer ref |
+| 3 | 完整 ControlRef |
+| 4 | 完整 TargetQuotaMutation |
+| 5 | accepted systemMutationId[32] |
+| 6 | accepted systemMutationHash[32] |
+| 7 | `nereus-delay-target-quota-grant-activation\0` + fields 1–6 的 digest |
+
+Field 4 的 sequence 是本次 Store mutation sequence，source 是首次实际接受的完整
+SourcePosition，mutationDigest 为 `SHA-256(SystemMutation.canonicalEnvelope())`，
+覆盖完整签名、author 和 signing-key version；不含外层 NDL1 frame header/CRC。
+这个完整字节摘要不能被 field 6 的 semantic mutationHash 替代。同一语义 body 换 signing
+key 重签可以保持 SystemMutation ID/hash，却不能重写第一次接受的 envelope/source stamp。
+
+Field 5 还须按完整 Shard、ControlRef.logicalIdentity(17) 和 field 6 重新导出核对。Grant
+version 不大于 Store sequence；全 raw uint64 范围保留。Value 只包含 prior **grant artifact**，
+不递归嵌入 prior activation，因此历史长度不随更新次数增长。编码 bound 由至多两个完整
+grant、有限 TransferRef/ControlRef、一个完整有界 SourcePosition 与固定 hash 字段相加。
+独立向量覆盖 Target/Shard 两个最大分支、raw version/policy 全一位值和 1 MiB Pulsar source。
+
+### 11.4 首应用校验、权威快照与同 batch 发布
+
+`TargetQuotaGrantControlVerifier` 的顺序固定如下：
+
+1. 调用端先处理 source replay、SystemMutation/Control 去重，保留首次结果与 source。
+   本 verifier 没有 dedupe shortcut；重复/更旧 source 或不匹配 prior 均不能生成第二次激活。
+2. 检查新 operation/type、完整 source/body/request/ControlRef、signed retry window；
+   source timestamp 取 Broker 已认证时间，不使用重放时 wall clock。已登记 operation 的
+   registration retry deadline 不替代它自己的 source mutation retryUntil。
+3. 从 source-protected key authority 解析 prepared 和 mutation 两层签名所需的 key。
+   两层签名均验证；signed author 必须逐字匹配 registered author。恢复可用受保护的
+   historical key，不能任意换成 current key。Unproven absence/transient error 应抛出并
+   停止该位置；null 只能表示权威确认缺失的 key，不能表示网络超时。
+4. 验证受认证 actor/roles/resource scope 和完整 scope proof，读取精确注册的 prepared
+   bytes，核对登记的唯一 target 及 expected mutation ID/hash。仅 caller 自签对象不够。
+5. Route authority 核对 immutable tenantRoutingScope 与完整物理 source resource。
+   本地 View 包含 current activation、aggregate、必要 Target total、Store sequence/source。
+   完整 prior grant 必须与 current activation 逐字相等；首次申请必须确实不存在旧激活。
+6. View 中各 grant/accounting stamp 不得超出 Store source/sequence；任意两条 stamp 的
+   source 顺序与 sequence 顺序必须一致，同位置还要求完整 mutation digest 一致。
+   Total 必须满足 §10 的层级覆盖关系。计算 checked next Store sequence，拒绝耗尽。
+7. 调用强制 CapacityAuthority，传入**完整 Control body（含 ControlRef）**、精确 View 与
+   实际 source。只有该调用成功才产生 immutable Change(before View, after activation)。
+
+CapacityAuthority 是 C4 需要实现的受信后端契约，不是已存在的生产证明。它必须解析
+完整、source-protected tenant policy（版本与 canonical hash 必须匹配 grant）以及当前
+static grant/physical placement 集合，并证明：
+
+- Shard cuts 的 `sum(max(effectiveGrant, grandfatheredUsage))` 逐维不超过 tenant hard
+  policy；Target grant 始终受同一 Source Shard cut 限制，不能把 Target 与 shard grant
+  重复计入静态 cut 总和。
+- 初始、增加、减少、零 grant 均对应精确注册的 ControlRef/request 与 frozen scope；
+  新 allocation 的 non-borrowable physical reservation 已绑定，不能在线借用其他 shard
+  当时看起来空闲的资源。旧 source/key/policy 证据按恢复保护窗口保留。
+- TransferRef 必须解析到完整 immutable parent plan，匹配 operation/request/plan hash、
+  tenant policy、完整 old/new grant sets 及本 publication 的归属。只携一个 ref 不够。
+- Donor shrink/hold markers 先 source 生效；超出新 grant 的 usage 继续占 donor 和 tenant
+  envelope。源端 GRANT_SHRINK_DRAINED 须重查完整 counter digest/source/usage；所有 donor
+  已排空且 recipient physical placement 已预留后才增加，维持每 tenant policy 单 plan，
+  increase 后只按该 plan roll forward。未经这些证明不能释放 donor 的容量。
+
+上列规则沿用主设计 §18.2；本批没有创建代替实际 policy/placement/transfer 后端的
+无条件默认实现。测试中的允许/拒绝回调用于校验调用边界，不能作为生产 CapacityAuthority。
+所有权限、Route、key、registration 和 capacity snapshot 必须在 Owner/Store/source
+guarded commit 内仍有效；C4 后端需以版本/CAS/受保护 reservation 保持这个条件。
+
+`Change.requireCurrent` 在实际 Store guard 内复核完整 before grant/aggregate/total bytes、
+精确不存在、Store source/sequence。该 activation 必须与本次 quota bookkeeping、Control/
+SystemMutation result 和 source 在同一个 WriteBatch 提交；成功后才发布内存当前 grant。
+外部 authority 拒绝、transient exception 或 fatal Error 都不会返回可提交 Change；不能
+据此推进 source 或把异常吞成成功。写结果不确定时恢复 Store，禁止先改 current grant。
+
+下调 grant 不重写 counters、旧冻结 artifact 或历史 charges，不直接释放已有 physical/
+retained obligation；新入口/既有工作仍遵循 §10.4。实际 release、完整账本 owner 与
+bookkeeping 源继续由本 B4 剩余契约和 C4 的原子装配完成，不能因本地激活对象存在而提前回收。

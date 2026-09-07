@@ -276,6 +276,20 @@ public final class PreparedControlOperation {
             throw new IllegalArgumentException("Control Operation requires at least one target");
         }
         switch (kind) {
+            case PUBLISH_TARGET_QUOTA_GRANT -> {
+                requireOnlyKinds(values, ControlTargetKind.SHARD);
+                requireCount(values, ControlTargetKind.SHARD, 1, 1);
+                requireMutationPresence(values, ControlTargetKind.SHARD, true);
+                final var grant = branch(request, TargetQuotaGrantControlRequest.class);
+                if (values.getFirst().targetIndex() != 0
+                        || !values.getFirst()
+                                .shard()
+                                .shardId()
+                                .equals(grant.next().scope().shard())) {
+                    throw new IllegalArgumentException(
+                            "quota grant target must be its exact source Shard at index zero");
+                }
+            }
             case GRANT_TARGET_MEMBERSHIP, CLOSE_TARGET_MEMBERSHIP -> {
                 requireOnlyKinds(values, ControlTargetKind.SHARD);
                 requireCount(values, ControlTargetKind.SHARD, 1, 1);

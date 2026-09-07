@@ -101,9 +101,13 @@
         "evidence/b4-accounting-results.json",
         "evidence/b4-accounting-check.log",
         "evidence/b4-scope-results.json",
-        "evidence/b4-scope-check.log"
+        "evidence/b4-scope-check.log",
+        "evidence/b4-grant-results.json",
+        "evidence/b4-grant-check.log",
+        "evidence/b4-grant-final-docs.log",
+        "evidence/b4-grant-junit.zip"
       ],
-      "progress": "Independent counters/delta, fixed measurements, guarded attempt reserve transitions, all-incarnation Target totals, complete scope/grant artifacts and pure logical ingress/drain rules verified: full check 1929 Java tests, zero failures/errors, 41 external skips; 63 quota contracts without skips. Source/control grant activation, unique owner/bookkeeping recipes and incarnation allocation/retirement remain incomplete. B4 is not frozen; no active Target writer, physical/Broker or actual Store/recovery authority is certified."
+      "progress": "Independent counters/delta, frozen measurements, attempt reserve transitions, all-incarnation totals and authenticated full grant control/activation contract verified. Latest full check: 1952 Java tests, zero failures/errors, 41 external skips; 86 quota contracts without skips. The source verifier requires exact registration, signatures/Route/prior/Store read set and capacity authority; no production capacity backend or Target writer is installed. Unique owner/bookkeeping, finite capacity sizing and protected incarnation allocation/retirement remain incomplete. B4 is not frozen; no physical/Broker or Target Store/recovery authority is certified."
     },
     {
       "id": "B5",

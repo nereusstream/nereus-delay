@@ -188,5 +188,16 @@ B4 also reserves a derived all-incarnation Target total at meta tag 16 / NV 29:
 Only affected primary leaves update their Target total in the same batch. This total
 is never added again to the shard aggregate; tenant mirrors remain projections.
 The new complete quota grant artifact has no standalone NV/meta reservation and
-is not wired into the legacy grant control branch. Source activation and full
-bookkeeping/retirement remain incomplete; the old reader still rejects NV 29.
+is not wired into the legacy grant control branch. Its new authenticated control
+contract is described below; full bookkeeping/retirement remain incomplete. The
+old reader still rejects NV 29.
+
+B4 reserves the full quota grant activation projection at meta tag 17 / NV 30:
+`17 01 | scopeKind[1] | sourceShard[20] | tenantRoutingScope[32] | [targetId[32]]`
+(55/87 bytes). Control operation 18 and APPLY ControlKind/payload 17 bind full
+next/prior grants, exact registration and optional parent transfer plan. The
+source stamp hashes the complete accepted signed envelope. No recursive prior
+activation is embedded. A pure verifier requires source-valid signing/Route/
+capacity authority and exact Store read-set guards; it does not implement the
+production authority backend or C4 atomic writer. Legacy readers reject both the
+new body and NV 30; old Lane Store rejection survives reopen. No CF is added.
