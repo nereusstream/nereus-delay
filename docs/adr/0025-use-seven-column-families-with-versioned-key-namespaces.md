@@ -158,3 +158,10 @@ returns first-application grant/closure changes; C1 must provide protected autho
 snapshots and atomically commit state with Result/SourceAdvance after deduplication.
 The active Lane Store still rejects these kinds and NV 23, including after local reopen.
 These contracts do not activate the new format or certify a deployed authority backend.
+
+
+NDIP-3 B3 reserves complete common Native scopes at meta tag 11 / NV 24 and signed
+snapshots at meta tag 12 / NV 25, both with 34-byte digest keys. Their bounds are
+397/646 bytes. The new artifact/snapshot/head generations and precise authority
+requirements are fixed in the [B3 contract](../ndip/NDIP-3/10-Native共同策略与签名契约.md).
+Current Lane readers continue rejecting these envelopes; no CF or active format changes.

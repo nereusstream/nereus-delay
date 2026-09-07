@@ -55,6 +55,14 @@ without skips. `docs/ndip/NDIP-3/evidence/b2-results.json` binds the exact curre
 contracts, independent vectors, checks and all seven original B2 acceptance requirements.
 B2 verification covers design/schema freeze, while C1 authority backends/atomic source apply,
 C2 actual channel pools, B3 Native policy and all D–F runtime/environment evidence remain required.
+B3 common Native policy contracts and pure checks now cover exact scope/artifact bytes,
+an independent snapshot/signature generation, source-approved publisher/member authority,
+fixed-cap fallback, mode/UTC eligibility and current-to-frozen Admission verification.
+Thirty-eight independent Python/RFC 8032 vectors and 20 focused cases pass. B3 is VERIFIED for its original section 17.3 design/contract acceptance. The full check
+passed 1866 Java tests with zero failures/errors and 41 external skips; all 156 Target
+contract tests passed without skips. Exact evidence and preserved JUnit XML are in
+`docs/ndip/NDIP-3/evidence/b3-results.json` and `b3-junit.zip`. Actual C1/C2 backend/Claim/
+Admission/ownership assembly and B6/F1 transition remain required.
 No active Target scheduling runtime, Broker certification or migration is claimed yet. The user authorized
 full implementation and incremental publication on main. NDIP-1 remains closed;
 its historical evidence does not certify changed runtime source.

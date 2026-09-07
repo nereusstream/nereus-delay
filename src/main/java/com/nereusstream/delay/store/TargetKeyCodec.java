@@ -23,6 +23,8 @@ public final class TargetKeyCodec {
     public static final int CHANNEL_IDENTITY_TAG = 14;
     public static final int MEMBERSHIP_GRANT_TAG = 15;
     public static final int MEMBERSHIP_POLICY_TAG = 16;
+    public static final int NATIVE_POLICY_SCOPE_TAG = 17;
+    public static final int NATIVE_POLICY_SNAPSHOT_TAG = 18;
     public static final int MESSAGE_TAG = 5;
     public static final int SCHEDULE_BINDING_TAG = 6;
     public static final int MAX_DOMAIN_SLOT = 0xffff;
@@ -399,6 +401,16 @@ public final class TargetKeyCodec {
     public static byte[] membershipPolicy(final byte[] digest) {
         requireAssignedDigest(digest, "membershipPolicyDigest");
         return Bytes.concat(new byte[] {MEMBERSHIP_POLICY_TAG, KEY_FORMAT}, digest);
+    }
+
+    public static byte[] nativePolicyScope(final byte[] digest) {
+        requireAssignedDigest(digest, "nativePolicyScopeDigest");
+        return Bytes.concat(new byte[] {NATIVE_POLICY_SCOPE_TAG, KEY_FORMAT}, digest);
+    }
+
+    public static byte[] nativePolicySnapshot(final byte[] digest) {
+        requireAssignedDigest(digest, "nativePolicySnapshotDigest");
+        return Bytes.concat(new byte[] {NATIVE_POLICY_SNAPSHOT_TAG, KEY_FORMAT}, digest);
     }
 
     private static void requireAssignedDigest(final byte[] digest, final String name) {

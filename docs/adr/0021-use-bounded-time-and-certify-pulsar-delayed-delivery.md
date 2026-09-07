@@ -34,3 +34,16 @@ For that capability, the service uses `actionAt = deliverAt - handoffLead` and w
 ## Evidence and tests
 
 Metrics expose time uncertainty, last synchronized sample age, wall/monotonic divergence, clock-gate pauses, action lateness, target clock bound, and Pulsar strict/visibility-guard certification. Deterministic and real-Broker cuts run both before and after handoff ACK: clock steps, Broker failover, guard/config rollout, subscription-policy changes, long pauses, uncertainty growth, non-strict ticks, and incompatible subscribe attempts. The oracle is exact: ordinary managed has no Admission/Producer call before `deliverAt`; certified handoff has no Admission before `actionAt`; neither handoff nor AUTO_FAST permits consumer eligibility before business `deliverAt`.
+
+
+## NDIP-3 common Native policy contract (reserved)
+
+The [B3 contract](../ndip/NDIP-3/10-Native共同策略与签名契约.md) fixes a common Native policy
+per actual source-owned Target execution/control domain. Its cap is immutable; members
+with smaller pinned maxima or without explicit common-policy approval use ordinary
+scheduling. New scope and snapshot signature domains cannot reinterpret old Profile leases.
+SHADOW only computes eligibility. Admission validates the exact current publication twice
+and freezes the full snapshot; pre-ownership checks use its historical trust and lease,
+while post-ownership UNKNOWN/Journal obligations survive Disable and lease expiry.
+These contracts do not relax the Broker visibility/resource guard or certify a new runtime.
+Actual C1/C2 assembly and D1/D2 evidence remain required.

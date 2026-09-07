@@ -81,8 +81,14 @@
     {
       "id": "B3",
       "title": "Native 共同 policy",
-      "status": "PLANNED",
-      "evidence": []
+      "status": "VERIFIED",
+      "evidence": [
+        "evidence/b3-results.json",
+        "evidence/b3-native-policy-check.log",
+        "evidence/b3-final-docs-check.log",
+        "evidence/b3-junit.zip"
+      ],
+      "progress": "Original section 17.3 B3 design/contract acceptance verified: complete common Native scope/artifact, independent snapshot/head/signature, authenticated publisher/member and full source activation projections, fixed cap/ordinary fallback, Mode/UTC state table, CAS lease high-water and exact current-to-frozen Admission/ownership policy checks. Full check: 1866 Java tests, 0 failures/errors, 41 external skips; 156 Target contract tests without skips; all JUnit XML archived. C1/C2 production backends, source/Claim/Admission/ownership assembly and B6/F1 transition, B4-B7 and all D/E/F evidence remain required. No active Target runtime, package acceptance or Broker certification."
     },
     {
       "id": "B4",

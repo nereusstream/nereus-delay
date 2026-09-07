@@ -2178,3 +2178,24 @@ expectedPriorControlVersion 必须显式为 0；重复关闭保留最早 source�
 旧 Control/Mutation hash 和 signature 公式不改；author 另与 Prepared author 精确比对。
 旧 ApplyShardControlBody 仍拒绝 kind 15/16，活动 format 1 / NV 1..11 不变。C1 在格式
 激活后接入有限预算、权威快照、Result/SourceAdvance 原子提交和历史去重保留。
+
+
+### NDIP-3 B3 共同 Native policy（预留，未激活）
+
+[完整字段表与权限顺序](ndip/NDIP-3/10-Native共同策略与签名契约.md) 定义
+TargetNativeArtifactSet schema=1（scope=1、snapshot=2、Target Store format=2）、
+TargetNativePolicyScope schema=1 / meta `11 01 + digest[32]` / NV 24，以及
+TargetNativePolicySnapshot schema=2 / meta `12 01 + snapshotDigest[32]` / NV 25。
+canonical 上限分别 121/397/646 bytes；新 current head schema=2 的上限为 695 bytes。
+
+scope hash 域为 `nereus-delay-target-native-policy-scope\0`；snapshot hash/signature 域为
+`nereus-delay-target-native-policy-snapshot\0` / `nereus-delay-target-native-policy-snapshot-signature\0`。
+签名覆盖 snapshotDigest + u32be key generation，旧 schema/signature 不重解释。
+paths 固定 managed=0x01，DISABLED snapshot 为 0；这里不授予 AUTO_FAST。
+
+PublisherPermission/Activation/MemberApproval 必须解析完整历史 source 权威投影，发布
+要求 TENANT_POLICY_ADMINISTRATOR + PLATFORM_OPERATOR 和完整 namespace/资源范围证明。
+新 generation 从 1 精确 +1，不回绕；CAS high-water 保留已发 ENABLED lease 终点。
+Mode/回退诊断 Reason=1..18 的封闭编号见 TargetNativePolicyChecks 与 B3 契约；它们是
+优化结果，不新增或替换 source StableCode。活动 reader、旧 HandoffPolicySnapshot/
+ArtifactGenerationSet 和当前 seven-CF format 不变，实际激活由 C1/C5/B6/F1 完成。

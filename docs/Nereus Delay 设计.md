@@ -5995,3 +5995,20 @@ TargetMembershipPolicy（meta 10 / NV 23）、Control op 16/17、ApplyShardContr
 15/16，以及精确登记、双签名、actor/角色/资源 proof、完整策略和首次 source 校验。
 旧 Lane reader 仍拒绝新语义及 NV 23；本地 Store 重开保留拒绝结果、不安装新对象。
 B2 设计验收不替代 C1 受保护快照/权威后端装配/原子提交、C2 通道池、D/E/F 实证。
+
+
+### NDIP-3 B3 共同 Native policy 与独立签名
+
+[共同 Native 字段和校验时序](ndip/NDIP-3/10-Native共同策略与签名契约.md) 固定 source
+Shard/Target/accounting/domain 下唯一的 scope，包含明确 authority namespace、Control
+资源范围、dispatch/control refs、固定 cap 和完整新 artifact authority。Profile 名称和
+版本不拆分 scope，各成员仍须源端明确批准共同 Native 控制权限；相同 cap 不代表授权。
+
+新 snapshot schema=2、hash/signature domain 与旧 Profile policy 完全独立。发布验证
+精确 source-approved publisher、双角色/范围、签名和最大 lease，CAS 保留非回绕 generation
+及已授予 lease 高水位。首次绑定小 cap/缺共同许可走 ordinary，SHADOW 只计算，新的
+Admission 两次验证 current head 后冻结完整 snapshot。ownership 前按历史 trust/lease
+复核，ownership 后不因 Disable/到期制造 NOT_SENT。旧 intent/签名/Journal 义务不改写。
+
+meta 11/NV 24 与 meta 12/NV 25 仅预留给 scope/snapshot，活动 format 1 / NV 1..11 不变。
+C1/C2 实际状态/权威装配、B6/F1 转换及 D/E 的新 runtime/Broker 认证继续执行。
