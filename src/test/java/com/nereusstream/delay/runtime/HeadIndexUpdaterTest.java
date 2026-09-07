@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
+import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.ColumnFamily;
 import com.nereusstream.delay.store.ShardStore;
 import com.nereusstream.delay.store.ShardStoreConfig;
@@ -72,6 +73,61 @@ class HeadIndexUpdaterTest {
             assertThrows(
                     IllegalArgumentException.class,
                     () -> HeadIndexUpdater.firstStored(store, new byte[] {99, 1}, List.of(new byte[] {99, 2, 0})));
+        }
+    }
+
+    @Test
+    void exhaustedHeadReadNeverReturnsEmptyOrAnUnvalidatedCandidate() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("incomplete"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore store = ShardStore.open(config, new ShardId(RouteIncarnation.random(), 5), resources)) {
+            store.write(batch -> {
+                batch.put(ColumnFamily.TIMELINE, key(0), new byte[] {1});
+                batch.put(ColumnFamily.TIMELINE, key(1), new byte[] {2});
+                batch.put(ColumnFamily.ID, new byte[] {99}, new byte[] {3});
+            });
+            final byte[] prefix = new byte[] {99, 1};
+            final BoundedReadBudget beforeSeek = new BoundedReadBudget(100, 1, () -> 0);
+            beforeSeek.tryCharge(100, 0);
+            final var exhausted = HeadIndexUpdater.read(store, prefix, List.of(), beforeSeek, entry -> entry);
+            assertEquals(HeadReadResult.Kind.INCOMPLETE, exhausted.kind());
+            assertNull(exhausted.candidate());
+            assertEquals(0, exhausted.keysRead());
+
+            final BoundedReadBudget afterDeletion = new BoundedReadBudget(1, 100, 1_000, () -> 0);
+            final var noSuccessor =
+                    HeadIndexUpdater.read(store, prefix, List.of(key(0)), afterDeletion, entry -> entry);
+            assertEquals(HeadReadResult.Kind.INCOMPLETE, noSuccessor.kind());
+            assertEquals(1, noSuccessor.keysRead());
+            assertNull(noSuccessor.candidate());
+
+            final BoundedReadBudget beforeDependency = new BoundedReadBudget(1, 100, 1_000, () -> 0);
+            final var noMessage = store.readWithBudget(
+                            beforeDependency,
+                            () -> HeadIndexUpdater.read(
+                                    store,
+                                    prefix,
+                                    List.of(),
+                                    beforeDependency,
+                                    entry -> store.get(ColumnFamily.ID, new byte[] {99})))
+                    .value();
+            assertEquals(HeadReadResult.Kind.INCOMPLETE, noMessage.kind());
+            assertEquals(BoundedReadBudget.Exhaustion.RECORDS, noMessage.reason());
+            assertNull(noMessage.candidate());
+            assertEquals(1, beforeDependency.actualRecords());
+
+            final BoundedReadBudget complete = new BoundedReadBudget(2, 100, 1_000, () -> 0);
+            final var found = store.readWithBudget(
+                            complete,
+                            () -> HeadIndexUpdater.read(
+                                    store,
+                                    prefix,
+                                    List.of(),
+                                    complete,
+                                    entry -> store.get(ColumnFamily.ID, new byte[] {99})))
+                    .value();
+            assertEquals(HeadReadResult.Kind.FOUND, found.kind());
+            assertArrayEquals(new byte[] {3}, found.candidate());
         }
     }
 

@@ -13,7 +13,8 @@ The [NDIP-3 work package](ndip/NDIP-3/README.md) tracks all 29 A–F slices of t
 Target partition queue and scheduling hot-path redesign. The complete reviewed
 design is imported from its exact 1648-line input. A0 is verified: the full-scan reference tests and fixed-cardinality probes
 record 120/2016 candidate and Message reads at N=16/64, L=1. A1 is verified: ordered prefix lookup reads 15/63 candidates for the same series,
-and 1/2 candidates for head/successor at backlog 1k, 10k and 100k. A2 is in progress.
+and 1/2 candidates for head/successor at backlog 1k, 10k and 100k. A2 is in progress: explicit bounded-read outcomes and Store view bindings are
+being added; finite-budget mutation/source/discovery integration is not yet complete.
 No Target runtime, Broker certification or migration is claimed yet. The user authorized
 full implementation and incremental publication on main. NDIP-1 remains closed;
 its historical evidence does not certify changed runtime source.

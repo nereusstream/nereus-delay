@@ -13,8 +13,25 @@ final class HeadIndexUpdater {
     private HeadIndexUpdater() {}
 
     static StoredHead firstStored(final ShardStore store, final byte[] prefix, final List<byte[]> removedKeys) {
+        final HeadReadResult<ShardStore.KeyValue> result = read(
+                store,
+                prefix,
+                removedKeys,
+                new BoundedReadBudget(Long.MAX_VALUE, Long.MAX_VALUE, () -> 0),
+                java.util.function.Function.identity());
+        return new StoredHead(result.candidate(), Math.toIntExact(result.keysRead()));
+    }
+
+    static <T> HeadReadResult<T> read(
+            final ShardStore store,
+            final byte[] prefix,
+            final List<byte[]> removedKeys,
+            final BoundedReadBudget budget,
+            final java.util.function.Function<ShardStore.KeyValue, T> validator) {
         Objects.requireNonNull(store, "store");
         Objects.requireNonNull(prefix, "prefix");
+        Objects.requireNonNull(validator, "validator");
+        Objects.requireNonNull(budget, "budget");
         if (prefix.length == 0 || removedKeys.size() > 64) {
             throw new IllegalArgumentException("head overlay requires a prefix and at most 64 removed keys");
         }
@@ -26,13 +43,9 @@ final class HeadIndexUpdater {
             exactKeys.add(key.clone());
         }
         final List<ShardStore.KeyValue> found = new ArrayList<>(1);
-        final int visited = store.visit(
-                ColumnFamily.TIMELINE,
-                prefix,
-                upperBound(prefix),
-                exactKeys.size() + 1,
-                new BoundedReadBudget(Long.MAX_VALUE, Long.MAX_VALUE, () -> 0),
-                (entry, ignored) -> {
+        final long before = budget.actualRecords();
+        final ShardStore.VisitResult result = store.visitResult(
+                ColumnFamily.TIMELINE, prefix, upperBound(prefix), exactKeys.size() + 1, budget, (entry, ignored) -> {
                     for (byte[] removed : exactKeys) {
                         if (Arrays.equals(removed, entry.key())) {
                             return true;
@@ -41,7 +54,25 @@ final class HeadIndexUpdater {
                     found.add(entry);
                     return false;
                 });
-        return new StoredHead(found.isEmpty() ? null : found.get(0), visited);
+        final long keysRead = budget.actualRecords() - before;
+        if (result.stop() == ShardStore.VisitStop.INCOMPLETE) {
+            return new HeadReadResult<>(HeadReadResult.Kind.INCOMPLETE, null, result.reason(), keysRead);
+        }
+        if (!found.isEmpty()) {
+            try {
+                return new HeadReadResult<>(
+                        HeadReadResult.Kind.FOUND,
+                        Objects.requireNonNull(validator.apply(found.get(0)), "validated candidate"),
+                        null,
+                        keysRead);
+            } catch (com.nereusstream.delay.store.ReadIncompleteException incomplete) {
+                return new HeadReadResult<>(HeadReadResult.Kind.INCOMPLETE, null, incomplete.reason(), keysRead);
+            }
+        }
+        if (result.stop() != ShardStore.VisitStop.RANGE_END) {
+            throw new IllegalStateException("exact head exclusions did not prove a candidate or range end");
+        }
+        return new HeadReadResult<>(HeadReadResult.Kind.EMPTY_CONFIRMED, null, null, keysRead);
     }
 
     private static byte[] upperBound(final byte[] prefix) {

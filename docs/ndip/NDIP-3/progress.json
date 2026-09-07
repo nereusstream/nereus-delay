@@ -24,7 +24,11 @@
       "id": "A2",
       "title": "共享预算与提交屏障",
       "status": "IN_PROGRESS",
-      "evidence": []
+      "evidence": [
+        "evidence/a2-storage-foundation-results.json",
+        "evidence/a2-storage-foundation-check.log"
+      ],
+      "progress": "Read-result, shared point-read scope and Store view binding foundations added; mutation/source/discovery integration and activation-envelope proof pending."
     },
     {
       "id": "A3",

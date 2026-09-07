@@ -1,0 +1,207 @@
+
+> Task :testNdip1ImplementationVerifier
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 49.005s
+
+OK
+
+> Task :testNdip1PackageVerifier
+......
+----------------------------------------------------------------------
+Ran 6 tests in 0.047s
+
+OK
+
+> Task :verifyNdip1HistoricalClosure
+proposal=NDIP-1
+receipt_status=IMPLEMENTED
+lifecycle_authority=true
+implementation=CLOSED
+lifecycle=CLOSED
+certified_commit=b4e077e9978f262cdb93cf3562ea12eee32430e2
+runtime_source_sha256=03ce17ede4b9e70e2f70dd2bbef681087f529159549a4cd979d0d7aa34fa9948
+runtime_source_files=835
+implemented_package_sha256=792ca54e239d884ba6f95315747f565bab57ee0fc02338a77369cb19bbe8e8a7
+staging_run=20260901055333-78920
+deployment=SEPARATE_FUTURE_WORK
+performance_and_scale=SEPARATE_FUTURE_WORK
+production_rollout=SEPARATE_FUTURE_WORK
+production_authority=false
+
+> Task :verifyNdip1PackageAccepted
+proposal=NDIP-1
+receipt_status=ACCEPTED
+authority=true
+package_source_commit=77ffa61136c0cd401244ebea4375a5a18b097b17
+file_sha256 70d9dd7c113fa5f457a20a97996322ef9a2018772efd225aa982c13ec4935140 docs/ndip/NDIP-1/01-调查与决策记录.md
+file_sha256 c167ed42dd29c383c08a8a102f36b0e4deee8ae5c7a5da115a09d04ffcb9fa6f docs/ndip/NDIP-1/02-NDIP-1-Pulsar-Native-Delivery.md
+file_sha256 9affafa81952959d39ed9c09a00abe6b84da4fd3b0b6280422f297684d56f727 docs/ndip/NDIP-1/03-实施计划.md
+file_sha256 2a26c107cd69ee522ea138b3487b8ec206e913acc6ad5b862aa69288ddcaa88e docs/ndip/NDIP-1/04-代码级目标设计.md
+package_sha256=13caab8ecdc201901f06e905f1c0bf9792780e50c6f5948f93abf2bdb8f4d21b
+gate_b=PASS
+implementation=AUTHORIZED
+local_disposable_testing=AUTHORIZED_WITH_EXACT_ATTESTATION
+gate_c=PENDING_DEPLOYMENT
+shadow=BLOCKED_BY_GATE_C
+enabled=BLOCKED_BY_GATE_C_AND_SHADOW_REQUIREMENTS
+
+> Task :verifyNdip2PackageAccepted
+proposal=NDIP-2
+receipt_status=ACCEPTED
+authority=true
+file_sha256 0a105fb2b73d63cabddf42d0ba3d5a9590b4edddd47242495f196bf56d15f642 docs/ndip/NDIP-2/01-NDIP-生命周期与认证源码权威分层.md
+file_sha256 c882ecaa32413cb9e177243cf3efe91b97810c3cc10be81e61e7e458030c4ffa docs/ndip/NDIP-2/02-实施计划.md
+file_sha256 ec1ba68ab3ac91aa667647e6289cd252b99da84d899f42f879821d6e5d7752e9 docs/ndip/NDIP-2/03-代码级目标设计.md
+package_sha256=856e1d768210a31fc9aad811af3a93c1de33189cc03c65bc1e36d57affbf10db
+gate_b=PASS
+implementation=AUTHORIZED
+deployment_authority=false
+
+> Task :checkDocumentation
+> Task :checkProjectVersionMarkers
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeRealCrossProto UP-TO-DATE
+> Task :extractRealCrossProto UP-TO-DATE
+> Task :generateRealCrossProto NO-SOURCE
+> Task :compileRealCrossJava SKIPPED
+> Task :processRealCrossProtoResources UP-TO-DATE
+> Task :processRealCrossResources NO-SOURCE
+> Task :realCrossClasses UP-TO-DATE
+> Task :checkstyleRealCross UP-TO-DATE
+> Task :extractIncludeRealKafkaProto UP-TO-DATE
+> Task :extractRealKafkaProto UP-TO-DATE
+> Task :generateRealKafkaProto NO-SOURCE
+> Task :compileRealKafkaJava SKIPPED
+> Task :processRealKafkaProtoResources UP-TO-DATE
+> Task :processRealKafkaResources NO-SOURCE
+> Task :realKafkaClasses UP-TO-DATE
+> Task :checkstyleRealKafka UP-TO-DATE
+> Task :extractIncludeRealPulsarProto UP-TO-DATE
+> Task :extractRealPulsarProto UP-TO-DATE
+> Task :generateRealPulsarProto NO-SOURCE
+> Task :compileRealPulsarJava SKIPPED
+> Task :processRealPulsarProtoResources UP-TO-DATE
+> Task :processRealPulsarResources NO-SOURCE
+> Task :realPulsarClasses UP-TO-DATE
+> Task :checkstyleRealPulsar UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava UP-TO-DATE
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources NO-SOURCE
+> Task :testClasses UP-TO-DATE
+> Task :spotlessJava
+> Task :spotlessJavaCheck
+> Task :spotlessCheck
+> Task :checkstyleTest
+
+> Task :test
+
+OxiaRealGatewayAdmissionSmokeTest > admissionPoolsAndExpiryWorkAgainstRealService() SKIPPED
+
+OxiaRealGatewayAuditSinkSmokeTest > auditEventIsDurableAndExactlyDeduplicatedAgainstRealService() SKIPPED
+
+OxiaRealGatewayGrpcSmokeTest > concurrentDuplicateRequestsAcrossTwoGatewayServersUseOneDurableAttempt() SKIPPED
+
+OxiaRealGatewayGrpcSmokeTest > gatewayDurableRecordsRecoverAfterOxiaSessionChurn() SKIPPED
+
+OxiaRealGatewayGrpcSmokeTest > authenticatedScheduleIsNetworkBoundAndExactlyIdempotentAgainstRealOxia() SKIPPED
+
+OxiaRealGatewayGrpcSmokeTest > rotatedGatewayCertificatesRejectOldClientAndReuseDurableOutcome() SKIPPED
+
+OxiaRealGatewayGrpcSmokeTest > gatewayRecoversAfterCommittedOxiaAttemptResponseLoss() SKIPPED
+
+OxiaRealGatewayGrpcSmokeTest > gatewayRecoversAcrossRealOxiaDataServerFailover() SKIPPED
+
+OxiaRealGatewayGrpcSmokeTest > gatewayRecoversAfterCommittedOxiaRetryAttemptResponseLoss() SKIPPED
+
+> Task :checkstyleMain
+
+> Task :test
+
+OxiaRealControlAuthoritySmokeTest > freshProcessPhaseReopensDurableControlAuthority() SKIPPED
+
+OxiaRealControlAuthoritySmokeTest > controlTargetRegistrationCasAndReopenWorkAgainstRealService() SKIPPED
+
+OxiaRealControlAuthoritySmokeTest > controlOperationCasAndReopenWorkAgainstRealService() SKIPPED
+
+OxiaRealProtocolCapabilitySmokeTest > eligibleReaderSetIsSessionBoundAndActivationEvidenceIsExact() SKIPPED
+
+OxiaRealServiceSmokeTest > ownerLeaseCasAndEphemeralSessionWorkAgainstRealService() SKIPPED
+
+OxiaRealRouteAuthoritySmokeTest > signedRouteNotificationsRefreshAStartedProviderAgainstRealService() SKIPPED
+
+OxiaRealRouteAuthoritySmokeTest > signedRoutePublicationHeadCasAndRefreshWorkAgainstRealService() SKIPPED
+
+OxiaRealRouteAuthoritySmokeTest > signedRouteProviderRecoversAfterRealOxiaRestart() SKIPPED
+
+OxiaRealRouteAuthoritySmokeTest > signedRouteNotificationsRecoverAfterRealOxiaRestart() SKIPPED
+
+OxiaRealRouteWorkerAssignmentSmokeTest > signedRoutePublicationFeedsSessionBoundWorkerAssignmentAuthority() SKIPPED
+
+OxiaRealRouteWorkerAssignmentSmokeTest > signedRoutePublicationPlacesTwoShardsAcrossTwoWorkersWithSessionBoundCas() SKIPPED
+
+CredentialBindingDurableChaosTest > rotatesProtectedCredentialBindingAcrossFreshProcess() SKIPPED
+
+OxiaRealProfileCatalogSmokeTest > profileHeadProtectionLeaseAndRotationReopenAgainstRealService() SKIPPED
+
+LongGcDurableChaosTest > realLongGcPausePreservesDurableDueAdmission() SKIPPED
+
+TargetIsolationDurableChaosTest > targetIsolationSurvivesFreshProcessRecovery() SKIPPED
+
+LocalStorageDurableChaosTest > localStorageFailureSurvivesFreshProcessRecovery() SKIPPED
+
+OxiaRealCheckpointPublicationSmokeTest > workerCheckpointRuntimeRemainsPendingWhenMinioCommitFailsBeforeProviderWrite() SKIPPED
+
+OxiaRealCheckpointPublicationSmokeTest > workerCheckpointRuntimePublishesAtomicIntentAndCatalogAgainstRealService() SKIPPED
+
+OxiaRealCheckpointPublicationSmokeTest > workerCheckpointRuntimePublishesToRealMinioAndOxia() SKIPPED
+
+OxiaRealCheckpointPublicationSmokeTest > recoveryPinIsSessionBoundAndExpiresWithTheRealPublicationSession() SKIPPED
+
+OxiaRealCheckpointReapingSmokeTest > realOxiaOwnerAbandonmentReapsExactMinioCheckpointPrefix() SKIPPED
+
+OxiaRealObjectStoreCredentialRenewalSmokeTest > renewsRealOxiaLeaseAndFencesTheLiveAdapterAtHeadRotation() SKIPPED
+
+OxiaRealRecoveryAuthoritySmokeTest > checkpointUploadIntentCasAndReopenWorkAgainstRealService() SKIPPED
+
+OxiaRealRecoveryAuthoritySmokeTest > freshProcessPhaseReopensDurableRecoveryAuthorities() SKIPPED
+
+OxiaRealRecoveryAuthoritySmokeTest > recoveryCatalogCasAndLocalReuseValidationWorkAgainstRealService() SKIPPED
+
+OxiaRealRecoveryAuthoritySmokeTest > recoveryPinIsSessionBoundAndExpiresWithTheRealOxiaSession() SKIPPED
+
+S3CompatibleMinioRealSmokeTest > realMinioTimeoutAfterCommitResolvesByExactReadback() SKIPPED
+
+S3CompatibleMinioRealSmokeTest > realMinioCredentialConfigurationDriftFailsClosed() SKIPPED
+
+S3CompatibleMinioRealSmokeTest > realMinioFiveHundredBeforeCommitRemainsFailClosed() SKIPPED
+
+S3CompatibleMinioRealSmokeTest > realMinioFaultRecoveryRunsInFreshProcess() SKIPPED
+
+S3CompatibleMinioRealSmokeTest > realMinioFiveHundredAfterCommitResolvesByExactReadback() SKIPPED
+
+S3CompatibleMinioRealSmokeTest > immutableCheckpointUploadsIdempotentlyAndRestoresAgainstMinio() SKIPPED
+
+> Task :testNdip1PersistentCertificationValidators
+...........................
+----------------------------------------------------------------------
+Ran 27 tests in 0.228s
+
+OK
+
+> Task :check
+
+BUILD SUCCESSFUL in 2m 26s
+36 actionable tasks: 14 executed, 22 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html

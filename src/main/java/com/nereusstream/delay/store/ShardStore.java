@@ -117,6 +117,7 @@ public final class ShardStore implements AutoCloseable {
     private StoreRecoveryMetadata recoveryMetadata;
     private CompatibleControlSnapshot controlSnapshot;
     private long closedIngressDeadlineThrough;
+    private BoundedReadBudget activeReadBudget;
     private long readyEntriesRead;
     private long quotaPreparedPutBytes;
     private long schedulerPreparedPutBytes;
@@ -2065,10 +2066,72 @@ public final class ShardStore implements AutoCloseable {
                 cursors));
     }
 
+    /** Holds the Store monitor across one multi-iterator/point-read plan; nested plans cannot reset its budget. */
+    public synchronized <T> ReadPlan<T> readWithBudget(
+            final BoundedReadBudget budget, final java.util.function.Supplier<T> reader) {
+        ensureOpen();
+        Objects.requireNonNull(budget, "budget");
+        Objects.requireNonNull(reader, "reader");
+        if (activeReadBudget != null) {
+            throw new IllegalStateException("a Store read plan is already active");
+        }
+        final ReadView view = new ReadView(this, successfulWriteCalls, db.getLatestSequenceNumber(), runtimeMetadata);
+        activeReadBudget = budget;
+        try {
+            final T value = reader.get();
+            requireReadView(view);
+            return new ReadPlan<>(value, view);
+        } catch (ReadIncompleteException incomplete) {
+            // A retryable yield must still prove that this read-only plan changed no durable view.
+            requireReadView(view);
+            throw incomplete;
+        } finally {
+            activeReadBudget = null;
+        }
+    }
+
+    public record ReadPlan<T>(T value, ReadView view) {}
+
+    /** Process-only binding; cannot be reconstructed for another Store incarnation. */
+    public static final class ReadView {
+        private final ShardStore store;
+        private final long successfulWrites;
+        private final long sequenceNumber;
+        private final StoreRuntimeMetadata runtimeMetadata;
+
+        private ReadView(
+                final ShardStore store,
+                final long successfulWrites,
+                final long sequenceNumber,
+                final StoreRuntimeMetadata runtimeMetadata) {
+            this.store = store;
+            this.successfulWrites = successfulWrites;
+            this.sequenceNumber = sequenceNumber;
+            this.runtimeMetadata = runtimeMetadata;
+        }
+    }
+
+    private void requireReadView(final ReadView view) {
+        ensureOpen();
+        if (view.store != this
+                || view.successfulWrites != successfulWriteCalls
+                || view.sequenceNumber != db.getLatestSequenceNumber()
+                || view.runtimeMetadata != runtimeMetadata) {
+            throw new IllegalStateException("Store read plan view changed before commit");
+        }
+    }
+
     public synchronized byte[] get(final ColumnFamily family, final byte[] key) {
         ensureOpen();
+        if (activeReadBudget != null && !activeReadBudget.beforeRead()) {
+            throw activeReadBudget.incomplete();
+        }
         try {
-            return db.get(handles.get(family), key);
+            final byte[] value = db.get(handles.get(family), key);
+            if (activeReadBudget != null && !activeReadBudget.tryCharge(key.length, value == null ? 0 : value.length)) {
+                throw activeReadBudget.incomplete();
+            }
+            return value;
         } catch (RocksDBException exception) {
             throw new IllegalStateException("RocksDB read failed", exception);
         }
@@ -2082,7 +2145,14 @@ public final class ShardStore implements AutoCloseable {
     /** Returns a bounded snapshot of one column family in RocksDB key order. */
     public synchronized List<KeyValue> scan(
             final ColumnFamily family, final byte[] lowerInclusive, final byte[] upperExclusive, final int limit) {
-        return scan(family, lowerInclusive, upperExclusive, limit, Long.MAX_VALUE, Long.MAX_VALUE, () -> 0);
+        return scan(
+                family,
+                lowerInclusive,
+                upperExclusive,
+                limit,
+                activeReadBudget == null
+                        ? new BoundedReadBudget(Long.MAX_VALUE, Long.MAX_VALUE, () -> 0)
+                        : activeReadBudget);
     }
 
     /**
@@ -2133,6 +2203,37 @@ public final class ShardStore implements AutoCloseable {
             final int maxRecords,
             final BoundedReadBudget budget,
             final BoundedEntryVisitor visitor) {
+        final VisitResult result = visitResult(family, lowerInclusive, upperExclusive, maxRecords, budget, visitor);
+        if (activeReadBudget != null && result.stop() == VisitStop.INCOMPLETE) {
+            throw budget.incomplete();
+        }
+        return result.visited();
+    }
+
+    public enum VisitStop {
+        RANGE_END,
+        RECORD_LIMIT,
+        VISITOR_STOPPED,
+        INCOMPLETE
+    }
+
+    public record VisitResult(int visited, VisitStop stop, BoundedReadBudget.Exhaustion reason) {
+        public VisitResult {
+            Objects.requireNonNull(stop, "stop");
+            if (visited < 0 || (stop == VisitStop.INCOMPLETE) != (reason != null)) {
+                throw new IllegalArgumentException("invalid bounded visit result");
+            }
+        }
+    }
+
+    /** Explicit stop reason: an empty or partial result alone never proves range exhaustion. */
+    public synchronized VisitResult visitResult(
+            final ColumnFamily family,
+            final byte[] lowerInclusive,
+            final byte[] upperExclusive,
+            final int maxRecords,
+            final BoundedReadBudget budget,
+            final BoundedEntryVisitor visitor) {
         ensureOpen();
         Objects.requireNonNull(family, "family");
         final BoundedReadBudget readBudget = Objects.requireNonNull(budget, "budget");
@@ -2140,43 +2241,74 @@ public final class ShardStore implements AutoCloseable {
         if (maxRecords <= 0) {
             throw new IllegalArgumentException("scan record bound must be positive");
         }
+        if (activeReadBudget != null && activeReadBudget != budget) {
+            throw new IllegalStateException("dependent read must share the active Store plan budget");
+        }
+        if (!readBudget.beforeRead()) {
+            return new VisitResult(0, VisitStop.INCOMPLETE, readBudget.exhaustion());
+        }
         int visited = 0;
-        try (RocksIterator iterator = db.newIterator(handles.get(family))) {
-            if (lowerInclusive == null) {
-                iterator.seekToFirst();
-            } else {
-                iterator.seek(lowerInclusive);
+        VisitStop stop = VisitStop.RANGE_END;
+        try (org.rocksdb.Slice upperBound = upperExclusive == null ? null : new org.rocksdb.Slice(upperExclusive);
+                org.rocksdb.ReadOptions options = new org.rocksdb.ReadOptions()) {
+            if (upperBound != null) {
+                options.setIterateUpperBound(upperBound);
             }
-            while (iterator.isValid() && visited < maxRecords) {
-                if (!readBudget.beforeRead()) {
-                    break;
+            try (RocksIterator iterator = db.newIterator(handles.get(family), options)) {
+                if (lowerInclusive == null) {
+                    iterator.seekToFirst();
+                } else {
+                    iterator.seek(lowerInclusive);
                 }
-                final byte[] key = iterator.key();
-                if (upperExclusive != null && compareUnsigned(key, upperExclusive) >= 0) {
-                    break;
+                while (iterator.isValid()) {
+                    if (visited == maxRecords) {
+                        stop = VisitStop.RECORD_LIMIT;
+                        break;
+                    }
+                    if (!readBudget.beforeRead()) {
+                        stop = VisitStop.INCOMPLETE;
+                        break;
+                    }
+                    final byte[] key = iterator.key();
+                    if (upperExclusive != null && compareUnsigned(key, upperExclusive) >= 0) {
+                        break;
+                    }
+                    final byte[] value = iterator.value();
+                    if (family == ColumnFamily.TIMELINE && key.length >= 2 && key[0] == 3 && key[1] == 1) {
+                        readyEntriesRead++;
+                    }
+                    if (!readBudget.tryCharge(key.length, value.length)) {
+                        stop = VisitStop.INCOMPLETE;
+                        break;
+                    }
+                    visited++;
+                    if (!entryVisitor.visit(new KeyValue(key, value), readBudget)) {
+                        stop = VisitStop.VISITOR_STOPPED;
+                        break;
+                    }
+                    if (visited == maxRecords) {
+                        stop = VisitStop.RECORD_LIMIT;
+                        break;
+                    }
+                    if (!readBudget.beforeRead()) {
+                        stop = VisitStop.INCOMPLETE;
+                        break;
+                    }
+                    iterator.next();
                 }
-                final byte[] value = iterator.value();
-                if (family == ColumnFamily.TIMELINE && key.length >= 2 && key[0] == 3 && key[1] == 1) {
-                    readyEntriesRead++;
-                }
-                if (!readBudget.tryCharge(key.length, value.length)) {
-                    break;
-                }
-                visited++;
-                if (!entryVisitor.visit(new KeyValue(key, value), readBudget)) {
-                    break;
-                }
-                iterator.next();
+                iterator.status();
             }
-            iterator.status();
         } catch (RocksDBException exception) {
             throw new IllegalStateException("RocksDB scan failed", exception);
         }
-        return visited;
+        return new VisitResult(visited, stop, stop == VisitStop.INCOMPLETE ? readBudget.exhaustion() : null);
     }
 
     public synchronized void write(final BatchOperation operation) {
         ensureOpen();
+        if (activeReadBudget != null) {
+            throw new IllegalStateException("a read plan cannot commit a WriteBatch");
+        }
         Objects.requireNonNull(operation, "operation");
         boolean nativeWriteAttempted = false;
         try (WriteBatch batch = new WriteBatch();
@@ -2674,6 +2806,11 @@ public final class ShardStore implements AutoCloseable {
         /** Returns whether this batch belongs to the supplied open ShardStore. */
         boolean belongsTo(final ShardStore candidate) {
             return owner == candidate;
+        }
+
+        /** Requires the same Store incarnation and committed view used by a completed read plan. */
+        public void requireReadView(final ReadView view) {
+            owner.requireReadView(Objects.requireNonNull(view, "view"));
         }
 
         public void put(final ColumnFamily family, final byte[] key, final byte[] value) throws RocksDBException {

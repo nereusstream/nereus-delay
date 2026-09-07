@@ -1,0 +1,30 @@
+{
+  "scope": "A2 storage foundations only; finite-budget mutation and source/discovery integration still pending",
+  "baseCommit": "5cdd252e6bb0e1d9696b9cfb86edc5dd501fb83b",
+  "sourceFiles": {
+    "src/main/java/com/nereusstream/delay/runtime/HeadIndexUpdater.java": "00bf57d73e3dea4513b199e2dd7f4ecedfe2d56e33d12c3afed39afb0427c85f",
+    "src/main/java/com/nereusstream/delay/runtime/HeadReadResult.java": "72da842b7237ee8a624b588a6cec1c738b965b46882aa3360aab8bac04a0cd3f",
+    "src/main/java/com/nereusstream/delay/store/BoundedReadBudget.java": "3bb3bde816e3fd0b988236c1006a18cadadf47f6805dd7ed054eabc6d386461f",
+    "src/main/java/com/nereusstream/delay/store/ReadIncompleteException.java": "343f667e473137e6e16f7434e696248d9de6333954c6bbb5277e3056a572d45d",
+    "src/main/java/com/nereusstream/delay/store/ShardStore.java": "21c8f5dc713727a0fdc79acbc1ca6adfc908c71510db28310f7703b96e67d802"
+  },
+  "command": "./gradlew check --console=plain",
+  "checkResult": "PASS",
+  "javaResults": {
+    "tests": 1694,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 41
+  },
+  "newCases": [
+    "budgetExhaustionBeforeSeekDoesNotProveAnEmptyRange",
+    "dependentPointReadsShareActualBytesAndFailedReadAccounting",
+    "recordBudgetStopsBeforeTheNextPointReadAndNestedBudgetResetIsRejected",
+    "completedReadViewCannotCommitAcrossAnInterveningWriteOrStoreIncarnation",
+    "sharedTailAndWrapBudgetCannotInventRangeCompletion",
+    "exhaustedHeadReadNeverReturnsEmptyOrAnUnvalidatedCandidate"
+  ],
+  "brokerCertification": false,
+  "productionAuthority": false,
+  "sliceComplete": false
+}
