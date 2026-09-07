@@ -2028,7 +2028,7 @@ meta tag `09 TARGET_STATE`，key format=1；候选的 slot:u16/domainGeneration:
 从基础单域起即存在。Lane NATIVE tag 07 已由 NDIP-1 使用，不能重分配。
 预留 storeFormatVersion=2 为 Target 数据的拒绝边界；当前 writer/reader 仍为 format 1，
 codec 存在不授予新格式写入、Accepted、迁移或 production authority。queue/domain/head
-及严格顺序 key 的后续固定内容见下一节；ORDER_STATE 与 B2–B4 引用仍待闭合，work/locator/Message/runtime/Expiry 见后续小节。
+及严格顺序 key 的固定内容见下一节；work/locator/Message/runtime/Expiry/ORDER_STATE 见后续小节，B2–B4 引用仍待闭合。
 
 
 ### NDIP-3 B1：Target 持久摘要与身份记录预留（未激活）
@@ -2082,3 +2082,18 @@ retry 变化。runtime/Message/Expiry 使用独立 digest 域，字段表锁定�
 的四个变长身份字段各最多 1MiB，完整引用最多 4194460 bytes 且必须有 committed proof
 identity。硬编码上限不提供容量认证，Admission 前容量兑现、义务增删证明、超限旧数据
 冲突处理、B2–B4 引用和 Target mutation 契约及格式激活仍须继续完成。
+
+### NDIP-3 B1：严格 ORDER_STATE 与 barrier 预留（未激活）
+
+[字段契约 §17–§18](ndip/NDIP-3/05-Target身份与索引契约.md#17-targetorderbarrier精确的未决-head-引用)
+预留 NV type 17，配合已有 meta 0a TARGET_ORDER_STATE key。状态固定 source Shard、
+execution slot/generation、accounting incarnation、排序契约、state/control revision、
+gate、可选 Admission 水位及互斥的可服务 head/barrier。ORDER_HEAD 复用 NV 14 完整
+work，与 ORDER_STATE/Message 一并核对。TargetOrderBarrier 引用精确 Message generation、
+ORDERED key 和 runtime revision/digest，终态有未决义务时仍阻塞后继。
+
+state/barrier 的保守 canonical 上限为 777/447 bytes，最大独立 state 向量实际 774 bytes。
+排序契约 1 沿用旧 strict，2 为显式 Admission watermark；未知版本拒绝，普通 successor
+不能切约或丢失/回退水位。B5/E5 的新迟到规则和 B6/F1 转换边界尚未激活。旧 Lane reader
+继续拒绝有效 CRC 的 NV 17，Store format 1 不变。B1 的身份/存储验收不提供 B7 接受、
+C1 原子 mutation、真实 Broker 或生产权限，后续引用和行为必须由各自切片闭合。

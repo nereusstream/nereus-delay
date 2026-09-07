@@ -18,14 +18,20 @@ discovery/dependency budgets are implemented. Whole HeadPlan bindings and explic
 head/source/Claim/recovery retry paths are integrated. The compatibility constructors still
 use an unbounded read policy; the maximum legal mutation envelope and mandatory activation
 configuration remain incomplete, so A2 is not verified.
-B1 identity and key codecs are in progress: bounded physical Target tuples, independent
+B1 identity and storage contracts are verified: bounded physical Target tuples, independent
 identity/key vectors and the final domain slot/generation key prefix are implemented.
 Target queue/domain/head summaries now have bounded canonical schemas and generation-history
 checks; physical identity is stored separately. Embedded Message locators and complete
 reversible work now retain retry authority with bounded full Source Positions. Full
 Message/runtime and Expiry codecs now preserve bounded exact obligations and committed
-payload identity. ORDER_STATE, reference/mutation contracts, activation and migration
-remain pending.
+payload identity. ORDER_STATE now has a bounded exact-runtime barrier, explicit legacy/new
+ordering contracts and separate serviceable-head projection. The full check passed 1780 Java
+tests with zero failures/errors and 41 external skips; 70 Target-focused tests had no skips.
+Independent vector checking is part of the standard check task. B1 evidence is in
+`docs/ndip/NDIP-3/evidence/b1-results.json`. B1 covers the original identity/storage acceptance
+scope; B2–B6 reference/behavior contracts, C1/E5 atomic mutations and activation, and B6/F1
+migration remain required in their respective slices. B7 still requires a complete accepted
+package. A2 remains in progress independently of B1.
 No active Target scheduling runtime, Broker certification or migration is claimed yet. The user authorized
 full implementation and incremental publication on main. NDIP-1 remains closed;
 its historical evidence does not certify changed runtime source.

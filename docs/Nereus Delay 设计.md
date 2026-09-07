@@ -5903,13 +5903,13 @@ READY tail/wrap 与 Lane、Message、timeline、native binding 读取共用记�
 和最大合法依赖 envelope 证明替换，因此 A2 仍未验收，NDIP-3 不授予 production authority。
 
 
-### NDIP-3 B1 身份与 key 契约实施中
+### NDIP-3 B1 身份、存储与严格顺序字段契约
 
 新的物理 Target 身份和基础候选 key 已在
 [身份与索引契约](ndip/NDIP-3/05-Target身份与索引契约.md) 固定。身份只含精确 Broker
 资源与物理 partition，保留完整 canonical 资源用于碰撞/绑定核对；不改变旧 Profile
 选择 partition 的算法。新 key 从单域首版就携带 domain slot/generation，并预留独立
-Store format 2 以拒绝旧 reader。完整 TargetQueueState schema、业务接入和转换尚未完成；
+Store format 2 以拒绝旧 reader。TargetQueueState schema 已固定，业务接入和转换尚未完成；
 本批不改变正式 Store 的 format 1，也不关闭 A2 的整体资源证明义务。
 
 
@@ -5917,18 +5917,30 @@ TargetQueueState 的字段、presence 与独立 digest，以及 ACTIVE/DRAINING/
 和槽位 generation 历史，已在 B1 契约固定。完整物理资源放独立不可变 identity 记录；
 严格 FIFO 的 business-order 与 eligible-head key 分开。局部 canonical state 上限
 37,883 bytes 不认证完整 Message/读取/Worker 资源。当前 NV reader 仍拒绝预留 type
-12/13，业务 Store 未切换，B1 和 A2 继续保持实施中。
+12/13，业务 Store 未切换，A2 的完整资源与装配证明继续实施。
 
 
 TargetMessageLocator 与 TargetTimelineWorkRef 已补充完整可逆工作字段、重试控制
 source、计费/域 generation 定位和 semantic/instance digest。普通与 Native 候选共享
 同一初次工作；FIFO 业务顺序不随 retry eligibility 改变。新格式完整 SourcePosition
 实行明确字节边界，超限旧数据需迁移冲突处理。上述 codec 和 NV type 14 尚未接入
-活动 writer；完整 Message/runtime/Expiry/ORDER_STATE 及 B2–B4 引用契约继续实施。
+活动 writer；Message/runtime/Expiry/ORDER_STATE 见下面的固定内容，B2–B4 引用契约继续实施。
 
 
 Target Message/runtime 与 Expiry 编码已固定：单一 runtime 聚合、current work 与原未决
 attempt 引用并存，终态仍保留未决义务；Expiry 投影不随 Claim/retry 刷新。新格式限制
 refs 数量和完整 Message/payload 字节，超限旧数据须保留并列为迁移冲突。id tag 05、
 NV type 15/16 尚未激活，Source/Owner/binding/Claim/Admission/义务增删的实际 gate、
-ORDER_STATE、完整引用和 mutation 契约继续实施。
+B2–B4 完整引用和 C1 mutation 契约继续实施。
+
+ORDER_STATE 预留 NV 17；source Shard、execution slot/generation、计费 incarnation、
+排序契约、控制与 revision、水位和互斥的 head/barrier 采用闭合编码。barrier 只引用
+精确 Message/generation/runtime revision/digest，UNKNOWN 和终态未决义务继续阻塞后继。
+ORDER_HEAD 复用完整 work；业务顺序与 retry eligibility 分离。state/barrier 上限为
+777/447 bytes，最大独立 state 向量实际 774 bytes。旧排序契约不追加追溯水位，新的
+Admission 水位须显式绑定，并由 B5/E5 定义与接入迟到行为、B6/F1 证明旧数据切点。
+
+B1 按原设计 §17.3 验收身份、存储字段、独立向量和旧 reader 拒绝边界；后续引用/行为、
+原子 mutation、激活和迁移属于 B2–B6/C1/E5/F1，不反向成为 B1 的循环前置。B7 仍需
+完整交叉契约和真实接受记录。`checkTargetIdentityVectors` 已接入常规 `check`；B1 局部
+验证不代表新 runtime、真实 Broker/恢复认证、完整方案或 production authority。

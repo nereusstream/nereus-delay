@@ -110,3 +110,12 @@ when terminal. Reserved NV type 16 carries a stable generation/expiry projection
 and committed object payloads have closed byte bounds. None of these reservations alters
 the active Lane reader or removes obligations; capacity before Admission and exact
 retirement evidence remain runtime/migration gates.
+
+ORDER_STATE reserves NV type 17 under the existing Target order-state key. It binds
+the source Shard, execution slot/generation, accounting incarnation, ordering contract,
+revisions and gate, with mutually exclusive serviceable-head and exact runtime barrier
+projections. ORDER_HEAD reuses the complete NV 14 work body. Terminal status cannot
+remove a barrier while attempts remain unresolved. The bounded codecs preserve old
+strict semantics under contract 1; contract 2 is reserved for the explicit Admission
+watermark. B5/E5 define and activate late-insertion behavior, with B6/F1 proving the
+old-data transition. These reservations remain inactive and do not add a column family.

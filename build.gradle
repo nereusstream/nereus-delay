@@ -1272,10 +1272,18 @@ tasks.register('checkProjectVersionMarkers', Exec) {
     commandLine 'bash', 'scripts/check-project-version-markers.sh'
 }
 
+tasks.register('checkTargetIdentityVectors', Exec) {
+    group = 'verification'
+    description = 'Checks NDIP-3 Target identity, index and value vectors against independent wire encoders.'
+    workingDir projectDir
+    commandLine 'python3', '-B', 'scripts/generate-ndip3-target-identity-vectors.py'
+}
+
 tasks.named('check').configure {
     dependsOn tasks.named('checkDocumentation')
     dependsOn tasks.named('checkProjectVersionMarkers')
     dependsOn tasks.named('testNdip1PersistentCertificationValidators')
+    dependsOn tasks.named('checkTargetIdentityVectors')
 }
 
 jacocoTestReport {

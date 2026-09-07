@@ -84,6 +84,7 @@ def expected_vectors():
     append_state_vectors(vectors, target, message)
     append_work_vectors(vectors, message)
     append_message_vectors(vectors, message)
+    append_order_vectors(vectors, message)
     header = "# NDIP-3 version 1; independent Python hashlib/struct/protobuf wire/CRC32C generation.\n"
     return header + "".join(key + "=" + value + "\n" for key, value in vectors.items())
 
@@ -322,6 +323,63 @@ def append_message_vectors(vectors, message):
     for name, raw in [("runtime.maximum", maximum_runtime), ("message.maximum", maximum_message)]:
         vectors[name + ".sha256"] = hashlib.sha256(raw).hexdigest()
         vectors[name + ".length"] = str(len(raw))
+
+
+def order_barrier(loc, order, revision, runtime_digest):
+    fields = bytes_field(1, loc) + bytes_field(2, order) + uint_field(3, revision) + bytes_field(4, runtime_digest)
+    return with_digest(fields, 5, b"nereus-delay-target-order-barrier\0")
+
+
+def order_state(target, shard, contract=1, revision=1, control=1, gate=1,
+                watermark=None, head=None, barrier=None, slot=0, domain_generation=1):
+    fields = uint_field(1, 1) + bytes_field(2, target) + bytes_field(3, bytes([0x11]) * 32) + bytes_field(4, shard)
+    fields += uint_field(5, slot) + uint_field(6, domain_generation) + bytes_field(7, bytes(range(1, 17)))
+    fields += uint_field(8, contract) + uint_field(9, revision) + uint_field(10, control) + uint_field(11, gate)
+    if watermark is not None:
+        fields += bytes_field(12, watermark)
+    if head is not None:
+        fields += bytes_field(13, head)
+    if barrier is not None:
+        fields += bytes_field(14, barrier)
+    return with_digest(fields, 15, b"nereus-delay-target-order-state\0")
+
+
+def append_order_vectors(vectors, message):
+    target = bytes.fromhex(vectors["pulsar.id"])
+    domain = bytes([0x11]) * 32
+    shard = message[1:21]
+    loc = bytes.fromhex(vectors["locator.fifo"])
+    source = bytes.fromhex(vectors["work.schedule.source"])
+    key = b"\x0b\x01" + target + domain + u64(90) + b"\x01" + u64(7) + message + u32(2)
+    head_key = b"\x0c\x01" + target + b"\x00\x00" + u64(1) + u64(90) + domain
+    head = head_ref(head_key, message, 2, 90)
+    vectors["order.serviceable.key"] = head_key.hex()
+    vectors["order.key"] = key.hex()
+    vectors["order.empty"] = order_state(target, shard).hex()
+    vectors["order.head"] = order_state(target, shard, revision=2, head=head).hex()
+    initial = target_runtime(2, 1, 2, bytes.fromhex(vectors["work.fifo.initial"]), [], 0, 0, False, 5)
+    vectors["order.message.initial"] = target_message(loc, 5, 90, 200, 90, 1, source, b"payload", initial).hex()
+    for name, revision in [("claimed", 6), ("publishing", 7), ("hold", 8), ("terminal", 9)]:
+        runtime = bytes.fromhex(vectors["runtime." + name])
+        # The runtime digest is its final canonical field; no Java codec is consulted.
+        barrier = order_barrier(loc, key, revision, runtime[-32:])
+        vectors["order.barrier." + name] = barrier.hex()
+        vectors["order.message." + name] = target_message(loc, revision, 90, 200, 90, 1, source, b"payload", runtime).hex()
+        vectors["order." + name] = order_state(target, shard, revision=revision, barrier=barrier).hex()
+    barrier = bytes.fromhex(vectors["order.barrier.hold"])
+    vectors["order.watermark"] = order_state(target, shard, contract=2, revision=8, watermark=key, barrier=barrier).hex()
+    vectors["order.closed"] = order_state(target, shard, contract=2, revision=9, control=2, gate=3, watermark=key, barrier=barrier).hex()
+    vectors["order.watermark.value"] = value_envelope(17, bytes.fromhex(vectors["order.watermark"])).hex()
+    max64, max32 = (1 << 64) - 1, (1 << 32) - 1
+    max_loc = locator(target, message, max32, 63, max64, ordered=True)
+    max_order = b"\x0b\x01" + target + domain + u64((1 << 63) - 1)
+    max_order += b"\x02" + u64(max64) + u64(max64) + u32(max32) + message + u32(max32)
+    max_barrier = order_barrier(max_loc, max_order, max64, bytes([0x77]) * 32)
+    maximum = order_state(target, shard, contract=2, revision=max64, control=max64, gate=3,
+                          watermark=max_order, barrier=max_barrier, slot=63, domain_generation=max64)
+    vectors["order.maximum"] = maximum.hex()
+    vectors["order.maximum.length"] = str(len(maximum))
+    vectors["order.maximum.sha256"] = hashlib.sha256(maximum).hexdigest()
 
 
 def main():

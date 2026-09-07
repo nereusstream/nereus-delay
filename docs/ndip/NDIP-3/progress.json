@@ -42,8 +42,8 @@
     },
     {
       "id": "B1",
-      "title": "Target 身份与最终 schema",
-      "status": "IN_PROGRESS",
+      "title": "Target 身份与存储契约",
+      "status": "VERIFIED",
       "evidence": [
         "evidence/b1-identity-key-results.json",
         "evidence/b1-identity-key-check.log",
@@ -52,9 +52,12 @@
         "evidence/b1-work-locator-results.json",
         "evidence/b1-work-locator-check.log",
         "evidence/b1-message-runtime-results.json",
-        "evidence/b1-message-runtime-check.log"
+        "evidence/b1-message-runtime-check.log",
+        "evidence/b1-results.json",
+        "evidence/b1-order-state-check.log",
+        "evidence/b1-final-docs-check.log"
       ],
-      "progress": "Physical identity, candidate/FIFO keys, queue/domain/head and slot history, bounded full work/Source Positions, Message/runtime/payload and stable Expiry codecs implemented with independent vectors. Exact open attempt obligations remain in terminal generations. ORDER_STATE, reference/mutation contracts, activation and migration remain pending."
+      "progress": "Original B1 identity/storage acceptance verified: canonical physical identity, complete candidate/strict keys and bounded queue/domain/head/work/Message/runtime/Expiry/ORDER_STATE codecs, independent vectors and baseline reader refusal. Full check: 1780 Java tests, 0 failures/errors, 41 external skips; 70 Target tests without skips. B2-B6 reference/behavior contracts, C1/E5 atomic mutation/activation and B6/F1 migration retain their original slice ownership; B1 verification is not package acceptance or runtime/Broker certification."
     },
     {
       "id": "B2",

@@ -1,10 +1,11 @@
 # NDIP-3：Target 身份与索引契约
 
-Status: Draft / B1 IN_PROGRESS
+Status: Draft / B1 VERIFIED (identity and storage contract only)
 
-本节固定 B1 的物理身份、基础/严格顺序 key、TargetQueueState、域/head、消息定位及 work 编码。
-ORDER_STATE、B2–B4 引用及 mutation 契约、协议激活和迁移转换
-仍未闭合，B1 不作 VERIFIED。
+本节固定 B1 的物理身份、基础/严格顺序 key、TargetQueueState、域/head、消息定位、
+work、Message/runtime/Expiry 及 ORDER_STATE 编码。B1 验收范围与后续切片分工见 §19，
+实际验证状态见 progress.json。B2–B6 的引用对象/行为契约和 C1/E5/F1 的激活、原子
+mutation 与转换继续按各自切片闭合；这些后续要求不是 B1 身份/存储验收的循环前置条件。
 本批 codec 尚未接入业务 writer。A2 的最大合法 mutation envelope 仍须包括 Message、
 Lane、binding、source 与旧 inflight 依赖，不能由本文 Target 字节上限替代。
 
@@ -61,7 +62,7 @@ channel slot 或连接 generation。Profile 选物理分区的旧 `TARGET_PARTIT
 
 DUE 的 eligibleAt 是 max(deliverAt, retryEligibilityAt)，NATIVE 永久按 deliverAt 排序。
 本表的 DUE 是普通候选；严格 FIFO 使用下文独立的 ORDERED/ORDER_HEAD key，
-barrier/value 和迟到规则仍需 B5 冻结，不能把 business order 改为 retry eligibility 排序。SourceOrderToken 沿用 Kafka `01+offset:u64be`（9 bytes）及
+barrier/value 见 §17–§18，迟到规则及稳定错误码仍由 B5 冻结，不能把 business order 改为 retry eligibility 排序。SourceOrderToken 沿用 Kafka `01+offset:u64be`（9 bytes）及
 Pulsar `02+ledger:u64be+entry:u64be+batchIndex:u32be`（21 bytes），拒绝其他 kind/长度。
 时间为非负有符号 long 范围；Message generation 和 domainGeneration 保留无符号位模式。
 
@@ -232,9 +233,9 @@ Target identity、accounting incarnation、native cap 在此后继关系中不�
 不能在本 state 同时达到的 slot/varint 额外字节，没有用任意 MiB 测试额度替代公式。
 
 这些边界只覆盖本节编码，不是完整 A2 读取预算、实际 JVM/RocksDB 内存或认证容量。
-A2 仍需 Message/runtime/source/binding/legacy 数据边界和强制有限装配；B1 仍需
-后续已固定的 work/locator 见 §10–§12；Message/runtime/Expiry 的后续固定内容见 §13–§16，ORDER_STATE、B2–B4 ref
-对象、mutation 契约和协议激活仍待闭合。
+A2 仍需 Message/runtime/source/binding/legacy 数据边界和强制有限装配。
+work/locator 见 §10–§12；Message/runtime/Expiry 见 §13–§16；ORDER_STATE 见 §17–§18。
+B2–B4 ref 对象、C1/E5 mutation 和 C1/B6/F1 协议激活仍由对应切片闭合。
 原 Lane/Store format 1 业务路径尚未切换，真实 Broker、迁移、权限和最终完整目标均未完成。
 
 ## 10. TargetMessageLocator：Message 的目标定位投影
@@ -340,8 +341,8 @@ UTF-8/NFC/非空白/无 NUL、完整 uint64 ledger/entry/offset 和 uint32 batch
 隐式替换资源身份。新边界尚未应用到活动 Lane reader，超限旧数据在 B6/F1 转换审计中
 必须形成冲突并阻止激活，不能跳过该消息或修改历史 SourcePosition 使它通过。
 
-Message 的 payload/runtime envelope 与 Expiry value 后续固定于 §13–§16；ORDER_STATE、
-B2–B4 引用和 mutation 对象及格式激活仍待完成，A2 全 mutation 资源证明亦未完成。上述 SourcePosition
+Message 的 payload/runtime envelope 与 Expiry value 固定于 §13–§16；ORDER_STATE
+固定于 §17–§18。B2–B4 引用和 C1/E5 mutation 对象及格式激活仍待完成，A2 全 mutation 资源证明亦未完成。上述 SourcePosition
 边界是新格式实际执行的编码约束，仍需由正式入口和受控迁移接入后才能用于容量配置。
 
 ## 13. TargetGenerationRuntimeIndex
@@ -455,5 +456,105 @@ canonical 上限 **272 bytes**。exact key、locator、expireAt 必须与当前�
 索引但不据此删除未决 attempt。原 index key 不含域 slot，完整 locator value 防止把
 过期费用/控制投影套用到另一个域或计费 incarnation。
 
-Message/runtime/Expiry codec 尚未接入活动 writer。ORDER_STATE、B2–B4 完整引用对象、
-Target Claim/Admission/控制 mutation 契约和格式激活仍待闭合；B1 与 A2 保持 IN_PROGRESS。
+Message/runtime/Expiry codec 尚未接入活动 writer。B2–B4 完整引用对象、C1 的 Target
+Claim/Admission/控制 mutation 和格式激活仍待闭合；A2 的独立资源证明仍未完成。
+
+## 17. TargetOrderBarrier：精确的未决 head 引用
+
+barrier 仅嵌入 ORDER_STATE，不增加单独 CF/key。它没有第二份 attempt ledger；完整
+Claim/attempt 事实及原引用仍留在被引用的 Message/runtime 中。闭合 protobuf 字段如下：
+
+| field | 内容 | presence / 约束 |
+|---|---|---|
+| 1 | TargetMessageLocator | 必有；DELIVERY_TIME_FIFO |
+| 2 | 完整 TARGET_ORDERED key | 必有；128/140 bytes；与 locator 的 target、orderingDomain、Message/generation 相同 |
+| 3 | runtimeRevision | 必有；非零 uint64，保留完整位模式 |
+| 4 | runtimeDigest[32] | 必有；非零，引用精确 TargetGenerationRuntimeIndex.runtimeDigest |
+| 5 | barrierDigest[32] | 必有；下面的 hash |
+
+field 5 = SHA-256(`UTF8("nereus-delay-target-order-barrier") || 0x00 || fields 1..4`)。
+保守 canonical 上限 **447 bytes**；ORDERED key 最长 140 bytes。所有字段、wire type、
+次序、presence、digest 和 canonical bytes 严格检查，拒绝未知/重复字段和超限输入。
+
+`fromMessage`/`requireMessageProjection` 除核对上述字段，还从 Message 的业务时间和完整
+Schedule source 重建 ORDERED key；runtime 必须仍为 CLAIMED/PUBLISHING 或保留至少
+一个 attempt obligation。可逆 Claim 也保留一个 head，防止 Claim 尚未撤销就暴露后继。
+UNCERTAIN、终态保留的 PUBLISHING/UNCERTAIN refs 继续阻塞；仅改 terminal status、
+Producer 超时、重启或换槽位均不能清除 barrier。runtime revision 相同但 claim/ref/digest
+不同也必须拒绝。无 current work 且无未决义务的已结束 Message 不再构成 barrier。
+
+codec 只证明引用相符。C1/E5 在同一受保护读视图和原子 batch 中更新 barrier、Message、
+Admission、费用与 source position，并验证创建/解除的 source-ordered 事实与 evidence。
+任何旧 generation 的受保护 Message/attempt 在 barrier 解除前均不得删除或改成新 generation。
+
+## 18. TargetOrderState 与 ORDER_HEAD value
+
+预留 **NV type 17**，key 沿用 `meta / 0a 01 + target[32] + orderingDomain[32]`。
+普通 BEST_EFFORT 不创建该状态。每个原 tenant/routing/binding/key 的 OrderingDomain
+只保留一个对象；不能把相同 ordering key 的不同原控制域合并。完整 OrderingDomain
+来源与绑定契约由 B2/B5/B6 冻结，32-byte domain ref 本身不提供授权或自动合并权。
+
+| field | 内容 | presence / 约束 |
+|---|---|---|
+| 1 | schemaVersion=1 | 必有，其他版本拒绝 |
+| 2 | TargetPartitionId[32] | 必有 |
+| 3 | orderingDomain[32] | 必有，非零 |
+| 4 | sourceShard[20] | 必有；routeIncarnation[16] + partition:u32be，空队列也绑定 Shard |
+| 5 / 6 | execution domain slot / generation | 必有；slot 0..63；generation 非零 uint64 |
+| 7 | accountingIncarnation[16] | 必有，非零 |
+| 8 | orderingContractRevision | 必有；1=LEGACY_DELIVERY_TIME_FIFO，2=ADMISSION_WATERMARK；未知拒绝 |
+| 9 / 10 | stateRevision / controlVersion | 必有，非零 uint64 |
+| 11 | gate | 必有；1=OPEN，2=ORDERING_BROKEN，3=CLOSED；未知拒绝 |
+| 12 | lastAdmittedOrder | 可缺省，仅 revision 2 允许；完整 TARGET_ORDERED key，与 target/domain/Shard 相同 |
+| 13 | serviceableHead / TargetHeadRef | 可缺省；必须为本 target/slot/generation/domain/Shard 的 ORDER_HEAD |
+| 14 | TargetOrderBarrier | 可缺省；与 target/domain/Shard/slot/generation/accounting 完全相符 |
+| 15 | stateDigest[32] | 必有；下面的 hash |
+
+field 15 = SHA-256(`UTF8("nereus-delay-target-order-state") || 0x00 || fields 1..14`)。
+缺省字段不进入 preimage。field 13 与 14 互斥；gate 非 OPEN 禁止 field 13，但必须继续
+保留仍然存在的 barrier。空对象保留 domain、契约、控制状态和已存在的水位。保守
+canonical 上限 **777 bytes**，最大合法宽度的独立向量实际 **774 bytes**；key + NV
+envelope + canonical 的保守上限为 **855 bytes**。此上限不是 A2 全 mutation 或 JVM 资源认证。
+
+ORDER_HEAD value 复用 **NV type 14 TargetTimelineWorkRef**，与被选 ORDERED 条目中的
+完整 work bytes 相同，不再引入另一份 current work。`requireServiceableProjection`
+必须验证 exact ORDER_HEAD key、ORDER_STATE 的唯一 head、完整 Message/work/source
+投影，且无 terminal/current Claim/未决 attempt；B1 的摘要不能单独授予 Admission。
+ORDERED 仍按 `(deliverAt, sourceOrderToken, messageId, generation)` 排序，ORDER_HEAD
+按 `max(deliverAt,retryEligibilityAt)` 暴露。definitive retry 可以推迟 eligibility，不能
+改变 business order。被其他 barrier 阻塞的后继不创建 ORDER_HEAD。
+
+`decodeForStore` 验证 key、source Shard、queue/accounting/domain generation，拒绝
+VACANT 或已重用的槽位；DRAINING 可以保留旧引用，实际调度资格仍由 live controls 决定。
+Target、OrderingDomain、Shard、execution domain、accounting incarnation 与排序契约在
+普通 successor 中不可变。stateRevision 必须 checked +1；controlVersion 可不变或 +1，
+改变 gate 必须 +1；ORDERING_BROKEN 不能重新 OPEN，CLOSED 不能重新打开。完整 uint64
+跨符号边界有效，UINT64_MAX 禁止回绕。水位不得删除或按 unsigned ORDERED bytes 后退。
+这些结构检查不证明 control CAS、head 最小性或解除旧义务的授权。
+
+revision 1 沿用旧 strict 行为，不允许追加追溯水位。revision 2 的水位只由 durable
+Admission 同 batch 推进；Claim、poll 和物理 send 不推进。带未决 Admission 的 barrier
+在投影检查时必须与水位完全相等，不能已经给后继发出 Admission。新消息/Reschedule
+迟到的稳定拒绝码、幂等 replay 顺序与合法 head retry 规则在 B5 定义、E5 接入；旧 source
+仍依其已绑定 revision，转换切点由 B6/F1 证明。枚举能解码 revision 2 不等于已经激活 E5。
+
+## 19. B1 验收与后续切片责任
+
+B1 对应原设计 §17.3 的“身份与存储”：物理 canonical/hash、闭合 Broker identity、
+不同 Profile/bucket/key 的 Target ID 不变、新 key/tag/presence、各索引的完整排序、
+独立 golden vectors 及旧 reader 拒绝规则。本文件还提前固定了 C1 使用的主要 value codec。
+B1 VERIFIED 只覆盖这组源码、字段契约与检查结果，提案整体仍为 Draft，Store format 2
+和 NV 12..17 未激活；不能从 B1 推出 B7 接受、C/D runtime、Broker 认证或生产权限。
+
+| 后续切片 | 仍须完成的内容 |
+|---|---|
+| B2 / B3 / B4 | compatibility/control/binding 完整引用与授权对象、Native scope/签名、quota 及计费对象 |
+| B5 / B6 | fairness/ordering/resource 的行为与稳定错误码；迁移、旧 source replay、切点及 rollback |
+| B7 | B1–B6 的交叉引用无未决、完整支持矩阵、normative package 与接受流程 |
+| A2 / A3 | 旧活动路径完整有限预算装配、合法 mutation 资源证明、审计与故障恢复 |
+| C1 / E5 | 原子持久状态迁移、head 最小性、真实 Claim/Admission/source/Owner gates 与新排序语义 |
+| D / E7 / F | 新 runtime 的真实 Broker/恢复证据、适用持久环境迁移与 reader 清退 |
+
+历史 B1 子批次记录中的 pending 是各批次当时状态；由本节和新的聚合 evidence 说明后续
+归属，不改写历史 receipt/hash。B1 验证不能要求依赖 B1 的 C1/B6/F1 已先完成；B7 和最终
+Implemented gate 仍必须覆盖这张表，不因 B1 局部验收而省略任何工作。
