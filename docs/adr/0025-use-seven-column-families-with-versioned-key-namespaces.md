@@ -230,3 +230,13 @@ copies pay separate record storage, while embedded runtime/head structures do
 not become invented independent records. The supplied-subset limit is six and
 exact CF/type/key/value rechecks remain part of C4's Store guard. This adds no
 new namespace, CF or active reader/writer; complete recovery is still required.
+
+B4 reserves a source-derived accounting descriptor at meta tag 1a / NV 33.
+The complete primary identity suffix yields 39-byte SHARD or 71-byte TARGET keys.
+Full scope/accounting/lineage/allocation source derive the 16-byte incarnation;
+one optional later drain stamp closes new ingress without releasing retained costs.
+The descriptor pays its own fixed two-source storage envelope and one incarnation;
+QueueState and OrderState provide unique local key cardinalities. Protected actual
+descriptor deletion leaves zero counter tombstones and existing root slot fees.
+The active Store root cannot retire independently. No CF or active reader/writer
+changes; rotation/legacy handover and C4 source/ledger/delete backends remain required.

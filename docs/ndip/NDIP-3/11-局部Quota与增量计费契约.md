@@ -1,6 +1,6 @@
 # NDIP-3 B4：局部 Quota 与增量计费契约
 
-状态：**IN_PROGRESS / counter、计量、attempt reserve、跨 incarnation 总额、grant 激活、bookkeeping 预留、唯一 payload owner 与 Message 记录计费契约已实现，B4 尚未冻结验收**。
+状态：**IN_PROGRESS / counter、计量、attempt reserve、跨 incarnation 总额、grant 激活、bookkeeping 预留、唯一 payload owner 、Message 记录计费及 source-derived incarnation 契约已实现，B4 尚未冻结验收**。
 本页与原设计 §11.1、§16.6、§17.3 的 B4 合读。它定义已落到代码的 counter 字段与
 局部计算边界；逐项业务 owner、完整计量/grant 关联和恢复来源闭合后才办理
 B4 VERIFIED。当前 Lane writer、ValueEnvelope 的既有 reader 与持久 quota map 未改动。
@@ -165,8 +165,8 @@ identity 的所有 tenant 资源维度之和不能超过主费用。共享 metad
 - §9 已列原 §17.3 的完整业务 delta 表；继续绑定每行的完整 before/after ledger、
   §13 的 payload owner 与真实业务记录之间的 before/after 关联、identity 保护和结果/控制记录来源，避免只由方法参数声明费用。
 - §10–§11 已定义 cardinality/grant artifact、跨 incarnation 总额和认证 source/control
-  激活契约；仍须闭合 tenant Target/domain 计数来源、incarnation 分配/退休证明
-  以及独立账本所有权交接的精确规则，保证不会因多个 Profile/domain 复制 grant。
+  激活契约；§15 已固定 source-derived incarnation、局部 Queue/OrderState 计数和受保护退休检查。
+  仍须闭合完整 tenant cut 关联、Queue 轮换/legacy handover 的 source 配方及独立账本所有权交接，保证不会因多个 Profile/domain 复制 grant。
 - 本批向量/测试已覆盖重复 mutation、溢出、Outcome/UNKNOWN/旧 obligation 的必要
   算术与释放顺序；B4 最终仍须把完整 grant/owner/保护规则逐项绑定到原始验收证据。
 
@@ -934,3 +934,148 @@ STATE 长度；这些是结构与计量证据，不声称该测试拼接已有�
 剩余共享 identity/queue/domain/control 与 Claim/result 等 owner、完整 reserve sizing、
 unique cardinality、incarnation lifecycle 和 legacy handover 继续按 §6 闭合。C4 真实
 读集合、原子写、完整恢复和受保护删除仍是后续必要实现，B4 保持 IN_PROGRESS。
+
+
+## 15. Accounting incarnation 的来源、唯一计数与退休
+
+`TargetQuotaIncarnation` 固定一个 source-derived primary owner 的完整 origin，以及
+一次不可逆 ingress drain。预留 **NV 33 / meta tag 1a（十六进制）**，没有 tenant
+副本 descriptor；tenant counter 只镜像费用和局部 queue/domain 归属，incarnation 数
+始终为零。该类不自动执行分配、轮换、删除或 Store 激活；完整真实 authority 仍必需。
+
+### 15.1 确定性 ID 与闭合记录
+
+每次**实际首次分配**使用以下 canonical protobuf 输入：1 schema=1；2 完整不含
+incarnation 的 TargetQuotaScope；3 完整 TargetQuotaAccounting；4 非零 lineage[16]；
+5 完整 allocation TargetQuotaMutation（raw sequence、完整 physical SourcePosition、
+精确已接受 Command/SystemMutation bytes 的 digest）。ID 是
+`SHA256("nereus-delay-target-quota-incarnation-id\0" + input)` 的前 16 bytes。
+全零结果失败关闭，不随机重试或增加隐式 nonce。Descriptor 的 full identity 必须能由
+保留的完整输入重新计算；仅给出相同短 ID 不证明同一个 origin。
+
+Key 沿用 primary counter identity 的完整 suffix，换为独立 tag：
+`1a 01 | primaryKind[1] | sourceShard[20] | accountingIncarnation[16] | [TargetId[32]]`。
+SHARD kind=3/key=39 bytes，TARGET kind=1/key=71 bytes；拒绝 mirror kind。
+
+| field | exact 内容 |
+|---:|---|
+| 1 | schema=1 |
+| 2 | 完整 source-derived primary TargetQuotaIdentity |
+| 3 | 已认证非零 tenantRoutingScope[32] |
+| 4 | 完整冻结 accounting artifact |
+| 5 | 完整首次 allocation mutation |
+| 6 | 非零冻结 recoveryLineage[16] |
+| 7 | 可选完整 drain mutation；absent=OPEN，present=DRAINING |
+| 8 | `nereus-delay-target-quota-incarnation\0` + fields 1–7 的 SHA-256 |
+
+Drain 必须在同一物理 Source 上严格晚于 allocation（position 与 raw sequence 都前进）。
+没有冗余 phase/revision 字段：该 descriptor 只分配一次、drain 一次；重复 source 先走
+实际 dedupe，不能再构造 OPEN 或重复 drain。未知/缺失/重复/错序字段、key/Shard/tenant、
+派生 identity、版本、digest 或非 canonical 编码均拒绝。解码同时检查可计费的固定
+record envelope，溢出发生在 allocation authority 被调用之前。
+
+正常 Schedule/Prepare/DLQ ingress 从**当前已认证 Queue/Store registry 指向的完整
+existing descriptor**取得 owner；不能每来一个 Command 就用它的新 source 再派生
+一个 ID。第一次分配的 StateAuthority 必须检查完整已接受 source body、实际 prior
+不存在、counter tombstone 不存在、当前 grant/accounting、registry 和容量 reservation。
+同 ID/full origin 已存在时按实际 Source/Result 去重；短 ID 冲突、已退休 counter 或
+不同 origin 占据该 ID 时失败关闭，不能覆盖或复活。Lineage、物理 Source/tenant 与
+root artifact 的变更不能由这个 factory 授权，仍走 B6/F1 的受控格式边界。
+
+Allocation 还必须具有非循环的 source 顺序：需要新 incarnation 的 membership/channel
+注册或任何已签名绑定只能引用**已在前序 source action 分配并返回的 ID**。不能用
+已经包含该新 ID 的注册 body（或尚未确定的 Broker offset）反过来求自己的 ID。独立
+allocation request/result 的完整字段与 source 控制操作仍须在后续 B4/B6 source 配方中
+冻结；StateAuthority 必须检查这条真实前置关系，当前 DTO/factory 不代替该协议。
+
+当前 `TargetQueueState.requireSuccessorOf` 不允许修改 accounting incarnation；普通
+原地演进继续复用它。本批没有绕过该规则提供热轮换。原设计的 Queue/accounting
+轮换 source 协议、保护中的 legacy owner handover 与新 Store bootstrap/activation
+仍须在 B4/B6 剩余设计中闭合，不能把“可派生新 ID”当作允许它进入当前队列的证明。
+
+### 15.2 记录费用与唯一 cardinality 来源
+
+Descriptor 为自身持有固定 STATE 预留和一个 accounting incarnation，不把自身 usage
+嵌入编码。令 S 为 §12 的 immutable physical Source bound（Kafka 包括可选 epoch）：
+
+```text
+descriptorPayloadBound = MAX_CANONICAL_BYTES - 2 * globalSourceMaximum + 2 * S
+descriptorStateBytes = actualKeyLength + descriptorPayloadBound + 12 + frozenRecordOverhead
+ownContribution = (STATE=descriptorStateBytes, targets=0, domains=0, strictDomains=0, incarnations=1)
+```
+
+两个 source 槽位覆盖 allocation 与未来 drain，OPEN/DRAINING 的承诺相同；artifact、
+完整 physical Source 与 lineage 冻结。已关闭 ingress 不等于费用减少；不因改 Profile/
+grant/cap 自动重定价或分配新 origin。Descriptor 的 tenant contribution 只有同额 STATE，
+incarnation=0；没有新的 root inventory 类，因为此条记录由自身 primary 支付，已有
+counter/total 槽位仍按 §12 由 root 付费。
+
+| 实际记录 | 唯一 cardinality 贡献 | STATE 费用与 owner |
+|---|---|---|
+| Incarnation descriptor | accountingIncarnations=1；mirror=0 | 上述固定 envelope，归自身原 primary |
+| 当前持久 QueueState | targets=1；executionDomains=ACTIVE+DRAINING 槽位数 | 完整实际 key/typed bytes，归 queue 指向的完整 descriptor |
+| 每条持久 OrderState | strictOrderDomains=1 | 完整实际 key/typed bytes，归 state 保留的完整 descriptor |
+
+QueueState 为 PAUSED/CLOSED 仍有 Target 身份；DRAINING 槽位仍计数，只有实际进入
+VACANT 才释放该执行域计数。VACANT 保留 slot generation 历史，由 QueueState record
+费用覆盖。OrderState 即使 CLOSED/empty 仍占 ordering-domain identity，不能因没有
+serviceable head 或无当前 Message 而漏计；真实受保护删除后才释放。共享 state 内嵌
+head/barrier 不额外造一条 domain 费用。每条 record 的 incarnation contribution 为零，
+只有 descriptor 贡献那个唯一的 1，再与其它业务费用相加生成 primary counter。
+
+Queue 入口验证完整 key/physical Target、已激活 domain 上限与 descriptor Target/inc；
+严格域入口验证完整 key/Target/inc/Source Shard。CLOSED retained OrderState 可继续
+独立计费，但不因此获得 live queue 服务权限。未通过完整 source/control/Store guard
+不得把原 state 的 accounting 字段改成新 ID 转移费用；合法受保护替换按真实 before
+全减、after 全加处理，并保留原 Target total 和 Source aggregate 的守恒。
+
+这些是 **Source Shard 内**实际唯一 key 的贡献来源，不是按每个 Message、Profile、
+channel 或 incarnation 再遍历一遍 domain。相同物理 Target 跨 Source Shard 的全租户
+切分/保守计数、租户 hard policy 与任何受控 reallocation 继续由完整 grant/control
+契约校验；本 helper 不伪造一个跨 Worker 实时去重总数。正常 mutation 仅处理实际变化
+的 Queue/OrderState 点记录；完整恢复才枚举全部实际 key 并独立求和。
+
+### 15.3 Ingress drain 与保留归属
+
+`requireNewIngress` 要求 descriptor OPEN 且完整 accepted accounting artifact 一致；
+DRAINING 不接受新的 Schedule/Prepare/DLQ ingress。它不替代实际 queue/control/grant
+准入，也不阻断已承诺工作的 Claim/Admission/Outcome、保留写入或旧 attempt 排空。
+`requirePayloadOwner`/`requireAttemptBudget` 在 OPEN/DRAINING 均验证完整 primary、
+tenant、accounting、lineage 与 source 不早于 allocation；同位置须完整 mutation 一致。
+另一个 origin 即使 Target、tenant、grant scope 相同，也不能承接旧费用或释放旧预算。
+
+Drain 的强制 StateAuthority 收到完整 prior/next，须验证真实 source/control 与 Store
+读集合，并持续有效到原子提交；异常和 fatal Error 原样传播。没有生产 allow/no-op
+实现。Grant 下调与新 ingress 停止都不能丢弃存量 payload/attempt/record 义务。
+
+### 15.4 最终退休与 Counter tombstone
+
+`requireRetirable` 只允许 DRAINING，并要求实际 primary counter usage **恰好**等于
+其 descriptor ownContribution、actual tenant mirror 恰好等于 tenantContribution。
+因此 Queue/strict-domain、其它记录、retained payload、旧 attempt、结果/evidence 或
+任何其它正费用都必须先排空。零 counter 也不能代替这个 before 状态，提前清零后再
+删除 descriptor 属于错误。Counter 的完整 source/sequence 不得早于或矛盾于 allocation。
+
+完整 bookkeeping root/aggregate 必须相容，覆盖 root 与 retiring descriptor 的最低
+费用及两个 primary incarnation；counter revision/source 须属于实际 aggregate。当前
+Store root 自身禁止在活动 Store 内退休，其最后清退仍是 B6/F1/F3 的整个 Store 保护
+边界。不能用另造 root DTO 绕过实际 Store read-set 和 authority。
+
+Floor lineage 必须相同，完整 applied Source/sequence 覆盖 descriptor 最新 drain 以及
+primary/mirror 各自**最新** mutation，二者相对顺序一致；同位置还须完整 source metadata
+一致。删除 source 必须严格晚于该 Floor 和当前 aggregate source。最后强制
+RetirementAuthority 验证**独立真实 ledger**、所有零费用但仍有效的引用、旧 source
+replay/dedupe、全部 writer、catalog/checkpoint ancestry、pins、查询/保留与实际删除
+条件；counter 数字或 Floor DTO 单独不授权退休。检查在完整 Store guard 到 commit
+期间必须持续有效，helper 不执行删除或提前发布内存。
+
+批准后实际同批删除 descriptor、扣除其固定 STATE 与唯一 incarnation，primary/mirror
+变为零并保留 §10 的 counter tombstone；Target total 和 aggregate 同批更新。Counter/
+total 记录本身仍占 §12 root 槽位，不递减其 inventory、不重置 revision、也不复活已退休
+identity。删除 descriptor 的完整原 bytes、实际 counters/root/aggregate、SourceAdvance
+和必要 Result 必须参与该原子批次。未来 source 只能通过新的真实分配产生另一个 origin。
+
+本批冻结上述结构、计量与受保护退休检查，并不宣称实际 Source 控制后端、完整 ledger
+重建或 Store 删除已实现。B4 还需完整业务 reserve、其它共享 identity/control/Claim/
+result 等 owner、轮换/legacy handover source 配方及原 §17.3 最终绑定；C4/D/E/F 的真实
+原子恢复、Broker、受控迁移与旧路径清退继续保留。

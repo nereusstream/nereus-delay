@@ -119,9 +119,14 @@
         "evidence/b4-message-records-check.log",
         "evidence/b4-message-records-focused.log",
         "evidence/b4-message-records-final-docs.log",
-        "evidence/b4-message-records-junit.zip"
+        "evidence/b4-message-records-junit.zip",
+        "evidence/b4-incarnation-results.json",
+        "evidence/b4-incarnation-check.log",
+        "evidence/b4-incarnation-focused.log",
+        "evidence/b4-incarnation-final-docs.log",
+        "evidence/b4-incarnation-junit.zip"
       ],
-      "progress": "Independent quota foundations now include validated Message-family record STATE charges from full key/typed bytes under the frozen payload owner, with a hard six-record supplied-subset bound and exact storage rechecks. Latest full check: 2001 Java tests, zero failures/errors, 41 external skips; all 135 quota tests without skips. No new NV/tag or active writer. Remaining B4: other business record owners/actual ledger sources, full reserve sizing, unique cardinality and protected incarnation lifecycle. Partial record subsets do not certify full ledger, source authority, protected deletion or Store/Broker recovery."
+      "progress": "Source-derived incarnation descriptor, one-way drain, fixed descriptor fee, local Queue/OrderState cardinality and guarded retirement contracts implemented. Latest full check: 2020 Java tests, zero failures/errors, 41 external skips; all 154 quota tests without skips. Allocation needs an independent non-circular source action before membership/channel registration can reference its ID; that protocol and queue rotation/legacy handover remain unfrozen. Other owners, full reserves and original acceptance binding remain B4 work. No actual allocation/deletion backend, active Target Store writer, full recovery or Broker certification."
     },
     {
       "id": "B5",

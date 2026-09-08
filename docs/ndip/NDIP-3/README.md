@@ -143,3 +143,13 @@ quota 契约无 skip。25 条独立向量、303 份 JUnit XML 和 1170 个不变
 `evidence/b4-message-records-results.json` 与 `b4-message-records-junit.zip`。B4 仍为
 IN_PROGRESS；其它业务 owner、完整容量、unique cardinality 和 incarnation 生命周期
 继续闭合，partial subset 不是完整账本、Source 授权或恢复认证。
+
+B4 incarnation 批次增加 NV 33/meta 1a 的完整 source-derived origin、一次 ingress drain、
+固定 descriptor 记录预留，以及实际 Queue/OrderState 的局部唯一计数来源。退休核对
+counter 恰剩自身费用、最新 Floor/root/aggregate 和强制完整 ledger authority，不执行
+实际删除；当前 Store root 不可独立退休。详见 §11 契约 §15。
+完整 check：2020 项 Java tests，失败/错误 0、外部 skip 41；新增 19 项、全部 154 项
+quota 契约无 skip。23 条独立向量、304 份 JUnit XML、1174 个不变输入见
+`evidence/b4-incarnation-results.json` 与 `b4-incarnation-junit.zip`。B4 保持 IN_PROGRESS；
+必须先定义独立且无循环的 allocation source action，再让 membership/channel 注册引用
+其结果 ID。该控制协议、Queue 轮换/legacy handover、其它 owner 与完整 reserve 继续闭合。

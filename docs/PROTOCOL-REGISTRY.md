@@ -2288,3 +2288,14 @@ NATIVE/ORDERED/ORDER_HEAD、Expiry 各按自己的完整 key/typed bytes 计一�
 [契约 §14](ndip/NDIP-3/11-局部Quota与增量计费契约.md#14-message-家族的实际记录计费来源)。
 输入先由 Store 适配层验证 NV envelope；子集计量硬上限 6，拒绝重复 key、混合 owner/
 Message 视图。它不提供全量 ledger、Source/grant 授权、受保护删除或实际 writer。
+
+B4 的 `TargetQuotaIncarnation` schema 1 预留 NV 33 / meta tag 1a：
+`1a 01 | primaryKind[1] | sourceShard[20] | incarnation[16] | [TargetId[32]]`，
+SHARD/TARGET key 为 39/71 bytes。Fields 1–8：schema、完整 primary identity、tenant、
+完整 accounting、allocation mutation、lineage、可选 drain mutation、digest。完整输入
+派生 16-byte incarnation；ID 域 `nereus-delay-target-quota-incarnation-id\0`，记录域
+`nereus-delay-target-quota-incarnation\0`。字段、来源和删除规则见
+[契约 §15](ndip/NDIP-3/11-局部Quota与增量计费契约.md#15-accounting-incarnation-的来源唯一计数与退休)。
+Descriptor 固定预留两个完整 Source 槽位及唯一 incarnation 计数；Queue/OrderState
+分别给出 Target/occupied domains/strict domains 的实际 key 贡献。Drain 不释放费用，
+退休仍需最新 counter/Floor 和实际完整 ledger authority。旧 reader 拒绝 NV 33。

@@ -6071,3 +6071,13 @@ owner 本身和实际 work/Expiry 索引各按完整 key/value 计一次 STATE�
 及 C4 真实账本义务见
 [B4 §14](ndip/NDIP-3/11-局部Quota与增量计费契约.md#14-message-家族的实际记录计费来源)。
 该子集检查不证明完整 Store 恢复；其它 owner/容量/incarnation 设计仍在 B4 闭合。
+
+B4 已增加 source-derived accounting incarnation descriptor（NV 33/meta 1a）。完整
+scope/accounting/lineage/首次 allocation mutation 决定 ID；一次 drain 停止新 ingress，
+保留存量费用。Descriptor 自身持有固定 record envelope 和唯一 incarnation；实际
+QueueState/OrderState 分别提供局部 Target、占用执行域和 strict-domain 计数。只有
+counter 恰剩 descriptor、最新 Floor 及完整引用/写入者/保留 authority 均满足后才能
+原子退休，零 counter tombstone 与 root 投影槽位仍保留。完整字段与边界见
+[B4 §15](ndip/NDIP-3/11-局部Quota与增量计费契约.md#15-accounting-incarnation-的来源唯一计数与退休)。
+当前 QueueState 仍禁止普通 successor 修改 accounting incarnation；轮换/legacy
+handover source 配方及 C4 真实后端/原子恢复继续闭合。

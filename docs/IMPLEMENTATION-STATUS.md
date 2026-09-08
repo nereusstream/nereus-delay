@@ -145,6 +145,21 @@ B4 remains IN_PROGRESS for other record families, full business reserve sizing,
 unique cardinality and incarnation lifecycle. Subset inspection does not prove
 complete source authority, actual before/after ledger, deletion or Store recovery.
 
+B4 now includes a source-derived incarnation descriptor (NV 33 / meta 1a),
+one-way ingress drain, fixed descriptor storage commitments, local Queue/OrderState
+cardinality contributions and guarded retirement validation. Frozen payload/attempt
+attribution remains valid during drain and cannot move to a replacement origin.
+Retirement requires only descriptor charges remaining, current root/aggregate and
+latest counter/Floor consistency, plus actual independent ledger authority; it
+does not delete records or permit retiring the active Store root.
+The incarnation full check passed 2020 Java tests, zero failures/errors, 41 external
+skips; all 154 quota tests, including 19 new cases, passed without skips. Twenty-three
+independent vector entries, all 304 JUnit XML files and 1174 unchanged inputs are
+bound by `docs/ndip/NDIP-3/evidence/b4-incarnation-results.json`.
+B4 remains IN_PROGRESS. A non-circular allocation source action must precede any
+membership/channel registration that needs its ID; that control protocol, queue
+rotation/legacy handover, remaining record owners and full reserves remain required.
+
 No active Target scheduling runtime, Broker certification or migration is claimed yet. The user authorized
 full implementation and incremental publication on main. NDIP-1 remains closed;
 its historical evidence does not certify changed runtime source.
