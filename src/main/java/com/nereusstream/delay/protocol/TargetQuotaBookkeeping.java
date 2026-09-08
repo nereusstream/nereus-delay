@@ -149,7 +149,11 @@ public final class TargetQuotaBookkeeping {
 
     public long projectionBytes(final Projection projection) {
         Objects.requireNonNull(projection, "projection");
-        return fixedRecordBytes(projection.keyBytes, projection.payloadBytes, 1, accounting);
+        return fixedRecordBytes(
+                projection.keyBytes,
+                projection.payloadBytes,
+                projection == Projection.GRANT_ACTIVATION ? 2 : 1,
+                accounting);
     }
 
     /** Budget record storage is outside its commitment/allocated vectors, even after phase RELEASED. */

@@ -2250,6 +2250,9 @@ expected mutation ID/hash。Field 12 为 raw uint64 next version，field 14 始�
 Shard/Target key 分别 55/87 bytes。完整 request、ControlRef、source mutation、accepted
 SystemMutation ID/hash 与 digest 写入投影；stamp digest 是完整签名 canonical envelope
 的 SHA-256，不是 semantic mutationHash，也不含外层 frame/CRC。没有递归 prior activation。
+Activation field 7 是可选完整 OPEN initial allocation snapshot，digest 移至 field 8；
+后续更新保留原快照，当前 descriptor 的 drain/retirement 仍独立生效。首次非零 Target
+分配来自本次已签名 grant source；零初始额度和 SHARD branch 不分配。详见契约 §16。
 Activation domain 为 `nereus-delay-target-quota-grant-activation\0`。
 
 [契约 §11](ndip/NDIP-3/11-局部Quota与增量计费契约.md#11-认证-grant-control-与-source-激活契约)

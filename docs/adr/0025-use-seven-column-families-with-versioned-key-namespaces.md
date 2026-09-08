@@ -240,3 +240,10 @@ QueueState and OrderState provide unique local key cardinalities. Protected actu
 descriptor deletion leaves zero counter tombstones and existing root slot fees.
 The active Store root cannot retire independently. No CF or active reader/writer
 changes; rotation/legacy handover and C4 source/ledger/delete backends remain required.
+
+B4 draft NV 30 now retains the immutable OPEN first Target allocation in field 7;
+its digest is field 8. The preceding signed grant request contains no derived ID,
+so allocation does not depend on later membership/channel registrations. Updates
+preserve the snapshot, including zero limits, without reviving the descriptor.
+Activation root slots reserve two bounded sources; NV 33 still owns its distinct
+record fee and single incarnation. No new tag/CF or active Lane format change.

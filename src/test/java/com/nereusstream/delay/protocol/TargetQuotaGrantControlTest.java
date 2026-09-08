@@ -37,6 +37,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class TargetQuotaGrantControlTest {
+    private static final byte[] LINEAGE = repeat(16, 0xcc);
     private static final List<String> CASES = List.of(
             "target.initial", "shard.initialTransfer", "target.replaceTransfer", "shard.replace", "target.zero");
     private final Properties vectors = load();
@@ -80,7 +81,8 @@ class TargetQuotaGrantControlTest {
                             at(request.next().version()),
                             Bytes.sha256(mutation.canonicalEnvelope())),
                     mutation.systemMutationId(),
-                    mutation.mutationHash());
+                    mutation.mutationHash(),
+                    result.allocation());
             assertArrayEquals(hex(name + ".activation"), expected.canonicalBytes());
             assertArrayEquals(hex(name + ".key"), result.key());
         }
@@ -117,7 +119,7 @@ class TargetQuotaGrantControlTest {
         assertArrayEquals(value.mutation.canonicalEnvelope(), factory.canonicalEnvelope());
         registrations.register(value.prepared);
         registrations.validateMutation(value.prepared, target, factory);
-        final var change = verify(value, at(1), emptyView(), authority((request, view, position) -> {
+        final var change = verify(value, at(1), emptyView(), authority((request, view, position, allocation) -> {
             assertEquals(request.request().next().scope(), scope);
             assertArrayEquals(value.prepared.operationId(), request.controlRef().operationId());
             assertArrayEquals(value.prepared.requestHash(), request.controlRef().requestHash());
@@ -133,7 +135,7 @@ class TargetQuotaGrantControlTest {
         registrations.register(value.prepared);
         final var view = liveView(initial, limit);
         final var calls = new AtomicInteger();
-        final var change = verify(value, at(2), view, authority((request, snapshot, position) -> {
+        final var change = verify(value, at(2), view, authority((request, snapshot, position, allocation) -> {
             calls.incrementAndGet();
             assertSame(view, snapshot);
             assertEquals(limit, snapshot.usage(scope));
@@ -154,17 +156,17 @@ class TargetQuotaGrantControlTest {
         final var view = emptyView();
         assertThrows(
                 IllegalStateException.class,
-                () -> verify(value, at(1), view, authority((r, v, s) -> {
+                () -> verify(value, at(1), view, authority((r, v, s, allocation) -> {
                     throw new IllegalStateException("tenant cuts or donor drain are unproven");
                 })));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> verify(value, at(1), view, authority((r, v, s) -> {
+                () -> verify(value, at(1), view, authority((r, v, s, allocation) -> {
                     throw new IllegalArgumentException("recipient placement cannot reserve the physical envelope");
                 })));
         assertThrows(
                 AssertionError.class,
-                () -> verify(value, at(1), view, authority((r, v, s) -> {
+                () -> verify(value, at(1), view, authority((r, v, s, allocation) -> {
                     throw new AssertionError("capacity backend failed");
                 })));
         assertEquals(null, view.grant());
@@ -192,7 +194,8 @@ class TargetQuotaGrantControlTest {
                 priorBody.controlRef(),
                 new TargetQuotaMutation(1, at(1), Bytes.sha256(priorMutation.canonicalEnvelope())),
                 priorMutation.systemMutationId(),
-                priorMutation.mutationHash());
+                priorMutation.mutationHash(),
+                null);
         assertThrows(
                 CommandResolutionException.class,
                 () -> verify(value, at(2), liveView(altered, limit), neverCapacity()));
@@ -208,15 +211,15 @@ class TargetQuotaGrantControlTest {
     void storeReadSetGuardsInitialAbsencePriorGrantUsageAndSource() {
         final var value = prepare(request("target.initial"), repeat(32, 0x72), actor, key, 1);
         registrations.register(value.prepared);
-        final var change = verify(value, at(1), emptyView(), authority((r, v, s) -> {}));
+        final var change = verify(value, at(1), emptyView(), authority((r, v, s, allocation) -> {}));
         assertThrows(IllegalStateException.class, () -> change.requireCurrent(liveView(initial, limit)));
         assertThrows(
                 IllegalStateException.class,
                 () -> change.requireCurrent(new TargetQuotaGrantControlVerifier.View(
-                        null, emptyView().aggregate(), null, 1, at(1))));
+                        null, emptyView().aggregate(), null, 1, at(1), LINEAGE)));
         final var next = prepare(request("target.zero"), repeat(32, 0x73), actor, key, 1);
         registrations.register(next.prepared);
-        final var second = verify(next, at(2), liveView(initial, limit), authority((r, v, s) -> {}));
+        final var second = verify(next, at(2), liveView(initial, limit), authority((r, v, s, allocation) -> {}));
         final var less = new TargetQuotaUsage(CapacityVector.empty(), 1, 0, 0, 2);
         assertThrows(IllegalStateException.class, () -> second.requireCurrent(liveView(initial, less)));
     }
@@ -234,7 +237,8 @@ class TargetQuotaGrantControlTest {
                 liveView(initial, limit).aggregate(),
                 liveView(initial, limit).total(),
                 -1,
-                at(2));
+                at(2),
+                LINEAGE);
         assertThrows(IllegalStateException.class, () -> verify(value, at(3), exhausted, neverCapacity()));
     }
 
@@ -243,13 +247,14 @@ class TargetQuotaGrantControlTest {
         final var view = liveView(initial, limit);
         assertThrows(
                 IllegalStateException.class,
-                () -> new TargetQuotaGrantControlVerifier.View(initial, view.aggregate(), view.total(), 1, at(0)));
+                () -> new TargetQuotaGrantControlVerifier.View(
+                        initial, view.aggregate(), view.total(), 1, at(0), LINEAGE));
         final var changedStamp = new TargetQuotaMutation(1, at(1), repeat(32, 0x66));
         final var changedAggregate =
                 new TargetQuotaAggregate(source.shardId(), repeat(16, 0x22), limit, 1, changedStamp);
         assertThrows(
                 IllegalStateException.class,
-                () -> new TargetQuotaGrantControlVerifier.View(initial, changedAggregate, null, 1, at(1)));
+                () -> new TargetQuotaGrantControlVerifier.View(initial, changedAggregate, null, 1, at(1), LINEAGE));
         final var wrongMetadata = new KafkaSourcePosition(
                 source.shardId(),
                 source.authenticatedClusterId(),
@@ -259,7 +264,8 @@ class TargetQuotaGrantControlTest {
                 999);
         assertThrows(
                 IllegalStateException.class,
-                () -> new TargetQuotaGrantControlVerifier.View(initial, view.aggregate(), null, 1, wrongMetadata));
+                () -> new TargetQuotaGrantControlVerifier.View(
+                        initial, view.aggregate(), null, 1, wrongMetadata, LINEAGE));
         final var earlierSequenceLaterSource = new TargetQuotaMutation(1, at(3), repeat(32, 0x66));
         final var later = activation("target.zero");
         assertThrows(
@@ -270,7 +276,8 @@ class TargetQuotaGrantControlTest {
                                 source.shardId(), repeat(16, 0x22), limit, 1, earlierSequenceLaterSource),
                         null,
                         4,
-                        at(4)));
+                        at(4),
+                        LINEAGE));
     }
 
     @Test
@@ -425,7 +432,7 @@ class TargetQuotaGrantControlTest {
         final var position = new KafkaSourcePosition(
                 source.shardId(), source.authenticatedClusterId(), source.nativeTopicUuid(), 10, null, 450);
         final var seen = new ArrayList<SourcePosition>();
-        final var base = authority((r, v, s) -> {});
+        final var base = authority((r, v, s, allocation) -> {});
         final var retained = new TargetQuotaGrantControlVerifier.Authority(
                 registrations,
                 (version, at) -> {
@@ -472,7 +479,7 @@ class TargetQuotaGrantControlTest {
         final var value = prepare(replace, repeat(32, 0x73), actor, key, 1);
         registrations.register(value.prepared);
         final var calls = new AtomicInteger();
-        verify(value, at(2), liveView(initial, limit), authority((r, v, s) -> {
+        verify(value, at(2), liveView(initial, limit), authority((r, v, s, allocation) -> {
             assertEquals(replace.transfer(), r.request().transfer());
             calls.incrementAndGet();
         }));
@@ -601,7 +608,8 @@ class TargetQuotaGrantControlTest {
                         initial.controlRef(),
                         initial.mutation(),
                         repeat(32, 0x80),
-                        initial.systemMutationHash()));
+                        initial.systemMutationHash(),
+                        initial.allocation()));
         assertNotEquals(
                 initial.key().length, activation("shard.initialTransfer").key().length);
     }
@@ -622,7 +630,7 @@ class TargetQuotaGrantControlTest {
                     Long.MAX_VALUE,
                     Long.MAX_VALUE);
             final var accounting = new TargetQuotaAccounting(
-                    repeat(32, 0xbb), Long.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE);
+                    repeat(32, 0xbb), target ? 32 : Long.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE);
             final var next = new TargetQuotaGrant(scope, repeat(32, 0x99), -1, accounting, limit, -1, repeat(32, 0xaa));
             final var prior =
                     new TargetQuotaGrant(scope, repeat(32, 0x99), -2, accounting, limit, -1, repeat(32, 0xaa));
@@ -645,7 +653,27 @@ class TargetQuotaGrantControlTest {
                     body.controlRef(),
                     new TargetQuotaMutation(-1, position, Bytes.sha256(mutation.canonicalEnvelope())),
                     mutation.systemMutationId(),
-                    mutation.mutationHash());
+                    mutation.mutationHash(),
+                    target
+                            ? TargetQuotaIncarnation.allocate(
+                                    scope,
+                                    accounting,
+                                    LINEAGE,
+                                    new TargetQuotaMutation(
+                                            -2,
+                                            new PulsarSourcePosition(
+                                                    source.shardId(),
+                                                    repeat(32, 0x77),
+                                                    "x".repeat(1 << 20),
+                                                    -1,
+                                                    -2,
+                                                    0,
+                                                    1,
+                                                    PulsarSourcePosition.EntryKind.NON_BATCH,
+                                                    Long.MAX_VALUE),
+                                            Bytes.sha256(mutation.canonicalEnvelope())),
+                                    (priorOrigin, nextOrigin) -> {})
+                            : null);
             final String prefix = "maximum." + (target ? "target" : "shard");
             maximum(prefix + ".request", request.canonicalBytes(), TargetQuotaGrantControlRequest.MAX_CANONICAL_BYTES);
             maximum(prefix + ".body", body.canonicalBytes(), TargetQuotaGrantControlBody.MAX_CANONICAL_BYTES);
@@ -711,6 +739,251 @@ class TargetQuotaGrantControlTest {
         }
     }
 
+    @Test
+    void initialNonzeroGrantReturnsTheAuthorizedSourceDerivedAllocationExactlyOnce() {
+        final var value = prepare(request("target.initial"), repeat(32, 0x72), actor, key, 1);
+        registrations.register(value.prepared);
+        final var candidates = new ArrayList<TargetQuotaIncarnation>();
+        final var change = verify(value, at(1), emptyView(), authority((r, v, s, allocation) -> {
+            candidates.add(allocation);
+            assertEquals(scope, allocation.scope());
+            assertEquals(1, allocation.allocation().sequence());
+            assertArrayEquals(
+                    s.canonicalBytes(), allocation.allocation().source().canonicalBytes());
+            assertArrayEquals(
+                    Bytes.sha256(value.mutation.canonicalEnvelope()),
+                    allocation.allocation().mutationDigest());
+            assertArrayEquals(LINEAGE, allocation.recoveryLineage());
+            assertTrue(
+                    r.request().next().limit().permitsGrowth(TargetQuotaUsage.empty(), allocation.ownContribution()));
+        }));
+        assertEquals(1, candidates.size());
+        assertSame(candidates.getFirst(), change.after().allocation());
+        assertArrayEquals(
+                hex("target.initial.allocation"), change.after().allocation().canonicalBytes());
+        assertTrue(change.after().allocation().canonicalBytes().length
+                <= TargetQuotaIncarnation.MAX_ALLOCATION_CANONICAL_BYTES);
+    }
+
+    @Test
+    void zeroInitialGrantAllocatesOnlyOnTheFirstNonzeroSuccessor() {
+        final var zero = new TargetQuotaGrantControlRequest(
+                grantVersion(1, TargetQuotaUsage.empty(), initial.grant().accounting()), null, null);
+        final var preparedZero = prepare(zero, repeat(32, 0x76), actor, key, 1);
+        registrations.register(preparedZero.prepared);
+        final var calls = new AtomicInteger();
+        final var denied = verify(preparedZero, at(1), emptyView(), authority((r, v, s, allocation) -> {
+                    assertEquals(null, allocation);
+                    calls.incrementAndGet();
+                }))
+                .after();
+        assertEquals(
+                null, TargetQuotaGrantActivation.decode(denied.canonicalBytes()).allocation());
+        final var next = new TargetQuotaGrantControlRequest(
+                grantVersion(2, limit, initial.grant().accounting()), zero.next(), null);
+        final var preparedNext = prepare(next, repeat(32, 0x77), actor, key, 1);
+        registrations.register(preparedNext.prepared);
+        final var view =
+                new TargetQuotaGrantControlVerifier.View(denied, emptyView().aggregate(), null, 1, at(1), LINEAGE);
+        final var allocated = verify(preparedNext, at(2), view, authority((r, v, s, allocation) -> {
+                    assertEquals(2, allocation.allocation().sequence());
+                    calls.incrementAndGet();
+                }))
+                .after();
+        assertEquals(2, calls.get());
+        assertEquals(allocated.mutation(), allocated.allocation().allocation());
+    }
+
+    @Test
+    void loweringToZeroAndIncreasingAgainNeverReallocatesOrRepricesTheOrigin() {
+        final var zero = prepare(request("target.zero"), repeat(32, 0x76), actor, key, 1);
+        registrations.register(zero.prepared);
+        final var down = verify(
+                        zero,
+                        at(2),
+                        liveView(initial, limit),
+                        authority((r, v, s, allocation) -> assertEquals(null, allocation)))
+                .after();
+        assertSame(initial.allocation(), down.allocation());
+        final var request = new TargetQuotaGrantControlRequest(
+                grantVersion(3, limit, initial.grant().accounting()), down.grant(), null);
+        final var up = prepare(request, repeat(32, 0x77), actor, key, 1);
+        registrations.register(up.prepared);
+        final var restored = verify(
+                        up,
+                        at(3),
+                        liveView(down, limit),
+                        authority((r, v, s, allocation) -> assertEquals(null, allocation)))
+                .after();
+        assertSame(initial.allocation(), restored.allocation());
+        assertArrayEquals(
+                initial.allocation().canonicalBytes(),
+                TargetQuotaGrantActivation.decode(restored.canonicalBytes())
+                        .allocation()
+                        .canonicalBytes());
+        final var repriced = new TargetQuotaAccounting(repeat(32, 0xbd), 32, 24, 40, 64);
+        final var changed = prepare(
+                new TargetQuotaGrantControlRequest(grantVersion(2, limit, repriced), initial.grant(), null),
+                repeat(32, 0x78),
+                actor,
+                key,
+                1);
+        registrations.register(changed.prepared);
+        assertThrows(
+                IllegalStateException.class, () -> verify(changed, at(2), liveView(initial, limit), neverCapacity()));
+    }
+
+    @Test
+    void shardGrantDoesNotAllocateOrSubstituteTheStoreRoot() {
+        final var value = prepare(request("shard.initialTransfer"), repeat(32, 0x72), actor, key, 1);
+        registrations.register(value.prepared);
+        final var change =
+                verify(value, at(1), emptyView(), authority((r, v, s, allocation) -> assertEquals(null, allocation)));
+        assertEquals(null, change.after().allocation());
+        assertArrayEquals(
+                hex("shard.initialTransfer.activation"), change.after().canonicalBytes());
+    }
+
+    @Test
+    void missingOriginCannotBeInventedOverEvenAnExistingZeroTargetTotal() {
+        final var value = prepare(request("target.initial"), repeat(32, 0x72), actor, key, 1);
+        registrations.register(value.prepared);
+        for (var usage : List.of(TargetQuotaUsage.empty(), limit)) {
+            final var live = liveView(initial, usage);
+            final var view =
+                    new TargetQuotaGrantControlVerifier.View(null, live.aggregate(), live.total(), 1, at(1), LINEAGE);
+            assertThrows(IllegalStateException.class, () -> verify(value, at(2), view, neverCapacity()));
+        }
+    }
+
+    @Test
+    void descriptorFeeAndIncarnationMustBothFitBeforeCapacityAuthority() {
+        int operation = 0x76;
+        for (var unfunded : List.of(
+                new TargetQuotaUsage(CapacityVector.empty(), 0, 0, 0, 1),
+                new TargetQuotaUsage(initial.allocation().ownContribution().resources(), 0, 0, 0, 0))) {
+            final var value = prepare(
+                    new TargetQuotaGrantControlRequest(
+                            grantVersion(1, unfunded, initial.grant().accounting()), null, null),
+                    repeat(32, operation++),
+                    actor,
+                    key,
+                    1);
+            registrations.register(value.prepared);
+            assertThrows(IllegalStateException.class, () -> verify(value, at(1), emptyView(), neverCapacity()));
+        }
+    }
+
+    @Test
+    void recoveryLineageIsAssignedImmutableAndPartOfTheCommitGuard() {
+        final byte[] mutable = LINEAGE.clone();
+        final var view =
+                new TargetQuotaGrantControlVerifier.View(null, emptyView().aggregate(), null, 0, null, mutable);
+        mutable[0] ^= 1;
+        view.recoveryLineage()[0] ^= 1;
+        assertArrayEquals(LINEAGE, view.recoveryLineage());
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new TargetQuotaGrantControlVerifier.View(null, view.aggregate(), null, 0, null, new byte[16]));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new TargetQuotaGrantControlVerifier.View(null, view.aggregate(), null, 0, null, new byte[15]));
+        assertThrows(
+                IllegalStateException.class,
+                () -> new TargetQuotaGrantControlVerifier.View(
+                        initial, liveView(initial, limit).aggregate(), null, 1, at(1), repeat(16, 0xcd)));
+        final var value = prepare(request("target.initial"), repeat(32, 0x72), actor, key, 1);
+        registrations.register(value.prepared);
+        final var change = verify(value, at(1), view, authority((r, v, s, allocation) -> {}));
+        assertThrows(
+                IllegalStateException.class,
+                () -> change.requireCurrent(
+                        new TargetQuotaGrantControlVerifier.View(null, view.aggregate(), null, 0, null, mutable)));
+    }
+
+    @Test
+    void acceptedSourceMetadataAndRecoveryLineageBothChangeTheDerivedId() {
+        final var value = prepare(request("target.initial"), repeat(32, 0x72), actor, key, 1);
+        registrations.register(value.prepared);
+        final var otherSource = new KafkaSourcePosition(
+                source.shardId(), source.authenticatedClusterId(), source.nativeTopicUuid(), source.offset(), 7, 101);
+        final var metadata = verify(value, otherSource, emptyView(), authority((r, v, s, allocation) -> {}))
+                .after();
+        final var otherLineage = new TargetQuotaGrantControlVerifier.View(
+                null, emptyView().aggregate(), null, 0, null, repeat(16, 0xcd));
+        final var lineage = verify(value, at(1), otherLineage, authority((r, v, s, allocation) -> {}))
+                .after();
+        assertFalse(Arrays.equals(
+                initial.allocation().identity().accountingIncarnation(),
+                metadata.allocation().identity().accountingIncarnation()));
+        assertFalse(Arrays.equals(
+                initial.allocation().identity().accountingIncarnation(),
+                lineage.allocation().identity().accountingIncarnation()));
+    }
+
+    @Test
+    void activationRejectsMissingDrainingForeignAndContradictoryOriginsWithValidDigests() {
+        final var draining =
+                initial.allocation().drain(new TargetQuotaMutation(2, at(2), repeat(32, 0x67)), (p, n) -> {});
+        final var foreign = TargetQuotaIncarnation.allocate(
+                scope.shardScope(), initial.grant().accounting(), LINEAGE, initial.mutation(), (p, n) -> {});
+        final var changedStamp = TargetQuotaIncarnation.allocate(
+                scope,
+                initial.grant().accounting(),
+                LINEAGE,
+                new TargetQuotaMutation(1, at(1), repeat(32, 0x68)),
+                (p, n) -> {});
+        for (var origin : Arrays.asList(null, draining, foreign, changedStamp)) {
+            byte[] fields = rewrite(initial.canonicalBytes(), 8, new byte[0]);
+            fields = rewrite(fields, 7, origin == null ? new byte[0] : field(7, origin.canonicalBytes()));
+            final byte[] encoded = Bytes.concat(
+                    fields, field(8, Bytes.sha256(Bytes.utf8("nereus-delay-target-quota-grant-activation\0"), fields)));
+            assertThrows(IllegalArgumentException.class, () -> TargetQuotaGrantActivation.decode(encoded));
+        }
+        final var zero = activation("target.zero");
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new TargetQuotaGrantActivation(
+                        zero.request(),
+                        zero.controlRef(),
+                        zero.mutation(),
+                        zero.systemMutationId(),
+                        zero.systemMutationHash(),
+                        null));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new TargetQuotaGrantActivation(
+                        initial.request(),
+                        initial.controlRef(),
+                        zero.mutation(),
+                        initial.systemMutationId(),
+                        initial.systemMutationHash(),
+                        initial.allocation()));
+        final var freshAtUpdate = TargetQuotaIncarnation.allocate(
+                scope, initial.grant().accounting(), LINEAGE, zero.mutation(), (p, n) -> {});
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new TargetQuotaGrantActivation(
+                        zero.request(),
+                        zero.controlRef(),
+                        zero.mutation(),
+                        zero.systemMutationId(),
+                        zero.systemMutationHash(),
+                        freshAtUpdate));
+    }
+
+    private TargetQuotaGrant grantVersion(
+            final long version, final TargetQuotaUsage usage, final TargetQuotaAccounting accounting) {
+        return new TargetQuotaGrant(
+                scope,
+                initial.grant().grantId(),
+                version,
+                accounting,
+                usage,
+                initial.grant().tenantPolicyVersion(),
+                initial.grant().tenantPolicyHash());
+    }
+
     private TargetQuotaGrantControlVerifier.Change verify(
             final Prepared prepared,
             final SourcePosition source,
@@ -737,14 +1010,14 @@ class TargetQuotaGrantControlTest {
     }
 
     private TargetQuotaGrantControlVerifier.Authority neverCapacity() {
-        return authority((r, v, s) -> {
+        return authority((r, v, s, allocation) -> {
             throw new AssertionError("rejected before capacity authority");
         });
     }
 
     private TargetQuotaGrantControlVerifier.View emptyView() {
         return new TargetQuotaGrantControlVerifier.View(
-                null, TargetQuotaAggregate.genesis(source.shardId(), repeat(16, 0x22)), null, 0, null);
+                null, TargetQuotaAggregate.genesis(source.shardId(), repeat(16, 0x22)), null, 0, null, LINEAGE);
     }
 
     private TargetQuotaGrantControlVerifier.View liveView(
@@ -756,7 +1029,8 @@ class TargetQuotaGrantControlTest {
                 aggregate,
                 total,
                 grant.mutation().sequence(),
-                grant.mutation().source());
+                grant.mutation().source(),
+                LINEAGE);
     }
 
     private TargetQuotaGrantControlRequest request(final String name) {

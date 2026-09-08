@@ -156,9 +156,23 @@ The incarnation full check passed 2020 Java tests, zero failures/errors, 41 exte
 skips; all 154 quota tests, including 19 new cases, passed without skips. Twenty-three
 independent vector entries, all 304 JUnit XML files and 1174 unchanged inputs are
 bound by `docs/ndip/NDIP-3/evidence/b4-incarnation-results.json`.
-B4 remains IN_PROGRESS. A non-circular allocation source action must precede any
-membership/channel registration that needs its ID; that control protocol, queue
-rotation/legacy handover, remaining record owners and full reserves remain required.
+B4 now reuses the existing signed grant Control operation as the preceding first
+Target allocation plan. NV 30 field 7 retains the complete immutable OPEN origin;
+its digest is field 8. Zero initial grants and SHARD grants allocate no descriptor.
+Later Target grant updates preserve the origin through zero limits and increases,
+reject repricing, and cannot revive a drained/retired descriptor. The exact View
+includes immutable recovery lineage; first allocation requires Target total absence,
+sufficient descriptor STATE/incarnation limits and mandatory capacity authority.
+Root activation slots now reserve two complete bounded sources.
+
+The grant-allocation full check passed 2029 Java tests, zero failures/errors and
+41 external skips. All 163 quota tests, including nine additional cases, passed
+without skips. Updated grant/bookkeeping vectors, 304 JUnit XMLs and 1174 unchanged
+check inputs are bound by `docs/ndip/NDIP-3/evidence/b4-grant-allocation-results.json`.
+B4 remains IN_PROGRESS. Root bootstrap, authenticated durable Result publication,
+controlled queue/accounting rotation and legacy handover, remaining record owners,
+full reserves and original acceptance binding remain required. C4 implements actual
+guarded atomic allocation/dedupe/authority before any dependent registration sees an ID.
 
 No active Target scheduling runtime, Broker certification or migration is claimed yet. The user authorized
 full implementation and incremental publication on main. NDIP-1 remains closed;

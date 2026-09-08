@@ -6081,3 +6081,9 @@ counter 恰剩 descriptor、最新 Floor 及完整引用/写入者/保留 author
 [B4 §15](ndip/NDIP-3/11-局部Quota与增量计费契约.md#15-accounting-incarnation-的来源唯一计数与退休)。
 当前 QueueState 仍禁止普通 successor 修改 accounting incarnation；轮换/legacy
 handover source 配方及 C4 真实后端/原子恢复继续闭合。
+
+B4 §16 复用已签名 Target grant 的前序 Source 应用分配首次 accounting incarnation。
+NV 30 field 7 保留完整 OPEN origin，digest 移至 field 8；零初始 grant 不分配，后续更新
+保留 origin 且禁止普通重定价。Root activation 槽位按两份 source 固定预留。该计划只在
+真实同批提交后才可向 membership/channel 发布 ID；实际 Result/dedupe/Store 后端与
+root bootstrap、受控轮换和 legacy handover 继续实施。B4 仍 IN_PROGRESS。

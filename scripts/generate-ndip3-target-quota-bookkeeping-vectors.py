@@ -23,7 +23,8 @@ REQUEST_MAX = 2 + 2 * (3 + GRANT_MAX) + 2 + 113
 COUNTER_MAX = 2 + 3 + IDENTITY_MAX + 3 + USAGE_MAX + 11 + 4 + MUTATION_MAX + 34
 TOTAL_MAX = 2 + 3 + SCOPE_MAX + 3 + USAGE_MAX + 11 + 4 + MUTATION_MAX + 34
 AGGREGATE_MAX = 2 + 22 + 18 + 3 + USAGE_MAX + 11 + 4 + MUTATION_MAX + 34
-ACTIVATION_MAX = 2 + 3 + REQUEST_MAX + 76 + 4 + MUTATION_MAX + 3 * 34
+ALLOCATION_MAX = 2 + 3 + IDENTITY_MAX + 34 + 2 + ACCOUNT_MAX + 4 + MUTATION_MAX + 18 + 34
+ACTIVATION_MAX = 2 + 3 + REQUEST_MAX + 76 + 4 + MUTATION_MAX + 3 * 34 + 4 + ALLOCATION_MAX
 ANCHOR_MAX = 2 + 3 + IDENTITY_MAX + 34 + 2 + ACCOUNT_MAX + 4 * 11 + 4 + MUTATION_MAX + 34
 LOCATOR_MAX = 2 + 43 + 6 + 34 + 4 + 11 + 18 + 2 + 34 + 34 + 34
 BUDGET_MAX = 2 + 3 + LOCATOR_MAX + 3 * 34 + 2 + ACCOUNT_MAX + 11 + 2 * (3 + VECTOR_MAX) + 2 + 11 + 2 * (4 + MUTATION_MAX) + 34 + 18 + 35
@@ -33,7 +34,7 @@ def fees(source_bytes):
     fee = lambda key, payload, copies=1: key + payload - copies * SOURCE_MAX + copies * source_bytes + 12 + 32
     return {'anchor': fee(22, ANCHOR_MAX), 'aggregate': fee(22, AGGREGATE_MAX),
             'counter': fee(103, COUNTER_MAX), 'total': fee(87, TOTAL_MAX),
-            'activation': fee(87, ACTIVATION_MAX), 'budget': fee(34, BUDGET_MAX, 2)}
+            'activation': fee(87, ACTIVATION_MAX, 2), 'budget': fee(34, BUDGET_MAX, 2)}
 
 
 def anchor(source, inventory, sequence=1):

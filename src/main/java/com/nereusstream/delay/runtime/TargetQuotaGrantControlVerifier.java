@@ -14,6 +14,7 @@ import com.nereusstream.delay.protocol.SystemMutationType;
 import com.nereusstream.delay.protocol.TargetQuotaAggregate;
 import com.nereusstream.delay.protocol.TargetQuotaGrantActivation;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlBody;
+import com.nereusstream.delay.protocol.TargetQuotaIncarnation;
 import com.nereusstream.delay.protocol.TargetQuotaMutation;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
 import com.nereusstream.delay.protocol.TargetQuotaTotal;
@@ -43,11 +44,15 @@ public final class TargetQuotaGrantControlVerifier {
      * Must prove static hard cuts, grandfathered usage, physical reservation, and any exact parent transfer plan:
      * shrink first, preserve donor excess until drained, reserve recipient placement before increase, one plan.
      * A hash/ref, caller-provided usage, timeout or unproven absence cannot authorize an allocation.
+     * A non-null allocation is the proposed first Target descriptor: prove exact descriptor/counter absence,
+     * full root projection slot fees and physical reserve, parent grant and tenant cuts for the same batch.
+     * Null means no allocation; never infer descriptor creation or revival from a later grant update.
      * Its authority snapshot must remain valid through the atomic commit, including initial/zero grants.
      */
     @FunctionalInterface
     public interface CapacityAuthority {
-        void requireAuthorized(TargetQuotaGrantControlBody body, View view, SourcePosition source);
+        void requireAuthorized(
+                TargetQuotaGrantControlBody body, View view, SourcePosition source, TargetQuotaIncarnation allocation);
     }
 
     public record Authority(
@@ -73,8 +78,13 @@ public final class TargetQuotaGrantControlVerifier {
             TargetQuotaAggregate aggregate,
             TargetQuotaTotal total,
             long sequence,
-            SourcePosition source) {
+            SourcePosition source,
+            byte[] recoveryLineage) {
         public View {
+            recoveryLineage = Bytes.copy(Objects.requireNonNull(recoveryLineage, "recoveryLineage"));
+            if (recoveryLineage.length != 16 || Arrays.equals(recoveryLineage, new byte[16])) {
+                throw new IllegalArgumentException("quota grant view requires an assigned recovery lineage");
+            }
             Objects.requireNonNull(aggregate, "aggregate");
             if ((sequence == 0) != (source == null)
                     || (source != null && !aggregate.shard().equals(source.shardId()))) {
@@ -88,6 +98,10 @@ public final class TargetQuotaGrantControlVerifier {
                 if (!grant.grant().scope().shard().equals(aggregate.shard())) {
                     throw new IllegalArgumentException("quota grant view has a foreign current grant");
                 }
+                if (grant.allocation() != null
+                        && !Arrays.equals(recoveryLineage, grant.allocation().recoveryLineage())) {
+                    throw new IllegalStateException("quota grant allocation belongs to another recovery lineage");
+                }
                 requireAtOrBefore(grant.mutation(), sequence, source);
                 requireConsistentStamps(grant.mutation(), aggregate.mutation());
             }
@@ -97,6 +111,11 @@ public final class TargetQuotaGrantControlVerifier {
                     requireConsistentStamps(grant.mutation(), total.mutation());
                 }
             }
+        }
+
+        @Override
+        public byte[] recoveryLineage() {
+            return Bytes.copy(recoveryLineage);
         }
 
         public TargetQuotaUsage usage(final TargetQuotaScope scope) {
@@ -113,6 +132,7 @@ public final class TargetQuotaGrantControlVerifier {
 
         private void requireSame(final View actual) {
             if (actual == null
+                    || !Arrays.equals(recoveryLineage, actual.recoveryLineage)
                     || sequence != actual.sequence
                     || !sameSource(source, actual.source)
                     || !sameGrant(grant, actual.grant)
@@ -214,12 +234,43 @@ public final class TargetQuotaGrantControlVerifier {
         if (view.grant != null) {
             stamp.requireAfter(view.grant.mutation());
         }
-        // Do not translate a transient/fatal external authority failure into an accepted allocation or no-op.
-        authority.capacity.requireAuthorized(body, view, source);
+        // Ordinary updates retain the exact initial origin, including a reduction to zero or a later increase.
+        final var priorAllocation = view.grant == null ? null : view.grant.allocation();
+        final TargetQuotaIncarnation allocation;
+        if (request.next().scope().target() != null
+                && priorAllocation == null
+                && !request.next().limit().isZero()) {
+            if (view.total != null) {
+                throw new IllegalStateException("cannot invent an allocation origin over an existing Target total");
+            }
+            allocation = TargetQuotaIncarnation.allocate(
+                    request.next().scope(), request.next().accounting(), view.recoveryLineage, stamp, (prior, next) -> {
+                        if (!request.next().limit().permitsGrowth(TargetQuotaUsage.empty(), next.ownContribution())) {
+                            throw new IllegalStateException(
+                                    "initial Target grant cannot fund its incarnation descriptor");
+                        }
+                        authority.capacity.requireAuthorized(body, view, source, next);
+                    });
+        } else {
+            allocation = priorAllocation;
+            if (allocation != null
+                    && !Arrays.equals(
+                            allocation.accounting().canonicalBytes(),
+                            request.next().accounting().canonicalBytes())) {
+                throw new IllegalStateException("ordinary grant update cannot reprice its frozen allocation origin");
+            }
+            // Do not translate transient/fatal external authority failures into accepted updates or no-ops.
+            authority.capacity.requireAuthorized(body, view, source, null);
+        }
         return new Change(
                 view,
                 new TargetQuotaGrantActivation(
-                        request, body.controlRef(), stamp, mutation.systemMutationId(), mutation.mutationHash()));
+                        request,
+                        body.controlRef(),
+                        stamp,
+                        mutation.systemMutationId(),
+                        mutation.mutationHash(),
+                        allocation));
     }
 
     private static void requireAtOrBefore(

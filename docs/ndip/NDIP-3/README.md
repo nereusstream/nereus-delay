@@ -153,3 +153,12 @@ quota 契约无 skip。23 条独立向量、304 份 JUnit XML、1174 个不变�
 `evidence/b4-incarnation-results.json` 与 `b4-incarnation-junit.zip`。B4 保持 IN_PROGRESS；
 必须先定义独立且无循环的 allocation source action，再让 membership/channel 注册引用
 其结果 ID。该控制协议、Queue 轮换/legacy handover、其它 owner 与完整 reserve 继续闭合。
+
+B4 首次 grant allocation 批次复用已签名 Control 18/Apply kind 17，NV 30 field 7 保留
+完整 OPEN 历史 origin、field 8 digest；更新不重分配，零初始额度不创建 descriptor。
+Frozen lineage、total absence、自身 STATE/incarnation 费用和强制 capacity authority
+纳入计划。Activation root 槽位预留两个 source，完整规则见 §11 契约 §16。
+完整 check：2029 项 Java tests，失败/错误 0、外部 skip 41；全部 163 项 quota 测试
+无 skip（新增 9 项）。304 份 XML、1174 个不变输入及两组更新向量见
+`evidence/b4-grant-allocation-results.json`。B4 保持 IN_PROGRESS；实际 Result/Store
+后端、root bootstrap、轮换/handover、剩余 owners/reserves 和原验收绑定继续完成。

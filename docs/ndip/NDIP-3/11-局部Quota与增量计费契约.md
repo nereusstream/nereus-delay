@@ -435,6 +435,8 @@ Target branch 的 limit 同样约束 targets<=1、domains<=64、51–55 为零�
 scope/grantId 不变且 checked +1；policy version 不回退，同 version 的 policy hash
 必须一致。原始 uint64 可跨 signed 边界，全一位值不能再递增。新 grant 的计量 artifact
 只约束新工作，旧 ledger 按自己冻结的 artifact 保留费用，不能以新常数重算历史费用。
+§16 进一步约束已有 allocation 的普通 Target grant 更新：必须保留原 accounting artifact；
+更换 artifact 需要独立受控轮换配方，不能靠一次普通 grant 更新完成。
 
 该 artifact 自身没有单独 NV/meta key，也没有接入旧 PUBLISH_QUOTA_GRANT branch；
 旧 17 维 `QuotaGrantRef` 不变。§11 的新 branch 与 NV 30 source 激活投影完整携带该
@@ -533,7 +535,8 @@ ScopeKind=1 为 shard（key 55 bytes），2 为 Target（key 87 bytes）。Key/v
 | 4 | 完整 TargetQuotaMutation |
 | 5 | accepted systemMutationId[32] |
 | 6 | accepted systemMutationHash[32] |
-| 7 | `nereus-delay-target-quota-grant-activation\0` + fields 1–6 的 digest |
+| 7 | 可选完整 OPEN TargetQuotaIncarnation 首次分配快照；§16 规定 presence 与来源 |
+| 8 | `nereus-delay-target-quota-grant-activation\0` + fields 1–7（仅存在字段）的 digest |
 
 Field 4 的 sequence 是本次 Store mutation sequence，source 是首次实际接受的完整
 SourcePosition，mutationDigest 为 `SHA-256(SystemMutation.canonicalEnvelope())`，
@@ -544,7 +547,8 @@ key 重签可以保持 SystemMutation ID/hash，却不能重写第一次接受�
 Field 5 还须按完整 Shard、ControlRef.logicalIdentity(17) 和 field 6 重新导出核对。Grant
 version 不大于 Store sequence；全 raw uint64 范围保留。Value 只包含 prior **grant artifact**，
 不递归嵌入 prior activation，因此历史长度不随更新次数增长。编码 bound 由至多两个完整
-grant、有限 TransferRef/ControlRef、一个完整有界 SourcePosition 与固定 hash 字段相加。
+grant、有限 TransferRef/ControlRef、至多一个完整 OPEN allocation snapshot、两份完整有界
+SourcePosition 与固定 hash 字段相加。Shard branch 也按相同保守 activation 槽位预留。
 独立向量覆盖 Target/Shard 两个最大分支、raw version/policy 全一位值和 1 MiB Pulsar source。
 
 ### 11.4 首应用校验、权威快照与同 batch 发布
@@ -563,13 +567,15 @@ grant、有限 TransferRef/ControlRef、一个完整有界 SourcePosition 与固
 4. 验证受认证 actor/roles/resource scope 和完整 scope proof，读取精确注册的 prepared
    bytes，核对登记的唯一 target 及 expected mutation ID/hash。仅 caller 自签对象不够。
 5. Route authority 核对 immutable tenantRoutingScope 与完整物理 source resource。
-   本地 View 包含 current activation、aggregate、必要 Target total、Store sequence/source。
+   本地 View 包含 current activation、aggregate、必要 Target total、Store sequence/source
+   和冻结 recovery lineage；prior origin 的 lineage 必须一致。
    完整 prior grant 必须与 current activation 逐字相等；首次申请必须确实不存在旧激活。
 6. View 中各 grant/accounting stamp 不得超出 Store source/sequence；任意两条 stamp 的
    source 顺序与 sequence 顺序必须一致，同位置还要求完整 mutation digest 一致。
    Total 必须满足 §10 的层级覆盖关系。计算 checked next Store sequence，拒绝耗尽。
-7. 调用强制 CapacityAuthority，传入**完整 Control body（含 ControlRef）**、精确 View 与
-   实际 source。只有该调用成功才产生 immutable Change(before View, after activation)。
+7. 按 §16 检查首次 Target allocation 的 absence/费用或 existing origin 保留与 artifact，
+   调用强制 CapacityAuthority，传入**完整 Control body（含 ControlRef）**、精确 View、
+   实际 source 与可空首次 allocation。成功才产生 immutable Change(before, after)。
 
 CapacityAuthority 是 C4 需要实现的受信后端契约，不是已存在的生产证明。它必须解析
 完整、source-protected tenant policy（版本与 canonical hash 必须匹配 grant）以及当前
@@ -631,7 +637,7 @@ Reservation、Claim、attempt execution/payload 或普通结果/evidence 费用�
 | Shard aggregate（NV 27） | 22 | aggregate schema bound，含一个 source | root SHARD |
 | 每条 primary 或 mirror counter（NV 26） | 103 | counter schema bound，含一个 source | root SHARD；包括全零退休 counter |
 | 每条 Target total（NV 29） | 87 | total schema bound，含一个 source | root SHARD；包括 usage=0 的 total |
-| 每条 Shard/Target grant activation（NV 30） | 87 | activation schema bound，含一个 source | root SHARD；同 key 更新不分配第二槽位 |
+| 每条 Shard/Target grant activation（NV 30） | 87 | activation schema bound，含完整 OPEN origin 和两个 source | root SHARD；同 key 更新不分配第二槽位 |
 | 每条 attempt budget（NV 28） | 34 | budget schema bound，至多两个 mutation source | budget.primaryIdentity / tenantIdentity，使用 budget 自己的冻结 artifact |
 
 表内使用每类合法 key 的固定最大值，短 key 的余量不因 branch 切换而返还。预留已包含
@@ -679,7 +685,7 @@ rootProjectionBytes = slotBytes(anchor) + slotBytes(aggregate)
 也不冒充 RocksDB/RSS/WAL/temp 物理池证明。后者和控制/结果预留仍由 C4/E6 同时约束。
 
 独立 Kafka `kfk` 样本 `S=65`、recordOverhead=32 时，anchor/aggregate/counter/total/
-activation/budget 槽位分别为 565/1317/1507/1471/3395/2798 bytes。初始 root 的两个
+activation/budget 槽位分别为 565/1317/1507/1471/3872/2798 bytes。初始 root 的两个
 counter、anchor 和 aggregate 共 4896 bytes。它们是有限逻辑预留，不是磁盘测量值。
 
 ### 12.3 Anchor wire 与记录生命周期
@@ -985,8 +991,9 @@ root artifact 的变更不能由这个 factory 授权，仍走 B6/F1 的受控�
 Allocation 还必须具有非循环的 source 顺序：需要新 incarnation 的 membership/channel
 注册或任何已签名绑定只能引用**已在前序 source action 分配并返回的 ID**。不能用
 已经包含该新 ID 的注册 body（或尚未确定的 Broker offset）反过来求自己的 ID。独立
-allocation request/result 的完整字段与 source 控制操作仍须在后续 B4/B6 source 配方中
-冻结；StateAuthority 必须检查这条真实前置关系，当前 DTO/factory 不代替该协议。
+首次 Target allocation 的前序 grant request、持久 origin 和 read-set 检查现由 §16
+规定；root bootstrap、轮换/handover 与实际 Result/apply 仍由后续 B4/B6/C4 source
+配方和后端完成。StateAuthority 必须检查这条真实前置关系，DTO/factory 不代替后端。
 
 当前 `TargetQueueState.requireSuccessorOf` 不允许修改 accounting incarnation；普通
 原地演进继续复用它。本批没有绕过该规则提供热轮换。原设计的 Queue/accounting
@@ -1079,3 +1086,68 @@ identity。删除 descriptor 的完整原 bytes、实际 counters/root/aggregate
 重建或 Store 删除已实现。B4 还需完整业务 reserve、其它共享 identity/control/Claim/
 result 等 owner、轮换/legacy handover source 配方及原 §17.3 最终绑定；C4/D/E/F 的真实
 原子恢复、Broker、受控迁移与旧路径清退继续保留。
+
+
+## 16. 首次 Target grant 的前序分配契约
+
+### 16.1 无循环的来源与完整持久结果
+
+复用 §11 的已注册、已签名 `PUBLISH_TARGET_QUOTA_GRANT=18` / Apply kind 17。
+Request 的完整 scope/grant/accounting 不含待分配 incarnation ID，故可在 membership/
+channel 注册之前先应用。首次实际接受的 signed envelope、完整 Broker SourcePosition、
+本 Store 的下一 mutation sequence 和受保护 recovery lineage 一起组成 §15 分配输入。
+不从后续含该 ID 的注册请求反推 ID，也不使用随机本地值、current config 或重试时的新签名。
+
+`TargetQuotaGrantActivation` field 7 保留完整 **OPEN 历史 allocation snapshot**，field 8
+改为 activation digest。该 schema 仍处于尚未接受、未启用 Target writer 的 Draft 1；
+旧七字段布局不再由此 draft decoder 接受，未增加兼容读回退，也未修改活动 Lane NV reader。
+OPEN snapshot 的 bound 为 descriptor MAX 减去一个 optional drain field 的完整上限。
+
+Snapshot 不是当前可调度状态。后续 grant 更新保留它的完整 bytes，不随 descriptor drain/
+retirement 改写；实际 NV 33 descriptor、queue/control/grant/registry 共同决定新 ingress。
+已退休 origin 不能因 snapshot 仍 OPEN 或 grant 恢复为正值而重建、复活。历史指针与 grant
+的结果/保留保护由 C4 与后续受控轮换继续实现，不能作为本批已实现 Broker/Result 后端。
+
+### 16.2 首次分配、零额度与更新
+
+- SHARD grant 不携带 allocation，不在本路径创建 Store root；root bootstrap 仍归 B6/C4。
+- Target 从未分配且 next.limit 全零时，记录 deny-only activation，allocation 缺省。
+  不因此创建 Target total/descriptor/counter；已有未知 total 不授权后续补造 origin。
+- Target 没有 prior allocation 且 next.limit 非零时，必须证明当前 Target total 缺省。
+  创建一次 source-derived descriptor candidate；其固定 STATE 和 incarnation=1 必须先能
+  被 next grant 逐维容纳，再调用强制 capacity authority。正 payload limit 但 STATE=0，
+  或足够 STATE 但 incarnation limit=0，均不能分配。异常/算术溢出不产生成功计划。
+- 后续更新逐字保留 prior allocation，包含 down-to-zero 和再次 increase；不创建新候选，
+  不修改 descriptor、不转移旧费用。Next 或已知 prior 非零时 snapshot 不得缺省。
+  Frozen accounting artifact 不同则在 capacity 前拒绝。
+- 完整 snapshot 必须是同一 Target scope/accounting 的 OPEN origin；allocation source/
+  sequence 不晚于激活，顺序一致，同位置完整 mutation 相同。首次 grant 的 origin 必须
+  就是本次 mutation；prior 为非零 grant 时 origin 必须严格早于本次更新。
+
+### 16.3 Read set、容量和实际原子义务
+
+Verifier View 显式持有 assigned nonzero recoveryLineage[16]，防御复制并纳入提交前 exact
+read-set 对比；prior allocation lineage 必须与之逐字一致。该 lineage 来自实际 Store/
+Manifest 的受保护元数据，不能由调用者猜测或由 decoder 当作 authority。
+
+原签名、角色、资源、注册、Route、exact prior 和严格 source 前进检查全部先于 capacity。
+`CapacityAuthority` 收到完整 body/view/source 以及可空 proposed allocation；非空仅代表
+本次首次 Target 分配，空代表本次没有 descriptor 创建。后端必须在实际 Store guard 中
+证明 descriptor/primary/mirror absent、root/grant/tenant policy 和静态 cuts、物理 placement、
+完整控制/结果预留，并持续有效到原子提交。已有回调失败仍原样传播，没有生产 no-op 后端。
+
+真实首次分配同批写 activation、NV 33 descriptor、primary/mirror、Target total、root
+inventory/charges、aggregate、必要 Result 与 SourceAdvance；不得先发布候选 ID 给后续
+membership/channel 注册。只有完整 durable source 结果被认证读取后才能引用 ID，重试
+必须返回首个结果。`Change.after().allocation()` 是待提交计划，不能当作已提交结果。
+实际 Result 查询/发布、dedupe、权限保留、完整账本重建和断电恢复仍由 C4/D/E 实现。
+
+Activation 槽位现在固定预留当前 mutation 加原 allocation mutation 两份 Route-bounded
+Source；保留整个 OPEN origin 的完整 accounting/identity/lineage/hash，长度不随 grant
+更新次数增长。Root 只计一条 activation 槽位；NV 33 descriptor 自己仍按 §15 两 Source
+槽位付费，不将嵌入的历史快照当作第二个 descriptor 或第二次 incarnation 计数。
+
+本批完成首次 Target grant 分配计划与持久编码的契约，不完成 root bootstrap、accounting
+轮换、Queue legacy handover、其它 record owners、完整 reserve sizing 或原 §17.3 的全部
+验收绑定。B4 保持 IN_PROGRESS，C4 实际 atomic apply/authority、D/E Broker 恢复和 F
+受保护迁移/旧路径清退继续保留。

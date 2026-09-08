@@ -13,9 +13,33 @@ u, b, hashed, usage, repeat, be = (scope[k] for k in ['u', 'b', 'hashed', 'usage
 SHARD, TARGET, TENANT = (scope[k] for k in ['SHARD', 'TARGET', 'TENANT'])
 sha = lambda raw: hashlib.sha256(raw).digest()
 lp = lambda raw: be(len(raw), 4) + raw
-LIMIT = usage({1: 2, 2: 20, 7: 1, 8: 7, 9: 1, 10: 64}, 1, 1, 0, 2)
+LIMIT = usage({1: 2, 2: 20, 3: 100000, 7: 1, 8: 7, 9: 1, 10: 64}, 1, 1, 0, 2)
 ROLE_HASH = sha(b'nereus-delay-control-role-set\0' + u(1, 5))
 AUTHOR = b(2, b(1, repeat(32, 0xa1)) + b(2, ROLE_HASH) + b(3, repeat(32, 0xa2)))
+
+
+LINEAGE = repeat(16, 0xcc)
+
+
+def grant_accounting(target, maximum):
+    if not (target and maximum):
+        return account['accounting'](maximum)
+    return hashed(u(1, 1) + b(2, repeat(32, 0xbb)) + u(3, 1) + u(4, 32)
+                  + b''.join(u(n, base['I64']) for n in [5, 6, 7]), 8, 'target-quota-accounting')
+
+
+def grant(value, target, version, policy, maximum):
+    return hashed(u(1, 1) + b(2, scope['scope'](target)) + b(3, repeat(32, 0x99)) + u(4, version)
+                  + b(5, grant_accounting(target, maximum)) + b(6, value) + u(7, policy)
+                  + b(8, repeat(32, 0xaa)), 9, 'target-quota-grant')
+
+
+def origin(stamp, accounting):
+    inputs = u(1, 1) + b(2, scope['scope']()) + b(3, accounting) + b(4, LINEAGE) + b(5, stamp)
+    identifier = sha(b'nereus-delay-target-quota-incarnation-id\0' + inputs)[:16]
+    identity = hashed(u(1, 1) + u(2, 1) + b(3, SHARD) + b(4, identifier) + b(5, TARGET), 7, 'target-quota-identity')
+    return hashed(u(1, 1) + b(2, identity) + b(3, TENANT) + b(4, accounting) + b(5, stamp)
+                  + b(6, LINEAGE), 8, 'target-quota-incarnation')
 
 
 def values(target=True, successor=False, transfer=False, zero=False, maximum=False):
@@ -25,8 +49,8 @@ def values(target=True, successor=False, transfer=False, zero=False, maximum=Fal
     limit = usage({n: high for n in range(1, 16)}, 1, 64, high, high) if maximum else LIMIT
     if maximum and not target:
         limit = usage({n: high for n in list(range(1, 16)) + list(range(51, 56))}, high, high, high, high)
-    next_grant = scope['grant'](usage({}) if zero else limit, target, version, policy, maximum)
-    prior = scope['grant'](limit, target, version-1, policy, maximum) if successor else None
+    next_grant = grant(usage({}) if zero else limit, target, version, policy, maximum)
+    prior = grant(limit, target, version-1, policy, maximum) if successor else None
     plan = b(1, repeat(32, 0xb4)) + b(2, repeat(32, 0xb5)) + u(3, policy) + b(4, repeat(32, 0xb6))
     request = u(1, 1) + b(2, next_grant) + (b(3, prior) if prior else b'') + (b(4, plan) if transfer else b'')
     outer = b(18, request)
@@ -49,9 +73,12 @@ def values(target=True, successor=False, transfer=False, zero=False, maximum=Fal
         b'\x02' + SHARD[:16] + be(32, 4) + repeat(32, 0x77) + be(1 << 20, 4) + b'x'*(1 << 20)
         + SHARD[16:] + be(base['U64'], 8)*2 + be(0, 4) + be(1, 4) + b'\x01' + be(high, 8))
     stamp = u(1, version) + b(2, source) + b(3, sha(envelope))
-    activated = hashed(u(1, 1) + b(2, request) + b(3, ref) + b(4, stamp) + b(5, mid) + b(6, mh), 7,
+    origin_stamp = u(1, version-1) + b(2, source[:-25] + be(base['U64']-1, 8) + source[-17:]) + b(3, sha(envelope)) if maximum else stamp
+    allocation = (values()['allocation'] if successor and not maximum else origin(origin_stamp, grant_accounting(target, maximum))) if target else b''
+    activated = hashed(u(1, 1) + b(2, request) + b(3, ref) + b(4, stamp) + b(5, mid) + b(6, mh)
+                       + (b(7, allocation) if allocation else b''), 8,
                        'target-quota-grant-activation')
-    return dict(request=request, outer=outer, ref=ref, body=body, semantic=semantic, logical=logical,
+    return dict(allocation=allocation, request=request, outer=outer, ref=ref, body=body, semantic=semantic, logical=logical,
                 mutationHash=mh, mutationId=mid, envelope=envelope, activation=activated, public=public,
                 key=b'\x17\x01' + (b'\x02' if target else b'\x01') + SHARD + TENANT + (TARGET if target else b''))
 

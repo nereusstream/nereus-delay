@@ -18,6 +18,10 @@ public final class TargetQuotaIncarnation {
             + 2 * (4 + TargetQuotaMutation.MAX_CANONICAL_BYTES)
             + 18
             + 34;
+    /** OPEN allocation snapshot excludes the optional drain mutation. */
+    public static final int MAX_ALLOCATION_CANONICAL_BYTES =
+            MAX_CANONICAL_BYTES - (4 + TargetQuotaMutation.MAX_CANONICAL_BYTES);
+
     private static final byte[] ID_DOMAIN = Bytes.utf8("nereus-delay-target-quota-incarnation-id\0");
     private static final byte[] DIGEST_DOMAIN = Bytes.utf8("nereus-delay-target-quota-incarnation\0");
 
