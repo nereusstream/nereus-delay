@@ -339,3 +339,14 @@ It checks primary totals, forbids self-authorizing grant edits and rejects stale
 views after a grant update. Claim/revoke use the gate automatically. The CF and
 wire layout is unchanged; source acceptance/rejection, physical admission and
 production composition still require their complete runtime implementation.
+
+
+#### NDIP-3 first grant source batch
+
+TargetQuotaGrantStore now prepares actual signed first grant-control application:
+META activation/optional first descriptor and DEDUPE SYSTEM/POSITION join derived
+quota and source in one guarded batch. A verifier-owned rejection writes the
+immutable rejection/audit only; external failures do not advance source. Existing
+logical/physical keys are not overwritten. Controlled bootstrap, duplicate/replay
+routing, production capacity and Worker authority remain separate incomplete
+implementation obligations; the seven CFs and registered formats are unchanged.

@@ -2396,3 +2396,20 @@ Shard/Target limit rejection makes no write and does not advance source. Full
 source classification, authenticated activation, first rejection result/source
 persistence and physical/Worker authority remain required. No wire encoding or
 historical accepted evidence changes in this integration batch.
+
+
+### NDIP-3 first grant-control source application (2026-09-08)
+
+TargetQuotaGrantStore connects the existing signed grant-control verifier to an
+actual bounded Store transaction. The first logical/physical application writes
+its activation, newly allocated descriptor when applicable, Shard-owned SYSTEM
+with that new allocation attachment, POSITION, real accounting and SourceAdvance
+atomically. Explicit verifier denials persist only the rejected first result,
+audit and accounting/source. External authority errors retain their failure
+semantics and make no prepared result; they are not durable semantic denials.
+
+Existing logical or physical records and non-increasing source positions cannot
+reenter this first-application path. Source replay/duplicate POSITION-only handling,
+controlled root bootstrap and full production authority/Worker composition remain
+required. This integration adds no wire type, changes no historical vector bytes
+and does not certify the new runtime path.

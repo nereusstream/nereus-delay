@@ -6152,3 +6152,12 @@ root/首次 allocation descriptor 与跨 incarnation totals，再执行逻辑额
 MessageStore 增加 granted 入口，Claim/revoke 自动接入；额度拒绝不会写 Store。
 完整 source 业务分类、拒绝结果持久化、签名激活/物理资源 guard 和 Worker 仍待接线。
 实现保持 IN_PROGRESS，完整验证保持 PENDING_CENTRAL_VALIDATION。
+
+
+### 首次 grant source apply 接线（2026-09-08）
+
+TargetQuotaGrantStore 已把首次 grant control 的签名/注册 verifier 接入真实 Store：
+读取实际旧 activation/total，原子写入初次 allocation、activation、SYSTEM/POSITION、
+全部费用和 source；明确业务拒绝只写结果。外部授权失败不转成持久拒绝。最小签名与
+RocksDB 开发检查通过；root bootstrap、重复物理记录、完整 source/Worker 和实际
+容量/commit guard 仍待完成，实现与集中验证状态继续分开记录。

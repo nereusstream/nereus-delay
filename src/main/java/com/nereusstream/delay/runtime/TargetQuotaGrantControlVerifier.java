@@ -158,8 +158,53 @@ public final class TargetQuotaGrantControlVerifier {
         }
     }
 
-    /** No writes, no local cache publication, and no replay shortcut. The caller resolves source dedupe first. */
+    /** Only verifier-owned semantic denials can become durable rejected results. External failures propagate. */
+    public record Decision(Change change, StableCode rejection) {
+        public Decision {
+            if ((change == null) == (rejection == null)) {
+                throw new IllegalArgumentException("grant decision needs exactly one change or rejection");
+            }
+        }
+    }
+
+    private static final class SemanticRejection extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+        private final StableCode code;
+
+        private SemanticRejection(final StableCode code, final String message) {
+            super(message);
+            this.code = code;
+        }
+    }
+
+    public static Decision decideFirstApplication(
+            final PreparedControlOperation prepared,
+            final SystemMutation mutation,
+            final SourcePosition source,
+            final View view,
+            final Authority authority) {
+        try {
+            return new Decision(verifyInternal(prepared, mutation, source, view, authority), null);
+        } catch (SemanticRejection rejected) {
+            return new Decision(null, rejected.code);
+        }
+    }
+
+    /** Existing verifier API preserves its exception contract; Store appliers use the typed decision entry. */
     public static Change verifyFirstApplication(
+            final PreparedControlOperation prepared,
+            final SystemMutation mutation,
+            final SourcePosition source,
+            final View view,
+            final Authority authority) {
+        try {
+            return verifyInternal(prepared, mutation, source, view, authority);
+        } catch (SemanticRejection rejected) {
+            throw new CommandResolutionException(rejected.code, rejected.getMessage());
+        }
+    }
+
+    private static Change verifyInternal(
             final PreparedControlOperation prepared,
             final SystemMutation mutation,
             final SourcePosition source,
@@ -183,7 +228,7 @@ public final class TargetQuotaGrantControlVerifier {
             throw unauthorized("quota grant prepared request/body/source mismatch");
         }
         if (source.brokerPersistenceTimeEpochMs() > mutation.retryUntilEpochMs()) {
-            throw new CommandResolutionException(
+            throw new SemanticRejection(
                     StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED,
                     "quota grant source is outside its signed mutation retry window");
         }
@@ -306,7 +351,7 @@ public final class TargetQuotaGrantControlVerifier {
                 : right != null && Arrays.equals(left.canonicalBytes(), right.canonicalBytes());
     }
 
-    private static CommandResolutionException unauthorized(final String message) {
-        return new CommandResolutionException(StableCode.UNAUTHORIZED_SYSTEM_MUTATION, message);
+    private static SemanticRejection unauthorized(final String message) {
+        return new SemanticRejection(StableCode.UNAUTHORIZED_SYSTEM_MUTATION, message);
     }
 }

@@ -1658,3 +1658,26 @@ first-seen/dedupe、费用所有权/原 reserve、签名/完整 grant 分配保�
 检查不证明真实签名激活、Schedule/Outcome 语义、Claim 运行或生产 authority。
 完整拒绝结果与 source 的原子提交，以及全部下调/迁移/多 Target/异常场景保留在集中
 清单；新 gate 没有授予认证或完整实施状态。
+
+
+## 27. 首次 grant/control 结果与 activation 同批计费
+
+TargetQuotaGrantStore 使用实际 source/Store View 调用 grant control verifier，成功
+时同时写新 allocation（仅首次非零 Target 分配）、activation、Shard-owned SYSTEM
+及 POSITION。新 origin 完整附于首次成功结果，费用由原 RESULT/EVIDENCE 分类和
+真实 record/accounting assembler 推导；固定 inventory 新槽位仍由 root 计费。
+明确 verifier 拒绝只写 Shard-owned 首结果/physical audit 和对应账本/source，不能
+留下 allocation 或 activation。更新 grant 不经普通 ingress gate 自我授权，完整
+父级/tenant/transfer/physical reserve 权威由控制 provider 与 commit guard 证明。
+
+内部语义拒绝使用私有标记和 typed Decision 分离；外部 authority 即使抛出相同
+CommandResolutionException 类型也不持久化拒绝。损坏、无 root/原 descriptor、
+重复逻辑/物理键、source 回退、预算/I/O 或 native write 失败不被吞掉。只在实际
+commit 成功后返回结果，失败/UNKNOWN 不提前发布 grant 或容量。
+
+最小开发检查执行真实 Ed25519 Prepared/Mutation 签名与内存精确注册、实际 RocksDB
+root/bootstrap 和后续 grant batch，核对 allocation、SYSTEM/POSITION 引用和 source
+stamp；验证外部容量失败无写、已有逻辑拒绝重执行、过期首次请求仅写拒绝结果。
+容量和 CommitGuard 仍为测试替身，未证明生产保留/迁移/授权。物理重复审计、完整
+root bootstrap/Source dispatcher/Worker、容量 provider 和 crash/recovery 留待实现
+或集中验证；原 29 切片及 B4/C1/C4 状态保持未完成。
