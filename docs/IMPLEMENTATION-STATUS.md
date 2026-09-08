@@ -236,6 +236,23 @@ ownership, complete reserves and bootstrap/rotation/handover plus original
 acceptance still need closure. Actual C4 source/query/dedupe/atomicity/recovery
 and D/E/F verification remain required.
 
+B4 now independently folds complete Target DEDUPE 06–09 result records and
+exact META owner descriptors under explicit record, owner and encoded-byte limits.
+The audit validates source history, immutable first references and frozen owners,
+then rebuilds per-owner contributions and a primary subtotal from actual bytes.
+A mandatory completeness authority remains required for the actual Store snapshot;
+the result subtotal does not replace full counter/total/aggregate recovery.
+Independent decoding exposed and fixed accounting artifacts comparing by object
+identity: complete canonical value equality now supports legitimate cold-read
+Claim and result owner checks without changing existing wire bytes.
+The audit full check passed 2095 Java tests with zero failures/errors and 41
+external skips. All 229 quota/result focused tests passed without skips, including
+13 new cases. 309 XMLs and 1189 unchanged check inputs are bound by
+`docs/ndip/NDIP-3/evidence/b4-result-audit-results.json`.
+B4 remains IN_PROGRESS with other business owners, full reserves, handover recipes
+and original acceptance open. C4 actual Store traversal/guards, cross-ledger exact
+recovery and atomic runtime integration plus D/E/F verification remain required.
+
 No active Target scheduling runtime, Broker certification or migration is claimed yet. The user authorized
 full implementation and incremental publication on main. NDIP-1 remains closed;
 its historical evidence does not certify changed runtime source.

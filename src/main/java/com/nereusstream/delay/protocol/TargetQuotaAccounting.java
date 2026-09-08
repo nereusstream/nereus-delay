@@ -203,4 +203,14 @@ public final class TargetQuotaAccounting {
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "TargetQuotaAccounting");
         return result;
     }
+
+    @Override
+    public boolean equals(final Object other) {
+        return other instanceof TargetQuotaAccounting that && Arrays.equals(canonicalBytes(), that.canonicalBytes());
+    }
+
+    @Override
+    public int hashCode() {
+        return Arrays.hashCode(digest);
+    }
 }

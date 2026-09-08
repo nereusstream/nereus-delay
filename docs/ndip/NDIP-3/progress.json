@@ -149,9 +149,14 @@
         "evidence/b4-result-record-check.log",
         "evidence/b4-result-record-focused.log",
         "evidence/b4-result-record-final-docs.log",
-        "evidence/b4-result-record-junit.zip"
+        "evidence/b4-result-record-junit.zip",
+        "evidence/b4-result-audit-results.json",
+        "evidence/b4-result-audit-check.log",
+        "evidence/b4-result-audit-focused.log",
+        "evidence/b4-result-audit-final-docs.log",
+        "evidence/b4-result-audit-junit.zip"
       ],
-      "progress": "Immutable first Command/System results, query copies and separate Shard POSITION audits now retain exact owner/artifact/source/reference at reserved DEDUPE 06–09/NV 35. Physical retries retain first outcomes; successful allocation control results can carry the full OPEN origin. Explicit creation/deletion authority and exact read/reference guards remain required. Latest full check: 2082 Java tests, zero failures/errors, 41 external skips; all 216 quota/result focused tests without skips, 15 new. B4 remains incomplete: business Claim/shared Shard/outbox/evidence owners, full reserves, bootstrap/rotation/handover and original acceptance. C4 actual source/query/dedupe/atomicity/recovery plus D/E/F obligations remain."
+      "progress": "Independent bounded Target result ledger audit now validates actual canonical records, owner descriptors, source history and first references, then rebuilds primary/tenant contributions without counter inputs. Actual snapshot completeness remains mandatory. Canonical accounting value equality fixes independently decoded Claim/result ownership checks without changing prior wire bytes. Latest full check: 2095 Java tests, zero failures/errors, 41 external skips; all 229 quota/result focused tests without skips, 13 new. B4 remains incomplete: other business owners, full reserves, bootstrap/rotation/handover and original acceptance. C4 actual Store guards/traversal, cross-ledger exact recovery and atomic runtime plus D/E/F obligations remain."
     },
     {
       "id": "B5",

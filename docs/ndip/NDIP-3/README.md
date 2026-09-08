@@ -190,3 +190,10 @@ tests，失败/错误 0、外部 skip 41；216 项 quota/result 专项全部无 
 308 份 XML、1187 个不变输入见 `evidence/b4-result-record-results.json`。B4 仍
 IN_PROGRESS；其它 owners/reserves/交接配方、实际 C4 source/query/dedupe/atomicity/
 recovery 与 D/E/F 工作继续。
+
+B4 结果账本独立核对批次新增有限恢复 fold，验证 owner/source/首记录引用并从完整记录
+重建 contribution；同时修复 accounting artifact 独立解码后的值比较，见 quota
+契约 §21。完整 check：2095 项 Java tests，失败/错误 0、外部 skip 41；229 项专项
+全部无 skip（新增 13 项）。309 份 XML、1189 个不变输入见
+`evidence/b4-result-audit-results.json`。B4 仍 IN_PROGRESS；实际完整 Store 权威、
+跨账本恢复/atomicity、其它 owners/reserves/交接配方与 D/E/F 工作继续。

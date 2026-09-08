@@ -37,6 +37,16 @@ def expected():
         ('system',system,b'\x08\x01'+MID,9),('position',position,b'\x09\x01'+source,14),
         ('duplicate',duplicate,b'\x09\x01'+inc['source'](3),14),('systemPosition',system_position,b'\x09\x01'+source,14)]:
         rows[name]=raw.hex();rows[name+'.key']=key.hex();rows[name+'.charge']=capacity({cls:1,cls+1:len(key)+len(raw)+12+32}).hex()
+    command_fee=43+len(command)+12+32
+    result_fee=43+len(result)+12+32
+    position_fee=2+len(source)+len(position)+12+32
+    duplicate_fee=2+len(inc['source'](3))+len(duplicate)+12+32
+    rows['audit.target']=capacity({9:1,10:result_fee,14:1,15:command_fee}).hex()
+    rows['audit.shard']=capacity({14:2,15:position_fee+duplicate_fee}).hex()
+    rows['audit.primary']=capacity({9:1,10:result_fee,14:3,15:command_fee+position_fee+duplicate_fee}).hex()
+    rows['audit.encodedBytes']=str(43+len(command)+12+43+len(result)+12+2+len(source)+len(position)+12
+                                 +2+len(inc['source'](3))+len(duplicate)+12
+                                 +len(target[1])+len(target[0])+12+len(shard[1])+len(shard[0])+12)
     return ('# Independent immutable Target results and physical audits.\n'+''.join(k+'='+v+'\n' for k,v in rows.items())).encode('ascii')
 def main():
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--write',action='store_true');args=parser.parse_args()

@@ -192,6 +192,8 @@ adapter envelope overhead bytes；7 最小 DRR record cost bytes；8 digest[32]�
 
 Field 4–6 非负，field 7 正数，均不超过 Long.MAX_VALUE；没有隐式默认 artifact。
 常量由同一 source-activated Route/grant 选择，旧 charge 保留创建时完整 artifact。
+Artifact 的值相等按完整 canonical bytes 判定，hashCode 与其域 digest 一致；独立
+解码后的相同 artifact 必须可用于 owner/ref 核对，不能依赖 Java 对象同一性。
 输入版本 1 延续既有公共 Schedule 编码，不意味着旧 Lane grant 自动适用新 Target
 费用。Schema bundle / artifact / grant 的绑定须通过 §11 的完整授权检查及 C4 的实际后端。
 
@@ -1481,3 +1483,57 @@ request 的关联仍由 CreationAuthority 对 §16 的实际 source proposal 校
 位置推进、首记录不变、归属/引用/source 错误、失败/fatal 传播、编码边界和删除保护。
 B4 继续完成其它 shared Shard/outbox/evidence record owners、完整 reserve/交接配方与
 原验收；C4 真实 source authority、写集、查询/去重、独立恢复，以及 D/E/F 仍须实施。
+
+
+## 21. 结果账本的独立恢复核对
+
+`TargetResultLedgerAudit` 是完整 Target DEDUPE 06–09 namespace 的有限恢复 fold，
+不在普通 source mutation、Claim 或 scheduler poll 中扫描。它从实际 canonical
+结果记录和 META 1a descriptor 读取费用，不接受持久 counter 的 usage 作为重建输入。
+输出仅为结果账本的各 primary/tenant contribution 与 primary 小计；其它 Message、
+Claim、payload、descriptor、outbox 等账本仍需各自重建后参与最终 counter/total/
+aggregate 全量相等核对。结果小计与 counter 部分相符不等于整库恢复通过。
+
+调用输入包含已验证的 Shard/tenant scope、recovery lineage、Store source sequence
+与完整 frontier，以及三个显式正上限：结果记录数、唯一 owner 数、结果与 descriptor
+的 encoded bytes 总额。预算应在调用前由实际已激活恢复/资源契约验证；不能在耗尽后
+丢弃剩余行或自行提高上限。encoded bytes 每条按 key + typed payload + 12 计入，
+每个唯一 descriptor 只点读/计入一次；它不包含 SST、Java 对象或 RSS 放大证明。
+
+扫描每条结果时验证完整 key/NV type/payload、Shard/tenant/lineage 与 source frontier；
+任何重复 physical key 都拒绝。Owner 通过完整 identity 推导 META descriptor key，
+最多点读一次，检查实际 key/type/canonical descriptor、冻结 accounting/tenant/
+lineage，以及 allocation 和 latest drain 对 source frontier 的一致性。
+
+记录及 owner 的 allocation/latest stamps 进入同一个 raw unsigned source sequence
+历史表：相同 sequence 必须完整 stamp/digest 相同；按 sequence 排序后 SourcePosition
+也须严格同向推进，不能在同一 offset 使用不同 sequence 或 metadata。结果事件另以
+sequence 关联闭合 Command/System + logical ID：一个物理 source 不能同时归两个
+逻辑事件；COMMAND/RESULT/首 POSITION 可以共同描述同一个事件。
+
+扫描完成后，RESULT 与两个 POSITION 分支按实际 key 查找本次完整集合中的 COMMAND/
+SYSTEM 首记录，再调用 §20 的 exact first-reference 校验；不因扫描顺序先后而拒绝
+合法记录，也不因为少提供首记录而接受孤立引用。没有查询副本或已受控清理的 POSITION
+本身不被强行补写；实际 namespace 完整性和保留合法性仍须完整 Store 权威证明。
+
+费用从每条完整 record 的 frozen accounting 和唯一 record class 计算，checked
+累加到 primary 与 tenant identity；primary 小计只加一次。Descriptor 是 attribution
+依赖，其自身费用由 descriptor 账本计入，不在本 fold 重复收费。所有计数/字节限额、
+算术、解码、引用、读取失败和 fatal Error 均在返回 Summary 前失败，不返回部分 PASS。
+
+最后必须调用显式 `CompletenessAuthority`，证明四个 Target namespace 已在同一
+实际 Store snapshot 中遍历完毕，META 依赖来自同一视图，且 Route/tenant/lineage/
+source、Owner 与 Store incarnation 的 guard 有效。调用者给出的集合、空结果或一个
+no-op 回调均不是这个权威的生产实现。发布恢复小计或合并全账本时仍须保持实际 guard；
+当前没有通过本 helper 自动创建 Store scanner、恢复 aggregate 或放行 production。
+
+独立向量新增四项：Target contribution、Shard contribution、primary subtotal 与
+实际 encoded bytes；原六组 record bytes/key/charge 不变。测试覆盖反序遍历、缺失/
+变更首记录、重复 key、同 source 事件冲突、descriptor/source/tenant/lineage 错误、
+精确预算边界、读/完整性/fatal 失败和不可变输出。独立解码同时揭示并修正了 accounting
+artifact 的对象同一性误用：相同 canonical artifact 现在按值比较，Claim 和结果的
+冷读 owner 核对不再因解码创建不同对象而失败。
+
+本批完善 B4 的结果账本重建契约，并修复已存在的 decoded-owner 比较缺陷。C4 仍须
+实现实际完整 snapshot traversal/guard、跨所有账本的精确相等、恢复发布和故障验证；
+B4 其它 owners/reserves/交接配方与原验收、A2/E6 资源证明及 D/E/F 均继续保留。

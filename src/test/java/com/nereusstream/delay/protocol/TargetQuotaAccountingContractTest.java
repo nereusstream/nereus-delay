@@ -39,6 +39,16 @@ class TargetQuotaAccountingContractTest {
     private final CapacityVector resolvedAllocation = vector("resolvedAllocation");
 
     @Test
+    void independentlyDecodedArtifactsHaveCompleteValueEquality() {
+        final var one = accounting;
+        final var two = TargetQuotaAccounting.decode(one.canonicalBytes());
+        assertEquals(one, two);
+        assertEquals(one.hashCode(), two.hashCode());
+        assertEquals(1, new java.util.HashSet<>(List.of(one, two)).size());
+        assertNotEquals(one, new TargetQuotaAccounting(one.schemaBundleHash(), 33, 24, 40, 64));
+    }
+
+    @Test
     void artifactAndFixedMeasurementsMatchIndependentVectors() {
         assertArrayEquals(hex("accounting"), accounting.canonicalBytes());
         assertArrayEquals(

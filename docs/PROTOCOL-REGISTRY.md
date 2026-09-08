@@ -2329,3 +2329,9 @@ B4 TargetResultRecord schema 1 预留 NV 35 与 DEDUPE tags 06 COMMAND、07 RESU
 RESULT/SYSTEM 为 RESULT，POSITION 为 Shard EVIDENCE，均只计自身一条记录。完整
 owner/artifact/lineage/source、原逻辑结果引用及可选成功 allocation origin 进入
 canonical fields 1–12。字段、有限 bound、去重/保留/删除契约见 quota §20；未激活 writer。
+
+B4 对现有 NV 35/DEDUPE 06–09 增加独立结果账本恢复核对（quota §21），不新增格式。
+完整记录与 META 1a owner 产生 primary/tenant 费用小计；精确引用、source sequence/
+position/digest 及物理事件唯一性均核对，未读 counter 作为输入。Accounting artifact
+按完整 canonical bytes 比较，修复独立解码后的 owner 误拒绝。实际 snapshot 完整性
+与全账本恢复仍需 C4，不由该小计授权。

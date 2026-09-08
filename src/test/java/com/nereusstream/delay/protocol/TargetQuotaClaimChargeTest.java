@@ -28,6 +28,25 @@ class TargetQuotaClaimChargeTest {
     private final TargetQuotaClaimCharge.Authority allow = (charge, kind, operation) -> {};
 
     @Test
+    void independentlyDecodedClaimAndDescriptorRetainTheSameOwner() {
+        final var descriptor = descriptor(accounting, bytes(32, 0x44), bytes(16, 0xcc));
+        final var value = TargetQuotaClaimCharge.create(
+                descriptor,
+                rebind(work("native"), descriptor.identity()),
+                bytes(32, 0x77),
+                owner,
+                bytes(16, 0x88),
+                1,
+                1000,
+                64,
+                bytes(32, 0x99),
+                creation,
+                allow);
+        TargetQuotaClaimCharge.decode(value.canonicalBytes())
+                .requireDescriptor(TargetQuotaIncarnation.decode(descriptor.canonicalBytes()));
+    }
+
+    @Test
     void ordinaryNativeAndOrderedRecordsMatchIndependentBytesAndCharges() {
         final var names = List.of("ordinary", "native", "ordered");
         final var workNames = List.of("initial", "native", "fifo.initial");

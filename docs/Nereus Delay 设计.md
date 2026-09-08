@@ -6110,3 +6110,8 @@ NDIP-3 B4 结果格式见 quota §20：首次 Command/System 结果冻结 owner/
 物理重复仅追加 Shard POSITION evidence；SYSTEM 结果不混作 outbox。成功 allocation
 控制结果可以携带完整 OPEN origin，避免查询时从可变状态猜 ID。实际 query/dedupe/
 atomic source application、保留删除、完整 reserve 与独立恢复仍需后续接入和证明。
+
+NDIP-3 B4 结果账本可从完整 record bytes 与原 descriptor 独立重建费用，核对首记录
+引用和 source 历史，见 quota §21；小计不替代全部账本相等核对。独立解码暴露并修复
+accounting artifact 缺少值相等语义的问题，避免相同持久 bytes 的 Claim/结果被误判
+owner 不同。实际完整 Store snapshot/guard、恢复发布及 D/E/F 仍需接入验证。

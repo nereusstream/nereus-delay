@@ -277,3 +277,10 @@ the original logical evidence; retries do not rewrite first outcomes. Successful
 allocation control results may retain the complete OPEN origin. Record categories
 remain distinct from System Mutation outboxes. Active Lane tags/readers and the
 seven CFs are unchanged; C4 atomic application and protected recovery remain required.
+
+B4 result recovery now folds existing DEDUPE 06–09 records and exact META 1a
+owners without consuming persisted quota usage. First references and source/event
+history are checked before primary and tenant subtotals are returned. Accounting
+artifacts compare by canonical value across independent decodes. This adds no CF,
+namespace or writer; actual complete Store traversal and full-ledger recovery
+remain separate C4 obligations.
