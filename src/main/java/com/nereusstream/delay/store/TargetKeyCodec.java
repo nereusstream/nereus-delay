@@ -10,6 +10,7 @@ import java.util.Objects;
 /** NDIP-3 key reservations. Writers require the separately activated Target store format. */
 public final class TargetKeyCodec {
     public static final int KEY_FORMAT = 1;
+    public static final int CLAIM_TAG = 4;
     public static final int DUE_TAG = 8;
     public static final int NATIVE_TAG = 9;
     public static final int EXPIRY_TAG = 10;

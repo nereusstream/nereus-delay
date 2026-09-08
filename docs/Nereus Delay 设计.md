@@ -6134,3 +6134,12 @@ NDIP-3 C4 已进一步将实际 records 的冻结归属、资源/cardinality 差
 更新接到 TargetMessageStore 的 accounted 提交路径，并增加本地 Claim/revoke 计费
 装配。source 与 local 的 sequence 规则保持分离。完整认证/业务/物理准入、Claim/
 outbox、Worker 和恢复仍未闭合；实施优先与最后集中验证安排不变。
+
+
+### Target 持久 Claim 实施增量（2026-09-08）
+
+新增 TargetClaimRecord/TargetClaimStore，将实际可逆 Claim/revoke 接入 Message、
+ordinary/native/strict head、INFLIGHT 与冻结费用的同一 Store batch；current Claim
+可按 Message.claimId 直接点查。编译和一项记录转态开发检查通过；实际混合 Store
+提交、Owner/Native/permit 生产 guard、物化/Admission/Outcome、恢复与 Worker 装配
+仍需完成或集中验证。implementationStatus 保持 IN_PROGRESS，验证保持待集中执行。

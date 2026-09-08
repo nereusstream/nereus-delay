@@ -2359,3 +2359,27 @@ before/after 及冻结 attribution 读取资源/cardinality；TargetSourceAccoun
 TargetLocalClaimAccounting 保留 source frontier 并消费恰好一个 local Claim charge。
 这些实现不提供 business/source/signature/physical/grant 权威，完整 Worker 装配
 及验证状态仍为待完成，具体交接见 NDIP-3/12。
+
+
+### NDIP-3 Target reversible Claim implementation (2026-09-08)
+
+Target Store reader adds NV type 36, `TargetClaimRecord` schema 1, under
+`inflight_cf/04 01 + ClaimId[32]` (34 bytes). Fields 1–14 are version, original
+TargetGenerationRuntimeIndex, original Message stateVersion, Message digest,
+selected TargetHeadRef, OwnerIdentity, Store incarnation, Claim sequence,
+deadlineEpochMs, executionBytes, queue controlVersion, local creation mutation,
+derived Claim ID and record digest. The encoded bound is the existing maximum
+runtime index + head + Owner + mutation sizes plus 1024 bytes; decoding limits
+both bytes and field count. Owner bytes remain capped at 4096. The ID uses domain
+`nereus-delay-target-claim-id\0` over fields 1–12; record digest uses
+`nereus-delay-target-claim-record\0` over those fields followed by ClaimId.
+
+The current Message Claim ID resolves directly without an Owner scan. META 1b
+ClaimCharge still uses its registered Shard/Owner-epoch key and SHA-256 of the
+complete business Claim bytes. Both records and Message/index/heads/accounting
+are changed together by TargetClaimStore. Claim sequence is the checked next
+aggregate revision; source sequence does not advance. Revoke retains semantic
+work/counters/obligations and advances runtime instance revision. This adds no
+Admission materialization or Producer authority. Actual production guard,
+source consumption/recovery and Worker composition remain incomplete; existing
+historical vector receipts do not certify NV36 or the new Store integration.

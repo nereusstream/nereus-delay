@@ -10,6 +10,13 @@
 
 [原 29 切片集中验证交接清单](12-集中验证交接清单.md)
 
+新增 TargetClaimRecord/TargetClaimStore，将实际可逆 Claim/revoke 接入 Message、
+ordinary/native/strict head、INFLIGHT 与冻结费用的同一 Store batch；current Claim
+可按 Message.claimId 直接点查。编译和一项记录转态开发检查通过；实际混合 Store
+提交、Owner/Native/permit 生产 guard、物化/Admission/Outcome、恢复与 Worker 装配
+仍需完成或集中验证。implementationStatus 保持 IN_PROGRESS，验证保持待集中执行。
+
+
 最新计费实现：TargetRecordAccounting 从实际 before/after 与冻结 owner 推导贡献；
 TargetSourceAccounting 自动生成 primary/mirror 差额和 bookkeeping inventory 更新，
 TargetLocalClaimAccounting 装配不推进 source 的本地 Claim/revoke 计费。它们通过

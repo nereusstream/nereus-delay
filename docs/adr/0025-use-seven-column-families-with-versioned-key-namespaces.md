@@ -318,3 +318,14 @@ are equal to primary resources while cardinality is primary-only. Local Claim
 accounting retains the source frontier and requires one exact charge transition.
 The source smoke proves limited numeric Store behavior, not authentication,
 complete business semantics, protected retirement, recovery or Worker activation.
+
+
+#### NDIP-3 reversible Target Claim integration
+
+INFLIGHT adds `04 01 + ClaimId[32]` with NV36/schema1 for an exact reversible
+Target Claim. This uses the same seven CFs and the explicit Target Store reader.
+Message.currentWork resolves this key directly; the retained Owner/Store and
+local mutation bind the separate META1b charge. The Claim/revoke writer submits
+Message, timeline/head, strict barrier and all fee projections in one batch.
+Materialization/Admission, source-consumption/recovery and real Worker authority
+remain pending. This entry grants no format migration or production activation.

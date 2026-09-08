@@ -137,6 +137,11 @@ public final class TargetStoreBackend {
             return store.get(family, key);
         }
 
+        public StoreMetadata metadata() {
+            requireActive();
+            return store.metadata();
+        }
+
         public int maximumWriteRecords() {
             requireActive();
             return limits.maximumRecords();
@@ -548,6 +553,7 @@ public final class TargetStoreBackend {
         final int tag = Byte.toUnsignedInt(key[0]);
         final int type =
                 switch (family) {
+                    case INFLIGHT -> tag == TargetKeyCodec.CLAIM_TAG ? 36 : 0;
                     case DEDUPE -> tag >= 6 && tag <= 9 ? 35 : 0;
                     case ID ->
                         switch (tag) {

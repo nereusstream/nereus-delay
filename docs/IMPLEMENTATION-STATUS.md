@@ -10,6 +10,13 @@
 
 [原 29 切片集中验证交接清单](ndip/NDIP-3/12-集中验证交接清单.md)
 
+新增 TargetClaimRecord/TargetClaimStore，将实际可逆 Claim/revoke 接入 Message、
+ordinary/native/strict head、INFLIGHT 与冻结费用的同一 Store batch；current Claim
+可按 Message.claimId 直接点查。编译和一项记录转态开发检查通过；实际混合 Store
+提交、Owner/Native/permit 生产 guard、物化/Admission/Outcome、恢复与 Worker 装配
+仍需完成或集中验证。implementationStatus 保持 IN_PROGRESS，验证保持待集中执行。
+
+
 Latest accounting implementation derives actual record charges from frozen Store
 owners, produces primary/mirror deltas and automatically maintains fixed
 bookkeeping inventory. Source and local Claim assemblers connect to the Message

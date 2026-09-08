@@ -253,10 +253,35 @@ public final class TargetRecordAccounting {
                 }
                 result = new Charge(owner, resources(record.recordCharge()));
             }
+            case TargetClaimRecord.VALUE_TYPE -> {
+                requireFamily(family, ColumnFamily.INFLIGHT);
+                final var claim = TargetClaimRecord.decode(payload);
+                claim.requireStored(key);
+                final var charge = com.nereusstream.delay.protocol.TargetQuotaClaimCharge.decode(
+                        payload(ColumnFamily.META, claim.chargeKey(), TargetQuotaClaimCharge.VALUE_TYPE));
+                claim.requireCharge(charge);
+                claim.requireCurrent(message(claim.work().locator().messageId()));
+                final var owner = descriptor(charge.primaryIdentity());
+                charge.requireDescriptor(owner);
+                claim.creation().requireAtOrBefore(operation);
+                result = new Charge(
+                        owner,
+                        resources(owner.accounting()
+                                .recordCharge(
+                                        com.nereusstream.delay.protocol.TargetQuotaAccounting.RecordClass.STATE,
+                                        key.length,
+                                        payload.length)));
+            }
             case TargetQuotaClaimCharge.VALUE_TYPE -> {
                 requireFamily(family, ColumnFamily.META);
                 final var claim = TargetQuotaClaimCharge.decode(payload);
                 claim.requireStored(key, value.valueType(), payload);
+                final byte[] businessKey = TargetClaimRecord.key(claim.claimId());
+                final var businessClaim = TargetClaimRecord.decode(
+                        payload(ColumnFamily.INFLIGHT, businessKey, TargetClaimRecord.VALUE_TYPE));
+                businessClaim.requireStored(businessKey);
+                businessClaim.requireCharge(claim);
+                businessClaim.requireCurrent(message(claim.work().locator().messageId()));
                 final var owner = descriptor(claim.primaryIdentity());
                 claim.requireDescriptor(owner);
                 claim.creation().requireAtOrBefore(operation);

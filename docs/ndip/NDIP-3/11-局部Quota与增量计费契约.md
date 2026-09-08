@@ -1618,3 +1618,21 @@ Claim 业务 record 与 Owner/Store 证明仍须接入 LocalClaimAuthority/Commi
 COMMAND/RESULT/POSITION 后的 primary/mirror/aggregate 资源与 cardinality、无
 inventory 变化时 root bytes 不变。测试 guard 是开发替身，不是 grant/签名/retire
 证明。完整全类型/local/缺失/错配/故障/恢复、业务和 Worker 装配仍待实现或集中验证。
+
+
+## 25. 持久业务 Claim 与费用原子对应
+
+TargetClaimStore 通过 TargetMessageStore accounted 入口实际创建/删除业务 Claim，
+TargetRecordAccounting 新增 INFLIGHT/NV36 STATE record charge。费用从同视图 META
+ClaimCharge 的冻结 Target descriptor 取得；Claim ID/work/Owner/Store/sequence/
+deadline/execution bytes/local stamp/业务 Claim SHA-256 全部相等。ClaimCharge 反向
+点查业务 Claim 并检查同视图 Message.currentWork，费用不能作为孤立 ownership。
+
+TargetLocalClaimAccounting 现在要求恰好一个业务 Claim 和一个 charge，CLAIM 只创建，
+REVOKE 只删除；仍限制原四 counters、既有 allocation、不变 source/cardinality，以及
+原允许的 STATE/execution 维度。实际头/Message/索引投影的 bytes 差额继续计费，root
+inventory 不变。TargetClaimStore 拒绝改工作/Owner/Store 的本地撤销；source 消费
+业务决策、物化后的 AttemptBudget 转移、生产 grant/permit 权威及全账本恢复仍未完成。
+
+NV36/INFLIGHT04 的独立 vectors 和完整负例留待集中验证；本轮只做最小记录转态开发
+检查，不把源码结构或一项检查作为真实 Store Claim、生产授权或恢复证明。

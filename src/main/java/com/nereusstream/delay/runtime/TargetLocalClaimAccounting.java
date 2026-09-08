@@ -86,6 +86,7 @@ public final class TargetLocalClaimAccounting implements TargetMessageStore.Acco
         final Map<TargetQuotaIdentity, TargetQuotaUsage> added = new LinkedHashMap<>();
         final var keys = new LinkedHashSet<String>();
         int claimRecords = 0;
+        int businessClaims = 0;
         for (var edit : business) {
             if (!keys.add(edit.family() + ":" + Bytes.hex(edit.key()))
                     || !Arrays.equals(edit.before(), reader.get(edit.family(), edit.key()))) {
@@ -93,13 +94,22 @@ public final class TargetLocalClaimAccounting implements TargetMessageStore.Acco
             }
             final int type = TargetValueEnvelope.decodeAny(edit.after() == null ? edit.before() : edit.after())
                     .valueType();
-            if (type != TargetMessageRecord.VALUE_TYPE
+            if (type != TargetClaimRecord.VALUE_TYPE
+                    && type != TargetMessageRecord.VALUE_TYPE
                     && type != TargetTimelineWorkRef.VALUE_TYPE
                     && type != TargetExpiryRef.VALUE_TYPE
                     && type != com.nereusstream.delay.protocol.TargetQueueState.VALUE_TYPE
                     && type != TargetOrderState.VALUE_TYPE
                     && type != TargetQuotaClaimCharge.VALUE_TYPE) {
                 throw new IllegalArgumentException("local Claim cannot allocate/reprice unrelated record families");
+            }
+            if (type == TargetClaimRecord.VALUE_TYPE) {
+                businessClaims++;
+                if ((kind == TargetQuotaDelta.LocalClaimKind.CLAIM && (edit.before() != null || edit.after() == null))
+                        || (kind == TargetQuotaDelta.LocalClaimKind.REVOKE
+                                && (edit.before() == null || edit.after() != null))) {
+                    throw new IllegalStateException("local operation must create/delete its complete business Claim");
+                }
             }
             if (type == TargetQuotaClaimCharge.VALUE_TYPE) {
                 claimRecords++;
@@ -133,8 +143,8 @@ public final class TargetLocalClaimAccounting implements TargetMessageStore.Acco
             accumulate(removed, before);
             accumulate(added, after);
         }
-        if (claimRecords != 1) {
-            throw new IllegalStateException("one local operation requires exactly one Claim charge");
+        if (claimRecords != 1 || businessClaims != 1) {
+            throw new IllegalStateException("one local operation requires exactly one business Claim and its charge");
         }
         final var identities = new LinkedHashSet<>(removed.keySet());
         identities.addAll(added.keySet());
