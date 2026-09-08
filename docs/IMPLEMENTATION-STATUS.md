@@ -104,6 +104,19 @@ check inputs are bound by `docs/ndip/NDIP-3/evidence/b4-grant-results.json`.
 B4 remains IN_PROGRESS for unique owner/bookkeeping, finite capacity sizing and
 protected incarnation allocation/retirement; no Target Store recovery is certified.
 
+B4 now includes a fixed Source Shard bookkeeping anchor (NV 31 / meta 18). Its
+frozen root pays each accounting projection slot once, including both root
+counter records and retained zero projections. Schema envelopes use the immutable
+physical source shape and reserve Kafka epoch presence, without recursive usage
+encoding. Attempt budget record storage stays with its frozen Target owner even
+in RELEASED, outside the internal commitment/allocated accounting.
+The bookkeeping full check passed 1971 Java tests, zero failures/errors, 41 external
+skips; 19 new and all 105 quota contract cases passed without skips. Forty-five
+independent vector entries, all 301 JUnit XML files and 1162 unchanged inputs are
+bound by `docs/ndip/NDIP-3/evidence/b4-bookkeeping-results.json`. Full business
+record ownership, reserve sizing and protected incarnation lifecycle remain B4
+work; actual C4 inventory/atomic Store/recovery and deletion are not implemented.
+
 No active Target scheduling runtime, Broker certification or migration is claimed yet. The user authorized
 full implementation and incremental publication on main. NDIP-1 remains closed;
 its historical evidence does not certify changed runtime source.

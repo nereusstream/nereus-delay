@@ -30,6 +30,7 @@ public final class TargetKeyCodec {
     public static final int QUOTA_ATTEMPT_BUDGET_TAG = 21;
     public static final int QUOTA_TOTAL_TAG = 22;
     public static final int QUOTA_GRANT_ACTIVATION_TAG = 23;
+    public static final int QUOTA_BOOKKEEPING_TAG = 24;
     public static final int MESSAGE_TAG = 5;
     public static final int SCHEDULE_BINDING_TAG = 6;
     public static final int MAX_DOMAIN_SLOT = 0xffff;

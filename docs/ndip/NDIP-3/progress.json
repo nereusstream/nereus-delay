@@ -105,9 +105,13 @@
         "evidence/b4-grant-results.json",
         "evidence/b4-grant-check.log",
         "evidence/b4-grant-final-docs.log",
-        "evidence/b4-grant-junit.zip"
+        "evidence/b4-grant-junit.zip",
+        "evidence/b4-bookkeeping-results.json",
+        "evidence/b4-bookkeeping-check.log",
+        "evidence/b4-bookkeeping-final-docs.log",
+        "evidence/b4-bookkeeping-junit.zip"
       ],
-      "progress": "Independent counters/delta, frozen measurements, attempt reserve transitions, all-incarnation totals and authenticated full grant control/activation contract verified. Latest full check: 1952 Java tests, zero failures/errors, 41 external skips; 86 quota contracts without skips. The source verifier requires exact registration, signatures/Route/prior/Store read set and capacity authority; no production capacity backend or Target writer is installed. Unique owner/bookkeeping, finite capacity sizing and protected incarnation allocation/retirement remain incomplete. B4 is not frozen; no physical/Broker or Target Store/recovery authority is certified."
+      "progress": "Independent counters/delta, frozen measurements, attempt reserve transitions, all-incarnation totals, authenticated grant activation and fixed projection bookkeeping contracts verified. Latest full check: 1971 Java tests, zero failures/errors, 41 external skips; 105 quota contracts without skips. Root projection slots retain fixed source-sized commitments until actual deletion; attempt budget record storage remains with its frozen Target owner even in RELEASED. Remaining B4: other business-record owner/ledger sources, payload/identity protection, full reserve sizing and protected incarnation allocation/retirement. No production capacity/inventory backend, Target writer, physical/Broker or Target Store/recovery certification."
     },
     {
       "id": "B5",

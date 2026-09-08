@@ -6045,3 +6045,12 @@ next/prior artifact、父 transfer plan 和唯一 SHARD 注册目标；activatio
 read set；C4 仍须实现容量后端、source dedupe、activation/bookkeeping/Result/SourceAdvance
 同批提交及提交后发布。旧 Lane Store 拒绝该分支，重开后拒绝记录仍在。完整字段见
 [B4 §11](ndip/NDIP-3/11-局部Quota与增量计费契约.md#11-认证-grant-control-与-source-激活契约)。
+
+B4 进一步固定 accounting projection 自身的有限存储预留（NV 31/meta 18）。Source Shard
+的固定 root anchor 为 counter、aggregate、total、grant activation 和自身各计一次
+有界槽位；tenant mirror 不重复加总，原地更新不新增槽位，退休投影在实际删除前继续
+占用预留。Attempt budget 记录由冻结 Target owner 单独持有，RELEASED 不等于该记录
+免费。完整公式、source 身份约束和原子 inventory/recovery 责任见
+[B4 §12](ndip/NDIP-3/11-局部Quota与增量计费契约.md#12-accounting-projection-自身的固定存储预留)。
+普通业务记录的 owner、payload/identity 保护及 incarnation 分配/退休仍须闭合，B4 保持
+IN_PROGRESS；C4 实际 writer、物理池与 Store 恢复尚未由这些契约认证。

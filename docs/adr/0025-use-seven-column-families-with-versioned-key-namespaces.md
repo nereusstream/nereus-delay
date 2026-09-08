@@ -201,3 +201,14 @@ activation is embedded. A pure verifier requires source-valid signing/Route/
 capacity authority and exact Store read-set guards; it does not implement the
 production authority backend or C4 atomic writer. Legacy readers reject both the
 new body and NV 30; old Lane Store rejection survives reopen. No CF is added.
+
+B4 reserves one source-local bookkeeping anchor at meta tag 18 / NV 31:
+`18 01 | sourceShard[20]` (22 bytes). A frozen SHARD root and its tenant mirror
+hold the fixed storage commitments for counter/aggregate/total/grant-activation
+projections and the anchor itself. Schema bounds use the exact immutable source
+shape, including optional Kafka leader epoch space, without recursive usage
+encoding. Retired counters and zero totals keep their slots until protected
+actual deletion. Attempt budget record storage remains with its frozen Target
+owner outside its internal reserve, even in RELEASED. The actual aggregate must
+match the root incarnation and source stamps. No active reader/writer or CF is
+changed; C4 still owns atomic inventory integration and independent recovery.

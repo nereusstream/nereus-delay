@@ -112,3 +112,15 @@ quota 契约无 skip，包含 Control 支持回归的专项运行共 113 项。7
 300 份 JUnit XML、检查前后不变的 1158 个输入见 `evidence/b4-grant-results.json` 与
 `b4-grant-junit.zip`。B4 继续闭合唯一 record owner/bookkeeping、有限容量与 incarnation
 分配/回收等原验收义务；没有活动 Target runtime、Broker 或新 Store 恢复认证。
+
+B4 bookkeeping 批次已实现 NV 31/meta 18 的 Source Shard root anchor，固定 counter/
+aggregate/total/activation 及自身的存储预留；真实退休/零 usage 记录仍占槽位，tenant
+mirror 不重复加总。Attempt budget 的记录费用由其冻结 Target owner 独立承担，五阶段
+包括 RELEASED 都保留到受保护的实际删除。上限绑定完整物理 source、schema 与 artifact，
+不通过 usage 编码长度递归计费。
+
+本批完整 check：1971 项 Java 测试，失败/错误 0，外部 skip 41；新增 19 项、共 105 项
+quota 契约无 skip。45 条独立向量、全部 301 份 JUnit XML 和检查前后不变的 1162 个
+输入见 `evidence/b4-bookkeeping-results.json` 与 `b4-bookkeeping-junit.zip`。B4 仍为
+IN_PROGRESS：其它业务记录 owner、payload/identity 保护、完整 reserve sizing 和
+incarnation 生命周期尚未闭合；C4 实际 inventory/Store/recovery 与删除后端未实现。

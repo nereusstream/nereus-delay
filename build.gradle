@@ -1342,6 +1342,13 @@ tasks.register('checkTargetQuotaGrantVectors', Exec) {
     commandLine 'python3', '-B', 'scripts/generate-ndip3-target-quota-grant-vectors.py'
 }
 
+tasks.register('checkTargetQuotaBookkeepingVectors', Exec) {
+    group = 'verification'
+    description = 'Checks independent Target quota bookkeeping inventory and fixed storage envelopes.'
+    workingDir projectDir
+    commandLine 'python3', '-B', 'scripts/generate-ndip3-target-quota-bookkeeping-vectors.py'
+}
+
 tasks.named('check').configure {
     dependsOn tasks.named('checkDocumentation')
     dependsOn tasks.named('checkProjectVersionMarkers')
@@ -1356,6 +1363,7 @@ tasks.named('check').configure {
     dependsOn tasks.named('checkTargetQuotaAccountingVectors')
     dependsOn tasks.named('checkTargetQuotaScopeVectors')
     dependsOn tasks.named('checkTargetQuotaGrantVectors')
+    dependsOn tasks.named('checkTargetQuotaBookkeepingVectors')
 }
 
 jacocoTestReport {

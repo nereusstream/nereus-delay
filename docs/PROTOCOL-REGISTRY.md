@@ -2256,3 +2256,17 @@ Activation domain 为 `nereus-delay-target-quota-grant-activation\0`。
 固定签名/角色/资源/Route/注册/exact prior、source/sequence 及强制 capacity authority。
 纯首次应用 verifier 不提供生产容量后端、Result-first dedupe、原子 Store 写或内存发布；
 这些仍由 C4 实现。旧 reader 拒绝 NV 30，seven-CF 活动格式不变。
+
+B4 的 `TargetQuotaBookkeeping` schema 1 预留 NV 31 / meta
+`18 01 | sourceShard[20]`（22 bytes）。Fields 1–10 为 schema、完整 SHARD root identity、
+tenantRoutingScope、冻结 accounting artifact、counter/total/activation 三个记录计数、
+raw local revision、完整 mutation、digest；域为 `nereus-delay-target-quota-bookkeeping\0`。
+
+[契约 §12](ndip/NDIP-3/11-局部Quota与增量计费契约.md#12-accounting-projection-自身的固定存储预留)
+固定 counter/aggregate/total/activation/anchor 的槽位计费；root 对与 aggregate 的
+incarnation 必须一致，tenant mirror 不重复加总。每条槽位预留使用 schema 最大编码
+减去全局 source bound，再加回 immutable physical Route 的 source bound；Kafka
+预留可选 epoch。Anchor/count/fee 不随 value 原地更新而重定价或重复分配。
+退休与零 usage 投影在实际删除前仍计费。Attempt budget 自身另由其冻结 Target owner
+计一次记录预留，RELEASED 不自动释放该 NV 记录。旧 ValueEnvelope reader 拒绝 NV 31；
+该 codec 与 inventory audit 不提供 C4 实际 Store writer、ledger 或删除 authority。

@@ -1,6 +1,6 @@
 # NDIP-3 B4：局部 Quota 与增量计费契约
 
-状态：**IN_PROGRESS / counter、计量、attempt reserve、跨 incarnation 总额与 grant 激活契约已实现，B4 尚未冻结验收**。
+状态：**IN_PROGRESS / counter、计量、attempt reserve、跨 incarnation 总额、grant 激活与 bookkeeping 预留契约已实现，B4 尚未冻结验收**。
 本页与原设计 §11.1、§16.6、§17.3 的 B4 合读。它定义已落到代码的 counter 字段与
 局部计算边界；逐项业务 owner、完整计量/grant 关联和恢复来源闭合后才办理
 B4 VERIFIED。当前 Lane writer、ValueEnvelope 的既有 reader 与持久 quota map 未改动。
@@ -57,7 +57,7 @@ cache、IO、producer/thread、query/fetch 等 live Worker 维度同样为零；
 51–55 为共享 shard control/system-writer reserve，只能进入 SHARD/TENANT_SHARD。
 
 Field 3–6 是独立 Target 格式的计数，不能投影回旧 Lane grant 的 16/17 维。§10 的新
-grant artifact 完整携带这些计数与计量规则；其认证/source 激活仍待闭合，禁止以既有
+grant artifact 完整携带这些计数与计量规则，认证/source 激活契约见 §11，禁止以既有
 grant 自动授权这些新计数。Counter 约束：
 
 - 每个 Target 主/镜像 identity 的 Target 数最多 1，execution domain 数最多 64。
@@ -161,7 +161,7 @@ identity 的所有 tenant 资源维度之和不能超过主费用。共享 metad
 本批不将源码存在或局部测试冒充 B4 完整冻结。继续完成：
 
 - §7 已实现固定计量 artifact，§8 已实现 attempt reserve 转实占；仍须闭合每类真实
-  record 的唯一 owner、counter/budget 自身 bookkeeping 与共享元数据的有界费用来源。
+  业务 record 的唯一 owner；§12 已固定 counter/budget 自身 bookkeeping 与相关共享投影的费用来源。
 - §9 已列原 §17.3 的完整业务 delta 表；继续绑定每行的完整 before/after ledger、
   非 attempt 的 payload/identity 保护与结果/控制记录来源，避免只由方法参数声明费用。
 - §10–§11 已定义 cardinality/grant artifact、跨 incarnation 总额和认证 source/control
@@ -184,7 +184,7 @@ adapter envelope overhead bytes；7 最小 DRR record cost bytes；8 digest[32]�
 Field 4–6 非负，field 7 正数，均不超过 Long.MAX_VALUE；没有隐式默认 artifact。
 常量由同一 source-activated Route/grant 选择，旧 charge 保留创建时完整 artifact。
 输入版本 1 延续既有公共 Schedule 编码，不意味着旧 Lane grant 自动适用新 Target
-费用。Schema bundle / artifact / grant 的绑定仍须通过下文未完成的完整授权检查。
+费用。Schema bundle / artifact / grant 的绑定须通过 §11 的完整授权检查及 C4 的实际后端。
 
 已实现的计量公式：
 
@@ -198,7 +198,7 @@ outcomeWalBytes = canonicalFramedWalRecordLength + recordOverhead
 12 是 NV 的 type/version/length header 与 CRC 总字节；typed payload 不再包含该
 header。WAL 输入已经是完整 canonical frame，不能再加 NV header。方法只接受 checked
 非负长度，record key/WAL frame 非空；任何加法溢出在提交前拒绝，不读 SST、文件系统、
-压缩率或对象实际计费大小。调用端必须从经过 canonical 校验的冻结 bytes 取得长度，
+压缩率或对象实际计费大小。除 §12 专门列出的固定投影存储预留外，调用端必须从经过 canonical 校验的冻结 bytes 取得长度，
 不能将方法参数当成可由客户端声明的费用。
 
 一个持久 NV record 只属于一个 record-byte 类：STATE→维度 3；RESULT→9/10；
@@ -210,8 +210,8 @@ outcome 的已分配 record 与覆盖它的 reserve 各加一次。
 
 本批提供 `activePayload/reservedPayload/retainedPayload/executionCharge/recordCharge/
 outcomeWalCharge` 的 checked 向量。它们不自动选择某条业务 mutation 的 record 集合。
-Counter/aggregate/charge bookkeeping 的自身存储归属和完整 reserve sizing 必须在
-B4 最终计量/grant 绑定中闭合，不能通过递归计算自身编码长度或默认为免费跳过。
+Counter/aggregate/bookkeeping 及 attempt budget 记录自身的固定预留见 §12。完整业务
+reserve sizing 仍须在 B4 最终绑定中闭合，不能通过递归计算自身编码长度或默认为免费跳过。
 
 ## 8. Attempt budget 与 reserve 转实占
 
@@ -602,3 +602,144 @@ SystemMutation result 和 source 在同一个 WriteBatch 提交；成功后才�
 下调 grant 不重写 counters、旧冻结 artifact 或历史 charges，不直接释放已有 physical/
 retained obligation；新入口/既有工作仍遵循 §10.4。实际 release、完整账本 owner 与
 bookkeeping 源继续由本 B4 剩余契约和 C4 的原子装配完成，不能因本地激活对象存在而提前回收。
+
+## 12. Accounting projection 自身的固定存储预留
+
+### 12.1 唯一 root owner 与不可递归的费用
+
+Counter/aggregate/total/grant activation 是计费投影，其编码含 usage、版本或历史 grant；
+不通过“编码后再把长度加回自身 usage”求固定点。每个 Source Shard 的新格式 Store
+只有一个 `TargetQuotaBookkeeping` 锚点，归属固定的 SHARD primary identity；其
+accountingIncarnation 必须与 aggregate 的 shard accounting incarnation 一致。对应
+TENANT_SHARD mirror 使用 Route 的 immutable tenantRoutingScope。
+
+Root identity、完整 accounting artifact 和物理 source 身份在该 Store 格式生命周期
+内冻结。后续 grant 更新不重定价这些已承诺的投影槽位；新增槽位也使用该 root 已冻结
+的同一计量契约。新业务和 attempt 使用各自已接受的 accounting artifact。若改变
+schema bundle、root incarnation 或 root 的计量规则，必须走 B6/F1 的受控格式转换，
+普通 grant、重启或缺记录不构成重置锚点的许可。
+
+锚点只承担下表列出的 accounting projection 元数据，不承担 Target 的 Message、
+Reservation、Claim、attempt execution/payload 或普通结果/evidence 费用。它不会将
+这些业务费用从 Target total 隐藏到 SHARD；业务记录的 owner 仍按 §9 和后续完整账本
+规则确定。Root primary 与 tenant mirror 本身是两条不同的物理记录，分别占一个槽位；
+**两条记录的总预留只通过 root primary 加入 aggregate 一次**。
+
+| 投影记录 | 固定 key 预留 bytes | canonical typed payload 上限 | 唯一费用 owner |
+|---|---:|---|---|
+| Bookkeeping anchor（NV 31） | 22 | 本类 schema bound，含一个完整 mutation source | root SHARD；同额 tenant mirror |
+| Shard aggregate（NV 27） | 22 | aggregate schema bound，含一个 source | root SHARD |
+| 每条 primary 或 mirror counter（NV 26） | 103 | counter schema bound，含一个 source | root SHARD；包括全零退休 counter |
+| 每条 Target total（NV 29） | 87 | total schema bound，含一个 source | root SHARD；包括 usage=0 的 total |
+| 每条 Shard/Target grant activation（NV 30） | 87 | activation schema bound，含一个 source | root SHARD；同 key 更新不分配第二槽位 |
+| 每条 attempt budget（NV 28） | 34 | budget schema bound，至多两个 mutation source | budget.primaryIdentity / tenantIdentity，使用 budget 自己的冻结 artifact |
+
+表内使用每类合法 key 的固定最大值，短 key 的余量不因 branch 切换而返还。预留已包含
+该记录全部编码 bytes，不再叠加它的 actual record charge；普通 STATE/RESULT/SYSTEM/
+EVIDENCE/WAL 的实际字节公式仍按 §7。Attempt budget 的记录预留在其 commitment/allocated
+之外单独计一次，不能把预算记录本身再次放入它所覆盖的 allocated record 集合。
+
+### 12.2 Source 身份决定的有限上限
+
+所有表内 schema 上限沿用各 Java codec 的固定 `MAX_CANONICAL_BYTES`，其中全局
+SourcePosition 上限替换为本 Route 的固定 `S`：
+
+```text
+Kafka S = 当前完整 canonical SourcePosition 长度 + (没有 leaderEpoch 时补 4 bytes)
+Pulsar S = 当前完整 canonical SourcePosition 长度
+payloadBound(type) = type.MAX_CANONICAL_BYTES - sourceCopies * globalSourceMaximum + sourceCopies * S
+slotBytes(type) = keyBound(type) + payloadBound(type) + 12 + frozenRecordOverhead
+```
+
+Kafka cluster UTF-8、native topic UUID、Route Incarnation 和 partition 固定；offset、
+time 和 epoch 都是固定宽度，始终为可选 epoch 预留空间。Pulsar resource incarnation、
+完整 physical topic、partition 固定，ledger/entry/batch/time 同样固定宽度。`S` 不取
+当前数值的 varint 长度，也不取字符数代替 UTF-8 字节数；后续记录必须属于相同完整
+物理 source。改 topic、UUID/resource incarnation 或 tenant 不能沿用旧预留。
+
+Protobuf 外层及嵌套长度前缀仍使用原 schema 的保守上限；不因 source 变短而低估前缀。
+因此不需要给短 Kafka source 使用全局 1 MiB Pulsar topic 上限，也不会在 offset、epoch
+或 revision 增长后要求额外向自己收费。上限依赖精确 schema bundle，未知 schema 必须
+拒绝，不能套用旧值；C4 激活时证明 artifact 与运行的 codec bundle 一致。
+
+锚点持有三个非负 long 数：`counterRecords >= 2`（含固定 root primary/mirror）、
+`targetTotalRecords >= 0`、`grantActivationRecords >= 0`。Anchor 与 aggregate 各一条，
+故 root 预留为：
+
+```text
+rootProjectionBytes = slotBytes(anchor) + slotBytes(aggregate)
+                    + counterRecords * slotBytes(counter)
+                    + targetTotalRecords * slotBytes(total)
+                    + grantActivationRecords * slotBytes(activation)
+```
+
+所有乘加与 inventory 增减均 checked。先减真实删除、后加真实创建，允许接近 long
+上限时合法净零变化；下溢、总和/乘积溢出、移除 root 对都失败，不饱和或隐式置零。
+这些只产生 LOGICAL_STATE_BYTES（维度 3），不增加任何 payload/execution/cardinality，
+也不冒充 RocksDB/RSS/WAL/temp 物理池证明。后者和控制/结果预留仍由 C4/E6 同时约束。
+
+独立 Kafka `kfk` 样本 `S=65`、recordOverhead=32 时，anchor/aggregate/counter/total/
+activation/budget 槽位分别为 565/1317/1507/1471/3395/2798 bytes。初始 root 的两个
+counter、anchor 和 aggregate 共 4896 bytes。它们是有限逻辑预留，不是磁盘测量值。
+
+### 12.3 Anchor wire 与记录生命周期
+
+`TargetQuotaBookkeeping` schema 1，预留 **NV 31 / meta tag 18（十六进制）**；key：
+`18 01 | sourceShard[20]`，共 22 bytes。Value exact fields：
+
+| field | 内容 |
+|---:|---|
+| 1 | schema=1 |
+| 2 | 完整 SHARD TargetQuotaIdentity，冻结 root owner/incarnation |
+| 3 | 非零 tenantRoutingScope[32] |
+| 4 | 完整冻结 TargetQuotaAccounting |
+| 5 | counterRecords，非负范围且至少 2 |
+| 6 | targetTotalRecords，非负 long |
+| 7 | grantActivationRecords，非负 long |
+| 8 | 非零 raw uint64 local revision |
+| 9 | 完整 TargetQuotaMutation |
+| 10 | `nereus-delay-target-quota-bookkeeping\0` + fields 1–9 的 SHA-256 |
+
+First allocation revision=1；只有 inventory 数量真实变化才推进本记录 revision 和 stamp。
+未变更 inventory 不改写锚点。原地改 counter usage、升级同 key grant、预算 phase 变化
+都不增加 projection 槽位。不同类别数量变化但总费用碰巧相等时，锚点仍更新，root
+counter usage 未变则不改写 root counter；因此不要求 anchor 与 counter revision 相等。
+
+首次格式激活必须有 source-bound authority 与足够 shard logical/physical 预留，在
+同 batch 创建 anchor、root primary/mirror、aggregate 及该批其它投影。初始 inventory
+按实际记录计算，不能先推进 source 后补写根。Root 对不能通过普通退休/GC 删除；
+只在完整 Store 被受控停用、保护全部解除后由 B6/F1 处理。构造器不提供此权限。
+
+退休 Target counter、usage=0 total 或 zero grant 只改变业务意义，其投影预留继续保留。
+只有完整 source/Floor/catalog/pin/replay/query/retention 保护允许且实际记录删除成功，
+才递减对应 inventory。更换 accounting incarnation 不覆盖旧记录或免除旧槽位。
+
+Attempt budget 在 ADMITTED、UNKNOWN、RESOLVED_AWAITING_FLOOR、RETAINED、RELEASED
+五阶段均持有同一固定记录预留。`effectiveCharge()==0` 只表示其内部 execution/reserve
+已释放，不表示 NV 28 记录或所属 incarnation 可以删除。删除预算记录时必须覆盖它的
+**最新** mutation（包括最后 RELEASED 更新），保证无 writer/attempt/重放/查询保护后，
+与所属 Target/mirror counter 减额同批；最终删除前不向新 incarnation 转移该费用。
+
+### 12.4 C4 原子接入与独立 inventory 审计
+
+正常 mutation 只从实际 before/after WriteBatch 记录集计算 CREATE/DELETE。Value 更新
+计数 delta=0，source replay/Command/SystemMutation 去重先返回首次结果，不能再分配。
+将同类创建/删除合并后更新 anchor；root 投影预留差额进入 root primary/mirror，和其它
+Target counter/total/aggregate 计划共享一次 source-ordered 原子 batch。Anchor 的完整
+prior bytes、原记录存在/不存在和其它读集合须在同一 Owner/Store guard 内再验证，
+外部 grant/释放权威须保持有效；成功提交后才发布内存。失败/未知提交走既有 Store 恢复。
+
+已有 Target/incarnation 的普通 Schedule 不创建上述元数据，仍维持原四条 quota 写。
+首次创建 Target counter 对与 total 时额外改变 anchor 和 root counter 对，共增加
+三条 quota 元数据写；aggregate 仍共享一次，不新写第二份。这个数量由本次受影响
+记录决定，与全部 Target/counter 数 L 无关。实际业务总写量和故障恢复由 C4/D/E 测量。
+
+`requireRoot` 要求实际非 genesis aggregate 的 root incarnation、费用覆盖与 source/sequence
+一致，同 source 还须完整 mutation digest 相同；允许 anchor/aggregate 各自独立更新。
+`auditInventory` 仅在恢复/显式审计使用，输入该实际 aggregate 和解码的 counter、total、
+activation 记录，包括退休与零 usage 记录；检查完整 source/tenant、重复 key、root 对存在、root
+与 mirror 覆盖固定预留，并与锚点三个计数核对。它不能从锚点数字生成假枚举。还必须
+调用独立业务 ledger 重建和 aggregate/source/sequence 审计；inventory 数相符不证明
+业务 usage、source 顺序或完整 Store 恢复正确。本批没有生产 inventory reader、原子
+writer 或受保护删除实现。其余业务记录 owner、payload/identity 保护与 incarnation
+分配/退休仍按 B4 原验收闭合，不以本锚点代替。
