@@ -6087,3 +6087,9 @@ NV 30 field 7 保留完整 OPEN origin，digest 移至 field 8；零初始 grant
 保留 origin 且禁止普通重定价。Root activation 槽位按两份 source 固定预留。该计划只在
 真实同批提交后才可向 membership/channel 发布 ID；实际 Result/dedupe/Store 后端与
 root bootstrap、受控轮换和 legacy handover 继续实施。B4 仍 IN_PROGRESS。
+
+B4 §17 已实现十类 Target metadata 的完整记录计费与最多四个 ownership 点读。
+共享 immutable identity/dispatch/control/membership 归 first allocation；携带 incarnation
+的 queue/order/channel/Native scope 按冻结身份，snapshot 从完整 scope 归属。依赖
+不重复收费，drain/保留不隐式释放。C4 仍须完整 before/absence/Source guard 与同批
+提交；这不替代完整 reserve、真实恢复或 B6 轮换/handover。

@@ -129,9 +129,14 @@
         "evidence/b4-grant-allocation-check.log",
         "evidence/b4-grant-allocation-focused.log",
         "evidence/b4-grant-allocation-final-docs.log",
-        "evidence/b4-grant-allocation-junit.zip"
+        "evidence/b4-grant-allocation-junit.zip",
+        "evidence/b4-metadata-results.json",
+        "evidence/b4-metadata-check.log",
+        "evidence/b4-metadata-focused.log",
+        "evidence/b4-metadata-final-docs.log",
+        "evidence/b4-metadata-junit.zip"
       ],
-      "progress": "First Target allocation plan now reuses the preceding signed grant source, retains immutable full OPEN origin in NV 30, validates lineage/absence/descriptor funding and mandatory capacity authority, and preserves origin on later updates without repricing/revival. Activation slots reserve two sources. Latest full check: 2029 Java tests, zero failures/errors, 41 external skips; all 163 quota tests without skips, nine new. B4 remains incomplete: root bootstrap, durable Result publication, controlled rotation/legacy handover, remaining record owners, full reserves and original acceptance binding. No actual Target allocation/atomic Store backend or Broker certification."
+      "progress": "Ten Target META record types now have exact frozen ownership, STATE/cardinality contributions and at most four complete META point-read dependencies. Shared identity/dispatch/control/membership use first allocation; queue/order/channel/Native use embedded incarnation or complete scope. Latest full check: 2041 Java tests, zero failures/errors, 41 external skips; all 175 quota tests without skips, 12 new. B4 remains incomplete: Claim/Result/SystemMutation/evidence and shared Shard owners, full reserves, bootstrap/rotation/handover and original acceptance. C4 actual before/absence, atomic source/ledger and independent recovery plus D/E/F obligations remain."
     },
     {
       "id": "B5",

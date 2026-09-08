@@ -2302,3 +2302,9 @@ SHARD/TARGET key 为 39/71 bytes。Fields 1–8：schema、完整 primary identi
 Descriptor 固定预留两个完整 Source 槽位及唯一 incarnation 计数；Queue/OrderState
 分别给出 Target/occupied domains/strict domains 的实际 key 贡献。Drain 不释放费用，
 退休仍需最新 counter/Floor 和实际完整 ledger authority。旧 reader 拒绝 NV 33。
+
+B4 的 TargetQuotaMetadataRecords 对现有 NV 12/13/17–20/22–25 提供实际 META
+记录计费与最多四个完整点读依赖，不新增格式。无 incarnation 的 identity/dispatch/
+control/membership 固定归 first Target allocation；queue/order/channel/Native scope
+按自身 incarnation，snapshot 按完整 referenced scope。具体 owner、字段核对和
+C4 before/absence/atomic read-set 义务见 quota 契约 §17。

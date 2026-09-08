@@ -162,3 +162,11 @@ Frozen lineage、total absence、自身 STATE/incarnation 费用和强制 capaci
 无 skip（新增 9 项）。304 份 XML、1174 个不变输入及两组更新向量见
 `evidence/b4-grant-allocation-results.json`。B4 保持 IN_PROGRESS；实际 Result/Store
 后端、root bootstrap、轮换/handover、剩余 owners/reserves 和原验收绑定继续完成。
+
+B4 metadata 批次已绑定十类现有 META 记录的唯一 owner、实际字节 STATE/cardinality
+和最多四个完整点读依赖；不新增格式或 active writer。共享记录保留 first allocation，
+incarnation-bound records 保持自身身份；依赖不重复收费。完整规则见 quota 契约 §17。
+完整 check：2041 项 Java tests，失败/错误 0、外部 skip 41；全部 175 项 quota tests
+无 skip（新增 12 项）。305 份 XML、1176 个不变输入与复用向量见
+`evidence/b4-metadata-results.json`。B4 继续闭合其它 owners/reserves、source 配方与
+原验收；C4 真实 before/absence/atomic/recovery、D/E/F 义务不由本批代替。

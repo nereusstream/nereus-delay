@@ -174,6 +174,22 @@ controlled queue/accounting rotation and legacy handover, remaining record owner
 full reserves and original acceptance binding remain required. C4 implements actual
 guarded atomic allocation/dedupe/authority before any dependent registration sees an ID.
 
+B4 now binds ten existing Target META record types to immutable quota owners.
+Shared identity/dispatch/control/membership records retain the first Target allocation;
+queue/order/channel/Native records use their incarnation or full referenced scope.
+Exact record bytes produce STATE charges; queue and strict-order state also retain
+their unique cardinality. Dependencies are not charged twice. At most four exact
+META point reads recheck the record, descriptor and relevant grant/physical/scope
+bytes under the caller's Store guard. Proposed inserts still require actual absence
+checks and complete C4 atomic source/ledger application.
+The metadata full check passed 2041 Java tests with zero failures/errors and 41
+external skips; all 175 quota tests, including 12 new cases, passed without skips.
+305 JUnit XMLs and 1176 unchanged check inputs are bound by
+`docs/ndip/NDIP-3/evidence/b4-metadata-results.json`.
+B4 remains IN_PROGRESS: Claim/Result/SystemMutation/evidence and other shared Shard
+owners, full reserve sizing, bootstrap/rotation/handover and original acceptance
+binding remain required. No active Target Store or Broker evidence is claimed.
+
 No active Target scheduling runtime, Broker certification or migration is claimed yet. The user authorized
 full implementation and incremental publication on main. NDIP-1 remains closed;
 its historical evidence does not certify changed runtime source.

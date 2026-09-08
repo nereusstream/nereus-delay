@@ -1,6 +1,6 @@
 # NDIP-3 B4：局部 Quota 与增量计费契约
 
-状态：**IN_PROGRESS / counter、计量、attempt reserve、跨 incarnation 总额、grant 激活、bookkeeping 预留、唯一 payload owner 、Message 记录计费及 source-derived incarnation 契约已实现，B4 尚未冻结验收**。
+状态：**IN_PROGRESS / counter、计量、attempt reserve、跨 incarnation 总额、grant 激活、bookkeeping 预留、唯一 payload owner 、Message/共享 metadata 记录计费及 source-derived incarnation 契约已实现，B4 尚未冻结验收**。
 本页与原设计 §11.1、§16.6、§17.3 的 B4 合读。它定义已落到代码的 counter 字段与
 局部计算边界；逐项业务 owner、完整计量/grant 关联和恢复来源闭合后才办理
 B4 VERIFIED。当前 Lane writer、ValueEnvelope 的既有 reader 与持久 quota map 未改动。
@@ -161,7 +161,7 @@ identity 的所有 tenant 资源维度之和不能超过主费用。共享 metad
 本批不将源码存在或局部测试冒充 B4 完整冻结。继续完成：
 
 - §7 已实现固定计量 artifact，§8 已实现 attempt reserve 转实占；仍须闭合每类真实
-  业务 record 的唯一 owner；§12 已固定 counter/budget 自身 bookkeeping 与相关共享投影，§14 已绑定 Message 家族的实际记录费用来源。
+  业务 record 的唯一 owner；§12 已固定 counter/budget 自身 bookkeeping 与相关共享投影，§14 已绑定 Message 家族的实际记录费用来源，§17 已绑定十类 Target metadata 的冻结归属与点读依赖。
 - §9 已列原 §17.3 的完整业务 delta 表；继续绑定每行的完整 before/after ledger、
   §13 的 payload owner 与真实业务记录之间的 before/after 关联、identity 保护和结果/控制记录来源，避免只由方法参数声明费用。
 - §10–§11 已定义 cardinality/grant artifact、跨 incarnation 总额和认证 source/control
@@ -1151,3 +1151,76 @@ Source；保留整个 OPEN origin 的完整 accounting/identity/lineage/hash，�
 轮换、Queue legacy handover、其它 record owners、完整 reserve sizing 或原 §17.3 的全部
 验收绑定。B4 保持 IN_PROGRESS，C4 实际 atomic apply/authority、D/E Broker 恢复和 F
 受保护迁移/旧路径清退继续保留。
+
+
+## 17. Target metadata 的固定归属与实际记录计费
+
+`TargetQuotaMetadataRecords` 为下面十类现有 META 记录生成完整贡献与有限 read set。
+它不新增 NV/tag/CF、重复持久 payload，也不修改活动 Lane reader/writer。费用来自通过
+现有完整 decoder、物理 identity、Source Shard、tenant 与 incarnation 校验的 key/value。
+
+### 17.1 两类不可互换的归属
+
+没有 incarnation 字段的共享 Target metadata，固定使用 §16 **首次 Target allocation**
+的 owner。入口同时要求实际当前 grant activation、完整 allocation descriptor 与 physical
+identity；origin identity、allocation mutation、lineage、tenant、冻结 accounting 必须逐字
+相等。允许 descriptor 已 DRAINING，禁止使用同一 Target 的另一个 incarnation。
+初始 deny-only grant 没有 origin，不能为共享 metadata 指定一个未发布的 owner。
+
+该 first allocation 是共享记录的终身来源，不是“当前 queue 的 owner”别名。普通 grant
+更新、down-to-zero/up、domain/channel/profile 变化均不能搬走旧费用。未来受控 rotation
+仍须保留这条历史 allocation 关联；若要退休首次 descriptor，所有归属于它的共享记录及
+零费用但有效的引用也必须满足 §15 的完整 ledger/reference/writer/retention 条件。不能
+改写 activation origin 或重建 identity 来跳过保护；这不提前定义 B6 的轮换控制协议。
+
+已经携带 incarnation 的 queue/order/channel/Native scope，使用其记录中的完整 Target/
+Source Shard/incarnation 对应 descriptor。Native snapshot 使用完整所引用 scope 的
+incarnation，不能仅凭 snapshot digest 或 current queue 推断 owner。所有记录按各自
+owner 的冻结 accounting artifact 计费，保留态与 DRAINING 不自动释放费用。
+
+| 记录 | NV / META key | 唯一 owner | 贡献与校验 |
+|---|---|---|---|
+| physical identity | 13 / `0b 01 + TargetId` | first allocation | 完整 canonical physical tuple 解码并重新导出 TargetId |
+| dispatch compatibility | 18 / `0c 01 + digest` | first allocation | 完整 dispatch 与 physical identity 投影一致 |
+| control scope | 19 / `0d 01 + digest` | first allocation | 完整 scope key/Target/Source Shard 一致 |
+| membership grant | 22 / `0f 01 + digest` | first allocation | 完整 tenant、required/offered physical 投影；实际 activation source 严格晚于 allocation、同物理 source |
+| membership policy | 23 / `10 01 + digest` | first allocation | 完整 tenant、offered physical 投影和 controls Source Shard |
+| queue | 12 / `09 01 + TargetId` | queue incarnation | 完整 queue/physical/Shard/activated slot bound；一个 Target、ACTIVE+DRAINING 执行域数 |
+| strict order state | 17 / `0a 01 + TargetId + orderingDomain` | state incarnation | 完整 key/Target/Shard；一个 strict-domain，CLOSED 仍保留 |
+| channel identity | 20 / `0e 01 + digest` | channel context incarnation | 完整含 credential lease 的 channel key/Shard/Target/incarnation |
+| Native scope | 24 / `11 01 + digest` | scope incarnation | 完整 scope key/Shard/Target/incarnation |
+| Native snapshot | 25 / `12 01 + snapshotDigest` | referenced scope incarnation | 完整 snapshot/scope/artifacts/cap/path/key/Shard 关系 |
+
+每条实际 META record 只计一次 `STATE = key.length + payload.length + 12 + frozenOverhead`，
+checked 算术拒绝溢出；包括嵌在自己 value 内的 lease/physical/policy 字段。其它资源维度
+全零，dependency 不另加费用。独立存储的其它物理副本仍应各计一次；不是由“内容相同”
+免除真实记录费用。除 queue 与 strict order state 的上述 cardinality，其余记录没有
+Target/domain/strict-domain/incarnation 增量；descriptor 自身唯一 incarnation 仍只计一次。
+
+### 17.2 有限的 exact read set
+
+Immutable Record 保存完整原 key/type/payload、owner 和贡献。所有读都是 META 单点：
+本记录、owner descriptor，以及适用的 current first-allocation grant、physical identity
+或 referenced Native scope。相同 key 的相同完整依赖合并，不同 type/bytes 冲突拒绝。
+每个 Record 固定最多 **4** 个点读：identity 3、其它共享记录 4、queue 3、order/channel/
+Native scope 2、Native snapshot 3。它不持有、扫描或复制全 Target/counter 集合。
+
+`requireCurrent(ReadView)` 对实际已有 before 视图重新读取**所有**这些 key，比对完整
+NV type 和 canonical payload；不存在、type/bytes 改变或读异常均拒绝，fatal Error 继续
+传播。Key、payload、Stored 暴露防御副本，Reader 不能修改待核对的 read set。Store adapter
+必须先验证 NV envelope/CRC，再在同一 Owner/Store/Source guard 下提供真实 META 读取。
+
+对于 insert 或修改后的 proposed after，factory 只派生贡献；不能对不存在的 after 调用
+`requireCurrent` 并宣称已获提交许可。C4 仍须核对真实 before/absence、实际完整触及 key
+集合、owner/权限/source read set，并把 metadata、counter/mirror/total/root/aggregate、
+Result 和 SourceAdvance 同批提交。相同物理 key 在一次 delta 中只计一次；记录依赖
+不意味着重复创建或重复收费。独立恢复须枚举实际记录，不能从贡献对象或 counter 自抄。
+
+四点读是单记录 attribution 的结构上限，不是 A2/E6 的完整字节/时间/RSS envelope。
+长 physical topic、多个 touched records、真实 authority 查询和 Outcome/system-writer
+reserve 仍必须落在激活配置的完整预算内。该 helper 不验证当前发送权限、snapshot key
+trust、credential live protection 或记录删除条件；完整业务/生命周期 authority 继续保留。
+
+本批闭合上述十类 metadata 的唯一 owner、费用/cardinality 与完整点读依赖。Claim、
+Result/SystemMutation/evidence、其它共享 Shard 记录和完整 reserve sizing、真实 source
+bootstrap/rotation/handover、原 B4 最终验收绑定继续实施；B4 状态保持 IN_PROGRESS。

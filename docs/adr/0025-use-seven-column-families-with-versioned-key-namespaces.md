@@ -247,3 +247,10 @@ so allocation does not depend on later membership/channel registrations. Updates
 preserve the snapshot, including zero limits, without reviving the descriptor.
 Activation root slots reserve two bounded sources; NV 33 still owns its distinct
 record fee and single incarnation. No new tag/CF or active Lane format change.
+
+B4 binds ten existing Target META record types to immutable quota owners without
+adding a namespace. Records without an incarnation retain the first Target grant
+allocation; queue/order/channel/Native records use their embedded incarnation or
+full scope. A maximum of four exact META point reads rechecks record and attribution
+bytes; dependencies do not add charges. C4 still proves actual before/absence and
+atomic source/ledger changes, while physical resource authority remains separate.
