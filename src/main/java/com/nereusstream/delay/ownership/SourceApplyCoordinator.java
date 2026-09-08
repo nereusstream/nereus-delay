@@ -1,6 +1,5 @@
 package com.nereusstream.delay.ownership;
 
-import com.nereusstream.delay.runtime.HeadReadIncompleteException;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import com.nereusstream.delay.scheduler.WorkClassTask;
@@ -31,7 +30,7 @@ public final class SourceApplyCoordinator {
     private final SourceRecordConsumer sourceConsumer;
     private final WorkClassExecutionRegistry workClasses;
     private final SourceApplyWorkClassExecutor executor;
-    private final OwnedDelayShard ownedShard;
+    private final SourceApplyTarget target;
     private final SourceAcknowledgement acknowledgement;
     private SourceRecordConsumer.PolledSourceRecord pendingSourceRecord;
     private Pending pending;
@@ -46,12 +45,8 @@ public final class SourceApplyCoordinator {
         this.source = Objects.requireNonNull(source, "source");
         this.sourceConsumer = null;
         this.workClasses = Objects.requireNonNull(workClasses, "workClasses");
-        this.ownedShard = Objects.requireNonNull(ownedShard, "ownedShard");
-        this.executor = new SourceApplyWorkClassExecutor(
-                this.workClasses,
-                this.ownedShard,
-                Objects.requireNonNull(authority, "authority"),
-                Objects.requireNonNull(verificationKey, "verificationKey"));
+        this.target = SourceApplyTarget.legacy(ownedShard, authority, verificationKey);
+        this.executor = new SourceApplyWorkClassExecutor(this.workClasses, this.target);
         this.acknowledgement = Objects.requireNonNull(acknowledgement, "acknowledgement");
     }
 
@@ -66,15 +61,18 @@ public final class SourceApplyCoordinator {
             final OwnedDelayShard ownedShard,
             final OxiaOwnerLeaseStore authority,
             final PublicKey verificationKey) {
+        this(sourceConsumer, workClasses, SourceApplyTarget.legacy(ownedShard, authority, verificationKey));
+    }
+
+    SourceApplyCoordinator(
+            final SourceRecordConsumer sourceConsumer,
+            final WorkClassExecutionRegistry workClasses,
+            final SourceApplyTarget target) {
         this.source = null;
         this.sourceConsumer = Objects.requireNonNull(sourceConsumer, "sourceConsumer");
         this.workClasses = Objects.requireNonNull(workClasses, "workClasses");
-        this.ownedShard = Objects.requireNonNull(ownedShard, "ownedShard");
-        this.executor = new SourceApplyWorkClassExecutor(
-                this.workClasses,
-                this.ownedShard,
-                Objects.requireNonNull(authority, "authority"),
-                Objects.requireNonNull(verificationKey, "verificationKey"));
+        this.target = Objects.requireNonNull(target, "target");
+        this.executor = new SourceApplyWorkClassExecutor(this.workClasses, this.target);
         this.acknowledgement = null;
     }
 
@@ -96,7 +94,7 @@ public final class SourceApplyCoordinator {
                     pendingSourceRecord = polled.get();
                     pending = new Pending(pendingSourceRecord.entry());
                 } catch (RuntimeException | Error failure) {
-                    ownedShard.fence();
+                    target.fence();
                     return TurnResult.sourcePollFailure(failure);
                 }
             } else {
@@ -124,11 +122,11 @@ public final class SourceApplyCoordinator {
                 if (observed == null) {
                     return TurnResult.failed(TurnStatus.WORK_CLASS_FAILURE, pending.entry, failure);
                 }
-                if (observed.failure() instanceof HeadReadIncompleteException) {
+                if (target.isReadIncomplete(observed.failure())) {
                     // A different selected action may have failed after this
                     // source read yielded. Never hide that error as a read retry.
                     pending.submission = null;
-                    ownedShard.fence();
+                    target.fence();
                     return TurnResult.failed(TurnStatus.WORK_CLASS_FAILURE, pending.entry, failure);
                 }
             }
@@ -143,7 +141,7 @@ public final class SourceApplyCoordinator {
                 // Other failures still require the existing fenced recovery path.
                 pending.submission = null;
                 return TurnResult.failed(
-                        applied.failure() instanceof HeadReadIncompleteException
+                        target.isReadIncomplete(applied.failure())
                                 ? TurnStatus.READ_INCOMPLETE
                                 : TurnStatus.APPLY_FAILURE,
                         pending.entry,
@@ -155,6 +153,7 @@ public final class SourceApplyCoordinator {
         if (!pending.acknowledged) {
             final SourceAcknowledgement.AcknowledgementResult result;
             try {
+                target.beforeAcknowledgement(pending.entry, pending.appliedOutcome, ownerClock);
                 final SourceAcknowledgement ack = sourceConsumer == null
                         ? acknowledgement
                         : Objects.requireNonNull(pendingSourceRecord, "pending source record")
@@ -181,7 +180,7 @@ public final class SourceApplyCoordinator {
                 // The broker ACK is already confirmed, but the caller-owned
                 // cursor could not be advanced. Continuity is no longer proven;
                 // fence the Owner before retaining the exact entry for recovery.
-                ownedShard.fence();
+                target.fence();
                 return TurnResult.failed(TurnStatus.CURSOR_ADVANCE_FAILURE, pending.entry, failure);
             }
         }
@@ -204,7 +203,7 @@ public final class SourceApplyCoordinator {
             }
             return Objects.requireNonNull(source.peek(), "source look-ahead entry");
         } catch (RuntimeException | Error failure) {
-            ownedShard.fence();
+            target.fence();
             return throwUnchecked(failure);
         }
     }

@@ -7,6 +7,17 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.nereusstream.delay.ownership.InMemoryControlTargetRegistrationAuthority;
+import com.nereusstream.delay.ownership.InMemoryOwnerLeaseStore;
+import com.nereusstream.delay.ownership.OxiaOwnerLeaseStore;
+import com.nereusstream.delay.ownership.ShardLifecycleState;
+import com.nereusstream.delay.ownership.SourceAcknowledgement;
+import com.nereusstream.delay.ownership.SourceApplyCoordinator;
+import com.nereusstream.delay.ownership.SourceAssignment;
+import com.nereusstream.delay.ownership.SourceRecordConsumer;
+import com.nereusstream.delay.ownership.SourceReplayMutation;
+import com.nereusstream.delay.ownership.SourceReplaySuccessor;
+import com.nereusstream.delay.ownership.TargetSourceApplyRuntime;
+import com.nereusstream.delay.ownership.WorkerSourceApplyLoop;
 import com.nereusstream.delay.protocol.AuthorIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CapacityVector;
@@ -17,6 +28,7 @@ import com.nereusstream.delay.protocol.ControlRole;
 import com.nereusstream.delay.protocol.ControlRoleSet;
 import com.nereusstream.delay.protocol.ControlTargetKind;
 import com.nereusstream.delay.protocol.ControlTargetRef;
+import com.nereusstream.delay.protocol.KafkaActivationBarrier;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.PreparedControlOperation;
 import com.nereusstream.delay.protocol.ShardSubject;
@@ -29,6 +41,11 @@ import com.nereusstream.delay.protocol.TargetQuotaGrantActivation;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlBody;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlRequest;
 import com.nereusstream.delay.protocol.TargetQuotaUsage;
+import com.nereusstream.delay.scheduler.SchedulerBudget;
+import com.nereusstream.delay.scheduler.WorkClass;
+import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
+import com.nereusstream.delay.scheduler.WorkClassPolicy;
+import com.nereusstream.delay.scheduler.WorkClassRuntimeConfig;
 import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.ColumnFamily;
 import com.nereusstream.delay.store.ShardStore;
@@ -222,10 +239,67 @@ class TargetQuotaGrantStoreTest {
             assertNull(store.get(ColumnFamily.META, template.key()));
             assertNull(store.get(ColumnFamily.DEDUPE, systemKey(operation.mutation())));
             final var allowed = authority(registrations, keys, actor, origin, request, (a, b, c, d) -> {});
-            final var result = applier.commit(
-                    applier.prepare(budget(), operation.control(), operation.mutation(), origin, allowed),
-                    (a, b, c) -> guard(),
-                    (a, b) -> guard());
+            final var assignment = new SourceAssignment(
+                    scope.shard(),
+                    bytes(32, 0x61),
+                    1,
+                    new KafkaActivationBarrier(
+                            scope.shard(), origin.authenticatedClusterId(), origin.nativeTopicUuid(), origin.offset()));
+            final var leaseStore = new InMemoryOwnerLeaseStore();
+            final var leaseAuthority = new OxiaOwnerLeaseStore(leaseStore);
+            final var acquiring = leaseAuthority
+                    .acquire(assignment, "target-worker", bytes(32, 0x62), 1, 10000)
+                    .orElseThrow();
+            final var active = leaseAuthority
+                    .transition(acquiring, ShardLifecycleState.ACTIVE_FOR_COMMANDS)
+                    .orElseThrow();
+            store.recordOpenedOwnerEpoch(active.ownerEpoch());
+            final var resolutions = new java.util.concurrent.atomic.AtomicInteger();
+            final var runtime = new TargetSourceApplyRuntime(
+                    initialized,
+                    store,
+                    assignment,
+                    active,
+                    new TargetSourceApplyRuntime.Authorities(
+                            leaseAuthority,
+                            SourceReplaySuccessor.strictKafka(),
+                            entry -> {
+                                resolutions.incrementAndGet();
+                                return new TargetSourceApplyRuntime.GrantControl(
+                                        operation.control(), allowed, (a, b, c) -> guard());
+                            },
+                            (a, b, c) -> guard(),
+                            (a, b) -> guard()),
+                    new TargetSourceApplyRuntime.Limits(2048, 32L << 20, 60_000_000_000L, 16, 1),
+                    System::nanoTime);
+            final var acknowledgements = new java.util.concurrent.atomic.AtomicInteger();
+            final var polls = new java.util.concurrent.atomic.AtomicInteger();
+            final var entries = new java.util.ArrayDeque<SourceRecordConsumer.PolledSourceRecord>();
+            final var nativeEntry = new SourceReplayMutation(operation.mutation(), origin, null, null);
+            entries.add(new SourceRecordConsumer.PolledSourceRecord(nativeEntry, (entry, outcome) -> {
+                assertArrayEquals(
+                        entry.position().canonicalBytes(),
+                        outcome.systemMutationResult().appliedSourcePosition());
+                return acknowledgements.incrementAndGet() == 1
+                        ? SourceAcknowledgement.AcknowledgementResult.unknown(null)
+                        : SourceAcknowledgement.AcknowledgementResult.acked();
+            }));
+            final SourceRecordConsumer consumer = () -> {
+                polls.incrementAndGet();
+                return java.util.Optional.ofNullable(entries.poll());
+            };
+            final var loop = new WorkerSourceApplyLoop(consumer, workClasses(), runtime);
+            assertEquals(
+                    SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN,
+                    loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100)
+                            .status());
+            final long writtenBeforeAckRetry = store.latestSequenceNumber();
+            final var completed = loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100);
+            assertEquals(SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED, completed.status());
+            assertEquals(writtenBeforeAckRetry, store.latestSequenceNumber());
+            assertEquals(1, polls.get());
+            assertEquals(1, resolutions.get());
+            final var result = completed.appliedOutcome().systemMutationResult();
             assertEquals(ApplyStatus.APPLIED, result.applyStatus());
             assertEquals(StableCode.OK, result.stableCode());
             final var activation = TargetQuotaGrantActivation.decode(TargetValueEnvelope.decode(
@@ -354,7 +428,53 @@ class TargetQuotaGrantStoreTest {
                             store.get(ColumnFamily.META, template.key()), TargetQuotaGrantActivation.VALUE_TYPE)
                     .payload());
             assertEquals(activation.mutation(), unchanged.mutation());
+            final var duplicateEntry = new SourceReplayMutation(
+                    operation.mutation(), source(origin, origin.offset() + 4, 503), null, null);
+            entries.add(new SourceRecordConsumer.PolledSourceRecord(duplicateEntry, (entry, outcome) -> {
+                acknowledgements.incrementAndGet();
+                assertArrayEquals(
+                        entry.position().canonicalBytes(),
+                        outcome.systemMutationResult().appliedSourcePosition());
+                return SourceAcknowledgement.AcknowledgementResult.unknown(null);
+            }));
+            assertEquals(
+                    SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN,
+                    loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100)
+                            .status());
+            assertEquals(1, resolutions.get());
+            assertEquals(2, polls.get());
+            final long beforeOwnerLossRetry = store.latestSequenceNumber();
+            leaseAuthority.transition(active, ShardLifecycleState.DRAINING).orElseThrow();
+            assertEquals(
+                    SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN,
+                    loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100)
+                            .status());
+            assertEquals(3, acknowledgements.get());
+            assertEquals(beforeOwnerLossRetry, store.latestSequenceNumber());
+            assertSame(duplicateEntry, loop.pendingEntry().orElseThrow());
+            assertEquals(true, runtime.fenced());
+            assertThrows(IllegalStateException.class, loop::close);
         }
+    }
+
+    private static WorkClassExecutionRegistry workClasses() {
+        final var policies = new java.util.EnumMap<WorkClass, WorkClassPolicy>(WorkClass.class);
+        for (var workClass : WorkClass.values()) {
+            final boolean protectedClass = workClass != WorkClass.QUERY && workClass != WorkClass.CHECKPOINT;
+            policies.put(
+                    workClass,
+                    new WorkClassPolicy(
+                            1,
+                            1,
+                            1_000_000,
+                            1,
+                            1_000_000,
+                            1_000,
+                            protectedClass ? 1 : 0,
+                            protectedClass ? 1 : 0,
+                            workClass == WorkClass.LEASE_FENCE));
+        }
+        return new WorkClassExecutionRegistry(new WorkClassRuntimeConfig(policies, 100, 100, 16, 2_000_000), () -> 0);
     }
 
     private static TargetQuotaGrantControlVerifier.Authority authority(

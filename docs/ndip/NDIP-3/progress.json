@@ -177,7 +177,7 @@
         "evidence/b4-result-audit-final-docs.log",
         "evidence/b4-result-audit-junit.zip"
       ],
-      "progress": "Signed first SHARD grant now initializes a fully inspected empty Target Store through TargetStoreBootstrap: exact initial metadata, source-derived root, activation, SYSTEM/POSITION and complete accounting/source commit. Initialized exposes the backend only after commit. One expanded RocksDB development check; production source-start/capacity/commit providers, Worker/config, recovery and nonempty migration remain unfinished.",
+      "progress": "TargetSourceApplyRuntime now connects signed grant first/replay to the existing bounded WorkerSourceApplyLoop/WorkClass/poll/ACK coordinator. Actual lease rereads and exact assignment/session/Store/source checks guard commit and each ACK retry. Internal execution cannot bypass the work queue; only backend preparation yields retry. One Target RocksDB smoke and two existing coordinator checks; other Command/System branches, full Worker factory/config, recovery/drain and production resource/control providers remain unfinished.",
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
       "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
@@ -194,7 +194,12 @@
         "src/main/java/com/nereusstream/delay/runtime/TargetSystemReplayStore.java",
         "src/main/java/com/nereusstream/delay/store/TargetStoreBackend.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetStoreBootstrap.java",
-        "src/main/java/com/nereusstream/delay/store/ShardStore.java"
+        "src/main/java/com/nereusstream/delay/store/ShardStore.java",
+        "src/main/java/com/nereusstream/delay/ownership/TargetSourceApplyRuntime.java",
+        "src/main/java/com/nereusstream/delay/ownership/SourceApplyTarget.java",
+        "src/main/java/com/nereusstream/delay/ownership/SourceApplyCoordinator.java",
+        "src/main/java/com/nereusstream/delay/ownership/SourceApplyWorkClassExecutor.java",
+        "src/main/java/com/nereusstream/delay/ownership/WorkerSourceApplyLoop.java"
       ],
       "validationHandoff": "12-集中验证交接清单.md"
     },
@@ -233,7 +238,7 @@
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
       "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
-      "progress": "System physical replay now verifies actual first/POSITION/owner/envelope records; same-position completes a guarded read with zero batch writes, later duplicates append only POSITION/accounting/source. Grant Dispatch routes replay/duplicate/first with one cumulative budget. One expanded RocksDB development check only; production read/write authority, source consumers, production bootstrap providers, full Worker and recovery remain unfinished.",
+      "progress": "TargetSourceApplyRuntime now connects signed grant first/replay to the existing bounded WorkerSourceApplyLoop/WorkClass/poll/ACK coordinator. Actual lease rereads and exact assignment/session/Store/source checks guard commit and each ACK retry. Internal execution cannot bypass the work queue; only backend preparation yields retry. One Target RocksDB smoke and two existing coordinator checks; other Command/System branches, full Worker factory/config, recovery/drain and production resource/control providers remain unfinished.",
       "implementationFiles": [
         "src/main/java/com/nereusstream/delay/runtime/TargetClaimRecord.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetClaimStore.java",
@@ -245,18 +250,33 @@
         "src/main/java/com/nereusstream/delay/runtime/TargetQuotaStoreGate.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetRecordAccounting.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetSystemReplayStore.java",
-        "src/main/java/com/nereusstream/delay/store/TargetStoreBackend.java"
+        "src/main/java/com/nereusstream/delay/store/TargetStoreBackend.java",
+        "src/main/java/com/nereusstream/delay/ownership/TargetSourceApplyRuntime.java",
+        "src/main/java/com/nereusstream/delay/ownership/SourceApplyTarget.java",
+        "src/main/java/com/nereusstream/delay/ownership/SourceApplyCoordinator.java",
+        "src/main/java/com/nereusstream/delay/ownership/SourceApplyWorkClassExecutor.java",
+        "src/main/java/com/nereusstream/delay/ownership/WorkerSourceApplyLoop.java"
       ],
       "validationHandoff": "12-集中验证交接清单.md"
     },
     {
       "id": "C2",
       "title": "Worker 调度和兼容通道",
-      "status": "PLANNED",
+      "status": "IN_PROGRESS",
       "evidence": [],
-      "implementationStatus": "NOT_STARTED",
+      "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
-      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
+      "progress": "TargetSourceApplyRuntime now connects signed grant first/replay to the existing bounded WorkerSourceApplyLoop/WorkClass/poll/ACK coordinator. Actual lease rereads and exact assignment/session/Store/source checks guard commit and each ACK retry. Internal execution cannot bypass the work queue; only backend preparation yields retry. One Target RocksDB smoke and two existing coordinator checks; other Command/System branches, full Worker factory/config, recovery/drain and production resource/control providers remain unfinished.",
+      "implementationFiles": [
+        "src/main/java/com/nereusstream/delay/ownership/TargetSourceApplyRuntime.java",
+        "src/main/java/com/nereusstream/delay/ownership/SourceApplyTarget.java",
+        "src/main/java/com/nereusstream/delay/ownership/SourceApplyCoordinator.java",
+        "src/main/java/com/nereusstream/delay/ownership/SourceApplyWorkClassExecutor.java",
+        "src/main/java/com/nereusstream/delay/ownership/WorkerSourceApplyLoop.java",
+        "src/main/java/com/nereusstream/delay/store/TargetStoreBackend.java"
+      ],
+      "validationHandoff": "12-集中验证交接清单.md"
     },
     {
       "id": "C3",
@@ -275,7 +295,7 @@
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
       "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
-      "progress": "Signed first SHARD grant now initializes a fully inspected empty Target Store through TargetStoreBootstrap: exact initial metadata, source-derived root, activation, SYSTEM/POSITION and complete accounting/source commit. Initialized exposes the backend only after commit. One expanded RocksDB development check; production source-start/capacity/commit providers, Worker/config, recovery and nonempty migration remain unfinished.",
+      "progress": "TargetSourceApplyRuntime now connects signed grant first/replay to the existing bounded WorkerSourceApplyLoop/WorkClass/poll/ACK coordinator. Actual lease rereads and exact assignment/session/Store/source checks guard commit and each ACK retry. Internal execution cannot bypass the work queue; only backend preparation yields retry. One Target RocksDB smoke and two existing coordinator checks; other Command/System branches, full Worker factory/config, recovery/drain and production resource/control providers remain unfinished.",
       "implementationFiles": [
         "src/main/java/com/nereusstream/delay/runtime/TargetClaimRecord.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetClaimStore.java",
@@ -292,7 +312,12 @@
         "src/main/java/com/nereusstream/delay/store/StoreMetadata.java",
         "src/main/java/com/nereusstream/delay/store/TargetStoreBackend.java",
         "src/main/java/com/nereusstream/delay/store/TargetValueEnvelope.java",
-        "src/main/java/com/nereusstream/delay/runtime/TargetStoreBootstrap.java"
+        "src/main/java/com/nereusstream/delay/runtime/TargetStoreBootstrap.java",
+        "src/main/java/com/nereusstream/delay/ownership/TargetSourceApplyRuntime.java",
+        "src/main/java/com/nereusstream/delay/ownership/SourceApplyTarget.java",
+        "src/main/java/com/nereusstream/delay/ownership/SourceApplyCoordinator.java",
+        "src/main/java/com/nereusstream/delay/ownership/SourceApplyWorkClassExecutor.java",
+        "src/main/java/com/nereusstream/delay/ownership/WorkerSourceApplyLoop.java"
       ],
       "validationHandoff": "12-集中验证交接清单.md"
     },
@@ -304,13 +329,18 @@
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
       "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
-      "progress": "Signed first SHARD grant now initializes a fully inspected empty Target Store through TargetStoreBootstrap: exact initial metadata, source-derived root, activation, SYSTEM/POSITION and complete accounting/source commit. Initialized exposes the backend only after commit. One expanded RocksDB development check; production source-start/capacity/commit providers, Worker/config, recovery and nonempty migration remain unfinished.",
+      "progress": "TargetSourceApplyRuntime now connects signed grant first/replay to the existing bounded WorkerSourceApplyLoop/WorkClass/poll/ACK coordinator. Actual lease rereads and exact assignment/session/Store/source checks guard commit and each ACK retry. Internal execution cannot bypass the work queue; only backend preparation yields retry. One Target RocksDB smoke and two existing coordinator checks; other Command/System branches, full Worker factory/config, recovery/drain and production resource/control providers remain unfinished.",
       "implementationFiles": [
         "src/main/java/com/nereusstream/delay/store/ShardStore.java",
         "src/main/java/com/nereusstream/delay/store/StoreMetadata.java",
         "src/main/java/com/nereusstream/delay/store/TargetValueEnvelope.java",
         "src/main/java/com/nereusstream/delay/store/TargetStoreBackend.java",
-        "src/main/java/com/nereusstream/delay/runtime/TargetStoreBootstrap.java"
+        "src/main/java/com/nereusstream/delay/runtime/TargetStoreBootstrap.java",
+        "src/main/java/com/nereusstream/delay/ownership/TargetSourceApplyRuntime.java",
+        "src/main/java/com/nereusstream/delay/ownership/SourceApplyTarget.java",
+        "src/main/java/com/nereusstream/delay/ownership/SourceApplyCoordinator.java",
+        "src/main/java/com/nereusstream/delay/ownership/SourceApplyWorkClassExecutor.java",
+        "src/main/java/com/nereusstream/delay/ownership/WorkerSourceApplyLoop.java"
       ],
       "validationHandoff": "12-集中验证交接清单.md"
     },

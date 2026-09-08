@@ -2437,3 +2437,13 @@ incarnation，全批费用与 source 原子写入；SHARD activation/结果不�
 Store 完整空态只允许六项精确的现有 open markers；其他业务、未知键或恢复历史拒绝。
 真实起点/完整容量和 Owner/Control 快照由 StartAuthority/CommitGuard 持有证明，当前
 生产 provider、Worker/config、非空迁移/恢复与集中验证继续保留，不据此升级治理状态。
+
+
+### NDIP-3 Target Worker source 接入（2026-09-08）
+
+TargetSourceApplyRuntime 使用现有 NDL1/SourceReplayEntry 与既有 NV/key，grant 首次
+和重复应用通过实际 Target Store backend，不增加 wire/tag。SourceReplayOutcome
+仅为 native ACK 重锚到当前物理位置，持久 SYSTEM/其引用保持首次身份。提交与每次
+ACK 校验真实 lease/assignment/session/Store/source proof，UNKNOWN 保留单条记录。
+这是 grant/source 控制路径的运行时接入；其余业务/恢复/正式 Worker 配置与生产
+资源/Control provider 仍待贯通，不授予全功能或治理 Implemented 状态。

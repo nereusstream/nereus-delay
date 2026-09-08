@@ -32,20 +32,20 @@ public final class SourceApplyWorkClassExecutor {
     private static final byte[] TASK_ID_DOMAIN = Bytes.utf8("nereus-delay-source-apply-task\0");
 
     private final WorkClassExecutionRegistry workClasses;
-    private final OwnedDelayShard ownedShard;
-    private final OxiaOwnerLeaseStore authority;
-    private final PublicKey verificationKey;
+    private final SourceApplyTarget target;
 
     public SourceApplyWorkClassExecutor(
             final WorkClassExecutionRegistry workClasses,
             final OwnedDelayShard ownedShard,
             final OxiaOwnerLeaseStore authority,
             final PublicKey verificationKey) {
+        this(workClasses, SourceApplyTarget.legacy(ownedShard, authority, verificationKey));
+    }
+
+    SourceApplyWorkClassExecutor(final WorkClassExecutionRegistry workClasses, final SourceApplyTarget target) {
         this.workClasses = Objects.requireNonNull(workClasses, "workClasses");
-        this.ownedShard = Objects.requireNonNull(ownedShard, "ownedShard");
-        this.authority = Objects.requireNonNull(authority, "authority");
-        this.verificationKey = Objects.requireNonNull(verificationKey, "verificationKey");
-        this.ownedShard.bindWorkClassExecutionRegistry(this.workClasses);
+        this.target = Objects.requireNonNull(target, "target");
+        this.target.bind(this.workClasses);
     }
 
     /** Registers one exact source action; the WriteBatch starts only when its bounded turn runs. */
@@ -69,11 +69,7 @@ public final class SourceApplyWorkClassExecutor {
         final byte[] positionBytes = submitted.position().canonicalBytes();
         final byte[] frameBytes = frame(submitted);
         final long chargedBytes = Math.addExact((long) positionBytes.length, frameBytes.length);
-        if (recovery) {
-            ownedShard.requireRecoverySourceApplySubmission(authority, submitted, verificationKey);
-        } else {
-            ownedShard.requireSourceApplySubmission(authority, submitted, verificationKey);
-        }
+        target.requireSubmission(submitted, recovery);
         final String taskId = "source-apply/" + Bytes.hex(Bytes.sha256(TASK_ID_DOMAIN, positionBytes, frameBytes));
         final WorkClassTask task = new WorkClassTask(WorkClass.SOURCE_APPLY, taskId, chargedBytes);
         final Submission result = new Submission(task);
@@ -90,9 +86,7 @@ public final class SourceApplyWorkClassExecutor {
             throw new IllegalStateException("source apply work-class action already completed");
         }
         try {
-            final SourceReplayOutcome outcome = recovery
-                    ? ownedShard.applyRecoverySourceEntryAuthoritativelyStrict(authority, entry, verificationKey, clock)
-                    : ownedShard.applySourceEntryAuthoritativelyStrict(authority, entry, verificationKey, clock);
+            final SourceReplayOutcome outcome = target.apply(entry, clock, recovery);
             submission.complete(ApplyOutcome.succeeded(outcome));
         } catch (RuntimeException failure) {
             submission.complete(ApplyOutcome.failed(failure));

@@ -34,6 +34,16 @@ public final class WorkerSourceApplyLoop implements AutoCloseable {
                 new SourceApplyCoordinator(this.consumer, workClasses, ownedShard, authority, verificationKey);
     }
 
+    /** Target-format source entry; retains the same native look-ahead and ACK uncertainty behavior. */
+    public WorkerSourceApplyLoop(
+            final SourceRecordConsumer consumer,
+            final WorkClassExecutionRegistry workClasses,
+            final TargetSourceApplyRuntime target) {
+        this.consumer = Objects.requireNonNull(consumer, "consumer");
+        this.coordinator =
+                new SourceApplyCoordinator(this.consumer, workClasses, Objects.requireNonNull(target, "target"));
+    }
+
     /** Runs one bounded source apply/ACK turn. */
     public synchronized SourceApplyCoordinator.TurnResult runTurn(
             final SchedulerBudget workBudget, final LongSupplier ownerClock) {

@@ -283,6 +283,13 @@ public final class TargetStoreBackend {
         genesis = TargetQuotaAggregate.genesis(scope.shard(), shardAccountingIncarnation);
     }
 
+    /** Binds production composition to this exact native Store object, not merely a matching Shard ID. */
+    public void requireStore(final ShardStore actual) {
+        if (store != Objects.requireNonNull(actual, "store")) {
+            throw new IllegalArgumentException("Target backend belongs to another Store instance");
+        }
+    }
+
     /** Authority for acknowledging an already durable source record without writing another batch. */
     @FunctionalInterface
     public interface ReadAuthority {

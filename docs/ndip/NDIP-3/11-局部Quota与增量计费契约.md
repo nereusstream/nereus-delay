@@ -1720,3 +1720,22 @@ tenant/transfer 权威继续执行，构造 root 或看到空 Store 均不提供
 无合法首 grant 或费用不足时不创建用于记录拒绝的 root、不推进 source；必须修复
 启动前提或走相应受控流程，不能跳过历史。非空迁移/恢复与生产 provider 不由此实现
 自动完成，B4/C4/C5 保持 IN_PROGRESS 和 PENDING_CENTRAL_VALIDATION。
+
+
+## 30. Source 消费层复用完整 grant 与重放计费
+
+TargetSourceApplyRuntime 首次 grant 走真实 TargetQuotaGrantStore，duplicate 走
+TargetSystemReplayStore，不能通过 Worker source 入口回退到旧格式计费。整个 read
+prepare 共用预算，实际 mutation stamp/source/envelope、Store、Owner lease 和
+adapter successor 在 commit guard 内复核。逻辑/物理资源和 Control snapshots 的
+实际 provider 仍必须注入并持有至 native commit，Oxia lease 本身不授权容量。
+
+ACK 缓存只保存已完成的物理 SourceReplayOutcome；后续 ACK 不再写结果或收费，
+持久 SYSTEM 保留首次 source。Owner loss 阻止再次 native ACK 并保留原记录，不因此
+释放费用、root、allocation 或任何 obligation。仅 prepare 的可证明零写预算耗尽
+允许新一轮准备，UNKNOWN/guard/外部解析失败按 fence 处理。
+
+最小开发检查贯通 signed grant→WorkClass→RocksDB→ACK UNKNOWN/重试，核对一次
+poll/一次业务 authority 解析和不重复写；后续 duplicate 不解析首次权限，lease 转
+DRAINING 后不再 ACK。Oxia backend/物理资源/Control commit guard 是测试替身，
+真实 Broker、多业务、恢复/迁移和全部账本验证仍留待集中阶段。
