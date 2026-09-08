@@ -6105,3 +6105,8 @@ NDIP-3 B4 的 Claim 计费投影已冻结，见 quota 契约 §19：原始 Targe
 Owner/Store、accounting/tenant/lineage 与 execution charge 同时保留。独立 STATE
 record 费用不复制 payload/attempt；本地撤销要求相同 Owner/Store，source 消费要求
 严格后续 source 与实际 authority。完整业务 Claim 格式、原子接入与恢复仍须实施。
+
+NDIP-3 B4 结果格式见 quota §20：首次 Command/System 结果冻结 owner/source，后续
+物理重复仅追加 Shard POSITION evidence；SYSTEM 结果不混作 outbox。成功 allocation
+控制结果可以携带完整 OPEN origin，避免查询时从可变状态猜 ID。实际 query/dedupe/
+atomic source application、保留删除、完整 reserve 与独立恢复仍需后续接入和证明。

@@ -220,6 +220,22 @@ B4 remains IN_PROGRESS. Complete business Claim/Result/SystemMutation/evidence
 ownership, full reserves, bootstrap/rotation/handover and original acceptance,
 plus actual C4 authority/atomicity/recovery and D/E/F verification remain required.
 
+B4 now reserves immutable Target result records at DEDUPE 06–09 / NV 35.
+First Command evidence, query results and System results retain original source
+and frozen accounting ownership. Separate Shard POSITION audits reference the
+first logical record, so physical retries do not rewrite or recharge first results.
+Successful allocation control results may return the full OPEN source-derived
+origin. Mandatory creation/deletion authority and exact prior/reference guards
+remain required; System results use RESULT, independently of outbox accounting.
+The result full check passed 2082 Java tests with zero failures/errors and 41
+external skips. All 216 quota/result focused tests passed without skips, including
+15 new cases. 308 XMLs and 1187 unchanged check inputs are bound by
+`docs/ndip/NDIP-3/evidence/b4-result-record-results.json`.
+B4 remains IN_PROGRESS: remaining business Claim/shared Shard/outbox/evidence
+ownership, complete reserves and bootstrap/rotation/handover plus original
+acceptance still need closure. Actual C4 source/query/dedupe/atomicity/recovery
+and D/E/F verification remain required.
+
 No active Target scheduling runtime, Broker certification or migration is claimed yet. The user authorized
 full implementation and incremental publication on main. NDIP-1 remains closed;
 its historical evidence does not certify changed runtime source.

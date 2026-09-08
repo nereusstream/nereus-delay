@@ -2323,3 +2323,9 @@ Target work、TARGET identity/tenant/accounting、Owner/Store、Claim sequence/d
 冻结 execution bytes、业务 Claim SHA-256、local creation stamp、lineage 与自身
 域 digest。字段 1–15、上限、计费/消费约束见 quota 契约 §19。它不替代业务 Claim
 precondition/materialization；旧 Lane NV 9 与 active reader 不变。
+
+B4 TargetResultRecord schema 1 预留 NV 35 与 DEDUPE tags 06 COMMAND、07 RESULT、
+08 SYSTEM、09 POSITION；原 DEDUPE tags 01–05/reader 不变。COMMAND 为身份 EVIDENCE，
+RESULT/SYSTEM 为 RESULT，POSITION 为 Shard EVIDENCE，均只计自身一条记录。完整
+owner/artifact/lineage/source、原逻辑结果引用及可选成功 allocation origin 进入
+canonical fields 1–12。字段、有限 bound、去重/保留/删除契约见 quota §20；未激活 writer。

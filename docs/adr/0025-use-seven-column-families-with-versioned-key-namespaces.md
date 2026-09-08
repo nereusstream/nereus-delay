@@ -269,3 +269,11 @@ immutable accounting owner/artifact, Owner/Store, original execution charge and
 local creation stamp. Its STATE bytes are measured once; execution is separate.
 Exact business Claim authority and atomic consumption remain required. Existing
 Lane Claim NV 9 and active readers are unchanged; this introduces no new CF.
+
+B4 reserves NV 35 for immutable Target result records in DEDUPE tags 06–09.
+First Command evidence, query results and System results retain exact source and
+accounting ownership. Physical POSITION audits use a Shard owner and reference
+the original logical evidence; retries do not rewrite first outcomes. Successful
+allocation control results may retain the complete OPEN origin. Record categories
+remain distinct from System Mutation outboxes. Active Lane tags/readers and the
+seven CFs are unchanged; C4 atomic application and protected recovery remain required.

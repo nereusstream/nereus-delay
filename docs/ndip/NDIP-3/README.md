@@ -183,3 +183,10 @@ execution charge，独立计量 STATE 并校验本地撤销/source 消费，见 
 完整 check：2067 项 Java tests，失败/错误 0、外部 skip 41；201 项 quota tests 全部
 无 skip，新增 11 项。307 份 XML、1183 个不变输入见 `evidence/b4-claim-charge-results.json`。
 B4 仍 IN_PROGRESS；实际业务 Claim 与其它 owner/reserve、原子接入/恢复及 D/E/F 继续。
+
+B4 首次结果与 POSITION 审计批次已冻结五种 Kind 的 owner/source/reference 和费用，
+成功分配结果可返回完整 OPEN origin，见 quota 契约 §20。完整 check：2082 项 Java
+tests，失败/错误 0、外部 skip 41；216 项 quota/result 专项全部无 skip（新增 15 项）。
+308 份 XML、1187 个不变输入见 `evidence/b4-result-record-results.json`。B4 仍
+IN_PROGRESS；其它 owners/reserves/交接配方、实际 C4 source/query/dedupe/atomicity/
+recovery 与 D/E/F 工作继续。

@@ -144,9 +144,14 @@
         "evidence/b4-claim-charge-check.log",
         "evidence/b4-claim-charge-focused.log",
         "evidence/b4-claim-charge-final-docs.log",
-        "evidence/b4-claim-charge-junit.zip"
+        "evidence/b4-claim-charge-junit.zip",
+        "evidence/b4-result-record-results.json",
+        "evidence/b4-result-record-check.log",
+        "evidence/b4-result-record-focused.log",
+        "evidence/b4-result-record-final-docs.log",
+        "evidence/b4-result-record-junit.zip"
       ],
-      "progress": "Frozen Target Claim accounting projection now binds original full work, Claim/Owner/Store identity, execution owner/artifact and local creation stamp at reserved META 1b/NV 34. Exact STATE and execution charges remain separate; mandatory actual authority gates local revoke and source consumption without publishing deletion/capacity. Latest full check: 2067 Java tests, zero failures/errors, 41 external skips; all 201 quota tests without skips, 11 new. B4 remains incomplete: actual business Claim/Result/SystemMutation/evidence and Shard ownership, full reserves, bootstrap/rotation/handover and original acceptance. C4 actual authority/atomicity/independent recovery plus D/E/F obligations remain."
+      "progress": "Immutable first Command/System results, query copies and separate Shard POSITION audits now retain exact owner/artifact/source/reference at reserved DEDUPE 06–09/NV 35. Physical retries retain first outcomes; successful allocation control results can carry the full OPEN origin. Explicit creation/deletion authority and exact read/reference guards remain required. Latest full check: 2082 Java tests, zero failures/errors, 41 external skips; all 216 quota/result focused tests without skips, 15 new. B4 remains incomplete: business Claim/shared Shard/outbox/evidence owners, full reserves, bootstrap/rotation/handover and original acceptance. C4 actual source/query/dedupe/atomicity/recovery plus D/E/F obligations remain."
     },
     {
       "id": "B5",

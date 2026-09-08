@@ -1362,3 +1362,122 @@ Owner/Store/source 消费门槛、完整旧 bytes、authority/fatal 传播、编
 本投影贡献接入 §18 Claim/revoke delta 的守恒。该批冻结计费投影；完整业务 Target
 Claim/Result 格式、authority 后端、所有业务 record owner/reserve sizing、实际
 atomic Store/recovery 与原 B4 验收仍继续实施。
+
+
+## 20. 首次逻辑结果与物理 POSITION 审计
+
+`TargetResultRecord` schema 1 预留 NV **35**，存于 DEDUPE；旧 Lane DEDUPE tags 01–05
+与 NV 1–4 不变。新格式复用完整 canonical CommandResult/SystemMutationResult 和
+CommandDedupeRecord payload version 2，但将其冻结 owner 与首次 source 明确纳入外层。
+
+| Kind / wire | 新 DEDUPE key | 唯一 record-byte 类 |
+|---|---|---|
+| COMMAND / 1 | `06 01 + CommandId[41]` | EVIDENCE，14/15 |
+| RESULT / 2 | `07 01 + CommandId[41]` | RESULT，9/10 |
+| SYSTEM / 3 | `08 01 + SystemMutationId[32]` | RESULT，9/10 |
+| POSITION_COMMAND / 4 | `09 01 + 完整 canonical SourcePosition` | EVIDENCE，14/15 |
+| POSITION_SYSTEM / 5 | 同上 | EVIDENCE，14/15 |
+
+表中 key 的加号表示字节拼接。两种 POSITION 使用同一物理 key，是闭合二选一；不能在
+同一 source 位置同时接受 Command 和 System 分支。它不是第二份逻辑结果，也不
+因名字包含 SystemMutation 就归 SYSTEM_MUTATION outbox（11/12）。COMMAND 虽保留
+首次紧凑结果，整条实际记录只计 EVIDENCE 一次；单独 RESULT 记录再计自己的实际 bytes。
+
+| field | 含义 |
+|---:|---|
+| 1 | schema=1 |
+| 2 | 闭合 Kind 1–5 |
+| 3 | 完整自路由 CommandId[41] 或非零 SystemMutationId[32] |
+| 4 | 完整 primary quota identity，TARGET 或 SHARD；POSITION 必须 SHARD |
+| 5 | 非零 tenantRoutingScope[32] |
+| 6 | 完整冻结 TargetQuotaAccounting |
+| 7 | 非零 recovery lineage[16] |
+| 8 | 首次写入本条记录的完整 source-only TargetQuotaMutation，拒绝 local ordinal |
+| 9 | 对应完整 canonical typed payload |
+| 10 | RESULT/POSITION 必填原始逻辑记录的域 digest[32]，其它 Kind absent |
+| 11 | 可选完整 OPEN allocation origin，仅成功分配控制的 SYSTEM 结果允许 |
+| 12 | `nereus-delay-target-result-record\0` + fields 1–11（按实际存在）的 digest |
+
+COMMAND payload 必须为 CommandDedupeRecord payload version 2，含完整 Client protocol tuple、非零
+commandHash 与 CommandResult；Target reader 不接受其 legacy payload version 1。RESULT payload 为
+CommandResult；SYSTEM payload 为 SystemMutationResult，ID 必须与外层相同，author
+必须是其 mutation type 对应的闭合 AuthorIdentity。上述逻辑结果的原始 SourcePosition
+必须与 field 8 完整相等，包括同 offset 的 metadata。POSITION payload 是 field 3
+对应的原始 ID，不能另填另一个 ID、空串或自由形态数据。
+
+外层最多 12 fields；protocol tuple 最多 30 canonical bytes。Command evidence payload
+最多 `100 + TargetSourcePosition.MAX_CANONICAL_BYTES`；SYSTEM author 上限为 1 MiB，
+先限制外层单一 author branch 和最多四个内层字段，再调用闭合 decoder。完整 payload
+有独立有限上限，外层还保守容纳 source stamp、accounting/owner 和一份完整 allocation。
+这些是 schema ceiling；激活后的 whole-operation bytes/time/RSS/physical 预算可以且
+通常需要更小。不存在、未知字段、非 canonical、超界或 digest mismatch 都拒绝。
+
+### 20.1 冻结归属与真实 source 权威
+
+创建从实际 source-derived descriptor 提取完整 identity/tenant/accounting/lineage；
+其最新 allocation/drain stamp 不得领先本次 creation。读取历史结果只要求 allocation
+不晚于首次创建，后续 descriptor drain 不改变费用。RESULT 完全沿用 COMMAND owner、
+artifact 与 creation；不能在查询或重试时重新选择 current Target/owner。
+
+CreationAuthority 必须根据实际已接受 source 与完整业务账本选择归属，不能按调用者
+提供的 counter 数字猜测：关联已冻结 Claim/attempt 的 System 结果沿用对应 execution
+owner；关联已有 Message 的命令结果沿用 payload owner；成功初次 Schedule/Prepare
+沿用本批新建的 payload owner。未建立可归属业务身份的拒绝、共享 source/control
+结果与物理 POSITION 使用受控的 Shard owner。相同逻辑 ID 的重复记录直接返回首个
+结果，不执行一次新的 owner 选择；RESULT 的 owner 不独立变化。上述选择仍需 C4
+的实际 source/body/budget/权限后端证明，构造器本身不授予该权威。
+
+强制 CreationAuthority 同时验证 source signature/tuple/hash/route、CommandId 冲突
+或 SystemMutation 去重、首次结果、精确 key absence/before、完整 read set，以及
+必要的 Result/evidence/writer reserve。COMMAND 与 RESULT 可以在同一原子 proposal
+建立，其 reference 由本批 exact proposal 和实际 absence 共同证明；不能把内存中
+构造成功的记录视为已提交查询结果。所有检查在 Owner/Store/source guard 下持续至 commit。
+
+### 20.2 后续物理重复仍有独立审计
+
+RESULT field 10 精确引用 COMMAND；两者 ID、tenant、lineage、owner/artifact、mutation
+与首次 outcome 全部一致。POSITION_COMMAND 引用 COMMAND，POSITION_SYSTEM 引用
+SYSTEM；拒绝引用可较早 GC 的 RESULT 副本。完整首记录 digest、ID、Shard、tenant、
+lineage 都要一致，首记录 source sequence/position 不晚于本次物理位置；相同位置
+要求完整 mutation/digest 一致。跨位置时 source sequence 与位置顺序一致。
+
+后续物理重复只追加新的 POSITION key 及其 Shard evidence 费用，保留首次逻辑记录
+的 bytes/source/owner/费用。重放同一已应用物理位置只核对 existing POSITION 和原始
+逻辑记录，不重复追加或收费。`requireFirst` 和 `requireStored` 分别校验引用与实际
+key/NV type/full payload；完整 source/Command 去重、counter delta 与 SourceAdvance
+原子写入仍由 C4 完成。本批的 50-position 测试验证格式与引用不改写首记录，不声称
+已实现 Broker 重复处理或业务副作用的 exactly-once。
+
+### 20.3 首次分配的可持久返回值
+
+成功 APPLY_SHARD_CONTROL 的 SYSTEM 结果可以携带 field 11。它必须 APPLIED/OK、
+origin OPEN、scope Shard/tenant/lineage 匹配，allocation mutation 与本结果首次 mutation
+完全相等；后续 drain、其它 System 类型、拒绝结果或另一个 source 的 origin 都拒绝。
+实际 quota grant kind、授权 scope、first nonzero allocation、完整原始 origin 与 signed
+request 的关联仍由 CreationAuthority 对 §16 的实际 source proposal 校验。
+
+因此，实际存储的首次分配结果可返回完整 source-derived origin，不依赖查询时当前
+可变 descriptor 或重算 ID。Attachment 的 bytes 在本条 RESULT 费用内计算一次；
+它不是第二条 descriptor，不新增 incarnation cardinality，也不重复 descriptor 的
+独立存储 charge。必须等原子提交确定并经受保护 Result 读取后，才能将 origin 作为
+后续 membership/channel 注册输入。当前 codec/返回值测试不替代这一 runtime 门槛。
+
+### 20.4 计费、保留与删除
+
+每条记录费用为该唯一类别的一个 count 和
+`key.length + canonical outer payload.length + 12 + frozenRecordOverhead` bytes；
+不再将嵌套结果、source 或 allocation 当成额外独立记录收费，不增加 payload、execution
+或 Target/domain/incarnation 数。Tenant mirror 逐维映射同一事实，不加入第二次 primary sum。
+
+记录不可变，没有定时自动释放或 reprice。删除检查要求同 lineage 的 Floor 覆盖该
+记录的首次 source/stamp，并且 deletion 是严格晚于该 Floor 的 source-only mutation；
+随后强制 DeletionAuthority 验证 retry/query/replay 窗口、closed fences、catalog/pins、
+所有 surviving RESULT/POSITION/allocation 引用及实际删除。任何剩余引用、写入者或
+未知写入状态都不能通过仅比较 Floor DTO 释放费用。验证函数不删除、不提前公布容量；
+只有同一 protected batch 实际删记录并更新计费账本后才能减原 charge。
+
+六组独立向量是不同合法结构场景（同位置 Command/System POSITION 为备选场景，
+不是同一 ledger 的同时记录）。测试覆盖所有 Kind、allocation 返回值、50 次物理
+位置推进、首记录不变、归属/引用/source 错误、失败/fatal 传播、编码边界和删除保护。
+B4 继续完成其它 shared Shard/outbox/evidence record owners、完整 reserve/交接配方与
+原验收；C4 真实 source authority、写集、查询/去重、独立恢复，以及 D/E/F 仍须实施。
