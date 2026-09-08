@@ -361,3 +361,13 @@ accounting/source. Grant Dispatch uses this path without rewriting the first
 SYSTEM or activation. Native write uncertainty, stale views and missing exact
 references fail closed; full source consumer and production authority remain
 implementation obligations. The CF and key/value layouts are unchanged.
+
+
+### NDIP-3 空 Store bootstrap 接入（2026-09-08）
+
+TargetStoreBootstrap 复用现有 SHARD grant control 和 NV30/31/33/35、counter/aggregate
+及 source META 格式，没有新增 wire/tag。首条签名 grant 的 source stamp 决定 root
+incarnation，全批费用与 source 原子写入；SHARD activation/结果不携带 Target allocation。
+Store 完整空态只允许六项精确的现有 open markers；其他业务、未知键或恢复历史拒绝。
+真实起点/完整容量和 Owner/Control 快照由 StartAuthority/CommitGuard 持有证明，当前
+生产 provider、Worker/config、非空迁移/恢复与集中验证继续保留，不据此升级治理状态。

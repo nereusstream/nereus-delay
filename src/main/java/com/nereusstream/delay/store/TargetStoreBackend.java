@@ -142,6 +142,12 @@ public final class TargetStoreBackend {
             return store.metadata();
         }
 
+        /** Complete bounded emptiness proof for first initialization, including unknown keys and the default CF. */
+        public void requireUninitialized() {
+            requireActive();
+            store.requireUninitializedTarget(budget);
+        }
+
         public int maximumWriteRecords() {
             requireActive();
             return limits.maximumRecords();

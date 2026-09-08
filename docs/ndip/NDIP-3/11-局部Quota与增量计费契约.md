@@ -1700,3 +1700,23 @@ lineage、分支竞争或 guard/view 失效均不能变成重复成功。Prepare
 首次 result/activation bytes 不变、过期重复/再放、陈旧只读 plan 和重复完成拒绝、
 同位置重签 envelope 拒绝。guard/capacity 仍为测试替身，完整错误/故障/Broker 与生产
 read/write authority 的证明留待集中验证，B4/C1/C4 继续 IN_PROGRESS。
+
+
+## 29. 首条 SHARD grant 为完整 root 批次付费
+
+空态初始化使用首条已认证 SHARD grant 的 source-derived root incarnation，与该
+activation、SYSTEM/POSITION、root inventory、两个 root counters、aggregate、source
+一批写入。初始 inventory 为 counters=2、totals=0、activations=1；只含一个 SHARD
+incarnation 的 primary cardinality，tenant mirror 不重复计入 aggregate。SHARD
+activation 及 SYSTEM 无 Target allocation attachment，原 NV/key/摘要格式不改变。
+
+完整 batch 的实际费用必须被初始 SHARD grant 覆盖，包括 descriptor 的固定预留、
+RESULT/EVIDENCE 费用与 root projection/activation 槽位。外部 StartAuthority 还须
+批准同一 Store/lineage/source 起点和完整 logical/physical 资源；原 grant parent/
+tenant/transfer 权威继续执行，构造 root 或看到空 Store 均不提供部署/容量权限。
+
+只有六项精确空态 META open markers 可存在，其他业务/未知 META/source/recovery
+历史一律阻止初始化。全 CF/默认 CF 的完整空态读取共享预算并绑定 commit ReadView。
+无合法首 grant 或费用不足时不创建用于记录拒绝的 root、不推进 source；必须修复
+启动前提或走相应受控流程，不能跳过历史。非空迁移/恢复与生产 provider 不由此实现
+自动完成，B4/C4/C5 保持 IN_PROGRESS 和 PENDING_CENTRAL_VALIDATION。

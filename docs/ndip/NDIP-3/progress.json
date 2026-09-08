@@ -177,7 +177,7 @@
         "evidence/b4-result-audit-final-docs.log",
         "evidence/b4-result-audit-junit.zip"
       ],
-      "progress": "System physical replay now verifies actual first/POSITION/owner/envelope records; same-position completes a guarded read with zero batch writes, later duplicates append only POSITION/accounting/source. Grant Dispatch routes replay/duplicate/first with one cumulative budget. One expanded RocksDB development check only; production read/write authority, source consumers, root bootstrap, full Worker and recovery remain unfinished.",
+      "progress": "Signed first SHARD grant now initializes a fully inspected empty Target Store through TargetStoreBootstrap: exact initial metadata, source-derived root, activation, SYSTEM/POSITION and complete accounting/source commit. Initialized exposes the backend only after commit. One expanded RocksDB development check; production source-start/capacity/commit providers, Worker/config, recovery and nonempty migration remain unfinished.",
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
       "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
@@ -192,7 +192,9 @@
         "src/main/java/com/nereusstream/delay/runtime/TargetRecordAccounting.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetSourceAccounting.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetSystemReplayStore.java",
-        "src/main/java/com/nereusstream/delay/store/TargetStoreBackend.java"
+        "src/main/java/com/nereusstream/delay/store/TargetStoreBackend.java",
+        "src/main/java/com/nereusstream/delay/runtime/TargetStoreBootstrap.java",
+        "src/main/java/com/nereusstream/delay/store/ShardStore.java"
       ],
       "validationHandoff": "12-集中验证交接清单.md"
     },
@@ -231,7 +233,7 @@
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
       "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
-      "progress": "System physical replay now verifies actual first/POSITION/owner/envelope records; same-position completes a guarded read with zero batch writes, later duplicates append only POSITION/accounting/source. Grant Dispatch routes replay/duplicate/first with one cumulative budget. One expanded RocksDB development check only; production read/write authority, source consumers, root bootstrap, full Worker and recovery remain unfinished.",
+      "progress": "System physical replay now verifies actual first/POSITION/owner/envelope records; same-position completes a guarded read with zero batch writes, later duplicates append only POSITION/accounting/source. Grant Dispatch routes replay/duplicate/first with one cumulative budget. One expanded RocksDB development check only; production read/write authority, source consumers, production bootstrap providers, full Worker and recovery remain unfinished.",
       "implementationFiles": [
         "src/main/java/com/nereusstream/delay/runtime/TargetClaimRecord.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetClaimStore.java",
@@ -273,7 +275,7 @@
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
       "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
-      "progress": "System physical replay now verifies actual first/POSITION/owner/envelope records; same-position completes a guarded read with zero batch writes, later duplicates append only POSITION/accounting/source. Grant Dispatch routes replay/duplicate/first with one cumulative budget. One expanded RocksDB development check only; production read/write authority, source consumers, root bootstrap, full Worker and recovery remain unfinished.",
+      "progress": "Signed first SHARD grant now initializes a fully inspected empty Target Store through TargetStoreBootstrap: exact initial metadata, source-derived root, activation, SYSTEM/POSITION and complete accounting/source commit. Initialized exposes the backend only after commit. One expanded RocksDB development check; production source-start/capacity/commit providers, Worker/config, recovery and nonempty migration remain unfinished.",
       "implementationFiles": [
         "src/main/java/com/nereusstream/delay/runtime/TargetClaimRecord.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetClaimStore.java",
@@ -289,7 +291,8 @@
         "src/main/java/com/nereusstream/delay/store/ShardStore.java",
         "src/main/java/com/nereusstream/delay/store/StoreMetadata.java",
         "src/main/java/com/nereusstream/delay/store/TargetStoreBackend.java",
-        "src/main/java/com/nereusstream/delay/store/TargetValueEnvelope.java"
+        "src/main/java/com/nereusstream/delay/store/TargetValueEnvelope.java",
+        "src/main/java/com/nereusstream/delay/runtime/TargetStoreBootstrap.java"
       ],
       "validationHandoff": "12-集中验证交接清单.md"
     },
@@ -301,12 +304,13 @@
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
       "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
-      "progress": "Actual Target format 2 Store adapter and guarded RocksDB transaction/result-range traversal implemented. Full Worker/business authority, all mutation paths, all-ledger recovery and checkpoint/restore remain unfinished. Only compilation and two Store development smoke cases; centralized validation is pending.",
+      "progress": "Signed first SHARD grant now initializes a fully inspected empty Target Store through TargetStoreBootstrap: exact initial metadata, source-derived root, activation, SYSTEM/POSITION and complete accounting/source commit. Initialized exposes the backend only after commit. One expanded RocksDB development check; production source-start/capacity/commit providers, Worker/config, recovery and nonempty migration remain unfinished.",
       "implementationFiles": [
         "src/main/java/com/nereusstream/delay/store/ShardStore.java",
         "src/main/java/com/nereusstream/delay/store/StoreMetadata.java",
         "src/main/java/com/nereusstream/delay/store/TargetValueEnvelope.java",
-        "src/main/java/com/nereusstream/delay/store/TargetStoreBackend.java"
+        "src/main/java/com/nereusstream/delay/store/TargetStoreBackend.java",
+        "src/main/java/com/nereusstream/delay/runtime/TargetStoreBootstrap.java"
       ],
       "validationHandoff": "12-集中验证交接清单.md"
     },

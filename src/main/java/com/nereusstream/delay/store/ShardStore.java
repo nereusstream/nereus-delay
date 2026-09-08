@@ -2134,6 +2134,75 @@ public final class ShardStore implements AutoCloseable {
 
     public record ReadPlan<T>(T value, ReadView view) {}
 
+    /** Only exact identity and empty open markers may precede bootstrap. No legacy or recovery history. */
+    synchronized void requireUninitializedTarget(final BoundedReadBudget budget) {
+        ensureOpen();
+        if (metadata.storeFormatVersion() != 2 || activeReadBudget != budget || budget == null) {
+            throw new IllegalStateException("Target bootstrap requires its active bounded Store view");
+        }
+        final var emptyRecovery = StoreRecoveryMetadata.empty()
+                .withInstallState(
+                        new RecoveryInstallState(RecoveryInstallPhase.OPEN, metadata.storeIncarnation(), null));
+        if (!runtimeMetadata.equals(StoreRuntimeMetadata.empty())
+                || !recoveryMetadata.equals(emptyRecovery)
+                || controlSnapshot != null
+                || closedIngressDeadlineThrough != IngressFenceState.OPEN) {
+            throw new IllegalStateException("Target bootstrap encountered prior in-memory Store history");
+        }
+        if (!budget.beforeRead()) {
+            throw budget.incomplete();
+        }
+        try (var iterator = db.newIterator(defaultColumnFamilyHandle)) {
+            iterator.seekToFirst();
+            final boolean occupied = iterator.isValid();
+            iterator.status();
+            if (occupied) {
+                throw new IllegalStateException("Target bootstrap encountered data in the default CF");
+            }
+        } catch (RocksDBException exception) {
+            throw new IllegalStateException("cannot inspect Target bootstrap default CF", exception);
+        }
+        for (var family : ColumnFamily.values()) {
+            final var visited = visitResult(family, new byte[0], null, 7, budget, (entry, shared) -> {
+                if (family != ColumnFamily.META) {
+                    throw new IllegalStateException("Target bootstrap encountered existing business records");
+                }
+                final byte[] expected;
+                if (java.util.Arrays.equals(entry.key(), KeyCodec.metaFixed(META_STORE_FORMAT))) {
+                    expected = ValueEnvelope.encode(META_FIXED_VALUE_TYPE, Bytes.u32be(2));
+                } else if (java.util.Arrays.equals(entry.key(), KeyCodec.metaFixed(META_SHARD_IDENTITY))) {
+                    expected = ValueEnvelope.encode(META_FIXED_VALUE_TYPE, metadata.encode());
+                } else if (java.util.Arrays.equals(entry.key(), KeyCodec.metaFixed(META_EVIDENCE_CURSORS))) {
+                    expected = ValueEnvelope.encode(META_FIXED_VALUE_TYPE, new byte[0]);
+                } else if (java.util.Arrays.equals(entry.key(), KeyCodec.metaFixed(META_OWNER_EPOCH))) {
+                    expected = ValueEnvelope.encode(META_FIXED_VALUE_TYPE, Bytes.u64beBits(0));
+                } else if (java.util.Arrays.equals(entry.key(), KeyCodec.metaFixed(META_CLEAN_CLOSE_MARKER))) {
+                    expected = ValueEnvelope.encode(META_FIXED_VALUE_TYPE, Bytes.u8(0));
+                } else if (java.util.Arrays.equals(entry.key(), KeyCodec.metaRecovery(META_RECOVERY_INSTALL_STATE))) {
+                    expected = ValueEnvelope.encode(
+                            META_RECOVERY_VALUE_TYPE,
+                            new RecoveryInstallState(RecoveryInstallPhase.OPEN, metadata.storeIncarnation(), null)
+                                    .canonicalBytes());
+                } else {
+                    throw new IllegalStateException("Target bootstrap encountered prior or unknown META state");
+                }
+                if (!java.util.Arrays.equals(entry.value(), expected)) {
+                    throw new IllegalStateException("Target bootstrap metadata differs from the opened Store");
+                }
+                return true;
+            });
+            if (visited.stop() == VisitStop.INCOMPLETE) {
+                throw new ReadIncompleteException(visited.reason());
+            }
+            if (visited.stop() != VisitStop.RANGE_END || visited.visited() != (family == ColumnFamily.META ? 6 : 0)) {
+                throw new IllegalStateException("Target bootstrap did not prove the complete empty Store");
+            }
+        }
+        if (!budget.beforeTimedWork()) {
+            throw budget.incomplete();
+        }
+    }
+
     /** Captures an opaque Store/Owner view before a caller begins a mutation. */
     public synchronized ReadView captureReadView() {
         ensureOpen();

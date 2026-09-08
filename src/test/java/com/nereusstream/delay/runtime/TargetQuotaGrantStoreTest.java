@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.nereusstream.delay.ownership.InMemoryControlTargetRegistrationAuthority;
 import com.nereusstream.delay.protocol.AuthorIdentity;
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.CapacityVector;
 import com.nereusstream.delay.protocol.ControlAuthor;
 import com.nereusstream.delay.protocol.ControlAuthorizationContext;
 import com.nereusstream.delay.protocol.ControlRef;
@@ -23,11 +24,11 @@ import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
 import com.nereusstream.delay.protocol.TargetQuotaAggregate;
+import com.nereusstream.delay.protocol.TargetQuotaGrant;
 import com.nereusstream.delay.protocol.TargetQuotaGrantActivation;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlBody;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlRequest;
-import com.nereusstream.delay.protocol.TargetQuotaIncarnation;
-import com.nereusstream.delay.protocol.TargetQuotaMutation;
+import com.nereusstream.delay.protocol.TargetQuotaUsage;
 import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.ColumnFamily;
 import com.nereusstream.delay.store.ShardStore;
@@ -58,38 +59,155 @@ class TargetQuotaGrantStoreTest {
         final var origin = (KafkaSourcePosition) template.mutation().source();
         final var earlier = source(origin, origin.offset() - 1, origin.brokerLogAppendTimeEpochMs() - 1);
         final byte[] lineage = bytes(16, 0xcc);
-        final var stamp = new TargetQuotaMutation(1, earlier, bytes(32, 0x33));
-        final var shard = TargetQuotaIncarnation.allocate(
-                request.next().scope().shardScope(), request.next().accounting(), lineage, stamp, (a, b) -> {});
+        final var scope = request.next().scope().shardScope();
+        final var grant = request.next();
+        final long[] rootResources = grant.limit().resources().amounts();
+        Arrays.fill(rootResources, 0, 15, 1L << 30);
+        Arrays.fill(rootResources, 50, 55, 1L << 30);
+        final var rootLimit = new TargetQuotaUsage(new CapacityVector(rootResources), 64, 64, 64, 64);
+        final var rootRequest = new TargetQuotaGrantControlRequest(
+                new TargetQuotaGrant(
+                        scope,
+                        bytes(32, 0x71),
+                        1,
+                        grant.accounting(),
+                        rootLimit,
+                        grant.tenantPolicyVersion(),
+                        grant.tenantPolicyHash()),
+                null,
+                null);
         final var keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         final var actor = new ControlAuthorizationContext(
                 bytes(32, 0xa1), ControlRoleSet.of(ControlRole.PLATFORM_OPERATOR), bytes(32, 0xa2));
         final var operation = signed(request, bytes(32, 0x72), actor, keys);
         final var registrations = new InMemoryControlTargetRegistrationAuthority();
         registrations.register(operation.control());
+        final var rootOperation = signed(rootRequest, bytes(32, 0x70), actor, keys);
+        registrations.register(rootOperation.control());
+        final var rootAuthority = authority(registrations, keys, actor, earlier, rootRequest, (a, b, c, d) -> {});
         final var config = ShardStoreConfig.defaults(root);
         try (var resources = new SharedRocksDbResources(config);
-                var store = ShardStore.openTarget(config, shard.scope().shard(), resources)) {
-            final var backend = new TargetStoreBackend(
+                var store = ShardStore.openTarget(config, scope.shard(), resources)) {
+            final var limits = new TargetStoreBackend.WriteLimits(64, 2 << 20);
+            final long emptySequence = store.latestSequenceNumber();
+            final var startFailure = new IllegalStateException("source start proof unavailable");
+            assertSame(
+                    startFailure,
+                    assertThrows(
+                            IllegalStateException.class,
+                            () -> TargetStoreBootstrap.prepare(
+                                    store,
+                                    scope,
+                                    lineage,
+                                    limits,
+                                    budget(),
+                                    rootOperation.control(),
+                                    rootOperation.mutation(),
+                                    earlier,
+                                    rootAuthority,
+                                    (a, b, c) -> {
+                                        throw startFailure;
+                                    })));
+            assertEquals(emptySequence, store.latestSequenceNumber());
+            assertNull(store.appliedShardLogPosition());
+            assertThrows(
+                    com.nereusstream.delay.store.ReadIncompleteException.class,
+                    () -> TargetStoreBootstrap.prepare(
+                            store,
+                            scope,
+                            lineage,
+                            limits,
+                            new BoundedReadBudget(1, 32L << 20, 60_000_000_000L, System::nanoTime),
+                            rootOperation.control(),
+                            rootOperation.mutation(),
+                            earlier,
+                            rootAuthority,
+                            (a, b, c) -> {}));
+            assertEquals(emptySequence, store.latestSequenceNumber());
+            final var bootstrap = TargetStoreBootstrap.prepare(
                     store,
-                    shard.scope(),
-                    shard.identity().accountingIncarnation(),
+                    scope,
                     lineage,
-                    new TargetStoreBackend.WriteLimits(64, 2 << 20));
-            final var bootstrap =
-                    new TargetSourceAccounting(shard.scope(), lineage, earlier, stamp.mutationDigest(), 16, 1, 1);
-            backend.commit(
-                    backend.prepare(
+                    limits,
+                    budget(),
+                    rootOperation.control(),
+                    rootOperation.mutation(),
+                    earlier,
+                    rootAuthority,
+                    (metadata, owner, complete) -> {
+                        assertEquals(2, metadata.storeFormatVersion());
+                        assertArrayEquals(
+                                earlier.canonicalBytes(),
+                                owner.allocation().source().canonicalBytes());
+                        assertEquals(2, complete.quota().counters().changes().size());
+                    });
+            final byte[] orphanKey = new byte[] {(byte) 0xff};
+            store.write(batch -> batch.put(ColumnFamily.META, orphanKey, new byte[] {1}));
+            final long withOrphan = store.latestSequenceNumber();
+            assertThrows(
+                    IllegalStateException.class, () -> TargetStoreBootstrap.commit(bootstrap, (a, b, c) -> guard()));
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> TargetStoreBootstrap.prepare(
+                            store,
+                            scope,
+                            lineage,
+                            limits,
                             budget(),
-                            reader -> bootstrap.assemble(
-                                    reader,
-                                    List.of(reader.replace(
-                                            ColumnFamily.META,
-                                            shard.key(),
-                                            TargetQuotaIncarnation.VALUE_TYPE,
-                                            shard.canonicalBytes())))),
-                    (a, b, c) -> guard());
+                            rootOperation.control(),
+                            rootOperation.mutation(),
+                            earlier,
+                            rootAuthority,
+                            (a, b, c) -> {}));
+            assertEquals(withOrphan, store.latestSequenceNumber());
+            store.write(batch -> batch.delete(ColumnFamily.META, orphanKey));
+            final var ready = TargetStoreBootstrap.prepare(
+                    store,
+                    scope,
+                    lineage,
+                    limits,
+                    budget(),
+                    rootOperation.control(),
+                    rootOperation.mutation(),
+                    earlier,
+                    rootAuthority,
+                    (a, b, c) -> {});
+            final var initialized = TargetStoreBootstrap.commit(ready, (a, b, c) -> guard());
+            final var backend = initialized.backend();
+            final var shard = initialized.root();
+            assertEquals(ApplyStatus.APPLIED, initialized.result().applyStatus());
+            assertEquals(1, store.shardMutationSequence());
+            final long afterBootstrap = store.latestSequenceNumber();
+            assertThrows(IllegalStateException.class, () -> TargetStoreBootstrap.commit(ready, (a, b, c) -> guard()));
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> TargetStoreBootstrap.prepare(
+                            store,
+                            scope,
+                            lineage,
+                            limits,
+                            budget(),
+                            rootOperation.control(),
+                            rootOperation.mutation(),
+                            earlier,
+                            rootAuthority,
+                            (a, b, c) -> {}));
+            assertEquals(afterBootstrap, store.latestSequenceNumber());
             final var applier = new TargetQuotaGrantStore(backend, shard.scope(), lineage, 16, 1);
+            assertEquals(
+                    initialized.result(),
+                    applier.commit(
+                            applier.prepare(
+                                    budget(),
+                                    rootOperation.control(),
+                                    rootOperation.mutation(),
+                                    earlier,
+                                    rootAuthority),
+                            (a, b, c) -> {
+                                throw new AssertionError("bootstrap replay wrote");
+                            },
+                            (a, b) -> guard()));
+            assertEquals(afterBootstrap, store.latestSequenceNumber());
             final var external = new CommandResolutionException(
                     StableCode.UNAUTHORIZED_SYSTEM_MUTATION, "external capacity unavailable");
             final var unavailable = authority(registrations, keys, actor, origin, request, (a, b, c, d) -> {
