@@ -19,7 +19,7 @@ public final class TargetQuotaBookkeeping {
             + TargetQuotaAccounting.MAX_CANONICAL_BYTES
             + 4 * 11
             + 4
-            + TargetQuotaMutation.MAX_CANONICAL_BYTES
+            + TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES
             + 34;
     private static final byte[] DIGEST_DOMAIN = Bytes.utf8("nereus-delay-target-quota-bookkeeping\0");
 
@@ -90,6 +90,7 @@ public final class TargetQuotaBookkeeping {
         this.accounting = Objects.requireNonNull(accounting, "accounting");
         this.inventory = Objects.requireNonNull(inventory, "inventory");
         this.mutation = Objects.requireNonNull(mutation, "mutation");
+        mutation.requireSourceApplied();
         if (owner.kind() != TargetQuotaIdentity.Kind.SHARD
                 || !owner.shard().equals(mutation.source().shardId())
                 || revision == 0
@@ -317,13 +318,7 @@ public final class TargetQuotaBookkeeping {
             throw new IllegalStateException("bookkeeping root differs from the accounting aggregate");
         }
         requireSource(aggregate.mutation().source());
-        final int sequenceOrder =
-                Long.compareUnsigned(mutation.sequence(), aggregate.mutation().sequence());
-        final int sourceOrder = mutation.source().compareTo(aggregate.mutation().source());
-        if (Integer.signum(sequenceOrder) != Integer.signum(sourceOrder)
-                || (sequenceOrder == 0 && !mutation.equals(aggregate.mutation()))) {
-            throw new IllegalStateException("bookkeeping and aggregate source stamps are inconsistent");
-        }
+        mutation.requireAtOrBefore(aggregate.mutation());
     }
 
     private void requireSource(final SourcePosition source) {

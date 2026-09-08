@@ -1,5 +1,6 @@
 package com.nereusstream.delay.runtime;
 
+import com.nereusstream.delay.protocol.CapacityDimension;
 import com.nereusstream.delay.protocol.CapacityVector;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.TargetQuotaAggregate;
@@ -24,6 +25,24 @@ import java.util.function.Function;
  * permitted only after that batch has definitely committed. An uncertain write requires Store recovery.</p>
  */
 public final class TargetQuotaDelta {
+    public static final int MAX_LOCAL_CLAIM_COUNTERS = 4;
+
+    public enum LocalClaimKind {
+        CLAIM,
+        REVOKE
+    }
+
+    /**
+     * Verifies the exact durable Claim create/revoke and original charge, Message/index before/after records,
+     * full operation digest, route tenant, current Owner epoch/Store incarnation and source frontier. The
+     * authority and read set must remain valid through the same atomic local commit. No source append or
+     * Admission/attempt/reserve mutation can be relabeled as a local Claim. There is no production default.
+     */
+    @FunctionalInterface
+    public interface LocalClaimAuthority {
+        void requireAuthorized(LocalClaimKind kind, TargetQuotaDelta delta);
+    }
+
     public record Update(TargetQuotaIdentity identity, TargetQuotaUsage nextUsage) {
         public Update {
             Objects.requireNonNull(identity, "identity");
@@ -72,6 +91,59 @@ public final class TargetQuotaDelta {
             final List<Update> updates,
             final int maximumTouchedCounters,
             final Function<TargetQuotaIdentity, TargetQuotaCounter> lookup) {
+        return prepareInternal(
+                aggregate,
+                lastStoreSequence,
+                lastStoreSource,
+                source,
+                mutationDigest,
+                updates,
+                maximumTouchedCounters,
+                lookup,
+                false);
+    }
+
+    /** Reversible local Claim accounting advances its ordinal without renumbering source replay. */
+    public static TargetQuotaDelta prepareLocalClaim(
+            final TargetQuotaAggregate aggregate,
+            final long lastStoreSequence,
+            final SourcePosition sourceFrontier,
+            final byte[] operationDigest,
+            final LocalClaimKind kind,
+            final List<Update> updates,
+            final int maximumTouchedCounters,
+            final Function<TargetQuotaIdentity, TargetQuotaCounter> lookup,
+            final LocalClaimAuthority authority) {
+        Objects.requireNonNull(kind, "kind");
+        Objects.requireNonNull(authority, "localClaimAuthority");
+        if (sourceFrontier == null || lastStoreSequence == 0) {
+            throw new IllegalStateException("local Claim requires an existing applied source frontier");
+        }
+        final var delta = prepareInternal(
+                aggregate,
+                lastStoreSequence,
+                sourceFrontier,
+                sourceFrontier,
+                operationDigest,
+                updates,
+                Math.min(maximumTouchedCounters, MAX_LOCAL_CLAIM_COUNTERS),
+                lookup,
+                true);
+        requireLocalClaimChanges(kind, delta.changes);
+        authority.requireAuthorized(kind, delta);
+        return delta;
+    }
+
+    private static TargetQuotaDelta prepareInternal(
+            final TargetQuotaAggregate aggregate,
+            final long lastStoreSequence,
+            final SourcePosition lastStoreSource,
+            final SourcePosition source,
+            final byte[] mutationDigest,
+            final List<Update> updates,
+            final int maximumTouchedCounters,
+            final Function<TargetQuotaIdentity, TargetQuotaCounter> lookup,
+            final boolean localClaim) {
         Objects.requireNonNull(aggregate, "aggregate");
         Objects.requireNonNull(updates, "updates");
         Objects.requireNonNull(lookup, "lookup");
@@ -79,10 +151,18 @@ public final class TargetQuotaDelta {
             throw new IllegalArgumentException("quota mutation exceeds its activated touched-counter budget");
         }
         requireStoreStamp(aggregate, lastStoreSequence, lastStoreSource);
-        final var mutation =
-                new TargetQuotaMutation(TargetQuotaMutation.increment(lastStoreSequence), source, mutationDigest);
+        final long ordinal = localClaim
+                ? aggregate.mutation() != null && aggregate.mutation().sequence() == lastStoreSequence
+                        ? TargetQuotaMutation.increment(aggregate.mutation().localClaimOrdinal())
+                        : 1
+                : 0;
+        final var mutation = new TargetQuotaMutation(
+                localClaim ? lastStoreSequence : TargetQuotaMutation.increment(lastStoreSequence),
+                source,
+                mutationDigest,
+                ordinal);
         if (!aggregate.shard().equals(source.shardId())
-                || (lastStoreSource != null && source.compareTo(lastStoreSource) <= 0)) {
+                || (!localClaim && lastStoreSource != null && source.compareTo(lastStoreSource) <= 0)) {
             throw new IllegalStateException("quota source must advance the Store Source Position");
         }
         final var identities = new HashSet<TargetQuotaIdentity>();
@@ -93,7 +173,15 @@ public final class TargetQuotaDelta {
                     || !update.identity().shard().equals(aggregate.shard())) {
                 throw new IllegalArgumentException("duplicate, foreign or excess quota update");
             }
+            if (localClaim
+                    && update.identity().kind() != TargetQuotaIdentity.Kind.TARGET
+                    && update.identity().kind() != TargetQuotaIdentity.Kind.TENANT_TARGET) {
+                throw new IllegalArgumentException("local Claim cannot change a Shard counter");
+            }
             final var prior = lookup.apply(update.identity());
+            if (localClaim && prior == null) {
+                throw new IllegalStateException("local Claim cannot allocate a counter or incarnation");
+            }
             if (prior != null) {
                 if (!prior.identity().equals(update.identity())) {
                     throw new IllegalStateException("quota lookup returned another identity");
@@ -132,6 +220,80 @@ public final class TargetQuotaDelta {
                 changes);
     }
 
+    private static void requireLocalClaimChanges(final LocalClaimKind kind, final List<Change> changes) {
+        if (changes.isEmpty() || changes.size() % 2 != 0) {
+            throw new IllegalArgumentException("local Claim needs changed primary and tenant counter pairs");
+        }
+        final var target = changes.getFirst().next().identity().target();
+        byte[] tenant = null;
+        int executionOwners = 0;
+        for (var change : changes) {
+            final var before = change.prior().usage();
+            final var after = change.next().usage();
+            if (!target.equals(change.next().identity().target())
+                    || before.targets() != after.targets()
+                    || before.executionDomains() != after.executionDomains()
+                    || before.strictOrderDomains() != after.strictOrderDomains()
+                    || before.accountingIncarnations() != after.accountingIncarnations()) {
+                throw new IllegalArgumentException("local Claim cannot move Target scope or allocate cardinality");
+            }
+            for (var dimension : CapacityDimension.values()) {
+                if (dimension != CapacityDimension.LOGICAL_STATE_BYTES
+                        && dimension != CapacityDimension.INFLIGHT_MESSAGES
+                        && dimension != CapacityDimension.INFLIGHT_BYTES
+                        && before.resources().amount(dimension)
+                                != after.resources().amount(dimension)) {
+                    throw new IllegalArgumentException("local Claim cannot change payload, reserve or outcome charges");
+                }
+            }
+            if (change.next().identity().kind().isMirror()) {
+                final byte[] currentTenant = change.next().identity().tenantScope();
+                if (tenant != null && !Arrays.equals(tenant, currentTenant)) {
+                    throw new IllegalArgumentException("local Claim cannot span tenant routing scopes");
+                }
+                tenant = currentTenant;
+                continue;
+            }
+            final long count = difference(change, CapacityDimension.INFLIGHT_MESSAGES);
+            final long bytes = difference(change, CapacityDimension.INFLIGHT_BYTES);
+            if (count != 0 || bytes != 0) {
+                if (count != (kind == LocalClaimKind.CLAIM ? 1 : -1)
+                        || (kind == LocalClaimKind.CLAIM ? bytes <= 0 : bytes >= 0)) {
+                    throw new IllegalArgumentException(
+                            "local Claim must add or remove exactly one frozen execution charge");
+                }
+                executionOwners++;
+            }
+            final var mirrors = changes.stream()
+                    .filter(candidate -> candidate.next().identity().kind().isMirror()
+                            && Arrays.equals(
+                                    candidate.next().identity().accountingIncarnation(),
+                                    change.next().identity().accountingIncarnation()))
+                    .toList();
+            if (mirrors.size() != 1) {
+                throw new IllegalArgumentException("local Claim requires the exact corresponding tenant mirror");
+            }
+            for (var dimension : CapacityDimension.values()) {
+                if (difference(change, dimension) != difference(mirrors.getFirst(), dimension)) {
+                    throw new IllegalArgumentException("local Claim primary and tenant charge deltas disagree");
+                }
+            }
+        }
+        if (executionOwners != 1
+                || changes.stream()
+                                        .filter(c -> !c.next().identity().kind().isMirror())
+                                        .count()
+                                * 2
+                        != changes.size()) {
+            throw new IllegalArgumentException("local Claim requires one execution owner and matching tenant pairs");
+        }
+    }
+
+    private static long difference(final Change change, final CapacityDimension dimension) {
+        return change.next().usage().resources().amount(dimension)
+                - change.prior().usage().resources().amount(dimension);
+    }
+
     private static void requireStoreStamp(
             final TargetQuotaAggregate aggregate, final long sequence, final SourcePosition source) {
         if ((sequence == 0) != (source == null)
@@ -140,15 +302,7 @@ public final class TargetQuotaDelta {
         }
         final var stamp = aggregate.mutation();
         if (stamp != null) {
-            if (source == null || Long.compareUnsigned(stamp.sequence(), sequence) > 0) {
-                throw new IllegalStateException("aggregate is ahead of Store mutation sequence");
-            }
-            final int order = stamp.source().compareTo(source);
-            if (order > 0
-                    || (order == 0) != (stamp.sequence() == sequence)
-                    || (order == 0 && !Arrays.equals(stamp.source().canonicalBytes(), source.canonicalBytes()))) {
-                throw new IllegalStateException("aggregate disagrees with Store Source Position");
-            }
+            stamp.requireAtOrBefore(sequence, source);
         }
     }
 

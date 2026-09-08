@@ -170,3 +170,10 @@ incarnation-bound records 保持自身身份；依赖不重复收费。完整规
 无 skip（新增 12 项）。305 份 XML、1176 个不变输入与复用向量见
 `evidence/b4-metadata-results.json`。B4 继续闭合其它 owners/reserves、source 配方与
 原验收；C4 真实 before/absence/atomic/recovery、D/E/F 义务不由本批代替。
+
+B4 local Claim 批次将 source sequence 与 local ordinal 分开，Claim/revoke 不改变
+source 派生 incarnation，最多四个 counter 并强制实际 Claim authority。完整规范见
+quota 契约 §18。完整 check：2056 项 Java tests，失败/错误 0、外部 skip 41；全部
+190 项 quota tests 无 skip，新增 15 项。306 份 XML、1179 个不变输入见
+`evidence/b4-local-claim-results.json`。B4 仍 IN_PROGRESS；实际 Claim/Result 格式、
+完整 reserve、authority/atomic Store/recovery、D/E Broker 和 F 迁移清退继续实施。

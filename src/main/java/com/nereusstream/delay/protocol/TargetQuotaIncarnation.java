@@ -15,12 +15,12 @@ public final class TargetQuotaIncarnation {
             + 34
             + 2
             + TargetQuotaAccounting.MAX_CANONICAL_BYTES
-            + 2 * (4 + TargetQuotaMutation.MAX_CANONICAL_BYTES)
+            + 2 * (4 + TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES)
             + 18
             + 34;
     /** OPEN allocation snapshot excludes the optional drain mutation. */
     public static final int MAX_ALLOCATION_CANONICAL_BYTES =
-            MAX_CANONICAL_BYTES - (4 + TargetQuotaMutation.MAX_CANONICAL_BYTES);
+            MAX_CANONICAL_BYTES - (4 + TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES);
 
     private static final byte[] ID_DOMAIN = Bytes.utf8("nereus-delay-target-quota-incarnation-id\0");
     private static final byte[] DIGEST_DOMAIN = Bytes.utf8("nereus-delay-target-quota-incarnation\0");
@@ -68,6 +68,7 @@ public final class TargetQuotaIncarnation {
         this.tenant = TargetCompatibilityCodec.assigned(tenant, 32, "tenantRoutingScope");
         this.accounting = Objects.requireNonNull(accounting, "accounting");
         this.allocation = Objects.requireNonNull(allocation, "allocation");
+        allocation.requireSourceApplied();
         this.lineage = TargetCompatibilityCodec.assigned(lineage, 16, "recoveryLineage");
         this.drain = drain;
         if (identity.kind().isMirror()
@@ -272,13 +273,7 @@ public final class TargetQuotaIncarnation {
     }
 
     private void requireAllocatedStamp(final TargetQuotaMutation stamp) {
-        final int sourceOrder = stamp.source().compareTo(allocation.source());
-        final int sequenceOrder = Long.compareUnsigned(stamp.sequence(), allocation.sequence());
-        if (sourceOrder < 0
-                || Integer.signum(sourceOrder) != Integer.signum(sequenceOrder)
-                || (sourceOrder == 0 && !stamp.equals(allocation))) {
-            throw new IllegalStateException("record predates or contradicts the incarnation allocation");
-        }
+        allocation.requireAtOrBefore(stamp);
     }
 
     public void requireRetirable(
@@ -330,16 +325,7 @@ public final class TargetQuotaIncarnation {
     }
 
     private static void requireCovered(final RecoveryFloorRef floor, final TargetQuotaMutation mutation) {
-        final int sourceOrder = floor.appliedSourcePosition().compareTo(mutation.source());
-        final int sequenceOrder = Long.compareUnsigned(floor.includedMutationSequence(), mutation.sequence());
-        if (sourceOrder < 0
-                || Integer.signum(sourceOrder) != Integer.signum(sequenceOrder)
-                || (sourceOrder == 0
-                        && !Arrays.equals(
-                                floor.appliedSourcePosition().canonicalBytes(),
-                                mutation.source().canonicalBytes()))) {
-            throw new IllegalStateException("retirement Floor does not cover the latest complete record source");
-        }
+        mutation.requireCoveredByFloor(floor);
     }
 
     public byte[] key() {

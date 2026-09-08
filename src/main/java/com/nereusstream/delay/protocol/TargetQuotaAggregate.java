@@ -38,9 +38,7 @@ public final class TargetQuotaAggregate {
         this.usage = Objects.requireNonNull(usage, "usage");
         if (mutation == null
                 ? revision != 0 || !usage.isZero()
-                : revision == 0
-                        || Long.compareUnsigned(revision, mutation.sequence()) > 0
-                        || !shard.equals(mutation.source().shardId())) {
+                : revision == 0 || !shard.equals(mutation.source().shardId())) {
             throw new IllegalArgumentException("invalid aggregate revision/source or nonempty genesis");
         }
         this.revision = revision;
@@ -83,7 +81,7 @@ public final class TargetQuotaAggregate {
     }
 
     public TargetQuotaAggregate advance(final TargetQuotaUsage next, final TargetQuotaMutation stamp) {
-        stamp.requireAfter(mutation);
+        stamp.requireStoreSuccessorOf(mutation);
         return new TargetQuotaAggregate(
                 shard, accountingIncarnation, next, TargetQuotaMutation.increment(revision), stamp);
     }
@@ -97,13 +95,7 @@ public final class TargetQuotaAggregate {
                 || Long.compareUnsigned(counter.mutation().sequence(), mutation.sequence()) > 0) {
             throw new IllegalStateException("counter is outside the aggregate source/sequence");
         }
-        final int order = counter.mutation().source().compareTo(mutation.source());
-        final boolean sameSequence = counter.mutation().sequence() == mutation.sequence();
-        if (order > 0
-                || (order == 0) != sameSequence
-                || (sameSequence && !counter.mutation().equals(mutation))) {
-            throw new IllegalStateException("counter stamp disagrees with aggregate mutation");
-        }
+        counter.mutation().requireAtOrBefore(mutation);
         // Historical Target and shard accounting incarnations remain separate primary identities.
         // Their eligibility for new work is checked against the active queue/control binding by the caller.
     }

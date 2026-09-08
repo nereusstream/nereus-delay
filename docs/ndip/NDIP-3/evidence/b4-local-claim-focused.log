@@ -1,0 +1,33 @@
+> Task :spotlessJava
+> Task :spotlessJavaApply
+> Task :spotlessApply
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :checkstyleMain UP-TO-DATE
+
+> Task :checkTargetQuotaLocalVectors
+Target quota local vectors PASS sha256=efdda7e5123e7e3ac336798311661733d29894c8bda3a41e4db3c29fe0060c4c
+
+> Task :checkTargetQuotaBookkeepingVectors
+Target quota bookkeeping vectors PASS sha256=b82b7f7418d99e1920a9a8719ebcfaa95285e085fdc11e26d161025b5f54c135
+
+> Task :checkstyleTest
+
+BUILD SUCCESSFUL in 18s
+19 actionable tasks: 8 executed, 11 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html

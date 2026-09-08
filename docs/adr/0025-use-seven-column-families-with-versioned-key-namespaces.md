@@ -254,3 +254,11 @@ allocation; queue/order/channel/Native records use their embedded incarnation or
 full scope. A maximum of four exact META point reads rechecks record and attribution
 bytes; dependencies do not add charges. C4 still proves actual before/absence and
 atomic source/ledger changes, while physical resource authority remains separate.
+
+B4 draft quota mutation field 4 carries an optional nonzero local Claim ordinal.
+Local Claim/revoke preserves the source sequence and complete SourcePosition;
+counter/total/aggregate revisions advance separately. Source allocation IDs retain
+the source-only stamp, independent of local Claim history. Their three quota slot
+bounds each reserve eleven additional bytes; source-only projections do not.
+A Floor without an ordinal must strictly advance beyond a local stamp. This adds
+no CF/tag or active Lane writer; C4 still supplies actual Claim authority and atomicity.

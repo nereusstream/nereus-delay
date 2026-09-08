@@ -35,7 +35,6 @@ public final class TargetQuotaTotal {
         this.mutation = Objects.requireNonNull(mutation, "mutation");
         if (scope.target() == null
                 || revision == 0
-                || Long.compareUnsigned(revision, mutation.sequence()) > 0
                 || !scope.shard().equals(mutation.source().shardId())) {
             throw new IllegalArgumentException("invalid Target quota total scope/revision/source");
         }
@@ -81,7 +80,7 @@ public final class TargetQuotaTotal {
 
     /** A net-zero primary transfer still binds the changed leaf revisions to this mutation. */
     public TargetQuotaTotal advance(final TargetQuotaUsage next, final TargetQuotaMutation stamp) {
-        stamp.requireAfter(mutation);
+        stamp.requireStoreSuccessorOf(mutation);
         return new TargetQuotaTotal(scope, next, TargetQuotaMutation.increment(revision), stamp);
     }
 
@@ -118,14 +117,10 @@ public final class TargetQuotaTotal {
             final TargetQuotaMutation child,
             final long parentRevision,
             final TargetQuotaMutation parent) {
-        final int order = child.source().compareTo(parent.source());
-        if (Long.compareUnsigned(childRevision, parentRevision) > 0
-                || Long.compareUnsigned(child.sequence(), parent.sequence()) > 0
-                || order > 0
-                || (order == 0) != (child.sequence() == parent.sequence())
-                || (order == 0 && !child.equals(parent))) {
-            throw new IllegalStateException("Target quota total revision/source accounting disagrees");
+        if (Long.compareUnsigned(childRevision, parentRevision) > 0) {
+            throw new IllegalStateException("Target quota total revision disagrees");
         }
+        child.requireAtOrBefore(parent);
     }
 
     private byte[] fields() {

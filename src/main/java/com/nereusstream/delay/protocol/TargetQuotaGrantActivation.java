@@ -13,7 +13,7 @@ public final class TargetQuotaGrantActivation {
             + TargetQuotaGrantControlRequest.MAX_CANONICAL_BYTES
             + 76
             + 4
-            + TargetQuotaMutation.MAX_CANONICAL_BYTES
+            + TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES
             + 3 * 34
             + 4
             + TargetQuotaIncarnation.MAX_ALLOCATION_CANONICAL_BYTES;
@@ -36,6 +36,7 @@ public final class TargetQuotaGrantActivation {
         this.request = Objects.requireNonNull(request, "request");
         this.controlRef = Objects.requireNonNull(controlRef, "controlRef");
         this.mutation = Objects.requireNonNull(mutation, "mutation");
+        mutation.requireSourceApplied();
         request.requireControlRef(controlRef);
         if (!request.next().scope().shard().equals(mutation.source().shardId())
                 || Long.compareUnsigned(request.next().version(), mutation.sequence()) > 0) {

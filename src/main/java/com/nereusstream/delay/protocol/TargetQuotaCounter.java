@@ -32,9 +32,7 @@ public final class TargetQuotaCounter {
         this.identity = Objects.requireNonNull(identity, "identity");
         this.usage = Objects.requireNonNull(usage, "usage");
         this.mutation = Objects.requireNonNull(mutation, "mutation");
-        if (revision == 0
-                || Long.compareUnsigned(revision, mutation.sequence()) > 0
-                || !identity.shard().equals(mutation.source().shardId())) {
+        if (revision == 0 || !identity.shard().equals(mutation.source().shardId())) {
             throw new IllegalArgumentException("counter revision/source mismatch");
         }
         requireUsageScope(identity, usage);
@@ -95,7 +93,7 @@ public final class TargetQuotaCounter {
     }
 
     public TargetQuotaCounter advance(final TargetQuotaUsage next, final TargetQuotaMutation stamp) {
-        stamp.requireAfter(mutation);
+        stamp.requireStoreSuccessorOf(mutation);
         if (usage.isZero() || usage.equals(next)) {
             throw new IllegalStateException("cannot revive a retired counter or rewrite unchanged quota usage");
         }

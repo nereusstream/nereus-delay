@@ -69,10 +69,14 @@ grant 自动授权这些新计数。Counter 约束：
 
 ## 3. Mutation stamp、counter 与 aggregate
 
-`TargetQuotaMutation` exact fields：1 非零 raw uint64 mutation sequence；2 完整有界
-SourcePosition；3 已接受 Command/System Mutation 精确 canonical bytes 的非零 digest[32]。
-SourcePosition 延续 B1 上限、物理资源身份和同 offset 元数据一致性检查。序号与 source
-顺序同时严格推进；恢复 replay 不能重新采样时间或制造新的 accepted mutation bytes。
+`TargetQuotaMutation` exact fields：1 非零 raw uint64 **source mutation sequence**；
+2 完整有界 SourcePosition；3 已接受 source 操作或 §18 完整本地 Claim 操作的非零
+canonical digest[32]；4 可选非零 raw uint64 `localClaimOrdinal`。Source 操作省略
+field 4（内存值为 0），其序号与 source 顺序同时严格推进；本地 Claim/revoke 保持
+source sequence 与完整 SourcePosition 不变，只推进 local ordinal。显式编码零
+field 4 拒绝。SourcePosition 延续 B1 上限、物理资源身份和同 offset 元数据一致性。
+恢复 replay 不重新采样时间或 accepted bytes，也不把本地 Claim 次数混入 source
+sequence；source 派生 incarnation ID 因此不依赖机器曾执行的本地 Claim 历史。
 
 `TargetQuotaCounter` schema 1，预留 NV type **26**：
 
@@ -86,8 +90,8 @@ SourcePosition 延续 B1 上限、物理资源身份和同 offset 元数据一�
 | 6 | `nereus-delay-target-quota-counter\0` + fields 1–5 的 digest |
 
 首次分配 local revision=1；实际 usage 变化才精确 +1。未变化的 counter 不重编码、不
-刷新 revision、不写 bytes。Local revision 不大于最后 mutation sequence，且不大于
-aggregate revision；不要求不同 counter 的 revision 相等。Raw uint64 全一位值可读，
+刷新 revision、不写 bytes。Local revision 不大于 aggregate revision；它可因本地
+Claim 超过 source mutation sequence。不要求不同 counter 的 revision 相等。Raw uint64 全一位值可读，
 不可递增；跨 signed Long.MAX_VALUE 使用原始位模式，不误判为负数。
 
 `TargetQuotaAggregate` schema 1，预留 NV type **27**；key：
@@ -102,10 +106,15 @@ quota 变化时，aggregate 不写；Store mutation sequence/Source Position 可
 Aggregate 的 shard accounting incarnation 标识当前计费基线，恢复不得因缺记录自行
 重建 genesis；它不替代每个 Target 或历史 shard counter 的 owner incarnation。
 
-所有非 genesis 值 revision 非零，且 `revision <= mutation.sequence`；counter 最后
-source/sequence 不得领先 aggregate，source 相同当且仅当 sequence 相同，后者还必须
-具有完全相同 stamp bytes。Aggregate 不得领先 Store 的 source/sequence。发现身份、
-source metadata、revision 或摘要不一致时 fail closed，不能通过正常 Schedule 重置。
+Counter/aggregate/total 的非 genesis revision 非零，各自按实际 quota 写入递增，
+不再以 source sequence 作上界。Counter 最后 source/sequence 不得领先 aggregate，
+source 相同当且仅当 source sequence 相同，且完整 source metadata 相同；同一 source
+下 ordinal 不得领先父记录，ordinal 也相同时才要求完整 stamp/digest 相同。
+Aggregate 不得领先 Store source/sequence；Store frontier 不含 ordinal，故 commit
+还必须检查 aggregate 完整旧 bytes，不能只比 SourcePosition。Source-only 的
+allocation/grant/bookkeeping/payload owner/attempt budget 仍拒绝 local ordinal。
+发现身份、source metadata、revision、ordinal 或摘要不一致时 fail closed，不能通过
+正常 Schedule 重置。
 
 所有外层与嵌套 schema 均拒绝未知/缺失字段、错误 oneof、非 canonical bytes、未知
 version、digest mismatch 和超界输入。上限常量在对应 Java codec 中；独立 Python
@@ -298,8 +307,8 @@ aggregate 只加主来源。共享 records/identity 不因 Profile、bucket 或 
 | reservation expire/abandon | `-R(len)`；必要保留记录/对象进入对应实占或 `H` | 先由已闭合 source time/control 决定；cursor 物化不能再次减额；对象删除未确认不免除 retained |
 | Cancel | 合法可逆状态 `-P(len)`，有 Claim 时 `-X`；需要保留时 `+H(len)`，分类 record delta | TOO_LATE/NOT_FOUND 不改变业务 owner 费用；旧 admitted/UNKNOWN attempt 的 `B` 不变 |
 | Reschedule | 同一 payload owner 的 `P` 不变；若原 Claim 被合法撤销则 `-X`；仅真实 record/索引差额 | 不因 generation、timeline 或 sibling 改变再计 payload；不越过已经 Admission 的前置条件 |
-| Claim | 新 durable reversible Claim `+X`，Claim record 加入分类 `S` | timeline/READY 本身不增加 7/8；失败且没有持久 Claim 不收费 |
-| revoke/Claim 失效 | exact durable Claim `-X`，Claim record 删除/retained 转移 | 仅扣该 Claim 首次冻结 charge；不扣任何已 Admission attempt |
+| Claim | §18 本地 durable reversible Claim `+X`，Claim record 加入分类 `S` | timeline/READY 本身不增加 7/8；失败且没有持久 Claim 不收费 |
+| revoke/Claim 失效 | §18 本地 exact durable Claim `-X`，Claim record 删除/retained 转移 | 仅扣该 Claim 首次冻结 charge；不扣任何已 Admission attempt |
 | Admission | 消费 Claim 时 `-X`，建立 exact attempt `+B(ADMITTED)`；其它 record 按所属 reserve/分类更新 | 不重复加 active/payload；已有 old UNKNOWN attempt 继续独立计费；容量拒绝不创建 attempt |
 | definitive failure | exact verified NOT_PUBLISHED：`B(open)→B(RESOLVED_AWAITING_FLOOR)` | 只释放该 attempt 的逻辑 7/8；retry work 仍保有 `P`，future Claim 再产生自己的 `X` |
 | UNKNOWN | exact budget `B(open)→B(UNKNOWN)`，effective delta 为零；allocated 在 commitment 内更新 | 不释放 execution、reserve 或 physical/zombie；新 retry/Admission 不覆盖旧预算 |
@@ -384,7 +393,7 @@ Shard 费用；strict-domain 与 accounting-incarnation 使用 checked 总计。
 incarnation 间转移的净 usage 为零，也记录其新的 last-touch stamp。没有 primary leaf
 变化时不读写 total；mirror-only 和 SHARD-only mutation 不更新它。Local total revision
 不大于 aggregate revision；每个 primary leaf revision 不大于其 total revision。所有
-last-touch source、raw sequence 及同位置 metadata/digest 必须相容。Total 还必须逐维覆盖
+last-touch source、raw source sequence、local ordinal 及完整 metadata/digest 须按 §3 相容。Total 还必须逐维覆盖
 每个 primary leaf，且被 shard aggregate 逐维覆盖；stamp 相容不能掩盖父视图少计费用。
 全零 total 可以记录
 已排空状态；稳定 scope 后续再使用必须沿用已有 revision，不能将它误作可复活的旧 leaf。
@@ -571,7 +580,8 @@ SourcePosition 与固定 hash 字段相加。Shard branch 也按相同保守 act
    和冻结 recovery lineage；prior origin 的 lineage 必须一致。
    完整 prior grant 必须与 current activation 逐字相等；首次申请必须确实不存在旧激活。
 6. View 中各 grant/accounting stamp 不得超出 Store source/sequence；任意两条 stamp 的
-   source 顺序与 sequence 顺序必须一致，同位置还要求完整 mutation digest 一致。
+   source 顺序与 source sequence 顺序必须一致；同位置完整 source metadata 一致，
+   local ordinal 决定其先后，ordinal 相同时完整 mutation digest 也须一致。
    Total 必须满足 §10 的层级覆盖关系。计算 checked next Store sequence，拒绝耗尽。
 7. 按 §16 检查首次 Target allocation 的 absence/费用或 existing origin 保留与 artifact，
    调用强制 CapacityAuthority，传入**完整 Control body（含 ControlRef）**、精确 View、
@@ -685,8 +695,10 @@ rootProjectionBytes = slotBytes(anchor) + slotBytes(aggregate)
 也不冒充 RocksDB/RSS/WAL/temp 物理池证明。后者和控制/结果预留仍由 C4/E6 同时约束。
 
 独立 Kafka `kfk` 样本 `S=65`、recordOverhead=32 时，anchor/aggregate/counter/total/
-activation/budget 槽位分别为 565/1317/1507/1471/3872/2798 bytes。初始 root 的两个
-counter、anchor 和 aggregate 共 4896 bytes。它们是有限逻辑预留，不是磁盘测量值。
+activation/budget 槽位分别为 565/1328/1518/1482/3872/2798 bytes。初始 root 的两个
+counter、anchor 和 aggregate 共 4929 bytes。它们是有限逻辑预留，不是磁盘测量值。
+Counter/aggregate/total 的上限各含 11 bytes 可选 local ordinal；source-only 投影
+使用 `MAX_SOURCE_CANONICAL_BYTES`，不额外保留不允许出现的 ordinal。
 
 ### 12.3 Anchor wire 与记录生命周期
 
@@ -1224,3 +1236,53 @@ trust、credential live protection 或记录删除条件；完整业务/生命�
 本批闭合上述十类 metadata 的唯一 owner、费用/cardinality 与完整点读依赖。Claim、
 Result/SystemMutation/evidence、其它共享 Shard 记录和完整 reserve sizing、真实 source
 bootstrap/rotation/handover、原 B4 最终验收绑定继续实施；B4 状态保持 IN_PROGRESS。
+
+
+## 18. 本地 Claim 的独立 ordinal 与有限 quota plan
+
+现有 DelayShard 的 reversible Claim/revoke 通过本地 WriteBatch 更新 Claim、Message、
+INFLIGHT/READY 与 quota，不 append source，也不推进 source mutation sequence。
+Target 不能要求每个此类操作都生成新 Broker SourcePosition；同样不能为了本地记账
+而推进参与 incarnation ID 派生和 Recovery Floor 的 source sequence。
+
+`TargetQuotaDelta.prepare` 继续是严格 source 入口。`prepareLocalClaim` 必须具有
+现存非零 source sequence、完整 source frontier、既有 aggregate/counters、精确
+operation digest、CLAIM/REVOKE kind 和显式 `LocalClaimAuthority`。在同一 source
+frontier，ordinal 从上次 aggregate ordinal 精确 +1；若 source 已前进而 aggregate
+尚未触及，新 frontier 的首次 local ordinal=1。后续 source 操作 ordinal=0，并严格
+推进 source sequence/position。三个量均 raw uint64，耗尽拒绝，不回绕。
+
+Counter、Target total、aggregate 的 revision 仍按各自真正的 quota 写入递增。
+本地 plan 的 read guard 绑定完整 prior aggregate、变化 counter、Store source/sequence；
+随后同 source 的另一 local commit 也使旧计划失效。Total plan 继续校验完整旧 total
+并纳入同一 commit。Source 派生 allocation 只能接收 ordinal=0，不能受 local revision
+或本地 Claim 次数影响。Claim 冷恢复与计费重建仍须 C4 独立账本证明。
+
+局部入口最多四个变化 counter，只能是一个完整 Target/tenant 下的 primary/mirror
+配对；每个 primary 与镜像具有相同 incarnation，逐维 delta 必须相同。既有 counter
+不得缺失，不创建/退休 incarnation，不修改 Target/domain/strict cardinality。
+只允许 STATE（维度 3）和 Claim execution（7/8）变化：恰好一个 primary execution
+owner 在 CLAIM 时增加 1 个 Claim 和其正字节 charge，REVOKE 时扣除对应 1 个及负
+字节 charge。第二对可只承担冻结 Message owner 的 STATE 差额，使跨 incarnation
+的 Message 与 Claim 归属不必被强行合并。维度 1/2/4–6/9–15、reserve、payload 和
+Outcome 不允许变化。每个失败/读异常/fatal Error 均传播；不返回已授权 plan。
+
+这些代数条件不能证明 Claim 合法。必须调用的 `LocalClaimAuthority` 负责在实际
+Owner epoch / Store incarnation / source guard 下验证 exact durable Claim 建立或
+撤销、首次冻结 charge、完整 Message/index before/after、route tenant 和完整操作
+canonical digest；读集与 authority 在 atomic local commit 前持续有效。Digest 的
+实际构造、Target Claim record 格式、权限后端与原子写入仍由 C4 接入，不能将任意
+32-byte 摘要或测试中的空回调当作运行权威。Admission、attempt、Outcome 或 source
+Control 不能借此入口绕过 source 接受/去重；内存发布仍在确定提交后，不确定写入先恢复。
+
+RecoveryFloorRef 没有 local ordinal。仅凭同 source sequence/position 无法证明它
+包含该位置之后的本地 Claim，因此 `requireCoveredByFloor` 对 local stamp 要求
+Floor 的 source sequence 与位置都严格更晚；同位置 source-only stamp 仍按完整
+metadata 接受。Lineage/catalog/pins、当前引用/写入者、replay/query/retention 和
+实际删除权威继续由调用者证明；较晚 Floor 也不能单独授权释放。
+
+独立 Python local 向量覆盖固定 source 的 Claim、revoke 与下一 source 操作的完整
+stamp/counter/mirror/aggregate bytes；bookkeeping 向量同步增加三个槽位上限。
+既有 source-only stamp 和 incarnation ID bytes 不变。该批只完善 B4 的 local
+accounting 契约与有限 planner；不表示 Target Claim/Result 格式、完整 reserve、
+actual Store/runtime/recovery、真实 Broker 或迁移清退已经完成。

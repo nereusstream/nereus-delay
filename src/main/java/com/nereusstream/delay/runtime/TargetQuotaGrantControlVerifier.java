@@ -278,26 +278,19 @@ public final class TargetQuotaGrantControlVerifier {
         if (stamp == null) {
             return;
         }
-        if (source == null || Long.compareUnsigned(stamp.sequence(), sequence) > 0) {
-            throw new IllegalStateException("quota grant read set is ahead of the Store sequence");
-        }
-        final int order = stamp.source().compareTo(source);
-        if (order > 0
-                || (order == 0) != (stamp.sequence() == sequence)
-                || (order == 0 && !sameSource(stamp.source(), source))) {
-            throw new IllegalStateException("quota grant read set source/sequence is inconsistent");
-        }
+        stamp.requireAtOrBefore(sequence, source);
     }
 
     private static void requireConsistentStamps(final TargetQuotaMutation left, final TargetQuotaMutation right) {
         if (left == null || right == null) {
             return;
         }
-        final int sequenceOrder = Long.compareUnsigned(left.sequence(), right.sequence());
-        final int sourceOrder = left.source().compareTo(right.source());
-        if (Integer.signum(sequenceOrder) != Integer.signum(sourceOrder)
-                || (sequenceOrder == 0 && !left.equals(right))) {
-            throw new IllegalStateException("quota grant and accounting stamps disagree about source order");
+        if (Long.compareUnsigned(left.sequence(), right.sequence()) < 0
+                || (left.sequence() == right.sequence()
+                        && Long.compareUnsigned(left.localClaimOrdinal(), right.localClaimOrdinal()) <= 0)) {
+            left.requireAtOrBefore(right);
+        } else {
+            right.requireAtOrBefore(left);
         }
     }
 

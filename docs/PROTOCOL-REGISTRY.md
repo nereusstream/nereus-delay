@@ -2308,3 +2308,11 @@ B4 的 TargetQuotaMetadataRecords 对现有 NV 12/13/17–20/22–25 提供实�
 control/membership 固定归 first Target allocation；queue/order/channel/Native scope
 按自身 incarnation，snapshot 按完整 referenced scope。具体 owner、字段核对和
 C4 before/absence/atomic read-set 义务见 quota 契约 §17。
+
+B4 draft TargetQuotaMutation 增加可选 field 4：非零 raw uint64 localClaimOrdinal。
+Fields 1/2 保持 source mutation sequence 与完整 SourcePosition；source 操作省略
+field 4，local Claim/revoke 不推进 source。Counter/total/aggregate 支持 ordinal，
+source-only allocation/grant/bookkeeping/payload/attempt 拒绝它。相同 source 下
+按 ordinal 排序，相同 ordinal 再要求完整 digest 一致；same-source Floor 不覆盖
+local stamp。Counter/aggregate/total 固定 envelope 各增 11 bytes，其它 source-only
+bound 与派生 ID bytes 不变。完整规范见 quota 契约 §3、§12、§18；未激活 reader/writer。

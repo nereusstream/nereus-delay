@@ -1370,6 +1370,13 @@ tasks.register('checkTargetQuotaIncarnationVectors', Exec) {
     commandLine 'python3', '-B', 'scripts/generate-ndip3-target-quota-incarnation-vectors.py'
 }
 
+tasks.register('checkTargetQuotaLocalVectors', Exec) {
+    group = 'verification'
+    description = 'Checks independent source-stable local Claim quota ordinals.'
+    workingDir projectDir
+    commandLine 'python3', '-B', 'scripts/generate-ndip3-target-quota-local-vectors.py'
+}
+
 tasks.named('check').configure {
     dependsOn tasks.named('checkDocumentation')
     dependsOn tasks.named('checkProjectVersionMarkers')
@@ -1388,6 +1395,7 @@ tasks.named('check').configure {
     dependsOn tasks.named('checkTargetQuotaPayloadVectors')
     dependsOn tasks.named('checkTargetQuotaMessageRecordVectors')
     dependsOn tasks.named('checkTargetQuotaIncarnationVectors')
+    dependsOn tasks.named('checkTargetQuotaLocalVectors')
 }
 
 jacocoTestReport {

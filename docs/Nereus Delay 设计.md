@@ -6093,3 +6093,10 @@ B4 §17 已实现十类 Target metadata 的完整记录计费与最多四个 own
 的 queue/order/channel/Native scope 按冻结身份，snapshot 从完整 scope 归属。依赖
 不重复收费，drain/保留不隐式释放。C4 仍须完整 before/absence/Source guard 与同批
 提交；这不替代完整 reserve、真实恢复或 B6 轮换/handover。
+
+NDIP-3 B4 本地 Claim accounting 进一步拆开 source sequence 与 local ordinal：
+Claim/revoke 不 append source、不改变 incarnation 派生输入，只更新实际 counter/
+total/aggregate revision。最多四个同 Target/tenant counter 的 plan 限定 STATE 与
+一个 Claim 的 7/8 增减，并强制实际 Claim authority/read guard。相同 SourcePosition
+的 Floor 不证明覆盖 local 写入。完整规则和更新的固定 slot 上限见 quota 契约 §18；
+B4 及 C4/D/E/F 原有格式、reserve、真实 Store/recovery/Broker/迁移义务仍未完成。

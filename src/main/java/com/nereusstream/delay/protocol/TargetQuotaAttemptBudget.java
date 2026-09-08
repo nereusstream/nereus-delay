@@ -21,7 +21,7 @@ public final class TargetQuotaAttemptBudget {
             + 2 * (3 + TargetQuotaUsage.MAX_CAPACITY_VECTOR_BYTES)
             + 2
             + 11
-            + 2 * (4 + TargetQuotaMutation.MAX_CANONICAL_BYTES)
+            + 2 * (4 + TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES)
             + 34
             + 18
             + 35;
@@ -115,6 +115,7 @@ public final class TargetQuotaAttemptBudget {
         this.allocated = requireReserve(allocated);
         this.phase = Objects.requireNonNull(phase, "phase");
         this.mutation = Objects.requireNonNull(mutation, "mutation");
+        mutation.requireSourceApplied();
         if (executionBytes < 0
                 || commitment.isZero()
                 || !commitment.covers(allocated)
@@ -153,6 +154,9 @@ public final class TargetQuotaAttemptBudget {
         this.executionBytes = executionBytes;
         this.revision = revision;
         this.resolvedAt = resolvedAt;
+        if (resolvedAt != null) {
+            resolvedAt.requireSourceApplied();
+        }
         this.floorDigest =
                 floorDigest == null ? null : TargetCompatibilityCodec.assigned(floorDigest, 32, "floorDigest");
         digest = Bytes.sha256(DIGEST_DOMAIN, fields());
@@ -357,14 +361,8 @@ public final class TargetQuotaAttemptBudget {
     private void requireFloor(final RecoveryFloorRef floor, final TargetQuotaMutation stamp) {
         Objects.requireNonNull(floor, "floor");
         stamp.requireAfter(mutation);
-        final int order = floor.appliedSourcePosition().compareTo(mutation.source());
+        mutation.requireCoveredByFloor(floor);
         if (!Arrays.equals(recoveryLineage, floor.recoveryLineageId())
-                || order < 0
-                || (order == 0
-                        && !Arrays.equals(
-                                floor.appliedSourcePosition().canonicalBytes(),
-                                mutation.source().canonicalBytes()))
-                || Long.compareUnsigned(floor.includedMutationSequence(), mutation.sequence()) < 0
                 || floor.appliedSourcePosition().compareTo(stamp.source()) >= 0
                 || Long.compareUnsigned(floor.includedMutationSequence(), stamp.sequence()) >= 0) {
             throw new IllegalStateException("Floor does not cover the exact charge within the current source/sequence");

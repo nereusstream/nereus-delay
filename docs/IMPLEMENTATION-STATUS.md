@@ -190,6 +190,22 @@ B4 remains IN_PROGRESS: Claim/Result/SystemMutation/evidence and other shared Sh
 owners, full reserve sizing, bootstrap/rotation/handover and original acceptance
 binding remain required. No active Target Store or Broker evidence is claimed.
 
+B4 now supports bounded local Claim/revoke quota plans with an independent local
+ordinal. Source sequence and complete SourcePosition remain stable, so subsequent
+source-derived allocation identity is independent of local Claim history. Only
+STATE and one Claim execution charge can change across at most four existing
+Target/tenant counters, with mandatory Claim authority and full prior-byte guards.
+Counter/total/aggregate revisions advance independently; their fixed slots each
+reserve eleven extra bytes. Source-only records reject local stamps, and a Floor
+at the same source frontier cannot prove coverage of a local ordinal.
+The local Claim full check passed 2056 Java tests with zero failures/errors and
+41 external skips. All 190 quota tests passed without skips, including 15 new cases.
+306 JUnit XMLs and 1179 unchanged check inputs are bound by
+`docs/ndip/NDIP-3/evidence/b4-local-claim-results.json`.
+B4 remains IN_PROGRESS. Actual Target Claim/Result/SystemMutation/evidence formats,
+complete reserves, bootstrap/rotation/handover, actual authority/atomicity/recovery
+and the original acceptance evidence remain required.
+
 No active Target scheduling runtime, Broker certification or migration is claimed yet. The user authorized
 full implementation and incremental publication on main. NDIP-1 remains closed;
 its historical evidence does not certify changed runtime source.
