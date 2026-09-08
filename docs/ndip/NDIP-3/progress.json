@@ -177,7 +177,7 @@
         "evidence/b4-result-audit-final-docs.log",
         "evidence/b4-result-audit-junit.zip"
       ],
-      "progress": "TargetClaimStore now prepares actual bounded Claim/revoke Message/head/strict-barrier/INFLIGHT/charge mutations with real local accounting and guarded Store commit. Durable TargetClaimRecord retains exact reversible work and resolves directly by current ClaimId. One record transition development check only; actual mixed Store Claim validation, live authority implementation, materialization/Admission/Outcome, source recovery and Worker composition remain unfinished.",
+      "progress": "Actual bounded Store grant gate now reads activation/root/first descriptor and checks all-incarnation totals after real accounting; MessageStore granted paths and Claim/revoke use it. One Store development smoke verifies target rejection without write and stale plan after grant replacement. Real source business classification, first rejection/source persistence, authenticated activation/physical guard and Worker integration remain unfinished; no centralized validation claim.",
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
       "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
@@ -186,6 +186,7 @@
         "src/main/java/com/nereusstream/delay/runtime/TargetClaimStore.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetLocalClaimAccounting.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetMessageStore.java",
+        "src/main/java/com/nereusstream/delay/runtime/TargetQuotaStoreGate.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetRecordAccounting.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetSourceAccounting.java"
       ],
@@ -226,13 +227,14 @@
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
       "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
-      "progress": "TargetClaimStore now prepares actual bounded Claim/revoke Message/head/strict-barrier/INFLIGHT/charge mutations with real local accounting and guarded Store commit. Durable TargetClaimRecord retains exact reversible work and resolves directly by current ClaimId. One record transition development check only; actual mixed Store Claim validation, live authority implementation, materialization/Admission/Outcome, source recovery and Worker composition remain unfinished.",
+      "progress": "Actual bounded Store grant gate now reads activation/root/first descriptor and checks all-incarnation totals after real accounting; MessageStore granted paths and Claim/revoke use it. One Store development smoke verifies target rejection without write and stale plan after grant replacement. Real source business classification, first rejection/source persistence, authenticated activation/physical guard and Worker integration remain unfinished; no centralized validation claim.",
       "implementationFiles": [
         "src/main/java/com/nereusstream/delay/runtime/TargetClaimRecord.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetClaimStore.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetLocalClaimAccounting.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetMessageStore.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetQueueHeadUpdater.java",
+        "src/main/java/com/nereusstream/delay/runtime/TargetQuotaStoreGate.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetRecordAccounting.java",
         "src/main/java/com/nereusstream/delay/store/TargetStoreBackend.java"
       ],
@@ -264,13 +266,14 @@
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
       "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
-      "progress": "TargetClaimStore now prepares actual bounded Claim/revoke Message/head/strict-barrier/INFLIGHT/charge mutations with real local accounting and guarded Store commit. Durable TargetClaimRecord retains exact reversible work and resolves directly by current ClaimId. One record transition development check only; actual mixed Store Claim validation, live authority implementation, materialization/Admission/Outcome, source recovery and Worker composition remain unfinished.",
+      "progress": "Actual bounded Store grant gate now reads activation/root/first descriptor and checks all-incarnation totals after real accounting; MessageStore granted paths and Claim/revoke use it. One Store development smoke verifies target rejection without write and stale plan after grant replacement. Real source business classification, first rejection/source persistence, authenticated activation/physical guard and Worker integration remain unfinished; no centralized validation claim.",
       "implementationFiles": [
         "src/main/java/com/nereusstream/delay/runtime/TargetClaimRecord.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetClaimStore.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetLocalClaimAccounting.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetMessageStore.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetQueueHeadUpdater.java",
+        "src/main/java/com/nereusstream/delay/runtime/TargetQuotaStoreGate.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetRecordAccounting.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetSourceAccounting.java",
         "src/main/java/com/nereusstream/delay/store/ShardStore.java",

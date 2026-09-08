@@ -5,6 +5,7 @@ import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.TargetHeadRef;
 import com.nereusstream.delay.protocol.TargetQueueState;
+import com.nereusstream.delay.protocol.TargetQuotaAccounting;
 import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.ColumnFamily;
 import com.nereusstream.delay.store.TargetKeyCodec;
@@ -133,6 +134,32 @@ public final class TargetMessageStore {
             requirePreservedProjection(reader, complete, assembled.business());
             return assembled;
         });
+    }
+
+    /** Actual grant reads are part of this same complete business/accounting ReadView. */
+    public TargetStoreBackend.Prepared prepareGranted(
+            final BoundedReadBudget budget,
+            final Function<TargetStoreBackend.Reader, Input> businessPlanner,
+            final AccountingAssembler accounting,
+            final TargetQuotaStoreGate grants,
+            final TargetQuotaGrantGate.Operation operation,
+            final TargetQuotaAccounting ingressAccounting) {
+        return prepareAccounted(
+                budget,
+                businessPlanner,
+                Objects.requireNonNull(grants, "grants").wrap(accounting, operation, ingressAccounting));
+    }
+
+    public void applyGranted(
+            final BoundedReadBudget budget,
+            final Function<TargetStoreBackend.Reader, Input> businessPlanner,
+            final AccountingAssembler accounting,
+            final TargetQuotaStoreGate grants,
+            final TargetQuotaGrantGate.Operation operation,
+            final TargetQuotaAccounting ingressAccounting,
+            final TargetStoreBackend.CommitAuthority authority) {
+        backend.commit(
+                prepareGranted(budget, businessPlanner, accounting, grants, operation, ingressAccounting), authority);
     }
 
     /** Returns only after the complete business/accounting/source batch has committed. */

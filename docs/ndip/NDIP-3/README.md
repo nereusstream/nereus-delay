@@ -10,6 +10,13 @@
 
 [原 29 切片集中验证交接清单](12-集中验证交接清单.md)
 
+TargetQuotaStoreGate 已从同一有界 Store view 读取实际 Shard/Target activation、
+root/首次 allocation descriptor 与跨 incarnation totals，再执行逻辑额度策略。
+MessageStore 增加 granted 入口，Claim/revoke 自动接入；额度拒绝不会写 Store。
+完整 source 业务分类、拒绝结果持久化、签名激活/物理资源 guard 和 Worker 仍待接线。
+实现保持 IN_PROGRESS，完整验证保持 PENDING_CENTRAL_VALIDATION。
+
+
 新增 TargetClaimRecord/TargetClaimStore，将实际可逆 Claim/revoke 接入 Message、
 ordinary/native/strict head、INFLIGHT 与冻结费用的同一 Store batch；current Claim
 可按 Message.claimId 直接点查。编译和一项记录转态开发检查通过；实际混合 Store

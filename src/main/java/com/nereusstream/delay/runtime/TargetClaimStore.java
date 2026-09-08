@@ -47,6 +47,7 @@ public final class TargetClaimStore {
     private final byte[] lineage;
     private final int maximumDomains;
     private final TargetQuotaDelta.LocalClaimAuthority quotaAuthority;
+    private final TargetQuotaStoreGate grants;
 
     public TargetClaimStore(
             final TargetStoreBackend backend,
@@ -61,6 +62,7 @@ public final class TargetClaimStore {
         this.maximumDomains = maximumDomains;
         this.quotaAuthority = Objects.requireNonNull(quotaAuthority, "quotaAuthority");
         messages = new TargetMessageStore(backend, 1, 1, maximumDomains);
+        grants = new TargetQuotaStoreGate(scope, lineage, 1);
     }
 
     /** Live native policy, clock safety, Owner lease and physical permits remain mandatory commit-guard inputs. */
@@ -255,8 +257,14 @@ public final class TargetClaimStore {
         });
     }
 
-    private TargetLocalClaimAccounting accounting(final byte[] digest, final TargetQuotaDelta.LocalClaimKind kind) {
-        return new TargetLocalClaimAccounting(scope, lineage, digest, kind, quotaAuthority, maximumDomains);
+    private TargetMessageStore.AccountingAssembler accounting(
+            final byte[] digest, final TargetQuotaDelta.LocalClaimKind kind) {
+        return grants.wrap(
+                new TargetLocalClaimAccounting(scope, lineage, digest, kind, quotaAuthority, maximumDomains),
+                kind == TargetQuotaDelta.LocalClaimKind.CLAIM
+                        ? TargetQuotaGrantGate.Operation.CLAIM
+                        : TargetQuotaGrantGate.Operation.CLAIM_REVOKE,
+                null);
     }
 
     private static TargetQuotaMutation localOperation(final TargetStoreBackend.Reader reader, final byte[] digest) {

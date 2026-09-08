@@ -2383,3 +2383,16 @@ work/counters/obligations and advances runtime instance revision. This adds no
 Admission materialization or Producer authority. Actual production guard,
 source consumption/recovery and Worker composition remain incomplete; existing
 historical vector receipts do not certify NV36 or the new Store integration.
+
+
+### NDIP-3 actual logical grant reads (2026-09-08)
+
+TargetQuotaStoreGate connects the registered META17/NV30 grant activations and
+NV33 allocation descriptors to the actual bounded Store ReadView after complete
+record accounting. MessageStore granted entry points and local Claim/revoke use
+the original TargetQuotaGrantGate policy over primary aggregate and all-incarnation
+Target totals. Ordinary business cannot replace its authorizing grants. A typed
+Shard/Target limit rejection makes no write and does not advance source. Full
+source classification, authenticated activation, first rejection result/source
+persistence and physical/Worker authority remain required. No wire encoding or
+historical accepted evidence changes in this integration batch.

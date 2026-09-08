@@ -329,3 +329,13 @@ local mutation bind the separate META1b charge. The Claim/revoke writer submits
 Message, timeline/head, strict barrier and all fee projections in one batch.
 Materialization/Admission, source-consumption/recovery and real Worker authority
 remain pending. This entry grants no format migration or production activation.
+
+
+#### NDIP-3 actual grant reads before commit
+
+The logical gate now reads existing Shard/Target activation and root/first-owner
+descriptors in the same bounded view as the actual business/accounting batch.
+It checks primary totals, forbids self-authorizing grant edits and rejects stale
+views after a grant update. Claim/revoke use the gate automatically. The CF and
+wire layout is unchanged; source acceptance/rejection, physical admission and
+production composition still require their complete runtime implementation.

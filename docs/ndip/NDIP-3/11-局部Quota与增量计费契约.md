@@ -1636,3 +1636,25 @@ inventory 不变。TargetClaimStore 拒绝改工作/Owner/Store 的本地撤销�
 
 NV36/INFLIGHT04 的独立 vectors 和完整负例留待集中验证；本轮只做最小记录转态开发
 检查，不把源码结构或一项检查作为真实 Store Claim、生产授权或恢复证明。
+
+
+## 26. 实际 activation/total 的有界逻辑检查
+
+TargetQuotaStoreGate 接收真实 assembler 的完整 Mutation，并从同一 Reader 读取
+实际 root、Shard/Target activations 与 first allocation descriptors。再以实际
+prior/next primary aggregate 和跨 incarnation Target total 运行原逻辑 grant 策略。
+不读调用者 Map 代替 activation，不以单 leaf counter 绕过历史占用；镜像不重复计费。
+普通业务不能同批改变其 grant，grant 更新必须经过单独的完整认证控制路径。
+
+增长型拒绝区分 SHARD_LIMIT/TARGET_LIMIT 并保留准确 scope；new ingress 必须显式
+传递实际已接受的计量 artifact，现有工作不因额度下降或变更当前 artifact 而重价。
+Claim/revoke 自动使用 gate；有界 targets/business 数和所有额外点读共享原预算，
+任何 grant/Store 变化均使 Prepared 失效。此 gate 不替代 source 业务角色校验、
+first-seen/dedupe、费用所有权/原 reserve、签名/完整 grant 分配保护或物理权限。
+
+一项实际 RocksDB 开发检查使用真实计费 bootstrap 和 activation/descriptor records，
+证明 Target limit 拒绝不写结果、existing-work 策略分支可准备、后续 grant 变更使旧
+计划拒绝且未写结果。activation/operation label/CommitGuard 是明确测试输入，该
+检查不证明真实签名激活、Schedule/Outcome 语义、Claim 运行或生产 authority。
+完整拒绝结果与 source 的原子提交，以及全部下调/迁移/多 Target/异常场景保留在集中
+清单；新 gate 没有授予认证或完整实施状态。
