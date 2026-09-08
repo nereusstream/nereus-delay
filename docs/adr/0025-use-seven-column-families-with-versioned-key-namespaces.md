@@ -222,3 +222,11 @@ persists after payload release until protected actual record deletion. Complete
 binding/source/object identities and mandatory transition authority are required.
 The codec does not activate a reader/writer, add a CF or certify Store recovery.
 See NDIP-3 quota contract section 13 for the closed field table and obligations.
+
+B4 binds existing Message-family records (NV 14/15/16/21/32) to their frozen
+Message payload owner through TargetQuotaMessageRecords. Every physical key pays
+one STATE fee from its validated full key and typed payload. Native/ordinary
+copies pay separate record storage, while embedded runtime/head structures do
+not become invented independent records. The supplied-subset limit is six and
+exact CF/type/key/value rechecks remain part of C4's Store guard. This adds no
+new namespace, CF or active reader/writer; complete recovery is still required.

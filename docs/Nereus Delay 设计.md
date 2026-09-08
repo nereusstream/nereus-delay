@@ -6063,3 +6063,11 @@ Owner 记录本身在 RELEASED 后仍按 STATE 计费。完整规则与尚未闭
 其它 record owner 和 incarnation 保护见
 [B4 §13](ndip/NDIP-3/11-局部Quota与增量计费契约.md#13-唯一-message-payload-owner)。
 这是一组计量/生命周期契约；C4 的真实 backend、原子写、恢复与删除责任仍保留。
+
+B4 的 Message 家族记录计费已连接到唯一冻结 payload owner：Message、初始 binding、
+owner 本身和实际 work/Expiry 索引各按完整 key/value 计一次 STATE；Native 与 ordinary
+真实副本分别计存储费用，不重复加 payload。检查限定同一 owner/Message 视图、至多
+6 条记录，拒绝重复 key 与混合前后状态。完整字段映射、各业务动作 before/after 来源
+及 C4 真实账本义务见
+[B4 §14](ndip/NDIP-3/11-局部Quota与增量计费契约.md#14-message-家族的实际记录计费来源)。
+该子集检查不证明完整 Store 恢复；其它 owner/容量/incarnation 设计仍在 B4 闭合。

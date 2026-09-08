@@ -1356,6 +1356,13 @@ tasks.register('checkTargetQuotaPayloadVectors', Exec) {
     commandLine 'python3', '-B', 'scripts/generate-ndip3-target-quota-payload-vectors.py'
 }
 
+tasks.register('checkTargetQuotaMessageRecordVectors', Exec) {
+    group = 'verification'
+    description = 'Checks independent Message-family record keys, payload digests and STATE charges.'
+    workingDir projectDir
+    commandLine 'python3', '-B', 'scripts/generate-ndip3-target-quota-message-record-vectors.py'
+}
+
 tasks.named('check').configure {
     dependsOn tasks.named('checkDocumentation')
     dependsOn tasks.named('checkProjectVersionMarkers')
@@ -1372,6 +1379,7 @@ tasks.named('check').configure {
     dependsOn tasks.named('checkTargetQuotaGrantVectors')
     dependsOn tasks.named('checkTargetQuotaBookkeepingVectors')
     dependsOn tasks.named('checkTargetQuotaPayloadVectors')
+    dependsOn tasks.named('checkTargetQuotaMessageRecordVectors')
 }
 
 jacocoTestReport {

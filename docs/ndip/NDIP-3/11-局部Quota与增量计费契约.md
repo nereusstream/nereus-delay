@@ -1,6 +1,6 @@
 # NDIP-3 B4：局部 Quota 与增量计费契约
 
-状态：**IN_PROGRESS / counter、计量、attempt reserve、跨 incarnation 总额、grant 激活、bookkeeping 预留与唯一 payload owner 契约已实现，B4 尚未冻结验收**。
+状态：**IN_PROGRESS / counter、计量、attempt reserve、跨 incarnation 总额、grant 激活、bookkeeping 预留、唯一 payload owner 与 Message 记录计费契约已实现，B4 尚未冻结验收**。
 本页与原设计 §11.1、§16.6、§17.3 的 B4 合读。它定义已落到代码的 counter 字段与
 局部计算边界；逐项业务 owner、完整计量/grant 关联和恢复来源闭合后才办理
 B4 VERIFIED。当前 Lane writer、ValueEnvelope 的既有 reader 与持久 quota map 未改动。
@@ -161,7 +161,7 @@ identity 的所有 tenant 资源维度之和不能超过主费用。共享 metad
 本批不将源码存在或局部测试冒充 B4 完整冻结。继续完成：
 
 - §7 已实现固定计量 artifact，§8 已实现 attempt reserve 转实占；仍须闭合每类真实
-  业务 record 的唯一 owner；§12 已固定 counter/budget 自身 bookkeeping 与相关共享投影的费用来源。
+  业务 record 的唯一 owner；§12 已固定 counter/budget 自身 bookkeeping 与相关共享投影，§14 已绑定 Message 家族的实际记录费用来源。
 - §9 已列原 §17.3 的完整业务 delta 表；继续绑定每行的完整 before/after ledger、
   §13 的 payload owner 与真实业务记录之间的 before/after 关联、identity 保护和结果/控制记录来源，避免只由方法参数声明费用。
 - §10–§11 已定义 cardinality/grant artifact、跨 incarnation 总额和认证 source/control
@@ -854,3 +854,83 @@ Commit 增加完整 object reference、后续 source/revision/Floor 变长，会
 owner/实际 before-after ledger、tenant/domain unique cardinality、incarnation 分配/退休与
 legacy handover 仍在 B4 §6 中闭合。本批没有把这些设计缺口交给 C4 临时猜测；C4 负责
 冻结契约后的真实 authority backend、原子写、独立恢复与受保护删除。
+
+
+## 14. Message 家族的实际记录计费来源
+
+`TargetQuotaMessageRecords` 将 §13 的冻结 payload owner 与已有完整 record decoder
+连接。它不创建额外 key/NV schema，不替换活动 Lane reader；Store 适配层必须先按
+预期 value type 验证完整 NV header/length/CRC，再把实际 key 和 canonical typed payload
+交给对应入口。不得传入整帧后再加一次 12-byte NV overhead。
+
+### 14.1 唯一 owner 与闭合角色
+
+下表每条**实际持久记录**只占 STATE 维度 3，owner 为原 Message 的 TARGET primary、
+原 tenant mirror 和完整冻结 accounting artifact；不由当前 locator incarnation/Profile
+重新选择 artifact。共享 ORDER_STATE/queue、Claim、attempt、结果和控制记录不在本表内。
+
+| 角色 | CF / NV | 实际 key 来源 | 完整校验来源 |
+|---|---|---|---|
+| PAYLOAD_OWNER | meta / 32 | `19 01 + MessageId`，43 bytes | key/Shard/tenant 与完整 owner canonical bytes 精确等于当前计费视图 |
+| INITIAL_BINDING | id / 21 | `06 01 + initialBindingDigest`，34 bytes | 完整 retained Schedule/Prepare binding 及 §13 initial-binding 校验 |
+| MESSAGE | id / 15 | `05 01 + MessageId`，43 bytes | 完整 key/Shard、Message/runtime、不可变 payload 与原 Target |
+| DUE | timeline / 14 | 完整 ordinary work key，106/118 bytes | Message 当前 runtime 的全部 work bytes、eligibility、Source order token、locator |
+| NATIVE | timeline / 14 | 完整 native work key，106/118 bytes | 与普通 work 同一完整 value，但必须确实具有 Native candidate |
+| ORDERED | timeline / 14 | 完整 FIFO key，128/140 bytes | Message 的完整 FIFO work、ordering domain、原业务时间/source order |
+| ORDER_HEAD | timeline / 14 | 完整 serviceable-head key，84 bytes | 实际 ORDER_STATE 的 OPEN/serviceable/no-barrier、Message/work 与未决 attempt 约束 |
+| EXPIRY | timeline / 16 | 完整 expireAt/Target/Message/generation，87 bytes | 完整 locator/expireAt 与当前非终态 Message 相符 |
+
+DUE/ORDERED 的两种长度来自 Kafka/Pulsar 的完整 source-order token，不能截断后按较小
+长度计费。Native 与 ordinary 即使 value bytes 相同，两个实际 key 各占一次 record 费用；
+这是两个存储副本，不再增加 payload 1/2、5/6、4 或 execution 7/8。Generation runtime
+嵌在 Message value 中，不另计一条不存在的独立 runtime record；head/barrier 嵌在共享
+state 中也不由本 helper 再造一条费用。
+
+Message 与 owner 必须来自同一 Source kind/Shard/完整物理资源，相同 source position
+还须包含 timestamp/epoch 在内的 canonical bytes 相同。后续合法 Reschedule 可使用
+更晚的 source，不能要求每次 Reschedule 都重写 payload owner；实际 accepted source/
+Command/current binding/compatibility/grant 仍由 C4 完整权威校验。本表不以 payload
+身份相同证明该 Message 的所有业务状态已被授权。
+
+### 14.2 有界记录检查与 exact before/after
+
+各入口返回不可由外部构造的 immutable Record，持有 role、CF、valueType、完整 key/
+typed bytes、完整 owner 视图与（适用时）完整 Message 的 digest。费用只从已验证实际
+bytes 计算 `key.length + typedPayload.length + 12 + frozenRecordOverhead`，拒绝溢出。
+`requireStored` 可再次比较实际 CF/type/key/typed bytes；其检查与 owner、Message、共享
+ORDER_STATE、Source/Owner/Store read set 必须在真实原子提交的 guard 内保持有效。
+
+`total` 只对同一个 exact owner/Message 视图下的**已提供子集**求和。固定硬上限为
+6 条：owner、initial binding、Message、Expiry 各至多一条，再加 DUE+NATIVE 或
+ORDERED+ORDER_HEAD 两条。调用者可以声明更小上限，不能放大为任意 list；先检查条数，
+再拒绝重复 `(CF,key)`、混合 owner phase/revision/artifact 或混合前后 Message 版本。
+同一个 key 只计一次；不同 key 的真实副本分别计费。空子集返回零，但**不证明 Store
+不存在其它记录**。这一上限仅覆盖本表同一视图，不是全部 source mutation 的写量上限。
+
+C4 必须从同一 Store view 的实际 before 记录和实际拟提交 after WriteBatch 取得集合，
+分别验完整 bytes 后，先减全部 before 贡献，再加全部 after 贡献，与已冻结 counter/
+total/aggregate delta 同批。不能把旧、新同 key 的 Record 混放在一个 total 中，也不能
+因 helper 没收到某条记录而推断它已删除。Owner 相位变化但 record 未删除时，要按新的
+完整 owner bytes 保留它的 STATE 费用。实际 payload ownership 由 §13 另算一次。
+
+| 原 §9 动作 | 本表实际 before/after 来源 | 仍须另外覆盖的账本 |
+|---|---|---|
+| 首次 Schedule/Prepare | 新 owner/initial binding；Schedule 的 Message 与实际存在的 timeline/Expiry；Prepare 尚无 Message | source/Command 去重、Receipt、grant/registry 分配、结果及未来容量预留 |
+| reservation commit/expire | owner phase/full bytes 与实际新增 Message/索引；过期未提交 reservation 不伪造 Message | commit proof/provider、reservation/GC 记录和 retained 保护 |
+| Reschedule | 同一 Message key 的完整 value 差额，实际旧/新 work key 与需要变化的 Expiry | source 业务有效性、Claim 撤销、结果与控制记录 |
+| Claim/revoke/Admission | Message 当前 work 分支及实际删除/重建的 work 索引；稳定 Expiry 不凭 runtime revision 重写 | exact Claim 7/8、Claim record、attempt budget/reserve/Admission/Journal |
+| failure/UNKNOWN/Outcome | Message/runtime、实际 retry work 与仍存在的索引；未变化的 owner 不额外分配 | 所有旧 attempt 的预算、完整结果/evidence/WAL/physical 义务 |
+| Cancel/terminal | 实际移除 timeline/Expiry、保留 terminal Message 及转换后的 owner record | Claim/旧 attempt、terminal/GC/query/source 保护与结果 |
+| DLQ replay | 同一 Message key 的新 generation 与实际新 work/Expiry；原 payload owner 不重定价 | 当前新 ingress grant、完整绑定/代际来源与旧 attempt |
+| retained release/record GC | RELEASED owner 仍收费；真实删除 Message/binding/owner 时才减各条 STATE | §13 完整 Floor、引用/写入者/查询保护、实际 provider/Store 删除、身份退休 |
+
+未应用 source 的重复处理先由真实 Result/SourceAdvance 账本 dedupe；不能再次构造一套
+CREATE 费用。一般原地 rewrite 按真实 canonical before/after 长度差额计量，费用没有
+“每次摸到 record 再加一次”的规则。恢复时 C4 必须枚举真实记录、验证本表关联并独立
+重建所有其它业务账本；本 helper 不能给 partial list 签发完整恢复或完整 quota 证明。
+
+本批独立向量重用完整既有 record corpus，并由 Python 计算 key/typed-payload digest/
+STATE 长度；这些是结构与计量证据，不声称该测试拼接已有真实 source/Route/grant 授权。
+剩余共享 identity/queue/domain/control 与 Claim/result 等 owner、完整 reserve sizing、
+unique cardinality、incarnation lifecycle 和 legacy handover 继续按 §6 闭合。C4 真实
+读集合、原子写、完整恢复和受保护删除仍是后续必要实现，B4 保持 IN_PROGRESS。

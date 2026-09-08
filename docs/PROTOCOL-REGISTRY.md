@@ -2280,3 +2280,11 @@ release Floor digest 和 `nereus-delay-target-quota-payload-owner\0` 域摘要�
 Message generation 冻结；payload 在 5/6、1/2、4、0 间转换，不按 attempt 复制。STATE
 记录费用独立持有到实际删除，RELEASED 不释放该费用。完整绑定与强制 transition/release
 authority 仍须由 C4 实际 ledger/backend/原子写提供；旧 NV reader 拒绝 32。
+
+B4 的 `TargetQuotaMessageRecords` 将既有 Message 家族 NV 14/15/16/21/32 与
+冻结 payload owner 连接，不新增 tag/value type。实际 owner/binding/Message、DUE/
+NATIVE/ORDERED/ORDER_HEAD、Expiry 各按自己的完整 key/typed bytes 计一次 STATE；
+完整规则与 C4 before/after 责任见
+[契约 §14](ndip/NDIP-3/11-局部Quota与增量计费契约.md#14-message-家族的实际记录计费来源)。
+输入先由 Store 适配层验证 NV envelope；子集计量硬上限 6，拒绝重复 key、混合 owner/
+Message 视图。它不提供全量 ledger、Source/grant 授权、受保护删除或实际 writer。

@@ -131,6 +131,20 @@ inputs are bound by `docs/ndip/NDIP-3/evidence/b4-payload-results.json`.
 B4 remains IN_PROGRESS for remaining business owners/ledgers, full reserve sizing,
 unique cardinality and incarnation lifecycle; actual C4 backends remain required.
 
+B4 now binds the Message family to actual validated key/typed payload bytes via
+TargetQuotaMessageRecords. Owner, initial binding, Message and work/Expiry records
+each pay one STATE fee under the original frozen payload owner. ORDER_HEAD also
+requires actual serviceable order state. A hard six-record supplied-subset check
+rejects duplicate keys and mixed owner/Message views; exact CF/type/key/value
+rechecks remain required under C4's actual Store guard. No NV/tag was added.
+The Message record full check passed 2001 Java tests, zero failures/errors, 41
+external skips; all 135 quota tests, including 14 new cases, passed without skips.
+Twenty-five independent vector entries, all 303 JUnit XML files and 1170 unchanged
+inputs are bound by `docs/ndip/NDIP-3/evidence/b4-message-records-results.json`.
+B4 remains IN_PROGRESS for other record families, full business reserve sizing,
+unique cardinality and incarnation lifecycle. Subset inspection does not prove
+complete source authority, actual before/after ledger, deletion or Store recovery.
+
 No active Target scheduling runtime, Broker certification or migration is claimed yet. The user authorized
 full implementation and incremental publication on main. NDIP-1 remains closed;
 its historical evidence does not certify changed runtime source.

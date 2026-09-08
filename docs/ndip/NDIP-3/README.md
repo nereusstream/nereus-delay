@@ -133,3 +133,13 @@ owner record 仍计 STATE。详见 §11 契约 §13。完整 check：1987 项 Ja
 JUnit XML、1166 个不变输入见 `evidence/b4-payload-results.json` 与 `b4-payload-junit.zip`。
 B4 仍 IN_PROGRESS；完整业务 reserve、其它 owner/ledger、unique cardinality 和
 incarnation 生命周期继续闭合，尚无实际 Target writer/恢复、Broker 或迁移认证。
+
+B4 Message record 批次已将既有 owner/binding/Message/work/Expiry 完整 key/value
+连接到冻结 owner 的 STATE 费用，ORDER_HEAD 另验实际 serviceable state。子集硬上限
+6 条，拒绝重复 key、混合 owner/Message 视图，C4 须在真实 Store guard 中重验完整
+CF/type/key/value。没有新 NV/tag 或活动 writer。详见 §11 契约 §14。
+完整 check：2001 项 Java tests，失败/错误 0、外部 skip 41；新增 14 项、全部 135 项
+quota 契约无 skip。25 条独立向量、303 份 JUnit XML 和 1170 个不变输入见
+`evidence/b4-message-records-results.json` 与 `b4-message-records-junit.zip`。B4 仍为
+IN_PROGRESS；其它业务 owner、完整容量、unique cardinality 和 incarnation 生命周期
+继续闭合，partial subset 不是完整账本、Source 授权或恢复认证。
