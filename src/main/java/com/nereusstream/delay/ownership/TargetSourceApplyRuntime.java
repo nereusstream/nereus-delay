@@ -1,6 +1,7 @@
 package com.nereusstream.delay.ownership;
 
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.CommandCodec;
 import com.nereusstream.delay.protocol.PreparedControlOperation;
 import com.nereusstream.delay.protocol.PulsarActivationBarrier;
 import com.nereusstream.delay.protocol.PulsarSourcePosition;
@@ -8,7 +9,9 @@ import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.SystemMutationType;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlBody;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
+import com.nereusstream.delay.runtime.CommandResult;
 import com.nereusstream.delay.runtime.SystemMutationResult;
+import com.nereusstream.delay.runtime.TargetCommandReplayStore;
 import com.nereusstream.delay.runtime.TargetQuotaGrantControlVerifier;
 import com.nereusstream.delay.runtime.TargetQuotaGrantStore;
 import com.nereusstream.delay.runtime.TargetStoreBootstrap;
@@ -72,6 +75,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     private final TargetQuotaScope scope;
     private final TargetQuotaGrantStore grants;
     private final TargetSystemReplayStore replay;
+    private final TargetCommandReplayStore commandReplay;
     private final SourceAssignment assignment;
     private final Authorities authorities;
     private final Limits limits;
@@ -112,6 +116,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         final byte[] lineage = initialized.root().recoveryLineage();
         grants = new TargetQuotaGrantStore(backend, scope, lineage, limits.counters(), limits.domains());
         replay = new TargetSystemReplayStore(backend, scope, lineage, limits.counters(), limits.domains());
+        commandReplay = new TargetCommandReplayStore(backend, scope, lineage, limits.counters(), limits.domains());
     }
 
     @Override
@@ -133,6 +138,9 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         try {
             requireSubmission(entry, recovery);
             requireOwner(clock);
+            if (entry instanceof SourceReplayRecord command) {
+                return replayCommand(command, clock);
+            }
             final var mutation = (SourceReplayMutation) entry;
             final var budget =
                     new BoundedReadBudget(limits.records(), limits.bytes(), limits.elapsedNanos(), monotonicClock);
@@ -182,6 +190,38 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         }
     }
 
+    private SourceReplayOutcome replayCommand(final SourceReplayRecord entry, final LongSupplier clock) {
+        final var budget =
+                new BoundedReadBudget(limits.records(), limits.bytes(), limits.elapsedNanos(), monotonicClock);
+        final TargetCommandReplayStore.Prepared prepared;
+        try {
+            prepared = commandReplay
+                    .prepareIfPresent(budget, entry.command(), entry.position())
+                    .orElseThrow(() ->
+                            new IllegalStateException("first Target Command business is not wired yet; retain source"));
+        } catch (ReadIncompleteException incomplete) {
+            throw new ReadYield(incomplete);
+        }
+        final var result = commandReplay.commit(
+                prepared, writes(authorities.duplicateWrites(), entry, clock), reads(entry, clock));
+        return SourceReplayOutcome.command(
+                entry.position(),
+                new CommandResult(
+                        result.applyStatus(),
+                        result.stableCode(),
+                        result.generation(),
+                        result.stateVersion(),
+                        result.messageStatus(),
+                        entry.position().canonicalBytes()));
+    }
+
+    private static byte[] sourceDigest(final SourceReplayEntry entry) {
+        return Bytes.sha256(
+                entry instanceof SourceReplayRecord command
+                        ? CommandCodec.encodeFrame(command.command())
+                        : ((SourceReplayMutation) entry).mutation().canonicalEnvelope());
+    }
+
     private TargetStoreBackend.CommitAuthority writes(
             final TargetStoreBackend.CommitAuthority external,
             final SourceReplayEntry entry,
@@ -191,10 +231,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             if (stamp.localClaimOrdinal() != 0
                     || !Arrays.equals(
                             stamp.source().canonicalBytes(), entry.position().canonicalBytes())
-                    || !Arrays.equals(
-                            stamp.mutationDigest(),
-                            Bytes.sha256(
-                                    ((SourceReplayMutation) entry).mutation().canonicalEnvelope()))) {
+                    || !Arrays.equals(stamp.mutationDigest(), sourceDigest(entry))) {
                 throw new IllegalStateException("Target source commit changed its exact source/envelope stamp");
             }
             requireOwner(clock);
@@ -284,6 +321,9 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             barrier.validateSourceConnection(entry.sourceConnectionGeneration(), entry.guardAttestationDigest());
         } else if (entry.sourceConnectionGeneration() != null || entry.guardAttestationDigest() != null) {
             throw new IllegalArgumentException("Kafka source cannot carry Pulsar connection proof");
+        }
+        if (entry instanceof SourceReplayRecord) {
+            return;
         }
         if (!(entry instanceof SourceReplayMutation mutation)
                 || mutation.mutation().type() != SystemMutationType.APPLY_SHARD_CONTROL) {

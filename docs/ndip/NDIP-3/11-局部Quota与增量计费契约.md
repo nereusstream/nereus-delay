@@ -1739,3 +1739,22 @@ ACK 缓存只保存已完成的物理 SourceReplayOutcome；后续 ACK 不再写
 poll/一次业务 authority 解析和不重复写；后续 duplicate 不解析首次权限，lease 转
 DRAINING 后不再 ACK。Oxia backend/物理资源/Control commit guard 是测试替身，
 真实 Broker、多业务、恢复/迁移和全部账本验证仍留待集中阶段。
+
+
+## 31. 保留 Command 的物理重放与 ingress deadline
+
+TargetCommandReplayStore 使用实际 COMMAND 作为不可变首结果，RESULT 存在时验证
+精确引用；owner descriptor、tenant、lineage、aggregate/source stamp 来自同一
+有界 ReadView。同位置必须有精确 POSITION_COMMAND 和完整 Command frame digest，
+只读完成不收费；后续重复只创建 Shard-owned POSITION，并通过真实 SourceAccounting
+原子更新费用与 source。冲突与过期返回不改写逻辑首记录或既有费用。
+
+Command/System 重放与首次 grant 读取实际 META fixed 04 ingress fence；deadline
+覆盖或物理 persistence time 超窗的重复不能恢复业务执行。首次 grant 的 fence
+拒绝只建立 SYSTEM/POSITION 与计费，不创建 grant activation/allocation。本批没有
+新增 wire/NV/key，也不改变 fence 的 source-ordered 写入义务。
+
+最小开发检查使用真实 RocksDB 和 WorkerSourceApplyLoop，但首次 COMMAND/RESULT
+是显式 fixture，Owner/consumer/容量 guard 是替身，fence 也由 fixture 写入。核对
+同位置零写、后续 POSITION 实际费用、冲突/过期、原首记录不变和篡改 frame 后保留
+pending/fence。它不证明首次 Cancel、正式 Fence control、完整恢复或实际 Broker。

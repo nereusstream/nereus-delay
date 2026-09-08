@@ -10,8 +10,15 @@
 
 [原 29 切片集中验证交接清单](12-集中验证交接清单.md)
 
+TargetCommandReplayStore 已接入同一 Worker source 循环：保留的 COMMAND 首结果用于
+同物理位置只读重放、后续重复 POSITION 计费、CommandId 冲突与过期返回；完整 Command
+frame digest、实际 owner/lineage、source 与提交 guard 一起核对。Command/System 重放
+及首次 grant 现在读取实际 ingress deadline fence。首次 Command 业务（含 Cancel）、
+reservation/terminal、其余 System、完整 Worker/recovery/providers 仍待实现或接线。
+仅两项必要开发检查通过，实现继续 IN_PROGRESS，完整验证仍待集中执行。
+
 TargetSourceApplyRuntime 已接入 WorkerSourceApplyLoop 的单记录 poll/WorkClass/apply/ACK
-链路，当前覆盖 grant 首次应用和 System 重放；提交与再次 ACK 前核对实际 Oxia lease、
+链路，现覆盖 grant 首次应用及保留的 System/Command 重放；提交与再次 ACK 前核对实际 Oxia lease、
 assignment/session、Owner marker、Store 和 source 连续性。未知 ACK 保留原记录，
 重复路径不重查首次 grant authority。其余 Command/System 业务、恢复激活、完整 Worker
 factory/config 与生产资源 providers 仍待接入，不把这条控制路径视为全 Source 完成。

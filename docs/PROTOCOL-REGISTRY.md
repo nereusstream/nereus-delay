@@ -2447,3 +2447,12 @@ TargetSourceApplyRuntime 使用现有 NDL1/SourceReplayEntry 与既有 NV/key，
 ACK 校验真实 lease/assignment/session/Store/source proof，UNKNOWN 保留单条记录。
 这是 grant/source 控制路径的运行时接入；其余业务/恢复/正式 Worker 配置与生产
 资源/Control provider 仍待贯通，不授予全功能或治理 Implemented 状态。
+
+
+### NDIP-3 保留 Command 重放（2026-09-08）
+
+TargetCommandReplayStore 复用既有 COMMAND/RESULT/POSITION NV35 与完整 Command frame；
+不新增 wire、key 或 NV。实际 Store META fixed 04 提供 ingress deadline。相同物理
+位置完整 frame 校验后零写，后续重复仅 POSITION/source/费用变化；首次结果保持原
+身份，返回 SourceReplayOutcome 为 ACK 使用当前物理位置。此为保留结果重放接入，
+首次 Command、GC 后无首记录处理、完整 Worker/recovery 和生产 providers 仍待完成。

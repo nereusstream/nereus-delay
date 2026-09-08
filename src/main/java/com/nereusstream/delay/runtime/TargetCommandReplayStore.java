@@ -1,9 +1,10 @@
 package com.nereusstream.delay.runtime;
 
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.CommandCodec;
+import com.nereusstream.delay.protocol.PreparedCommand;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.StableCode;
-import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.TargetQuotaIdentity;
 import com.nereusstream.delay.protocol.TargetQuotaIncarnation;
 import com.nereusstream.delay.protocol.TargetQuotaMutation;
@@ -19,21 +20,21 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
-/** Exact System-result replay and later physical duplicate accounting, without rerunning the original business. */
-public final class TargetSystemReplayStore {
-    private record Inspection(TargetResultRecord first, SystemMutationResult result, boolean samePosition) {}
+/** Exact Command-result replay and later physical duplicate accounting, without rerunning the original business. */
+public final class TargetCommandReplayStore {
+    private record Inspection(TargetResultRecord first, CommandResult result, boolean samePosition) {}
 
     public static final class Prepared {
-        private final TargetSystemReplayStore owner;
+        private final TargetCommandReplayStore owner;
         private final TargetStoreBackend.ReadPlan<Inspection> read;
         private final TargetStoreBackend.Prepared batch;
-        private final SystemMutationResult result;
+        private final CommandResult result;
 
         private Prepared(
-                final TargetSystemReplayStore owner,
+                final TargetCommandReplayStore owner,
                 final TargetStoreBackend.ReadPlan<Inspection> read,
                 final TargetStoreBackend.Prepared batch,
-                final SystemMutationResult result) {
+                final CommandResult result) {
             this.owner = owner;
             this.read = read;
             this.batch = batch;
@@ -47,7 +48,7 @@ public final class TargetSystemReplayStore {
     private final int maximumCounters;
     private final int maximumDomains;
 
-    public TargetSystemReplayStore(
+    public TargetCommandReplayStore(
             final TargetStoreBackend backend,
             final TargetQuotaScope scope,
             final byte[] lineage,
@@ -61,7 +62,7 @@ public final class TargetSystemReplayStore {
                 || maximumDomains < 1
                 || maximumDomains > 64
                 || Arrays.equals(lineage, new byte[16])) {
-            throw new IllegalArgumentException("System replay requires bounded Shard/lineage accounting");
+            throw new IllegalArgumentException("Command replay requires bounded Shard/lineage accounting");
         }
         this.lineage = Bytes.copy(lineage);
         this.maximumCounters = maximumCounters;
@@ -70,11 +71,11 @@ public final class TargetSystemReplayStore {
 
     /** An empty result selects first application, which must independently recheck absence in its own view. */
     public Optional<Prepared> prepareIfPresent(
-            final BoundedReadBudget budget, final SystemMutation mutation, final SourcePosition source) {
+            final BoundedReadBudget budget, final PreparedCommand mutation, final SourcePosition source) {
         Objects.requireNonNull(mutation, "mutation");
         TargetSourcePosition.requireBounded(source);
         if (!scope.shard().equals(source.shardId()) || !scope.shard().equals(mutation.shardId())) {
-            throw new IllegalArgumentException("System replay belongs to another Shard");
+            throw new IllegalArgumentException("Command replay belongs to another Shard");
         }
         final var probe = backend.prepareRead(budget, reader -> inspect(reader, mutation, source));
         if (probe.value().first() == null) {
@@ -83,18 +84,18 @@ public final class TargetSystemReplayStore {
         if (probe.value().samePosition()) {
             return Optional.of(new Prepared(this, probe, null, probe.value().result()));
         }
-        final var result = new SystemMutationResult[1];
+        final var result = new CommandResult[1];
         // The probe chooses a branch only. The actual write plan rereads all facts using the same shared budget.
         final var batch = backend.prepare(budget, reader -> {
             final var actual = inspect(reader, mutation, source);
             if (actual.first() == null || actual.samePosition()) {
                 throw new IllegalStateException(
-                        "System replay branch changed; prepare again from the actual source view");
+                        "Command replay branch changed; prepare again from the actual source view");
             }
             final var stamp = new TargetQuotaMutation(
                     TargetQuotaMutation.increment(reader.sourceSequence()),
                     source,
-                    Bytes.sha256(mutation.canonicalEnvelope()));
+                    Bytes.sha256(CommandCodec.encodeFrame(mutation)));
             final var rootId = new TargetQuotaIdentity(
                     TargetQuotaIdentity.Kind.SHARD,
                     scope.shard(),
@@ -127,13 +128,13 @@ public final class TargetSystemReplayStore {
         return Optional.of(new Prepared(this, null, batch, result[0]));
     }
 
-    public SystemMutationResult commit(
+    public CommandResult commit(
             final Prepared prepared,
             final TargetStoreBackend.CommitAuthority writes,
             final TargetStoreBackend.ReadAuthority reads) {
         Objects.requireNonNull(prepared, "prepared");
         if (prepared.owner != this) {
-            throw new IllegalArgumentException("foreign System replay plan");
+            throw new IllegalArgumentException("foreign Command replay plan");
         }
         if (prepared.read != null) {
             return backend.completeRead(prepared.read, Objects.requireNonNull(reads, "readAuthority"))
@@ -144,58 +145,68 @@ public final class TargetSystemReplayStore {
     }
 
     private Inspection inspect(
-            final TargetStoreBackend.Reader reader, final SystemMutation mutation, final SourcePosition source) {
+            final TargetStoreBackend.Reader reader, final PreparedCommand mutation, final SourcePosition source) {
         final var frontier = reader.source();
         if (frontier == null) {
-            throw new IllegalStateException("System replay requires an established source root");
+            throw new IllegalStateException("Command replay requires an established source root");
         }
         final int order = source.compareTo(frontier);
         if (order < 0 || (order == 0 && !Arrays.equals(source.canonicalBytes(), frontier.canonicalBytes()))) {
-            throw new IllegalStateException("System replay source regressed or changed its complete metadata");
+            throw new IllegalStateException("Command replay source regressed or changed its complete metadata");
         }
         final byte[] firstKey = Bytes.concat(
-                new byte[] {TargetKeyCodec.RESULT_SYSTEM_TAG, TargetKeyCodec.KEY_FORMAT}, mutation.systemMutationId());
+                new byte[] {TargetKeyCodec.RESULT_COMMAND_TAG, TargetKeyCodec.KEY_FORMAT},
+                mutation.commandId().bytes());
         final byte[] positionKey = Bytes.concat(
                 new byte[] {TargetKeyCodec.RESULT_POSITION_TAG, TargetKeyCodec.KEY_FORMAT}, source.canonicalBytes());
         final var first = result(reader, firstKey);
         final var position = result(reader, positionKey);
         if (first == null) {
-            if (order == 0 || position != null) {
-                throw new IllegalStateException("applied physical source lacks the exact first System result");
+            final byte[] queryKey = Bytes.concat(
+                    new byte[] {TargetKeyCodec.RESULT_QUERY_TAG, TargetKeyCodec.KEY_FORMAT},
+                    mutation.commandId().bytes());
+            if (order == 0 || position != null || reader.get(ColumnFamily.DEDUPE, queryKey) != null) {
+                throw new IllegalStateException("applied physical source lacks the exact first Command result");
             }
             return new Inspection(null, null, false);
         }
-        if (first.kind() != TargetResultRecord.Kind.SYSTEM) {
-            throw new IllegalStateException("System key has another result kind");
+        if (first.kind() != TargetResultRecord.Kind.COMMAND) {
+            throw new IllegalStateException("Command key has another result kind");
         }
-        final var original = SystemMutationResult.decode(first.typedPayload());
-        if (!Arrays.equals(original.mutationId(), mutation.systemMutationId())
-                || !Arrays.equals(original.mutationHash(), mutation.mutationHash())
-                || original.mutationType() != mutation.type()
-                || original.retryUntilEpochMs() != mutation.retryUntilEpochMs()
-                || !Arrays.equals(original.authorIdentity(), mutation.authorIdentity())) {
-            throw new IllegalStateException("System logical identity was reused with different bytes");
+        final var original = CommandDedupeRecord.decode(first.typedPayload());
+        final byte[] queryKey = Bytes.concat(
+                new byte[] {TargetKeyCodec.RESULT_QUERY_TAG, TargetKeyCodec.KEY_FORMAT},
+                mutation.commandId().bytes());
+        final var query = result(reader, queryKey);
+        if (query != null) {
+            query.requireFirst(first);
         }
         if (order == 0) {
             if (position == null
-                    || position.kind() != TargetResultRecord.Kind.POSITION_SYSTEM
+                    || position.kind() != TargetResultRecord.Kind.POSITION_COMMAND
                     || position.mutation().sequence() != reader.sourceSequence()
                     || !Arrays.equals(
-                            position.mutation().mutationDigest(), Bytes.sha256(mutation.canonicalEnvelope()))) {
-                throw new IllegalStateException("same physical System replay lacks its exact committed envelope audit");
+                            position.mutation().mutationDigest(), Bytes.sha256(CommandCodec.encodeFrame(mutation)))) {
+                throw new IllegalStateException(
+                        "same physical Command replay lacks its exact committed envelope audit");
             }
             position.requireFirst(first);
         } else if (position != null) {
-            throw new IllegalStateException("future System position is already present beyond the source frontier");
+            throw new IllegalStateException("future Command position is already present beyond the source frontier");
         }
-        final var outcome = source.brokerPersistenceTimeEpochMs() > mutation.retryUntilEpochMs()
-                        || reader.closedIngressDeadlineThrough() >= mutation.retryUntilEpochMs()
-                ? SystemMutationResult.from(
-                        mutation,
+        final boolean expired = source.brokerPersistenceTimeEpochMs() > mutation.retryUntilEpochMs()
+                || reader.closedIngressDeadlineThrough() >= mutation.retryUntilEpochMs();
+        final boolean conflict = !original.protocolTuple().equals(mutation.protocolTuple())
+                || !Arrays.equals(original.commandHash(), mutation.commandHash());
+        final var outcome = expired || conflict
+                ? new CommandResult(
                         ApplyStatus.REJECTED,
-                        StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED,
+                        expired ? StableCode.COMMAND_RETRY_WINDOW_EXPIRED : StableCode.COMMAND_ID_CONFLICT,
+                        -1,
+                        0,
+                        null,
                         source.canonicalBytes())
-                : original;
+                : original.result();
         return new Inspection(first, outcome, order == 0);
     }
 
@@ -209,11 +220,11 @@ public final class TargetSystemReplayStore {
         record.requireStored(key, value.valueType(), value.payload());
         if (!Arrays.equals(record.recoveryLineage(), lineage)
                 || !Arrays.equals(record.tenantScope(), scope.tenantScope())) {
-            throw new IllegalStateException("System result belongs to another tenant/lineage");
+            throw new IllegalStateException("Command result belongs to another tenant/lineage");
         }
         final var current = reader.aggregate().mutation();
         if (current == null) {
-            throw new IllegalStateException("System result has no applied aggregate mutation");
+            throw new IllegalStateException("Command result has no applied aggregate mutation");
         }
         record.mutation().requireAtOrBefore(current);
         record.requireOwner(descriptor(reader, record.primaryIdentity()));
@@ -226,7 +237,7 @@ public final class TargetSystemReplayStore {
         key[0] = TargetKeyCodec.QUOTA_INCARNATION_TAG;
         final byte[] raw = reader.get(ColumnFamily.META, key);
         if (raw == null) {
-            throw new IllegalStateException("System result owner descriptor is absent");
+            throw new IllegalStateException("Command result owner descriptor is absent");
         }
         final var owner = TargetQuotaIncarnation.decodeForStore(
                 key,
@@ -235,7 +246,7 @@ public final class TargetSystemReplayStore {
                 scope.shard(),
                 scope.tenantScope());
         if (!owner.identity().equals(identity) || !Arrays.equals(owner.recoveryLineage(), lineage)) {
-            throw new IllegalStateException("System result owner descriptor changed its identity/lineage");
+            throw new IllegalStateException("Command result owner descriptor changed its identity/lineage");
         }
         final var current = reader.aggregate().mutation();
         if (current == null) {

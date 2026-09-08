@@ -156,7 +156,13 @@ public final class TargetQuotaGrantStore {
             final var edits = new ArrayList<TargetStoreBackend.Edit>();
             TargetQuotaIncarnation allocation = null;
             SystemMutationResult outcome;
-            if (!scope.equals(body.request().next().scope().shardScope())) {
+            if (reader.closedIngressDeadlineThrough() >= mutation.retryUntilEpochMs()) {
+                outcome = SystemMutationResult.from(
+                        mutation,
+                        ApplyStatus.REJECTED,
+                        StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED,
+                        source.canonicalBytes());
+            } else if (!scope.equals(body.request().next().scope().shardScope())) {
                 outcome = SystemMutationResult.from(
                         mutation,
                         ApplyStatus.REJECTED,

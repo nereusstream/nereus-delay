@@ -148,6 +148,16 @@ public final class TargetStoreBackend {
             store.requireUninitializedTarget(budget);
         }
 
+        public long closedIngressDeadlineThrough() {
+            requireActive();
+            final byte[] raw = get(ColumnFamily.META, KeyCodec.metaFixed(4));
+            return raw == null
+                    ? IngressFenceState.OPEN
+                    : IngressFenceState.decode(
+                                    TargetValueEnvelope.decode(raw, 1).payload())
+                            .closedThroughEpochMs();
+        }
+
         public int maximumWriteRecords() {
             requireActive();
             return limits.maximumRecords();
