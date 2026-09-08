@@ -262,3 +262,10 @@ the source-only stamp, independent of local Claim history. Their three quota slo
 bounds each reserve eleven additional bytes; source-only projections do not.
 A Floor without an ordinal must strictly advance beyond a local stamp. This adds
 no CF/tag or active Lane writer; C4 still supplies actual Claim authority and atomicity.
+
+B4 reserves TargetQuotaClaimCharge at META tag 1b / NV 34. The 62-byte key binds
+Source Shard, raw Owner epoch and Claim ID. It retains the original Target work,
+immutable accounting owner/artifact, Owner/Store, original execution charge and
+local creation stamp. Its STATE bytes are measured once; execution is separate.
+Exact business Claim authority and atomic consumption remain required. Existing
+Lane Claim NV 9 and active readers are unchanged; this introduces no new CF.

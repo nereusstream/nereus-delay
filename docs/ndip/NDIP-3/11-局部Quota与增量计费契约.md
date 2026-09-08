@@ -1286,3 +1286,79 @@ stamp/counter/mirror/aggregate bytes；bookkeeping 向量同步增加三个槽�
 既有 source-only stamp 和 incarnation ID bytes 不变。该批只完善 B4 的 local
 accounting 契约与有限 planner；不表示 Target Claim/Result 格式、完整 reserve、
 actual Store/runtime/recovery、真实 Broker 或迁移清退已经完成。
+
+
+## 19. Claim 的冻结计费投影
+
+`TargetQuotaClaimCharge` schema 1 预留 NV **34**；META key 为
+`1b 01 | sourceShard[20] | Owner epoch raw uint64be[8] | ClaimId[32]`，固定 62 bytes。
+它是一个真实 reversible Claim 的计费投影，业务 Claim 继续承担完整 precondition、
+materialization、current runtime branch 与 Admission/Result 的语义义务。不能将旧
+Lane ClaimRecord NV 9 当作 Target 格式，也不因读到本投影取得 Claim/SEND 权限。
+
+| field | 含义 |
+|---:|---|
+| 1 | schema=1 |
+| 2 | 非零 ClaimId[32]，由实际 Claim 身份规则产生 |
+| 3 | 完整 TargetTimelineWorkRef，含原 locator、普通/Native sibling 资格、语义与实例 digest |
+| 4 | 完整 TARGET primary quota identity，与 work 的 Shard/Target/accounting incarnation 一致 |
+| 5 | 非零 tenantRoutingScope[32] |
+| 6 | 完整冻结 TargetQuotaAccounting artifact |
+| 7 | 完整 OwnerIdentity，canonical envelope 最多 4096 bytes，沿用 durable owner envelope 上限 |
+| 8 | 非零 Store incarnation[16] |
+| 9 | 非零 raw uint64 Claim sequence，独立于 source sequence 和 quota ordinal |
+| 10 | 非负 claim deadline epoch milliseconds，不凭到期自行释放 |
+| 11 | 首次冻结 execution bytes，正数且不超过 Long.MAX_VALUE |
+| 12 | 实际完整 canonical 业务 Claim typed payload 的 SHA-256[32] |
+| 13 | 建立本投影的完整 local TargetQuotaMutation，必须具有非零 local ordinal |
+| 14 | 非零 recovery lineage[16] |
+| 15 | `nereus-delay-target-quota-claim-charge\0` + fields 1–14 的 digest |
+
+本地操作 digest 的 canonical 输入是实际完整业务 Claim/Message/index before/after
+和旧 Owner/Store/source guard；不包含由它派生的新 quota stamp/projection bytes。
+业务 Claim 也不嵌入本投影 digest，防止 claim digest 与 quota digest 相互递归。
+字段 12 的真实格式解码、key/type/业务身份检查由实际 Claim authority 完成，不能用
+任意摘要代替。完整 payload、work、accounting 和 source 的 codec 上限仍逐层检查，
+外层未知字段、非 canonical、digest mismatch、超界/零身份均拒绝。
+
+创建入口从实际 source-derived incarnation descriptor 取得完整 identity、tenant、
+accounting 和 lineage；创建时 descriptor 最新 allocation/drain stamp 不得晚于 local
+creation。核对历史投影时仅要求 allocation 不晚于创建，允许 descriptor 后来 drain。Work
+必须保留相同 accounting incarnation。Descriptor 已 DRAINING 不自动禁止已承诺
+工作的 Claim，但也不因此允许新的 ingress；真实业务与容量许可由强制 `Authority`
+检查。`create` 在返回前调用 authority，要求同一个 Store guard 下 exact Claim/
+projection key 不存在、Claim 原始执行 charge、Message/index before/after、grant、
+当前 Owner/Store/source 以及业务 Claim 成立。没有 production 默认回调。
+
+费用分为两个互不递归的向量：executionCharge 只占 7=1 与 8=冻结 bytes；recordCharge
+只占 3=`key.length + canonicalPayload.length + 12 + frozenRecordOverhead`。
+贡献是两者相加；tenant mirror 逐维相同但不再加入 aggregate primary sum。投影中
+嵌入的 work/accounting/source 是本条实际 bytes，不再作为独立实体收费；实际业务
+Claim 自己的物理 record 另计一次 STATE，不能漏掉或按摘要长度代替。该投影不增加
+payload、attempt/reserve、Target/domain/strict cardinality 或另一份 Message owner。
+
+本投影建立后不更新、不 reprice。它持续关联首次 Claim，即使 policy、grant、Owner
+或当前 Message generation 已变化也不按新值扣账。`requireStored` 要求 actual key、
+NV type 与完整 old payload 相同；实际读取以及 Claim/Message/index/descriptor 等
+完整读集由 C4 在同一 view 捕获并于 commit 前校验。
+
+本地撤销必须仍是相同完整 OwnerIdentity 和 Store incarnation，并使用严格后续
+local stamp；实际业务只能在 reversible Claim 尚存且未 Admission 的条件下撤销。
+Owner takeover 不能冒用普通本地 revoke，另走明确的恢复业务证明。Source consumption
+（REVOKE、ADMISSION、SOURCE_RESULT）必须是 source-only 严格后续 stamp；它可以处理
+旧 Owner 的 Claim，但仍须通过已接受 source、去重与 actual business authority。
+两类路径都强制回调检查首次 charge、实际 Claim 消费/删除与其它义务。校验函数本身
+不改变投影、不删除记录，也不立即释放逻辑或物理容量。
+
+在确定同一 batch 删除 projection 与实际 Claim、更新 Message/索引/attempt 及
+counter/mirror/total/aggregate 后，才能扣除该原始贡献；若有保留义务则继续持有或
+按完整保留配方转移，deadline、Owner loss、UNKNOWN 或较晚 Floor 单独都不授权释放。
+Admission 的新 attempt reserve/原 Claim execution 交接须同一 source commit，不能
+走 local shortcut。未确定写入结果时先恢复，不能提前发布可用容量。
+
+独立 Python 向量覆盖 ordinary、Native、strict-order 三种完整 work 的投影 bytes、
+key、execution 与 STATE 费用。测试同时验证 source-derived owner、draining 处理、
+Owner/Store/source 消费门槛、完整旧 bytes、authority/fatal 传播、编码与边界，以及
+本投影贡献接入 §18 Claim/revoke delta 的守恒。该批冻结计费投影；完整业务 Target
+Claim/Result 格式、authority 后端、所有业务 record owner/reserve sizing、实际
+atomic Store/recovery 与原 B4 验收仍继续实施。

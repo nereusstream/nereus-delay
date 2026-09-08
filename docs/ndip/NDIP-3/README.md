@@ -177,3 +177,9 @@ quota 契约 §18。完整 check：2056 项 Java tests，失败/错误 0、外�
 190 项 quota tests 无 skip，新增 15 项。306 份 XML、1179 个不变输入见
 `evidence/b4-local-claim-results.json`。B4 仍 IN_PROGRESS；实际 Claim/Result 格式、
 完整 reserve、authority/atomic Store/recovery、D/E Broker 和 F 迁移清退继续实施。
+
+B4 Claim 计费投影批次已冻结原始 Target work、Claim ID、Owner/Store 与 owner/artifact/
+execution charge，独立计量 STATE 并校验本地撤销/source 消费，见 quota 契约 §19。
+完整 check：2067 项 Java tests，失败/错误 0、外部 skip 41；201 项 quota tests 全部
+无 skip，新增 11 项。307 份 XML、1183 个不变输入见 `evidence/b4-claim-charge-results.json`。
+B4 仍 IN_PROGRESS；实际业务 Claim 与其它 owner/reserve、原子接入/恢复及 D/E/F 继续。

@@ -2316,3 +2316,10 @@ source-only allocation/grant/bookkeeping/payload/attempt 拒绝它。相同 sour
 按 ordinal 排序，相同 ordinal 再要求完整 digest 一致；same-source Floor 不覆盖
 local stamp。Counter/aggregate/total 固定 envelope 各增 11 bytes，其它 source-only
 bound 与派生 ID bytes 不变。完整规范见 quota 契约 §3、§12、§18；未激活 reader/writer。
+
+B4 TargetQuotaClaimCharge schema 1 预留 NV 34 / META tag 1b，key 为 sourceShard[20]
++ raw Owner epoch[8] + ClaimId[32]（含 tag/version 共 62 bytes）。它保留完整原始
+Target work、TARGET identity/tenant/accounting、Owner/Store、Claim sequence/deadline、
+冻结 execution bytes、业务 Claim SHA-256、local creation stamp、lineage 与自身
+域 digest。字段 1–15、上限、计费/消费约束见 quota 契约 §19。它不替代业务 Claim
+precondition/materialization；旧 Lane NV 9 与 active reader 不变。

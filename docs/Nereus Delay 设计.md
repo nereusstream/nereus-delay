@@ -6100,3 +6100,8 @@ total/aggregate revision。最多四个同 Target/tenant counter 的 plan 限定
 一个 Claim 的 7/8 增减，并强制实际 Claim authority/read guard。相同 SourcePosition
 的 Floor 不证明覆盖 local 写入。完整规则和更新的固定 slot 上限见 quota 契约 §18；
 B4 及 C4/D/E/F 原有格式、reserve、真实 Store/recovery/Broker/迁移义务仍未完成。
+
+NDIP-3 B4 的 Claim 计费投影已冻结，见 quota 契约 §19：原始 Target work、Claim ID、
+Owner/Store、accounting/tenant/lineage 与 execution charge 同时保留。独立 STATE
+record 费用不复制 payload/attempt；本地撤销要求相同 Owner/Store，source 消费要求
+严格后续 source 与实际 authority。完整业务 Claim 格式、原子接入与恢复仍须实施。

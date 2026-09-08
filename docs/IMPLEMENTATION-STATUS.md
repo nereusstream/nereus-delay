@@ -206,6 +206,20 @@ B4 remains IN_PROGRESS. Actual Target Claim/Result/SystemMutation/evidence forma
 complete reserves, bootstrap/rotation/handover, actual authority/atomicity/recovery
 and the original acceptance evidence remain required.
 
+B4 now reserves a frozen Target Claim accounting projection at META 1b / NV 34.
+It retains the full original work, Claim ID, accounting owner/artifact, Owner/Store,
+execution charge and local creation stamp. Its exact STATE footprint is separate
+from its execution charge and the actual business Claim record. Mandatory actual
+Claim authority gates creation, local revoke and source consumption; no check
+itself deletes records or publishes capacity. Old Lane Claim NV 9 is unchanged.
+The Claim charge full check passed 2067 Java tests with zero failures/errors and
+41 external skips. All 201 quota tests passed without skips, including 11 new cases.
+307 JUnit XMLs and 1183 unchanged check inputs are bound by
+`docs/ndip/NDIP-3/evidence/b4-claim-charge-results.json`.
+B4 remains IN_PROGRESS. Complete business Claim/Result/SystemMutation/evidence
+ownership, full reserves, bootstrap/rotation/handover and original acceptance,
+plus actual C4 authority/atomicity/recovery and D/E/F verification remain required.
+
 No active Target scheduling runtime, Broker certification or migration is claimed yet. The user authorized
 full implementation and incremental publication on main. NDIP-1 remains closed;
 its historical evidence does not certify changed runtime source.

@@ -139,9 +139,14 @@
         "evidence/b4-local-claim-check.log",
         "evidence/b4-local-claim-focused.log",
         "evidence/b4-local-claim-final-docs.log",
-        "evidence/b4-local-claim-junit.zip"
+        "evidence/b4-local-claim-junit.zip",
+        "evidence/b4-claim-charge-results.json",
+        "evidence/b4-claim-charge-check.log",
+        "evidence/b4-claim-charge-focused.log",
+        "evidence/b4-claim-charge-final-docs.log",
+        "evidence/b4-claim-charge-junit.zip"
       ],
-      "progress": "Local Claim/revoke accounting now keeps source sequence/position stable with a separate ordinal, preserving source-derived allocation IDs across different local histories. At most four existing Target/tenant counters may change STATE and one exact Claim execution charge; mandatory authority and full prior bytes remain required. Source-only records reject local stamps; same-source Floors cannot cover local writes. Latest full check: 2056 Java tests, zero failures/errors, 41 external skips; all 190 quota tests without skips, 15 new. B4 remains incomplete: actual Claim/Result/SystemMutation/evidence and Shard ownership formats, full reserves, bootstrap/rotation/handover and original acceptance. C4 actual authority/atomicity/independent recovery plus D/E/F obligations remain."
+      "progress": "Frozen Target Claim accounting projection now binds original full work, Claim/Owner/Store identity, execution owner/artifact and local creation stamp at reserved META 1b/NV 34. Exact STATE and execution charges remain separate; mandatory actual authority gates local revoke and source consumption without publishing deletion/capacity. Latest full check: 2067 Java tests, zero failures/errors, 41 external skips; all 201 quota tests without skips, 11 new. B4 remains incomplete: actual business Claim/Result/SystemMutation/evidence and Shard ownership, full reserves, bootstrap/rotation/handover and original acceptance. C4 actual authority/atomicity/independent recovery plus D/E/F obligations remain."
     },
     {
       "id": "B5",
