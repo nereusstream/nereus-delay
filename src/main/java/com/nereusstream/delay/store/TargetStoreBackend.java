@@ -120,8 +120,11 @@ public final class TargetStoreBackend {
     /** Read methods are valid only during prepare, under one Store view and shared read budget. */
     public final class Reader {
         private boolean active = true;
+        private final BoundedReadBudget budget;
 
-        private Reader() {}
+        private Reader(final BoundedReadBudget budget) {
+            this.budget = budget;
+        }
 
         private void requireActive() {
             if (!active || !Thread.holdsLock(store)) {
@@ -132,6 +135,83 @@ public final class TargetStoreBackend {
         public byte[] get(final ColumnFamily family, final byte[] key) {
             requireActive();
             return store.get(family, key);
+        }
+
+        public int maximumWriteRecords() {
+            requireActive();
+            return limits.maximumRecords();
+        }
+
+        public com.nereusstream.delay.protocol.ShardId shardId() {
+            requireActive();
+            return store.shardId();
+        }
+
+        /** Exact overlay read; absence is explicit and never inferred from a bounded range scan. */
+        public byte[] projected(final ColumnFamily family, final byte[] key, final List<Edit> overlay) {
+            requireActive();
+            requireOverlayLimit(overlay);
+            Edit found = null;
+            for (var edit : overlay) {
+                if (edit.family == family && Arrays.equals(edit.key, key)) {
+                    if (found != null) {
+                        throw new IllegalArgumentException("duplicate overlay key");
+                    }
+                    found = edit;
+                }
+            }
+            return found == null ? get(family, key) : found.after();
+        }
+
+        /** Finds the first surviving key using at most overlay.size()+1 persisted entries. */
+        public ShardStore.KeyValue first(
+                final ColumnFamily family, final byte[] lower, final byte[] upper, final List<Edit> overlay) {
+            requireActive();
+            requireOverlayLimit(overlay);
+            if (lower == null || upper == null || Arrays.compareUnsigned(lower, upper) >= 0) {
+                throw new IllegalArgumentException("finite ordered range required");
+            }
+            final var replacements = new java.util.HashMap<String, Edit>();
+            ShardStore.KeyValue selected = null;
+            for (var edit : overlay) {
+                if (edit.family != family
+                        || Arrays.compareUnsigned(edit.key, lower) < 0
+                        || Arrays.compareUnsigned(edit.key, upper) >= 0) {
+                    continue;
+                }
+                if (replacements.putIfAbsent(HexFormat.of().formatHex(edit.key), edit) != null) {
+                    throw new IllegalArgumentException("duplicate range overlay key");
+                }
+                if (edit.after != null && (selected == null || Arrays.compareUnsigned(edit.key, selected.key()) < 0)) {
+                    selected = new ShardStore.KeyValue(edit.key, edit.after);
+                }
+            }
+            final ShardStore.KeyValue[] persisted = {null};
+            final var result = store.visitResult(
+                    family, lower, upper, Math.incrementExact(replacements.size()), budget, (row, shared) -> {
+                        if (replacements.containsKey(HexFormat.of().formatHex(row.key()))) {
+                            return true;
+                        }
+                        persisted[0] = row;
+                        return false;
+                    });
+            if (result.stop() == ShardStore.VisitStop.INCOMPLETE) {
+                throw new ReadIncompleteException(result.reason());
+            }
+            if (result.stop() != ShardStore.VisitStop.RANGE_END
+                    && result.stop() != ShardStore.VisitStop.VISITOR_STOPPED) {
+                throw new IllegalStateException("Target overlay minimum was not established");
+            }
+            return persisted[0] != null
+                            && (selected == null || Arrays.compareUnsigned(persisted[0].key(), selected.key()) < 0)
+                    ? persisted[0]
+                    : selected;
+        }
+
+        private void requireOverlayLimit(final List<Edit> overlay) {
+            if (Objects.requireNonNull(overlay, "overlay").size() > limits.maximumRecords()) {
+                throw new IllegalArgumentException("Target overlay exceeds the write record limit");
+            }
         }
 
         public SourcePosition source() {
@@ -195,7 +275,7 @@ public final class TargetStoreBackend {
     public Prepared prepare(final BoundedReadBudget budget, final Function<Reader, Mutation> planner) {
         Objects.requireNonNull(planner, "planner");
         final var read = store.readWithBudget(budget, () -> {
-            final var reader = new Reader();
+            final var reader = new Reader(budget);
             final Mutation mutation;
             try {
                 mutation = Objects.requireNonNull(planner.apply(reader), "mutation");

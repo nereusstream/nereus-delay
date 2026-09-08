@@ -6122,3 +6122,9 @@ Target Store format 2 入口及真实 guarded batch/结果范围审计后端；�
 保留格式隔离。源码变更涉及共享 ShardStore/StoreMetadata，旧验证只对原源码有效。
 实际 Worker/完整业务 authority、全账本恢复、checkpoint/migration 和后续 C/E/F
 继续实现；进度及原 29 切片的具体验证交接见 NDIP-3/12-集中验证交接清单.md。
+
+
+NDIP-3 C1/C4/E5 的实际 Message 投影提交进一步接通：TargetMessageStore 生成完整
+Message/Expiry/current work 差集和严格 serviceable head，TargetQueueHeadUpdater
+在同一 Store view 合并 exact overlay 后更新 queue head；完整写集先计费再提交。
+当前仍是运行组件实施阶段，真实业务/计费权威与 Worker 装配、完整验证继续保留。

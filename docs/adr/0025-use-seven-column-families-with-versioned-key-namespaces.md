@@ -297,3 +297,13 @@ uses the same bounded Store view as its META dependencies. Production Worker
 composition, complete business authority, all-ledger recovery and Target checkpoint
 restore remain unfinished. Historical receipts do not certify these shared Store
 changes; centralized validation follows implementation completion.
+
+
+TargetMessageStore now derives Message, live Expiry and current ordinary/native/
+ORDERED edits from complete before/after records, recomputes strict serviceable
+heads and updates affected Target queues in the same prepared Store transaction.
+Bounded range minima merge an exact overlay with at most touched-range-key count
+plus one persisted entry. Incomplete reads yield instead of declaring an empty
+prefix. Existing heads are validated before mutation, and full generated edits
+reach accounting before commit. Production semantic/accounting authority and
+Worker source/Claim/Admission/Producer composition remain integration work.

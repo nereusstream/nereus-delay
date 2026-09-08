@@ -10,6 +10,13 @@
 
 [原 29 切片集中验证交接清单](12-集中验证交接清单.md)
 
+最新实现批次：TargetMessageStore 已连接实际 Message/index/order/head 投影与
+TargetStoreBackend 的原子提交。ordinary/native sibling、稳定 Expiry 和严格
+serviceable head 从完整 before/after 自动生成；完整计费/认证业务 planner 与
+Worker source/Claim/Admission/Producer 装配继续实现。仅执行一项实际 Store 开发
+smoke，未执行集中回归，不提升 C1/C4/E5 的验证状态。
+
+
 - 提案状态：`Draft`；完整实施已由用户于 2026-09-07 明确授权，契约冻结和接受凭证在 B7 闭合。
 - 审查基线：`main@b521b614fbe22d30381593637e60ab615e5906cc`。
 - 范围：A–F 全部 29 个切片，包含此前 P2 工作、最终真实 Broker/恢复验证、转换器和清退机制。

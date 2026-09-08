@@ -212,11 +212,18 @@
     {
       "id": "C1",
       "title": "Target 持久投影与全部 mutation",
-      "status": "PLANNED",
+      "status": "IN_PROGRESS",
       "evidence": [],
-      "implementationStatus": "NOT_STARTED",
+      "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
-      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
+      "progress": "Actual TargetMessageStore generates complete Message/live Expiry/current work differences, recomputes strict serviceable and Target queue heads through bounded exact overlays, then passes the final business write set into accounting and guarded Store commit. Full production semantic/accounting authority, strict late/control behavior and Worker source/Claim/Admission/Producer integration remain unfinished. One development smoke only; centralized validation remains pending.",
+      "implementationFiles": [
+        "src/main/java/com/nereusstream/delay/runtime/TargetMessageStore.java",
+        "src/main/java/com/nereusstream/delay/runtime/TargetQueueHeadUpdater.java",
+        "src/main/java/com/nereusstream/delay/store/TargetStoreBackend.java"
+      ],
+      "validationHandoff": "12-集中验证交接清单.md"
     },
     {
       "id": "C2",
@@ -244,12 +251,14 @@
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
       "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
-      "progress": "Actual Target format 2 Store adapter and guarded RocksDB transaction/result-range traversal implemented. Full Worker/business authority, all mutation paths, all-ledger recovery and checkpoint/restore remain unfinished. Only compilation and two Store development smoke cases; centralized validation is pending.",
+      "progress": "Actual TargetMessageStore generates complete Message/live Expiry/current work differences, recomputes strict serviceable and Target queue heads through bounded exact overlays, then passes the final business write set into accounting and guarded Store commit. Full production semantic/accounting authority, strict late/control behavior and Worker source/Claim/Admission/Producer integration remain unfinished. One development smoke only; centralized validation remains pending.",
       "implementationFiles": [
+        "src/main/java/com/nereusstream/delay/runtime/TargetMessageStore.java",
+        "src/main/java/com/nereusstream/delay/runtime/TargetQueueHeadUpdater.java",
         "src/main/java/com/nereusstream/delay/store/ShardStore.java",
         "src/main/java/com/nereusstream/delay/store/StoreMetadata.java",
-        "src/main/java/com/nereusstream/delay/store/TargetValueEnvelope.java",
-        "src/main/java/com/nereusstream/delay/store/TargetStoreBackend.java"
+        "src/main/java/com/nereusstream/delay/store/TargetStoreBackend.java",
+        "src/main/java/com/nereusstream/delay/store/TargetValueEnvelope.java"
       ],
       "validationHandoff": "12-集中验证交接清单.md"
     },
@@ -336,11 +345,18 @@
     {
       "id": "E5",
       "title": "严格 barrier 和迟到契约",
-      "status": "PLANNED",
+      "status": "IN_PROGRESS",
       "evidence": [],
-      "implementationStatus": "NOT_STARTED",
+      "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
-      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
+      "progress": "Actual TargetMessageStore generates complete Message/live Expiry/current work differences, recomputes strict serviceable and Target queue heads through bounded exact overlays, then passes the final business write set into accounting and guarded Store commit. Full production semantic/accounting authority, strict late/control behavior and Worker source/Claim/Admission/Producer integration remain unfinished. One development smoke only; centralized validation remains pending.",
+      "implementationFiles": [
+        "src/main/java/com/nereusstream/delay/runtime/TargetMessageStore.java",
+        "src/main/java/com/nereusstream/delay/runtime/TargetQueueHeadUpdater.java",
+        "src/main/java/com/nereusstream/delay/store/TargetStoreBackend.java"
+      ],
+      "validationHandoff": "12-集中验证交接清单.md"
     },
     {
       "id": "E6",

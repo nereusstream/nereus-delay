@@ -2343,3 +2343,10 @@ TargetStoreBackend 已实现受同一 ReadView/CommitGuard 保护的实际 Rocks
 同批更新 fixed META 3/5，本地 Claim 不改 source。结果完整范围 [06,0a) 的恢复遍历
 已接实际 Store，仍须实际 Owner/Route/Store authority 和其它账本核对。详见 quota
 §22；实现/验证双状态与最后集中验证安排见 NDIP-3/12，不从实现存在推导认证。
+
+
+C1/C4 Message Store 实现使用现有 NV 12–17 与既有 Target keys，不新增格式。
+Message、live Expiry、ordinary/native/ORDERED、strict serviceable head 与 queue
+headRevision 由同一 bounded exact overlay 生成；完整生成 bytes 先交业务计费
+planner，再随 source/计费同步提交。严格 OrderState 的 barrier/watermark 决策与
+实际 authority 未由该投影组件替代，完整 Worker 装配与集中验证继续。

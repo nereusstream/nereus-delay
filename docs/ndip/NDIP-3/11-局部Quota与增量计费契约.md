@@ -1564,3 +1564,23 @@ AuditedResults 是 backend 私有绑定对象；后续发布必须再次校验 R
 该实现完成 §21 的实际结果 traversal 子项，不能替代其它账本独立重建、全部精确
 counter equality、Owner/Store 激活及故障恢复证明。首次 root/bootstrap 与完整 Claim/
 outbox/shared owners、其它 mutation、C5 Worker 装配和 F 工具仍须继续实现。
+
+
+## 23. Message 投影生成先于业务计费规划
+
+TargetMessageStore 先从同一 Store view 的完整 Message before/after 自动生成
+Message、live Expiry 和当前 ordinary/native/ORDERED work 的差集，再根据严格
+OrderState/barrier 计算 serviceable head，最后更新受影响 TargetQueue heads。
+AccountingPlanner 接收的是这份完整最终 business Edit 集合，包含各条完整 NV
+before/after 和自动生成 queue/order/head 的实际 bytes。不能先按调用者原始 subset
+计算费用，再由后端追加未计入的索引或 queue bytes。
+
+固定 read/write/domain/message 上限共同约束规划；同 key 替换、删除再插入、跨
+前缀工作变化均按 full before 精确合并。Claim/source 计费 stamp 的选择仍由实际
+业务 planner 决定，source-only/local ordinal 规则不变。所有结果仍通过同一
+TargetStoreBackend 原子提交；没有单独的 head 写或公平性写。
+
+本批实现的是实际投影生成和提交连接，不是完整费用来源、grant/resource reserve、
+root、Claim/attempt/outbox/共享账本和生产 authority 的完成。上述完整 planner 与
+Worker 装配继续推进；开发 smoke 的空 quota updates/no-op guard 只验证投影事务
+机制，禁止用它作为生产计费或授权实现。旧证据不认证新增路径。

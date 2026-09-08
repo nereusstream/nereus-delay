@@ -10,6 +10,14 @@
 
 [原 29 切片集中验证交接清单](ndip/NDIP-3/12-集中验证交接清单.md)
 
+Latest NDIP-3 implementation: TargetMessageStore connects complete Message,
+Expiry, ordinary/native/ORDERED and strict/queue head projections to the actual
+bounded Store prepare/commit path. One development RocksDB smoke exercises
+initial Native graph creation and terminal removal. Accounting/authority doubles
+in that smoke do not certify actual quota or business semantics. C1/C4/E5 remain
+IN_PROGRESS; full Worker and production planner composition still need implementation.
+
+
 Spec revision: `DESIGN-BASELINE-2026-08-25`
 
 This file records implementation evidence. It does not relax or replace the
