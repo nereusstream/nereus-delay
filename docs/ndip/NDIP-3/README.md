@@ -124,3 +124,12 @@ quota 契约无 skip。45 条独立向量、全部 301 份 JUnit XML 和检查�
 输入见 `evidence/b4-bookkeeping-results.json` 与 `b4-bookkeeping-junit.zip`。B4 仍为
 IN_PROGRESS：其它业务记录 owner、payload/identity 保护、完整 reserve sizing 和
 incarnation 生命周期尚未闭合；C4 实际 inventory/Store/recovery 与删除后端未实现。
+
+B4 payload 批次已固定唯一 Message owner（NV 32/meta 19），原 TARGET/incarnation/tenant/
+accounting 跨 generation 保留。Reservation、active、retained、released 只移动一次
+payload 费用；完整绑定与强制 Source/Floor/ledger authority 保护转换，RELEASED 后
+owner record 仍计 STATE。详见 §11 契约 §13。完整 check：1987 项 Java tests，失败/错误
+0、外部 skip 41；新增 16 项、全部 121 项 quota 契约无 skip。38 条独立向量、302 份
+JUnit XML、1166 个不变输入见 `evidence/b4-payload-results.json` 与 `b4-payload-junit.zip`。
+B4 仍 IN_PROGRESS；完整业务 reserve、其它 owner/ledger、unique cardinality 和
+incarnation 生命周期继续闭合，尚无实际 Target writer/恢复、Broker 或迁移认证。

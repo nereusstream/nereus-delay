@@ -109,9 +109,14 @@
         "evidence/b4-bookkeeping-results.json",
         "evidence/b4-bookkeeping-check.log",
         "evidence/b4-bookkeeping-final-docs.log",
-        "evidence/b4-bookkeeping-junit.zip"
+        "evidence/b4-bookkeeping-junit.zip",
+        "evidence/b4-payload-results.json",
+        "evidence/b4-payload-check.log",
+        "evidence/b4-payload-focused.log",
+        "evidence/b4-payload-final-docs.log",
+        "evidence/b4-payload-junit.zip"
       ],
-      "progress": "Independent counters/delta, frozen measurements, attempt reserve transitions, all-incarnation totals, authenticated grant activation and fixed projection bookkeeping contracts verified. Latest full check: 1971 Java tests, zero failures/errors, 41 external skips; 105 quota contracts without skips. Root projection slots retain fixed source-sized commitments until actual deletion; attempt budget record storage remains with its frozen Target owner even in RELEASED. Remaining B4: other business-record owner/ledger sources, payload/identity protection, full reserve sizing and protected incarnation allocation/retirement. No production capacity/inventory backend, Target writer, physical/Broker or Target Store/recovery certification."
+      "progress": "Independent counters/delta, measurements, attempt reserve, all-incarnation totals, authenticated grant activation, fixed bookkeeping and unique Message payload owner contracts verified. Latest full check: 1987 Java tests, zero failures/errors, 41 external skips; all 121 quota contracts without skips. Payload ownership stays with its frozen Target incarnation/tenant/accounting across generations; payload release retains the separate owner record fee until protected actual deletion. Remaining B4: other business owners/actual ledgers, full reserve sizing, unique cardinality and protected incarnation allocation/retirement. No production payload/capacity/inventory backend, Target writer, physical/Broker or Target Store/recovery certification."
     },
     {
       "id": "B5",

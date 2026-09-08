@@ -2270,3 +2270,13 @@ incarnation 必须一致，tenant mirror 不重复加总。每条槽位预留使
 退休与零 usage 投影在实际删除前仍计费。Attempt budget 自身另由其冻结 Target owner
 计一次记录预留，RELEASED 不自动释放该 NV 记录。旧 ValueEnvelope reader 拒绝 NV 31；
 该 codec 与 inventory audit 不提供 C4 实际 Store writer、ledger 或删除 authority。
+
+B4 的 `TargetQuotaPayloadOwner` schema 1 预留 NV 32 / meta
+`19 01 | DelayMessageId[41]`，key 43 bytes。完整 fields 1–18 见
+[契约 §13](ndip/NDIP-3/11-局部Quota与增量计费契约.md#13-唯一-message-payload-owner)：
+原始 TARGET owner、tenant/accounting/binding、payload kind/length/SHA、OBJECT reservation/
+Profile/完整 committed reference、phase、独立 raw revision、完整 mutation、lineage、可选
+release Floor digest 和 `nereus-delay-target-quota-payload-owner\0` 域摘要。Owner 跨
+Message generation 冻结；payload 在 5/6、1/2、4、0 间转换，不按 attempt 复制。STATE
+记录费用独立持有到实际删除，RELEASED 不释放该费用。完整绑定与强制 transition/release
+authority 仍须由 C4 实际 ledger/backend/原子写提供；旧 NV reader 拒绝 32。

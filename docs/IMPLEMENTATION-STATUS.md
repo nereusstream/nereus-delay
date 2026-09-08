@@ -117,6 +117,20 @@ bound by `docs/ndip/NDIP-3/evidence/b4-bookkeeping-results.json`. Full business
 record ownership, reserve sizing and protected incarnation lifecycle remain B4
 work; actual C4 inventory/atomic Store/recovery and deletion are not implemented.
 
+B4 now includes one frozen payload owner per Message ID (NV 32 / meta 19).
+The original Target incarnation, tenant and accounting artifact survive generation
+changes; reservation/active/retained/released transitions move one payload charge.
+Full initial binding and Message identity checks reject source metadata mismatches
+and uncommitted objects; every transition requires complete source/ledger authority.
+Release requires the latest owner Floor plus actual reference/writer/deletion
+protection, and leaves the separate STATE record fee charged until actual deletion.
+The payload full check passed 1987 Java tests, zero failures/errors, 41 external
+skips; all 121 quota cases, including 16 new payload tests, passed without skips.
+Thirty-eight independent vector entries, all 302 JUnit XML files and 1166 unchanged
+inputs are bound by `docs/ndip/NDIP-3/evidence/b4-payload-results.json`.
+B4 remains IN_PROGRESS for remaining business owners/ledgers, full reserve sizing,
+unique cardinality and incarnation lifecycle; actual C4 backends remain required.
+
 No active Target scheduling runtime, Broker certification or migration is claimed yet. The user authorized
 full implementation and incremental publication on main. NDIP-1 remains closed;
 its historical evidence does not certify changed runtime source.

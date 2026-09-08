@@ -212,3 +212,13 @@ actual deletion. Attempt budget record storage remains with its frozen Target
 owner outside its internal reserve, even in RELEASED. The actual aggregate must
 match the root incarnation and source stamps. No active reader/writer or CF is
 changed; C4 still owns atomic inventory integration and independent recovery.
+
+B4 reserves a unique Message payload owner at meta tag 19 / NV 32:
+`19 01 | DelayMessageId[41]` (43 bytes). The original Target incarnation,
+tenant and complete accounting artifact remain frozen across generations.
+Reservation, active, retained and released phases move one payload charge;
+attempt execution budgets do not duplicate it. The owner's STATE record fee
+persists after payload release until protected actual record deletion. Complete
+binding/source/object identities and mandatory transition authority are required.
+The codec does not activate a reader/writer, add a CF or certify Store recovery.
+See NDIP-3 quota contract section 13 for the closed field table and obligations.

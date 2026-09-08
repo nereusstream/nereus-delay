@@ -1,6 +1,6 @@
 # NDIP-3 B4：局部 Quota 与增量计费契约
 
-状态：**IN_PROGRESS / counter、计量、attempt reserve、跨 incarnation 总额、grant 激活与 bookkeeping 预留契约已实现，B4 尚未冻结验收**。
+状态：**IN_PROGRESS / counter、计量、attempt reserve、跨 incarnation 总额、grant 激活、bookkeeping 预留与唯一 payload owner 契约已实现，B4 尚未冻结验收**。
 本页与原设计 §11.1、§16.6、§17.3 的 B4 合读。它定义已落到代码的 counter 字段与
 局部计算边界；逐项业务 owner、完整计量/grant 关联和恢复来源闭合后才办理
 B4 VERIFIED。当前 Lane writer、ValueEnvelope 的既有 reader 与持久 quota map 未改动。
@@ -163,7 +163,7 @@ identity 的所有 tenant 资源维度之和不能超过主费用。共享 metad
 - §7 已实现固定计量 artifact，§8 已实现 attempt reserve 转实占；仍须闭合每类真实
   业务 record 的唯一 owner；§12 已固定 counter/budget 自身 bookkeeping 与相关共享投影的费用来源。
 - §9 已列原 §17.3 的完整业务 delta 表；继续绑定每行的完整 before/after ledger、
-  非 attempt 的 payload/identity 保护与结果/控制记录来源，避免只由方法参数声明费用。
+  §13 的 payload owner 与真实业务记录之间的 before/after 关联、identity 保护和结果/控制记录来源，避免只由方法参数声明费用。
 - §10–§11 已定义 cardinality/grant artifact、跨 incarnation 总额和认证 source/control
   激活契约；仍须闭合 tenant Target/domain 计数来源、incarnation 分配/退休证明
   以及独立账本所有权交接的精确规则，保证不会因多个 Profile/domain 复制 grant。
@@ -743,3 +743,114 @@ activation 记录，包括退休与零 usage 记录；检查完整 source/tenant
 业务 usage、source 顺序或完整 Store 恢复正确。本批没有生产 inventory reader、原子
 writer 或受保护删除实现。其余业务记录 owner、payload/identity 保护与 incarnation
 分配/退休仍按 B4 原验收闭合，不以本锚点代替。
+
+
+## 13. 唯一 Message payload owner
+
+`TargetQuotaPayloadOwner` schema 1，预留 **NV 32 / meta tag 19（十六进制）**，key：
+`19 01 | DelayMessageId[41]`，共 43 bytes。每个 Message identity 只有一个 owner，不包含
+current generation、PublishAttemptId 或 Profile。现有 DLQ replay 沿用 Message ID 并推进
+generation；payload 费用不能随 replay、Claim、Admission 或每个旧 attempt 复制。
+
+### 13.1 冻结身份与完整字段
+
+| field | exact 内容 |
+|---:|---|
+| 1 | schema=1 |
+| 2 | 完整 DelayMessageId[41] |
+| 3 | 完整原始 TARGET primary identity，包含原 accounting incarnation/Shard/Target |
+| 4 | 非零已认证 tenantRoutingScope[32] |
+| 5 | 完整冻结 TargetQuotaAccounting artifact |
+| 6 | 原始完整 TargetScheduleBinding 的非零 digest[32] |
+| 7 | kind：INLINE=1、OBJECT=2 |
+| 8 | 非负 payload length，OBJECT 上限 Long.MAX_VALUE；INLINE 上限 16 MiB |
+| 9 | payload SHA-256[32]；这是内容摘要，不把全零值当成缺失标记 |
+| 10 | OBJECT 必填非零 reservationId[32]；INLINE absent |
+| 11 | OBJECT 必填非零 objectStoreProfileHash[32]；INLINE absent |
+| 12 | 可选完整 committed PayloadReference（wire version=2），四个身份 component 各至多 1 MiB |
+| 13 | phase：RESERVED=1、ACTIVE=2、RETAINED=3、RELEASED=4 |
+| 14 | 非零 raw uint64 local revision；不得超过完整 mutation sequence，耗尽拒绝 |
+| 15 | 完整 TargetQuotaMutation，保留 source 与精确已接受 body 的 digest |
+| 16 | 非零冻结 recoveryLineage[16] |
+| 17 | RELEASED 必填非零 releaseFloorDigest[32]，其它 phase absent |
+| 18 | `nereus-delay-target-quota-payload-owner\0` + fields 1–17 的 SHA-256 |
+
+字段 presence、wire type、版本/枚举、排序、digest 与重编码必须全部匹配。Owner 只能是
+TARGET；Message、owner、mutation 的 Shard 相同。Store decoder 另验证完整 key 与
+已认证 tenant；codec 不由 tenant hash 或 source DTO 推导授权。Kind/phase 使用显式
+wire number，不依赖 Java enum ordinal。最大 schema envelope 同时包含完整有界 Source
+与完整 object reference；独立 Python 的最大样本只证明结构/编码上界，不证明实际已
+认证过的 binding、物理 grant 或可执行 mutation trace。
+
+第一次 Schedule 从完整 binding 的 inline bytes 计算长度/SHA，或保留完整 committed
+object identity。第一次 Prepare 从完整 Prepare body 取得预期长度/SHA/Profile；
+reservationId 必须由真实已认证 Prepare/receipt authority 提供。两者必须与 allocation
+stamp 的**完整 binding source bytes**相同，不能只比 offset。Factory 之前 C4 仍须执行
+source/Command 去重、tenant/grant 检查、ReservationReceipt/commit proof 及 Store
+存在性检查。Decoder 或 factory 返回对象不是一次已经完成的资源分配。
+
+`requireInitialBinding` 重验原始 Message/Target/incarnation、完整 binding digest、
+Prepare 意图或实际 Schedule payload；binding source 不晚于 owner 最新 source，相同
+位置必须连 epoch/timestamp 等完整元数据也相同。Prepare 的 reservationId 另由实际
+receipt 验证。`requireMessagePayload` 要求 Message ID/Target、长度、inline SHA 或完整
+object reference 一致；RESERVED、RELEASED 和未提交 object 不可伪装成可读取 Message。
+它单独验证 payload 身份，当前 generation/state/执行与 grant 权限由实际 committer 检查。
+
+### 13.2 费用、转换与存量保护
+
+| phase / 动作 | payload 费用 | 必须保持的条件 |
+|---|---|---|
+| INLINE/已提交 OBJECT Schedule → ACTIVE | 1/2：一条 active message + 冻结 bytes | 原始完整 binding/commit proof 已认证 |
+| Prepare → RESERVED | 5/6：一条 reservation + 冻结 bytes | 无 committed reference，真实 reservation 归属 |
+| RESERVED commit → ACTIVE | 释放 5/6，增加 1/2 | 完整 reference 的 length/SHA/reservation/Profile 精确匹配 |
+| ACTIVE 或 RESERVED → RETAINED | 释放原 bucket，增加 4 | terminal/expire 的真实 source 与业务 ledger 支持；未提交对象仍按预留量保守持有 |
+| RETAINED DLQ replay → ACTIVE | 释放 4，增加 1/2 | 必须存在原 inline 或完整 committed object；未提交过期 reservation 不可 replay |
+| RETAINED → RELEASED | 释放 4 | 最新引用/写入者、Floor、retention 和实际删除权威全部允许 |
+
+RELEASED 不可重入其它阶段。所有转换要求同一物理 Source 的 source position 与 raw
+sequence 严格前进，并独立递增 owner revision。转换后的完整 owner 交给强制
+`TransitionAuthority` 验证；异常包括 fatal Error 原样传播，不返回成功 next。生产
+没有默认 allow/no-op authority。此接口要求完整已接受 source body 与真实 before/after
+ledger、grant、保护状态，且检查在同一 Store guard 到 commit 期间仍有效；测试回调
+不是生产 authority backend。一次恢复解码不允许跳过完整账本验证后直接使用费用。
+
+Payload owner **不含 inline 副本**，仅持有其长度/摘要；object 持有完整不可变身份。
+其 NV record 单独按 STATE 维度 3 计一次实际
+`key length + canonical owner length + 12 + frozen recordOverhead`。它不嵌入 usage，
+没有递归计量。Owner 每次只在 payload 生命周期转换时写入，Claim/Admission/Reschedule
+不改它；attempt 的执行 7/8 和 reserve 继续由独立 budget 持有。零 bytes 的 ACTIVE
+仍占一条 message；零 bytes RETAINED 仍有 owner record 费用。
+
+原 Target/accounting incarnation、tenant 和 artifact 跨 generation 冻结，不能因
+DLQ replay、Profile/grant 更新或当前 Message locator 使用新 incarnation 而重定价、
+重新获得 payload cap。Tenant mirror 与原 primary 同额，aggregate/跨 incarnation
+Target total 只计 primary。当前 generation 的 attempt 使用其自己的冻结预算。该 helper
+不授权 retarget/migration 或免除新 DLQ ingress grant；C4/B6 必须证明合法代际关联。
+
+### 13.3 Release、记录删除与容量边界
+
+Payload release 的 Floor lineage 必须匹配；完整 applied Source 与 sequence 覆盖
+owner **最新** mutation，两者相对顺序一致，同位置还须完整 bytes 相同。Floor 又必须
+严格早于本次 release source/sequence。除此以外，真实 authority 须在提交期间证明
+latest payload references、所有 generation 的旧 attempt/writer、catalog ancestry、
+query/replay/retention、pins 及实际 provider/Store 删除完成或有等效权威证明。只覆盖
+owner mutation 的 Floor 不能替代仍在引用 payload 的其它账本的保护证明。
+
+RELEASED 后 owner NV record 继续计 STATE，直到其最新 RELEASED mutation 及所有身份/
+重放保护也允许真实删除，再与原 owner/mirror/total/aggregate 减额同批。不能用
+`payloadCharge()==0` 提前退休 accounting incarnation 或丢失 dedupe/旧 source 义务。
+初始 binding 验证是现存账本核对入口，不要求已受保护删除的初始 binding 永久重建；
+其删除仍须满足自身的身份/重放保护，保留 owner 的 accounting 与 release proof。
+
+现有 Message 与原始 Schedule binding 可能保存 literal inline bytes，source/结果/
+evidence 也可能保留 payload 内容。这些已编码副本继续按各自唯一 record/WAL 类计费，
+不能成为 RELEASED 后未重新授权的 payload fetch/replay 来源。Release 关闭应用 payload
+读取/重放权并完成实际 primary Message/provider 清理，不表示所有历史证据 bytes 已
+物理抹除。不得把 Message payload 替换成伪造空 bytes 绕过身份或存储计量。
+
+Commit 增加完整 object reference、后续 source/revision/Floor 变长，会增加 owner record
+费用。首次 Schedule/Prepare 必须为已承诺后续动作保留足够 metadata/physical/outcome
+容量，grant 下调不能卡死存量 commit/terminal。完整有限 reserve sizing、其它业务记录
+owner/实际 before-after ledger、tenant/domain unique cardinality、incarnation 分配/退休与
+legacy handover 仍在 B4 §6 中闭合。本批没有把这些设计缺口交给 C4 临时猜测；C4 负责
+冻结契约后的真实 authority backend、原子写、独立恢复与受保护删除。

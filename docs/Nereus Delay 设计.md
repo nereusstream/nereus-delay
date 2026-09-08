@@ -6054,3 +6054,12 @@ B4 进一步固定 accounting projection 自身的有限存储预留（NV 31/met
 [B4 §12](ndip/NDIP-3/11-局部Quota与增量计费契约.md#12-accounting-projection-自身的固定存储预留)。
 普通业务记录的 owner、payload/identity 保护及 incarnation 分配/退休仍须闭合，B4 保持
 IN_PROGRESS；C4 实际 writer、物理池与 Store 恢复尚未由这些契约认证。
+
+B4 已进一步固定唯一 Message payload owner（NV 32/meta 19，43-byte key）。原始
+Target/incarnation/tenant/计量 artifact 跨 DLQ generation 保留，reservation→active→retained→
+released 只迁移一次 payload 费用；Claim/Admission 不复制它。完整初始 binding、object
+commit identity 与 source 顺序均须匹配；释放还需最新引用/Floor/写入者与实际删除权威。
+Owner 记录本身在 RELEASED 后仍按 STATE 计费。完整规则与尚未闭合的 metadata reserve、
+其它 record owner 和 incarnation 保护见
+[B4 §13](ndip/NDIP-3/11-局部Quota与增量计费契约.md#13-唯一-message-payload-owner)。
+这是一组计量/生命周期契约；C4 的真实 backend、原子写、恢复与删除责任仍保留。
