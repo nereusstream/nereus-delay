@@ -194,6 +194,23 @@ public final class ShardStore implements AutoCloseable {
 
     public static ShardStore open(
             final ShardStoreConfig config, final ShardId shardId, final SharedRocksDbResources resources) {
+        return openFormat(config, shardId, resources, 1);
+    }
+
+    /**
+     * Opens an explicitly selected Target-format Store. This never converts a Lane Store in place.
+     * Worker activation, migration authorization and recovery certification remain separate gates.
+     */
+    public static ShardStore openTarget(
+            final ShardStoreConfig config, final ShardId shardId, final SharedRocksDbResources resources) {
+        return openFormat(config, shardId, resources, 2);
+    }
+
+    private static ShardStore openFormat(
+            final ShardStoreConfig config,
+            final ShardId shardId,
+            final SharedRocksDbResources resources,
+            final int expectedFormat) {
         Objects.requireNonNull(config, "config");
         Objects.requireNonNull(shardId, "shardId");
         Objects.requireNonNull(resources, "resources");
@@ -201,7 +218,7 @@ public final class ShardStore implements AutoCloseable {
         try {
             final Path shardRoot = prepareShardRoot(config, shardId);
             final Path dbPath = locateOrCreateDbPath(shardRoot);
-            final ShardStore opened = openAtPath(config, shardId, dbPath, resources, null, true, true);
+            final ShardStore opened = openAtPath(config, shardId, dbPath, resources, null, true, true, expectedFormat);
             try {
                 // A fresh/opened Store Incarnation must be durable before the
                 // checksummed ACTIVE pointer publishes it. This also covers
@@ -1117,6 +1134,20 @@ public final class ShardStore implements AutoCloseable {
             final boolean acquireOwnedSlot,
             final boolean publishOpenMarkers)
             throws IOException, RocksDBException {
+        return openAtPath(
+                config, shardId, dbPath, resources, restoreStoreIncarnation, acquireOwnedSlot, publishOpenMarkers, 1);
+    }
+
+    private static ShardStore openAtPath(
+            final ShardStoreConfig config,
+            final ShardId shardId,
+            final Path dbPath,
+            final SharedRocksDbResources resources,
+            final UUID restoreStoreIncarnation,
+            final boolean acquireOwnedSlot,
+            final boolean publishOpenMarkers,
+            final int expectedFormat)
+            throws IOException, RocksDBException {
         resources.requireConfig(config);
         boolean acquireSlotAcquired = false;
         boolean ownedSlotAcquired = false;
@@ -1132,7 +1163,14 @@ public final class ShardStore implements AutoCloseable {
             resources.acquireDbSlot();
             dbSlotAcquired = true;
             opened = openAtPathWithSlot(
-                    config, shardId, dbPath, resources, restoreStoreIncarnation, acquireOwnedSlot, publishOpenMarkers);
+                    config,
+                    shardId,
+                    dbPath,
+                    resources,
+                    restoreStoreIncarnation,
+                    acquireOwnedSlot,
+                    publishOpenMarkers,
+                    expectedFormat);
             resources.releaseShardAcquireSlot();
             acquireSlotAcquired = false;
             return opened;
@@ -1202,7 +1240,8 @@ public final class ShardStore implements AutoCloseable {
             final SharedRocksDbResources resources,
             final UUID restoreStoreIncarnation,
             final boolean ownsShardSlot,
-            final boolean publishOpenMarkers)
+            final boolean publishOpenMarkers,
+            final int expectedFormat)
             throws IOException, RocksDBException {
         // Files.createDirectories(dbPath) follows a symlink in any missing
         // parent component. That would let a raced or pre-planted
@@ -1286,7 +1325,7 @@ public final class ShardStore implements AutoCloseable {
                         .putLong(storeUuid.getLeastSignificantBits())
                         .array();
                 final StoreMetadata created = new StoreMetadata(
-                        1,
+                        expectedFormat,
                         shardId,
                         storeIncarnation,
                         Bytes.sha256(Bytes.concat(
@@ -1299,7 +1338,7 @@ public final class ShardStore implements AutoCloseable {
                     batch.put(
                             handles.get(ColumnFamily.META),
                             KeyCodec.metaFixed(META_STORE_FORMAT),
-                            ValueEnvelope.encode(META_FIXED_VALUE_TYPE, Bytes.u32be(1)));
+                            ValueEnvelope.encode(META_FIXED_VALUE_TYPE, Bytes.u32be(expectedFormat)));
                     batch.put(
                             handles.get(ColumnFamily.META),
                             KeyCodec.metaFixed(META_SHARD_IDENTITY),
@@ -1319,6 +1358,13 @@ public final class ShardStore implements AutoCloseable {
                             + pathStoreIncarnation + " got " + metadata.storeIncarnationUuid());
                 }
             }
+            final byte[] format = optionalFixedValue(db, handles.get(ColumnFamily.META), META_STORE_FORMAT);
+            if (metadata.storeFormatVersion() != expectedFormat
+                    || format == null
+                    || format.length != Integer.BYTES
+                    || Bytes.readU32be(format, 0) != expectedFormat) {
+                throw new IllegalStateException("Store format does not match the explicitly selected reader");
+            }
             if (restoreStoreIncarnation != null && identityBytes != null) {
                 final byte[] storeIncarnation = uuidBytes(restoreStoreIncarnation);
                 final StoreMetadata restored = new StoreMetadata(
@@ -1332,10 +1378,6 @@ public final class ShardStore implements AutoCloseable {
                     db.write(writeOptions, batch);
                 }
                 metadata = restored;
-            }
-            final byte[] format = optionalFixedValue(db, handles.get(ColumnFamily.META), META_STORE_FORMAT);
-            if (format == null || format.length != Integer.BYTES || Bytes.readU32be(format, 0) != 1) {
-                throw new IllegalStateException("missing or unsupported store format marker");
             }
             final byte[] controlSnapshotBytes =
                     optionalFixedValue(db, handles.get(ColumnFamily.META), META_CONTROL_SNAPSHOT);

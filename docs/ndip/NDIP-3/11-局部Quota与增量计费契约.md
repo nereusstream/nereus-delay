@@ -1537,3 +1537,30 @@ artifact 的对象同一性误用：相同 canonical artifact 现在按值比较
 本批完善 B4 的结果账本重建契约，并修复已存在的 decoded-owner 比较缺陷。C4 仍须
 实现实际完整 snapshot traversal/guard、跨所有账本的精确相等、恢复发布和故障验证；
 B4 其它 owners/reserves/交接配方与原验收、A2/E6 资源证明及 D/E/F 均继续保留。
+
+
+## 22. 实际 Store 提交后端与独立遍历
+
+TargetStoreBackend 已将 quota/total 的精确 prior 校验接到真实 ShardStore 读取。
+prepare 在同一 ReadView 和 BoundedReadBudget 内完成所有依赖读取、完整 business
+before 比较及写集计量；不存在运行时全 counter 扫描。源 Shard/tenant 与 aggregate
+accounting incarnation 精确绑定，非空 source 缺少 aggregate 必须失败。
+
+普通 Edit 只能修改已注册 Target namespace/type，不能重写固定 Store metadata 或
+由后端统一生成的 leaf/total/aggregate。完整 canonical 业务语义及费用来源仍须由
+实际 mutation planner 与 CommitAuthority 证明，NV/type 校验本身不承担该证明。
+每个 batch 精确累加 key + 完整 NV after（delete 只计 key）；这是 encoded-write
+预算，RocksDB WAL/SST 放大、RSS 和总操作成本仍属 A2/E6。
+
+commit 一次性消费绑定该 backend 的 Prepared，取得跨 native commit 有效的实际
+CommitGuard，在同一 Store view 下写业务 + touched counter/mirror + affected
+Target totals + aggregate。source 变更追加 META fixed 3/5；local Claim/revoke 不
+改 source/sequence。失败不发布 in-memory 状态；native uncertain write 沿用 Store
+已有重开 fence。调用者不得在 exception 后猜测成功或重试旧 Prepared。
+
+实际结果审计遍历完整 DEDUPE [06,0a) 并要求 RANGE_END，同视图读取精确 owner。
+结果数、结果/descriptor bytes 与共享读取 record/bytes/time 均有限。返回的
+AuditedResults 是 backend 私有绑定对象；后续发布必须再次校验 ReadView/authority。
+该实现完成 §21 的实际结果 traversal 子项，不能替代其它账本独立重建、全部精确
+counter equality、Owner/Store 激活及故障恢复证明。首次 root/bootstrap 与完整 Claim/
+outbox/shared owners、其它 mutation、C5 Worker 装配和 F 工具仍须继续实现。

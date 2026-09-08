@@ -1,5 +1,15 @@
 # Nereus Delay Implementation Status
 
+> **当前执行阶段：先完成全部实际运行代码，最后集中测试（用户于 2026-09-08 调整）。**
+> 保持当前模型、单 agent、直接 main、分阶段 scoped commit/push。先贯通原 29 切片的
+> 代码、运行路径装配、配置及迁移/清退工具；完整回归、真实 Broker、性能、故障恢复
+> 和依赖验证的实际迁移/清退，留待用户切换模型后集中执行。当前只保留编译、格式/
+> 文档一致性和影响开发正确性的最小局部检查；不需要现在确认或切换模型。
+> 原目标总范围不变，实现状态与验证状态分别记录；未验证实现不得标记 VERIFIED、
+> 提案治理 Implemented 或方案完成。
+
+[原 29 切片集中验证交接清单](ndip/NDIP-3/12-集中验证交接清单.md)
+
 Spec revision: `DESIGN-BASELINE-2026-08-25`
 
 This file records implementation evidence. It does not relax or replace the
@@ -252,6 +262,20 @@ external skips. All 229 quota/result focused tests passed without skips, includi
 B4 remains IN_PROGRESS with other business owners, full reserves, handover recipes
 and original acceptance open. C4 actual Store traversal/guards, cross-ledger exact
 recovery and atomic runtime integration plus D/E/F verification remain required.
+
+NDIP-3 now follows the user-requested implementation-first sequence. All 29
+slices remain in scope; full regression, real Broker, performance/fault/recovery
+validation and actual protected migration/retirement wait for the final user model
+switch. progress.json separates implementation and validation status; historical
+VERIFIED entries apply only to their source-bound original scope.
+C4/C5 now include a real format 2 Store open path, guarded atomic business/quota/
+total/aggregate/source writes and complete bounded result-range traversal. Shared
+ShardStore/StoreMetadata changed, so prior runtime evidence does not certify this
+source. Compilation and two minimal Store development smoke cases are the only
+new Java validation in this batch. Worker composition, full business authority,
+all-ledger recovery, Target checkpoint/restore and migration remain unfinished.
+Detailed cases, commands, environments and invariants are tracked in
+`docs/ndip/NDIP-3/12-集中验证交接清单.md`.
 
 No active Target scheduling runtime, Broker certification or migration is claimed yet. The user authorized
 full implementation and incremental publication on main. NDIP-1 remains closed;

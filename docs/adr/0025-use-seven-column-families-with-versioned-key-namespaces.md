@@ -284,3 +284,16 @@ history are checked before primary and tenant subtotals are returned. Accounting
 artifacts compare by canonical value across independent decodes. This adds no CF,
 namespace or writer; actual complete Store traversal and full-ledger recovery
 remain separate C4 obligations.
+
+
+The implementation-first NDIP-3 batch adds an explicit format 2 open path and a
+real Target Store transaction adapter. Default open and existing recovery paths
+still require format 1; the selected reader rejects a foreign durable format before
+rewriting Store identity. The seven CFs remain unchanged. Target NV supports the
+registered types through 35 while the Lane NV reader retains its closed 1–11 set.
+Business edits, local counters, Target totals, aggregate and source advancement
+now share a guarded synchronous RocksDB batch. Complete result-range traversal
+uses the same bounded Store view as its META dependencies. Production Worker
+composition, complete business authority, all-ledger recovery and Target checkpoint
+restore remain unfinished. Historical receipts do not certify these shared Store
+changes; centralized validation follows implementation completion.

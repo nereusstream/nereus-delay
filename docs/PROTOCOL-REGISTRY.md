@@ -2037,8 +2037,10 @@ BrokerResourceIdentity，加入物理 uint32 partition；SHA-256 域为
 预留 timeline tag `08 TARGET_DUE`、`09 TARGET_NATIVE`、`0a TARGET_EXPIRY` 和
 meta tag `09 TARGET_STATE`，key format=1；候选的 slot:u16/domainGeneration:u64
 从基础单域起即存在。Lane NATIVE tag 07 已由 NDIP-1 使用，不能重分配。
-预留 storeFormatVersion=2 为 Target 数据的拒绝边界；当前 writer/reader 仍为 format 1，
-codec 存在不授予新格式写入、Accepted、迁移或 production authority。queue/domain/head
+storeFormatVersion=2 为 Target 数据的显式 reader/writer 边界；ShardStore.openTarget
+已能创建/打开该格式，默认 open 与现有恢复入口仍选 format 1，拒绝跨格式原地打开。
+TargetValueEnvelope 支持已注册 NV 1–35，旧 ValueEnvelope 仍只允许 1–11。实际 Worker
+Target activation、迁移及 production authority 尚未提供；显式打开不替代这些权威。queue/domain/head
 及严格顺序 key 的固定内容见下一节；work/locator/Message/runtime/Expiry/ORDER_STATE 见后续小节，B2–B4 引用仍待闭合。
 
 
@@ -2335,3 +2337,9 @@ B4 对现有 NV 35/DEDUPE 06–09 增加独立结果账本恢复核对（quota �
 position/digest 及物理事件唯一性均核对，未读 counter 作为输入。Accounting artifact
 按完整 canonical bytes 比较，修复独立解码后的 owner 误拒绝。实际 snapshot 完整性
 与全账本恢复仍需 C4，不由该小计授权。
+
+TargetStoreBackend 已实现受同一 ReadView/CommitGuard 保护的实际 RocksDB batch，
+业务 Edit 不得写 backend-owned fixed metadata/counter/total/aggregate keys；源操作
+同批更新 fixed META 3/5，本地 Claim 不改 source。结果完整范围 [06,0a) 的恢复遍历
+已接实际 Store，仍须实际 Owner/Route/Store authority 和其它账本核对。详见 quota
+§22；实现/验证双状态与最后集中验证安排见 NDIP-3/12，不从实现存在推导认证。

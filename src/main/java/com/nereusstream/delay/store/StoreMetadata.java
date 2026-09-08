@@ -9,7 +9,7 @@ import java.util.UUID;
 /** Durable identity written before a shard DB is exposed to command application. */
 public record StoreMetadata(int storeFormatVersion, ShardId shardId, byte[] storeIncarnation, byte[] dbIdentity) {
     public StoreMetadata {
-        if (storeFormatVersion != 1) {
+        if (storeFormatVersion != 1 && storeFormatVersion != 2) {
             throw new IllegalArgumentException("unsupported store format version");
         }
         requireNonZero(storeIncarnation, 16, "storeIncarnation");

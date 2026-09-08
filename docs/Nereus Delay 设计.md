@@ -6115,3 +6115,10 @@ NDIP-3 B4 结果账本可从完整 record bytes 与原 descriptor 独立重建�
 引用和 source 历史，见 quota §21；小计不替代全部账本相等核对。独立解码暴露并修复
 accounting artifact 缺少值相等语义的问题，避免相同持久 bytes 的 Claim/结果被误判
 owner 不同。实际完整 Store snapshot/guard、恢复发布及 D/E/F 仍需接入验证。
+
+
+NDIP-3 执行顺序已改为先贯通全部实现、最后由用户切换模型集中验证。当前加入显式
+Target Store format 2 入口及真实 guarded batch/结果范围审计后端；默认 Lane 入口
+保留格式隔离。源码变更涉及共享 ShardStore/StoreMetadata，旧验证只对原源码有效。
+实际 Worker/完整业务 authority、全账本恢复、checkpoint/migration 和后续 C/E/F
+继续实现；进度及原 29 切片的具体验证交接见 NDIP-3/12-集中验证交接清单.md。

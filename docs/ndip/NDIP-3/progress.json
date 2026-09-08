@@ -9,7 +9,10 @@
       "status": "VERIFIED",
       "evidence": [
         "evidence/a0-baseline.json"
-      ]
+      ],
+      "implementationStatus": "IMPLEMENTED",
+      "validationStatus": "HISTORICAL_SOURCE_BOUND",
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
     },
     {
       "id": "A1",
@@ -18,7 +21,10 @@
       "evidence": [
         "evidence/a1-results.json",
         "evidence/a1-check.log"
-      ]
+      ],
+      "implementationStatus": "IMPLEMENTED",
+      "validationStatus": "HISTORICAL_SOURCE_BOUND",
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
     },
     {
       "id": "A2",
@@ -32,13 +38,19 @@
         "evidence/a2-head-integration-results.json",
         "evidence/a2-head-integration-check.log"
       ],
-      "progress": "Shared READY discovery and head mutation/control/Claim plans, pre-batch view guards, source/recovery zero-write retries and consecutive elapsed diagnostics verified. Maximum legal mutation envelope and mandatory finite production activation remain pending; compatibility constructors are not certified."
+      "progress": "Shared READY discovery and head mutation/control/Claim plans, pre-batch view guards, source/recovery zero-write retries and consecutive elapsed diagnostics verified. Maximum legal mutation envelope and mandatory finite production activation remain pending; compatibility constructors are not certified.",
+      "implementationStatus": "IN_PROGRESS",
+      "validationStatus": "PENDING_CENTRAL_VALIDATION",
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
     },
     {
       "id": "A3",
       "title": "审计及失败恢复",
       "status": "PLANNED",
-      "evidence": []
+      "evidence": [],
+      "implementationStatus": "NOT_STARTED",
+      "validationStatus": "PENDING_CENTRAL_VALIDATION",
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
     },
     {
       "id": "B1",
@@ -57,7 +69,10 @@
         "evidence/b1-order-state-check.log",
         "evidence/b1-final-docs-check.log"
       ],
-      "progress": "Original B1 identity/storage acceptance verified: canonical physical identity, complete candidate/strict keys and bounded queue/domain/head/work/Message/runtime/Expiry/ORDER_STATE codecs, independent vectors and baseline reader refusal. Full check: 1780 Java tests, 0 failures/errors, 41 external skips; 70 Target tests without skips. B2-B6 reference/behavior contracts, C1/E5 atomic mutation/activation and B6/F1 migration retain their original slice ownership; B1 verification is not package acceptance or runtime/Broker certification."
+      "progress": "Original B1 identity/storage acceptance verified: canonical physical identity, complete candidate/strict keys and bounded queue/domain/head/work/Message/runtime/Expiry/ORDER_STATE codecs, independent vectors and baseline reader refusal. Full check: 1780 Java tests, 0 failures/errors, 41 external skips; 70 Target tests without skips. B2-B6 reference/behavior contracts, C1/E5 atomic mutation/activation and B6/F1 migration retain their original slice ownership; B1 verification is not package acceptance or runtime/Broker certification.",
+      "implementationStatus": "IMPLEMENTED",
+      "validationStatus": "HISTORICAL_SOURCE_BOUND",
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
     },
     {
       "id": "B2",
@@ -76,7 +91,10 @@
         "evidence/b2-membership-control-check.log",
         "evidence/b2-membership-control-final-docs-check.log"
       ],
-      "progress": "Original section 17.3 B2 design/contract acceptance verified: compatibility/co-queue matrix, bounded base/K domain layout, exact Schedule/channel/grant/policy records, frozen attempts/teardown rules, authenticated registered grant/closure Control wire and source-snapshot verifier, stable rejection timing/codes and capability matrix. Full check: 1846 Java tests, 0 failures/errors, 41 external skips; 136 Target contract tests without skips. C1 protected authority backend assembly, Result-first replay and atomic state/Result/SourceAdvance, C2 actual pools/teardown, B3-B7 and all D/E/F implementation/evidence remain required. No active Target runtime, package acceptance or Broker certification."
+      "progress": "Original section 17.3 B2 design/contract acceptance verified: compatibility/co-queue matrix, bounded base/K domain layout, exact Schedule/channel/grant/policy records, frozen attempts/teardown rules, authenticated registered grant/closure Control wire and source-snapshot verifier, stable rejection timing/codes and capability matrix. Full check: 1846 Java tests, 0 failures/errors, 41 external skips; 136 Target contract tests without skips. C1 protected authority backend assembly, Result-first replay and atomic state/Result/SourceAdvance, C2 actual pools/teardown, B3-B7 and all D/E/F implementation/evidence remain required. No active Target runtime, package acceptance or Broker certification.",
+      "implementationStatus": "IMPLEMENTED",
+      "validationStatus": "HISTORICAL_SOURCE_BOUND",
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
     },
     {
       "id": "B3",
@@ -88,7 +106,10 @@
         "evidence/b3-final-docs-check.log",
         "evidence/b3-junit.zip"
       ],
-      "progress": "Original section 17.3 B3 design/contract acceptance verified: complete common Native scope/artifact, independent snapshot/head/signature, authenticated publisher/member and full source activation projections, fixed cap/ordinary fallback, Mode/UTC state table, CAS lease high-water and exact current-to-frozen Admission/ownership policy checks. Full check: 1866 Java tests, 0 failures/errors, 41 external skips; 156 Target contract tests without skips; all JUnit XML archived. C1/C2 production backends, source/Claim/Admission/ownership assembly and B6/F1 transition, B4-B7 and all D/E/F evidence remain required. No active Target runtime, package acceptance or Broker certification."
+      "progress": "Original section 17.3 B3 design/contract acceptance verified: complete common Native scope/artifact, independent snapshot/head/signature, authenticated publisher/member and full source activation projections, fixed cap/ordinary fallback, Mode/UTC state table, CAS lease high-water and exact current-to-frozen Admission/ownership policy checks. Full check: 1866 Java tests, 0 failures/errors, 41 external skips; 156 Target contract tests without skips; all JUnit XML archived. C1/C2 production backends, source/Claim/Admission/ownership assembly and B6/F1 transition, B4-B7 and all D/E/F evidence remain required. No active Target runtime, package acceptance or Broker certification.",
+      "implementationStatus": "IMPLEMENTED",
+      "validationStatus": "HISTORICAL_SOURCE_BOUND",
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
     },
     {
       "id": "B4",
@@ -156,133 +177,228 @@
         "evidence/b4-result-audit-final-docs.log",
         "evidence/b4-result-audit-junit.zip"
       ],
-      "progress": "Independent bounded Target result ledger audit now validates actual canonical records, owner descriptors, source history and first references, then rebuilds primary/tenant contributions without counter inputs. Actual snapshot completeness remains mandatory. Canonical accounting value equality fixes independently decoded Claim/result ownership checks without changing prior wire bytes. Latest full check: 2095 Java tests, zero failures/errors, 41 external skips; all 229 quota/result focused tests without skips, 13 new. B4 remains incomplete: other business owners, full reserves, bootstrap/rotation/handover and original acceptance. C4 actual Store guards/traversal, cross-ledger exact recovery and atomic runtime plus D/E/F obligations remain."
+      "progress": "Independent bounded Target result ledger audit now validates actual canonical records, owner descriptors, source history and first references, then rebuilds primary/tenant contributions without counter inputs. Actual snapshot completeness remains mandatory. Canonical accounting value equality fixes independently decoded Claim/result ownership checks without changing prior wire bytes. Latest full check: 2095 Java tests, zero failures/errors, 41 external skips; all 229 quota/result focused tests without skips, 13 new. B4 remains incomplete: other business owners, full reserves, bootstrap/rotation/handover and original acceptance. C4 actual Store guards/traversal, cross-ledger exact recovery and atomic runtime plus D/E/F obligations remain.",
+      "implementationStatus": "IN_PROGRESS",
+      "validationStatus": "PENDING_CENTRAL_VALIDATION",
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
     },
     {
       "id": "B5",
       "title": "公平性唤醒和后续语义",
       "status": "PLANNED",
-      "evidence": []
+      "evidence": [],
+      "implementationStatus": "NOT_STARTED",
+      "validationStatus": "PENDING_CENTRAL_VALIDATION",
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
     },
     {
       "id": "B6",
       "title": "迁移旧 source replay 与回滚",
       "status": "PLANNED",
-      "evidence": []
+      "evidence": [],
+      "implementationStatus": "NOT_STARTED",
+      "validationStatus": "PENDING_CENTRAL_VALIDATION",
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
     },
     {
       "id": "B7",
       "title": "NDIP 规范 golden gate 闭合",
       "status": "PLANNED",
-      "evidence": []
+      "evidence": [],
+      "implementationStatus": "NOT_STARTED",
+      "validationStatus": "PENDING_CENTRAL_VALIDATION",
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
     },
     {
       "id": "C1",
       "title": "Target 持久投影与全部 mutation",
       "status": "PLANNED",
-      "evidence": []
+      "evidence": [],
+      "implementationStatus": "NOT_STARTED",
+      "validationStatus": "PENDING_CENTRAL_VALIDATION",
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
     },
     {
       "id": "C2",
       "title": "Worker 调度和兼容通道",
       "status": "PLANNED",
-      "evidence": []
+      "evidence": [],
+      "implementationStatus": "NOT_STARTED",
+      "validationStatus": "PENDING_CENTRAL_VALIDATION",
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
     },
     {
       "id": "C3",
       "title": "移除高频公平性写",
       "status": "PLANNED",
-      "evidence": []
+      "evidence": [],
+      "implementationStatus": "NOT_STARTED",
+      "validationStatus": "PENDING_CENTRAL_VALIDATION",
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
     },
     {
       "id": "C4",
       "title": "局部 counter 与增量 aggregate",
-      "status": "PLANNED",
-      "evidence": []
+      "status": "IN_PROGRESS",
+      "evidence": [],
+      "implementationStatus": "IN_PROGRESS",
+      "validationStatus": "PENDING_CENTRAL_VALIDATION",
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
+      "progress": "Actual Target format 2 Store adapter and guarded RocksDB transaction/result-range traversal implemented. Full Worker/business authority, all mutation paths, all-ledger recovery and checkpoint/restore remain unfinished. Only compilation and two Store development smoke cases; centralized validation is pending.",
+      "implementationFiles": [
+        "src/main/java/com/nereusstream/delay/store/ShardStore.java",
+        "src/main/java/com/nereusstream/delay/store/StoreMetadata.java",
+        "src/main/java/com/nereusstream/delay/store/TargetValueEnvelope.java",
+        "src/main/java/com/nereusstream/delay/store/TargetStoreBackend.java"
+      ],
+      "validationHandoff": "12-集中验证交接清单.md"
     },
     {
       "id": "C5",
       "title": "正式装配和旧路径清单",
-      "status": "PLANNED",
-      "evidence": []
+      "status": "IN_PROGRESS",
+      "evidence": [],
+      "implementationStatus": "IN_PROGRESS",
+      "validationStatus": "PENDING_CENTRAL_VALIDATION",
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
+      "progress": "Actual Target format 2 Store adapter and guarded RocksDB transaction/result-range traversal implemented. Full Worker/business authority, all mutation paths, all-ledger recovery and checkpoint/restore remain unfinished. Only compilation and two Store development smoke cases; centralized validation is pending.",
+      "implementationFiles": [
+        "src/main/java/com/nereusstream/delay/store/ShardStore.java",
+        "src/main/java/com/nereusstream/delay/store/StoreMetadata.java",
+        "src/main/java/com/nereusstream/delay/store/TargetValueEnvelope.java",
+        "src/main/java/com/nereusstream/delay/store/TargetStoreBackend.java"
+      ],
+      "validationHandoff": "12-集中验证交接清单.md"
     },
     {
       "id": "D1",
       "title": "真实 Broker 能力回归",
       "status": "PLANNED",
-      "evidence": []
+      "evidence": [],
+      "implementationStatus": "NOT_STARTED",
+      "validationStatus": "PENDING_CENTRAL_VALIDATION",
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
     },
     {
       "id": "D2",
       "title": "UNKNOWN 多 Shard 故障接管",
       "status": "PLANNED",
-      "evidence": []
+      "evidence": [],
+      "implementationStatus": "NOT_STARTED",
+      "validationStatus": "PENDING_CENTRAL_VALIDATION",
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
     },
     {
       "id": "D3",
       "title": "N 与 L 分组测量",
       "status": "PLANNED",
-      "evidence": []
+      "evidence": [],
+      "implementationStatus": "NOT_STARTED",
+      "validationStatus": "PENDING_CENTRAL_VALIDATION",
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
     },
     {
       "id": "E1",
       "title": "稳定 head 缓存和唤醒",
       "status": "PLANNED",
-      "evidence": []
+      "evidence": [],
+      "implementationStatus": "NOT_STARTED",
+      "validationStatus": "PENDING_CENTRAL_VALIDATION",
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
     },
     {
       "id": "E2",
       "title": "K 个不可互换域",
       "status": "PLANNED",
-      "evidence": []
+      "evidence": [],
+      "implementationStatus": "NOT_STARTED",
+      "validationStatus": "PENDING_CENTRAL_VALIDATION",
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
     },
     {
       "id": "E3",
       "title": "校验 wrapper 兼容入口",
       "status": "PLANNED",
-      "evidence": []
+      "evidence": [],
+      "implementationStatus": "NOT_STARTED",
+      "validationStatus": "PENDING_CENTRAL_VALIDATION",
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
     },
     {
       "id": "E4",
       "title": "指标与 durable 证据分层",
       "status": "PLANNED",
-      "evidence": []
+      "evidence": [],
+      "implementationStatus": "NOT_STARTED",
+      "validationStatus": "PENDING_CENTRAL_VALIDATION",
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
     },
     {
       "id": "E5",
       "title": "严格 barrier 和迟到契约",
       "status": "PLANNED",
-      "evidence": []
+      "evidence": [],
+      "implementationStatus": "NOT_STARTED",
+      "validationStatus": "PENDING_CENTRAL_VALIDATION",
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
     },
     {
       "id": "E6",
       "title": "配额背压运行配置统一",
       "status": "PLANNED",
-      "evidence": []
+      "evidence": [],
+      "implementationStatus": "NOT_STARTED",
+      "validationStatus": "PENDING_CENTRAL_VALIDATION",
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
     },
     {
       "id": "E7",
       "title": "最终完整集成回归",
       "status": "PLANNED",
-      "evidence": []
+      "evidence": [],
+      "implementationStatus": "NOT_STARTED",
+      "validationStatus": "PENDING_CENTRAL_VALIDATION",
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
     },
     {
       "id": "F1",
       "title": "适用持久环境受控迁移",
       "status": "PLANNED",
-      "evidence": []
+      "evidence": [],
+      "implementationStatus": "NOT_STARTED",
+      "validationStatus": "PENDING_CENTRAL_VALIDATION",
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
     },
     {
       "id": "F2",
       "title": "保护解除后的清退",
       "status": "PLANNED",
-      "evidence": []
+      "evidence": [],
+      "implementationStatus": "NOT_STARTED",
+      "validationStatus": "PENDING_CENTRAL_VALIDATION",
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
     },
     {
       "id": "F3",
       "title": "权威文档配置状态收尾",
       "status": "PLANNED",
-      "evidence": []
+      "evidence": [],
+      "implementationStatus": "NOT_STARTED",
+      "validationStatus": "PENDING_CENTRAL_VALIDATION",
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
     }
-  ]
+  ],
+  "executionPolicy": {
+    "implementationFirst": true,
+    "validationPhase": "DEFERRED_USER_MODEL_SWITCH",
+    "currentModelUnchanged": true,
+    "singleAgent": true,
+    "branch": "main",
+    "largeValidationDeferred": true,
+    "handoffChecklist": "12-集中验证交接清单.md",
+    "completionRule": "All implementation plus source-bound centralized validation and applicable controlled migration/retirement remain required. No automatic promotion from implementation status."
+  },
+  "implementationComplete": false,
+  "centralValidationComplete": false,
+  "historicalEvidencePolicy": "Shared ShardStore/StoreMetadata changed after 2d3ceb99dbb4eb66881ac1cf7fb4a7253ae4488a. Existing receipts remain historical and do not certify current shared runtime; no new VERIFIED or governance Implemented claim."
 }

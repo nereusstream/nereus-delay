@@ -1,5 +1,15 @@
 # NDIP-3 工作包：目标分区队列收敛与调度热路径改造
 
+> **当前执行阶段：先完成全部实际运行代码，最后集中测试（用户于 2026-09-08 调整）。**
+> 保持当前模型、单 agent、直接 main、分阶段 scoped commit/push。先贯通原 29 切片的
+> 代码、运行路径装配、配置及迁移/清退工具；完整回归、真实 Broker、性能、故障恢复
+> 和依赖验证的实际迁移/清退，留待用户切换模型后集中执行。当前只保留编译、格式/
+> 文档一致性和影响开发正确性的最小局部检查；不需要现在确认或切换模型。
+> 原目标总范围不变，实现状态与验证状态分别记录；未验证实现不得标记 VERIFIED、
+> 提案治理 Implemented 或方案完成。
+
+[原 29 切片集中验证交接清单](12-集中验证交接清单.md)
+
 - 提案状态：`Draft`；完整实施已由用户于 2026-09-07 明确授权，契约冻结和接受凭证在 B7 闭合。
 - 审查基线：`main@b521b614fbe22d30381593637e60ab615e5906cc`。
 - 范围：A–F 全部 29 个切片，包含此前 P2 工作、最终真实 Broker/恢复验证、转换器和清退机制。
@@ -197,3 +207,17 @@ B4 结果账本独立核对批次新增有限恢复 fold，验证 owner/source/�
 全部无 skip（新增 13 项）。309 份 XML、1189 个不变输入见
 `evidence/b4-result-audit-results.json`。B4 仍 IN_PROGRESS；实际完整 Store 权威、
 跨账本恢复/atomicity、其它 owners/reserves/交接配方与 D/E/F 工作继续。
+
+
+### 实现优先执行安排与 Store 后端
+
+用户已调整为先贯通全部实现，最后切换模型集中验证；保留单 agent、直接 main 和
+分阶段提交推送。[集中验证交接清单](12-集中验证交接清单.md) 覆盖原 29 切片。
+progress.json 独立记录 implementationStatus 与 validationStatus，未验证新实现
+不升级 VERIFIED 或提案治理 Implemented；历史证据仅适用于原绑定源码。
+
+C4/C5 开始真实 Store 后端：显式 ShardStore.openTarget 创建/打开 format 2，拒绝
+原地接管 format 1；TargetStoreBackend 将业务 exact read-set 与 quota/total/
+aggregate/source 写入同一 RocksDB batch，并提供完整结果 namespace 遍历。当前只做
+编译及两项最小 Store smoke；Worker/Claim/Admission/Producer 装配、完整业务 authority、
+跨账本恢复、checkpoint/restore/migration 与集中验证尚未贯通，不是生产入口完成。
