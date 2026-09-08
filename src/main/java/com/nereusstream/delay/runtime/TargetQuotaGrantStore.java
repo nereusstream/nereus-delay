@@ -22,7 +22,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Objects;
 
-/** First logical grant-control application against actual Store state, including immutable result/source accounting. */
+/** Source-dispatched grant-control application, immutable System replay and actual result/source accounting. */
 public final class TargetQuotaGrantStore {
     public static final class Prepared {
         private final TargetQuotaGrantStore owner;
@@ -39,7 +39,23 @@ public final class TargetQuotaGrantStore {
         }
     }
 
+    public static final class Dispatch {
+        private final TargetQuotaGrantStore owner;
+        private final Prepared first;
+        private final TargetSystemReplayStore.Prepared duplicate;
+
+        private Dispatch(
+                final TargetQuotaGrantStore owner,
+                final Prepared first,
+                final TargetSystemReplayStore.Prepared duplicate) {
+            this.owner = owner;
+            this.first = first;
+            this.duplicate = duplicate;
+        }
+    }
+
     private final TargetStoreBackend backend;
+    private final TargetSystemReplayStore replay;
     private final TargetQuotaScope scope;
     private final byte[] lineage;
     private final int maximumCounters;
@@ -64,11 +80,42 @@ public final class TargetQuotaGrantStore {
         this.lineage = Bytes.copy(lineage);
         this.maximumCounters = maximumCounters;
         this.maximumDomains = maximumDomains;
+        replay = new TargetSystemReplayStore(backend, scope, lineage, maximumCounters, maximumDomains);
+    }
+
+    /** Routes physical replay, later duplicates and first application with one cumulative read budget. */
+    public Dispatch prepare(
+            final BoundedReadBudget budget,
+            final PreparedControlOperation control,
+            final SystemMutation mutation,
+            final SourcePosition source,
+            final TargetQuotaGrantControlVerifier.Authority authority) {
+        Objects.requireNonNull(control, "control");
+        Objects.requireNonNull(authority, "authority");
+        TargetQuotaGrantControlBody.decode(
+                Objects.requireNonNull(mutation, "mutation").canonicalBody());
+        final var duplicate = replay.prepareIfPresent(budget, mutation, source);
+        return duplicate.isPresent()
+                ? new Dispatch(this, null, duplicate.orElseThrow())
+                : new Dispatch(this, prepareFirst(budget, control, mutation, source, authority), null);
+    }
+
+    public SystemMutationResult commit(
+            final Dispatch dispatch,
+            final TargetStoreBackend.CommitAuthority writes,
+            final TargetStoreBackend.ReadAuthority reads) {
+        Objects.requireNonNull(dispatch, "dispatch");
+        if (dispatch.owner != this) {
+            throw new IllegalArgumentException("foreign grant dispatch plan");
+        }
+        return dispatch.first != null
+                ? commit(dispatch.first, writes)
+                : replay.commit(dispatch.duplicate, writes, reads);
     }
 
     /**
      * Requires an established controlled root and a first logical/physical record. A source dispatcher must
-     * route duplicates to its separate immutable-result/POSITION path; this method never reapplies them.
+     * use prepare for duplicate routing through the immutable-result/POSITION path; this method never reapplies them.
      * Authority snapshots must be retained/rechecked by the actual commit guard through native commit.
      */
     public Prepared prepareFirst(

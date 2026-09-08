@@ -277,6 +277,61 @@ public final class TargetStoreBackend {
         genesis = TargetQuotaAggregate.genesis(scope.shard(), shardAccountingIncarnation);
     }
 
+    /** Authority for acknowledging an already durable source record without writing another batch. */
+    @FunctionalInterface
+    public interface ReadAuthority {
+        CommitGuard acquire(StoreMetadata metadata, TargetQuotaScope scope);
+    }
+
+    public static final class ReadPlan<T> {
+        private final TargetStoreBackend backend;
+        private final ShardStore.ReadView view;
+        private final T value;
+        private boolean completed;
+
+        private ReadPlan(final TargetStoreBackend backend, final ShardStore.ReadView view, final T value) {
+            this.backend = backend;
+            this.view = view;
+            this.value = value;
+        }
+
+        /** Inspection is not source acknowledgement; completeRead must first validate the retained view/guard. */
+        public T value() {
+            return value;
+        }
+    }
+
+    /** The planner must return immutable values; the Reader itself becomes unusable when this method returns. */
+    public <T> ReadPlan<T> prepareRead(final BoundedReadBudget budget, final Function<Reader, T> planner) {
+        Objects.requireNonNull(planner, "planner");
+        final var read = store.readWithBudget(budget, () -> {
+            final var reader = new Reader(budget);
+            try {
+                return Objects.requireNonNull(planner.apply(reader), "read result");
+            } finally {
+                reader.active = false;
+            }
+        });
+        return new ReadPlan<>(this, read.view(), read.value());
+    }
+
+    public <T> T completeRead(final ReadPlan<T> plan, final ReadAuthority authority) {
+        Objects.requireNonNull(plan, "plan");
+        Objects.requireNonNull(authority, "authority");
+        synchronized (plan) {
+            if (plan.backend != this || plan.completed) {
+                throw new IllegalStateException("foreign or already completed Target read plan");
+            }
+            plan.completed = true;
+        }
+        try (var guard = Objects.requireNonNull(authority.acquire(store.metadata(), scope), "read guard")) {
+            return store.withReadView(plan.view, () -> {
+                guard.requireCurrent();
+                return plan.value;
+            });
+        }
+    }
+
     public Prepared prepare(final BoundedReadBudget budget, final Function<Reader, Mutation> planner) {
         Objects.requireNonNull(planner, "planner");
         final var read = store.readWithBudget(budget, () -> {

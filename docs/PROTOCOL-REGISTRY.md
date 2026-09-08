@@ -2413,3 +2413,17 @@ reenter this first-application path. Source replay/duplicate POSITION-only handl
 controlled root bootstrap and full production authority/Worker composition remain
 required. This integration adds no wire type, changes no historical vector bytes
 and does not certify the new runtime path.
+
+
+### NDIP-3 actual System physical replay (2026-09-08)
+
+TargetSystemReplayStore resolves the registered first SYSTEM and physical POSITION
+from the bounded Store view. Exact same-position replay checks source metadata,
+sequence, first digest and full envelope digest, then completes a guarded read
+without a WriteBatch. A later duplicate only appends its Shard-owned POSITION and
+actual accounting/source update; the first logical bytes and grant activation
+remain unchanged. Expired duplicates derive the physical retry-window response
+while retaining the first result. Re-signed bytes at the same physical position
+are an integrity rejection. TargetQuotaGrantStore Dispatch routes these paths
+before first application, which rechecks absence independently. No new wire type
+or historical vector changes; complete source/Worker/recovery authority is pending.

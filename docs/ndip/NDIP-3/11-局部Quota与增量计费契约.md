@@ -1681,3 +1681,22 @@ stamp；验证外部容量失败无写、已有逻辑拒绝重执行、过期首
 容量和 CommitGuard 仍为测试替身，未证明生产保留/迁移/授权。物理重复审计、完整
 root bootstrap/Source dispatcher/Worker、容量 provider 和 crash/recovery 留待实现
 或集中验证；原 29 切片及 B4/C1/C4 状态保持未完成。
+
+
+## 28. 物理重复的实际 POSITION-only 费用
+
+TargetSystemReplayStore 使用真实 SYSTEM/POSITION 与 frozen descriptors 验证原结果，
+后续物理位置仅写新 POSITION_SYSTEM，其 EVIDENCE bytes/record charge 进入原 Shard
+owner/mirror/aggregate，source 同批推进。首 SYSTEM 的 RESULT 费用、allocation
+attachment、Target total 和 activation 不重复写或收费；root inventory 保持原计数。
+同一物理 source 的只读完成不推进 source/aggregate/revision，不产生 native batch。
+
+源序、完整 metadata、sequence、envelope digest 和 first digest 都按实际 Store
+检查。过期重复只派生该物理位置的拒绝响应，原 logical result 仍不可变；下一次同
+位置重放验证相同 audit。缺 first/position/owner、未来 position、旧 source、错
+lineage、分支竞争或 guard/view 失效均不能变成重复成功。Prepare 不返回发送权限。
+
+最小 RocksDB 开发检查核对 native sequence 零增长、后续一次 exact POSITION fee、
+首次 result/activation bytes 不变、过期重复/再放、陈旧只读 plan 和重复完成拒绝、
+同位置重签 envelope 拒绝。guard/capacity 仍为测试替身，完整错误/故障/Broker 与生产
+read/write authority 的证明留待集中验证，B4/C1/C4 继续 IN_PROGRESS。

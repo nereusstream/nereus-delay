@@ -1,5 +1,6 @@
 package com.nereusstream.delay.runtime;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -21,6 +22,7 @@ import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
+import com.nereusstream.delay.protocol.TargetQuotaAggregate;
 import com.nereusstream.delay.protocol.TargetQuotaGrantActivation;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlBody;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlRequest;
@@ -103,8 +105,9 @@ class TargetQuotaGrantStoreTest {
             assertNull(store.get(ColumnFamily.DEDUPE, systemKey(operation.mutation())));
             final var allowed = authority(registrations, keys, actor, origin, request, (a, b, c, d) -> {});
             final var result = applier.commit(
-                    applier.prepareFirst(budget(), operation.control(), operation.mutation(), origin, allowed),
-                    (a, b, c) -> guard());
+                    applier.prepare(budget(), operation.control(), operation.mutation(), origin, allowed),
+                    (a, b, c) -> guard(),
+                    (a, b) -> guard());
             assertEquals(ApplyStatus.APPLIED, result.applyStatus());
             assertEquals(StableCode.OK, result.stableCode());
             final var activation = TargetQuotaGrantActivation.decode(TargetValueEnvelope.decode(
@@ -135,6 +138,88 @@ class TargetQuotaGrantStoreTest {
                             operation.mutation(),
                             source(origin, origin.offset() + 1, origin.brokerLogAppendTimeEpochMs() + 1),
                             allowed));
+            final byte[] frozenFirst = store.get(ColumnFamily.DEDUPE, systemKey(operation.mutation()));
+            final byte[] frozenActivation = store.get(ColumnFamily.META, template.key());
+            final long nativeBeforeReplay = store.latestSequenceNumber();
+            final var same = applier.prepare(budget(), operation.control(), operation.mutation(), origin, unavailable);
+            assertEquals(
+                    result,
+                    applier.commit(
+                            same,
+                            (a, b, c) -> {
+                                throw new AssertionError("same position wrote");
+                            },
+                            (a, b) -> guard()));
+            assertEquals(nativeBeforeReplay, store.latestSequenceNumber());
+            assertThrows(
+                    IllegalStateException.class, () -> applier.commit(same, (a, b, c) -> guard(), (a, b) -> guard()));
+            final var staleRead =
+                    applier.prepare(budget(), operation.control(), operation.mutation(), origin, unavailable);
+            final byte[] aggregateKey = TargetQuotaAggregate.genesis(
+                            shard.identity().shard(), shard.identity().accountingIncarnation())
+                    .key();
+            final var beforeDuplicate = TargetQuotaAggregate.decode(TargetValueEnvelope.decode(
+                            store.get(ColumnFamily.META, aggregateKey), TargetQuotaAggregate.VALUE_TYPE)
+                    .payload());
+            final var later = source(origin, origin.offset() + 1, origin.brokerLogAppendTimeEpochMs() + 1);
+            assertEquals(
+                    result,
+                    applier.commit(
+                            applier.prepare(budget(), operation.control(), operation.mutation(), later, unavailable),
+                            (a, b, c) -> guard(),
+                            (a, b) -> {
+                                throw new AssertionError("later duplicate did not write");
+                            }));
+            assertEquals(3, store.shardMutationSequence());
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> applier.commit(staleRead, (a, b, c) -> guard(), (a, b) -> guard()));
+            final var physical = TargetResultRecord.decode(TargetValueEnvelope.decode(
+                            store.get(
+                                    ColumnFamily.DEDUPE,
+                                    Bytes.concat(
+                                            new byte[] {TargetKeyCodec.RESULT_POSITION_TAG, 1},
+                                            later.canonicalBytes())),
+                            TargetResultRecord.VALUE_TYPE)
+                    .payload());
+            physical.requireFirst(first);
+            final var afterDuplicate = TargetQuotaAggregate.decode(TargetValueEnvelope.decode(
+                            store.get(ColumnFamily.META, aggregateKey), TargetQuotaAggregate.VALUE_TYPE)
+                    .payload());
+            assertEquals(
+                    beforeDuplicate.usage().resources().add(physical.recordCharge()),
+                    afterDuplicate.usage().resources());
+            final var expiredPosition = source(origin, origin.offset() + 2, 501);
+            final var expiredDuplicate = applier.commit(
+                    applier.prepare(budget(), operation.control(), operation.mutation(), expiredPosition, unavailable),
+                    (a, b, c) -> guard(),
+                    (a, b) -> guard());
+            assertEquals(ApplyStatus.REJECTED, expiredDuplicate.applyStatus());
+            assertEquals(StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED, expiredDuplicate.stableCode());
+            assertArrayEquals(frozenFirst, store.get(ColumnFamily.DEDUPE, systemKey(operation.mutation())));
+            assertArrayEquals(frozenActivation, store.get(ColumnFamily.META, template.key()));
+            final long nativeBeforeExpiredReplay = store.latestSequenceNumber();
+            assertEquals(
+                    expiredDuplicate,
+                    applier.commit(
+                            applier.prepare(
+                                    budget(), operation.control(), operation.mutation(), expiredPosition, unavailable),
+                            (a, b, c) -> guard(),
+                            (a, b) -> guard()));
+            assertEquals(nativeBeforeExpiredReplay, store.latestSequenceNumber());
+            final var originalMutation = operation.mutation();
+            final var resigned = SystemMutation.signed(
+                    originalMutation.shardId(),
+                    originalMutation.type(),
+                    originalMutation.retryUntilEpochMs(),
+                    originalMutation.logicalOperationIdentity(),
+                    originalMutation.canonicalBody(),
+                    originalMutation.authorIdentity(),
+                    2,
+                    keys.getPrivate());
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> applier.prepare(budget(), operation.control(), resigned, expiredPosition, unavailable));
             final var expired = signed(request, bytes(32, 0x73), actor, keys);
             registrations.register(expired.control());
             final var rejection = applier.commit(
@@ -142,7 +227,7 @@ class TargetQuotaGrantStoreTest {
                             budget(),
                             expired.control(),
                             expired.mutation(),
-                            source(origin, origin.offset() + 1, 501),
+                            source(origin, origin.offset() + 3, 502),
                             allowed),
                     (a, b, c) -> guard());
             assertEquals(ApplyStatus.REJECTED, rejection.applyStatus());

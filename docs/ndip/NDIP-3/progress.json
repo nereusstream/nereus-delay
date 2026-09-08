@@ -177,7 +177,7 @@
         "evidence/b4-result-audit-final-docs.log",
         "evidence/b4-result-audit-junit.zip"
       ],
-      "progress": "First grant-control Store applier now connects signed/registered verification to actual activation/allocation, immutable SYSTEM/POSITION and real accounting/source commits. Verifier-owned semantic denials are separated from external authority failures. Minimal signed RocksDB check only; root bootstrap, duplicate physical source routing, production capacity/commit authority and Worker integration remain unfinished.",
+      "progress": "System physical replay now verifies actual first/POSITION/owner/envelope records; same-position completes a guarded read with zero batch writes, later duplicates append only POSITION/accounting/source. Grant Dispatch routes replay/duplicate/first with one cumulative budget. One expanded RocksDB development check only; production read/write authority, source consumers, root bootstrap, full Worker and recovery remain unfinished.",
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
       "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
@@ -190,7 +190,9 @@
         "src/main/java/com/nereusstream/delay/runtime/TargetQuotaGrantStore.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetQuotaStoreGate.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetRecordAccounting.java",
-        "src/main/java/com/nereusstream/delay/runtime/TargetSourceAccounting.java"
+        "src/main/java/com/nereusstream/delay/runtime/TargetSourceAccounting.java",
+        "src/main/java/com/nereusstream/delay/runtime/TargetSystemReplayStore.java",
+        "src/main/java/com/nereusstream/delay/store/TargetStoreBackend.java"
       ],
       "validationHandoff": "12-集中验证交接清单.md"
     },
@@ -229,7 +231,7 @@
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
       "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
-      "progress": "First grant-control Store applier now connects signed/registered verification to actual activation/allocation, immutable SYSTEM/POSITION and real accounting/source commits. Verifier-owned semantic denials are separated from external authority failures. Minimal signed RocksDB check only; root bootstrap, duplicate physical source routing, production capacity/commit authority and Worker integration remain unfinished.",
+      "progress": "System physical replay now verifies actual first/POSITION/owner/envelope records; same-position completes a guarded read with zero batch writes, later duplicates append only POSITION/accounting/source. Grant Dispatch routes replay/duplicate/first with one cumulative budget. One expanded RocksDB development check only; production read/write authority, source consumers, root bootstrap, full Worker and recovery remain unfinished.",
       "implementationFiles": [
         "src/main/java/com/nereusstream/delay/runtime/TargetClaimRecord.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetClaimStore.java",
@@ -240,6 +242,7 @@
         "src/main/java/com/nereusstream/delay/runtime/TargetQuotaGrantStore.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetQuotaStoreGate.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetRecordAccounting.java",
+        "src/main/java/com/nereusstream/delay/runtime/TargetSystemReplayStore.java",
         "src/main/java/com/nereusstream/delay/store/TargetStoreBackend.java"
       ],
       "validationHandoff": "12-集中验证交接清单.md"
@@ -270,7 +273,7 @@
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
       "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
-      "progress": "First grant-control Store applier now connects signed/registered verification to actual activation/allocation, immutable SYSTEM/POSITION and real accounting/source commits. Verifier-owned semantic denials are separated from external authority failures. Minimal signed RocksDB check only; root bootstrap, duplicate physical source routing, production capacity/commit authority and Worker integration remain unfinished.",
+      "progress": "System physical replay now verifies actual first/POSITION/owner/envelope records; same-position completes a guarded read with zero batch writes, later duplicates append only POSITION/accounting/source. Grant Dispatch routes replay/duplicate/first with one cumulative budget. One expanded RocksDB development check only; production read/write authority, source consumers, root bootstrap, full Worker and recovery remain unfinished.",
       "implementationFiles": [
         "src/main/java/com/nereusstream/delay/runtime/TargetClaimRecord.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetClaimStore.java",
@@ -282,6 +285,7 @@
         "src/main/java/com/nereusstream/delay/runtime/TargetQuotaStoreGate.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetRecordAccounting.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetSourceAccounting.java",
+        "src/main/java/com/nereusstream/delay/runtime/TargetSystemReplayStore.java",
         "src/main/java/com/nereusstream/delay/store/ShardStore.java",
         "src/main/java/com/nereusstream/delay/store/StoreMetadata.java",
         "src/main/java/com/nereusstream/delay/store/TargetStoreBackend.java",

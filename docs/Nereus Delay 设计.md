@@ -6161,3 +6161,11 @@ TargetQuotaGrantStore 已把首次 grant control 的签名/注册 verifier 接�
 全部费用和 source；明确业务拒绝只写结果。外部授权失败不转成持久拒绝。最小签名与
 RocksDB 开发检查通过；root bootstrap、重复物理记录、完整 source/Worker 和实际
 容量/commit guard 仍待完成，实现与集中验证状态继续分开记录。
+
+
+### System 物理重放与重复接线（2026-09-08）
+
+TargetSystemReplayStore 已接入 grant source 分流：同一物理位置核对 first/POSITION/
+envelope 后经只读 guard 完成，后续重复只追加 POSITION 和实际费用，不重执行业务。
+过期重复保留首次结果；真正首次应用独立复核不存在条件。最小 RocksDB 开发检查
+通过，完整 Source/Worker、受控 bootstrap、生产读写 guard 与恢复验证仍待完成。

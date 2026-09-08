@@ -350,3 +350,14 @@ immutable rejection/audit only; external failures do not advance source. Existin
 logical/physical keys are not overwritten. Controlled bootstrap, duplicate/replay
 routing, production capacity and Worker authority remain separate incomplete
 implementation obligations; the seven CFs and registered formats are unchanged.
+
+
+#### NDIP-3 System physical duplicate handling
+
+Same-position System replay now completes a bounded immutable ReadPlan under its
+original Store ReadView and explicit read guard, with no batch write. Later
+physical duplicates append only the registered POSITION and corresponding Shard
+accounting/source. Grant Dispatch uses this path without rewriting the first
+SYSTEM or activation. Native write uncertainty, stale views and missing exact
+references fail closed; full source consumer and production authority remain
+implementation obligations. The CF and key/value layouts are unchanged.
