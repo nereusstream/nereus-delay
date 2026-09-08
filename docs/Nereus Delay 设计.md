@@ -6128,3 +6128,9 @@ NDIP-3 C1/C4/E5 的实际 Message 投影提交进一步接通：TargetMessageSto
 Message/Expiry/current work 差集和严格 serviceable head，TargetQueueHeadUpdater
 在同一 Store view 合并 exact overlay 后更新 queue head；完整写集先计费再提交。
 当前仍是运行组件实施阶段，真实业务/计费权威与 Worker 装配、完整验证继续保留。
+
+
+NDIP-3 C4 已进一步将实际 records 的冻结归属、资源/cardinality 差额与固定 inventory
+更新接到 TargetMessageStore 的 accounted 提交路径，并增加本地 Claim/revoke 计费
+装配。source 与 local 的 sequence 规则保持分离。完整认证/业务/物理准入、Claim/
+outbox、Worker 和恢复仍未闭合；实施优先与最后集中验证安排不变。

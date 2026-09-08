@@ -1584,3 +1584,37 @@ TargetStoreBackend 原子提交；没有单独的 head 写或公平性写。
 root、Claim/attempt/outbox/共享账本和生产 authority 的完成。上述完整 planner 与
 Worker 装配继续推进；开发 smoke 的空 quota updates/no-op guard 只验证投影事务
 机制，禁止用它作为生产计费或授权实现。旧证据不认证新增路径。
+
+
+## 24. 实际 before/after 计费装配与固定 inventory
+
+TargetRecordAccounting 将本契约各 record helper 连接到实际 Store 双视图，逐条
+验证 key/type/value 与完整冻结 attribution 依赖。它覆盖当前可写的 Message、
+binding、timeline/Expiry、queue/order、共享 metadata、channel/native、descriptor、
+payload owner、Claim charge、attempt budget、首次结果/physical audit。Grant
+activation 的实际 type/key/source/first origin 会验证，其存储费用由 root fixed
+inventory 承担；bookkeeping 本身由装配器生成，调用者不能自己提交未计费 root。
+
+每条 primary contribution 的 cardinality 只进入 primary；tenant mirror 仅保留
+相同资源量。Result 的 class、payload phase 的活跃/保留/已释放费用、Claim execution
+和 attempt reserve/allocated/retained 费用继续遵守原契约，不能按最新 grant 重定价。
+source assembler 使用实际 counter prior 减原贡献再加新贡献，不接受 caller 提供
+任意 nextUsage 替代记录推导。同 key 替换必须保持冻结 owner/artifact，首次结果和
+POSITION 不可变 bytes 不允许更新。真正创建/转态/删除权威仍属于业务 source 处理。
+
+新增 leaf counter、Target total、grant activation 的记录数从实际存在/不存在读取
+得出，变化同批进入 root inventory。首次 bootstrap 要求空 source、实际 root
+descriptor 和无既有 touched business/counter；这只是有限局部检查，首次安装还须
+完整受控 bootstrap/Store 权威。保留零 counter/total，当前 assembler 不提供这些
+账本的物理退休。已有 root 或 total 缺失、费用不足、inventory 下溢/溢出均失败。
+
+本地 Claim assembler 使用实际差集、恰好一条 Claim charge 与原四-counter上限；
+新 charge 的 creation 必须等于本次 local stamp，revoke 必须删除原 charge 且
+operation 是其严格后继。它不修改 bookkeeping inventory，不推进 source。实际
+Claim 业务 record 与 Owner/Store 证明仍须接入 LocalClaimAuthority/CommitGuard，
+不能以 charge projection 的存在替代 Claim 或 SEND 授权。
+
+本批 source 真实 Store smoke 核对 bootstrap 的 4 counters/1 total、首次
+COMMAND/RESULT/POSITION 后的 primary/mirror/aggregate 资源与 cardinality、无
+inventory 变化时 root bytes 不变。测试 guard 是开发替身，不是 grant/签名/retire
+证明。完整全类型/local/缺失/错配/故障/恢复、业务和 Worker 装配仍待实现或集中验证。

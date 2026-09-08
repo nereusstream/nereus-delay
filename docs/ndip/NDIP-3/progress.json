@@ -177,10 +177,17 @@
         "evidence/b4-result-audit-final-docs.log",
         "evidence/b4-result-audit-junit.zip"
       ],
-      "progress": "Independent bounded Target result ledger audit now validates actual canonical records, owner descriptors, source history and first references, then rebuilds primary/tenant contributions without counter inputs. Actual snapshot completeness remains mandatory. Canonical accounting value equality fixes independently decoded Claim/result ownership checks without changing prior wire bytes. Latest full check: 2095 Java tests, zero failures/errors, 41 external skips; all 229 quota/result focused tests without skips, 13 new. B4 remains incomplete: other business owners, full reserves, bootstrap/rotation/handover and original acceptance. C4 actual Store guards/traversal, cross-ledger exact recovery and atomic runtime plus D/E/F obligations remain.",
+      "progress": "Actual record accounting now derives frozen primary/mirror contributions and fixed source inventory updates from complete Store before/after records; source and local Claim assemblers connect to MessageStore accounted commits. One source Store development smoke plus the prior Message smoke pass; local assembler has compilation only. Full source/business/signature/grant/physical authority, Claim/outbox, cross-ledger recovery and Worker composition remain unfinished.",
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
-      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
+      "implementationFiles": [
+        "src/main/java/com/nereusstream/delay/runtime/TargetLocalClaimAccounting.java",
+        "src/main/java/com/nereusstream/delay/runtime/TargetMessageStore.java",
+        "src/main/java/com/nereusstream/delay/runtime/TargetRecordAccounting.java",
+        "src/main/java/com/nereusstream/delay/runtime/TargetSourceAccounting.java"
+      ],
+      "validationHandoff": "12-集中验证交接清单.md"
     },
     {
       "id": "B5",
@@ -251,10 +258,13 @@
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
       "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
-      "progress": "Actual TargetMessageStore generates complete Message/live Expiry/current work differences, recomputes strict serviceable and Target queue heads through bounded exact overlays, then passes the final business write set into accounting and guarded Store commit. Full production semantic/accounting authority, strict late/control behavior and Worker source/Claim/Admission/Producer integration remain unfinished. One development smoke only; centralized validation remains pending.",
+      "progress": "Actual record accounting now derives frozen primary/mirror contributions and fixed source inventory updates from complete Store before/after records; source and local Claim assemblers connect to MessageStore accounted commits. One source Store development smoke plus the prior Message smoke pass; local assembler has compilation only. Full source/business/signature/grant/physical authority, Claim/outbox, cross-ledger recovery and Worker composition remain unfinished.",
       "implementationFiles": [
+        "src/main/java/com/nereusstream/delay/runtime/TargetLocalClaimAccounting.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetMessageStore.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetQueueHeadUpdater.java",
+        "src/main/java/com/nereusstream/delay/runtime/TargetRecordAccounting.java",
+        "src/main/java/com/nereusstream/delay/runtime/TargetSourceAccounting.java",
         "src/main/java/com/nereusstream/delay/store/ShardStore.java",
         "src/main/java/com/nereusstream/delay/store/StoreMetadata.java",
         "src/main/java/com/nereusstream/delay/store/TargetStoreBackend.java",

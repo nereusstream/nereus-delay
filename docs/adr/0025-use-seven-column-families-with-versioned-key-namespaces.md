@@ -307,3 +307,14 @@ plus one persisted entry. Incomplete reads yield instead of declaring an empty
 prefix. Existing heads are validated before mutation, and full generated edits
 reach accounting before commit. Production semantic/accounting authority and
 Worker source/Claim/Admission/Producer composition remain integration work.
+
+
+Actual Target record accounting now reads frozen owners and complete dependencies
+from the same before/after Store views. Source accounting derives touched counter
+changes and automatically reserves newly created counter/total/grant projection
+storage through bookkeeping inventory in the same batch. Unchanged inventory
+retains its bytes; zero counter/total records remain retained. Mirror resources
+are equal to primary resources while cardinality is primary-only. Local Claim
+accounting retains the source frontier and requires one exact charge transition.
+The source smoke proves limited numeric Store behavior, not authentication,
+complete business semantics, protected retirement, recovery or Worker activation.

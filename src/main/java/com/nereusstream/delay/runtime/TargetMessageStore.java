@@ -73,6 +73,13 @@ public final class TargetMessageStore {
                 TargetStoreBackend.Reader reader, List<TargetStoreBackend.Edit> completeBusiness);
     }
 
+    /** May append bookkeeping records derived from the complete business set; it must charge them too. */
+    @FunctionalInterface
+    public interface AccountingAssembler {
+        TargetStoreBackend.Mutation assemble(
+                TargetStoreBackend.Reader reader, List<TargetStoreBackend.Edit> completeBusiness);
+    }
+
     private final TargetStoreBackend backend;
     private final int maximumMessages;
     private final int maximumAffectedDomains;
@@ -99,6 +106,17 @@ public final class TargetMessageStore {
             final BoundedReadBudget budget,
             final Function<TargetStoreBackend.Reader, Input> businessPlanner,
             final AccountingPlanner accounting) {
+        Objects.requireNonNull(accounting, "accounting");
+        return prepareAccounted(
+                budget,
+                businessPlanner,
+                (reader, complete) -> new TargetStoreBackend.Mutation(accounting.prepare(reader, complete), complete));
+    }
+
+    public TargetStoreBackend.Prepared prepareAccounted(
+            final BoundedReadBudget budget,
+            final Function<TargetStoreBackend.Reader, Input> businessPlanner,
+            final AccountingAssembler accounting) {
         Objects.requireNonNull(businessPlanner, "businessPlanner");
         Objects.requireNonNull(accounting, "accounting");
         return backend.prepare(budget, reader -> {
@@ -111,7 +129,9 @@ public final class TargetMessageStore {
             final var edits = project(reader, input);
             final var complete =
                     TargetQueueHeadUpdater.complete(reader, edits, maximumAffectedDomains, maximumDomainSlots);
-            return new TargetStoreBackend.Mutation(accounting.prepare(reader, complete), complete);
+            final var assembled = Objects.requireNonNull(accounting.assemble(reader, complete), "assembled accounting");
+            requirePreservedProjection(reader, complete, assembled.business());
+            return assembled;
         });
     }
 
@@ -122,6 +142,47 @@ public final class TargetMessageStore {
             final AccountingPlanner accounting,
             final TargetStoreBackend.CommitAuthority authority) {
         backend.commit(prepare(budget, businessPlanner, accounting), authority);
+    }
+
+    public void applyAccounted(
+            final BoundedReadBudget budget,
+            final Function<TargetStoreBackend.Reader, Input> businessPlanner,
+            final AccountingAssembler accounting,
+            final TargetStoreBackend.CommitAuthority authority) {
+        backend.commit(prepareAccounted(budget, businessPlanner, accounting), authority);
+    }
+
+    private static void requirePreservedProjection(
+            final TargetStoreBackend.Reader reader,
+            final List<TargetStoreBackend.Edit> generated,
+            final List<TargetStoreBackend.Edit> assembled) {
+        if (assembled.size() > reader.maximumWriteRecords()) {
+            throw new IllegalArgumentException("assembled accounting exceeds the write record limit");
+        }
+        final var expected = new LinkedHashMap<String, TargetStoreBackend.Edit>();
+        for (var edit : generated) {
+            add(expected, edit);
+        }
+        final var actual = new LinkedHashMap<String, TargetStoreBackend.Edit>();
+        for (var edit : assembled) {
+            add(actual, edit);
+        }
+        for (var entry : expected.entrySet()) {
+            final var found = actual.remove(entry.getKey());
+            if (found == null
+                    || !Arrays.equals(found.before(), entry.getValue().before())
+                    || !Arrays.equals(found.after(), entry.getValue().after())) {
+                throw new IllegalStateException(
+                        "accounting assembler changed or omitted a generated business projection");
+            }
+        }
+        final byte[] rootKey = reader.aggregate().key();
+        rootKey[0] = TargetKeyCodec.QUOTA_BOOKKEEPING_TAG;
+        for (var edit : actual.values()) {
+            if (edit.family() != ColumnFamily.META || !Arrays.equals(edit.key(), rootKey)) {
+                throw new IllegalArgumentException("accounting assembler may append only the exact bookkeeping root");
+            }
+        }
     }
 
     private List<TargetStoreBackend.Edit> project(final TargetStoreBackend.Reader reader, final Input input) {

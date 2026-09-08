@@ -2350,3 +2350,12 @@ Message、live Expiry、ordinary/native/ORDERED、strict serviceable head 与 qu
 headRevision 由同一 bounded exact overlay 生成；完整生成 bytes 先交业务计费
 planner，再随 source/计费同步提交。严格 OrderState 的 barrier/watermark 决策与
 实际 authority 未由该投影组件替代，完整 Worker 装配与集中验证继续。
+
+
+C4 实际计费装配不新增 wire/key：TargetRecordAccounting 从实际 canonical
+before/after 及冻结 attribution 读取资源/cardinality；TargetSourceAccounting
+自动维护 fixed bookkeeping inventory，与生成业务及 counter/total/aggregate/source
+同批写入。Mirror 仅复制资源；grant activation 固定存储只由 root inventory 计入。
+TargetLocalClaimAccounting 保留 source frontier 并消费恰好一个 local Claim charge。
+这些实现不提供 business/source/signature/physical/grant 权威，完整 Worker 装配
+及验证状态仍为待完成，具体交接见 NDIP-3/12。

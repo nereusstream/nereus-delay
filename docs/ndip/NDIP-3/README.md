@@ -10,6 +10,13 @@
 
 [原 29 切片集中验证交接清单](12-集中验证交接清单.md)
 
+最新计费实现：TargetRecordAccounting 从实际 before/after 与冻结 owner 推导贡献；
+TargetSourceAccounting 自动生成 primary/mirror 差额和 bookkeeping inventory 更新，
+TargetLocalClaimAccounting 装配不推进 source 的本地 Claim/revoke 计费。它们通过
+TargetMessageStore.prepareAccounted/applyAccounted 接到实际 Store 提交。完整业务
+source/签名/grant/物理资源权威、Claim record 和 Worker 装配仍未完成，不提升验证状态。
+
+
 最新实现批次：TargetMessageStore 已连接实际 Message/index/order/head 投影与
 TargetStoreBackend 的原子提交。ordinary/native sibling、稳定 Expiry 和严格
 serviceable head 从完整 before/after 自动生成；完整计费/认证业务 planner 与

@@ -10,6 +10,15 @@
 
 [原 29 切片集中验证交接清单](ndip/NDIP-3/12-集中验证交接清单.md)
 
+Latest accounting implementation derives actual record charges from frozen Store
+owners, produces primary/mirror deltas and automatically maintains fixed
+bookkeeping inventory. Source and local Claim assemblers connect to the Message
+Store accounted commit path. A minimal source Store case verifies 4 counters,
+1 total and first-result accounting; local assembly has compilation only. Actual
+business/signature/grant/physical authority, Claim/outbox, full recovery and Worker
+composition remain incomplete. This is implementation progress, not VERIFIED.
+
+
 Latest NDIP-3 implementation: TargetMessageStore connects complete Message,
 Expiry, ordinary/native/ORDERED and strict/queue head projections to the actual
 bounded Store prepare/commit path. One development RocksDB smoke exercises
