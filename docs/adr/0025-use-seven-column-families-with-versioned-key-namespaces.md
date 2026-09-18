@@ -437,3 +437,13 @@ TargetScheduleRegistration 复用既有 identity/dispatch/control、queue、memb
 Native scope、quota activation/owner 与 ID Schedule binding 格式；无新 CF/tag/NV/StableCode。
 它只在同一有界 Store 视图读取完整事实并产生待组装 edits，不能单独写库/计费/推进 source。
 首次 Schedule/Prepare handler 与生产认证快照尚未接线，详见 NDIP-3 quota §35 和集中交接。
+
+
+### NDIP-3 首次 Schedule source 应用（2026-09-18）
+
+复用现有 SCHEDULE、SCHEDULED、HARD_QUOTA_EXCEEDED、DELAY_MESSAGE_ID_CONFLICT/EXPIRED、
+ID Message/binding、META payload owner、TIMELINE 与 NV35 results，无新 wire/tag/NV。
+Target bounded decoder 在一般 Schedule decoder 前限制嵌套分配；真实新业务/结果/source
+同批提交。逻辑 quota 拒绝在同一 ReadView 中丢弃业务投影后计量结果，禁止换视图沿用
+旧拒绝结论。仅根结果不能授权新 ingress/Claim，详见 NDIP-3 quota §36。production
+认证 providers、对象/strict/Broker/恢复/迁移集中验证均仍未完成。

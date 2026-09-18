@@ -1840,3 +1840,27 @@ immutable shared key 已有且字节相同则不重复写；不同则拒绝。re
 新增 domain 时只增加一个 revision，后续 TargetQueueHeadUpdater 统一完成同一 revision
 的 heads。实际 grant gate 仍须同时执行 SHARD/Target limit 检查，不能因本 planner 返回
 OK 就跳过新 ingress 的逻辑/物理容量约束。完整 source handler 与集中验证尚未完成。
+
+
+## 36. 首次 Schedule 与仅拒绝结果的同视图转换
+
+真实首次 Schedule 将 registration edits、generation 0 Message、唯一 ACTIVE payload
+owner、全部索引/head/order、COMMAND/RESULT/POSITION 和 SourceAccounting/source 组合为
+一个 native batch。FIRST_SCHEDULE 使用实际 owner accounting 及 SHARD/Target 当前 grants，
+新增 payload 和每条真实 record 差额只计一次；已有 shared metadata 不重复计费。
+
+TargetQuotaStoreGate.Rejected 只表示逻辑 grant growth 拒绝，不等于物理容量许可或
+未知提交结果。TargetMessageStore.prepareAccountedWithQuotaRejection 在同一 Reader/
+ReadView 中丢弃整个 ingress projection，以 HARD_QUOTA_EXCEEDED 结果重新投影/计费。
+不重新解析外部 Schedule authority，不写新 binding/Message/payload/head，不分批写 source；
+结果本身仍需要全部物理容量、Owner/Store/source guard。除精确逻辑拒绝外，其它异常
+继续 fail closed。预算未完成只能无写退出，任何 native UNKNOWN 仍保留原 pending。
+
+纯 SHARD 结果没有 affected Target：仅现有 CANCEL/RESCHEDULE 的拒绝/NOT_FOUND 计费
+分支允许该空集合，仍解析真实 SHARD grant/owner 并要求完整 counter/frontier 一致。
+新 ingress 及 Claim 仍要求受影响 Target，不得借结果 drain 路径计入新 payload。
+
+必要开发检查覆盖真实首次 Schedule 创建队列、再经 Worker 复用域接纳新 Message、
+Target ACTIVE_MESSAGES 限制触发持久拒绝、无 Message/payload/binding 残留、零写重放、
+当前 MessageId 冲突投影，以及已有 Cancel/Reschedule/Claim/replay 路径。对象证明、strict
+watermark、真实 authority/provider 与全账本恢复仍未验证，不构成完整 B4/C1/C2 验收。

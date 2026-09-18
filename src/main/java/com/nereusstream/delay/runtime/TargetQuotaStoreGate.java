@@ -74,7 +74,9 @@ public final class TargetQuotaStoreGate {
         if (!scope.equals(quota.shardScope())
                 || !scope.shard().equals(reader.shardId())
                 || mutation.business().size() > reader.maximumWriteRecords()
-                || quota.changes().isEmpty()
+                || (quota.changes().isEmpty()
+                        && operation != TargetQuotaGrantGate.Operation.CANCEL
+                        && operation != TargetQuotaGrantGate.Operation.RESCHEDULE)
                 || quota.changes().size() > maximumTargets) {
             throw new IllegalArgumentException("logical Store gate requires its bounded affected Target set");
         }

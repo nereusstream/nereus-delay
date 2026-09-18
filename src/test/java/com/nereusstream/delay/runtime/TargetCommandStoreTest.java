@@ -16,9 +16,11 @@ import com.nereusstream.delay.ownership.SourceReplayRecord;
 import com.nereusstream.delay.ownership.SourceReplaySuccessor;
 import com.nereusstream.delay.ownership.TargetSourceApplyRuntime;
 import com.nereusstream.delay.ownership.WorkerSourceApplyLoop;
+import com.nereusstream.delay.protocol.AdapterKind;
 import com.nereusstream.delay.protocol.AuthorIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CancelCommandBody;
+import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
 import com.nereusstream.delay.protocol.CanonicalTargetPartition;
 import com.nereusstream.delay.protocol.CapacityDimension;
 import com.nereusstream.delay.protocol.CapacityVector;
@@ -33,28 +35,36 @@ import com.nereusstream.delay.protocol.ControlRoleSet;
 import com.nereusstream.delay.protocol.ControlTargetKind;
 import com.nereusstream.delay.protocol.ControlTargetRef;
 import com.nereusstream.delay.protocol.DelayMessageId;
+import com.nereusstream.delay.protocol.DestinationProfileSemantic;
 import com.nereusstream.delay.protocol.KafkaActivationBarrier;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.MessagePrecondition;
 import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.PreparedCommand;
 import com.nereusstream.delay.protocol.PreparedControlOperation;
+import com.nereusstream.delay.protocol.ProfileBindingControlState;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
 import com.nereusstream.delay.protocol.ProtocolTuple;
 import com.nereusstream.delay.protocol.RescheduleCommandBody;
+import com.nereusstream.delay.protocol.ScheduleCommandBody;
 import com.nereusstream.delay.protocol.SelfRoutingId;
 import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
-import com.nereusstream.delay.protocol.TargetDomainState;
-import com.nereusstream.delay.protocol.TargetMessageLocator;
+import com.nereusstream.delay.protocol.TargetControlScope;
+import com.nereusstream.delay.protocol.TargetDispatchCompatibility;
+import com.nereusstream.delay.protocol.TargetMembershipGrant;
+import com.nereusstream.delay.protocol.TargetNativePolicyScope;
+import com.nereusstream.delay.protocol.TargetPartitionHashInput;
+import com.nereusstream.delay.protocol.TargetPartitionPolicy;
 import com.nereusstream.delay.protocol.TargetQueueState;
 import com.nereusstream.delay.protocol.TargetQuotaAggregate;
 import com.nereusstream.delay.protocol.TargetQuotaGrant;
 import com.nereusstream.delay.protocol.TargetQuotaGrantActivation;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlBody;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlRequest;
-import com.nereusstream.delay.protocol.TargetQuotaMutation;
 import com.nereusstream.delay.protocol.TargetQuotaPayloadOwner;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
 import com.nereusstream.delay.protocol.TargetQuotaUsage;
@@ -83,7 +93,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
-/** Signed bootstrap/grants and real accounting; initial Schedule and external control/lease providers are fixtures. */
+/** Actual first Schedule and subsequent Worker transitions; membership/Native/Route/lease authorities are fixtures. */
 class TargetCommandStoreTest {
     @TempDir
     Path root;
@@ -142,13 +152,16 @@ class TargetCommandStoreTest {
                     TargetMessageRecord.decode(vector("target-identity-vectors.properties", "message.initial"));
             final var physical =
                     CanonicalTargetPartition.decode(vector("target-identity-vectors.properties", "pulsar.canonical"));
+            final long[] targetAmounts = amounts.clone();
+            Arrays.fill(targetAmounts, 50, 55, 0);
+            targetAmounts[CapacityDimension.ACTIVE_MESSAGES.wireValue() - 1] = 1;
             final var targetRequest = new TargetQuotaGrantControlRequest(
                     new TargetQuotaGrant(
                             scope.forTarget(initial.target()),
                             bytes(32, 0x51),
                             1,
                             originalGrant.accounting(),
-                            originalGrant.limit(),
+                            new TargetQuotaUsage(new CapacityVector(targetAmounts), 1, 64, 64, 64),
                             originalGrant.tenantPolicyVersion(),
                             originalGrant.tenantPolicyHash()),
                     null,
@@ -174,93 +187,72 @@ class TargetCommandStoreTest {
                             TargetQuotaGrantActivation.VALUE_TYPE)
                     .payload());
             final var allocation = grant.allocation();
-            final var scheduleAt = source(grantAt, grantAt.offset() + 1, grantAt.brokerLogAppendTimeEpochMs() + 1);
-            final var binding = new TargetScheduleBinding(
-                    initial.messageId(),
-                    initial.commandType(),
-                    initial.canonicalBody(),
-                    scheduleAt,
-                    initial.target(),
-                    initial.domain(),
+            final var membershipAt = source(grantAt, grantAt.offset() + 1, grantAt.brokerLogAppendTimeEpochMs() + 1);
+            final var scheduleAt =
+                    source(membershipAt, membershipAt.offset() + 1, membershipAt.brokerLogAppendTimeEpochMs() + 1);
+            final var dispatch = TargetDispatchCompatibility.decode(
+                    vector("target-compatibility-vectors.properties", "pulsar.journal.dispatch"));
+            final var controlModel =
+                    TargetControlScope.decode(vector("target-compatibility-vectors.properties", "scope.shared"));
+            final var controls = new TargetControlScope(
+                    physical.id(), scope.shard(), controlModel.controls(), controlModel.permits());
+            final var capability = new ProfileSemanticEnvelope(
+                    ProfileKind.DELIVERY_CAPABILITY, Bytes.utf8("cap"), 1, dispatch.capability());
+            final var destination = new ProfileSemanticEnvelope(
+                    ProfileKind.DESTINATION,
+                    Bytes.utf8("member"),
+                    1,
+                    new DestinationProfileSemantic(
+                            AdapterKind.PULSAR,
+                            physical.resource(),
+                            8,
+                            TargetPartitionPolicy.EXPLICIT_ONLY,
+                            TargetPartitionHashInput.DELAY_MESSAGE_ID,
+                            List.of(5),
+                            capability.ref(),
+                            3,
+                            60000,
+                            bytes(32, 0xaa),
+                            20000,
+                            10000,
+                            10000,
+                            1,
+                            Bytes.utf8("member"),
+                            86400000,
+                            172800000,
+                            2,
+                            bytes(32, 0xbb)));
+            final var membership = new TargetMembershipGrant(
+                    scope.tenantScope(),
+                    destination.ref(),
+                    dispatch,
+                    dispatch,
+                    controls,
+                    bytes(32, 0x71),
+                    bytes(32, 0x72),
+                    bytes(32, 0x73),
+                    membershipAt);
+            final var nativeModel = TargetNativePolicyScope.decode(TargetValueEnvelope.decode(
+                            vector("target-native-policy-vectors.properties", "scope.value"),
+                            TargetNativePolicyScope.VALUE_TYPE)
+                    .payload());
+            final var nativeScope = new TargetNativePolicyScope(
+                    nativeModel.authorityNamespace(),
+                    nativeModel.controlResourceScope(),
+                    scope.shard(),
+                    physical.id(),
                     allocation.identity().accountingIncarnation(),
-                    initial.requiredDispatchRef(),
-                    initial.offeredDispatchRef(),
-                    initial.controlScopeRef(),
-                    initial.membershipGrantRef(),
-                    initial.nativePolicyScopeRef(),
-                    initial.orderingDomain());
-            final var locator = new TargetMessageLocator(
-                    binding.messageId(),
-                    0,
-                    binding.target(),
-                    binding.domain(),
-                    binding.accountingIncarnation(),
-                    model.locator().orderingMode(),
-                    null,
-                    binding.digest());
-            final var workModel = model.runtime().timeline();
-            final var work = new TargetTimelineWorkRef(
-                    locator,
-                    TimelineWorkKind.INITIAL_SCHEDULE,
-                    model.deliverAtEpochMs(),
-                    model.retryEligibilityAtEpochMs(),
-                    scheduleAt.sourceOrderToken(),
-                    1,
-                    1,
-                    workModel.uncertainRetryAuthority(),
-                    null,
-                    null,
-                    true);
-            final var message = new TargetMessageRecord(
-                    locator,
-                    1,
-                    model.deliverAtEpochMs(),
-                    model.expireAtEpochMs(),
-                    model.retryEligibilityAtEpochMs(),
-                    model.nativeDeliveryPolicy(),
-                    scheduleAt,
-                    model.inlinePayload(),
-                    null,
-                    new TargetGenerationRuntimeIndex(
-                            0,
-                            GenerationAggregateState.SCHEDULED,
-                            CurrentSendWorkKind.TIMELINE,
-                            work,
-                            null,
-                            null,
-                            List.of(),
-                            0,
-                            0,
-                            false,
-                            1));
-            final var stamp = new TargetQuotaMutation(3, scheduleAt, bytes(32, 0x61));
-            final var payload = TargetQuotaPayloadOwner.scheduled(
-                    binding, scope.tenantScope(), allocation.accounting(), lineage, stamp);
-            final var templateQueue =
-                    TargetQueueState.decode(vector("target-identity-vectors.properties", "queue.active"));
-            final var slot = templateQueue.domains().getFirst();
-            final var queueState = new TargetQueueState(
-                    binding.target(),
-                    1,
-                    templateQueue.controlVersion(),
-                    templateQueue.admissionState(),
-                    binding.accountingIncarnation(),
-                    templateQueue.nativeIndexLeadCapMs(),
-                    List.of(new TargetDomainState(
-                            binding.domain(),
-                            slot.lifecycle(),
-                            binding.offeredDispatchRef(),
-                            binding.controlScopeRef(),
-                            binding.nativePolicyScopeRef() == null
-                                    ? slot.nativePolicyScopeRef()
-                                    : binding.nativePolicyScopeRef(),
-                            null,
-                            null)));
+                    initial.domain(),
+                    dispatch.digest(),
+                    controls.digest(),
+                    60000,
+                    nativeModel.artifacts());
+            // Source-applied membership/Native controls are fixture inputs until their formal handlers are wired.
             new TargetMessageStore(backend, 1, 1, 1)
                     .applyAccounted(
                             budget(),
                             reader -> new TargetMessageStore.Input(
-                                    List.of(new TargetMessageStore.Transition(null, message)),
+                                    List.of(),
                                     List.of(),
                                     List.of(
                                             reader.replace(
@@ -270,21 +262,160 @@ class TargetCommandStoreTest {
                                                     physical.canonicalBytes()),
                                             reader.replace(
                                                     ColumnFamily.META,
-                                                    TargetKeyCodec.state(binding.target()),
-                                                    TargetQueueState.VALUE_TYPE,
-                                                    queueState.canonicalBytes()),
-                                            reader.replace(
-                                                    ColumnFamily.ID,
-                                                    binding.encodedKey(),
-                                                    TargetScheduleBinding.VALUE_TYPE,
-                                                    binding.canonicalBytes()),
+                                                    membership.encodedKey(),
+                                                    TargetMembershipGrant.VALUE_TYPE,
+                                                    membership.canonicalBytes()),
                                             reader.replace(
                                                     ColumnFamily.META,
-                                                    payload.key(),
-                                                    TargetQuotaPayloadOwner.VALUE_TYPE,
-                                                    payload.canonicalBytes()))),
-                            new TargetSourceAccounting(scope, lineage, scheduleAt, stamp.mutationDigest(), 16, 1, 1),
+                                                    nativeScope.encodedKey(),
+                                                    TargetNativePolicyScope.VALUE_TYPE,
+                                                    nativeScope.canonicalBytes()))),
+                            new TargetSourceAccounting(
+                                    scope, lineage, membershipAt, membership.sourceMutationDigest(), 16, 1, 1),
                             (a, b, c) -> guard());
+            final var priorIntent =
+                    ScheduleCommandBody.decode(initial.canonicalBody()).intent();
+            final var intent = CanonicalScheduleIntent.create(
+                    destination.ref(),
+                    priorIntent.retryPolicy(),
+                    scheduleAt.brokerLogAppendTimeEpochMs() + 100,
+                    scheduleAt.brokerLogAppendTimeEpochMs() + 2000,
+                    priorIntent.deliveryMode(),
+                    priorIntent.orderingMode(),
+                    priorIntent.orderingKey(),
+                    model.inlinePayload(),
+                    null,
+                    priorIntent.adapterMetadata(),
+                    priorIntent.businessKey(),
+                    priorIntent.eventTimeEpochMs(),
+                    model.nativeDeliveryPolicy());
+            final var messageId = new DelayMessageId(
+                    cancel(initial.messageId(), scheduleAt, 9).commandId().bytes());
+            final var scheduleBody =
+                    new ScheduleCommandBody(messageId, scheduleAt.brokerLogAppendTimeEpochMs() + 1000, intent);
+            final var scheduleId = cancel(messageId, scheduleAt, 10).commandId();
+            final var schedule = new PreparedCommand(
+                    scope.shard(),
+                    scheduleId,
+                    messageId,
+                    CommandType.SCHEDULE,
+                    ProtocolTuple.managedCommand(),
+                    scheduleBody.retryUntilEpochMs(),
+                    scheduleBody.canonicalBytes(),
+                    CommandHash.compute(
+                            ProtocolTuple.managedCommand(),
+                            CommandType.SCHEDULE,
+                            scheduleId,
+                            messageId,
+                            scheduleBody.retryUntilEpochMs(),
+                            scheduleBody.canonicalBytes()));
+            final var binding = new TargetScheduleBinding(
+                    messageId,
+                    CommandType.SCHEDULE,
+                    scheduleBody.canonicalBytes(),
+                    scheduleAt,
+                    physical.id(),
+                    initial.domain(),
+                    allocation.identity().accountingIncarnation(),
+                    dispatch.digest(),
+                    dispatch.digest(),
+                    controls.digest(),
+                    membership.digest(),
+                    nativeScope.digest(),
+                    null);
+            final var profiles = ProfileBindingControlState.empty()
+                    .activate(destination.ref(), origin)
+                    .activate(capability.ref(), grantAt);
+            final var scheduleAuthority = new TargetScheduleRegistration.Authority(
+                    binding,
+                    physical,
+                    destination,
+                    capability,
+                    profiles,
+                    ref -> new TargetMembershipAuthority.AppliedGrant(membership, null),
+                    60000);
+            final var scheduleResolutions = new java.util.concurrent.atomic.AtomicInteger();
+            final TargetCommandStore.Schedules scheduleProvider = (incoming, position) -> {
+                scheduleResolutions.incrementAndGet();
+                final var acceptedBinding = new TargetScheduleBinding(
+                        incoming.delayMessageId(),
+                        CommandType.SCHEDULE,
+                        incoming.canonicalBody(),
+                        position,
+                        physical.id(),
+                        initial.domain(),
+                        binding.accountingIncarnation(),
+                        dispatch.digest(),
+                        dispatch.digest(),
+                        controls.digest(),
+                        membership.digest(),
+                        nativeScope.digest(),
+                        null);
+                return new TargetCommandStore.ScheduleAdmission(
+                        StableCode.OK,
+                        new TargetScheduleRegistration.Authority(
+                                acceptedBinding,
+                                physical,
+                                destination,
+                                capability,
+                                profiles,
+                                ref -> new TargetMembershipAuthority.AppliedGrant(membership, null),
+                                60000),
+                        TargetOrderState.OrderingContract.ADMISSION_WATERMARK);
+            };
+            final var initialCommands = new TargetCommandStore(backend, scope, lineage, 16, 1);
+            final var initialPolicy = new TargetCommandStore.Policy(
+                    scope,
+                    1000,
+                    1000,
+                    10,
+                    java.util.Set.of(schedule.protocolTuple()),
+                    new TargetCommandStore.DeliveryWindow(10_000, 1, 100_000));
+            final var initialPlan = initialCommands.prepareFirst(
+                    budget(),
+                    schedule,
+                    scheduleAt,
+                    initialPolicy,
+                    (reader, bound, source) -> false,
+                    (incoming, source) -> new TargetCommandStore.ScheduleAdmission(
+                            StableCode.OK, scheduleAuthority, TargetOrderState.OrderingContract.ADMISSION_WATERMARK));
+            final long beforeScheduleFailure = store.latestSequenceNumber();
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> initialCommands.commit(initialPlan, (a, b, c) -> {
+                        throw new IllegalStateException("capacity unavailable");
+                    }));
+            assertEquals(beforeScheduleFailure, store.latestSequenceNumber());
+            assertNull(store.get(ColumnFamily.ID, TargetKeyCodec.message(messageId)));
+            assertEquals(
+                    StableCode.SCHEDULED,
+                    initialCommands
+                            .commit(
+                                    initialCommands.prepareFirst(
+                                            budget(),
+                                            schedule,
+                                            scheduleAt,
+                                            initialPolicy,
+                                            (reader, bound, source) -> false,
+                                            (incoming, source) -> new TargetCommandStore.ScheduleAdmission(
+                                                    StableCode.OK,
+                                                    scheduleAuthority,
+                                                    TargetOrderState.OrderingContract.ADMISSION_WATERMARK)),
+                                    (a, b, c) -> guard())
+                            .stableCode());
+            final var message = TargetMessageRecord.decode(TargetValueEnvelope.decode(
+                            store.get(ColumnFamily.ID, TargetKeyCodec.message(messageId)),
+                            TargetMessageRecord.VALUE_TYPE)
+                    .payload());
+            final var locator = message.locator();
+            final var work = message.runtime().timeline();
+            final var payload = TargetQuotaPayloadOwner.decode(TargetValueEnvelope.decode(
+                            store.get(
+                                    ColumnFamily.META,
+                                    Bytes.concat(
+                                            new byte[] {TargetKeyCodec.QUOTA_PAYLOAD_OWNER_TAG, 1}, messageId.bytes())),
+                            TargetQuotaPayloadOwner.VALUE_TYPE)
+                    .payload());
 
             final var assignment = new SourceAssignment(
                     scope.shard(),
@@ -336,7 +467,10 @@ class TargetCommandStoreTest {
                     java.util.Set.of(command.protocolTuple()),
                     new TargetCommandStore.DeliveryWindow(10_000, 1, 100_000));
             final var firstStore = new TargetCommandStore(backend, scope, lineage, 16, 1);
-            final var failed = firstStore.prepareFirst(budget(), command, at, policy, (reader, bound, source) -> false);
+            final var failed = firstStore.prepareFirst(
+                    budget(), command, at, policy, (reader, bound, source) -> false, (incoming, source) -> {
+                        throw new AssertionError("unexpected first Schedule");
+                    });
             final long nativeBeforeFailure = store.latestSequenceNumber();
             assertThrows(
                     IllegalStateException.class,
@@ -371,6 +505,7 @@ class TargetCommandStoreTest {
                                             assertArrayEquals(binding.canonicalBytes(), bound.canonicalBytes());
                                             return false;
                                         },
+                                        scheduleProvider,
                                         (a, b, c) -> guard());
                             }),
                     new TargetSourceApplyRuntime.Limits(4096, 32L << 20, 60_000_000_000L, 16, 1),
@@ -468,6 +603,100 @@ class TargetCommandStoreTest {
                             .commandResult()
                             .stableCode());
             assertEquals(2, resolutions.get());
+            final var missingAt = source(later, later.offset() + 1, later.brokerLogAppendTimeEpochMs() + 1);
+            final var missingId = new DelayMessageId(
+                    cancel(locator.messageId(), missingAt, 99).commandId().bytes());
+            assertEquals(
+                    StableCode.NOT_FOUND,
+                    apply(loop, entries, cancel(missingId, missingAt, 100), missingAt)
+                            .appliedOutcome()
+                            .commandResult()
+                            .stableCode());
+            assertEquals(3, resolutions.get());
+            final var freshAt = source(missingAt, missingAt.offset() + 1, missingAt.brokerLogAppendTimeEpochMs() + 1);
+            final var fresh = schedule(intent, locator.messageId(), freshAt, 200);
+            assertEquals(
+                    StableCode.SCHEDULED,
+                    apply(loop, entries, fresh, freshAt)
+                            .appliedOutcome()
+                            .commandResult()
+                            .stableCode());
+            final long afterFresh = store.latestSequenceNumber();
+            assertEquals(
+                    StableCode.SCHEDULED,
+                    apply(loop, entries, fresh, freshAt)
+                            .appliedOutcome()
+                            .commandResult()
+                            .stableCode());
+            assertEquals(afterFresh, store.latestSequenceNumber());
+            final var rejectedAt = source(freshAt, freshAt.offset() + 1, freshAt.brokerLogAppendTimeEpochMs() + 1);
+            final var overQuota = schedule(intent, locator.messageId(), rejectedAt, 300);
+            assertEquals(
+                    StableCode.HARD_QUOTA_EXCEEDED,
+                    apply(loop, entries, overQuota, rejectedAt)
+                            .appliedOutcome()
+                            .commandResult()
+                            .stableCode());
+            assertNull(store.get(ColumnFamily.ID, TargetKeyCodec.message(overQuota.delayMessageId())));
+            assertNull(store.get(
+                    ColumnFamily.META,
+                    Bytes.concat(
+                            new byte[] {TargetKeyCodec.QUOTA_PAYLOAD_OWNER_TAG, 1},
+                            overQuota.delayMessageId().bytes())));
+            final long afterQuota = store.latestSequenceNumber();
+            assertEquals(
+                    StableCode.HARD_QUOTA_EXCEEDED,
+                    apply(loop, entries, overQuota, rejectedAt)
+                            .appliedOutcome()
+                            .commandResult()
+                            .stableCode());
+            assertEquals(afterQuota, store.latestSequenceNumber());
+            assertEquals(5, resolutions.get());
+            assertEquals(2, scheduleResolutions.get());
+            final var rejectedBinding = new TargetScheduleBinding(
+                    overQuota.delayMessageId(),
+                    CommandType.SCHEDULE,
+                    overQuota.canonicalBody(),
+                    rejectedAt,
+                    physical.id(),
+                    initial.domain(),
+                    binding.accountingIncarnation(),
+                    dispatch.digest(),
+                    dispatch.digest(),
+                    controls.digest(),
+                    membership.digest(),
+                    nativeScope.digest(),
+                    null);
+            assertNull(store.get(ColumnFamily.ID, rejectedBinding.encodedKey()));
+            final var conflictAt =
+                    source(rejectedAt, rejectedAt.offset() + 1, rejectedAt.brokerLogAppendTimeEpochMs() + 1);
+            final var conflictBody = new ScheduleCommandBody(
+                    fresh.delayMessageId(), conflictAt.brokerLogAppendTimeEpochMs() + 1000, intent);
+            final var conflictId =
+                    cancel(fresh.delayMessageId(), conflictAt, 400).commandId();
+            final var conflict = new PreparedCommand(
+                    scope.shard(),
+                    conflictId,
+                    fresh.delayMessageId(),
+                    CommandType.SCHEDULE,
+                    fresh.protocolTuple(),
+                    conflictBody.retryUntilEpochMs(),
+                    conflictBody.canonicalBytes(),
+                    CommandHash.compute(
+                            fresh.protocolTuple(),
+                            CommandType.SCHEDULE,
+                            conflictId,
+                            fresh.delayMessageId(),
+                            conflictBody.retryUntilEpochMs(),
+                            conflictBody.canonicalBytes()));
+            final var conflicted =
+                    apply(loop, entries, conflict, conflictAt).appliedOutcome().commandResult();
+            assertEquals(StableCode.DELAY_MESSAGE_ID_CONFLICT, conflicted.stableCode());
+            assertEquals(ApplyStatus.REJECTED, conflicted.applyStatus());
+            assertEquals(0, conflicted.generation());
+            assertEquals(1, conflicted.stateVersion());
+            assertEquals(MessageStatus.SCHEDULED, conflicted.messageStatus());
+            assertEquals(2, scheduleResolutions.get());
         }
     }
 
@@ -491,6 +720,25 @@ class TargetCommandStoreTest {
                 body.canonicalBytes(),
                 CommandHash.compute(
                         tuple, CommandType.CANCEL, id, message, body.retryUntilEpochMs(), body.canonicalBytes()));
+    }
+
+    private static PreparedCommand schedule(
+            CanonicalScheduleIntent intent, DelayMessageId seed, KafkaSourcePosition at, int unique) {
+        final var id = cancel(seed, at, unique).commandId();
+        final var message =
+                new DelayMessageId(cancel(seed, at, unique + 1000).commandId().bytes());
+        final var body = new ScheduleCommandBody(message, at.brokerLogAppendTimeEpochMs() + 1000, intent);
+        final var tuple = ProtocolTuple.managedCommand();
+        return new PreparedCommand(
+                at.shardId(),
+                id,
+                message,
+                CommandType.SCHEDULE,
+                tuple,
+                body.retryUntilEpochMs(),
+                body.canonicalBytes(),
+                CommandHash.compute(
+                        tuple, CommandType.SCHEDULE, id, message, body.retryUntilEpochMs(), body.canonicalBytes()));
     }
 
     private static PreparedCommand reschedule(DelayMessageId message, KafkaSourcePosition at, int unique) {

@@ -45,6 +45,12 @@ public final class ScheduleCommandBody {
         });
     }
 
+    /** Apply Target allocation bounds before the general canonical decoder allocates nested collections. */
+    public static ScheduleCommandBody decodeForTarget(final byte[] encoded, final DelayMessageId expectedMessage) {
+        TargetScheduleBody.validate(encoded, CommandType.SCHEDULE, expectedMessage);
+        return decode(encoded);
+    }
+
     public static ScheduleCommandBody decode(final byte[] encoded) {
         final List<CanonicalProtobuf.Reader.Field> fields = QueryCodecSupport.read(encoded, "ScheduleCommandBody");
         QueryCodecSupport.requireNumbers(fields, new int[] {1, 2, 3, 10}, "ScheduleCommandBody");

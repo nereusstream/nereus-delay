@@ -9,13 +9,16 @@ import com.nereusstream.delay.protocol.CommandType;
 import com.nereusstream.delay.protocol.MessagePrecondition;
 import com.nereusstream.delay.protocol.NativeDeliveryPolicy;
 import com.nereusstream.delay.protocol.OrderingMode;
+import com.nereusstream.delay.protocol.PayloadReference;
 import com.nereusstream.delay.protocol.PreparedCommand;
 import com.nereusstream.delay.protocol.ProtocolTuple;
 import com.nereusstream.delay.protocol.RescheduleCommandBody;
+import com.nereusstream.delay.protocol.ScheduleCommandBody;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.TargetMessageLocator;
 import com.nereusstream.delay.protocol.TargetQueueState;
+import com.nereusstream.delay.protocol.TargetQuotaAccounting;
 import com.nereusstream.delay.protocol.TargetQuotaClaimCharge;
 import com.nereusstream.delay.protocol.TargetQuotaIdentity;
 import com.nereusstream.delay.protocol.TargetQuotaIncarnation;
@@ -27,6 +30,7 @@ import com.nereusstream.delay.protocol.TargetSourcePosition;
 import com.nereusstream.delay.protocol.UnsignedInt32;
 import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.ColumnFamily;
+import com.nereusstream.delay.store.ReadIncompleteException;
 import com.nereusstream.delay.store.TargetKeyCodec;
 import com.nereusstream.delay.store.TargetStoreBackend;
 import com.nereusstream.delay.store.TargetValueEnvelope;
@@ -97,7 +101,40 @@ public final class TargetCommandStore {
         }
     }
 
-    private record Decision(TargetMessageStore.Input input, CommandResult result, TargetQuotaIncarnation owner) {}
+    /**
+     * Source-pinned Route/retry/payload authorization, including committed-object proof and all destination
+     * control closures. Resolve only for a new identity. Exceptions are authority failures, not business results.
+     * The first-command commit guard must hold the exact accepted snapshot; there is no permissive default.
+     */
+    @FunctionalInterface
+    public interface Schedules {
+        ScheduleAdmission resolve(PreparedCommand command, SourcePosition source);
+    }
+
+    public record ScheduleAdmission(
+            StableCode code,
+            TargetScheduleRegistration.Authority registration,
+            TargetOrderState.OrderingContract orderingContract) {
+        public ScheduleAdmission {
+            Objects.requireNonNull(code, "code");
+            if (code == StableCode.OK) {
+                Objects.requireNonNull(registration, "registration");
+                Objects.requireNonNull(orderingContract, "orderingContract");
+            } else if (registration != null || orderingContract != null) {
+                throw new IllegalArgumentException("rejected Schedule authorization has no accepted binding");
+            }
+        }
+    }
+
+    private record Decision(
+            TargetMessageStore.Input input,
+            CommandResult result,
+            TargetQuotaIncarnation owner,
+            TargetQuotaAccounting ingress) {
+        private Decision(TargetMessageStore.Input input, CommandResult result, TargetQuotaIncarnation owner) {
+            this(input, result, owner, null);
+        }
+    }
 
     private final TargetStoreBackend backend;
     private final TargetMessageStore messages;
@@ -134,8 +171,10 @@ public final class TargetCommandStore {
             PreparedCommand command,
             SourcePosition source,
             Policy policy,
-            CancellationControls controls) {
+            CancellationControls controls,
+            Schedules schedules) {
         Objects.requireNonNull(command, "command");
+        Objects.requireNonNull(schedules, "schedules");
         Objects.requireNonNull(controls, "controls");
         TargetSourcePosition.requireBounded(source);
         if (!scope.equals(policy.scope())
@@ -144,8 +183,9 @@ public final class TargetCommandStore {
             throw new IllegalArgumentException("first Command source/Route policy scope differs");
         }
         final var result = new CommandResult[1];
+        final var ingress = new TargetQuotaAccounting[1];
         final byte[] digest = Bytes.sha256(CommandCodec.encodeFrame(command));
-        final var batch = messages.prepareAccounted(
+        final var batch = messages.prepareAccountedWithQuotaRejection(
                 budget,
                 reader -> {
                     if (reader.source() == null || source.compareTo(reader.source()) <= 0) {
@@ -178,6 +218,29 @@ public final class TargetCommandStore {
                     final Decision decision;
                     if (invalid != null) {
                         decision = unchanged(rejected(invalid, source), root);
+
+                    } else if (command.type() == CommandType.SCHEDULE) {
+                        final ScheduleCommandBody body;
+                        try {
+                            if (command.canonicalBody().length > TargetScheduleBinding.MAX_BODY_BYTES) {
+                                throw new IllegalArgumentException("Schedule body exceeds Target bound");
+                            }
+                            body = ScheduleCommandBody.decodeForTarget(
+                                    command.canonicalBody(), command.delayMessageId());
+                            if (!command.delayMessageId().equals(body.delayMessageId())
+                                    || command.retryUntilEpochMs() != body.retryUntilEpochMs()) {
+                                throw new IllegalArgumentException("Schedule body differs from envelope");
+                            }
+                        } catch (IllegalArgumentException malformed) {
+                            return withResults(
+                                    reader,
+                                    command,
+                                    stamp,
+                                    root,
+                                    unchanged(rejected(StableCode.INVALID_COMMAND, source), root),
+                                    result);
+                        }
+                        decision = schedule(reader, command, body, stamp, root, policy, schedules);
                     } else if (command.type() == CommandType.CANCEL) {
                         final CancelCommandBody body;
                         try {
@@ -220,16 +283,48 @@ public final class TargetCommandStore {
                         throw new IllegalStateException(
                                 "first Target Command business branch is not wired yet; retain source");
                     }
+                    ingress[0] = decision.ingress();
                     return withResults(reader, command, stamp, root, decision, result);
                 },
-                new TargetQuotaStoreGate(scope, lineage, 1)
-                        .wrap(
-                                new TargetSourceAccounting(
-                                        scope, lineage, source, digest, maximumCounters, 1, maximumDomains),
-                                command.type() == CommandType.RESCHEDULE
-                                        ? TargetQuotaGrantGate.Operation.RESCHEDULE
-                                        : TargetQuotaGrantGate.Operation.CANCEL,
-                                null));
+                (reader, business) -> {
+                    final var assembled = new TargetSourceAccounting(
+                                    scope, lineage, source, digest, maximumCounters, 1, maximumDomains)
+                            .assemble(reader, business);
+                    new TargetQuotaStoreGate(scope, lineage, 1)
+                            .check(
+                                    reader,
+                                    assembled,
+                                    ingress[0] != null
+                                            ? TargetQuotaGrantGate.Operation.FIRST_SCHEDULE
+                                            : command.type() == CommandType.RESCHEDULE
+                                                    ? TargetQuotaGrantGate.Operation.RESCHEDULE
+                                                    : TargetQuotaGrantGate.Operation.CANCEL,
+                                    ingress[0]);
+                    return assembled;
+                },
+                (reader, exceeded) -> {
+                    if (ingress[0] == null || command.type() != CommandType.SCHEDULE) {
+                        throw exceeded;
+                    }
+                    ingress[0] = null;
+                    final var root = descriptor(
+                            reader,
+                            new TargetQuotaIdentity(
+                                    TargetQuotaIdentity.Kind.SHARD,
+                                    scope.shard(),
+                                    reader.aggregate().accountingIncarnation(),
+                                    null,
+                                    null));
+                    final var stamp = new TargetQuotaMutation(
+                            TargetQuotaMutation.increment(reader.sourceSequence()), source, digest);
+                    return withResults(
+                            reader,
+                            command,
+                            stamp,
+                            root,
+                            unchanged(rejected(StableCode.HARD_QUOTA_EXCEEDED, source), root),
+                            result);
+                });
         return new Prepared(this, batch, result[0]);
     }
 
@@ -239,6 +334,195 @@ public final class TargetCommandStore {
         }
         backend.commit(prepared.batch, Objects.requireNonNull(authority, "authority"));
         return prepared.result;
+    }
+
+    private Decision schedule(
+            TargetStoreBackend.Reader reader,
+            PreparedCommand command,
+            ScheduleCommandBody body,
+            TargetQuotaMutation stamp,
+            TargetQuotaIncarnation root,
+            Policy policy,
+            Schedules schedules) {
+        final var source = stamp.source();
+        final var intent = body.intent();
+        if (!policy.deliveryWindow()
+                .permits(intent.deliverAtEpochMs(), intent.expireAtEpochMs(), source.brokerPersistenceTimeEpochMs())) {
+            return unchanged(rejected(StableCode.INVALID_DELIVERY_WINDOW, source), root);
+        }
+        final byte[] payloadKey = Bytes.concat(
+                new byte[] {TargetKeyCodec.QUOTA_PAYLOAD_OWNER_TAG, 1},
+                command.delayMessageId().bytes());
+        final byte[] existing = reader.get(ColumnFamily.ID, TargetKeyCodec.message(command.delayMessageId()));
+        final byte[] retained = reader.get(ColumnFamily.META, payloadKey);
+        if (existing != null && retained == null) {
+            throw new IllegalStateException("existing Schedule identity has no payload owner");
+        }
+        if (retained != null) {
+            final var payloadOwner = TargetQuotaPayloadOwner.decodeForStore(
+                    payloadKey,
+                    TargetValueEnvelope.decode(retained, TargetQuotaPayloadOwner.VALUE_TYPE)
+                            .payload(),
+                    scope.shard(),
+                    scope.tenantScope());
+            final var owner = descriptor(reader, payloadOwner.primaryIdentity());
+            owner.requirePayloadOwner(payloadOwner);
+            payloadOwner.mutation().requireAtOrBefore(reader.aggregate().mutation());
+            if (existing != null) {
+                final var message = TargetMessageRecord.decodeForStore(
+                        TargetKeyCodec.message(command.delayMessageId()),
+                        TargetValueEnvelope.decode(existing, TargetMessageRecord.VALUE_TYPE)
+                                .payload(),
+                        scope.shard());
+                payloadOwner.requireMessagePayload(message);
+                final var projection = applied(StableCode.DELAY_MESSAGE_ID_CONFLICT, source, message);
+                return unchanged(
+                        new CommandResult(
+                                ApplyStatus.REJECTED,
+                                projection.stableCode(),
+                                projection.generation(),
+                                projection.stateVersion(),
+                                projection.messageStatus(),
+                                projection.appliedSourcePosition()),
+                        owner);
+            }
+            return unchanged(rejected(StableCode.DELAY_MESSAGE_ID_CONFLICT, source), owner);
+        }
+        try {
+            final long identityTime = command.delayMessageId().routingId().logicalTimestampEpochMs();
+            if (identityTime > Math.addExact(source.brokerPersistenceTimeEpochMs(), policy.maximumFutureSkewMs())) {
+                return unchanged(rejected(StableCode.INVALID_COMMAND, source), root);
+            }
+            final long deadline = Math.addExact(identityTime, policy.maximumPreparationAgeMs());
+            if (source.brokerPersistenceTimeEpochMs() > deadline || reader.closedIngressDeadlineThrough() >= deadline) {
+                return unchanged(rejected(StableCode.DELAY_MESSAGE_ID_EXPIRED, source), root);
+            }
+        } catch (ArithmeticException overflow) {
+            return unchanged(rejected(StableCode.INVALID_COMMAND, source), root);
+        }
+        final ScheduleAdmission admitted;
+        try {
+            admitted = Objects.requireNonNull(schedules.resolve(command, source), "Schedule admission");
+        } catch (ReadIncompleteException external) {
+            throw new IllegalStateException("external Schedule authorization did not complete", external);
+        }
+        if (admitted.code() != StableCode.OK) {
+            return unchanged(rejected(admitted.code(), source), root);
+        }
+        final var registration = TargetScheduleRegistration.prepare(
+                reader, command, source, scope, lineage, admitted.registration(), maximumDomains);
+        if (registration.code() != StableCode.OK) {
+            return unchanged(rejected(registration.code(), source), root);
+        }
+        final var binding = registration.binding();
+        final var locator = new TargetMessageLocator(
+                binding.messageId(),
+                0,
+                binding.target(),
+                binding.domain(),
+                binding.accountingIncarnation(),
+                intent.orderingMode(),
+                binding.orderingDomain(),
+                binding.digest());
+        final var work = new TargetTimelineWorkRef(
+                locator,
+                TimelineWorkKind.INITIAL_SCHEDULE,
+                intent.deliverAtEpochMs(),
+                intent.deliverAtEpochMs(),
+                source.sourceOrderToken(),
+                1,
+                1,
+                UncertainRetryAuthority.NONE,
+                null,
+                null,
+                binding.nativePolicyScopeRef() != null);
+        final var orders = new ArrayList<TargetMessageStore.OrderTransition>();
+        if (intent.orderingMode() == OrderingMode.DELIVERY_TIME_FIFO) {
+            final byte[] orderKey = TargetKeyCodec.orderState(binding.target(), binding.orderingDomain());
+            final byte[] raw = reader.get(ColumnFamily.META, orderKey);
+            final var before = raw == null
+                    ? null
+                    : TargetOrderState.decodeForStore(
+                            orderKey,
+                            TargetValueEnvelope.decode(raw, TargetOrderState.VALUE_TYPE)
+                                    .payload(),
+                            scope.shard(),
+                            registration.queue());
+            if (before != null) {
+                if (before.orderingContract() != admitted.orderingContract()) {
+                    throw new IllegalStateException("Schedule cannot change an existing strict ordering contract");
+                }
+                if (before.gate() != TargetOrderState.Gate.OPEN) {
+                    return unchanged(
+                            rejected(
+                                    before.gate() == TargetOrderState.Gate.CLOSED
+                                            ? StableCode.LANE_CLOSED
+                                            : StableCode.ORDERING_DOMAIN_BROKEN,
+                                    source),
+                            registration.owner());
+                }
+                if (before.lastAdmittedOrder() != null
+                        && Arrays.compareUnsigned(
+                                        work.ordinaryKey(),
+                                        before.lastAdmittedOrder().encodedKey())
+                                <= 0) {
+                    return unchanged(
+                            rejected(StableCode.ORDER_BEFORE_ADMISSION_WATERMARK, source), registration.owner());
+                }
+            }
+            final var order = new TargetOrderState(
+                    binding.target(),
+                    binding.orderingDomain(),
+                    scope.shard(),
+                    binding.domain(),
+                    binding.accountingIncarnation(),
+                    admitted.orderingContract(),
+                    before == null ? 1 : TargetQueueState.nextRevision(before.stateRevision()),
+                    before == null ? 1 : before.controlVersion(),
+                    TargetOrderState.Gate.OPEN,
+                    before == null || before.lastAdmittedOrder() == null
+                            ? null
+                            : before.lastAdmittedOrder().encodedKey(),
+                    before == null ? null : before.serviceableHead(),
+                    before == null ? null : before.barrier());
+            orders.add(new TargetMessageStore.OrderTransition(before, order));
+        }
+        final var message = new TargetMessageRecord(
+                locator,
+                1,
+                intent.deliverAtEpochMs(),
+                intent.expireAtEpochMs(),
+                intent.deliverAtEpochMs(),
+                intent.nativeDeliveryPolicy(),
+                source,
+                intent.hasInlinePayload() ? intent.inlinePayload() : null,
+                intent.hasInlinePayload() ? null : PayloadReference.fromDescriptor(intent.committedPayload()),
+                new TargetGenerationRuntimeIndex(
+                        0,
+                        GenerationAggregateState.SCHEDULED,
+                        CurrentSendWorkKind.TIMELINE,
+                        work,
+                        null,
+                        null,
+                        List.of(),
+                        0,
+                        0,
+                        false,
+                        1));
+        final var payloadOwner = TargetQuotaPayloadOwner.scheduled(
+                binding, scope.tenantScope(), registration.owner().accounting(), lineage, stamp);
+        payloadOwner.requireMessagePayload(message);
+        final var edits = new ArrayList<>(registration.edits());
+        edits.add(reader.replace(
+                ColumnFamily.META,
+                payloadOwner.key(),
+                TargetQuotaPayloadOwner.VALUE_TYPE,
+                payloadOwner.canonicalBytes()));
+        return new Decision(
+                new TargetMessageStore.Input(List.of(new TargetMessageStore.Transition(null, message)), orders, edits),
+                applied(StableCode.SCHEDULED, source, message),
+                registration.owner(),
+                registration.owner().accounting());
     }
 
     private Decision modifyMessage(
@@ -330,7 +614,7 @@ public final class TargetCommandStore {
             throw new IllegalStateException("live cancellable Message has inactive payload accounting");
         }
         if (reschedule != null) {
-            return reschedule(reader, before, payloadOwner, owner, reschedule, stamp, policy, queue);
+            return reschedule(reader, before, payloadOwner, owner, reschedule, stamp, policy, queue, binding);
         }
         final var runtime = before.runtime();
         final var nextRuntime = new TargetGenerationRuntimeIndex(
@@ -401,7 +685,8 @@ public final class TargetCommandStore {
             RescheduleCommandBody request,
             TargetQuotaMutation stamp,
             Policy policy,
-            TargetQueueState queue) {
+            TargetQueueState queue,
+            TargetScheduleBinding binding) {
         final var source = stamp.source();
         if (!policy.deliveryWindow()
                 .permits(
@@ -429,7 +714,8 @@ public final class TargetCommandStore {
         final byte[] identityKey = TargetKeyCodec.identity(old.target());
         final var identity = CanonicalTargetPartition.decodeForStore(
                 identityKey, payload(reader, ColumnFamily.META, identityKey, CanonicalTargetPartition.VALUE_TYPE));
-        final boolean nativeCandidate = before.nativeDeliveryPolicy() != NativeDeliveryPolicy.FORBID
+        final boolean nativeCandidate = binding.nativePolicyScopeRef() != null
+                && before.nativeDeliveryPolicy() != NativeDeliveryPolicy.FORBID
                 && identity.resource().kind() == BrokerResourceIdentity.Kind.PULSAR
                 && old.orderingMode() == OrderingMode.BEST_EFFORT
                 && queue.domains().get(old.domain().slot()).nativePolicyScopeRef() != null;

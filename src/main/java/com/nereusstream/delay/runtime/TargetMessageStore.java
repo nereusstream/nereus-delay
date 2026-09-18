@@ -118,22 +118,46 @@ public final class TargetMessageStore {
             final BoundedReadBudget budget,
             final Function<TargetStoreBackend.Reader, Input> businessPlanner,
             final AccountingAssembler accounting) {
+        return prepareAccountedWithQuotaRejection(budget, businessPlanner, accounting, (reader, rejected) -> {
+            throw rejected;
+        });
+    }
+
+    /** Discard a rejected ingress projection and assemble its result inside the same immutable ReadView. */
+    public TargetStoreBackend.Prepared prepareAccountedWithQuotaRejection(
+            final BoundedReadBudget budget,
+            final Function<TargetStoreBackend.Reader, Input> businessPlanner,
+            final AccountingAssembler accounting,
+            final java.util.function.BiFunction<TargetStoreBackend.Reader, TargetQuotaStoreGate.Rejected, Input>
+                    rejection) {
         Objects.requireNonNull(businessPlanner, "businessPlanner");
         Objects.requireNonNull(accounting, "accounting");
+        Objects.requireNonNull(rejection, "rejection");
         return backend.prepare(budget, reader -> {
             final var input = Objects.requireNonNull(businessPlanner.apply(reader), "input");
-            if (input.messages().size() > maximumMessages
-                    || input.orders().size() > maximumAffectedDomains
-                    || input.extra().size() > reader.maximumWriteRecords()) {
-                throw new IllegalArgumentException("Target Message mutation exceeds its declared bounds");
+            try {
+                return assemble(reader, input, accounting);
+            } catch (TargetQuotaStoreGate.Rejected exceeded) {
+                return assemble(
+                        reader,
+                        Objects.requireNonNull(rejection.apply(reader, exceeded), "quota rejection"),
+                        accounting);
             }
-            final var edits = project(reader, input);
-            final var complete =
-                    TargetQueueHeadUpdater.complete(reader, edits, maximumAffectedDomains, maximumDomainSlots);
-            final var assembled = Objects.requireNonNull(accounting.assemble(reader, complete), "assembled accounting");
-            requirePreservedProjection(reader, complete, assembled.business());
-            return assembled;
         });
+    }
+
+    private TargetStoreBackend.Mutation assemble(
+            TargetStoreBackend.Reader reader, Input input, AccountingAssembler accounting) {
+        if (input.messages().size() > maximumMessages
+                || input.orders().size() > maximumAffectedDomains
+                || input.extra().size() > reader.maximumWriteRecords()) {
+            throw new IllegalArgumentException("Target Message mutation exceeds its declared bounds");
+        }
+        final var edits = project(reader, input);
+        final var complete = TargetQueueHeadUpdater.complete(reader, edits, maximumAffectedDomains, maximumDomainSlots);
+        final var assembled = Objects.requireNonNull(accounting.assemble(reader, complete), "assembled accounting");
+        requirePreservedProjection(reader, complete, assembled.business());
+        return assembled;
     }
 
     /** Actual grant reads are part of this same complete business/accounting ReadView. */

@@ -57,10 +57,12 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     public record CommandControl(
             TargetCommandStore.Policy policy,
             TargetCommandStore.CancellationControls cancellations,
+            TargetCommandStore.Schedules schedules,
             TargetStoreBackend.CommitAuthority commit) {
         public CommandControl {
             Objects.requireNonNull(policy, "policy");
             Objects.requireNonNull(cancellations, "cancellations");
+            Objects.requireNonNull(schedules, "schedules");
             Objects.requireNonNull(commit, "commit");
         }
     }
@@ -232,14 +234,19 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             final TargetCommandStore.Prepared first;
             try {
                 first = commands.prepareFirst(
-                        budget, entry.command(), entry.position(), control.policy(), (reader, binding, source) -> {
+                        budget,
+                        entry.command(),
+                        entry.position(),
+                        control.policy(),
+                        (reader, binding, source) -> {
                             try {
                                 return control.cancellations().closed(reader, binding, source);
                             } catch (ReadIncompleteException external) {
                                 throw new IllegalStateException(
                                         "external cancellation authority did not complete", external);
                             }
-                        });
+                        },
+                        control.schedules());
             } catch (ReadIncompleteException incomplete) {
                 throw new ReadYield(incomplete);
             }

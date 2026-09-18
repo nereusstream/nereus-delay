@@ -6233,3 +6233,12 @@ DeliveryWindow；新 FIFO contract 拒绝不高于 Admission watermark 的排序
 同一有界 ReadView 核对实际 membership grant、Target quota allocation/owner、完整 domain
 契约与 Native scope，重新计算注册计划并返回增量记录。它尚未接入首次业务提交；
 Message/Reservation、结果/计费、生产认证快照与集中验证仍待后续完成。
+
+
+### 首次 Schedule 的原子 source 应用（2026-09-18）
+
+首次 Schedule 已接入 Worker：绑定准备、Message/payload owner、ordinary/Native/Expiry
+与 strict head、首结果和真实 source 计费同批提交。逻辑配额拒绝在同一 ReadView 内
+丢弃业务投影，转为仅结果/source 的持久拒绝；不可换视图沿用过时容量结论。九项必要
+开发检查通过。Route/retry/对象证明等生产 provider、Prepare/Commit 与其余业务、完整
+恢复/配置/迁移仍未完成，集中验证状态不变。
