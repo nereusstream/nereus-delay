@@ -110,6 +110,8 @@ public final class TargetResultLedgerAudit {
         final var owners = new LinkedHashMap<TargetQuotaIdentity, TargetQuotaIncarnation>();
         final var stamps = new TreeMap<Long, TargetQuotaMutation>(Long::compareUnsigned);
         final var events = new LinkedHashMap<Long, String>();
+        final var standaloneSequences = new java.util.HashSet<Long>();
+        final var logicalSequences = new java.util.HashSet<Long>();
         final var contributions = new LinkedHashMap<TargetQuotaIdentity, CapacityVector>();
         CapacityVector total = CapacityVector.empty();
         long bytes = 0;
@@ -130,6 +132,18 @@ public final class TargetResultLedgerAudit {
             final var priorStamp = stamps.putIfAbsent(record.mutation().sequence(), record.mutation());
             if (priorStamp != null && !priorStamp.equals(record.mutation())) {
                 throw new IllegalStateException("one source sequence has conflicting result stamps");
+            }
+            final long sequence = record.mutation().sequence();
+            if (record.kind() == TargetResultRecord.Kind.POSITION_COMMAND_EXPIRED) {
+                standaloneSequences.add(sequence);
+                if (logicalSequences.contains(sequence)) {
+                    throw new IllegalStateException("standalone expiry has logical results at the same source");
+                }
+            } else if (!record.kind().position()) {
+                logicalSequences.add(sequence);
+                if (standaloneSequences.contains(sequence)) {
+                    throw new IllegalStateException("logical result contradicts standalone expiry at the same source");
+                }
             }
             final String key = HexFormat.of().formatHex(stored.key);
             if (records.putIfAbsent(key, record) != null) {
@@ -186,7 +200,7 @@ public final class TargetResultLedgerAudit {
             earlier = stamp;
         }
         for (var record : records.values()) {
-            if (record.kind() == TargetResultRecord.Kind.COMMAND || record.kind() == TargetResultRecord.Kind.SYSTEM) {
+            if (!record.kind().referencesFirst()) {
                 continue;
             }
             final byte[] firstKey = Bytes.concat(

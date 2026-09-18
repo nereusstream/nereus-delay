@@ -2472,3 +2472,17 @@ TargetCommandStore 的 Message Cancel 使用既有 Command wire，原子写 term
 retained payload、完整索引/Claim 删除、首结果和 source/计费。协议 identity/tuple
 与 cancellation closure 的首次 authority 由 Worker 明确分流，commit guard 持有。
 未新增 Command wire，也未完成 reservation/其它首次业务、生产 providers 或恢复认证。
+
+
+### NDIP-3 独立过期物理结果（2026-09-18）
+
+NV35/schema1 的闭合 Kind 增加 6 POSITION_COMMAND_EXPIRED；仍为 DEDUPE
+`09 01 + canonical SourcePosition`，不新增 CF/tag/NV。field 3 为 CommandId[41]，
+field 9 为 canonical CommandDedupeRecord v2（tuple/hash + 固定 EXPIRED 物理结果），
+field 10/11 absent。source-only stamp 必须绑定完整 incoming frame SHA256，owner
+仅 SHARD，费用为 EVIDENCE。旧 Target decoder 不认识 Kind 6 时必须拒绝，不能解释成
+首 COMMAND；旧 Lane reader 限制保持。完整边界见 quota §33。
+
+Worker 在当前 Store 证明逻辑/查询缺失且过期后才写入，先于首次业务 resolver。
+已有 COMMAND 的重复继续用 Kind 4/首引用。结果审计核对 Kind 6 的独立物理事实与费用，
+不要求虚构首结果；同 source 出现逻辑结果则拒绝。完整生产配置/恢复/迁移认证仍未完成。

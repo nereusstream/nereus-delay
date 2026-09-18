@@ -20,7 +20,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
-/** Exact Command-result replay and later physical duplicate accounting, without rerunning the original business. */
+/** Command replay and physical-only expiry, without rerunning or resurrecting logical business. */
 public final class TargetCommandReplayStore {
     private record Inspection(TargetResultRecord first, CommandResult result, boolean samePosition) {}
 
@@ -69,8 +69,8 @@ public final class TargetCommandReplayStore {
         this.maximumDomains = maximumDomains;
     }
 
-    /** An empty result selects first application, which must independently recheck absence in its own view. */
-    public Optional<Prepared> prepareIfPresent(
+    /** Empty selects live first application; retained replays and standalone expiry complete here. */
+    public Optional<Prepared> prepareReplayOrExpired(
             final BoundedReadBudget budget, final PreparedCommand mutation, final SourcePosition source) {
         Objects.requireNonNull(mutation, "mutation");
         TargetSourcePosition.requireBounded(source);
@@ -78,7 +78,7 @@ public final class TargetCommandReplayStore {
             throw new IllegalArgumentException("Command replay belongs to another Shard");
         }
         final var probe = backend.prepareRead(budget, reader -> inspect(reader, mutation, source));
-        if (probe.value().first() == null) {
+        if (probe.value().result() == null) {
             return Optional.empty();
         }
         if (probe.value().samePosition()) {
@@ -88,7 +88,7 @@ public final class TargetCommandReplayStore {
         // The probe chooses a branch only. The actual write plan rereads all facts using the same shared budget.
         final var batch = backend.prepare(budget, reader -> {
             final var actual = inspect(reader, mutation, source);
-            if (actual.first() == null || actual.samePosition()) {
+            if (actual.result() == null || actual.samePosition()) {
                 throw new IllegalStateException(
                         "Command replay branch changed; prepare again from the actual source view");
             }
@@ -103,16 +103,27 @@ public final class TargetCommandReplayStore {
                     null,
                     null);
             final var root = descriptor(reader, rootId);
-            final var position = TargetResultRecord.position(root, actual.first(), stamp, (record, first) -> {
+            final TargetResultRecord.CreationAuthority authority = (record, first) -> {
                 record.requireOwner(root);
-                record.requireFirst(actual.first());
-                if (first == null
-                        || !Arrays.equals(first.canonicalBytes(), actual.first().canonicalBytes())
-                        || !record.mutation().equals(stamp)
-                        || reader.get(ColumnFamily.DEDUPE, record.key()) != null) {
-                    throw new IllegalStateException("duplicate POSITION changed its exact first/source/absence proof");
+                if (!record.mutation().equals(stamp) || reader.get(ColumnFamily.DEDUPE, record.key()) != null) {
+                    throw new IllegalStateException("physical POSITION changed exact source/absence proof");
                 }
-            });
+                if (actual.first() == null) {
+                    if (first != null || !record.requireExpiredCommand(mutation).equals(actual.result())) {
+                        throw new IllegalStateException("standalone expiry changed its physical rejection");
+                    }
+                } else {
+                    record.requireFirst(actual.first());
+                    if (first == null
+                            || !Arrays.equals(
+                                    first.canonicalBytes(), actual.first().canonicalBytes())) {
+                        throw new IllegalStateException("duplicate POSITION changed its exact first result");
+                    }
+                }
+            };
+            final var position = actual.first() == null
+                    ? TargetResultRecord.expiredCommandPosition(root, mutation, stamp, authority)
+                    : TargetResultRecord.position(root, actual.first(), stamp, authority);
             final var accounted = new TargetSourceAccounting(
                             scope, lineage, source, stamp.mutationDigest(), maximumCounters, 1, maximumDomains)
                     .assemble(
@@ -161,22 +172,42 @@ public final class TargetCommandReplayStore {
                 new byte[] {TargetKeyCodec.RESULT_POSITION_TAG, TargetKeyCodec.KEY_FORMAT}, source.canonicalBytes());
         final var first = result(reader, firstKey);
         final var position = result(reader, positionKey);
-        if (first == null) {
-            final byte[] queryKey = Bytes.concat(
-                    new byte[] {TargetKeyCodec.RESULT_QUERY_TAG, TargetKeyCodec.KEY_FORMAT},
-                    mutation.commandId().bytes());
-            if (order == 0 || position != null || reader.get(ColumnFamily.DEDUPE, queryKey) != null) {
-                throw new IllegalStateException("applied physical source lacks the exact first Command result");
+        final boolean expired = source.brokerPersistenceTimeEpochMs() > mutation.retryUntilEpochMs()
+                || reader.closedIngressDeadlineThrough() >= mutation.retryUntilEpochMs();
+        final byte[] queryKey = Bytes.concat(
+                new byte[] {TargetKeyCodec.RESULT_QUERY_TAG, TargetKeyCodec.KEY_FORMAT},
+                mutation.commandId().bytes());
+        if (position != null && position.kind() == TargetResultRecord.Kind.POSITION_COMMAND_EXPIRED) {
+            if (order != 0
+                    || first != null
+                    || reader.get(ColumnFamily.DEDUPE, queryKey) != null
+                    || position.mutation().sequence() != reader.sourceSequence()
+                    || !expired) {
+                throw new IllegalStateException("standalone expired POSITION contradicts source/absence/expiry facts");
             }
-            return new Inspection(null, null, false);
+            return new Inspection(null, position.requireExpiredCommand(mutation), true);
+        }
+        if (first == null) {
+            if (order == 0 || position != null || reader.get(ColumnFamily.DEDUPE, queryKey) != null) {
+                throw new IllegalStateException("applied physical source lacks exact Command evidence");
+            }
+            return new Inspection(
+                    null,
+                    expired
+                            ? new CommandResult(
+                                    ApplyStatus.REJECTED,
+                                    StableCode.COMMAND_RETRY_WINDOW_EXPIRED,
+                                    -1,
+                                    0,
+                                    null,
+                                    source.canonicalBytes())
+                            : null,
+                    false);
         }
         if (first.kind() != TargetResultRecord.Kind.COMMAND) {
             throw new IllegalStateException("Command key has another result kind");
         }
         final var original = CommandDedupeRecord.decode(first.typedPayload());
-        final byte[] queryKey = Bytes.concat(
-                new byte[] {TargetKeyCodec.RESULT_QUERY_TAG, TargetKeyCodec.KEY_FORMAT},
-                mutation.commandId().bytes());
         final var query = result(reader, queryKey);
         if (query != null) {
             query.requireFirst(first);
@@ -194,8 +225,6 @@ public final class TargetCommandReplayStore {
         } else if (position != null) {
             throw new IllegalStateException("future Command position is already present beyond the source frontier");
         }
-        final boolean expired = source.brokerPersistenceTimeEpochMs() > mutation.retryUntilEpochMs()
-                || reader.closedIngressDeadlineThrough() >= mutation.retryUntilEpochMs();
         final boolean conflict = !original.protocolTuple().equals(mutation.protocolTuple())
                 || !Arrays.equals(original.commandHash(), mutation.commandHash());
         final var outcome = expired || conflict

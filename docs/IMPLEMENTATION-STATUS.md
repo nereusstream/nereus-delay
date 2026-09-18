@@ -10,6 +10,12 @@
 
 [原 29 切片集中验证交接清单](ndip/NDIP-3/12-集中验证交接清单.md)
 
+无保留首结果的过期 Command 现经 Worker 重放分流写入独立物理 POSITION：不创建
+COMMAND/RESULT，不调用首次业务 resolver；同位置核对完整 frame 后零写重放，后续
+重复只增加物理 EVIDENCE 费用与 source。NV35 增加闭合 Kind 6，结果计费与完整结果
+命名空间审计已接入。五项必要开发检查通过；reservation/其它首次业务、生产 provider、
+完整恢复/配置/迁移等继续实施，集中验证状态不变。
+
 TargetCommandStore 已接入 Worker 首次 Command 分流，当前实际执行已有 Message 的
 Cancel：核对前置版本、原 binding/queue 与 source-ordered closure，保留不可逆 attempt
 边界；成功时同批更新 Message、候选/head、Claim/charge、retained payload、terminal

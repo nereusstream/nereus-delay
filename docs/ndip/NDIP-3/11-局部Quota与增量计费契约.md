@@ -1379,8 +1379,9 @@ CommandDedupeRecord payload version 2，但将其冻结 owner 与首次 source �
 | SYSTEM / 3 | `08 01 + SystemMutationId[32]` | RESULT，9/10 |
 | POSITION_COMMAND / 4 | `09 01 + 完整 canonical SourcePosition` | EVIDENCE，14/15 |
 | POSITION_SYSTEM / 5 | 同上 | EVIDENCE，14/15 |
+| POSITION_COMMAND_EXPIRED / 6 | 同上；无首结果的过期物理拒绝，见 §33 | EVIDENCE，14/15 |
 
-表中 key 的加号表示字节拼接。两种 POSITION 使用同一物理 key，是闭合二选一；不能在
+表中 key 的加号表示字节拼接。三种 POSITION 使用同一物理 key，是闭合三选一；不能在
 同一 source 位置同时接受 Command 和 System 分支。它不是第二份逻辑结果，也不
 因名字包含 SystemMutation 就归 SYSTEM_MUTATION outbox（11/12）。COMMAND 虽保留
 首次紧凑结果，整条实际记录只计 EVIDENCE 一次；单独 RESULT 记录再计自己的实际 bytes。
@@ -1388,7 +1389,7 @@ CommandDedupeRecord payload version 2，但将其冻结 owner 与首次 source �
 | field | 含义 |
 |---:|---|
 | 1 | schema=1 |
-| 2 | 闭合 Kind 1–5 |
+| 2 | 闭合 Kind 1–6 |
 | 3 | 完整自路由 CommandId[41] 或非零 SystemMutationId[32] |
 | 4 | 完整 primary quota identity，TARGET 或 SHARD；POSITION 必须 SHARD |
 | 5 | 非零 tenantRoutingScope[32] |
@@ -1396,7 +1397,7 @@ CommandDedupeRecord payload version 2，但将其冻结 owner 与首次 source �
 | 7 | 非零 recovery lineage[16] |
 | 8 | 首次写入本条记录的完整 source-only TargetQuotaMutation，拒绝 local ordinal |
 | 9 | 对应完整 canonical typed payload |
-| 10 | RESULT/POSITION 必填原始逻辑记录的域 digest[32]，其它 Kind absent |
+| 10 | RESULT/POSITION_COMMAND/POSITION_SYSTEM 必填原始逻辑记录的域 digest[32]；Kind 6 等其它分支 absent |
 | 11 | 可选完整 OPEN allocation origin，仅成功分配控制的 SYSTEM 结果允许 |
 | 12 | `nereus-delay-target-result-record\0` + fields 1–11（按实际存在）的 digest |
 
@@ -1404,8 +1405,8 @@ COMMAND payload 必须为 CommandDedupeRecord payload version 2，含完整 Clie
 commandHash 与 CommandResult；Target reader 不接受其 legacy payload version 1。RESULT payload 为
 CommandResult；SYSTEM payload 为 SystemMutationResult，ID 必须与外层相同，author
 必须是其 mutation type 对应的闭合 AuthorIdentity。上述逻辑结果的原始 SourcePosition
-必须与 field 8 完整相等，包括同 offset 的 metadata。POSITION payload 是 field 3
-对应的原始 ID，不能另填另一个 ID、空串或自由形态数据。
+必须与 field 8 完整相等，包括同 offset 的 metadata。Kind 4/5 POSITION payload 是 field 3
+对应的原始 ID；Kind 6 使用 CommandDedupeRecord v2 与固定过期物理结果，详见 §33。
 
 外层最多 12 fields；protocol tuple 最多 30 canonical bytes。Command evidence payload
 最多 `100 + TargetSourcePosition.MAX_CANONICAL_BYTES`；SYSTEM author 上限为 1 MiB，
@@ -1778,3 +1779,28 @@ payload 长度重建。逻辑首结果沿已有 Message 的 payload owner，NOT_
 和 Worker loop；初始 Schedule graph 是显式 fixture，Route/closure/capacity 与 Oxia
 backend 仍为替身。覆盖直接 TIMELINE 和真实可逆 Claim 两种取消，禁止据此宣告完整
 Cancel reservation、首次 Schedule、生产 closure 或跨账本恢复验证完成。
+
+
+## 33. 无逻辑首结果的过期 POSITION
+
+NV35/schema1 增加闭合 Kind 6 POSITION_COMMAND_EXPIRED，与 Kind 4/5 共享 DEDUPE
+`09 01 + 完整 SourcePosition` 互斥 key。保留的 COMMAND 存在时仍用 Kind 4 精确引用；
+只有实际 COMMAND/RESULT 同时缺失且已超 Broker retry window 或实际 ingress fence
+覆盖 deadline，才建立 Kind 6。结果不可写入逻辑 ID 命名空间，避免 GC 后重新占用 ID。
+
+Kind 6 primary 必须 SHARD，沿当前实际 root descriptor/artifact/tenant/lineage；
+field 10/11 必须 absent。field 9 是规范 CommandDedupeRecord v2，保留 tuple/hash，
+CommandResult 固定 REJECTED/COMMAND_RETRY_WINDOW_EXPIRED、generation=-1、stateVersion=0、
+无 MessageStatus，完整 source 与 stamp 相同。stamp.mutationDigest 是完整 incoming
+CommandCodec frame SHA256；相同物理位置必须逐项匹配，不能只凭 CommandId 重放。
+
+一条记录仅按真实 key + canonical payload + NV/冻结 overhead 计 EVIDENCE 14/15，
+不新增 RESULT 9/10、payload 或 Target cardinality。真实 SourceAccounting 与 source
+同批提交；同位置只读完成不收费，后续重复每个物理位置独立收费。实际物理容量 guard
+仍必须持有至 native commit，expired 不能绕过 Store/Owner/source/ACK 保护。
+
+完整 DEDUPE fold 为 Kind 6 校验 owner/stamp/唯一事件与真实 bytes，不要求首结果引用；
+若同一 source sequence 又出现逻辑结果则拒绝矛盾账本。删除仍需原 Floor/retention/
+fence/catalog/pin 和实际删除 authority，独立物理拒绝本身不授权任何 GC 或 payload 释放。
+开发检查覆盖 Broker 超窗和 fixture ingress fence 两分支、拒绝提交零写、原子计费、
+同位置重放、后续位置、完整结果 fold 与同位置换 frame 后 fence；不提供生产恢复认证。

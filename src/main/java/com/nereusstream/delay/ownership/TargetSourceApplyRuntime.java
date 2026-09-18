@@ -217,7 +217,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         final TargetCommandReplayStore.Prepared prepared;
         try {
             prepared = commandReplay
-                    .prepareIfPresent(budget, entry.command(), entry.position())
+                    .prepareReplayOrExpired(budget, entry.command(), entry.position())
                     .orElse(null);
         } catch (ReadIncompleteException incomplete) {
             throw new ReadYield(incomplete);

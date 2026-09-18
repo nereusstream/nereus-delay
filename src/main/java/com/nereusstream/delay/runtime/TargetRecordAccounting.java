@@ -256,8 +256,7 @@ public final class TargetRecordAccounting {
                 final var owner = descriptor(record.primaryIdentity());
                 record.requireOwner(owner);
                 record.mutation().requireAtOrBefore(operation);
-                if (record.kind() != TargetResultRecord.Kind.COMMAND
-                        && record.kind() != TargetResultRecord.Kind.SYSTEM) {
+                if (record.kind().referencesFirst()) {
                     final byte[] firstKey = Bytes.concat(
                             new byte[] {
                                 (byte)

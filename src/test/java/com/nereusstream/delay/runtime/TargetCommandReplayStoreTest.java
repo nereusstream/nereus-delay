@@ -2,6 +2,8 @@ package com.nereusstream.delay.runtime;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.nereusstream.delay.ownership.InMemoryControlTargetRegistrationAuthority;
 import com.nereusstream.delay.ownership.InMemoryOwnerLeaseStore;
 import com.nereusstream.delay.ownership.OxiaOwnerLeaseStore;
@@ -64,6 +66,8 @@ import java.util.List;
 import java.util.Properties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /** Retained Command evidence is explicitly seeded; first Cancel/Schedule semantics are not certified by this test. */
 class TargetCommandReplayStoreTest {
@@ -264,6 +268,200 @@ class TargetCommandReplayStoreTest {
             assertEquals(
                     SourceApplyCoordinator.TurnStatus.APPLY_FAILURE,
                     apply(loop, queue, conflict, fencedAt).status());
+            assertEquals(beforeSubstitution, store.latestSequenceNumber());
+            assertEquals(true, runtime.fenced());
+            assertEquals(true, loop.pendingEntry().isPresent());
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void expiredWithoutFirstCreatesOnlyPhysicalEvidenceAndReplays(boolean ingressFence) throws Exception {
+        final var template = TargetQuotaGrantActivation.decode(raw("target.initial.activation"));
+        final var originalGrant = template.grant();
+        final var scope = originalGrant.scope().shardScope();
+        final var origin = (KafkaSourcePosition) template.mutation().source();
+        final long[] amounts = originalGrant.limit().resources().amounts();
+        Arrays.fill(amounts, 0, 15, 1L << 30);
+        Arrays.fill(amounts, 50, 55, 1L << 30);
+        final var request = new TargetQuotaGrantControlRequest(
+                new TargetQuotaGrant(
+                        scope,
+                        bytes(32, 0x41),
+                        1,
+                        originalGrant.accounting(),
+                        new TargetQuotaUsage(new CapacityVector(amounts), 64, 64, 64, 64),
+                        originalGrant.tenantPolicyVersion(),
+                        originalGrant.tenantPolicyHash()),
+                null,
+                null);
+        final var keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final var actor = new ControlAuthorizationContext(
+                bytes(32, 0xa1), ControlRoleSet.of(ControlRole.PLATFORM_OPERATOR), bytes(32, 0xa2));
+        final var signed = signed(request, bytes(32, 0x42), actor, keys);
+        final var registrations = new InMemoryControlTargetRegistrationAuthority();
+        registrations.register(signed.control());
+        final var config = ShardStoreConfig.defaults(root);
+        try (var resources = new SharedRocksDbResources(config);
+                var store = ShardStore.openTarget(config, scope.shard(), resources)) {
+            final var initialized = TargetStoreBootstrap.commit(
+                    TargetStoreBootstrap.prepare(
+                            store,
+                            scope,
+                            bytes(16, 0xcc),
+                            new TargetStoreBackend.WriteLimits(64, 2 << 20),
+                            budget(),
+                            signed.control(),
+                            signed.mutation(),
+                            origin,
+                            authority(registrations, keys, actor, origin, request, (a, b, c, d) -> {}),
+                            (a, b, c) -> {}),
+                    (a, b, c) -> guard());
+            final var backend = initialized.backend();
+            final var at = source(origin, origin.offset() + 1, origin.brokerLogAppendTimeEpochMs() + 1);
+            final var command = PreparedCommand.cancel(
+                    scope.shard(),
+                    DelayMessageId.random(scope.shard()),
+                    new MessagePrecondition(null, null),
+                    ingressFence ? at.brokerLogAppendTimeEpochMs() + 50 : at.brokerLogAppendTimeEpochMs() - 1);
+            if (ingressFence) {
+                store.write(batch -> batch.putIngressFenceDeadline(command.retryUntilEpochMs()));
+            }
+            final byte[] commandKey = Bytes.concat(
+                    new byte[] {TargetKeyCodec.RESULT_COMMAND_TAG, 1},
+                    command.commandId().bytes());
+            final byte[] queryKey = Bytes.concat(
+                    new byte[] {TargetKeyCodec.RESULT_QUERY_TAG, 1},
+                    command.commandId().bytes());
+            final var applier = new TargetCommandReplayStore(
+                    backend, scope, initialized.root().recoveryLineage(), 16, 1);
+            final var firstPlan =
+                    applier.prepareReplayOrExpired(budget(), command, at).orElseThrow();
+            final long beforeDenied = store.latestSequenceNumber();
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> applier.commit(
+                            firstPlan,
+                            (a, b, c) -> {
+                                throw new IllegalStateException("no physical capacity");
+                            },
+                            (a, b) -> guard()));
+            assertEquals(beforeDenied, store.latestSequenceNumber());
+            assertNull(store.get(
+                    ColumnFamily.DEDUPE,
+                    Bytes.concat(new byte[] {TargetKeyCodec.RESULT_POSITION_TAG, 1}, at.canonicalBytes())));
+            final var assignment = new SourceAssignment(
+                    scope.shard(),
+                    bytes(32, 0x43),
+                    1,
+                    new KafkaActivationBarrier(
+                            scope.shard(), origin.authenticatedClusterId(), origin.nativeTopicUuid(), origin.offset()));
+            final var leases = new OxiaOwnerLeaseStore(new InMemoryOwnerLeaseStore());
+            final var active = leases.transition(
+                            leases.acquire(assignment, "expired-worker", bytes(32, 0x44), 1, 10000)
+                                    .orElseThrow(),
+                            ShardLifecycleState.ACTIVE_FOR_COMMANDS)
+                    .orElseThrow();
+            store.recordOpenedOwnerEpoch(active.ownerEpoch());
+            final var runtime = new TargetSourceApplyRuntime(
+                    initialized,
+                    store,
+                    assignment,
+                    active,
+                    new TargetSourceApplyRuntime.Authorities(
+                            leases,
+                            SourceReplaySuccessor.strictKafka(),
+                            entry -> {
+                                throw new AssertionError("expired Command resolved grant");
+                            },
+                            (a, b, c) -> guard(),
+                            (a, b) -> guard(),
+                            entry -> {
+                                throw new AssertionError("expired Command resolved first business");
+                            }),
+                    new TargetSourceApplyRuntime.Limits(2048, 32L << 20, 60_000_000_000L, 16, 1),
+                    System::nanoTime);
+            final var queue = new java.util.ArrayDeque<SourceRecordConsumer.PolledSourceRecord>();
+            final SourceRecordConsumer consumer = () -> java.util.Optional.ofNullable(queue.poll());
+            final var loop = new WorkerSourceApplyLoop(consumer, workClasses(), runtime);
+            final var beforeAudit =
+                    backend.auditResults(budget(), new TargetResultLedgerAudit.Limits(16, 2, 1 << 20), summary -> {});
+            final var aggregateKey = backend.prepareRead(
+                            budget(), reader -> reader.aggregate().key())
+                    .value();
+            final var before = TargetQuotaAggregate.decode(TargetValueEnvelope.decode(
+                            store.get(ColumnFamily.META, aggregateKey), TargetQuotaAggregate.VALUE_TYPE)
+                    .payload());
+            final var result = apply(loop, queue, command, at);
+            assertEquals(SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED, result.status());
+            assertEquals(
+                    StableCode.COMMAND_RETRY_WINDOW_EXPIRED,
+                    result.appliedOutcome().commandResult().stableCode());
+            assertNull(store.get(ColumnFamily.DEDUPE, commandKey));
+            assertNull(store.get(ColumnFamily.DEDUPE, queryKey));
+            final var physical = TargetResultRecord.decode(TargetValueEnvelope.decode(
+                            store.get(
+                                    ColumnFamily.DEDUPE,
+                                    Bytes.concat(
+                                            new byte[] {TargetKeyCodec.RESULT_POSITION_TAG, 1}, at.canonicalBytes())),
+                            TargetResultRecord.VALUE_TYPE)
+                    .payload());
+            assertEquals(TargetResultRecord.Kind.POSITION_COMMAND_EXPIRED, physical.kind());
+            assertNull(physical.firstDigest());
+            assertEquals(result.appliedOutcome().commandResult(), physical.requireExpiredCommand(command));
+            final var after = TargetQuotaAggregate.decode(TargetValueEnvelope.decode(
+                            store.get(ColumnFamily.META, aggregateKey), TargetQuotaAggregate.VALUE_TYPE)
+                    .payload());
+            assertEquals(
+                    before.usage().resources().add(physical.recordCharge()),
+                    after.usage().resources());
+            final long nativeBeforeReplay = store.latestSequenceNumber();
+            assertEquals(
+                    StableCode.COMMAND_RETRY_WINDOW_EXPIRED,
+                    apply(loop, queue, command, at)
+                            .appliedOutcome()
+                            .commandResult()
+                            .stableCode());
+            assertEquals(nativeBeforeReplay, store.latestSequenceNumber());
+            final var later = source(at, at.offset() + 1, at.brokerLogAppendTimeEpochMs() + 1);
+            assertEquals(
+                    StableCode.COMMAND_RETRY_WINDOW_EXPIRED,
+                    apply(loop, queue, command, later)
+                            .appliedOutcome()
+                            .commandResult()
+                            .stableCode());
+            assertNull(store.get(ColumnFamily.DEDUPE, commandKey));
+            assertNull(store.get(ColumnFamily.DEDUPE, queryKey));
+            final var laterPhysical = TargetResultRecord.decode(TargetValueEnvelope.decode(
+                            store.get(
+                                    ColumnFamily.DEDUPE,
+                                    Bytes.concat(
+                                            new byte[] {TargetKeyCodec.RESULT_POSITION_TAG, 1},
+                                            later.canonicalBytes())),
+                            TargetResultRecord.VALUE_TYPE)
+                    .payload());
+            final var audit =
+                    backend.auditResults(budget(), new TargetResultLedgerAudit.Limits(16, 2, 1 << 20), summary -> {});
+            assertEquals(4, audit.summary().resultRecords());
+            assertEquals(
+                    beforeAudit
+                            .summary()
+                            .primaryTotal()
+                            .add(physical.recordCharge())
+                            .add(laterPhysical.recordCharge()),
+                    audit.summary().primaryTotal());
+            assertEquals(
+                    4, backend.withAuditView(audit, summary -> {}, TargetResultLedgerAudit.Summary::resultRecords));
+            final var wrong = PreparedCommand.cancel(
+                    scope.shard(),
+                    command.commandId(),
+                    command.delayMessageId(),
+                    new MessagePrecondition(1L, null),
+                    command.retryUntilEpochMs());
+            final long beforeSubstitution = store.latestSequenceNumber();
+            assertEquals(
+                    SourceApplyCoordinator.TurnStatus.APPLY_FAILURE,
+                    apply(loop, queue, wrong, later).status());
             assertEquals(beforeSubstitution, store.latestSequenceNumber());
             assertEquals(true, runtime.fenced());
             assertEquals(true, loop.pendingEntry().isPresent());

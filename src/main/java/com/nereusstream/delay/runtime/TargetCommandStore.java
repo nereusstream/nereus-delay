@@ -137,7 +137,7 @@ public final class TargetCommandStore {
                     if (source.brokerPersistenceTimeEpochMs() > command.retryUntilEpochMs()
                             || reader.closedIngressDeadlineThrough() >= command.retryUntilEpochMs()) {
                         throw new IllegalStateException(
-                                "standalone expired Command POSITION writer is not wired yet; retain source");
+                                "expired Command must use the physical-only replay preparation");
                     }
                     final var root = descriptor(
                             reader,

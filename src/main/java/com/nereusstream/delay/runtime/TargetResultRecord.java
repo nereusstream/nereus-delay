@@ -4,7 +4,9 @@ import com.nereusstream.delay.protocol.AuthorIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
 import com.nereusstream.delay.protocol.CapacityVector;
+import com.nereusstream.delay.protocol.CommandCodec;
 import com.nereusstream.delay.protocol.CommandId;
+import com.nereusstream.delay.protocol.PreparedCommand;
 import com.nereusstream.delay.protocol.ProtocolTuple;
 import com.nereusstream.delay.protocol.QueryCodecSupport;
 import com.nereusstream.delay.protocol.RecoveryFloorRef;
@@ -52,7 +54,8 @@ public final class TargetResultRecord {
         RESULT(2),
         SYSTEM(3),
         POSITION_COMMAND(4),
-        POSITION_SYSTEM(5);
+        POSITION_SYSTEM(5),
+        POSITION_COMMAND_EXPIRED(6);
         private final int wire;
 
         Kind(int wire) {
@@ -64,15 +67,15 @@ public final class TargetResultRecord {
         }
 
         public boolean position() {
-            return this == POSITION_COMMAND || this == POSITION_SYSTEM;
+            return this == POSITION_COMMAND || this == POSITION_SYSTEM || this == POSITION_COMMAND_EXPIRED;
         }
 
-        private boolean referencesFirst() {
-            return this == RESULT || position();
+        public boolean referencesFirst() {
+            return this == RESULT || this == POSITION_COMMAND || this == POSITION_SYSTEM;
         }
 
         private boolean commandIdentity() {
-            return this == COMMAND || this == RESULT || this == POSITION_COMMAND;
+            return this == COMMAND || this == RESULT || this == POSITION_COMMAND || this == POSITION_COMMAND_EXPIRED;
         }
     }
     /**
@@ -144,7 +147,7 @@ public final class TargetResultRecord {
 
     private void validatePayload() {
         byte[] source = null;
-        if (kind == Kind.COMMAND) {
+        if (kind == Kind.COMMAND || kind == Kind.POSITION_COMMAND_EXPIRED) {
             if (payload.length < 8
                     || Bytes.readU32be(payload, 0) != 2
                     || Bytes.readU32be(payload, 4) > 30
@@ -155,6 +158,15 @@ public final class TargetResultRecord {
             assigned(command.commandHash(), 32, "commandHash");
             if (!Arrays.equals(payload, command.encode())) {
                 throw new IllegalArgumentException("Target command evidence requires canonical payload version 2");
+            }
+            if (kind == Kind.POSITION_COMMAND_EXPIRED
+                    && (command.result().applyStatus() != ApplyStatus.REJECTED
+                            || command.result().stableCode() != StableCode.COMMAND_RETRY_WINDOW_EXPIRED
+                            || command.result().generation() != -1
+                            || command.result().stateVersion() != 0
+                            || command.result().messageStatus() != null)) {
+                throw new IllegalArgumentException(
+                        "standalone expired POSITION cannot carry a logical business result");
             }
             source = command.result().appliedSourcePosition();
         } else if (kind == Kind.RESULT) {
@@ -289,6 +301,49 @@ public final class TargetResultRecord {
                 null,
                 first,
                 authority);
+    }
+
+    /** Physical-only expiry. The authority proves actual logical absence and Broker/ingress-fence expiry. */
+    public static TargetResultRecord expiredCommandPosition(
+            final TargetQuotaIncarnation root,
+            final PreparedCommand command,
+            final TargetQuotaMutation stamp,
+            final CreationAuthority authority) {
+        if (!Arrays.equals(stamp.mutationDigest(), Bytes.sha256(CommandCodec.encodeFrame(command)))) {
+            throw new IllegalArgumentException("expired POSITION must bind the full incoming Command frame");
+        }
+        final var outcome = new CommandResult(
+                ApplyStatus.REJECTED,
+                StableCode.COMMAND_RETRY_WINDOW_EXPIRED,
+                -1,
+                0,
+                null,
+                stamp.source().canonicalBytes());
+        return create(
+                Kind.POSITION_COMMAND_EXPIRED,
+                command.commandId().bytes(),
+                root,
+                stamp,
+                new CommandDedupeRecord(command.protocolTuple(), command.commandHash(), outcome).encode(),
+                null,
+                null,
+                null,
+                authority);
+    }
+
+    /** Returns only the recorded physical rejection after exact incoming-frame validation, never a logical result. */
+    public CommandResult requireExpiredCommand(final PreparedCommand command) {
+        if (kind != Kind.POSITION_COMMAND_EXPIRED
+                || !Arrays.equals(logicalId, command.commandId().bytes())
+                || !Arrays.equals(mutation.mutationDigest(), Bytes.sha256(CommandCodec.encodeFrame(command)))) {
+            throw new IllegalStateException("standalone expired POSITION differs from incoming Command");
+        }
+        final var prior = CommandDedupeRecord.decode(payload);
+        if (!prior.protocolTuple().equals(command.protocolTuple())
+                || !Arrays.equals(prior.commandHash(), command.commandHash())) {
+            throw new IllegalStateException("standalone expired POSITION lost its exact tuple/hash");
+        }
+        return prior.result();
     }
 
     private static TargetResultRecord create(
@@ -438,7 +493,8 @@ public final class TargetResultRecord {
                     case COMMAND -> TargetKeyCodec.RESULT_COMMAND_TAG;
                     case RESULT -> TargetKeyCodec.RESULT_QUERY_TAG;
                     case SYSTEM -> TargetKeyCodec.RESULT_SYSTEM_TAG;
-                    case POSITION_COMMAND, POSITION_SYSTEM -> TargetKeyCodec.RESULT_POSITION_TAG;
+                    case POSITION_COMMAND, POSITION_SYSTEM, POSITION_COMMAND_EXPIRED ->
+                        TargetKeyCodec.RESULT_POSITION_TAG;
                 };
         return Bytes.concat(
                 new byte[] {(byte) tag, TargetKeyCodec.KEY_FORMAT},
