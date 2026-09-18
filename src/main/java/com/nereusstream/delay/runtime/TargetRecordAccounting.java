@@ -86,6 +86,25 @@ public final class TargetRecordAccounting {
         }
         final Charge result;
         switch (value.valueType()) {
+            case TargetTerminalGenerationRecord.VALUE_TYPE -> {
+                requireFamily(family, ColumnFamily.TERMINAL);
+                final var terminal = TargetTerminalGenerationRecord.decode(payload);
+                if (!Arrays.equals(key, terminal.key())) {
+                    throw new IllegalStateException("Target terminal key differs from its generation");
+                }
+                final var payloadOwner = payloadOwner(terminal.locator().messageId());
+                terminal.requireOwner(payloadOwner);
+                terminal.mutation().requireAtOrBefore(operation);
+                final var owner = descriptor(payloadOwner.primaryIdentity());
+                owner.requirePayloadOwner(payloadOwner);
+                result = new Charge(
+                        owner,
+                        resources(owner.accounting()
+                                .recordCharge(
+                                        com.nereusstream.delay.protocol.TargetQuotaAccounting.RecordClass.STATE,
+                                        key.length,
+                                        payload.length)));
+            }
             case TargetMessageRecord.VALUE_TYPE -> {
                 requireFamily(family, ColumnFamily.ID);
                 final var message = TargetMessageRecord.decodeForStore(key, payload, scope.shard());

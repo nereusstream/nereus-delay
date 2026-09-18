@@ -1758,3 +1758,23 @@ Command/System 重放与首次 grant 读取实际 META fixed 04 ingress fence；
 是显式 fixture，Owner/consumer/容量 guard 是替身，fence 也由 fixture 写入。核对
 同位置零写、后续 POSITION 实际费用、冲突/过期、原首记录不变和篡改 frame 后保留
 pending/fence。它不证明首次 Cancel、正式 Fence control、完整恢复或实际 Broker。
+
+
+## 32. Source Cancel 的完整原子计费
+
+TargetCommandStore 将可逆 Message/Claim Cancel 接入真实 TargetMessageStore 和
+SourceAccounting。成功从 ACTIVE payload 转 RETAINED，保留原 Target owner/accounting；
+删除实际 timeline/expiry/Claim/charge，并增加 terminal NV37 与首 COMMAND/RESULT 和
+Shard-owned POSITION。所有实际 before/after 费用、primary/mirror/total/aggregate 与
+source 一批提交；不因取消释放对象、不删除已存在 attempt，也不重选冻结 owner。
+
+terminal key 为 TERMINAL `03 01 + DelayMessageId[41] + generation[u32]`；完整 locator/
+runtime/source/lineage 关联到原 payload owner。其 STATE charge 从真实 key 和 canonical
+payload 长度重建。逻辑首结果沿已有 Message 的 payload owner，NOT_FOUND 和业务解析前
+拒绝沿 Shard root；RESULT 沿 COMMAND，物理 POSITION 沿 root。CANCEL grant 策略允许
+已有工作收敛，完整 first-command physical/Route/closure commit provider 仍是必要输入。
+
+开发检查使用实际 signed bootstrap/grant、RocksDB、真实 Source/LocalClaim accounting
+和 Worker loop；初始 Schedule graph 是显式 fixture，Route/closure/capacity 与 Oxia
+backend 仍为替身。覆盖直接 TIMELINE 和真实可逆 Claim 两种取消，禁止据此宣告完整
+Cancel reservation、首次 Schedule、生产 closure 或跨账本恢复验证完成。

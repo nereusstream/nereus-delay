@@ -177,7 +177,7 @@
         "evidence/b4-result-audit-final-docs.log",
         "evidence/b4-result-audit-junit.zip"
       ],
-      "progress": "Retained Command replay now runs through TargetSourceApplyRuntime and the existing Worker source/WorkClass/ACK loop. Exact physical frame replay is read-only; later duplicates append only Shard-owned POSITION plus actual accounting/source. Conflict/expiry preserve first results. Actual ingress deadline is read for Command/System replay and first grant. Two minimal RocksDB development checks passed, using seeded first Command records and authority fixtures. First Command business including Cancel/reservations/terminal, absent-first expiry/GC, remaining System branches, full Worker/config/recovery and production providers remain unfinished.",
+      "progress": "First Command dispatch now invokes TargetCommandStore through the existing Worker source/WorkClass/ACK loop. Message Cancel handles version/closure/irreversible boundaries and atomically updates Message/index/head, Claim/charge deletion, retained payload, NV37 terminal history, first COMMAND/RESULT/POSITION and actual source accounting. Strict barrier/watermark preservation is implemented. Minimal development checks use seeded initial Schedule graphs and external authority fixtures. Reservation Cancel, standalone expired POSITION, other first Command/System handlers, production Route/closure/capacity providers and full Worker/config/recovery/migration remain unfinished.",
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
       "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
@@ -200,7 +200,11 @@
         "src/main/java/com/nereusstream/delay/ownership/SourceApplyCoordinator.java",
         "src/main/java/com/nereusstream/delay/ownership/SourceApplyWorkClassExecutor.java",
         "src/main/java/com/nereusstream/delay/ownership/WorkerSourceApplyLoop.java",
-        "src/main/java/com/nereusstream/delay/runtime/TargetCommandReplayStore.java"
+        "src/main/java/com/nereusstream/delay/runtime/TargetCommandReplayStore.java",
+        "src/main/java/com/nereusstream/delay/runtime/TargetCommandStore.java",
+        "src/main/java/com/nereusstream/delay/runtime/TargetTerminalGenerationRecord.java",
+        "src/main/java/com/nereusstream/delay/store/TargetKeyCodec.java",
+        "src/main/java/com/nereusstream/delay/store/TargetValueEnvelope.java"
       ],
       "validationHandoff": "12-集中验证交接清单.md"
     },
@@ -239,7 +243,7 @@
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
       "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
-      "progress": "Retained Command replay now runs through TargetSourceApplyRuntime and the existing Worker source/WorkClass/ACK loop. Exact physical frame replay is read-only; later duplicates append only Shard-owned POSITION plus actual accounting/source. Conflict/expiry preserve first results. Actual ingress deadline is read for Command/System replay and first grant. Two minimal RocksDB development checks passed, using seeded first Command records and authority fixtures. First Command business including Cancel/reservations/terminal, absent-first expiry/GC, remaining System branches, full Worker/config/recovery and production providers remain unfinished.",
+      "progress": "First Command dispatch now invokes TargetCommandStore through the existing Worker source/WorkClass/ACK loop. Message Cancel handles version/closure/irreversible boundaries and atomically updates Message/index/head, Claim/charge deletion, retained payload, NV37 terminal history, first COMMAND/RESULT/POSITION and actual source accounting. Strict barrier/watermark preservation is implemented. Minimal development checks use seeded initial Schedule graphs and external authority fixtures. Reservation Cancel, standalone expired POSITION, other first Command/System handlers, production Route/closure/capacity providers and full Worker/config/recovery/migration remain unfinished.",
       "implementationFiles": [
         "src/main/java/com/nereusstream/delay/runtime/TargetClaimRecord.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetClaimStore.java",
@@ -257,7 +261,11 @@
         "src/main/java/com/nereusstream/delay/ownership/SourceApplyCoordinator.java",
         "src/main/java/com/nereusstream/delay/ownership/SourceApplyWorkClassExecutor.java",
         "src/main/java/com/nereusstream/delay/ownership/WorkerSourceApplyLoop.java",
-        "src/main/java/com/nereusstream/delay/runtime/TargetCommandReplayStore.java"
+        "src/main/java/com/nereusstream/delay/runtime/TargetCommandReplayStore.java",
+        "src/main/java/com/nereusstream/delay/runtime/TargetCommandStore.java",
+        "src/main/java/com/nereusstream/delay/runtime/TargetTerminalGenerationRecord.java",
+        "src/main/java/com/nereusstream/delay/store/TargetKeyCodec.java",
+        "src/main/java/com/nereusstream/delay/store/TargetValueEnvelope.java"
       ],
       "validationHandoff": "12-集中验证交接清单.md"
     },
@@ -269,7 +277,7 @@
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
       "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
-      "progress": "Retained Command replay now runs through TargetSourceApplyRuntime and the existing Worker source/WorkClass/ACK loop. Exact physical frame replay is read-only; later duplicates append only Shard-owned POSITION plus actual accounting/source. Conflict/expiry preserve first results. Actual ingress deadline is read for Command/System replay and first grant. Two minimal RocksDB development checks passed, using seeded first Command records and authority fixtures. First Command business including Cancel/reservations/terminal, absent-first expiry/GC, remaining System branches, full Worker/config/recovery and production providers remain unfinished.",
+      "progress": "First Command dispatch now invokes TargetCommandStore through the existing Worker source/WorkClass/ACK loop. Message Cancel handles version/closure/irreversible boundaries and atomically updates Message/index/head, Claim/charge deletion, retained payload, NV37 terminal history, first COMMAND/RESULT/POSITION and actual source accounting. Strict barrier/watermark preservation is implemented. Minimal development checks use seeded initial Schedule graphs and external authority fixtures. Reservation Cancel, standalone expired POSITION, other first Command/System handlers, production Route/closure/capacity providers and full Worker/config/recovery/migration remain unfinished.",
       "implementationFiles": [
         "src/main/java/com/nereusstream/delay/ownership/TargetSourceApplyRuntime.java",
         "src/main/java/com/nereusstream/delay/ownership/SourceApplyTarget.java",
@@ -279,7 +287,12 @@
         "src/main/java/com/nereusstream/delay/store/TargetStoreBackend.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetCommandReplayStore.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetSystemReplayStore.java",
-        "src/main/java/com/nereusstream/delay/runtime/TargetQuotaGrantStore.java"
+        "src/main/java/com/nereusstream/delay/runtime/TargetQuotaGrantStore.java",
+        "src/main/java/com/nereusstream/delay/runtime/TargetCommandStore.java",
+        "src/main/java/com/nereusstream/delay/runtime/TargetTerminalGenerationRecord.java",
+        "src/main/java/com/nereusstream/delay/runtime/TargetRecordAccounting.java",
+        "src/main/java/com/nereusstream/delay/store/TargetKeyCodec.java",
+        "src/main/java/com/nereusstream/delay/store/TargetValueEnvelope.java"
       ],
       "validationHandoff": "12-集中验证交接清单.md"
     },
@@ -300,7 +313,7 @@
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
       "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
-      "progress": "Retained Command replay now runs through TargetSourceApplyRuntime and the existing Worker source/WorkClass/ACK loop. Exact physical frame replay is read-only; later duplicates append only Shard-owned POSITION plus actual accounting/source. Conflict/expiry preserve first results. Actual ingress deadline is read for Command/System replay and first grant. Two minimal RocksDB development checks passed, using seeded first Command records and authority fixtures. First Command business including Cancel/reservations/terminal, absent-first expiry/GC, remaining System branches, full Worker/config/recovery and production providers remain unfinished.",
+      "progress": "First Command dispatch now invokes TargetCommandStore through the existing Worker source/WorkClass/ACK loop. Message Cancel handles version/closure/irreversible boundaries and atomically updates Message/index/head, Claim/charge deletion, retained payload, NV37 terminal history, first COMMAND/RESULT/POSITION and actual source accounting. Strict barrier/watermark preservation is implemented. Minimal development checks use seeded initial Schedule graphs and external authority fixtures. Reservation Cancel, standalone expired POSITION, other first Command/System handlers, production Route/closure/capacity providers and full Worker/config/recovery/migration remain unfinished.",
       "implementationFiles": [
         "src/main/java/com/nereusstream/delay/runtime/TargetClaimRecord.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetClaimStore.java",
@@ -323,7 +336,10 @@
         "src/main/java/com/nereusstream/delay/ownership/SourceApplyCoordinator.java",
         "src/main/java/com/nereusstream/delay/ownership/SourceApplyWorkClassExecutor.java",
         "src/main/java/com/nereusstream/delay/ownership/WorkerSourceApplyLoop.java",
-        "src/main/java/com/nereusstream/delay/runtime/TargetCommandReplayStore.java"
+        "src/main/java/com/nereusstream/delay/runtime/TargetCommandReplayStore.java",
+        "src/main/java/com/nereusstream/delay/runtime/TargetCommandStore.java",
+        "src/main/java/com/nereusstream/delay/runtime/TargetTerminalGenerationRecord.java",
+        "src/main/java/com/nereusstream/delay/store/TargetKeyCodec.java"
       ],
       "validationHandoff": "12-集中验证交接清单.md"
     },
@@ -335,7 +351,7 @@
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
       "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
-      "progress": "Retained Command replay now runs through TargetSourceApplyRuntime and the existing Worker source/WorkClass/ACK loop. Exact physical frame replay is read-only; later duplicates append only Shard-owned POSITION plus actual accounting/source. Conflict/expiry preserve first results. Actual ingress deadline is read for Command/System replay and first grant. Two minimal RocksDB development checks passed, using seeded first Command records and authority fixtures. First Command business including Cancel/reservations/terminal, absent-first expiry/GC, remaining System branches, full Worker/config/recovery and production providers remain unfinished.",
+      "progress": "First Command dispatch now invokes TargetCommandStore through the existing Worker source/WorkClass/ACK loop. Message Cancel handles version/closure/irreversible boundaries and atomically updates Message/index/head, Claim/charge deletion, retained payload, NV37 terminal history, first COMMAND/RESULT/POSITION and actual source accounting. Strict barrier/watermark preservation is implemented. Minimal development checks use seeded initial Schedule graphs and external authority fixtures. Reservation Cancel, standalone expired POSITION, other first Command/System handlers, production Route/closure/capacity providers and full Worker/config/recovery/migration remain unfinished.",
       "implementationFiles": [
         "src/main/java/com/nereusstream/delay/store/ShardStore.java",
         "src/main/java/com/nereusstream/delay/store/StoreMetadata.java",
@@ -349,7 +365,11 @@
         "src/main/java/com/nereusstream/delay/ownership/WorkerSourceApplyLoop.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetCommandReplayStore.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetSystemReplayStore.java",
-        "src/main/java/com/nereusstream/delay/runtime/TargetQuotaGrantStore.java"
+        "src/main/java/com/nereusstream/delay/runtime/TargetQuotaGrantStore.java",
+        "src/main/java/com/nereusstream/delay/runtime/TargetCommandStore.java",
+        "src/main/java/com/nereusstream/delay/runtime/TargetTerminalGenerationRecord.java",
+        "src/main/java/com/nereusstream/delay/runtime/TargetRecordAccounting.java",
+        "src/main/java/com/nereusstream/delay/store/TargetKeyCodec.java"
       ],
       "validationHandoff": "12-集中验证交接清单.md"
     },

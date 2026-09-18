@@ -631,6 +631,7 @@ public final class TargetStoreBackend {
         final int tag = Byte.toUnsignedInt(key[0]);
         final int type =
                 switch (family) {
+                    case TERMINAL -> tag == TargetKeyCodec.TERMINAL_GENERATION_TAG ? 37 : 0;
                     case INFLIGHT -> tag == TargetKeyCodec.CLAIM_TAG ? 36 : 0;
                     case DEDUPE -> tag >= 6 && tag <= 9 ? 35 : 0;
                     case ID ->

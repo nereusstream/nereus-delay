@@ -10,6 +10,13 @@
 
 [原 29 切片集中验证交接清单](12-集中验证交接清单.md)
 
+TargetCommandStore 已接入 Worker 首次 Command 分流，当前实际执行已有 Message 的
+Cancel：核对前置版本、原 binding/queue 与 source-ordered closure，保留不可逆 attempt
+边界；成功时同批更新 Message、候选/head、Claim/charge、retained payload、terminal
+历史及 COMMAND/RESULT/POSITION/source/计费。新增 terminal NV37，不复制 payload。
+reservation Cancel、无首记录的过期 POSITION、其余首次 Command/System、完整生产
+Route/closure/资源 provider 与恢复/配置/迁移工具继续实施；未提升集中验证状态。
+
 TargetCommandReplayStore 已接入同一 Worker source 循环：保留的 COMMAND 首结果用于
 同物理位置只读重放、后续重复 POSITION 计费、CommandId 冲突与过期返回；完整 Command
 frame digest、实际 owner/lineage、source 与提交 guard 一起核对。Command/System 重放

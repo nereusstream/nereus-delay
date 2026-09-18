@@ -12,6 +12,7 @@ import com.nereusstream.delay.protocol.TargetQuotaScope;
 import com.nereusstream.delay.runtime.CommandResult;
 import com.nereusstream.delay.runtime.SystemMutationResult;
 import com.nereusstream.delay.runtime.TargetCommandReplayStore;
+import com.nereusstream.delay.runtime.TargetCommandStore;
 import com.nereusstream.delay.runtime.TargetQuotaGrantControlVerifier;
 import com.nereusstream.delay.runtime.TargetQuotaGrantStore;
 import com.nereusstream.delay.runtime.TargetStoreBootstrap;
@@ -53,19 +54,37 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         GrantControl resolve(SourceReplayMutation entry);
     }
 
+    public record CommandControl(
+            TargetCommandStore.Policy policy,
+            TargetCommandStore.CancellationControls cancellations,
+            TargetStoreBackend.CommitAuthority commit) {
+        public CommandControl {
+            Objects.requireNonNull(policy, "policy");
+            Objects.requireNonNull(cancellations, "cancellations");
+            Objects.requireNonNull(commit, "commit");
+        }
+    }
+
+    @FunctionalInterface
+    public interface Commands {
+        CommandControl resolve(SourceReplayRecord entry);
+    }
+
     /** External resource/Control snapshots remain mandatory; local ownership checks cannot substitute for them. */
     public record Authorities(
             OxiaOwnerLeaseStore leases,
             SourceReplaySuccessor successor,
             GrantControls grants,
             TargetStoreBackend.CommitAuthority duplicateWrites,
-            TargetStoreBackend.ReadAuthority reads) {
+            TargetStoreBackend.ReadAuthority reads,
+            Commands commands) {
         public Authorities {
             Objects.requireNonNull(leases, "leases");
             Objects.requireNonNull(successor, "successor");
             Objects.requireNonNull(grants, "grants");
             Objects.requireNonNull(duplicateWrites, "duplicateWrites");
             Objects.requireNonNull(reads, "reads");
+            Objects.requireNonNull(commands, "commands");
         }
     }
 
@@ -76,6 +95,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     private final TargetQuotaGrantStore grants;
     private final TargetSystemReplayStore replay;
     private final TargetCommandReplayStore commandReplay;
+    private final TargetCommandStore commands;
     private final SourceAssignment assignment;
     private final Authorities authorities;
     private final Limits limits;
@@ -117,6 +137,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         grants = new TargetQuotaGrantStore(backend, scope, lineage, limits.counters(), limits.domains());
         replay = new TargetSystemReplayStore(backend, scope, lineage, limits.counters(), limits.domains());
         commandReplay = new TargetCommandReplayStore(backend, scope, lineage, limits.counters(), limits.domains());
+        commands = new TargetCommandStore(backend, scope, lineage, limits.counters(), limits.domains());
     }
 
     @Override
@@ -139,7 +160,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             requireSubmission(entry, recovery);
             requireOwner(clock);
             if (entry instanceof SourceReplayRecord command) {
-                return replayCommand(command, clock);
+                return applyCommand(command, clock);
             }
             final var mutation = (SourceReplayMutation) entry;
             final var budget =
@@ -190,20 +211,40 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         }
     }
 
-    private SourceReplayOutcome replayCommand(final SourceReplayRecord entry, final LongSupplier clock) {
+    private SourceReplayOutcome applyCommand(final SourceReplayRecord entry, final LongSupplier clock) {
         final var budget =
                 new BoundedReadBudget(limits.records(), limits.bytes(), limits.elapsedNanos(), monotonicClock);
         final TargetCommandReplayStore.Prepared prepared;
         try {
             prepared = commandReplay
                     .prepareIfPresent(budget, entry.command(), entry.position())
-                    .orElseThrow(() ->
-                            new IllegalStateException("first Target Command business is not wired yet; retain source"));
+                    .orElse(null);
         } catch (ReadIncompleteException incomplete) {
             throw new ReadYield(incomplete);
         }
-        final var result = commandReplay.commit(
-                prepared, writes(authorities.duplicateWrites(), entry, clock), reads(entry, clock));
+        final CommandResult result;
+        if (prepared != null) {
+            result = commandReplay.commit(
+                    prepared, writes(authorities.duplicateWrites(), entry, clock), reads(entry, clock));
+        } else {
+            // Resolve external snapshots outside the zero-write backend retry classifier.
+            final var control = Objects.requireNonNull(authorities.commands().resolve(entry), "command control");
+            final TargetCommandStore.Prepared first;
+            try {
+                first = commands.prepareFirst(
+                        budget, entry.command(), entry.position(), control.policy(), (reader, binding, source) -> {
+                            try {
+                                return control.cancellations().closed(reader, binding, source);
+                            } catch (ReadIncompleteException external) {
+                                throw new IllegalStateException(
+                                        "external cancellation authority did not complete", external);
+                            }
+                        });
+            } catch (ReadIncompleteException incomplete) {
+                throw new ReadYield(incomplete);
+            }
+            result = commands.commit(first, writes(control.commit(), entry, clock));
+        }
         return SourceReplayOutcome.command(
                 entry.position(),
                 new CommandResult(

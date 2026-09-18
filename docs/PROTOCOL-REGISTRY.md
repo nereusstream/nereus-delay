@@ -2039,7 +2039,7 @@ meta tag `09 TARGET_STATE`，key format=1；候选的 slot:u16/domainGeneration:
 从基础单域起即存在。Lane NATIVE tag 07 已由 NDIP-1 使用，不能重分配。
 storeFormatVersion=2 为 Target 数据的显式 reader/writer 边界；ShardStore.openTarget
 已能创建/打开该格式，默认 open 与现有恢复入口仍选 format 1，拒绝跨格式原地打开。
-TargetValueEnvelope 支持已注册 NV 1–35，旧 ValueEnvelope 仍只允许 1–11。实际 Worker
+TargetValueEnvelope 支持已注册 NV 1–37，旧 ValueEnvelope 仍只允许 1–11。实际 Worker
 Target activation、迁移及 production authority 尚未提供；显式打开不替代这些权威。queue/domain/head
 及严格顺序 key 的固定内容见下一节；work/locator/Message/runtime/Expiry/ORDER_STATE 见后续小节，B2–B4 引用仍待闭合。
 
@@ -2456,3 +2456,19 @@ TargetCommandReplayStore 复用既有 COMMAND/RESULT/POSITION NV35 与完整 Com
 位置完整 frame 校验后零写，后续重复仅 POSITION/source/费用变化；首次结果保持原
 身份，返回 SourceReplayOutcome 为 ACK 使用当前物理位置。此为保留结果重放接入，
 首次 Command、GC 后无首记录处理、完整 Worker/recovery 和生产 providers 仍待完成。
+
+
+### NDIP-3 Target terminal 与首次 Cancel（2026-09-18）
+
+新增 NV37/schema1 TargetTerminalGenerationRecord，TERMINAL CF key 为
+`03 01 | DelayMessageId[41] | generation[u32be]`。字段 1 version、2 full Target locator、
+3 uint64 stateVersion、4 StableCode、5 full bounded TargetGenerationRuntimeIndex、
+6 source-only TargetQuotaMutation、7 recoveryLineage[16]、8 domain-separated SHA256。
+不复用旧 terminal tag、不复制 payload；原 payload owner/descriptor 冻结其 STATE
+charge 与历史保留义务。TargetValueEnvelope reader 接受 NV1..37，旧 ValueEnvelope
+仍只接受 NV1..11；当前 Store 格式选择与生产激活边界不变。
+
+TargetCommandStore 的 Message Cancel 使用既有 Command wire，原子写 terminal、
+retained payload、完整索引/Claim 删除、首结果和 source/计费。协议 identity/tuple
+与 cancellation closure 的首次 authority 由 Worker 明确分流，commit guard 持有。
+未新增 Command wire，也未完成 reservation/其它首次业务、生产 providers 或恢复认证。

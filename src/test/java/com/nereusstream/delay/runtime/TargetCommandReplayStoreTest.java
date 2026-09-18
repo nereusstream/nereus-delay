@@ -180,7 +180,10 @@ class TargetCommandReplayStoreTest {
                                 throw new AssertionError("Command replay resolved grant authority");
                             },
                             (a, b, c) -> guard(),
-                            (a, b) -> guard()),
+                            (a, b) -> guard(),
+                            entry -> {
+                                throw new AssertionError("unexpected first Command authority");
+                            }),
                     new TargetSourceApplyRuntime.Limits(2048, 32L << 20, 60_000_000_000L, 16, 1),
                     System::nanoTime);
             final var queue = new java.util.ArrayDeque<SourceRecordConsumer.PolledSourceRecord>();
