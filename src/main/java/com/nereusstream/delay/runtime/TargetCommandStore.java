@@ -1,14 +1,20 @@
 package com.nereusstream.delay.runtime;
 
+import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CancelCommandBody;
+import com.nereusstream.delay.protocol.CanonicalTargetPartition;
 import com.nereusstream.delay.protocol.CommandCodec;
 import com.nereusstream.delay.protocol.CommandType;
+import com.nereusstream.delay.protocol.MessagePrecondition;
+import com.nereusstream.delay.protocol.NativeDeliveryPolicy;
 import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.PreparedCommand;
 import com.nereusstream.delay.protocol.ProtocolTuple;
+import com.nereusstream.delay.protocol.RescheduleCommandBody;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.StableCode;
+import com.nereusstream.delay.protocol.TargetMessageLocator;
 import com.nereusstream.delay.protocol.TargetQueueState;
 import com.nereusstream.delay.protocol.TargetQuotaClaimCharge;
 import com.nereusstream.delay.protocol.TargetQuotaIdentity;
@@ -18,6 +24,7 @@ import com.nereusstream.delay.protocol.TargetQuotaPayloadOwner;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
 import com.nereusstream.delay.protocol.TargetScheduleBinding;
 import com.nereusstream.delay.protocol.TargetSourcePosition;
+import com.nereusstream.delay.protocol.UnsignedInt32;
 import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.ColumnFamily;
 import com.nereusstream.delay.store.TargetKeyCodec;
@@ -31,15 +38,35 @@ import java.util.Set;
 
 /** First Command business with immutable results and atomic Message/Claim/terminal accounting. */
 public final class TargetCommandStore {
+    public record DeliveryWindow(long maximumDelayMs, long minimumWindowMs, long maximumLifetimeMs) {
+        public DeliveryWindow {
+            if (maximumDelayMs <= 0 || minimumWindowMs <= 0 || maximumLifetimeMs < minimumWindowMs) {
+                throw new IllegalArgumentException("finite positive delivery window bounds required");
+            }
+        }
+
+        boolean permits(long deliverAt, long expireAt, long brokerTime) {
+            try {
+                return deliverAt <= Math.addExact(brokerTime, maximumDelayMs)
+                        && expireAt >= Math.addExact(Math.max(deliverAt, brokerTime), minimumWindowMs)
+                        && expireAt <= Math.addExact(brokerTime, maximumLifetimeMs);
+            } catch (ArithmeticException invalid) {
+                return false;
+            }
+        }
+    }
+
     /** Authenticated Route inputs. The first-command commit guard must retain their exact source activation. */
     public record Policy(
             TargetQuotaScope scope,
             long retryWindowMs,
             long maximumPreparationAgeMs,
             long maximumFutureSkewMs,
-            Set<ProtocolTuple> activatedTuples) {
+            Set<ProtocolTuple> activatedTuples,
+            DeliveryWindow deliveryWindow) {
         public Policy {
             Objects.requireNonNull(scope, "scope");
+            Objects.requireNonNull(deliveryWindow, "deliveryWindow");
             activatedTuples = Set.copyOf(activatedTuples);
             if (scope.target() != null
                     || retryWindowMs <= 0
@@ -168,7 +195,27 @@ public final class TargetCommandStore {
                                     unchanged(rejected(StableCode.INVALID_COMMAND, source), root),
                                     result);
                         }
-                        decision = cancel(reader, command, body, stamp, root, controls);
+                        decision = modifyMessage(
+                                reader, command, body.precondition(), null, stamp, root, controls, policy);
+                    } else if (command.type() == CommandType.RESCHEDULE) {
+                        final RescheduleCommandBody body;
+                        try {
+                            body = RescheduleCommandBody.decode(command.canonicalBody());
+                            if (!command.delayMessageId().equals(body.delayMessageId())
+                                    || command.retryUntilEpochMs() != body.retryUntilEpochMs()) {
+                                throw new IllegalArgumentException("Reschedule body differs from envelope");
+                            }
+                        } catch (IllegalArgumentException malformed) {
+                            return withResults(
+                                    reader,
+                                    command,
+                                    stamp,
+                                    root,
+                                    unchanged(rejected(StableCode.INVALID_COMMAND, source), root),
+                                    result);
+                        }
+                        decision = modifyMessage(
+                                reader, command, body.precondition(), body, stamp, root, controls, policy);
                     } else {
                         throw new IllegalStateException(
                                 "first Target Command business branch is not wired yet; retain source");
@@ -179,7 +226,9 @@ public final class TargetCommandStore {
                         .wrap(
                                 new TargetSourceAccounting(
                                         scope, lineage, source, digest, maximumCounters, 1, maximumDomains),
-                                TargetQuotaGrantGate.Operation.CANCEL,
+                                command.type() == CommandType.RESCHEDULE
+                                        ? TargetQuotaGrantGate.Operation.RESCHEDULE
+                                        : TargetQuotaGrantGate.Operation.CANCEL,
                                 null));
         return new Prepared(this, batch, result[0]);
     }
@@ -192,13 +241,15 @@ public final class TargetCommandStore {
         return prepared.result;
     }
 
-    private Decision cancel(
+    private Decision modifyMessage(
             TargetStoreBackend.Reader reader,
             PreparedCommand command,
-            CancelCommandBody body,
+            MessagePrecondition precondition,
+            RescheduleCommandBody reschedule,
             TargetQuotaMutation stamp,
             TargetQuotaIncarnation root,
-            CancellationControls controls) {
+            CancellationControls controls,
+            Policy policy) {
         final var source = stamp.source();
         final byte[] raw = reader.get(ColumnFamily.ID, TargetKeyCodec.message(command.delayMessageId()));
         final byte[] payloadKey = Bytes.concat(
@@ -206,7 +257,7 @@ public final class TargetCommandStore {
                 command.delayMessageId().bytes());
         final byte[] payloadRaw = reader.get(ColumnFamily.META, payloadKey);
         if (raw == null) {
-            if (payloadRaw != null) {
+            if (payloadRaw != null && reschedule == null) {
                 throw new IllegalStateException(
                         "Cancel reservation/retained identity requires its pending business handler");
             }
@@ -229,7 +280,6 @@ public final class TargetCommandStore {
         final var owner = descriptor(reader, payloadOwner.primaryIdentity());
         owner.requirePayloadOwner(payloadOwner);
         payloadOwner.mutation().requireAtOrBefore(reader.aggregate().mutation());
-        final var precondition = body.precondition();
         if ((precondition.expectedGeneration() != null
                         && precondition.expectedGeneration()
                                 != Integer.toUnsignedLong(before.locator().generation()))
@@ -255,14 +305,19 @@ public final class TargetCommandStore {
         if (closed
                 && before.runtime().admissionsUsed() == 0
                 && !before.runtime().terminal()) {
-            return unchanged(applied(StableCode.ALREADY_DEAD_LETTERED, source, before), owner);
+            return unchanged(
+                    applied(
+                            reschedule == null ? StableCode.ALREADY_DEAD_LETTERED : StableCode.LANE_CLOSED,
+                            source,
+                            before),
+                    owner);
         }
         if (before.runtime().terminal()) {
             final var terminal = terminal(reader, before);
-            final var code = before.aggregateState() == GenerationAggregateState.CANCELED
+            final var code = reschedule == null && before.aggregateState() == GenerationAggregateState.CANCELED
                     ? StableCode.ALREADY_CANCELED
                     : terminal.terminalCode() == StableCode.LANE_CLOSED_BEFORE_ADMISSION
-                            ? StableCode.ALREADY_DEAD_LETTERED
+                            ? reschedule == null ? StableCode.ALREADY_DEAD_LETTERED : StableCode.LANE_CLOSED
                             : StableCode.TOO_LATE;
             return unchanged(applied(code, source, before), owner);
         }
@@ -273,6 +328,9 @@ public final class TargetCommandStore {
         }
         if (payloadOwner.phase() != TargetQuotaPayloadOwner.Phase.ACTIVE) {
             throw new IllegalStateException("live cancellable Message has inactive payload accounting");
+        }
+        if (reschedule != null) {
+            return reschedule(reader, before, payloadOwner, owner, reschedule, stamp, policy, queue);
         }
         final var runtime = before.runtime();
         final var nextRuntime = new TargetGenerationRuntimeIndex(
@@ -330,8 +388,139 @@ public final class TargetCommandStore {
         }
         return new Decision(
                 new TargetMessageStore.Input(
-                        List.of(new TargetMessageStore.Transition(before, after)), cancelOrder(reader, before), edits),
+                        List.of(new TargetMessageStore.Transition(before, after)), releaseOrder(reader, before), edits),
                 applied(StableCode.CANCELED, source, after),
+                owner);
+    }
+
+    private Decision reschedule(
+            TargetStoreBackend.Reader reader,
+            TargetMessageRecord before,
+            TargetQuotaPayloadOwner payloadOwner,
+            TargetQuotaIncarnation owner,
+            RescheduleCommandBody request,
+            TargetQuotaMutation stamp,
+            Policy policy,
+            TargetQueueState queue) {
+        final var source = stamp.source();
+        if (!policy.deliveryWindow()
+                .permits(
+                        request.newDeliverAtEpochMs(),
+                        request.newExpireAtEpochMs(),
+                        source.brokerPersistenceTimeEpochMs())) {
+            return unchanged(rejected(StableCode.INVALID_DELIVERY_WINDOW, source), owner);
+        }
+        final int generation;
+        try {
+            generation = UnsignedInt32.successor(before.locator().generation());
+        } catch (ArithmeticException exhausted) {
+            return unchanged(rejected(StableCode.INVALID_COMMAND, source), owner);
+        }
+        final var old = before.locator();
+        final var locator = new TargetMessageLocator(
+                old.messageId(),
+                generation,
+                old.target(),
+                old.domain(),
+                old.accountingIncarnation(),
+                old.orderingMode(),
+                old.orderingDomain(),
+                old.scheduleBindingDigest());
+        final byte[] identityKey = TargetKeyCodec.identity(old.target());
+        final var identity = CanonicalTargetPartition.decodeForStore(
+                identityKey, payload(reader, ColumnFamily.META, identityKey, CanonicalTargetPartition.VALUE_TYPE));
+        final boolean nativeCandidate = before.nativeDeliveryPolicy() != NativeDeliveryPolicy.FORBID
+                && identity.resource().kind() == BrokerResourceIdentity.Kind.PULSAR
+                && old.orderingMode() == OrderingMode.BEST_EFFORT
+                && queue.domains().get(old.domain().slot()).nativePolicyScopeRef() != null;
+        final var work = new TargetTimelineWorkRef(
+                locator,
+                TimelineWorkKind.INITIAL_SCHEDULE,
+                request.newDeliverAtEpochMs(),
+                request.newDeliverAtEpochMs(),
+                source.sourceOrderToken(),
+                1,
+                1,
+                UncertainRetryAuthority.NONE,
+                null,
+                null,
+                nativeCandidate);
+        if (old.orderingMode() == OrderingMode.DELIVERY_TIME_FIFO) {
+            final var orderKey = TargetKeyCodec.orderState(old.target(), old.orderingDomain());
+            final var order =
+                    TargetOrderState.decode(payload(reader, ColumnFamily.META, orderKey, TargetOrderState.VALUE_TYPE));
+            if (order.orderingContract() == TargetOrderState.OrderingContract.ADMISSION_WATERMARK
+                    && order.lastAdmittedOrder() != null
+                    && Arrays.compareUnsigned(
+                                    work.ordinaryKey(),
+                                    order.lastAdmittedOrder().encodedKey())
+                            <= 0) {
+                return unchanged(rejected(StableCode.ORDER_BEFORE_ADMISSION_WATERMARK, source), owner);
+            }
+        }
+        final long stateVersion = TargetQueueState.nextRevision(before.stateVersion());
+        final var after = new TargetMessageRecord(
+                locator,
+                stateVersion,
+                request.newDeliverAtEpochMs(),
+                request.newExpireAtEpochMs(),
+                request.newDeliverAtEpochMs(),
+                before.nativeDeliveryPolicy(),
+                source,
+                before.inlinePayload(),
+                before.payloadReference(),
+                new TargetGenerationRuntimeIndex(
+                        generation,
+                        GenerationAggregateState.SCHEDULED,
+                        CurrentSendWorkKind.TIMELINE,
+                        work,
+                        null,
+                        null,
+                        List.of(),
+                        0,
+                        0,
+                        false,
+                        1));
+        payloadOwner.requireMessagePayload(after);
+        final var prior = before.runtime();
+        final var history = new TargetTerminalGenerationRecord(
+                old,
+                stateVersion,
+                StableCode.SUPERSEDED,
+                new TargetGenerationRuntimeIndex(
+                        old.generation(),
+                        GenerationAggregateState.SUPERSEDED,
+                        CurrentSendWorkKind.NONE,
+                        null,
+                        null,
+                        null,
+                        prior.attemptObligations(),
+                        prior.admissionsUsed(),
+                        prior.uncertainRetryAdmissionsUsed(),
+                        prior.possibleDestinationDuplicate(),
+                        TargetQueueState.nextRevision(prior.runtimeRevision())),
+                stamp,
+                lineage);
+        history.requireOwner(payloadOwner);
+        if (reader.get(ColumnFamily.TERMINAL, history.key()) != null) {
+            throw new IllegalStateException("rescheduled generation already has terminal history");
+        }
+        final var edits = new ArrayList<TargetStoreBackend.Edit>();
+        edits.add(reader.replace(
+                ColumnFamily.TERMINAL,
+                history.key(),
+                TargetTerminalGenerationRecord.VALUE_TYPE,
+                history.canonicalBytes()));
+        if (prior.currentWorkKind() == CurrentSendWorkKind.CLAIMED) {
+            final var claim = TargetClaimStore.current(reader, before);
+            stamp.requireStoreSuccessorOf(claim.creation());
+            edits.add(reader.replace(ColumnFamily.INFLIGHT, claim.key(), TargetClaimRecord.VALUE_TYPE, null));
+            edits.add(reader.replace(ColumnFamily.META, claim.chargeKey(), TargetQuotaClaimCharge.VALUE_TYPE, null));
+        }
+        return new Decision(
+                new TargetMessageStore.Input(
+                        List.of(new TargetMessageStore.Transition(before, after)), releaseOrder(reader, before), edits),
+                applied(StableCode.SUPERSEDED, source, after),
                 owner);
     }
 
@@ -352,7 +541,7 @@ public final class TargetCommandStore {
         return value;
     }
 
-    private static List<TargetMessageStore.OrderTransition> cancelOrder(
+    private static List<TargetMessageStore.OrderTransition> releaseOrder(
             TargetStoreBackend.Reader reader, TargetMessageRecord before) {
         if (before.locator().orderingMode() != OrderingMode.DELIVERY_TIME_FIFO) {
             return List.of();

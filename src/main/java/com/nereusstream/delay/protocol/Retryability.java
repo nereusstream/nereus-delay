@@ -79,6 +79,7 @@ public enum Retryability {
                     TARGET_EXECUTION_DOMAIN_DRAINING,
                     TARGET_EXECUTION_DOMAIN_GENERATION_EXHAUSTED,
                     TARGET_CLOSED,
+                    ORDER_BEFORE_ADMISSION_WATERMARK,
                     UNACTIVATED_PROTOCOL_VERSION,
                     UNACTIVATED_SYSTEM_PROTOCOL_VERSION,
                     UNAUTHORIZED_SYSTEM_MUTATION,

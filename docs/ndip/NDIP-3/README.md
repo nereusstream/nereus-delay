@@ -10,6 +10,12 @@
 
 [原 29 切片集中验证交接清单](12-集中验证交接清单.md)
 
+首次 Reschedule 已接入实际 Worker Source Apply：可逆 Timeline/Claim 上 generation
+递增、旧代 SUPERSEDED 历史、索引/head 更新、Claim 与费用清除、首结果和 source
+同批提交；原 Schedule binding、payload owner 与 payload 费用保留。Policy 新增强制
+DeliveryWindow；新 FIFO contract 拒绝不高于 Admission watermark 的排序键。七项必要
+开发检查通过；生产 provider、其余业务、完整恢复/配置/迁移仍在实施，集中验证未完成。
+
 无保留首结果的过期 Command 现经 Worker 重放分流写入独立物理 POSITION：不创建
 COMMAND/RESULT，不调用首次业务 resolver；同位置核对完整 frame 后零写重放，后续
 重复只增加物理 EVIDENCE 费用与 source。NV35 增加闭合 Kind 6，结果计费与完整结果

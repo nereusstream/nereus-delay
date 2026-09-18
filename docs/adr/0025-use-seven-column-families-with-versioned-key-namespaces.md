@@ -420,3 +420,12 @@ field 10/11 absent。source-only stamp 必须绑定完整 incoming frame SHA256�
 Worker 在当前 Store 证明逻辑/查询缺失且过期后才写入，先于首次业务 resolver。
 已有 COMMAND 的重复继续用 Kind 4/首引用。结果审计核对 Kind 6 的独立物理事实与费用，
 不要求虚构首结果；同 source 出现逻辑结果则拒绝。完整生产配置/恢复/迁移认证仍未完成。
+
+
+### NDIP-3 首次 Reschedule 实际应用（2026-09-18）
+
+沿既有 ID Message、TIMELINE ordinary/Native/Expiry、TERMINAL NV37、INFLIGHT Claim 与
+META charge/head/order 命名空间完成 generation 原子转换，没有新增 CF 或 value type。
+旧代 SUPERSEDED history 与新 Message 同 owner，payload owner 不重写；精确 Claim/charge
+删除、首结果、真实增量费用与 source 同 batch。Native 索引基于实际 Pulsar/domain scope，
+严格排序水位只适用于新 contract。详见 NDIP-3 quota §34；完整恢复与迁移认证仍待执行。

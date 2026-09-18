@@ -177,7 +177,7 @@
         "evidence/b4-result-audit-final-docs.log",
         "evidence/b4-result-audit-junit.zip"
       ],
-      "progress": "Worker now durably handles expired Commands without retained first results before resolving first-business authority. NV35 Kind 6 stores only Shard-owned physical expiry evidence, full-frame digest and exact rejected outcome; atomic source accounting, zero-write same-position replay and later physical repeats are wired. Result reconstruction supports the standalone branch and rejects contradictory logical results at the same source. Five minimal development checks passed. Reservation and remaining first Command/System business, production Route/closure/resource/fence providers, complete recovery/config/migration remain unfinished.",
+      "progress": "First Reschedule now runs through actual Worker Source Apply: reversible Timeline/Claim generation replacement, SUPERSEDED old-generation history, index/head changes, exact Claim/charge removal and first results share atomic source accounting. Original binding and ACTIVE payload owner remain unchanged. Policy requires source-effective DeliveryWindow; the new strict ordering contract rejects keys at or below the admission watermark with StableCode 0x111c. Seven minimal development checks passed, including two successful BEST_EFFORT Reschedule paths followed by Cancel. Strict watermark and failure matrices await central validation. Remaining Command/System business, production authorities, full recovery/config/migration remain unfinished.",
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
       "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
@@ -206,7 +206,9 @@
         "src/main/java/com/nereusstream/delay/store/TargetKeyCodec.java",
         "src/main/java/com/nereusstream/delay/store/TargetValueEnvelope.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetResultRecord.java",
-        "src/main/java/com/nereusstream/delay/runtime/TargetResultLedgerAudit.java"
+        "src/main/java/com/nereusstream/delay/runtime/TargetResultLedgerAudit.java",
+        "src/main/java/com/nereusstream/delay/protocol/StableCode.java",
+        "src/main/java/com/nereusstream/delay/protocol/Retryability.java"
       ],
       "validationHandoff": "12-集中验证交接清单.md"
     },
@@ -245,7 +247,7 @@
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
       "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
-      "progress": "Worker now durably handles expired Commands without retained first results before resolving first-business authority. NV35 Kind 6 stores only Shard-owned physical expiry evidence, full-frame digest and exact rejected outcome; atomic source accounting, zero-write same-position replay and later physical repeats are wired. Result reconstruction supports the standalone branch and rejects contradictory logical results at the same source. Five minimal development checks passed. Reservation and remaining first Command/System business, production Route/closure/resource/fence providers, complete recovery/config/migration remain unfinished.",
+      "progress": "First Reschedule now runs through actual Worker Source Apply: reversible Timeline/Claim generation replacement, SUPERSEDED old-generation history, index/head changes, exact Claim/charge removal and first results share atomic source accounting. Original binding and ACTIVE payload owner remain unchanged. Policy requires source-effective DeliveryWindow; the new strict ordering contract rejects keys at or below the admission watermark with StableCode 0x111c. Seven minimal development checks passed, including two successful BEST_EFFORT Reschedule paths followed by Cancel. Strict watermark and failure matrices await central validation. Remaining Command/System business, production authorities, full recovery/config/migration remain unfinished.",
       "implementationFiles": [
         "src/main/java/com/nereusstream/delay/runtime/TargetClaimRecord.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetClaimStore.java",
@@ -269,7 +271,9 @@
         "src/main/java/com/nereusstream/delay/store/TargetKeyCodec.java",
         "src/main/java/com/nereusstream/delay/store/TargetValueEnvelope.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetResultRecord.java",
-        "src/main/java/com/nereusstream/delay/runtime/TargetResultLedgerAudit.java"
+        "src/main/java/com/nereusstream/delay/runtime/TargetResultLedgerAudit.java",
+        "src/main/java/com/nereusstream/delay/protocol/StableCode.java",
+        "src/main/java/com/nereusstream/delay/protocol/Retryability.java"
       ],
       "validationHandoff": "12-集中验证交接清单.md"
     },
@@ -281,7 +285,7 @@
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
       "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
-      "progress": "Worker now durably handles expired Commands without retained first results before resolving first-business authority. NV35 Kind 6 stores only Shard-owned physical expiry evidence, full-frame digest and exact rejected outcome; atomic source accounting, zero-write same-position replay and later physical repeats are wired. Result reconstruction supports the standalone branch and rejects contradictory logical results at the same source. Five minimal development checks passed. Reservation and remaining first Command/System business, production Route/closure/resource/fence providers, complete recovery/config/migration remain unfinished.",
+      "progress": "First Reschedule now runs through actual Worker Source Apply: reversible Timeline/Claim generation replacement, SUPERSEDED old-generation history, index/head changes, exact Claim/charge removal and first results share atomic source accounting. Original binding and ACTIVE payload owner remain unchanged. Policy requires source-effective DeliveryWindow; the new strict ordering contract rejects keys at or below the admission watermark with StableCode 0x111c. Seven minimal development checks passed, including two successful BEST_EFFORT Reschedule paths followed by Cancel. Strict watermark and failure matrices await central validation. Remaining Command/System business, production authorities, full recovery/config/migration remain unfinished.",
       "implementationFiles": [
         "src/main/java/com/nereusstream/delay/ownership/TargetSourceApplyRuntime.java",
         "src/main/java/com/nereusstream/delay/ownership/SourceApplyTarget.java",
@@ -298,7 +302,9 @@
         "src/main/java/com/nereusstream/delay/store/TargetKeyCodec.java",
         "src/main/java/com/nereusstream/delay/store/TargetValueEnvelope.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetResultRecord.java",
-        "src/main/java/com/nereusstream/delay/runtime/TargetResultLedgerAudit.java"
+        "src/main/java/com/nereusstream/delay/runtime/TargetResultLedgerAudit.java",
+        "src/main/java/com/nereusstream/delay/protocol/StableCode.java",
+        "src/main/java/com/nereusstream/delay/protocol/Retryability.java"
       ],
       "validationHandoff": "12-集中验证交接清单.md"
     },
@@ -319,7 +325,7 @@
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
       "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
-      "progress": "Worker now durably handles expired Commands without retained first results before resolving first-business authority. NV35 Kind 6 stores only Shard-owned physical expiry evidence, full-frame digest and exact rejected outcome; atomic source accounting, zero-write same-position replay and later physical repeats are wired. Result reconstruction supports the standalone branch and rejects contradictory logical results at the same source. Five minimal development checks passed. Reservation and remaining first Command/System business, production Route/closure/resource/fence providers, complete recovery/config/migration remain unfinished.",
+      "progress": "First Reschedule now runs through actual Worker Source Apply: reversible Timeline/Claim generation replacement, SUPERSEDED old-generation history, index/head changes, exact Claim/charge removal and first results share atomic source accounting. Original binding and ACTIVE payload owner remain unchanged. Policy requires source-effective DeliveryWindow; the new strict ordering contract rejects keys at or below the admission watermark with StableCode 0x111c. Seven minimal development checks passed, including two successful BEST_EFFORT Reschedule paths followed by Cancel. Strict watermark and failure matrices await central validation. Remaining Command/System business, production authorities, full recovery/config/migration remain unfinished.",
       "implementationFiles": [
         "src/main/java/com/nereusstream/delay/runtime/TargetClaimRecord.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetClaimStore.java",
@@ -347,7 +353,9 @@
         "src/main/java/com/nereusstream/delay/runtime/TargetTerminalGenerationRecord.java",
         "src/main/java/com/nereusstream/delay/store/TargetKeyCodec.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetResultRecord.java",
-        "src/main/java/com/nereusstream/delay/runtime/TargetResultLedgerAudit.java"
+        "src/main/java/com/nereusstream/delay/runtime/TargetResultLedgerAudit.java",
+        "src/main/java/com/nereusstream/delay/protocol/StableCode.java",
+        "src/main/java/com/nereusstream/delay/protocol/Retryability.java"
       ],
       "validationHandoff": "12-集中验证交接清单.md"
     },
@@ -359,7 +367,7 @@
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
       "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
-      "progress": "Worker now durably handles expired Commands without retained first results before resolving first-business authority. NV35 Kind 6 stores only Shard-owned physical expiry evidence, full-frame digest and exact rejected outcome; atomic source accounting, zero-write same-position replay and later physical repeats are wired. Result reconstruction supports the standalone branch and rejects contradictory logical results at the same source. Five minimal development checks passed. Reservation and remaining first Command/System business, production Route/closure/resource/fence providers, complete recovery/config/migration remain unfinished.",
+      "progress": "First Reschedule now runs through actual Worker Source Apply: reversible Timeline/Claim generation replacement, SUPERSEDED old-generation history, index/head changes, exact Claim/charge removal and first results share atomic source accounting. Original binding and ACTIVE payload owner remain unchanged. Policy requires source-effective DeliveryWindow; the new strict ordering contract rejects keys at or below the admission watermark with StableCode 0x111c. Seven minimal development checks passed, including two successful BEST_EFFORT Reschedule paths followed by Cancel. Strict watermark and failure matrices await central validation. Remaining Command/System business, production authorities, full recovery/config/migration remain unfinished.",
       "implementationFiles": [
         "src/main/java/com/nereusstream/delay/store/ShardStore.java",
         "src/main/java/com/nereusstream/delay/store/StoreMetadata.java",
@@ -379,7 +387,9 @@
         "src/main/java/com/nereusstream/delay/runtime/TargetRecordAccounting.java",
         "src/main/java/com/nereusstream/delay/store/TargetKeyCodec.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetResultRecord.java",
-        "src/main/java/com/nereusstream/delay/runtime/TargetResultLedgerAudit.java"
+        "src/main/java/com/nereusstream/delay/runtime/TargetResultLedgerAudit.java",
+        "src/main/java/com/nereusstream/delay/protocol/StableCode.java",
+        "src/main/java/com/nereusstream/delay/protocol/Retryability.java"
       ],
       "validationHandoff": "12-集中验证交接清单.md"
     },

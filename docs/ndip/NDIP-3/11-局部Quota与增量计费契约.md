@@ -1804,3 +1804,24 @@ CommandCodec frame SHA256；相同物理位置必须逐项匹配，不能只凭 
 fence/catalog/pin 和实际删除 authority，独立物理拒绝本身不授权任何 GC 或 payload 释放。
 开发检查覆盖 Broker 超窗和 fixture ingress fence 两分支、拒绝提交零写、原子计费、
 同位置重放、后续位置、完整结果 fold 与同位置换 frame 后 fence；不提供生产恢复认证。
+
+
+## 34. 首次 Reschedule 的旧代历史与同 owner 转换
+
+TargetCommandStore 使用 RESCHEDULE operation gate，将可逆 Message 变为新 generation。
+实际 ACTIVE payload owner、primary/accounting incarnation、初始 binding 与 payload bytes
+保持，不写 owner，不迁移费用；旧 generation 的 NV37 SUPERSEDED 记录按 STATE 实际费用
+计入该 owner。新 Message 与 ordinary/Native/Expiry 的旧删新建按真实 before/after 计量，
+exact Claim/charge 删除释放执行与记录费用，head/order revision 变化按实际记录差额计费。
+COMMAND/RESULT 继续归该 Target owner，POSITION 归 SHARD；source 与全部 delta 同批提交。
+
+DeliveryWindow 是必填的 source 生效 Route policy 输入：deliver <= broker+maxDelay，
+expire >= max(deliver,broker)+minWindow，expire <= broker+maxLifetime，溢出拒绝。
+窗口或 ADMISSION_WATERMARK 排序前置条件失败仅持久首拒绝结果及对应费用/source，不改
+Message/Claim/history/payload。generation successor 禁止 uint32 wrap。旧 FIFO contract
+保留原规则；新 contract 只接受完整 ORDERED 键严格高于水位的改期，稳定码为 0x111c。
+
+开发覆盖实际 Worker 下 Timeline/Claim 改期、原 owner 字节不变、旧索引/Claim 清除、
+新索引、旧代历史、payload 维度、同位置零写以及随后 Cancel 新 generation。strict 水位、
+窗口拒绝、generation 耗尽、完整跨账本恢复、实际 Route/native fallback 和 Broker
+时序矩阵仍由集中交接覆盖；这不是 B4/C1/C2/C4/C5 完整实现或认证通过声明。

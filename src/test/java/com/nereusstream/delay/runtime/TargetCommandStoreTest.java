@@ -40,6 +40,7 @@ import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.PreparedCommand;
 import com.nereusstream.delay.protocol.PreparedControlOperation;
 import com.nereusstream.delay.protocol.ProtocolTuple;
+import com.nereusstream.delay.protocol.RescheduleCommandBody;
 import com.nereusstream.delay.protocol.SelfRoutingId;
 import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.StableCode;
@@ -80,7 +81,7 @@ import java.util.List;
 import java.util.Properties;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.CsvSource;
 
 /** Signed bootstrap/grants and real accounting; initial Schedule and external control/lease providers are fixtures. */
 class TargetCommandStoreTest {
@@ -88,8 +89,9 @@ class TargetCommandStoreTest {
     Path root;
 
     @ParameterizedTest
-    @ValueSource(booleans = {false, true})
-    void cancelsActualTimelineOrClaimWithRetainedPayloadHistoryAndFirstResults(boolean claimed) throws Exception {
+    @CsvSource({"false,false", "true,false", "false,true", "true,true"})
+    void modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean claimed, boolean rescheduled)
+            throws Exception {
         final var initial =
                 TargetScheduleBinding.decode(vector("target-binding-channel-vectors.properties", "binding.best"));
         final var template = TargetQuotaGrantActivation.decode(raw("target.initial.activation"));
@@ -322,9 +324,17 @@ class TargetCommandStoreTest {
                             store.get(ColumnFamily.ID, message.encodedKey()), TargetMessageRecord.VALUE_TYPE)
                     .payload());
             final var at = source(scheduleAt, scheduleAt.offset() + 1, scheduleAt.brokerLogAppendTimeEpochMs() + 1);
-            final var command = cancel(message.locator().messageId(), at, 1);
-            final var policy =
-                    new TargetCommandStore.Policy(scope, 1000, 1000, 10, java.util.Set.of(command.protocolTuple()));
+            final var command = rescheduled
+                    ? reschedule(message.locator().messageId(), at, 1)
+                    : cancel(message.locator().messageId(), at, 1);
+            final var expectedCode = rescheduled ? StableCode.SUPERSEDED : StableCode.CANCELED;
+            final var policy = new TargetCommandStore.Policy(
+                    scope,
+                    1000,
+                    1000,
+                    10,
+                    java.util.Set.of(command.protocolTuple()),
+                    new TargetCommandStore.DeliveryWindow(10_000, 1, 100_000));
             final var firstStore = new TargetCommandStore(backend, scope, lineage, 16, 1);
             final var failed = firstStore.prepareFirst(budget(), command, at, policy, (reader, bound, source) -> false);
             final long nativeBeforeFailure = store.latestSequenceNumber();
@@ -371,15 +381,41 @@ class TargetCommandStoreTest {
             final var completed = apply(loop, entries, command, at);
             assertEquals(SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED, completed.status());
             assertEquals(
-                    StableCode.CANCELED,
-                    completed.appliedOutcome().commandResult().stableCode());
+                    expectedCode, completed.appliedOutcome().commandResult().stableCode());
             assertEquals(1, resolutions.get());
             final var after = TargetMessageRecord.decode(TargetValueEnvelope.decode(
                             store.get(ColumnFamily.ID, message.encodedKey()), TargetMessageRecord.VALUE_TYPE)
                     .payload());
-            assertEquals(GenerationAggregateState.CANCELED, after.aggregateState());
+            assertEquals(
+                    rescheduled ? GenerationAggregateState.SCHEDULED : GenerationAggregateState.CANCELED,
+                    after.aggregateState());
             assertEquals(before.stateVersion() + 1, after.stateVersion());
-            assertEquals(before.runtime().runtimeRevision() + 1, after.runtime().runtimeRevision());
+            assertEquals(
+                    rescheduled ? 1 : before.runtime().runtimeRevision() + 1,
+                    after.runtime().runtimeRevision());
+            assertEquals(
+                    before.locator().generation() + (rescheduled ? 1 : 0),
+                    after.locator().generation());
+            if (rescheduled) {
+                assertEquals(at.brokerLogAppendTimeEpochMs() + 100, after.deliverAtEpochMs());
+                assertEquals(at.brokerLogAppendTimeEpochMs() + 2000, after.expireAtEpochMs());
+                assertArrayEquals(at.canonicalBytes(), after.scheduleSource().canonicalBytes());
+                assertArrayEquals(
+                        before.locator().scheduleBindingDigest(),
+                        after.locator().scheduleBindingDigest());
+                assertArrayEquals(
+                        payload.canonicalBytes(),
+                        TargetValueEnvelope.decode(
+                                        store.get(ColumnFamily.META, payload.key()), TargetQuotaPayloadOwner.VALUE_TYPE)
+                                .payload());
+                org.junit.jupiter.api.Assertions.assertNotNull(store.get(
+                        ColumnFamily.TIMELINE, after.runtime().timeline().ordinaryKey()));
+                org.junit.jupiter.api.Assertions.assertNotNull(store.get(
+                        ColumnFamily.TIMELINE, after.runtime().timeline().nativeKey()));
+                org.junit.jupiter.api.Assertions.assertNotNull(store.get(
+                        ColumnFamily.TIMELINE,
+                        new TargetExpiryRef(after.locator(), after.expireAtEpochMs()).encodedKey()));
+            }
             assertNull(store.get(ColumnFamily.TIMELINE, work.ordinaryKey()));
             assertNull(store.get(ColumnFamily.TIMELINE, work.nativeKey()));
             assertNull(store.get(
@@ -391,14 +427,16 @@ class TargetCommandStoreTest {
             final var retained = TargetQuotaPayloadOwner.decode(TargetValueEnvelope.decode(
                             store.get(ColumnFamily.META, payload.key()), TargetQuotaPayloadOwner.VALUE_TYPE)
                     .payload());
-            assertEquals(TargetQuotaPayloadOwner.Phase.RETAINED, retained.phase());
+            assertEquals(
+                    rescheduled ? TargetQuotaPayloadOwner.Phase.ACTIVE : TargetQuotaPayloadOwner.Phase.RETAINED,
+                    retained.phase());
             assertEquals(payload.primaryIdentity(), retained.primaryIdentity());
             final var terminal = TargetTerminalGenerationRecord.decode(TargetValueEnvelope.decode(
                             store.get(ColumnFamily.TERMINAL, TargetTerminalGenerationRecord.key(locator)),
                             TargetTerminalGenerationRecord.VALUE_TYPE)
                     .payload());
             terminal.requireOwner(retained);
-            assertEquals(StableCode.CANCELED, terminal.terminalCode());
+            assertEquals(expectedCode, terminal.terminalCode());
             final var aggregate = TargetQuotaAggregate.decode(TargetValueEnvelope.decode(
                             store.get(
                                     ColumnFamily.META,
@@ -407,12 +445,15 @@ class TargetCommandStoreTest {
                                             .value()),
                             TargetQuotaAggregate.VALUE_TYPE)
                     .payload());
-            assertEquals(0, aggregate.usage().resources().amount(CapacityDimension.PENDING_PAYLOAD_BYTES));
             assertEquals(
-                    message.payloadLength(), aggregate.usage().resources().amount(CapacityDimension.RETAINED_BYTES));
+                    rescheduled ? message.payloadLength() : 0,
+                    aggregate.usage().resources().amount(CapacityDimension.PENDING_PAYLOAD_BYTES));
+            assertEquals(
+                    rescheduled ? 0 : message.payloadLength(),
+                    aggregate.usage().resources().amount(CapacityDimension.RETAINED_BYTES));
             final long nativeBeforeReplay = store.latestSequenceNumber();
             assertEquals(
-                    StableCode.CANCELED,
+                    expectedCode,
                     apply(loop, entries, command, at)
                             .appliedOutcome()
                             .commandResult()
@@ -421,7 +462,7 @@ class TargetCommandStoreTest {
             assertEquals(1, resolutions.get());
             final var later = source(at, at.offset() + 1, at.brokerLogAppendTimeEpochMs() + 1);
             assertEquals(
-                    StableCode.ALREADY_CANCELED,
+                    rescheduled ? StableCode.CANCELED : StableCode.ALREADY_CANCELED,
                     apply(loop, entries, cancel(locator.messageId(), later, 2), later)
                             .appliedOutcome()
                             .commandResult()
@@ -450,6 +491,27 @@ class TargetCommandStoreTest {
                 body.canonicalBytes(),
                 CommandHash.compute(
                         tuple, CommandType.CANCEL, id, message, body.retryUntilEpochMs(), body.canonicalBytes()));
+    }
+
+    private static PreparedCommand reschedule(DelayMessageId message, KafkaSourcePosition at, int unique) {
+        final var id = cancel(message, at, unique).commandId();
+        final var body = new RescheduleCommandBody(
+                message,
+                at.brokerLogAppendTimeEpochMs() + 1000,
+                new MessagePrecondition(null, null),
+                at.brokerLogAppendTimeEpochMs() + 100,
+                at.brokerLogAppendTimeEpochMs() + 2000);
+        final var tuple = ProtocolTuple.managedCommand();
+        return new PreparedCommand(
+                at.shardId(),
+                id,
+                message,
+                CommandType.RESCHEDULE,
+                tuple,
+                body.retryUntilEpochMs(),
+                body.canonicalBytes(),
+                CommandHash.compute(
+                        tuple, CommandType.RESCHEDULE, id, message, body.retryUntilEpochMs(), body.canonicalBytes()));
     }
 
     private static byte[] vector(String name, String key) throws Exception {
