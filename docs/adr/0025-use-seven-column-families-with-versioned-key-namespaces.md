@@ -429,3 +429,11 @@ META charge/head/order 命名空间完成 generation 原子转换，没有新增
 旧代 SUPERSEDED history 与新 Message 同 owner，payload owner 不重写；精确 Claim/charge
 删除、首结果、真实增量费用与 source 同 batch。Native 索引基于实际 Pulsar/domain scope，
 严格排序水位只适用于新 contract。详见 NDIP-3 quota §34；完整恢复与迁移认证仍待执行。
+
+
+### NDIP-3 首次绑定 Store 准备入口（2026-09-18）
+
+TargetScheduleRegistration 复用既有 identity/dispatch/control、queue、membership grant、
+Native scope、quota activation/owner 与 ID Schedule binding 格式；无新 CF/tag/NV/StableCode。
+它只在同一有界 Store 视图读取完整事实并产生待组装 edits，不能单独写库/计费/推进 source。
+首次 Schedule/Prepare handler 与生产认证快照尚未接线，详见 NDIP-3 quota §35 和集中交接。

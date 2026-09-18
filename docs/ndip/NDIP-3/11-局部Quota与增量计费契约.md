@@ -1825,3 +1825,18 @@ Message/Claim/history/payload。generation successor 禁止 uint32 wrap。旧 FI
 新索引、旧代历史、payload 维度、同位置零写以及随后 Cancel 新 generation。strict 水位、
 窗口拒绝、generation 耗尽、完整跨账本恢复、实际 Route/native fallback 和 Broker
 时序矩阵仍由集中交接覆盖；这不是 B4/C1/C2/C4/C5 完整实现或认证通过声明。
+
+
+## 35. 首次绑定记录的同视图准备边界
+
+TargetScheduleRegistration 读取实际 membership grant、Target quota activation 和
+frozen incarnation descriptor，再从 queue 各非 VACANT domain 读取完整 dispatch/control/
+Native scope。新 ingress 不得引用 draining owner、不同 artifact/lineage 或未来 activation。
+它只返回 before/after edits，未生成费用、更未提交；调用者必须将所有共享记录、queue、
+binding 与新 payload owner/业务/结果一次交给真实 SourceAccounting，不能分批落库。
+
+immutable shared key 已有且字节相同则不重复写；不同则拒绝。required/offered 相同只
+生成一条 dispatch 编辑。没有 queue 时从空 domain 规划 initial revision 1；已有 queue
+新增 domain 时只增加一个 revision，后续 TargetQueueHeadUpdater 统一完成同一 revision
+的 heads。实际 grant gate 仍须同时执行 SHARD/Target limit 检查，不能因本 planner 返回
+OK 就跳过新 ingress 的逻辑/物理容量约束。完整 source handler 与集中验证尚未完成。

@@ -2497,3 +2497,11 @@ NEW_PREPARATION_REQUIRED。不得更改原拒绝结果或以相同 CommandId 重
 旧 LEGACY_DELIVERY_TIME_FIFO 不套用此条件；窗口仍用 INVALID_DELIVERY_WINDOW。
 成功 Reschedule 使用既有 SUPERSEDED，NV37 保存旧 generation；无新 NV/CF/key tag。
 详细同 owner/费用/source contract 见 NDIP-3 quota §34，集中验证状态不变。
+
+
+### NDIP-3 首次绑定 Store 准备入口（2026-09-18）
+
+TargetScheduleRegistration 复用既有 identity/dispatch/control、queue、membership grant、
+Native scope、quota activation/owner 与 ID Schedule binding 格式；无新 CF/tag/NV/StableCode。
+它只在同一有界 Store 视图读取完整事实并产生待组装 edits，不能单独写库/计费/推进 source。
+首次 Schedule/Prepare handler 与生产认证快照尚未接线，详见 NDIP-3 quota §35 和集中交接。

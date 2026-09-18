@@ -247,7 +247,7 @@
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
       "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
-      "progress": "First Reschedule now runs through actual Worker Source Apply: reversible Timeline/Claim generation replacement, SUPERSEDED old-generation history, index/head changes, exact Claim/charge removal and first results share atomic source accounting. Original binding and ACTIVE payload owner remain unchanged. Policy requires source-effective DeliveryWindow; the new strict ordering contract rejects keys at or below the admission watermark with StableCode 0x111c. Seven minimal development checks passed, including two successful BEST_EFFORT Reschedule paths followed by Cancel. Strict watermark and failure matrices await central validation. Remaining Command/System business, production authorities, full recovery/config/migration remain unfinished.",
+      "progress": "TargetScheduleRegistration now prepares first Schedule/Prepare binding edits from the actual bounded Store view: full membership authority/activation, actual quota allocation and frozen owner, complete domain contracts and Native scope are checked before recomputing registration. It preserves shared immutable records and prepares queue/binding edits without writing or ACKing. Compile/style/documentation checks only. First Schedule/Prepare handlers still need identity/retry/payload/window checks and atomic Message/Reservation/results/accounting integration; production providers, full runtime verification/recovery/config/migration remain unfinished.",
       "implementationFiles": [
         "src/main/java/com/nereusstream/delay/runtime/TargetClaimRecord.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetClaimStore.java",
@@ -273,7 +273,8 @@
         "src/main/java/com/nereusstream/delay/runtime/TargetResultRecord.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetResultLedgerAudit.java",
         "src/main/java/com/nereusstream/delay/protocol/StableCode.java",
-        "src/main/java/com/nereusstream/delay/protocol/Retryability.java"
+        "src/main/java/com/nereusstream/delay/protocol/Retryability.java",
+        "src/main/java/com/nereusstream/delay/runtime/TargetScheduleRegistration.java"
       ],
       "validationHandoff": "12-集中验证交接清单.md"
     },
@@ -285,7 +286,7 @@
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
       "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
-      "progress": "First Reschedule now runs through actual Worker Source Apply: reversible Timeline/Claim generation replacement, SUPERSEDED old-generation history, index/head changes, exact Claim/charge removal and first results share atomic source accounting. Original binding and ACTIVE payload owner remain unchanged. Policy requires source-effective DeliveryWindow; the new strict ordering contract rejects keys at or below the admission watermark with StableCode 0x111c. Seven minimal development checks passed, including two successful BEST_EFFORT Reschedule paths followed by Cancel. Strict watermark and failure matrices await central validation. Remaining Command/System business, production authorities, full recovery/config/migration remain unfinished.",
+      "progress": "TargetScheduleRegistration now prepares first Schedule/Prepare binding edits from the actual bounded Store view: full membership authority/activation, actual quota allocation and frozen owner, complete domain contracts and Native scope are checked before recomputing registration. It preserves shared immutable records and prepares queue/binding edits without writing or ACKing. Compile/style/documentation checks only. First Schedule/Prepare handlers still need identity/retry/payload/window checks and atomic Message/Reservation/results/accounting integration; production providers, full runtime verification/recovery/config/migration remain unfinished.",
       "implementationFiles": [
         "src/main/java/com/nereusstream/delay/ownership/TargetSourceApplyRuntime.java",
         "src/main/java/com/nereusstream/delay/ownership/SourceApplyTarget.java",
@@ -304,7 +305,8 @@
         "src/main/java/com/nereusstream/delay/runtime/TargetResultRecord.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetResultLedgerAudit.java",
         "src/main/java/com/nereusstream/delay/protocol/StableCode.java",
-        "src/main/java/com/nereusstream/delay/protocol/Retryability.java"
+        "src/main/java/com/nereusstream/delay/protocol/Retryability.java",
+        "src/main/java/com/nereusstream/delay/runtime/TargetScheduleRegistration.java"
       ],
       "validationHandoff": "12-集中验证交接清单.md"
     },
