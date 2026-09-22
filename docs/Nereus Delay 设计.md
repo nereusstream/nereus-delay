@@ -6359,3 +6359,23 @@ GC 不读取墙钟来认定到期，不将扫描游标写进 Store，不将队�
 权限。提交仍重验完整当前视图、quota/Owner/fence/物理容量；异常或不确定写入不推进
 游标。有限 cutoff 防止本轮追逐不断增长的水位；完整回卷负责重访较早新插入和延期项。
 本实现提供显式 submit 入口，持续触发、Owner 接管后重建和正式配置激活仍属生产装配。
+
+### reservation Close 与 TIME_FENCE 的源顺序覆盖（2026-09-22）
+
+Target reservation 的 Query、Commit、Cancel/Reschedule 和 expiry GC 已统一使用源顺序
+Close/fence 判断。强制历史权限接口返回最早适用 Close 的完整 source、原 binding/lineage
+及 Close 当时的水位：Close 先发生保持逻辑 ABANDONED，expiry 先发生保持 EXPIRED。
+GC 延期前者且不写，后者允许到期物化；查询保留原 receipt、物理状态与计费相位。
+四个实际 Worker/Store 开发场景通过，但历史 Close 证据由 fixture provider 提供。
+持久 Close marker writer、ABANDONED 物化、生产历史权限/触发/factory、恢复/迁移与
+集中验证仍未完成，全部29切片和最终验证义务保持。
+
+判断依据为首次适用 Close 时固定的 closedIngressDeadlineThrough：小于 reservation
+expiry 时关闭先赢，后来的更大 fence 不改写它；大于等于 expiry 时到期已先赢。provider
+必须覆盖 Target、binding/domain 及保留 legacy 控制的最早合法 Close，不能将 membership
+撤回、Profile deprecation 或当前 closed boolean 代替源顺序证据。空响应只表示经过核实
+的无适用 Close；实际 queue CLOSED 却无证据须报错，不能猜测终态。
+
+该接口是进程内权限响应，不是新控制请求或 durable marker 格式。生产 provider 必须
+从实际已接受的控制记录固定历史水位，并将权限快照保护到 read guard/commit；持久
+writer 与关闭计费物化仍须继续实现。本轮没有授权生产激活、GC释放或对象删除。

@@ -2026,3 +2026,14 @@ Close和recovery激活、retained释放及外部对象删除仍待后续实现�
 写入。物化保留 §45 的原 owner 两 counter/total/aggregate 守恒；公平游标、结果通知
 与完整回卷纯进程态。CLOSED Target 延期保留全部占用，GC 不获得 payload 释放/对象删除
 权限。失败重新发现，未知 native 写结果仍必须服从 Store fence 与正式 recovery。
+
+## 47. Close/fence 顺序不能提前转移 reservation 费用
+
+逻辑 ABANDONED/EXPIRED 判断由当前视图与历史 Close watermark 合并得到。Close-first
+仍物理 RESERVED 的候选保留双ID/expiry与原owner占用，GC只延期，不借后来的fence转换
+为EXPIRED或释放配额。expiry-first即使后来Close仍可按§45物化，完整提交前重验强制
+历史控制响应、实际binding/queue/fence与current source；新增closure digest绑定物化决定。
+
+Query、旧snapshot和receipt没有quota副作用；关闭命令只写既有result/source计费。Close
+ABANDONED本地物化、关闭汇总计费、guarded对象GC与Recovery Floor保护尚未实现，不能
+用这项overlay取代它们。四项开发场景使用历史Close provider fixture，不是生产权限证据。

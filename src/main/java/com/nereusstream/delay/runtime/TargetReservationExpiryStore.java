@@ -8,6 +8,7 @@ import com.nereusstream.delay.protocol.TargetQuotaMutation;
 import com.nereusstream.delay.protocol.TargetQuotaPayloadOwner;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
 import com.nereusstream.delay.protocol.TargetQuotaUsage;
+import com.nereusstream.delay.protocol.TargetScheduleBinding;
 import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.ColumnFamily;
 import com.nereusstream.delay.store.IngressFenceState;
@@ -31,11 +32,17 @@ public final class TargetReservationExpiryStore {
     private final TargetQuotaScope scope;
     private final byte[] lineage;
     private final int maximumDomains;
+    private final TargetReservationControls.Authority controls;
 
     public TargetReservationExpiryStore(
-            TargetStoreBackend backend, TargetQuotaScope scope, byte[] lineage, int maximumDomains) {
+            TargetStoreBackend backend,
+            TargetQuotaScope scope,
+            byte[] lineage,
+            int maximumDomains,
+            TargetReservationControls.Authority controls) {
         this.backend = Objects.requireNonNull(backend, "backend");
-        queries = new TargetReservationQueryStore(backend, scope, lineage);
+        this.controls = Objects.requireNonNull(controls, "controls");
+        queries = new TargetReservationQueryStore(backend, scope, lineage, controls);
         this.scope = scope;
         this.lineage = Bytes.copy(lineage);
         if (maximumDomains < 1 || maximumDomains > 64) {
@@ -126,12 +133,12 @@ public final class TargetReservationExpiryStore {
                 authority);
     }
 
-    /** Closure precedence needs source-ordered materialization; leave this reservation intact and revisit later. */
+    /** Close won before expiry; leave this reservation intact for source-ordered closure materialization. */
     public static final class ClosedTargetException extends IllegalStateException {
         private static final long serialVersionUID = 1L;
 
         private ClosedTargetException() {
-            super("closed Target requires source-ordered closure materialization");
+            super("reservation Close precedes expiry and requires closure materialization");
         }
     }
 
@@ -148,6 +155,11 @@ public final class TargetReservationExpiryStore {
         Objects.requireNonNull(writes, "writes");
         Objects.requireNonNull(authority, "authority");
         final var found = queries.read(budget, reservationId, reads);
+        if (found.isPresent()
+                && found.orElseThrow().reservation().status() == PayloadReservationStatus.RESERVED
+                && found.orElseThrow().effectiveStatus() == PayloadReservationStatus.ABANDONED) {
+            throw new ClosedTargetException();
+        }
         if (found.isEmpty()
                 || found.orElseThrow().reservation().status() != PayloadReservationStatus.RESERVED
                 || found.orElseThrow().effectiveStatus() != PayloadReservationStatus.EXPIRED) {
@@ -182,8 +194,20 @@ public final class TargetReservationExpiryStore {
             if (!queue.targetId().equals(expected.locator().target())) {
                 throw new IllegalStateException("expiry Target queue identity differs from its key");
             }
-            if (queue.admissionState() == TargetQueueState.AdmissionState.CLOSED) {
+            final byte[] bindingKey =
+                    TargetKeyCodec.scheduleBinding(expected.locator().scheduleBindingDigest());
+            final var binding = TargetScheduleBinding.decodeForStore(
+                    bindingKey,
+                    TargetValueEnvelope.decode(
+                                    reader.get(ColumnFamily.ID, bindingKey), TargetScheduleBinding.VALUE_TYPE)
+                            .payload(),
+                    scope.shard());
+            final var decision = TargetReservationControls.resolve(reader, expected, binding, queue, controls);
+            if (decision.status() == PayloadReservationStatus.ABANDONED) {
                 throw new ClosedTargetException();
+            }
+            if (decision.status() != PayloadReservationStatus.EXPIRED) {
+                throw new IllegalStateException("expiry decision changed before materialization; rediscover");
             }
             if (reader.get(
                             ColumnFamily.ID,
@@ -200,7 +224,10 @@ public final class TargetReservationExpiryStore {
                     Bytes.utf8("nereus-delay-target-reservation-expiry\0"),
                     expected.canonicalBytes(),
                     rawFence,
-                    aggregate.mutation().canonicalBytes());
+                    aggregate.mutation().canonicalBytes(),
+                    decision.closure()
+                            .map(TargetReservationControls.Closure::digest)
+                            .orElseGet(() -> new byte[32]));
             final var stamp = new TargetQuotaMutation(
                     reader.sourceSequence(),
                     reader.source(),

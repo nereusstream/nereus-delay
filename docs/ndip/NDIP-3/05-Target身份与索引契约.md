@@ -696,3 +696,18 @@ expiry 与提交视图。扫描不改任何索引或计费，也不按 wall cloc
 到达范围末尾丢弃 cursor，从当前持久水位重新扫描，以覆盖较早插入和 CLOSED 延期项。
 重启丢 cursor 后从头读取合法；正式 Owner/recovery 装配仍须完成，不能仅靠这个游标
 宣布恢复验证通过。CLOSED 延期不擅自选定 EXPIRED/ABANDONED 胜者。
+
+### reservation Close 的历史权限响应（2026-09-22）
+
+Closure 是进程内权限响应，固定 Target、原 schedule binding digest、recovery lineage、
+完整 accepted Close SourcePosition 和 Close 时的 fence。不是新的 NV、CF、key、公开
+请求或恢复receipt。当前queue CLOSED不能提供缺失的历史时序；无响应时报错。provider
+只返回当前reader source已覆盖的最早适用Close，same-position full source bytes必须一致。
+
+仅尚未物化的 RESERVED 需要合并：Close时expiry已被fence覆盖则EXPIRED，否则ABANDONED。
+原双ID/expiry/owner仍完整校验且保留；Snapshot的逻辑状态不制造stateVersion或新receipt。
+terminal Query不依赖目前的queue slot仍存在，也不重新授权后来Close。Close-first的
+ABANDONED物化及stable cause仍需正式writer实现；本批不改变其持久编码或GC保护。
+
+GC对Close-first候选延期；expiry-first候选可在当前guard与控制证据下物化EXPIRED。
+operation digest增加closure digest输入，不改TargetQuotaMutation field5的宽度或格式。

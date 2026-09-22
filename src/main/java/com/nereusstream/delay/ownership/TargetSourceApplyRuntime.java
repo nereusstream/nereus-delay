@@ -71,12 +71,14 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     public record CommandControl(
             TargetCommandStore.Policy policy,
             TargetCommandStore.CancellationControls cancellations,
+            com.nereusstream.delay.runtime.TargetReservationControls.Authority reservationControls,
             TargetCommandStore.Schedules schedules,
             TargetCommandStore.PayloadProofControls payloadProofs,
             TargetStoreBackend.CommitAuthority commit) {
         public CommandControl {
             Objects.requireNonNull(policy, "policy");
             Objects.requireNonNull(cancellations, "cancellations");
+            Objects.requireNonNull(reservationControls, "reservationControls");
             Objects.requireNonNull(schedules, "schedules");
             Objects.requireNonNull(payloadProofs, "payloadProofs");
             Objects.requireNonNull(commit, "commit");
@@ -272,6 +274,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                                         "external cancellation authority did not complete", external);
                             }
                         },
+                        control.reservationControls(),
                         control.schedules(),
                         control.payloadProofs());
             } catch (ReadIncompleteException incomplete) {

@@ -6,6 +6,7 @@ import com.nereusstream.delay.protocol.PrepareLargeScheduleBody;
 import com.nereusstream.delay.protocol.ProfileKind;
 import com.nereusstream.delay.protocol.ProfileRef;
 import com.nereusstream.delay.protocol.SourcePosition;
+import com.nereusstream.delay.protocol.TargetQueueState;
 import com.nereusstream.delay.protocol.TargetQuotaIdentity;
 import com.nereusstream.delay.protocol.TargetQuotaIncarnation;
 import com.nereusstream.delay.protocol.TargetQuotaPayloadOwner;
@@ -20,14 +21,20 @@ import java.util.Arrays;
 import java.util.Objects;
 import java.util.Optional;
 
-/** Bounded durable reservation reads. Routing, public query overlays and upload authorization remain caller-owned. */
+/** Bounded reservation reads with source-ordered closure/expiry overlays. Routing and upload remain caller-owned. */
 public final class TargetReservationQueryStore {
     private final TargetStoreBackend backend;
     private final TargetQuotaScope scope;
     private final byte[] lineage;
+    private final TargetReservationControls.Authority controls;
 
-    public TargetReservationQueryStore(TargetStoreBackend backend, TargetQuotaScope scope, byte[] lineage) {
+    public TargetReservationQueryStore(
+            TargetStoreBackend backend,
+            TargetQuotaScope scope,
+            byte[] lineage,
+            TargetReservationControls.Authority controls) {
         this.backend = Objects.requireNonNull(backend, "backend");
+        this.controls = Objects.requireNonNull(controls, "controls");
         this.scope = Objects.requireNonNull(scope, "scope");
         Bytes.requireLength(lineage, 16, "lineage");
         if (scope.target() != null || Arrays.equals(lineage, new byte[16])) {
@@ -47,10 +54,11 @@ public final class TargetReservationQueryStore {
         }
     }
 
-    public Prepared prepare(BoundedReadBudget budget, byte[] reservationId) {
+    public Prepared prepare(
+            BoundedReadBudget budget, byte[] reservationId, TargetStoreBackend.ReadAuthority authority) {
         Bytes.requireLength(reservationId, 32, "reservationId");
         final byte[] id = Bytes.copy(reservationId);
-        return new Prepared(this, backend.prepareRead(budget, reader -> read(reader, id)));
+        return new Prepared(this, backend.guardedPrepareRead(budget, reader -> read(reader, id), authority));
     }
 
     /** Local routing preflight; no Store or external authority reads. */
@@ -140,12 +148,21 @@ public final class TargetReservationQueryStore {
         } else if (expiry != null) {
             throw new IllegalStateException("terminal query retains reservation expiry");
         }
+        final TargetReservationControls.Decision decision;
+        if (record.status() == PayloadReservationStatus.RESERVED) {
+            final var queue = TargetQueueState.decode(payload(
+                    reader, ColumnFamily.META, TargetKeyCodec.state(binding.target()), TargetQueueState.VALUE_TYPE));
+            decision = TargetReservationControls.resolve(reader, record, binding, queue, controls);
+        } else {
+            decision = new TargetReservationControls.Decision(
+                    record.status(), reader.closedIngressDeadlineThrough(), Optional.empty());
+        }
         return Optional.of(new Snapshot(
                 record,
                 PrepareLargeScheduleBody.decode(binding.canonicalBody()),
                 payloadOwner.phase(),
                 reader.source(),
-                reader.closedIngressDeadlineThrough()));
+                decision));
     }
 
     private TargetQuotaIncarnation requireOwner(TargetStoreBackend.Reader reader, TargetQuotaIdentity identity) {
@@ -199,25 +216,25 @@ public final class TargetReservationQueryStore {
         }
     }
 
-    /** A durable point-in-time snapshot, not permission to issue a fresh upload handle or override control overlays. */
+    /** A point-in-time durable/control snapshot, not permission to issue a fresh upload handle. */
     public static final class Snapshot {
         private final TargetReservationRecord record;
         private final PrepareLargeScheduleBody prepare;
         private final TargetQuotaPayloadOwner.Phase payloadPhase;
         private final SourcePosition readSource;
-        private final long closedIngressDeadlineThrough;
+        private final TargetReservationControls.Decision decision;
 
         private Snapshot(
                 TargetReservationRecord record,
                 PrepareLargeScheduleBody prepare,
                 TargetQuotaPayloadOwner.Phase payloadPhase,
                 SourcePosition readSource,
-                long closedIngressDeadlineThrough) {
+                TargetReservationControls.Decision decision) {
             this.record = record;
             this.prepare = prepare;
             this.payloadPhase = payloadPhase;
             this.readSource = readSource;
-            this.closedIngressDeadlineThrough = closedIngressDeadlineThrough;
+            this.decision = decision;
         }
 
         /** Actual materialized record, which may still be RESERVED after the logical expiry fence. */
@@ -225,13 +242,17 @@ public final class TargetReservationQueryStore {
             return record;
         }
 
-        /** Effective lifecycle at readSource, including the committed TIME_FENCE in that same Store view. */
+        /** Effective lifecycle at readSource, merging the committed fence with the first applicable Close. */
         public PayloadReservationStatus effectiveStatus() {
-            return record.effectiveStatus(closedIngressDeadlineThrough);
+            return decision.status();
+        }
+
+        public Optional<TargetReservationControls.Closure> closure() {
+            return decision.closure();
         }
 
         public long closedIngressDeadlineThrough() {
-            return closedIngressDeadlineThrough;
+            return decision.watermark();
         }
 
         /** Actual durable accounting phase; an expiry overlay alone cannot authorize a byte release. */

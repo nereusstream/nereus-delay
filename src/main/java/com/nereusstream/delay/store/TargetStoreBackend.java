@@ -170,6 +170,14 @@ public final class TargetStoreBackend {
             return store.get(family, key);
         }
 
+        /** Check elapsed work without invalidating completed inputs at an exact record/byte limit. */
+        public void requireWithinElapsedBudget() {
+            requireActive();
+            if (!budget.beforeTimedWork()) {
+                throw budget.incomplete();
+            }
+        }
+
         public StoreMetadata metadata() {
             requireActive();
             return store.metadata();
@@ -369,6 +377,20 @@ public final class TargetStoreBackend {
             }
         });
         return new ReadPlan<>(this, read.view(), read.value());
+    }
+
+    /** Prepare an opaque view under authority, then require a fresh guard again when completeRead consumes it. */
+    public <T> ReadPlan<T> guardedPrepareRead(
+            BoundedReadBudget budget, Function<Reader, T> planner, ReadAuthority authority) {
+        Objects.requireNonNull(authority, "authority");
+        try (var guard = Objects.requireNonNull(authority.acquire(store.metadata(), scope), "read guard")) {
+            guard.requireCurrent();
+            final var plan = prepareRead(budget, planner);
+            return store.withReadView(plan.view, () -> {
+                guard.requireCurrent();
+                return plan;
+            });
+        }
     }
 
     /** Holds current read authority before the first local read and until the verified value is delivered. */

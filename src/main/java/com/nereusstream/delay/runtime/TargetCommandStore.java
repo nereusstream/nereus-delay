@@ -194,9 +194,11 @@ public final class TargetCommandStore {
             SourcePosition source,
             Policy policy,
             CancellationControls controls,
+            TargetReservationControls.Authority reservationControls,
             Schedules schedules,
             PayloadProofControls payloadProofs) {
         Objects.requireNonNull(payloadProofs, "payloadProofs");
+        Objects.requireNonNull(reservationControls, "reservationControls");
         Objects.requireNonNull(command, "command");
         Objects.requireNonNull(schedules, "schedules");
         Objects.requireNonNull(controls, "controls");
@@ -301,7 +303,8 @@ public final class TargetCommandStore {
                                     unchanged(rejected(StableCode.INVALID_COMMAND, source), root),
                                     result);
                         }
-                        decision = commitReservation(reader, command, body, stamp, root, controls, payloadProofs);
+                        decision = commitReservation(
+                                reader, command, body, stamp, root, reservationControls, payloadProofs);
                     } else if (command.type() == CommandType.CANCEL) {
                         final CancelCommandBody body;
                         try {
@@ -320,7 +323,15 @@ public final class TargetCommandStore {
                                     result);
                         }
                         decision = modifyMessage(
-                                reader, command, body.precondition(), null, stamp, root, controls, policy);
+                                reader,
+                                command,
+                                body.precondition(),
+                                null,
+                                stamp,
+                                root,
+                                controls,
+                                reservationControls,
+                                policy);
                     } else if (command.type() == CommandType.RESCHEDULE) {
                         final RescheduleCommandBody body;
                         try {
@@ -339,7 +350,15 @@ public final class TargetCommandStore {
                                     result);
                         }
                         decision = modifyMessage(
-                                reader, command, body.precondition(), body, stamp, root, controls, policy);
+                                reader,
+                                command,
+                                body.precondition(),
+                                body,
+                                stamp,
+                                root,
+                                controls,
+                                reservationControls,
+                                policy);
                     } else {
                         throw new IllegalStateException(
                                 "first Target Command business branch is not wired yet; retain source");
@@ -712,7 +731,7 @@ public final class TargetCommandStore {
             CommitLargeScheduleBody body,
             TargetQuotaMutation stamp,
             TargetQuotaIncarnation root,
-            CancellationControls closures,
+            TargetReservationControls.Authority closures,
             PayloadProofControls proofs) {
         final var source = stamp.source();
         final byte[] lookupKey =
@@ -762,7 +781,8 @@ public final class TargetCommandStore {
         final var queue =
                 TargetQueueState.decode(payload(reader, ColumnFamily.META, queueKey, TargetQueueState.VALUE_TYPE));
         binding.requireQueueProjection(queue);
-        final var effectiveStatus = reservation.effectiveStatus(reader.closedIngressDeadlineThrough());
+        final var effectiveStatus = TargetReservationControls.resolve(reader, reservation, binding, queue, closures)
+                .status();
         final byte[] expiry = reader.get(ColumnFamily.TIMELINE, reservation.expiryKey());
         if (reservation.status() == PayloadReservationStatus.RESERVED) {
             if (expiry == null
@@ -775,9 +795,7 @@ public final class TargetCommandStore {
             if (reader.get(ColumnFamily.ID, TargetKeyCodec.message(command.delayMessageId())) != null) {
                 throw new IllegalStateException("uncommitted reservation already owns a Message");
             }
-            if (effectiveStatus == PayloadReservationStatus.RESERVED
-                    && (queue.admissionState() == TargetQueueState.AdmissionState.CLOSED
-                            || closures.closed(reader, binding, source))) {
+            if (effectiveStatus == PayloadReservationStatus.ABANDONED) {
                 return unchanged(rejected(StableCode.PAYLOAD_RESERVATION_CLOSED, source), owner);
             }
         } else if (expiry != null) {
@@ -882,7 +900,7 @@ public final class TargetCommandStore {
             byte[] payloadKey,
             byte[] payloadRaw,
             TargetQuotaMutation stamp,
-            CancellationControls controls) {
+            TargetReservationControls.Authority controls) {
         final var source = stamp.source();
         final byte[] key = Bytes.concat(
                 new byte[] {TargetKeyCodec.RESERVATION_TAG, 1},
@@ -945,15 +963,16 @@ public final class TargetCommandStore {
         if (!Arrays.equals(index, reservation.canonicalBytes())) {
             throw new IllegalStateException("reservation expiry projection differs");
         }
-        if (reservation.effectiveStatus(reader.closedIngressDeadlineThrough()) == PayloadReservationStatus.EXPIRED) {
+        final var effectiveStatus = TargetReservationControls.resolve(reader, reservation, binding, queue, controls)
+                .status();
+        if (effectiveStatus == PayloadReservationStatus.EXPIRED) {
             return unchanged(applied(StableCode.RESERVATION_EXPIRED, source, null), owner);
+        }
+        if (effectiveStatus == PayloadReservationStatus.ABANDONED) {
+            return unchanged(applied(StableCode.PAYLOAD_RESERVATION_CLOSED, source, null), owner);
         }
         if (command.type() == CommandType.RESCHEDULE) {
             return unchanged(applied(StableCode.RESERVATION_NOT_COMMITTED, source, null), owner);
-        }
-        if (queue.admissionState() == TargetQueueState.AdmissionState.CLOSED
-                || controls.closed(reader, binding, source)) {
-            return unchanged(applied(StableCode.PAYLOAD_RESERVATION_CLOSED, source, null), owner);
         }
         final var after = reservation.finish(PayloadReservationStatus.ABANDONED, stamp, null);
         final var retained = payloadOwner.retain(stamp, (prior, next, floor) -> {
@@ -999,6 +1018,7 @@ public final class TargetCommandStore {
             TargetQuotaMutation stamp,
             TargetQuotaIncarnation root,
             CancellationControls controls,
+            TargetReservationControls.Authority reservationControls,
             Policy policy) {
         final var source = stamp.source();
         final byte[] raw = reader.get(ColumnFamily.ID, TargetKeyCodec.message(command.delayMessageId()));
@@ -1008,7 +1028,8 @@ public final class TargetCommandStore {
         final byte[] payloadRaw = reader.get(ColumnFamily.META, payloadKey);
         if (raw == null) {
             if (payloadRaw != null) {
-                return modifyReservation(reader, command, precondition, payloadKey, payloadRaw, stamp, controls);
+                return modifyReservation(
+                        reader, command, precondition, payloadKey, payloadRaw, stamp, reservationControls);
             }
             return unchanged(applied(StableCode.NOT_FOUND, source, null), root);
         }

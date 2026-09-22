@@ -2574,3 +2574,20 @@ materializer writes exact before/after projections with current Owner/Store/fenc
 guards; metadata source position/sequence and Prepare receipt anchors remain unchanged. The
 payload is retained, not physically deleted. Same-source Floor cannot cover the subsequent local
 write. GC cursor/WorkClass, production activation and complete recovery/Close authority remain pending.
+
+### Target reservation closure authority overlay
+
+TargetReservationControls.Closure is a process-local authority response, not a new wire/NV/key
+allocation. It binds Target, original binding digest, recovery lineage, full first applicable Close
+source and the committed fence at that Close. RESERVED uses that historical fence to preserve
+Close-before-expiry versus expiry-before-Close; terminal records retain their physical result.
+Query and Source commands share the decision; expiry GC defers Close-first and permits expiry-first
+materialization after revalidation. A CLOSED queue without historical evidence fails closed.
+
+The local expiry operation digest additionally binds the closure digest, or 32 zero bytes for
+proven absence. Closure digest hashes domain `nereus-delay-target-reservation-closure\0`, Target[32],
+binding digest[32], lineage[16], full canonical SourcePosition, and raw u64be fenceAtClose (OPEN=-1).
+No mutation field or bookkeeping size changes. GC discovery/WorkClass now exist; durable Close
+markers, historical authority providers, closure materialization and full production/recovery
+activation remain incomplete. Development tests inject closure responses and do not certify a
+real Close writer or external authority.
