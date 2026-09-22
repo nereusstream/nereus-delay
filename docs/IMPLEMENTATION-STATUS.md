@@ -10,6 +10,12 @@
 
 [原 29 切片集中验证交接清单](ndip/NDIP-3/12-集中验证交接清单.md)
 
+Target TIME_FENCE 的有界 body/ProofId 解码及首次认证校验器已实现：强制历史 Fence
+writer/config/key、完整 source 与时间证据 provider，校验外层签名、retry 边界、安全余量和
+interval width；外部认证失败原样传播。八项必要开发检查通过。本批不写 Store：Target
+source 分流、持久 fence/metadata/结果计费同批、reservation effective expiry 与生产历史
+权限/时间证据 providers 仍待实施，集中验证和原 29 切片状态不变。
+
 Target reservation durable 查询已接入 QUERY WorkClass：同一 Worker registry 的任务
 身份绑定 Shard/request/reservation 和完整读取预算，排队费用包含最大读取字节。队列拒绝
 不获取外部权限、不读 Store；执行时在第一次读取前持有当前 ReadAuthority，结束再核对

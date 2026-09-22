@@ -1947,3 +1947,17 @@ Target reservation QUERY 任务按完整 canonical request/预算 identity 和 m
 异常恰好使用 ReadIncompleteException。成功、Owner loss、预算不足与拒绝均不分配 source、
 不写业务/计费/fairness；registry 的队列/action 与费用仅为进程内状态。生产 limits 仍须证明
 最大合法查询/记录与 WorkClass pool 配置相容，开发 fixture 的 100 KB 不作为生产默认。
+
+## 42. TIME_FENCE 认证前置与固定元数据费用边界
+
+TargetTimeFenceVerifier 当前仅验证首次 signed body/source/历史 writer 和时间证据，不读写
+Store，不生成 quota delta，也不推进 expiry/counter。调用者不得把认证通过视为持久
+watermark，不得用 wall clock 提前释放 reservation bytes。原始 body/evidence/source/author
+均有显式边界；proof/key/config 验证必须来自 source-protected 历史权威。
+
+实际 writer 仍须设计并实现固定 ingress deadline 与 last proof 的有界保存/重放，证明
+root owner、before/after、全部业务及 META 投影的真实费用、有限最大写入与物理容量。
+不能假设当前 fixed bookkeeping reserve 已覆盖新增 fence 元数据，也不能绕过 Backend
+业务 key 白名单直写。source、first SYSTEM/POSITION、单调 fence/proof 与费用必须同批；
+失败无部分投影，原位置重放先取 immutable first result。reservation effective expiry
+及之后的有界物化/配额转移仍未接入，未声明任何释放或 GC 权威。

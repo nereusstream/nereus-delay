@@ -635,3 +635,15 @@ TargetReservationQueryWorkClassExecutor 的本地 task digest 绑定完整 Shard
 reservationId 和 record/byte/elapsed 预算，不是持久 wire 或新 CF/tag。QueryStore.read 在
 首次读取前取得 guard，再沿既有 NV38 点查校验；返回前必须还是原 Store view。已有
 prepare/complete API 不变，仍不允许在 complete 之前获取内部 Snapshot。
+
+### TIME_FENCE 输入边界与后续持久投影（2026-09-22）
+
+TargetTimeFenceBody 使用已注册 TIME_FENCE 字段，不改变 key/NV/CF。body ≤518 bytes，
+ShardSubject ≤24 bytes，时间证据 ≤422 bytes/10 fields、sourceId ≤256 bytes；外层
+Fence writerId ≤256 bytes、author ≤273 bytes，完整 uint32 key/partition 不截断高位。
+ProofId 按原公式重算；结构与摘要有效仍须历史 writer/key 和时间源认证。
+
+本批没有新的 durable fence key。META 固定 ingress deadline/last proof 仍由 Backend
+管理，不能伪装成任意 business Edit；后续 writer 必须与结果/source 和计费同一原子 batch，
+证明固定投影的 before/after 字节费用及最大写入预算。查询 effective expiry 必须从已提交
+source-ordered 水位推导，不能从此校验器返回值或本机时钟推导。

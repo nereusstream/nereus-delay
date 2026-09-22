@@ -786,6 +786,15 @@ proofId = SHA-256(
 )
 ```
 
+The Target implementation adds a bounded reader for this existing body: at most 518 bytes,
+seven fields, a 24-byte ShardSubject, and 422 bytes/10 fields of time evidence with a
+256-byte sourceId. Its Fence author allows at most 256 writerId bytes (273 encoded bytes).
+These bounds do not define a new wire tuple or alter the ProofId preimage. The separate
+first-application verifier requires historical writer/config/key and authenticated sample
+providers at the exact source; provider uncertainty propagates without a durable denial.
+This reader/verifier does not yet implement Target source dispatch, durable fence metadata,
+atomic result/accounting updates or the reservation expiry overlay.
+
 Applying a valid fence monotonically advances `closedIngressDeadlineThrough`. That source-ordered watermark is also the authoritative logical transition for every still-`PAYLOAD_RESERVED` reservation with `reservation_expiry <= close_through_epoch_ms`: its effective state becomes `RESERVATION_EXPIRED` at the fence Source Position. A prior Commit, Cancel, or Lane Close wins by Source Position. The bounded `RESERVATION_EXPIRY` cursor only materializes the already-decided effective state, counter transfer and GC/tombstone work; replay and every API/Commit check the watermark overlay even when that cursor has not reached the reservation.
 
 Outcome combination rules are closed: `PUBLISHED` requires `disposition=NONE`, verified-published evidence, `stable_code=OK`, and `retryDecision=NONE`; `NOT_PUBLISHED` requires verified-not-published evidence and may use `MESSAGE_RETRIABLE/MESSAGE_PERMANENT/LANE_UNAVAILABLE`; `UNKNOWN` forbids a definitive evidence status and requires `UNCERTAIN_HOLD` unless a baseline duplicate-authorized `SCHEDULED` decision is already fixed by policy. `OWNER_FENCED`/`ADAPTER_BUG` never turn `UNKNOWN` into `NOT_PUBLISHED`. A Publish Outcome authored by an Owner other than the attempt's admitted Owner is legal only when that author is the current guarded recovery Owner and the exact tuple is `UNKNOWN + OWNER_FENCED + RECOVERY_FIRST_SEND_UNCERTAIN + no evidence + UNCERTAIN_HOLD`; every other cross-Owner initial outcome is unauthorized/audit-only. `EvidenceResolution` obeys the same evidence/side-effect matrix under its Service Writer branch. For definitive `PUBLISH_OUTCOME` and `EVIDENCE_RESOLUTION`, field `transfer` must be canonical byte-identical to the charge vector retained by the exact Admission ledger. A mismatch is `REJECTED(STALE_SYSTEM_MUTATION)`, advances the source position, and never changes the attempt, message, timeline, or quota; `UNKNOWN` transfer is opaque and never authorizes a definitive release.
