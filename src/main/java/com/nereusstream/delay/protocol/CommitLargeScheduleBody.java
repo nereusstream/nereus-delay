@@ -66,6 +66,28 @@ public final class CommitLargeScheduleBody {
         });
     }
 
+    /** Rejects oversized nested proof identities before the general canonical decoder allocates them. */
+    public static CommitLargeScheduleBody decodeForTarget(final byte[] encoded) {
+        final int limit = TargetPayloadReference.MAX_CANONICAL_BYTES + 4096;
+        final var fields = TargetCompatibilityCodec.read(encoded, limit, 5, false, "Target Commit body");
+        QueryCodecSupport.requireNumbers(fields, new int[] {1, 2, 3, 10, 11}, "Target Commit body");
+        final var proof = TargetCompatibilityCodec.read(
+                QueryCodecSupport.bytes(fields.get(4), 11), limit, 18, false, "Target Commit proof");
+        for (var field : proof) {
+            if (field.number() >= 10
+                    && field.number() <= 13
+                    && QueryCodecSupport.bytes(field, field.number()).length
+                            > TargetPayloadReference.MAX_COMPONENT_BYTES) {
+                throw new IllegalArgumentException("Target Commit object identity exceeds bound");
+            }
+            if (field.number() == 7
+                    && QueryCodecSupport.bytes(field, 7).length > TargetChannelIdentity.MAX_PROFILE_REF_BYTES) {
+                throw new IllegalArgumentException("Target Commit Object Store Profile exceeds bound");
+            }
+        }
+        return decode(encoded);
+    }
+
     public static CommitLargeScheduleBody decode(final byte[] encoded) {
         final List<CanonicalProtobuf.Reader.Field> fields = QueryCodecSupport.read(encoded, "CommitLargeScheduleBody");
         QueryCodecSupport.requireNumbers(fields, new int[] {1, 2, 3, 10, 11}, "CommitLargeScheduleBody");

@@ -20,6 +20,7 @@ import com.nereusstream.delay.protocol.AdapterKind;
 import com.nereusstream.delay.protocol.AuthorIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CancelCommandBody;
+import com.nereusstream.delay.protocol.CanonicalPayloadCommitProof;
 import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
 import com.nereusstream.delay.protocol.CanonicalTargetPartition;
 import com.nereusstream.delay.protocol.CapacityDimension;
@@ -27,6 +28,7 @@ import com.nereusstream.delay.protocol.CapacityVector;
 import com.nereusstream.delay.protocol.CommandHash;
 import com.nereusstream.delay.protocol.CommandId;
 import com.nereusstream.delay.protocol.CommandType;
+import com.nereusstream.delay.protocol.CommitLargeScheduleBody;
 import com.nereusstream.delay.protocol.ControlAuthor;
 import com.nereusstream.delay.protocol.ControlAuthorizationContext;
 import com.nereusstream.delay.protocol.ControlRef;
@@ -40,6 +42,9 @@ import com.nereusstream.delay.protocol.KafkaActivationBarrier;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.MessagePrecondition;
 import com.nereusstream.delay.protocol.OwnerIdentity;
+import com.nereusstream.delay.protocol.PayloadProofTrustSetControlState;
+import com.nereusstream.delay.protocol.PayloadProofTrustSetSemantic;
+import com.nereusstream.delay.protocol.PayloadProofVerifierKey;
 import com.nereusstream.delay.protocol.PrepareLargeScheduleBody;
 import com.nereusstream.delay.protocol.PreparedCommand;
 import com.nereusstream.delay.protocol.PreparedControlOperation;
@@ -380,7 +385,8 @@ class TargetCommandStoreTest {
                     initialPolicy,
                     (reader, bound, source) -> false,
                     (incoming, source) -> new TargetCommandStore.ScheduleAdmission(
-                            StableCode.OK, scheduleAuthority, TargetOrderState.OrderingContract.ADMISSION_WATERMARK));
+                            StableCode.OK, scheduleAuthority, TargetOrderState.OrderingContract.ADMISSION_WATERMARK),
+                    noProofs());
             final long beforeScheduleFailure = store.latestSequenceNumber();
             assertThrows(
                     IllegalStateException.class,
@@ -402,7 +408,8 @@ class TargetCommandStoreTest {
                                             (incoming, source) -> new TargetCommandStore.ScheduleAdmission(
                                                     StableCode.OK,
                                                     scheduleAuthority,
-                                                    TargetOrderState.OrderingContract.ADMISSION_WATERMARK)),
+                                                    TargetOrderState.OrderingContract.ADMISSION_WATERMARK),
+                                            noProofs()),
                                     (a, b, c) -> guard())
                             .stableCode());
             final var message = TargetMessageRecord.decode(TargetValueEnvelope.decode(
@@ -470,9 +477,15 @@ class TargetCommandStoreTest {
                     new TargetCommandStore.DeliveryWindow(10_000, 1, 100_000));
             final var firstStore = new TargetCommandStore(backend, scope, lineage, 16, 1);
             final var failed = firstStore.prepareFirst(
-                    budget(), command, at, policy, (reader, bound, source) -> false, (incoming, source) -> {
+                    budget(),
+                    command,
+                    at,
+                    policy,
+                    (reader, bound, source) -> false,
+                    (incoming, source) -> {
                         throw new AssertionError("unexpected first Schedule");
-                    });
+                    },
+                    noProofs());
             final long nativeBeforeFailure = store.latestSequenceNumber();
             assertThrows(
                     IllegalStateException.class,
@@ -486,6 +499,14 @@ class TargetCommandStoreTest {
                                     store.get(ColumnFamily.ID, message.encodedKey()), TargetMessageRecord.VALUE_TYPE)
                             .payload());
             final var resolutions = new java.util.concurrent.atomic.AtomicInteger();
+            final var proofKeys =
+                    java.security.KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+            final var wrongProofKeys =
+                    java.security.KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+            final var trustSet = new PayloadProofTrustSetSemantic(
+                    1, List.of(PayloadProofVerifierKey.fromPublicKey(1, proofKeys.getPublic(), 0, Long.MAX_VALUE)));
+            final var proofControls = PayloadProofTrustSetControlState.empty().activate(trustSet.ref(), grantAt);
+            final var proofResolutions = new java.util.concurrent.atomic.AtomicInteger();
             final var runtime = new TargetSourceApplyRuntime(
                     initialized,
                     store,
@@ -513,6 +534,11 @@ class TargetCommandStoreTest {
                                             return false;
                                         },
                                         scheduleProvider,
+                                        (bound, source) -> {
+                                            proofResolutions.incrementAndGet();
+                                            return new TargetCommandStore.PayloadProofAuthority(
+                                                    trustSet, proofControls);
+                                        },
                                         (a, b, c) -> guard());
                             }),
                     new TargetSourceApplyRuntime.Limits(4096, 32L << 20, 60_000_000_000L, 16, 1),
@@ -730,7 +756,7 @@ class TargetCommandStoreTest {
                     100,
                     bytes(32, 0xd1),
                     500,
-                    modelPrepare.trustSet(),
+                    trustSet.ref(),
                     modelPrepare.objectStoreProfile());
             final var prepare = new PreparedCommand(
                     scope.shard(),
@@ -799,7 +825,7 @@ class TargetCommandStoreTest {
                     100,
                     bytes(32, 0xd1),
                     500,
-                    modelPrepare.trustSet(),
+                    trustSet.ref(),
                     modelPrepare.objectStoreProfile());
             final var quotaPrepare = new PreparedCommand(
                     scope.shard(),
@@ -957,7 +983,243 @@ class TargetCommandStoreTest {
                             .payload());
             assertNull(store.get(ColumnFamily.ID, TargetKeyCodec.message(reservedMessage)));
             assertNull(store.get(ColumnFamily.TIMELINE, reserved.expiryKey()));
+            final var secondPrepareAt = source(
+                    terminalRescheduleAt,
+                    terminalRescheduleAt.offset() + 1,
+                    terminalRescheduleAt.brokerLogAppendTimeEpochMs() + 1);
+            final var secondMessage = new DelayMessageId(
+                    cancel(reservedMessage, secondPrepareAt, 1700).commandId().bytes());
+            final var secondPrepareId =
+                    cancel(reservedMessage, secondPrepareAt, 700).commandId();
+            final var secondBody = new PrepareLargeScheduleBody(
+                    secondMessage,
+                    secondPrepareAt.brokerLogAppendTimeEpochMs() + 1000,
+                    prepareIntent,
+                    100,
+                    bytes(32, 0xd1),
+                    500,
+                    trustSet.ref(),
+                    modelPrepare.objectStoreProfile());
+            final var secondPrepare = new PreparedCommand(
+                    scope.shard(),
+                    secondPrepareId,
+                    secondMessage,
+                    CommandType.PREPARE_LARGE_SCHEDULE,
+                    fresh.protocolTuple(),
+                    secondBody.retryUntilEpochMs(),
+                    secondBody.canonicalBytes(),
+                    CommandHash.compute(
+                            fresh.protocolTuple(),
+                            CommandType.PREPARE_LARGE_SCHEDULE,
+                            secondPrepareId,
+                            secondMessage,
+                            secondBody.retryUntilEpochMs(),
+                            secondBody.canonicalBytes()));
+            assertEquals(
+                    StableCode.OK,
+                    apply(loop, entries, secondPrepare, secondPrepareAt)
+                            .appliedOutcome()
+                            .commandResult()
+                            .stableCode());
+            final var secondKey = Bytes.concat(new byte[] {TargetKeyCodec.RESERVATION_TAG, 1}, secondMessage.bytes());
+            final var secondReservation = TargetReservationRecord.decode(TargetValueEnvelope.decode(
+                            store.get(ColumnFamily.ID, secondKey), TargetReservationRecord.VALUE_TYPE)
+                    .payload());
+            final var proof = CanonicalPayloadCommitProof.signed(
+                    secondReservation.reservationId(),
+                    scope.tenantScope(),
+                    scope.shard().routeIncarnation().bytes(),
+                    scope.shard().partition(),
+                    secondMessage,
+                    secondBody.objectStoreProfile(),
+                    trustSet.version(),
+                    1,
+                    Bytes.utf8("bucket"),
+                    Bytes.utf8("object"),
+                    Bytes.utf8("version"),
+                    null,
+                    100,
+                    secondBody.payloadSha256(),
+                    secondReservation.expiryEpochMs(),
+                    proofKeys.getPrivate());
+            final var badProof = CanonicalPayloadCommitProof.signed(
+                    secondReservation.reservationId(),
+                    scope.tenantScope(),
+                    scope.shard().routeIncarnation().bytes(),
+                    scope.shard().partition(),
+                    secondMessage,
+                    secondBody.objectStoreProfile(),
+                    trustSet.version(),
+                    1,
+                    Bytes.utf8("bucket"),
+                    Bytes.utf8("object"),
+                    Bytes.utf8("version"),
+                    null,
+                    100,
+                    secondBody.payloadSha256(),
+                    secondReservation.expiryEpochMs(),
+                    wrongProofKeys.getPrivate());
+            final var invalidAt = source(
+                    secondPrepareAt, secondPrepareAt.offset() + 1, secondPrepareAt.brokerLogAppendTimeEpochMs() + 1);
+            assertEquals(
+                    StableCode.PAYLOAD_PROOF_KEY_NOT_AUTHORIZED_AT_SOURCE_POSITION,
+                    apply(loop, entries, commit(badProof, invalidAt, 710), invalidAt)
+                            .appliedOutcome()
+                            .commandResult()
+                            .stableCode());
+            assertNull(store.get(ColumnFamily.ID, TargetKeyCodec.message(secondMessage)));
+            assertArrayEquals(
+                    secondReservation.canonicalBytes(),
+                    TargetValueEnvelope.decode(
+                                    store.get(ColumnFamily.ID, secondKey), TargetReservationRecord.VALUE_TYPE)
+                            .payload());
+            final var commitAt = source(invalidAt, invalidAt.offset() + 1, invalidAt.brokerLogAppendTimeEpochMs() + 1);
+            final var commitCommand = commit(proof, commitAt, 720);
+            assertEquals(
+                    StableCode.SCHEDULED,
+                    apply(loop, entries, commitCommand, commitAt)
+                            .appliedOutcome()
+                            .commandResult()
+                            .stableCode());
+            final var committedReservation = TargetReservationRecord.decode(TargetValueEnvelope.decode(
+                            store.get(ColumnFamily.ID, secondKey), TargetReservationRecord.VALUE_TYPE)
+                    .payload());
+            assertEquals(PayloadReservationStatus.COMMITTED, committedReservation.status());
+            assertEquals(2, committedReservation.stateVersion());
+            assertEquals(secondReservation.prepareAnchor(), committedReservation.prepareAnchor());
+            assertArrayEquals(
+                    committedReservation.canonicalBytes(),
+                    TargetValueEnvelope.decode(
+                                    store.get(ColumnFamily.ID, committedReservation.lookupKey()),
+                                    TargetReservationRecord.VALUE_TYPE)
+                            .payload());
+            assertNull(store.get(ColumnFamily.TIMELINE, secondReservation.expiryKey()));
+            final var committedMessage = TargetMessageRecord.decode(TargetValueEnvelope.decode(
+                            store.get(ColumnFamily.ID, TargetKeyCodec.message(secondMessage)),
+                            TargetMessageRecord.VALUE_TYPE)
+                    .payload());
+            assertEquals(commitAt, committedMessage.scheduleSource());
+            assertEquals(1, committedMessage.stateVersion());
+            assertEquals(committedReservation.committedPayload(), committedMessage.payloadReference());
+            final var activeOwnerKey =
+                    Bytes.concat(new byte[] {TargetKeyCodec.QUOTA_PAYLOAD_OWNER_TAG, 1}, secondMessage.bytes());
+            final var activeOwner = TargetQuotaPayloadOwner.decode(TargetValueEnvelope.decode(
+                            store.get(ColumnFamily.META, activeOwnerKey), TargetQuotaPayloadOwner.VALUE_TYPE)
+                    .payload());
+            committedReservation.requireOwner(activeOwner);
+            assertEquals(TargetQuotaPayloadOwner.Phase.ACTIVE, activeOwner.phase());
+            final var committedUsage = backend.prepareRead(
+                            budget(), reader -> reader.aggregate().usage())
+                    .value();
+            assertEquals(0, committedUsage.resources().amount(CapacityDimension.RESERVATION_MESSAGES));
+            assertEquals(0, committedUsage.resources().amount(CapacityDimension.RESERVATION_PAYLOAD_BYTES));
+            assertEquals(2, committedUsage.resources().amount(CapacityDimension.ACTIVE_MESSAGES));
+            final long afterCommit = store.latestSequenceNumber();
+            final int resolvedProofs = proofResolutions.get();
+            assertEquals(
+                    StableCode.SCHEDULED,
+                    apply(loop, entries, commitCommand, commitAt)
+                            .appliedOutcome()
+                            .commandResult()
+                            .stableCode());
+            assertEquals(afterCommit, store.latestSequenceNumber());
+            assertEquals(resolvedProofs, proofResolutions.get());
+            final var historicalAt = source(commitAt, commitAt.offset() + 1, secondReservation.expiryEpochMs() + 1);
+            assertEquals(
+                    StableCode.ALREADY_COMMITTED,
+                    apply(loop, entries, commit(proof, historicalAt, 730), historicalAt)
+                            .appliedOutcome()
+                            .commandResult()
+                            .stableCode());
+            assertArrayEquals(
+                    committedReservation.canonicalBytes(),
+                    TargetValueEnvelope.decode(
+                                    store.get(ColumnFamily.ID, secondKey), TargetReservationRecord.VALUE_TYPE)
+                            .payload());
+            final var conflictProof = CanonicalPayloadCommitProof.signed(
+                    secondReservation.reservationId(),
+                    scope.tenantScope(),
+                    scope.shard().routeIncarnation().bytes(),
+                    scope.shard().partition(),
+                    secondMessage,
+                    secondBody.objectStoreProfile(),
+                    trustSet.version(),
+                    1,
+                    Bytes.utf8("bucket"),
+                    Bytes.utf8("different-object"),
+                    Bytes.utf8("version"),
+                    null,
+                    100,
+                    secondBody.payloadSha256(),
+                    secondReservation.expiryEpochMs(),
+                    proofKeys.getPrivate());
+            final var conflictCommitAt =
+                    source(historicalAt, historicalAt.offset() + 1, historicalAt.brokerLogAppendTimeEpochMs() + 1);
+            final int beforeConflictProofs = proofResolutions.get();
+            assertEquals(
+                    StableCode.PAYLOAD_COMMIT_CONFLICT,
+                    apply(loop, entries, commit(conflictProof, conflictCommitAt, 740), conflictCommitAt)
+                            .appliedOutcome()
+                            .commandResult()
+                            .stableCode());
+            assertEquals(beforeConflictProofs, proofResolutions.get());
+            final var committedCancelAt = source(
+                    conflictCommitAt, conflictCommitAt.offset() + 1, conflictCommitAt.brokerLogAppendTimeEpochMs() + 1);
+            assertEquals(
+                    StableCode.CANCELED,
+                    apply(loop, entries, cancel(secondMessage, committedCancelAt, 750), committedCancelAt)
+                            .appliedOutcome()
+                            .commandResult()
+                            .stableCode());
+            final var retainedCommitAt = source(
+                    committedCancelAt,
+                    committedCancelAt.offset() + 1,
+                    committedCancelAt.brokerLogAppendTimeEpochMs() + 1);
+            assertEquals(
+                    StableCode.ALREADY_COMMITTED,
+                    apply(loop, entries, commit(proof, retainedCommitAt, 760), retainedCommitAt)
+                            .appliedOutcome()
+                            .commandResult()
+                            .stableCode());
+            assertArrayEquals(
+                    committedReservation.canonicalBytes(),
+                    TargetValueEnvelope.decode(
+                                    store.get(ColumnFamily.ID, secondKey), TargetReservationRecord.VALUE_TYPE)
+                            .payload());
+            final var finalOwner = TargetQuotaPayloadOwner.decode(TargetValueEnvelope.decode(
+                            store.get(ColumnFamily.META, activeOwnerKey), TargetQuotaPayloadOwner.VALUE_TYPE)
+                    .payload());
+            committedReservation.requireOwner(finalOwner);
+            assertEquals(TargetQuotaPayloadOwner.Phase.RETAINED, finalOwner.phase());
         }
+    }
+
+    private static TargetCommandStore.PayloadProofControls noProofs() {
+        return (binding, source) -> {
+            throw new AssertionError("unexpected proof authority resolution");
+        };
+    }
+
+    private static PreparedCommand commit(CanonicalPayloadCommitProof proof, KafkaSourcePosition at, int unique) {
+        final var id = cancel(proof.delayMessageId(), at, unique).commandId();
+        final var body = new CommitLargeScheduleBody(
+                proof.delayMessageId(), at.brokerLogAppendTimeEpochMs() + 1000, proof.reservationId(), proof);
+        final var tuple = ProtocolTuple.managedCommand();
+        return new PreparedCommand(
+                at.shardId(),
+                id,
+                proof.delayMessageId(),
+                CommandType.COMMIT_LARGE_SCHEDULE,
+                tuple,
+                body.retryUntilEpochMs(),
+                body.canonicalBytes(),
+                CommandHash.compute(
+                        tuple,
+                        CommandType.COMMIT_LARGE_SCHEDULE,
+                        id,
+                        proof.delayMessageId(),
+                        body.retryUntilEpochMs(),
+                        body.canonicalBytes()));
     }
 
     private static PreparedCommand cancel(DelayMessageId message, KafkaSourcePosition at, int unique) {

@@ -608,3 +608,13 @@ TargetRecordAccounting 在实际 before/after view 核对双 ID 与 expiry 的�
 binding 的全 frame 身份和 payload owner 的原始长度/hash/ObjectStoreProfile。每条真实记录
 均计 STATE，payload 维度只由唯一 payload owner 计量。仅 codec 支持 COMMITTED/EXPIRED，
 并不表示 Commit/到期 source writer、查询签名、对象上传或回收已经实现。
+
+
+### NV38 COMMITTED 的实际写入边界（2026-09-22）
+
+Commit 现写入本契约 §20 的既有 COMMITTED 格式，不新增 NV/字段/key。原 Prepare anchor、
+locator/binding 和排序契约不变；current mutation 指向 Commit、stateVersion checked +1，
+字段 12 保存完整 bounded committed reference。两条 ID 同值、reservation expiry 删除，
+新 Message 与 ACTIVE payload owner 同一 source batch。终态 Message Cancel 不重写原
+COMMITTED reservation；后续 Commit 只验证原对象身份并返回历史结果，不复活 Message。
+正式 EXPIRED writer、签名 reservation query/receipt 和 Floor/GC 仍未实现。

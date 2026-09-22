@@ -1900,3 +1900,24 @@ NOT_FOUND。版本不符为 VERSION_CONFLICT；有效 RESERVED 为 RESERVATION_N
 ABANDONED 为 ALREADY_ABANDONED。只增加实际 COMMAND/RESULT/POSITION 及 source 费用，
 双 ID、expiry、payload owner、reservation 消息数/字节及 retained 字节不变；没有 Message
 或新的投递工作。同位置重放不写，闭合结果仍不得绕过 Store/source/Owner 提交屏障。
+
+
+## 39. Commit 的 reservation 兑现与历史重试
+
+成功 Commit 的实际计费操作为 RESERVATION_COMMIT；它兑现既有 reservation，不是新
+FIRST_SCHEDULE/PREPARE ingress。唯一 owner 将 reservation 消息数/字节转为 ACTIVE，
+保留原 accounting incarnation/artifact、binding digest、Object Store/长度/hash；不得重价。
+当前 ACTIVE_MESSAGES 逻辑限额即使已达上限也不能借新 ingress gate 丢掉已有 reservation
+义务，实际完整 batch 的物理容量与 Owner/Store/source guard 仍必须满足。
+
+NV38 双 ID 现在携完整 committed reference，其真实增长、reservation expiry 删除、Message
+及 ordinary/Native/strict/Message expiry、owner、COMMAND/RESULT/POSITION 均由同一
+TargetSourceAccounting 精确计费。Schedule 与 Commit 共用 Message projection，strict gate/
+watermark 拒绝会丢弃整个业务编辑；不同 Object/ProofId 不覆盖已 COMMITTED 的身份。
+仅结果的拒绝/ALREADY_COMMITTED 复用已有 result-drain 计费，不移动 payload 维度；同位置
+首结果重放仍零写且不重查 proof provider。不会由 Commit 新建/重定价 binding/shared records。
+
+必要开发检查覆盖实际 Worker 的错误 Ed25519 签名拒绝、有效 Commit、双 ID/expiry、
+RESERVATION→ACTIVE、ACTIVE_MESSAGES 超过新 ingress 限额仍兑现、同位置重放、proof
+期限后的历史重试、对象冲突以及 Message Cancel 后保持 RETAINED 的重试。密钥窗口与
+issuance closure 全矩阵、strict/超限损坏、全部物理容量/Owner failure 和完整恢复仍待集中验证。

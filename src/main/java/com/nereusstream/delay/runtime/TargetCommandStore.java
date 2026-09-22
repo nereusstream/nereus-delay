@@ -7,9 +7,13 @@ import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
 import com.nereusstream.delay.protocol.CanonicalTargetPartition;
 import com.nereusstream.delay.protocol.CommandCodec;
 import com.nereusstream.delay.protocol.CommandType;
+import com.nereusstream.delay.protocol.CommitLargeScheduleBody;
 import com.nereusstream.delay.protocol.MessagePrecondition;
 import com.nereusstream.delay.protocol.NativeDeliveryPolicy;
 import com.nereusstream.delay.protocol.OrderingMode;
+import com.nereusstream.delay.protocol.PayloadProofTrustSet;
+import com.nereusstream.delay.protocol.PayloadProofTrustSetControlState;
+import com.nereusstream.delay.protocol.PayloadProofTrustSetSemantic;
 import com.nereusstream.delay.protocol.PayloadReference;
 import com.nereusstream.delay.protocol.PrepareLargeScheduleBody;
 import com.nereusstream.delay.protocol.PreparedCommand;
@@ -19,6 +23,7 @@ import com.nereusstream.delay.protocol.ScheduleCommandBody;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.TargetMessageLocator;
+import com.nereusstream.delay.protocol.TargetPayloadReference;
 import com.nereusstream.delay.protocol.TargetQueueState;
 import com.nereusstream.delay.protocol.TargetQuotaAccounting;
 import com.nereusstream.delay.protocol.TargetQuotaClaimCharge;
@@ -114,6 +119,20 @@ public final class TargetCommandStore {
         ScheduleAdmission resolve(PreparedCommand command, SourcePosition source);
     }
 
+    /** Source-pinned, bounded proof catalog/control snapshot, held by the first-command commit guard. */
+    @FunctionalInterface
+    public interface PayloadProofControls {
+        PayloadProofAuthority resolve(TargetScheduleBinding binding, SourcePosition source);
+    }
+
+    public record PayloadProofAuthority(
+            PayloadProofTrustSetSemantic semantic, PayloadProofTrustSetControlState controls) {
+        public PayloadProofAuthority {
+            Objects.requireNonNull(semantic, "semantic");
+            Objects.requireNonNull(controls, "controls");
+        }
+    }
+
     public record ScheduleAdmission(
             StableCode code,
             TargetScheduleRegistration.Authority registration,
@@ -175,7 +194,9 @@ public final class TargetCommandStore {
             SourcePosition source,
             Policy policy,
             CancellationControls controls,
-            Schedules schedules) {
+            Schedules schedules,
+            PayloadProofControls payloadProofs) {
+        Objects.requireNonNull(payloadProofs, "payloadProofs");
         Objects.requireNonNull(command, "command");
         Objects.requireNonNull(schedules, "schedules");
         Objects.requireNonNull(controls, "controls");
@@ -263,6 +284,24 @@ public final class TargetCommandStore {
                         }
                         decision = ingress(
                                 reader, command, body.intentWithoutPayload(), body, stamp, root, policy, schedules);
+                    } else if (command.type() == CommandType.COMMIT_LARGE_SCHEDULE) {
+                        final CommitLargeScheduleBody body;
+                        try {
+                            body = CommitLargeScheduleBody.decodeForTarget(command.canonicalBody());
+                            if (!command.delayMessageId().equals(body.delayMessageId())
+                                    || command.retryUntilEpochMs() != body.retryUntilEpochMs()) {
+                                throw new IllegalArgumentException("Commit body differs from envelope");
+                            }
+                        } catch (IllegalArgumentException malformed) {
+                            return withResults(
+                                    reader,
+                                    command,
+                                    stamp,
+                                    root,
+                                    unchanged(rejected(StableCode.INVALID_COMMAND, source), root),
+                                    result);
+                        }
+                        decision = commitReservation(reader, command, body, stamp, root, controls, payloadProofs);
                     } else if (command.type() == CommandType.CANCEL) {
                         final CancelCommandBody body;
                         try {
@@ -320,9 +359,12 @@ public final class TargetCommandStore {
                                             ? command.type() == CommandType.PREPARE_LARGE_SCHEDULE
                                                     ? TargetQuotaGrantGate.Operation.PREPARE
                                                     : TargetQuotaGrantGate.Operation.FIRST_SCHEDULE
-                                            : command.type() == CommandType.RESCHEDULE
-                                                    ? TargetQuotaGrantGate.Operation.RESCHEDULE
-                                                    : TargetQuotaGrantGate.Operation.CANCEL,
+                                            : command.type() == CommandType.COMMIT_LARGE_SCHEDULE
+                                                            && result[0].stableCode() == StableCode.SCHEDULED
+                                                    ? TargetQuotaGrantGate.Operation.RESERVATION_COMMIT
+                                                    : command.type() == CommandType.RESCHEDULE
+                                                            ? TargetQuotaGrantGate.Operation.RESCHEDULE
+                                                            : TargetQuotaGrantGate.Operation.CANCEL,
                                     ingress[0]);
                     return assembled;
                 },
@@ -531,6 +573,42 @@ public final class TargetCommandStore {
                     registration.owner(),
                     registration.owner().accounting());
         }
+        final var payloadOwner = TargetQuotaPayloadOwner.scheduled(
+                binding, scope.tenantScope(), registration.owner().accounting(), lineage, stamp);
+        return scheduledDecision(
+                reader,
+                binding,
+                registration.queue(),
+                registration.owner(),
+                admitted.orderingContract(),
+                stamp,
+                intent,
+                payloadOwner,
+                new ArrayList<>(registration.edits()),
+                true);
+    }
+
+    private Decision scheduledDecision(
+            TargetStoreBackend.Reader reader,
+            TargetScheduleBinding binding,
+            TargetQueueState queue,
+            TargetQuotaIncarnation owner,
+            TargetOrderState.OrderingContract orderingContract,
+            TargetQuotaMutation stamp,
+            CanonicalScheduleIntent intent,
+            TargetQuotaPayloadOwner payloadOwner,
+            ArrayList<TargetStoreBackend.Edit> edits,
+            boolean newIngress) {
+        final var source = stamp.source();
+        final var locator = new TargetMessageLocator(
+                payloadOwner.messageId(),
+                0,
+                binding.target(),
+                binding.domain(),
+                binding.accountingIncarnation(),
+                intent.orderingMode(),
+                binding.orderingDomain(),
+                binding.digest());
         final var work = new TargetTimelineWorkRef(
                 locator,
                 TimelineWorkKind.INITIAL_SCHEDULE,
@@ -554,9 +632,9 @@ public final class TargetCommandStore {
                             TargetValueEnvelope.decode(raw, TargetOrderState.VALUE_TYPE)
                                     .payload(),
                             scope.shard(),
-                            registration.queue());
+                            queue);
             if (before != null) {
-                if (before.orderingContract() != admitted.orderingContract()) {
+                if (before.orderingContract() != orderingContract) {
                     throw new IllegalStateException("Schedule cannot change an existing strict ordering contract");
                 }
                 if (before.gate() != TargetOrderState.Gate.OPEN) {
@@ -566,15 +644,14 @@ public final class TargetCommandStore {
                                             ? StableCode.LANE_CLOSED
                                             : StableCode.ORDERING_DOMAIN_BROKEN,
                                     source),
-                            registration.owner());
+                            owner);
                 }
                 if (before.lastAdmittedOrder() != null
                         && Arrays.compareUnsigned(
                                         work.ordinaryKey(),
                                         before.lastAdmittedOrder().encodedKey())
                                 <= 0) {
-                    return unchanged(
-                            rejected(StableCode.ORDER_BEFORE_ADMISSION_WATERMARK, source), registration.owner());
+                    return unchanged(rejected(StableCode.ORDER_BEFORE_ADMISSION_WATERMARK, source), owner);
                 }
             }
             final var order = new TargetOrderState(
@@ -583,7 +660,7 @@ public final class TargetCommandStore {
                     scope.shard(),
                     binding.domain(),
                     binding.accountingIncarnation(),
-                    admitted.orderingContract(),
+                    orderingContract,
                     before == null ? 1 : TargetQueueState.nextRevision(before.stateRevision()),
                     before == null ? 1 : before.controlVersion(),
                     TargetOrderState.Gate.OPEN,
@@ -603,7 +680,7 @@ public final class TargetCommandStore {
                 intent.nativeDeliveryPolicy(),
                 source,
                 intent.hasInlinePayload() ? intent.inlinePayload() : null,
-                intent.hasInlinePayload() ? null : PayloadReference.fromDescriptor(intent.committedPayload()),
+                payloadOwner.committedPayload(),
                 new TargetGenerationRuntimeIndex(
                         0,
                         GenerationAggregateState.SCHEDULED,
@@ -616,10 +693,7 @@ public final class TargetCommandStore {
                         0,
                         false,
                         1));
-        final var payloadOwner = TargetQuotaPayloadOwner.scheduled(
-                binding, scope.tenantScope(), registration.owner().accounting(), lineage, stamp);
         payloadOwner.requireMessagePayload(message);
-        final var edits = new ArrayList<>(registration.edits());
         edits.add(reader.replace(
                 ColumnFamily.META,
                 payloadOwner.key(),
@@ -628,8 +702,175 @@ public final class TargetCommandStore {
         return new Decision(
                 new TargetMessageStore.Input(List.of(new TargetMessageStore.Transition(null, message)), orders, edits),
                 applied(StableCode.SCHEDULED, source, message),
-                registration.owner(),
-                registration.owner().accounting());
+                owner,
+                newIngress ? owner.accounting() : null);
+    }
+
+    private Decision commitReservation(
+            TargetStoreBackend.Reader reader,
+            PreparedCommand command,
+            CommitLargeScheduleBody body,
+            TargetQuotaMutation stamp,
+            TargetQuotaIncarnation root,
+            CancellationControls closures,
+            PayloadProofControls proofs) {
+        final var source = stamp.source();
+        final byte[] lookupKey =
+                Bytes.concat(new byte[] {TargetKeyCodec.RESERVATION_LOOKUP_TAG, 1}, body.reservationId());
+        final byte[] raw = reader.get(ColumnFamily.ID, lookupKey);
+        if (raw == null) {
+            return unchanged(rejected(StableCode.RESERVATION_NOT_COMMITTED, source), root);
+        }
+        final var reservation =
+                TargetReservationRecord.decode(TargetValueEnvelope.decode(raw, TargetReservationRecord.VALUE_TYPE)
+                        .payload());
+        if (!Arrays.equals(lookupKey, reservation.lookupKey())
+                || !Arrays.equals(lineage, reservation.recoveryLineage())) {
+            throw new IllegalStateException("Commit reservation lookup/lineage differs from actual Store");
+        }
+        if (!reservation.locator().messageId().equals(command.delayMessageId())) {
+            return unchanged(rejected(StableCode.RESERVATION_NOT_COMMITTED, source), root);
+        }
+        if (!Arrays.equals(
+                reservation.canonicalBytes(),
+                payload(reader, ColumnFamily.ID, reservation.key(), TargetReservationRecord.VALUE_TYPE))) {
+            throw new IllegalStateException("Commit reservation projections differ");
+        }
+        reservation.mutation().requireAtOrBefore(reader.aggregate().mutation());
+        final byte[] payloadKey = Bytes.concat(
+                new byte[] {TargetKeyCodec.QUOTA_PAYLOAD_OWNER_TAG, 1},
+                command.delayMessageId().bytes());
+        final var payloadOwner = TargetQuotaPayloadOwner.decodeForStore(
+                payloadKey,
+                payload(reader, ColumnFamily.META, payloadKey, TargetQuotaPayloadOwner.VALUE_TYPE),
+                scope.shard(),
+                scope.tenantScope());
+        reservation.requireOwner(payloadOwner);
+        payloadOwner.mutation().requireAtOrBefore(reader.aggregate().mutation());
+        final var owner = descriptor(reader, payloadOwner.primaryIdentity());
+        owner.requirePayloadOwner(payloadOwner);
+        final byte[] bindingKey =
+                TargetKeyCodec.scheduleBinding(reservation.locator().scheduleBindingDigest());
+        final var binding = TargetScheduleBinding.decodeForStore(
+                bindingKey,
+                payload(reader, ColumnFamily.ID, bindingKey, TargetScheduleBinding.VALUE_TYPE),
+                scope.shard());
+        reservation.requireBinding(binding);
+        payloadOwner.requireInitialBinding(binding);
+        final var prepare = PrepareLargeScheduleBody.decode(binding.canonicalBody());
+        final byte[] queueKey = TargetKeyCodec.state(binding.target());
+        final var queue =
+                TargetQueueState.decode(payload(reader, ColumnFamily.META, queueKey, TargetQueueState.VALUE_TYPE));
+        binding.requireQueueProjection(queue);
+        final byte[] expiry = reader.get(ColumnFamily.TIMELINE, reservation.expiryKey());
+        if (reservation.status() == PayloadReservationStatus.RESERVED) {
+            if (expiry == null
+                    || !Arrays.equals(
+                            reservation.canonicalBytes(),
+                            TargetValueEnvelope.decode(expiry, TargetReservationRecord.VALUE_TYPE)
+                                    .payload())) {
+                throw new IllegalStateException("Commit reservation expiry differs");
+            }
+            if (reader.get(ColumnFamily.ID, TargetKeyCodec.message(command.delayMessageId())) != null) {
+                throw new IllegalStateException("uncommitted reservation already owns a Message");
+            }
+            if (queue.admissionState() == TargetQueueState.AdmissionState.CLOSED
+                    || closures.closed(reader, binding, source)) {
+                return unchanged(rejected(StableCode.PAYLOAD_RESERVATION_CLOSED, source), owner);
+            }
+        } else if (expiry != null) {
+            throw new IllegalStateException("terminal reservation retains expiry");
+        }
+        final var proof = body.proof();
+        if (!proof.objectStoreProfile().equals(prepare.objectStoreProfile())
+                || !Arrays.equals(proof.tenantRoutingScope(), scope.tenantScope())
+                || proof.trustSetVersion() != prepare.trustSet().version()
+                || proof.length() != prepare.expectedPayloadLength()
+                || !Arrays.equals(proof.payloadSha256(), prepare.payloadSha256())) {
+            return unchanged(rejected(StableCode.PAYLOAD_PROOF_INVALID, source), owner);
+        }
+        final var reference = TargetPayloadReference.requireBounded(new PayloadReference(
+                proof.objectStoreProfileHash(),
+                proof.container(),
+                proof.objectKey(),
+                proof.immutableObjectVersion(),
+                proof.etag(),
+                proof.length(),
+                proof.payloadSha256(),
+                proof.reservationId(),
+                proof.proofId()));
+        final boolean historical = reservation.status() == PayloadReservationStatus.COMMITTED;
+        if (historical) {
+            if (!reference.equals(reservation.committedPayload())) {
+                return unchanged(rejected(StableCode.PAYLOAD_COMMIT_CONFLICT, source), owner);
+            }
+            final var messageKey = TargetKeyCodec.message(command.delayMessageId());
+            final var message = TargetMessageRecord.decodeForStore(
+                    messageKey,
+                    payload(reader, ColumnFamily.ID, messageKey, TargetMessageRecord.VALUE_TYPE),
+                    scope.shard());
+            payloadOwner.requireMessagePayload(message);
+        } else if (reservation.status() == PayloadReservationStatus.ABANDONED) {
+            return unchanged(rejected(StableCode.PAYLOAD_RESERVATION_CLOSED, source), owner);
+        } else if (reservation.status() == PayloadReservationStatus.EXPIRED) {
+            return unchanged(rejected(StableCode.RESERVATION_EXPIRED, source), owner);
+        } else if (source.brokerPersistenceTimeEpochMs() > reservation.expiryEpochMs()
+                || source.brokerPersistenceTimeEpochMs() > proof.notAfterEpochMs()
+                || proof.notAfterEpochMs() > reservation.expiryEpochMs()) {
+            return unchanged(rejected(StableCode.PAYLOAD_PROOF_INVALID, source), owner);
+        }
+        final PayloadProofAuthority authority;
+        try {
+            authority = Objects.requireNonNull(proofs.resolve(binding, source), "payload proof authority");
+        } catch (ReadIncompleteException external) {
+            throw new IllegalStateException("external payload proof authority did not complete", external);
+        }
+        if (!authority.semantic().ref().equals(prepare.trustSet())
+                || !authority.controls().activatedAt(prepare.trustSet(), binding.bindingSource())) {
+            throw new IllegalStateException("proof catalog differs from the immutable Prepare trust set");
+        }
+        final var verifier = PayloadProofTrustSet.fromSemantic(authority.semantic());
+        final boolean authorized = historical
+                ? authority
+                                .controls()
+                                .historicalVerificationAllowed(prepare.trustSet(), proof.proofKeyVersion(), source)
+                        && verifier.verifiesHistoricalSignature(proof)
+                : authority.controls().firstSeenIssuanceOpen(prepare.trustSet(), proof.proofKeyVersion(), source)
+                        && verifier.verifies(proof, source.brokerPersistenceTimeEpochMs());
+        if (!authorized) {
+            return unchanged(rejected(StableCode.PAYLOAD_PROOF_KEY_NOT_AUTHORIZED_AT_SOURCE_POSITION, source), owner);
+        }
+        if (historical) {
+            return unchanged(applied(StableCode.ALREADY_COMMITTED, source, null), owner);
+        }
+        final var committed = reservation.finish(PayloadReservationStatus.COMMITTED, stamp, reference);
+        final var activeOwner = payloadOwner.commit(reference, stamp, (prior, next, floor) -> {
+            if (prior != payloadOwner || !next.mutation().equals(stamp) || floor != null) {
+                throw new IllegalStateException("Commit changed its exact source owner");
+            }
+        });
+        committed.requireOwner(activeOwner);
+        final var edits = new ArrayList<TargetStoreBackend.Edit>();
+        edits.add(reader.replace(
+                ColumnFamily.ID, reservation.key(), TargetReservationRecord.VALUE_TYPE, committed.canonicalBytes()));
+        edits.add(reader.replace(
+                ColumnFamily.ID,
+                reservation.lookupKey(),
+                TargetReservationRecord.VALUE_TYPE,
+                committed.canonicalBytes()));
+        edits.add(reader.replace(
+                ColumnFamily.TIMELINE, reservation.expiryKey(), TargetReservationRecord.VALUE_TYPE, null));
+        return scheduledDecision(
+                reader,
+                binding,
+                queue,
+                owner,
+                reservation.orderingContract(),
+                stamp,
+                prepare.intentWithoutPayload(),
+                activeOwner,
+                edits,
+                false);
     }
 
     private Decision modifyReservation(

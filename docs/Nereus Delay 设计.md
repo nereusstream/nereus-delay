@@ -6254,3 +6254,14 @@ anchor、冻结排序契约、按 MessageId/reservationId 查询及到期索引�
 Floor/GC、生产认证 providers、完整恢复/配置/迁移和集中验证仍未完成。
 
 记录格式见 NDIP-3 身份与索引契约 §20，实际计费边界见 quota 契约 §37。
+
+
+### Target Commit 的原子 source 应用（2026-09-22）
+
+首次 Commit 已接入实际 Worker Source Apply：有界解码、原 Prepare/Object Store/trust-set
+校验、Ed25519 首次及历史验签、COMMITTED 双 ID、Message/索引/head、payload RESERVED→ACTIVE
+和结果/source 计费同批。成功 Commit 使用已有 reservation 的 drain gate，不重新选择
+binding 或计入第二份 payload。九项必要开发检查通过；生产 proof/control providers、
+签名 receipt/query/upload、正式 expiry/Floor/GC、完整恢复/配置/迁移和集中验证仍未完成。
+
+精确实现边界见 NDIP-3 quota §39 和集中验证交接。

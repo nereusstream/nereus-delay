@@ -58,11 +58,13 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             TargetCommandStore.Policy policy,
             TargetCommandStore.CancellationControls cancellations,
             TargetCommandStore.Schedules schedules,
+            TargetCommandStore.PayloadProofControls payloadProofs,
             TargetStoreBackend.CommitAuthority commit) {
         public CommandControl {
             Objects.requireNonNull(policy, "policy");
             Objects.requireNonNull(cancellations, "cancellations");
             Objects.requireNonNull(schedules, "schedules");
+            Objects.requireNonNull(payloadProofs, "payloadProofs");
             Objects.requireNonNull(commit, "commit");
         }
     }
@@ -246,7 +248,8 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                                         "external cancellation authority did not complete", external);
                             }
                         },
-                        control.schedules());
+                        control.schedules(),
+                        control.payloadProofs());
             } catch (ReadIncompleteException incomplete) {
                 throw new ReadYield(incomplete);
             }

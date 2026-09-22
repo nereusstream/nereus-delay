@@ -2527,3 +2527,15 @@ TIMELINE `0d 01 + expiry:u64be + MessageId[41]`，终态必须删除该索引。
 PayloadReservationStatus/StableCode，不创建新 CF。实际 Prepare/Cancel 与结果/计费/source
 同批，payload quota 只由唯一 owner 计一次，各 NV38 物理记录单独计 STATE。
 Commit、签名查询/upload、正式 expiry/Floor/GC、生产 providers 与集中恢复验证仍待完成。
+
+
+### NDIP-3 Commit source 应用（2026-09-22）
+
+复用既有 COMMIT_LARGE_SCHEDULE wire、CanonicalPayloadCommitProof、NV38 COMMITTED、
+NV15 Message、NV35 results 和现有 payload owner/index/head，不新增 CF/tag/StableCode。
+Target Commit decoder 总上限为 TargetPayloadReference.MAX_CANONICAL_BYTES + 4096；最多
+5 个 body 字段、18 个 proof 字段，proof 对象 component 各最多 1 MiB、ProfileRef 最多
+TargetChannelIdentity.MAX_PROFILE_REF_BYTES，随后必须通过完整 canonical decoder。
+原 Prepare trust-set semantic ref/source activation 与 Object Store ref 不变，首次与历史
+验签分别检查 issuance/window 和 retained key。原子计费/状态见 NDIP-3 quota §39；生产
+provider、expiry/GC 和集中恢复认证仍未完成。
