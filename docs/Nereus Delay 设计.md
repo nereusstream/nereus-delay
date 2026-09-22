@@ -6265,3 +6265,15 @@ binding 或计入第二份 payload。九项必要开发检查通过；生产 pro
 签名 receipt/query/upload、正式 expiry/Floor/GC、完整恢复/配置/迁移和集中验证仍未完成。
 
 精确实现边界见 NDIP-3 quota §39 和集中验证交接。
+
+
+### Target reservation 的受保护读取（2026-09-22）
+
+TargetReservationQueryStore 已实现有界 durable 点查及读取屏障：实际 root/source、NV38
+双 ID、expiry、binding 和 payload owner 核对通过后，才在当前 ReadAuthority 下返回快照。
+可用服务端固定对象位置重建原 Prepare receipt，Cancel/Commit 不改 receipt anchor；
+receipt 自身沿用摘要格式，签名仍属于 Commit proof。四项必要开发检查通过。公网 Query、
+QUERY WorkClass/控制 overlay、Object Store adapter/upload authority 及完整生产装配仍待接入。
+
+这只是 durable local snapshot，不用墙钟或读操作推进 reservation 生命周期。完整 public
+query/close/TIME_FENCE 语义与上传许可仍按原控制契约实施，不能从 receipt 推导新授权。

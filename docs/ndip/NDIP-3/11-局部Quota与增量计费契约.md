@@ -1921,3 +1921,16 @@ watermark 拒绝会丢弃整个业务编辑；不同 Object/ProofId 不覆盖已
 RESERVATION→ACTIVE、ACTIVE_MESSAGES 超过新 ingress 限额仍兑现、同位置重放、proof
 期限后的历史重试、对象冲突以及 Message Cancel 后保持 RETAINED 的重试。密钥窗口与
 issuance closure 全矩阵、strict/超限损坏、全部物理容量/Owner failure 和完整恢复仍待集中验证。
+
+
+## 40. reservation 查询与 receipt 重建不产生新费用
+
+QueryStore 只在有界同视图内读取 root/Target owner、NV38、binding 和 source；返回前
+以当前 ReadAuthority 核验 Store view。没有 source 分配、mutation、counter/head/fairness
+写入。未知 ID 的空结果也必须通过实际 root 与 guard。查询结果中的 payload phase 来自
+实际 owner，不把 COMMITTED 恒等为 ACTIVE，也不把 receipt 重建算作新 ingress。
+
+receipt 只重建不可变 Prepare 内容，不登记对象、不签发 upload handle、不释放 retained
+bytes。后续服务必须重验控制 overlay、upload deadline/quiescence 和 adapter authority。
+本批四个开发场景核对读前后 native sequence 不变、Owner failure、预算耗尽、stale view、
+RESERVED/ABANDONED/COMMITTED+RETAINED 和 receipt 恒定；完整 Query/GC/Broker 权威仍未完成。

@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.ownership.InMemoryControlTargetRegistrationAuthority;
 import com.nereusstream.delay.ownership.InMemoryOwnerLeaseStore;
 import com.nereusstream.delay.ownership.OxiaOwnerLeaseStore;
@@ -805,6 +806,36 @@ class TargetCommandStoreTest {
                     .payload());
             reserved.requireOwner(reservedOwner);
             assertEquals(TargetQuotaPayloadOwner.Phase.RESERVED, reservedOwner.phase());
+            final var queries = new TargetReservationQueryStore(backend, scope, lineage);
+            final var location = new TargetReservationQueryStore.ReceiptLocation(
+                    prepareBody.objectStoreProfile(), Bytes.utf8("bucket"), Bytes.utf8("object"));
+            final long beforeQueries = store.latestSequenceNumber();
+            final var reservedSnapshot = queries.complete(
+                            queries.prepare(budget(), reserved.reservationId()), (a, b) -> guard())
+                    .orElseThrow();
+            assertEquals(
+                    PayloadReservationStatus.RESERVED,
+                    reservedSnapshot.reservation().status());
+            assertEquals(TargetQuotaPayloadOwner.Phase.RESERVED, reservedSnapshot.payloadPhase());
+            assertEquals(prepareAt, reservedSnapshot.readSource());
+            final var prepareReceipt = reservedSnapshot.receipt(location);
+            assertEquals(prepareAt, prepareReceipt.appliedSourcePosition());
+            assertEquals(1, prepareReceipt.stateVersion());
+            assertTrue(queries.complete(queries.prepare(budget(), bytes(32, 0xf6)), (a, b) -> guard())
+                    .isEmpty());
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> queries.complete(queries.prepare(budget(), reserved.reservationId()), (a, b) -> {
+                        throw new IllegalStateException("Owner lost");
+                    }));
+            assertThrows(
+                    com.nereusstream.delay.store.ReadIncompleteException.class,
+                    () -> queries.prepare(
+                            new BoundedReadBudget(1, 32L << 20, 60_000_000_000L, System::nanoTime),
+                            reserved.reservationId()));
+            final var staleQuery = queries.prepare(budget(), reserved.reservationId());
+            assertEquals(beforeQueries, store.latestSequenceNumber());
+
             final long afterPrepare = store.latestSequenceNumber();
             assertEquals(
                     StableCode.OK,
@@ -945,6 +976,16 @@ class TargetCommandStoreTest {
                     .payload());
             abandoned.requireOwner(releasedOwner);
             assertEquals(TargetQuotaPayloadOwner.Phase.RETAINED, releasedOwner.phase());
+            assertThrows(IllegalStateException.class, () -> queries.complete(staleQuery, (a, b) -> guard()));
+            final var abandonedSnapshot = queries.complete(
+                            queries.prepare(budget(), reserved.reservationId()), (a, b) -> guard())
+                    .orElseThrow();
+            assertEquals(
+                    PayloadReservationStatus.ABANDONED,
+                    abandonedSnapshot.reservation().status());
+            assertEquals(abandonAt, abandonedSnapshot.readSource());
+            assertEquals(prepareReceipt, abandonedSnapshot.receipt(location));
+
             final var retainedUsage = backend.prepareRead(
                             budget(), reader -> reader.aggregate().usage())
                     .value();
@@ -1025,6 +1066,10 @@ class TargetCommandStoreTest {
             final var secondReservation = TargetReservationRecord.decode(TargetValueEnvelope.decode(
                             store.get(ColumnFamily.ID, secondKey), TargetReservationRecord.VALUE_TYPE)
                     .payload());
+            final var secondPrepareReceipt = queries.complete(
+                            queries.prepare(budget(), secondReservation.reservationId()), (a, b) -> guard())
+                    .orElseThrow()
+                    .receipt(location);
             final var proof = CanonicalPayloadCommitProof.signed(
                     secondReservation.reservationId(),
                     scope.tenantScope(),
@@ -1191,6 +1236,21 @@ class TargetCommandStoreTest {
                     .payload());
             committedReservation.requireOwner(finalOwner);
             assertEquals(TargetQuotaPayloadOwner.Phase.RETAINED, finalOwner.phase());
+            final long beforeRetainedQuery = store.latestSequenceNumber();
+            final var retainedSnapshot = queries.complete(
+                            queries.prepare(budget(), secondReservation.reservationId()), (a, b) -> guard())
+                    .orElseThrow();
+            assertEquals(
+                    PayloadReservationStatus.COMMITTED,
+                    retainedSnapshot.reservation().status());
+            assertEquals(TargetQuotaPayloadOwner.Phase.RETAINED, retainedSnapshot.payloadPhase());
+            assertEquals(retainedCommitAt, retainedSnapshot.readSource());
+            assertEquals(secondPrepareReceipt, retainedSnapshot.receipt(location));
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> retainedSnapshot.receipt(new TargetReservationQueryStore.ReceiptLocation(
+                            location.profile(), Bytes.utf8("bucket"), Bytes.utf8("wrong-object"))));
+            assertEquals(beforeRetainedQuery, store.latestSequenceNumber());
         }
     }
 

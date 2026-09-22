@@ -618,3 +618,12 @@ locator/binding 和排序契约不变；current mutation 指向 Commit、stateVe
 新 Message 与 ACTIVE payload owner 同一 source batch。终态 Message Cancel 不重写原
 COMMITTED reservation；后续 Commit 只验证原对象身份并返回历史结果，不复活 Message。
 正式 EXPIRED writer、签名 reservation query/receipt 和 Floor/GC 仍未实现。
+
+
+### NV38 的受保护点查（2026-09-22）
+
+QueryStore 使用 §20 的 ID/08 reservationId 索引，核对 ID/07、原 Prepare binding、实际
+owner/lineage/source 和 RESERVED expiry；终态必须无 reservation expiry。未知 key 只代表
+该受保护 view 的缺失，不证明 identity GC/Floor 或 first-Schedule eligibility。新读取
+接口不改变任何 CF/tag/NV。receipt 重建沿用既有 PayloadReservationReceipt 的 Prepare
+source/state=1，当前 lifecycle mutation 和 payload phase 通过独立 snapshot 展示。
