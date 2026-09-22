@@ -100,6 +100,7 @@ public final class TargetQuotaDelta {
                 updates,
                 maximumTouchedCounters,
                 lookup,
+                false,
                 false);
     }
 
@@ -128,10 +129,81 @@ public final class TargetQuotaDelta {
                 updates,
                 Math.min(maximumTouchedCounters, MAX_LOCAL_CLAIM_COUNTERS),
                 lookup,
-                true);
+                true,
+                false);
         requireLocalClaimChanges(kind, delta.changes);
         authority.requireAuthorized(kind, delta);
         return delta;
+    }
+
+    /** Full physical/fence/Owner authority remains mandatory for source-preserving reservation materialization. */
+    @FunctionalInterface
+    public interface ReservationExpiryAuthority {
+        void requireAuthorized(TargetQuotaDelta delta);
+    }
+
+    public static TargetQuotaDelta prepareReservationExpiry(
+            final TargetQuotaAggregate aggregate,
+            final long sequence,
+            final SourcePosition source,
+            final byte[] digest,
+            final List<Update> updates,
+            final Function<TargetQuotaIdentity, TargetQuotaCounter> lookup,
+            final ReservationExpiryAuthority authority) {
+        Objects.requireNonNull(authority, "expiryAuthority");
+        if (source == null || sequence == 0) {
+            throw new IllegalStateException("reservation expiry requires an applied source frontier");
+        }
+        final var delta = prepareInternal(aggregate, sequence, source, source, digest, updates, 2, lookup, true, true);
+        requireReservationExpiryChanges(delta.changes);
+        authority.requireAuthorized(delta);
+        return delta;
+    }
+
+    private static void requireReservationExpiryChanges(final List<Change> changes) {
+        if (changes.size() != 2) {
+            throw new IllegalArgumentException("expiry requires exactly one original owner and tenant mirror");
+        }
+        final var primary = changes.stream()
+                .filter(c -> !c.next().identity().kind().isMirror())
+                .findFirst()
+                .orElseThrow();
+        final var mirror = changes.stream()
+                .filter(c -> c.next().identity().kind().isMirror())
+                .findFirst()
+                .orElseThrow();
+        if (!primary.next().identity().target().equals(mirror.next().identity().target())
+                || !Arrays.equals(
+                        primary.next().identity().accountingIncarnation(),
+                        mirror.next().identity().accountingIncarnation())) {
+            throw new IllegalArgumentException("expiry owner/mirror identities differ");
+        }
+        for (var change : changes) {
+            final var before = change.prior().usage();
+            final var after = change.next().usage();
+            if (before.targets() != after.targets()
+                    || before.executionDomains() != after.executionDomains()
+                    || before.strictOrderDomains() != after.strictOrderDomains()
+                    || before.accountingIncarnations() != after.accountingIncarnations()) {
+                throw new IllegalArgumentException("expiry cannot change accounting cardinality");
+            }
+            for (var dimension : CapacityDimension.values()) {
+                if (difference(change, dimension) != difference(primary, dimension)
+                        || (dimension != CapacityDimension.LOGICAL_STATE_BYTES
+                                && dimension != CapacityDimension.RESERVATION_MESSAGES
+                                && dimension != CapacityDimension.RESERVATION_PAYLOAD_BYTES
+                                && dimension != CapacityDimension.RETAINED_BYTES
+                                && difference(change, dimension) != 0)) {
+                    throw new IllegalArgumentException("expiry changed an unrelated dimension or mirror delta");
+                }
+            }
+        }
+        if (difference(primary, CapacityDimension.RESERVATION_MESSAGES) != -1
+                || difference(primary, CapacityDimension.RESERVATION_PAYLOAD_BYTES) > 0
+                || difference(primary, CapacityDimension.RETAINED_BYTES)
+                        != -difference(primary, CapacityDimension.RESERVATION_PAYLOAD_BYTES)) {
+            throw new IllegalArgumentException("expiry must transfer exactly one reservation into retained bytes");
+        }
     }
 
     private static TargetQuotaDelta prepareInternal(
@@ -143,7 +215,8 @@ public final class TargetQuotaDelta {
             final List<Update> updates,
             final int maximumTouchedCounters,
             final Function<TargetQuotaIdentity, TargetQuotaCounter> lookup,
-            final boolean localClaim) {
+            final boolean localClaim,
+            final boolean reservationExpiry) {
         Objects.requireNonNull(aggregate, "aggregate");
         Objects.requireNonNull(updates, "updates");
         Objects.requireNonNull(lookup, "lookup");
@@ -153,14 +226,15 @@ public final class TargetQuotaDelta {
         requireStoreStamp(aggregate, lastStoreSequence, lastStoreSource);
         final long ordinal = localClaim
                 ? aggregate.mutation() != null && aggregate.mutation().sequence() == lastStoreSequence
-                        ? TargetQuotaMutation.increment(aggregate.mutation().localClaimOrdinal())
+                        ? TargetQuotaMutation.increment(aggregate.mutation().localOrdinal())
                         : 1
                 : 0;
         final var mutation = new TargetQuotaMutation(
                 localClaim ? lastStoreSequence : TargetQuotaMutation.increment(lastStoreSequence),
                 source,
                 mutationDigest,
-                ordinal);
+                ordinal,
+                reservationExpiry);
         if (!aggregate.shard().equals(source.shardId())
                 || (!localClaim && lastStoreSource != null && source.compareTo(lastStoreSource) <= 0)) {
             throw new IllegalStateException("quota source must advance the Store Source Position");

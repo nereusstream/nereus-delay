@@ -481,3 +481,13 @@ batch. The root's frozen accounting charges actual before/after storage once, wi
 usual tenant mirror. No CF, key tag, NV type or bookkeeping format is added. The last-proof
 in-memory projection changes only after successful commit; write-unknown fencing remains.
 Reservation expiry overlays and complete recovery/production authority remain unfinished.
+
+### Target reservation expiry materialization
+
+The bounded point writer reuses reservation primary/lookup/expiry and payload-owner keys;
+it writes the EXPIRED pair, deletes the exact expiry index and retains the payload charge
+in the same counter/total/aggregate batch. No new CF, key tag or NV type is introduced.
+TargetQuotaMutation field 5 distinguishes local expiry from Claim field 4, sharing its
+ordinal width/order without advancing fixed source metadata or repricing bookkeeping.
+Only the corresponding terminal business branches accept this stamp. Production reader
+activation, GC cursor/WorkClass, complete Close ordering and recovery validation remain pending.

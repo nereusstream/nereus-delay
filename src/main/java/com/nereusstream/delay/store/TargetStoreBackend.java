@@ -97,7 +97,7 @@ public final class TargetStoreBackend {
         public Mutation {
             Objects.requireNonNull(quota, "quota");
             business = List.copyOf(business);
-            if (ingressFence != null && quota.counters().mutation().isLocalClaim()) {
+            if (ingressFence != null && quota.counters().mutation().isLocalMutation()) {
                 throw new IllegalArgumentException("only a source mutation may advance the Target fence");
             }
         }
@@ -474,7 +474,7 @@ public final class TargetStoreBackend {
         bytes = Math.addExact(bytes, encodedSize(aggregate.key(), aggregate.canonicalBytes()));
         records = Math.incrementExact(records);
         final var stamp = mutation.quota().counters().mutation();
-        if (!stamp.isLocalClaim()) {
+        if (!stamp.isLocalMutation()) {
             bytes = Math.addExact(
                     bytes, encodedSize(KeyCodec.metaFixed(3), stamp.source().canonicalBytes()));
             bytes = Math.addExact(bytes, encodedSize(KeyCodec.metaFixed(5), Bytes.u64beBits(stamp.sequence())));
@@ -537,7 +537,7 @@ public final class TargetStoreBackend {
                             aggregate.key(),
                             TargetValueEnvelope.encode(TargetQuotaAggregate.VALUE_TYPE, aggregate.canonicalBytes()));
                     final var stamp = quota.counters().mutation();
-                    if (!stamp.isLocalClaim()) {
+                    if (!stamp.isLocalMutation()) {
                         batch.putValue(
                                 ColumnFamily.META,
                                 1,

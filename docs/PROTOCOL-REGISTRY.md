@@ -800,7 +800,9 @@ same finite batch budget. Target reservation reads and Commit/Cancel/Reschedule 
 the committed watermark to still-materialized RESERVED records at expiry <= watermark;
 this read-only effective EXPIRED status does not change their stored versions, Prepare
 receipts, payload phase or quota before materialization. Earlier terminal states remain.
-Bounded expiry materialization, complete Close overlays and production historical
+Bounded single-reservation materialization now persists EXPIRED, removes its expiry index
+and transfers the original payload charge to RETAINED without advancing the source frontier.
+GC discovery/WorkClass integration, complete Close overlays and production historical
 writer/time-source providers remain unfinished.
 
 Applying a valid fence monotonically advances `closedIngressDeadlineThrough`. That source-ordered watermark is also the authoritative logical transition for every still-`PAYLOAD_RESERVED` reservation with `reservation_expiry <= close_through_epoch_ms`: its effective state becomes `RESERVATION_EXPIRED` at the fence Source Position. A prior Commit, Cancel, or Lane Close wins by Source Position. The bounded `RESERVATION_EXPIRY` cursor only materializes the already-decided effective state, counter transfer and GC/tombstone work; replay and every API/Commit check the watermark overlay even when that cursor has not reached the reservation.
@@ -2556,3 +2558,19 @@ TargetChannelIdentity.MAX_PROFILE_REF_BYTES，随后必须通过完整 canonical
 原 Prepare trust-set semantic ref/source activation 与 Object Store ref 不变，首次与历史
 验签分别检查 issuance/window 和 retained key。原子计费/状态见 NDIP-3 quota §39；生产
 provider、expiry/GC 和集中恢复认证仍未完成。
+
+### Target local reservation expiry stamp
+
+TargetQuotaMutation adds optional nonzero raw uint64 field 5 for reservation-expiry materialization.
+It is mutually exclusive with Claim-only field 4; source operations omit both. Field 4 bytes retain
+their meaning. Both local kinds use one increasing ordinal at the unchanged complete source
+frontier; equal ordinals require the same kind and full digest. Explicit zero, both fields, and
+unknown fields are rejected. The maximum local stamp width remains eleven bytes above source,
+so fixed counter/total/aggregate commitments are not repriced. Older readers reject field 5.
+
+Only NV38 EXPIRED and uncommitted OBJECT payload owners in RETAINED accept field 5 as business
+records. Ordinary Claim, source-only result/grant/allocation/attempt paths reject it. The point
+materializer writes exact before/after projections with current Owner/Store/fence/physical capacity
+guards; metadata source position/sequence and Prepare receipt anchors remain unchanged. The
+payload is retained, not physically deleted. Same-source Floor cannot cover the subsequent local
+write. GC cursor/WorkClass, production activation and complete recovery/Close authority remain pending.

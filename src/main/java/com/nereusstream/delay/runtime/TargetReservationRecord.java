@@ -38,7 +38,8 @@ public record TargetReservationRecord(
         TargetOrderState.OrderingContract orderingContract) {
     public static final int VALUE_TYPE = 38;
     public static final int MAX_CANONICAL_BYTES = TargetMessageLocator.MAX_CANONICAL_BYTES
-            + 2 * TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES
+            + TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES
+            + TargetQuotaMutation.MAX_CANONICAL_BYTES
             + TargetPayloadReference.MAX_CANONICAL_BYTES
             + 512;
 
@@ -49,7 +50,11 @@ public record TargetReservationRecord(
         Objects.requireNonNull(status, "status");
         Objects.requireNonNull(orderingContract, "orderingContract");
         Objects.requireNonNull(prepareAnchor, "prepareAnchor").requireSourceApplied();
-        Objects.requireNonNull(mutation, "mutation").requireSourceApplied();
+        Objects.requireNonNull(mutation, "mutation");
+        if (mutation.isLocalMutation()
+                && (!mutation.reservationExpiry() || status != PayloadReservationStatus.EXPIRED)) {
+            throw new IllegalArgumentException("only expired reservations may carry a local expiry stamp");
+        }
         Bytes.requireLength(reservationId, 32, "reservationId");
         Bytes.requireLength(prepareCommandHash, 32, "prepareCommandHash");
         Bytes.requireLength(recoveryLineage, 16, "lineage");

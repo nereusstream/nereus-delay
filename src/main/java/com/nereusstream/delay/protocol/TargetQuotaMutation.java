@@ -2,17 +2,30 @@ package com.nereusstream.delay.protocol;
 
 import java.util.Arrays;
 
-/** Stable source sequence/frontier plus an optional local Claim ordinal; local work never renumbers source replay. */
-public record TargetQuotaMutation(long sequence, SourcePosition source, byte[] mutationDigest, long localClaimOrdinal) {
+/** Stable source sequence/frontier plus an optional typed local ordinal; local work never renumbers source replay. */
+public record TargetQuotaMutation(
+        long sequence,
+        SourcePosition source,
+        byte[] mutationDigest,
+        long localClaimOrdinal,
+        boolean reservationExpiry) {
     public static final int MAX_SOURCE_CANONICAL_BYTES = 11 + 4 + TargetSourcePosition.MAX_CANONICAL_BYTES + 34;
     public static final int MAX_CANONICAL_BYTES = MAX_SOURCE_CANONICAL_BYTES + 11;
+
+    public TargetQuotaMutation(
+            final long sequence,
+            final SourcePosition source,
+            final byte[] mutationDigest,
+            final long localClaimOrdinal) {
+        this(sequence, source, mutationDigest, localClaimOrdinal, false);
+    }
 
     public TargetQuotaMutation(final long sequence, final SourcePosition source, final byte[] mutationDigest) {
         this(sequence, source, mutationDigest, 0);
     }
 
     public TargetQuotaMutation {
-        if (sequence == 0) {
+        if (sequence == 0 || (reservationExpiry && localClaimOrdinal == 0)) {
             throw new IllegalArgumentException("quota source sequence must be nonzero");
         }
         source = TargetSourcePosition.requireBounded(source);
@@ -25,12 +38,21 @@ public record TargetQuotaMutation(long sequence, SourcePosition source, byte[] m
     }
 
     public boolean isLocalClaim() {
+        return localClaimOrdinal != 0 && !reservationExpiry;
+    }
+
+    public boolean isLocalMutation() {
         return localClaimOrdinal != 0;
     }
 
+    /** Shared ordering domain; the retained localClaimOrdinal accessor has the same numeric value. */
+    public long localOrdinal() {
+        return localClaimOrdinal;
+    }
+
     public void requireSourceApplied() {
-        if (isLocalClaim()) {
-            throw new IllegalArgumentException("local Claim stamp cannot represent a source-applied record");
+        if (isLocalMutation()) {
+            throw new IllegalArgumentException("local mutation stamp cannot represent a source-applied record");
         }
     }
 
@@ -41,9 +63,9 @@ public record TargetQuotaMutation(long sequence, SourcePosition source, byte[] m
         return prior + 1;
     }
 
-    /** Source mutations remain strictly ordered even after intervening local Claims. */
+    /** Source mutations remain strictly ordered even after intervening local writes. */
     public void requireAfter(final TargetQuotaMutation prior) {
-        if (isLocalClaim()
+        if (isLocalMutation()
                 || (prior != null
                         && (Long.compareUnsigned(sequence, prior.sequence) <= 0
                                 || source.compareTo(prior.source) <= 0))) {
@@ -69,7 +91,7 @@ public record TargetQuotaMutation(long sequence, SourcePosition source, byte[] m
         }
     }
 
-    /** A Store source frontier has no Claim ordinal; actual aggregate bytes still participate in the read guard. */
+    /** A Store source frontier has no local ordinal; actual aggregate bytes still participate in the read guard. */
     public void requireAtOrBefore(final long laterSequence, final SourcePosition frontier) {
         if (frontier == null || Long.compareUnsigned(sequence, laterSequence) > 0) {
             throw new IllegalStateException("quota mutation is ahead of the source sequence/frontier");
@@ -86,8 +108,8 @@ public record TargetQuotaMutation(long sequence, SourcePosition source, byte[] m
     /** A Floor without a local ordinal cannot certify a later local write at its own source position. */
     public void requireCoveredByFloor(final RecoveryFloorRef floor) {
         requireAtOrBefore(floor.includedMutationSequence(), floor.appliedSourcePosition());
-        if (isLocalClaim() && source.compareTo(floor.appliedSourcePosition()) == 0) {
-            throw new IllegalStateException("Floor must advance beyond an unbound local Claim ordinal");
+        if (isLocalMutation() && source.compareTo(floor.appliedSourcePosition()) == 0) {
+            throw new IllegalStateException("Floor must advance beyond an unbound local ordinal");
         }
     }
 
@@ -96,21 +118,25 @@ public record TargetQuotaMutation(long sequence, SourcePosition source, byte[] m
             CanonicalProtobuf.uint64Bits(out, 1, sequence);
             CanonicalProtobuf.bytes(out, 2, source.canonicalBytes());
             CanonicalProtobuf.bytes(out, 3, mutationDigest);
-            if (isLocalClaim()) {
-                CanonicalProtobuf.uint64Bits(out, 4, localClaimOrdinal);
+            if (isLocalMutation()) {
+                CanonicalProtobuf.uint64Bits(out, reservationExpiry ? 5 : 4, localClaimOrdinal);
             }
         });
     }
 
     public static TargetQuotaMutation decode(final byte[] encoded) {
         final var fields = TargetCompatibilityCodec.read(encoded, MAX_CANONICAL_BYTES, 4, false, "TargetQuotaMutation");
+        final boolean expiry = fields.size() == 4 && fields.getLast().number() == 5;
         QueryCodecSupport.requireNumbers(
-                fields, fields.size() == 4 ? new int[] {1, 2, 3, 4} : new int[] {1, 2, 3}, "TargetQuotaMutation");
+                fields,
+                fields.size() == 4 ? new int[] {1, 2, 3, expiry ? 5 : 4} : new int[] {1, 2, 3},
+                "TargetQuotaMutation");
         final var result = new TargetQuotaMutation(
                 QueryCodecSupport.uint64Bits(fields.get(0), 1),
                 TargetSourcePosition.decode(QueryCodecSupport.bytes(fields.get(1), 2)),
                 QueryCodecSupport.fixed(fields.get(2), 3, 32),
-                fields.size() == 4 ? QueryCodecSupport.uint64Bits(fields.get(3), 4) : 0);
+                fields.size() == 4 ? QueryCodecSupport.uint64Bits(fields.get(3), expiry ? 5 : 4) : 0,
+                expiry);
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "TargetQuotaMutation");
         return result;
     }
@@ -120,6 +146,7 @@ public record TargetQuotaMutation(long sequence, SourcePosition source, byte[] m
         return other instanceof TargetQuotaMutation that
                 && sequence == that.sequence
                 && localClaimOrdinal == that.localClaimOrdinal
+                && reservationExpiry == that.reservationExpiry
                 && Arrays.equals(source.canonicalBytes(), that.source.canonicalBytes())
                 && Arrays.equals(mutationDigest, that.mutationDigest);
     }

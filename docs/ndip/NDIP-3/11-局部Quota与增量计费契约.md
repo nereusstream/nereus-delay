@@ -70,13 +70,13 @@ grant 自动授权这些新计数。Counter 约束：
 ## 3. Mutation stamp、counter 与 aggregate
 
 `TargetQuotaMutation` exact fields：1 非零 raw uint64 **source mutation sequence**；
-2 完整有界 SourcePosition；3 已接受 source 操作或 §18 完整本地 Claim 操作的非零
-canonical digest[32]；4 可选非零 raw uint64 `localClaimOrdinal`。Source 操作省略
-field 4（内存值为 0），其序号与 source 顺序同时严格推进；本地 Claim/revoke 保持
-source sequence 与完整 SourcePosition 不变，只推进 local ordinal。显式编码零
-field 4 拒绝。SourcePosition 延续 B1 上限、物理资源身份和同 offset 元数据一致性。
-恢复 replay 不重新采样时间或 accepted bytes，也不把本地 Claim 次数混入 source
-sequence；source 派生 incarnation ID 因此不依赖机器曾执行的本地 Claim 历史。
+2 完整有界 SourcePosition；3 已接受 source 或完整本地操作的非零 canonical digest[32]。
+可选 field 4 为非零 raw uint64 `localClaimOrdinal`；可选 field 5 为非零 raw uint64
+`reservationExpiryOrdinal`，两者互斥。Source 操作省略二者并严格推进 sequence/source；
+Claim/revoke 只用 field 4，reservation expiry物化只用 field 5。两类本地写共用递增
+ordinal且不推进 source，同 ordinal 还须完整 kind/digest一致。显式零、4/5共存和未知
+field拒绝。新分支不扩大counter/total/aggregate已预留的11-byte本地stamp宽度。
+SourcePosition延续B1边界和物理身份；本地写不混入source sequence或source派生incarnation。
 
 `TargetQuotaCounter` schema 1，预留 NV type **26**：
 
@@ -1995,3 +1995,22 @@ result/source accounting，不生成 Message，也不把 RESERVED owner 转为 A
 查询保留原 Prepare receipt/版本，先前 COMMITTED/ABANDONED 保留结果，历史 Commit 仍
 返回 ALREADY_COMMITTED。完整额度转移必须由后续有界 expiry materializer 与物理容量
 权威共同完成，本批不提供 payload GC/release authority。
+
+## 45. 本地 expiry 物化的序号与守恒
+
+TargetReservationExpiryStore以单个已fenced reservation为上界，同一预算内完成受保护
+候选读取和提交视图重验。mutation field5标识本地到期物化，与field4 Claim共享ordinal，
+保持source sequence/position；Backend仅写四业务投影、两原owner counters、一个total和
+aggregate，不改source META。same-source Floor仍不能覆盖后续local写，必须推进source。
+
+TargetRecordAccounting从实际三份RESERVED投影与owner移除费用，加回两份EXPIRED与
+RETAINED owner的真实费用。quota delta仅允许同一TARGET/tenant mirror，两者变化相等；
+reservation count恰减1，reservation bytes全转retained，STATE按实际encoded record差额，
+其余资源和基数不变。禁止新counter、owner重分配、payload Commit/replay/release、普通
+Claim或source操作冒用此分支。外部quota/物理容量/Owner/fence权限仍为强制provider。
+
+field4旧bytes未改变；field5与它互斥，最大stamp宽度不变，因此bookkeeping固定counter/
+total/aggregate reserve不重新计价。原独立向量检查通过。NV38/payload owner仅扩大其
+current stamp reader边界并接受特定expiry终态，Prepare anchor与receipt source/版本不改。
+重复调用在当前读权限下识别已物化状态，零写且不二次转移额度。GC扫描/WorkClass/完整
+Close和recovery激活、retained释放及外部对象删除仍待后续实现与集中验证。

@@ -25,7 +25,7 @@ public final class TargetQuotaPayloadOwner {
             + 2
             + 11
             + 4
-            + TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES
+            + TargetQuotaMutation.MAX_CANONICAL_BYTES
             + 19
             + 2 * 35;
     private static final byte[] DIGEST_DOMAIN = Bytes.utf8("nereus-delay-target-quota-payload-owner\0");
@@ -114,7 +114,13 @@ public final class TargetQuotaPayloadOwner {
         this.kind = Objects.requireNonNull(kind, "kind");
         this.phase = Objects.requireNonNull(phase, "phase");
         this.mutation = Objects.requireNonNull(mutation, "mutation");
-        mutation.requireSourceApplied();
+        if (mutation.isLocalMutation()
+                && (!mutation.reservationExpiry()
+                        || kind != Kind.OBJECT
+                        || phase != Phase.RETAINED
+                        || committed != null)) {
+            throw new IllegalArgumentException("local expiry can only retain an uncommitted object reservation");
+        }
         this.recoveryLineage = TargetCompatibilityCodec.assigned(recoveryLineage, 16, "recoveryLineage");
         Bytes.requireLength(payloadSha256, 32, "payloadSha256");
         if (owner.kind() != TargetQuotaIdentity.Kind.TARGET
@@ -377,7 +383,14 @@ public final class TargetQuotaPayloadOwner {
             final TargetQuotaMutation stamp,
             final RecoveryFloorRef floor,
             final TransitionAuthority authority) {
-        stamp.requireAfter(mutation);
+        if (stamp.reservationExpiry()) {
+            if (phase != Phase.RESERVED || nextPhase != Phase.RETAINED || payload != null || floor != null) {
+                throw new IllegalStateException("local expiry cannot replay, commit or release payload");
+            }
+            stamp.requireStoreSuccessorOf(mutation);
+        } else {
+            stamp.requireAfter(mutation);
+        }
         final var next = new TargetQuotaPayloadOwner(
                 messageId,
                 owner,

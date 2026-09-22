@@ -332,7 +332,7 @@ public final class TargetQuotaGrantControlVerifier {
         }
         if (Long.compareUnsigned(left.sequence(), right.sequence()) < 0
                 || (left.sequence() == right.sequence()
-                        && Long.compareUnsigned(left.localClaimOrdinal(), right.localClaimOrdinal()) <= 0)) {
+                        && Long.compareUnsigned(left.localOrdinal(), right.localOrdinal()) <= 0)) {
             left.requireAtOrBefore(right);
         } else {
             right.requireAtOrBefore(left);

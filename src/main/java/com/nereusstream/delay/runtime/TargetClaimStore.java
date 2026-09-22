@@ -273,7 +273,7 @@ public final class TargetClaimStore {
         }
         final var prior = reader.aggregate().mutation();
         final long ordinal = prior != null && prior.sequence() == reader.sourceSequence()
-                ? TargetQuotaMutation.increment(prior.localClaimOrdinal())
+                ? TargetQuotaMutation.increment(prior.localOrdinal())
                 : 1;
         return new TargetQuotaMutation(reader.sourceSequence(), reader.source(), digest, ordinal);
     }

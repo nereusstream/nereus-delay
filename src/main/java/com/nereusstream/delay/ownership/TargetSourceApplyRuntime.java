@@ -303,7 +303,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             final LongSupplier clock) {
         return (actual, actualScope, mutation) -> {
             final var stamp = mutation.quota().counters().mutation();
-            if (stamp.localClaimOrdinal() != 0
+            if (stamp.isLocalMutation()
                     || !Arrays.equals(
                             stamp.source().canonicalBytes(), entry.position().canonicalBytes())
                     || !Arrays.equals(stamp.mutationDigest(), sourceDigest(entry))) {

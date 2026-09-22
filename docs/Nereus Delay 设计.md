@@ -6330,3 +6330,18 @@ Query Snapshot 同时保留物理 reservation、实际 payloadPhase、readSource
 使用 effectiveStatus 判断当前时间围栏语义，不能将 reservation().status() 当作完整公开状态。
 receipt 仍固定为原 Prepare，水位不会生成新的上传授权或释放许可。完整公共 Query 和 Close
 控制合并仍需后续实现；有界物化/GC 才能转移实际 reservation/retained 配额。
+
+### Target reservation 有界单条到期物化（2026-09-22）
+
+Target reservation 已实现有界单条到期物化：先在当前读取权限下取得候选，再在提交
+ReadView 内重验身份、owner、expiry、queue 和已提交 fence；EXPIRED 双 ID、删除 expiry、
+payload RESERVED→RETAINED、实际费用/counter/total/aggregate 同批。独立 local expiry
+stamp 保留 source sequence/position，重复调用受读 guard 保护且零写。五项必要开发检查
+通过（四个实际 Worker/Store 场景和一个原计费向量检查）。GC 候选扫描/WorkClass、完整
+Close 覆盖、生产 providers/factory、恢复/迁移及集中验证仍未完成，29切片范围不变。
+
+物化不新增 source 事件、不改 Prepare anchor/receipt，不释放外部对象。物理 stateVersion
+从 1 变 2，mutation 明确标记为本地 expiry；它的 source 仅表示物化所在的已应用 frontier，
+不能冒充最初 fence 的 source。后续 source 应用仍严格递增，Floor 必须越过该 local stamp
+所在的 source 才能覆盖它。完整规范见 quota §45；Close 已关闭的候选目前拒绝物化，等待
+源有序 closure 路径，不猜测 Close 与 fence 的先后。

@@ -670,3 +670,17 @@ Query Snapshot 固定同一 ReadView 的闭合水位并公开 effectiveStatus；
 保留原状态/版本/stamp，payloadPhase 保留真实计费相位。readSource 不是新制造的 expiry
 transition source，receipt 仍用 prepareAnchor。正式 expiry materialization/source 归属、
 Close 控制排序及 GC 删除权限仍待接入，本批不定义新 key/NV 或假造完成投影。
+
+### 单候选 reservation expiry 的本地投影（2026-09-22）
+
+复用 NV38 的 ID07/ID08 和 TIMELINE0d、原 META payload owner；EXPIRED 两份记录、删除
+原 expiry 和 RESERVED→RETAINED owner 同批，无新 CF/key tag/NV type。新物化 stamp 使用
+TargetQuotaMutation field5（互斥 field4），区分 source、Claim和reservation expiry；旧
+source/Claim bytes不变。NV38 current mutation 与 payload owner 的 reader 上界放开原有
+11-byte local ordinal，counter/aggregate/total最大宽度不增加，bookkeeping固定费用不改。
+
+逻辑到期先由 TIME_FENCE 决定，物化时保留 Prepare anchor/receipt，物理 stateVersion
+增加一次；local stamp 的 source 指向物化 frontier，不声称它就是决定到期的 fence。
+expiry 删除需完整 before/after同视图证据；重试先读已 EXPIRED 返回false。已有 Close
+candidate暂不由此 writer处理。恢复须保留 ordinal，same-source Floor不能覆盖其后的
+local写；旧 reader不认识field5须拒绝，生产读写/恢复能力激活与受控迁移仍待完成。

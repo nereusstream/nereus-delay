@@ -1528,6 +1528,127 @@ class TargetCommandStoreTest {
                             .appliedOutcome()
                             .commandResult()
                             .stableCode());
+            final var expiryStore = new TargetReservationExpiryStore(backend, scope, lineage, 1);
+            final long sourceSequenceBeforeExpiry = store.shardMutationSequence();
+            final byte[] sourceBeforeExpiry =
+                    store.get(ColumnFamily.META, com.nereusstream.delay.store.KeyCodec.metaFixed(3));
+            final long nativeBeforeExpiry = store.latestSequenceNumber();
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> expiryStore.materialize(
+                            budget(),
+                            thirdReservation.reservationId(),
+                            (a, b) -> guard(),
+                            (a, b, c) -> {
+                                throw new IllegalStateException("expiry physical capacity unavailable");
+                            },
+                            delta -> {}));
+            assertEquals(nativeBeforeExpiry, store.latestSequenceNumber());
+            assertArrayEquals(thirdRaw, store.get(ColumnFamily.ID, thirdKey));
+            assertArrayEquals(thirdOwnerRaw, store.get(ColumnFamily.META, thirdOwnerKey));
+            final var externalIncomplete = assertThrows(
+                    IllegalStateException.class,
+                    () -> expiryStore.materialize(
+                            budget(),
+                            thirdReservation.reservationId(),
+                            (a, b) -> guard(),
+                            (a, b, c) -> guard(),
+                            delta -> {
+                                throw localReadExhaustion;
+                            }));
+            assertEquals(localReadExhaustion, externalIncomplete.getCause());
+            assertEquals(nativeBeforeExpiry, store.latestSequenceNumber());
+            final var expiryCounters = new java.util.concurrent.atomic.AtomicReference<TargetQuotaDelta>();
+            assertTrue(expiryStore.materialize(
+                    budget(),
+                    thirdReservation.reservationId(),
+                    (a, b) -> guard(),
+                    (a, b, c) -> guard(),
+                    expiryCounters::set));
+            assertEquals(sourceSequenceBeforeExpiry, store.shardMutationSequence());
+            assertArrayEquals(
+                    sourceBeforeExpiry,
+                    store.get(ColumnFamily.META, com.nereusstream.delay.store.KeyCodec.metaFixed(3)));
+            assertEquals(8, store.latestSequenceNumber() - nativeBeforeExpiry);
+            final var materialized = queries.read(budget(), thirdReservation.reservationId(), (a, b) -> guard())
+                    .orElseThrow();
+            assertEquals(
+                    PayloadReservationStatus.EXPIRED, materialized.reservation().status());
+            assertEquals(PayloadReservationStatus.EXPIRED, materialized.effectiveStatus());
+            assertEquals(2, materialized.reservation().stateVersion());
+            assertEquals(thirdReceipt, materialized.receipt(location));
+            assertEquals(TargetQuotaPayloadOwner.Phase.RETAINED, materialized.payloadPhase());
+            assertEquals(historicalAfterFenceAt, materialized.readSource());
+            final var expiryStamp = materialized.reservation().mutation();
+            assertTrue(expiryStamp.reservationExpiry());
+            assertTrue(expiryStamp.isLocalMutation());
+            assertEquals(false, expiryStamp.isLocalClaim());
+            assertEquals(1, expiryStamp.localOrdinal());
+            assertEquals(sourceSequenceBeforeExpiry, expiryStamp.sequence());
+            assertEquals(historicalAfterFenceAt, expiryStamp.source());
+            assertEquals(
+                    expiryStamp,
+                    com.nereusstream.delay.protocol.TargetQuotaMutation.decode(expiryStamp.canonicalBytes()));
+            assertThrows(IllegalArgumentException.class, expiryStamp::requireSourceApplied);
+            final var laterClaimStamp = new com.nereusstream.delay.protocol.TargetQuotaMutation(
+                    expiryStamp.sequence(), expiryStamp.source(), bytes(32, 0xf1), 2);
+            laterClaimStamp.requireStoreSuccessorOf(expiryStamp);
+            assertTrue(laterClaimStamp.isLocalClaim());
+            final var sameOrdinalClaim = new com.nereusstream.delay.protocol.TargetQuotaMutation(
+                    expiryStamp.sequence(),
+                    expiryStamp.source(),
+                    expiryStamp.mutationDigest(),
+                    expiryStamp.localOrdinal());
+            assertThrows(IllegalStateException.class, () -> sameOrdinalClaim.requireAtOrBefore(expiryStamp));
+
+            assertThrows(IllegalStateException.class, () -> expiryStamp.requireStoreSuccessorOf(laterClaimStamp));
+            assertNull(store.get(ColumnFamily.TIMELINE, thirdReservation.expiryKey()));
+            assertArrayEquals(
+                    store.get(ColumnFamily.ID, thirdKey), store.get(ColumnFamily.ID, thirdReservation.lookupKey()));
+            final var materializedOwner = TargetQuotaPayloadOwner.decode(TargetValueEnvelope.decode(
+                            store.get(ColumnFamily.META, thirdOwnerKey), TargetQuotaPayloadOwner.VALUE_TYPE)
+                    .payload());
+            materialized.reservation().requireOwner(materializedOwner);
+            assertEquals(expiryStamp, materializedOwner.mutation());
+            final var delta = expiryCounters.get();
+            assertEquals(2, delta.changes().size());
+            assertEquals(expiryStamp, delta.mutation());
+            assertEquals(
+                    fencedUsage.resources().amount(CapacityDimension.RETAINED_BYTES) + 100,
+                    delta.nextAggregate().usage().resources().amount(CapacityDimension.RETAINED_BYTES));
+            assertEquals(0, delta.nextAggregate().usage().resources().amount(CapacityDimension.RESERVATION_MESSAGES));
+            assertEquals(
+                    0, delta.nextAggregate().usage().resources().amount(CapacityDimension.RESERVATION_PAYLOAD_BYTES));
+            final long nativeAfterExpiry = store.latestSequenceNumber();
+            assertEquals(
+                    false,
+                    expiryStore.materialize(
+                            budget(),
+                            thirdReservation.reservationId(),
+                            (a, b) -> guard(),
+                            (a, b, c) -> {
+                                throw new AssertionError("repeat materialization wrote");
+                            },
+                            ignored -> {
+                                throw new AssertionError("repeat materialization reauthorized quota");
+                            }));
+            assertEquals(nativeAfterExpiry, store.latestSequenceNumber());
+            final var afterMaterializationAt = source(
+                    historicalAfterFenceAt,
+                    historicalAfterFenceAt.offset() + 1,
+                    historicalAfterFenceAt.brokerLogAppendTimeEpochMs() + 1);
+            assertEquals(
+                    StableCode.RESERVATION_EXPIRED,
+                    apply(
+                                    loop,
+                                    entries,
+                                    reschedule(
+                                            thirdMessage, afterMaterializationAt, 815, new MessagePrecondition(0L, 2L)),
+                                    afterMaterializationAt)
+                            .appliedOutcome()
+                            .commandResult()
+                            .stableCode());
+            assertEquals(sourceSequenceBeforeExpiry + 1, store.shardMutationSequence());
         }
     }
 

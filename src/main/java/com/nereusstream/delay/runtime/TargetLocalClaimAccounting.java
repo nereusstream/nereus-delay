@@ -60,7 +60,7 @@ public final class TargetLocalClaimAccounting implements TargetMessageStore.Acco
         final var aggregate = reader.aggregate();
         final long ordinal =
                 aggregate.mutation() != null && aggregate.mutation().sequence() == reader.sourceSequence()
-                        ? TargetQuotaMutation.increment(aggregate.mutation().localClaimOrdinal())
+                        ? TargetQuotaMutation.increment(aggregate.mutation().localOrdinal())
                         : 1;
         final var operation = new TargetQuotaMutation(reader.sourceSequence(), reader.source(), digest, ordinal);
         final var rootId = new TargetQuotaIdentity(

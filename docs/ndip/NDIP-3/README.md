@@ -10,12 +10,12 @@
 
 [原 29 切片集中验证交接清单](12-集中验证交接清单.md)
 
-Target reservation 已接入持久 TIME_FENCE 的只读有效状态：物理 RESERVED 且
-expiry <= closedIngressDeadlineThrough 时，Query 返回 effectiveStatus=EXPIRED，首次
-Commit/Cancel/Reschedule 均停止该 reservation 的后续业务；先前 COMMITTED/ABANDONED
-保持原结果。四项实际 Worker 必要开发检查通过，含等值边界、早于 expiry 的 Broker 时间、
-QUERY/旧快照、Command 重放、CAS 与 payload 配额不变。先前原子 fence writer 已接入；
-有界到期物化、完整 Close 控制覆盖、生产 providers/factory 和集中验证仍未完成。
+Target reservation 已实现有界单条到期物化：先在当前读取权限下取得候选，再在提交
+ReadView 内重验身份、owner、expiry、queue 和已提交 fence；EXPIRED 双 ID、删除 expiry、
+payload RESERVED→RETAINED、实际费用/counter/total/aggregate 同批。独立 local expiry
+stamp 保留 source sequence/position，重复调用受读 guard 保护且零写。五项必要开发检查
+通过（四个实际 Worker/Store 场景和一个原计费向量检查）。GC 候选扫描/WorkClass、完整
+Close 覆盖、生产 providers/factory、恢复/迁移及集中验证仍未完成，29切片范围不变。
 
 以下为前序认证入口实施记录；持久 writer 的当前进展以上述说明为准。
 
