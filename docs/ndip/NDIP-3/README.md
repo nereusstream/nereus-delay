@@ -10,6 +10,11 @@
 
 [原 29 切片集中验证交接清单](12-集中验证交接清单.md)
 
+reservation 的 Reschedule 已按主设计 §11.3 接入实际 Worker：先核对 reservation
+身份/owner 与 generation=0/stateVersion 前置条件，RESERVED 返回 RESERVATION_NOT_COMMITTED，
+ABANDONED 返回 ALREADY_ABANDONED；不创建 Message，不改变 reservation、expiry 或 payload
+配额。结果/source 仍原子计费，同位置重放零写。Commit 与其余后续实现、完整集中验证仍待完成。
+
 首次 Prepare 与 reservation Cancel 已接入实际 Worker Source Apply。NV38 保存原 Prepare
 anchor、冻结排序契约、按 MessageId/reservationId 查询及到期索引；Prepare 不创建 Message
 或投递工作，Cancel 原子转 ABANDONED、移除到期索引并将 payload 配额转入 retained。

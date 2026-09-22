@@ -1891,3 +1891,12 @@ reservation 来绕过其已有 Message/attempt 义务。COMMITTED 缺 Message �
 拒绝、同位置重放和 Cancel 后配额转移。生产认证、strict/损坏/溢出边界、Commit、签名
 receipt/query/upload、正式 expiry WorkClass/source writer、Floor/GC 与完整恢复矩阵仍待实现或
 集中验证；不将 codec 的终态枚举认定为相应业务路径已经完成。
+
+
+## 38. 未提交 reservation 的 Reschedule 结果
+
+已有 payload owner/reservation 的 Reschedule 是原 Target 的业务结果，不是 SHARD-only
+NOT_FOUND。版本不符为 VERSION_CONFLICT；有效 RESERVED 为 RESERVATION_NOT_COMMITTED，
+ABANDONED 为 ALREADY_ABANDONED。只增加实际 COMMAND/RESULT/POSITION 及 source 费用，
+双 ID、expiry、payload owner、reservation 消息数/字节及 retained 字节不变；没有 Message
+或新的投递工作。同位置重放不写，闭合结果仍不得绕过 Store/source/Owner 提交屏障。

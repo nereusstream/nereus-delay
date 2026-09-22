@@ -833,7 +833,67 @@ class TargetCommandStoreTest {
                     .value();
             assertEquals(1, reservedUsage.resources().amount(CapacityDimension.RESERVATION_MESSAGES));
             assertEquals(100, reservedUsage.resources().amount(CapacityDimension.RESERVATION_PAYLOAD_BYTES));
-            final var abandonAt = source(quotaAt, quotaAt.offset() + 1, quotaAt.brokerLogAppendTimeEpochMs() + 1);
+            final var versionAt = source(quotaAt, quotaAt.offset() + 1, quotaAt.brokerLogAppendTimeEpochMs() + 1);
+            final var wrongVersion = reschedule(reservedMessage, versionAt, 570, new MessagePrecondition(1L, 1L));
+            assertEquals(
+                    StableCode.VERSION_CONFLICT,
+                    apply(loop, entries, wrongVersion, versionAt)
+                            .appliedOutcome()
+                            .commandResult()
+                            .stableCode());
+            final var rescheduleAt =
+                    source(versionAt, versionAt.offset() + 1, versionAt.brokerLogAppendTimeEpochMs() + 1);
+            final var uncommitted = reschedule(reservedMessage, rescheduleAt, 580, new MessagePrecondition(0L, 1L));
+            assertEquals(
+                    StableCode.RESERVATION_NOT_COMMITTED,
+                    apply(loop, entries, uncommitted, rescheduleAt)
+                            .appliedOutcome()
+                            .commandResult()
+                            .stableCode());
+            final long afterUncommittedWrites = store.latestSequenceNumber();
+            assertEquals(
+                    StableCode.RESERVATION_NOT_COMMITTED,
+                    apply(loop, entries, uncommitted, rescheduleAt)
+                            .appliedOutcome()
+                            .commandResult()
+                            .stableCode());
+            assertEquals(afterUncommittedWrites, store.latestSequenceNumber());
+            assertNull(store.get(ColumnFamily.ID, TargetKeyCodec.message(reservedMessage)));
+            assertArrayEquals(
+                    reserved.canonicalBytes(),
+                    TargetValueEnvelope.decode(
+                                    store.get(ColumnFamily.ID, reservationKey), TargetReservationRecord.VALUE_TYPE)
+                            .payload());
+            assertArrayEquals(
+                    reserved.canonicalBytes(),
+                    TargetValueEnvelope.decode(
+                                    store.get(ColumnFamily.ID, reserved.lookupKey()),
+                                    TargetReservationRecord.VALUE_TYPE)
+                            .payload());
+            assertArrayEquals(
+                    reserved.canonicalBytes(),
+                    TargetValueEnvelope.decode(
+                                    store.get(ColumnFamily.TIMELINE, reserved.expiryKey()),
+                                    TargetReservationRecord.VALUE_TYPE)
+                            .payload());
+            assertArrayEquals(
+                    reservedOwner.canonicalBytes(),
+                    TargetValueEnvelope.decode(
+                                    store.get(ColumnFamily.META, reservedOwnerKey), TargetQuotaPayloadOwner.VALUE_TYPE)
+                            .payload());
+            final var afterRescheduleUsage = backend.prepareRead(
+                            budget(), reader -> reader.aggregate().usage())
+                    .value();
+            for (var dimension : List.of(
+                    CapacityDimension.RESERVATION_MESSAGES,
+                    CapacityDimension.RESERVATION_PAYLOAD_BYTES,
+                    CapacityDimension.RETAINED_BYTES)) {
+                assertEquals(
+                        reservedUsage.resources().amount(dimension),
+                        afterRescheduleUsage.resources().amount(dimension));
+            }
+            final var abandonAt =
+                    source(rescheduleAt, rescheduleAt.offset() + 1, rescheduleAt.brokerLogAppendTimeEpochMs() + 1);
             final var abandon = cancel(reservedMessage, abandonAt, 600);
             assertEquals(
                     StableCode.PAYLOAD_RESERVATION_ABANDONED,
@@ -882,6 +942,21 @@ class TargetCommandStoreTest {
                             .appliedOutcome()
                             .commandResult()
                             .stableCode());
+            final var terminalRescheduleAt =
+                    source(repeatAt, repeatAt.offset() + 1, repeatAt.brokerLogAppendTimeEpochMs() + 1);
+            assertEquals(
+                    StableCode.ALREADY_ABANDONED,
+                    apply(loop, entries, reschedule(reservedMessage, terminalRescheduleAt, 602), terminalRescheduleAt)
+                            .appliedOutcome()
+                            .commandResult()
+                            .stableCode());
+            assertArrayEquals(
+                    abandoned.canonicalBytes(),
+                    TargetValueEnvelope.decode(
+                                    store.get(ColumnFamily.ID, reservationKey), TargetReservationRecord.VALUE_TYPE)
+                            .payload());
+            assertNull(store.get(ColumnFamily.ID, TargetKeyCodec.message(reservedMessage)));
+            assertNull(store.get(ColumnFamily.TIMELINE, reserved.expiryKey()));
         }
     }
 
@@ -927,11 +1002,16 @@ class TargetCommandStoreTest {
     }
 
     private static PreparedCommand reschedule(DelayMessageId message, KafkaSourcePosition at, int unique) {
+        return reschedule(message, at, unique, new MessagePrecondition(null, null));
+    }
+
+    private static PreparedCommand reschedule(
+            DelayMessageId message, KafkaSourcePosition at, int unique, MessagePrecondition precondition) {
         final var id = cancel(message, at, unique).commandId();
         final var body = new RescheduleCommandBody(
                 message,
                 at.brokerLogAppendTimeEpochMs() + 1000,
-                new MessagePrecondition(null, null),
+                precondition,
                 at.brokerLogAppendTimeEpochMs() + 100,
                 at.brokerLogAppendTimeEpochMs() + 2000);
         final var tuple = ProtocolTuple.managedCommand();

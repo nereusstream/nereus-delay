@@ -632,7 +632,7 @@ public final class TargetCommandStore {
                 registration.owner().accounting());
     }
 
-    private Decision cancelReservation(
+    private Decision modifyReservation(
             TargetStoreBackend.Reader reader,
             PreparedCommand command,
             MessagePrecondition precondition,
@@ -697,14 +697,17 @@ public final class TargetCommandStore {
                     };
             return unchanged(applied(code, source, null), owner);
         }
-        if (queue.admissionState() == TargetQueueState.AdmissionState.CLOSED
-                || controls.closed(reader, binding, source)) {
-            return unchanged(applied(StableCode.PAYLOAD_RESERVATION_CLOSED, source, null), owner);
-        }
         final var index =
                 payload(reader, ColumnFamily.TIMELINE, reservation.expiryKey(), TargetReservationRecord.VALUE_TYPE);
         if (!Arrays.equals(index, reservation.canonicalBytes())) {
             throw new IllegalStateException("reservation expiry projection differs");
+        }
+        if (command.type() == CommandType.RESCHEDULE) {
+            return unchanged(applied(StableCode.RESERVATION_NOT_COMMITTED, source, null), owner);
+        }
+        if (queue.admissionState() == TargetQueueState.AdmissionState.CLOSED
+                || controls.closed(reader, binding, source)) {
+            return unchanged(applied(StableCode.PAYLOAD_RESERVATION_CLOSED, source, null), owner);
         }
         final var after = reservation.finish(PayloadReservationStatus.ABANDONED, stamp, null);
         final var retained = payloadOwner.retain(stamp, (prior, next, floor) -> {
@@ -758,8 +761,8 @@ public final class TargetCommandStore {
                 command.delayMessageId().bytes());
         final byte[] payloadRaw = reader.get(ColumnFamily.META, payloadKey);
         if (raw == null) {
-            if (payloadRaw != null && reschedule == null) {
-                return cancelReservation(reader, command, precondition, payloadKey, payloadRaw, stamp, controls);
+            if (payloadRaw != null) {
+                return modifyReservation(reader, command, precondition, payloadKey, payloadRaw, stamp, controls);
             }
             return unchanged(applied(StableCode.NOT_FOUND, source, null), root);
         }
