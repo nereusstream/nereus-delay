@@ -22,6 +22,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 /** One bounded materialization of a committed time-fence decision; never appends or renumbers source records. */
 public final class TargetReservationExpiryStore {
@@ -41,6 +42,97 @@ public final class TargetReservationExpiryStore {
             throw new IllegalArgumentException("expiry requires a finite domain bound");
         }
         this.maximumDomains = maximumDomains;
+    }
+
+    /** Process-local sweep continuation; never a write authorization or a recovery checkpoint. */
+    public static final class Cursor {
+        private final TargetReservationExpiryStore owner;
+        private final long cutoff;
+        private final byte[] after;
+
+        private Cursor(TargetReservationExpiryStore owner, long cutoff, byte[] after) {
+            this.owner = owner;
+            this.cutoff = cutoff;
+            this.after = Bytes.copy(after);
+        }
+    }
+
+    /** An empty candidate ends this sweep; the next discovery must start again with a null cursor. */
+    public record Discovery(Optional<TargetReservationRecord> candidate, Cursor nextCursor) {
+        public Discovery {
+            Objects.requireNonNull(candidate, "candidate");
+            if (candidate.isPresent() != (nextCursor != null)) {
+                throw new IllegalArgumentException("expiry discovery cursor and candidate disagree");
+            }
+        }
+    }
+
+    public void requireShard(com.nereusstream.delay.protocol.ShardId shard) {
+        queries.requireShard(shard);
+    }
+
+    /** One guarded range seek. The cutoff is frozen for a sweep and derives only from committed TIME_FENCE. */
+    public Discovery discover(BoundedReadBudget budget, Cursor cursor, TargetStoreBackend.ReadAuthority authority) {
+        if (cursor != null && cursor.owner != this) {
+            throw new IllegalArgumentException("foreign reservation expiry cursor");
+        }
+        return backend.guardedRead(
+                budget,
+                reader -> {
+                    if (!reader.shardId().equals(scope.shard()) || reader.source() == null) {
+                        throw new IllegalStateException("expiry discovery requires its established Shard source");
+                    }
+                    final byte[] rawFence = reader.get(ColumnFamily.META, KeyCodec.metaFixed(4));
+                    final var fence = rawFence == null
+                            ? null
+                            : IngressFenceState.decode(
+                                    TargetValueEnvelope.decode(rawFence, 1).payload());
+                    final long watermark = fence == null ? IngressFenceState.OPEN : fence.closedThroughEpochMs();
+                    if (watermark >= 0 && fence.proofId() == null) {
+                        throw new IllegalStateException("expiry discovery requires an authenticated persisted fence");
+                    }
+                    if (cursor != null && watermark < cursor.cutoff) {
+                        throw new IllegalStateException("expiry discovery fence regressed; discard the sweep");
+                    }
+                    final long cutoff = cursor == null ? watermark : cursor.cutoff;
+                    if (cutoff == IngressFenceState.OPEN) {
+                        return new Discovery(Optional.empty(), null);
+                    }
+                    final byte[] prefix = {TargetKeyCodec.RESERVATION_EXPIRY_TAG, 1};
+                    final byte[] lower = cursor == null ? prefix : Bytes.concat(cursor.after, new byte[] {0});
+                    final byte[] upper = Bytes.concat(
+                            prefix, cutoff == Long.MAX_VALUE ? new byte[] {(byte) 0x80} : Bytes.u64be(cutoff + 1));
+                    final var row = reader.first(ColumnFamily.TIMELINE, lower, upper, List.of());
+                    if (row == null) {
+                        return new Discovery(Optional.empty(), null);
+                    }
+                    final var candidate = TargetReservationRecord.decode(
+                            TargetValueEnvelope.decode(row.value(), TargetReservationRecord.VALUE_TYPE)
+                                    .payload());
+                    if (!Arrays.equals(row.key(), candidate.expiryKey())
+                            || candidate.status() != PayloadReservationStatus.RESERVED
+                            || candidate.expiryEpochMs() > cutoff
+                            || !Arrays.equals(lineage, candidate.recoveryLineage())
+                            || !candidate
+                                    .locator()
+                                    .messageId()
+                                    .routingId()
+                                    .shardId()
+                                    .equals(scope.shard())) {
+                        throw new IllegalStateException("expiry discovery index differs from its reservation identity");
+                    }
+                    return new Discovery(Optional.of(candidate), new Cursor(this, cutoff, row.key()));
+                },
+                authority);
+    }
+
+    /** Closure precedence needs source-ordered materialization; leave this reservation intact and revisit later. */
+    public static final class ClosedTargetException extends IllegalStateException {
+        private static final long serialVersionUID = 1L;
+
+        private ClosedTargetException() {
+            super("closed Target requires source-ordered closure materialization");
+        }
     }
 
     /**
@@ -91,7 +183,7 @@ public final class TargetReservationExpiryStore {
                 throw new IllegalStateException("expiry Target queue identity differs from its key");
             }
             if (queue.admissionState() == TargetQueueState.AdmissionState.CLOSED) {
-                throw new IllegalStateException("closed Target requires source-ordered closure materialization");
+                throw new ClosedTargetException();
             }
             if (reader.get(
                             ColumnFamily.ID,

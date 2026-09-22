@@ -684,3 +684,15 @@ source/Claim bytes不变。NV38 current mutation 与 payload owner 的 reader �
 expiry 删除需完整 before/after同视图证据；重试先读已 EXPIRED 返回false。已有 Close
 candidate暂不由此 writer处理。恢复须保留 ordinal，same-source Floor不能覆盖其后的
 local写；旧 reader不认识field5须拒绝，生产读写/恢复能力激活与受控迁移仍待完成。
+
+### reservation expiry 扫描游标（2026-09-22）
+
+扫描复用已有 TIMELINE 0d/01 + expiry:u64be + MessageId，不新增 CF/key/NV 或持久格式。
+候选 value 必须为对应 RESERVED NV38，key、Shard、lineage 和 cutoff 完整匹配。opaque
+Cursor 绑定原 Store 实例/完整 key/本轮 cutoff，不能跨实例使用。cursor 不是 receipt、
+source frontier、checkpoint 或 mutation 权限；实际物化重新读取双 ID/binding/owner/
+expiry 与提交视图。扫描不改任何索引或计费，也不按 wall clock 决定到期。
+
+到达范围末尾丢弃 cursor，从当前持久水位重新扫描，以覆盖较早插入和 CLOSED 延期项。
+重启丢 cursor 后从头读取合法；正式 Owner/recovery 装配仍须完成，不能仅靠这个游标
+宣布恢复验证通过。CLOSED 延期不擅自选定 EXPIRED/ABANDONED 胜者。

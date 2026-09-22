@@ -2014,3 +2014,15 @@ total/aggregate reserve不重新计价。原独立向量检查通过。NV38/payl
 current stamp reader边界并接受特定expiry终态，Prepare anchor与receipt source/版本不改。
 重复调用在当前读权限下识别已物化状态，零写且不二次转移额度。GC扫描/WorkClass/完整
 Close和recovery激活、retained释放及外部对象删除仍待后续实现与集中验证。
+
+## 46. GC 扫描与任务预算不改变配额权威
+
+每次 Target reservation GC action 使用一个 BoundedReadBudget，覆盖持久 fence/范围
+候选、完整 reservation 点查和物化所需 accounting；不能在候选发现后重置预算。Backend
+既有 finite write record/byte 上限与 commit provider 继续约束最终8条正常物化写入。
+队列占用按 task identity bytes + 最大读取 bytes 计，不充当持久 quota grant。
+
+空扫描、未达到 cutoff、实际 budget 耗尽、Owner/外部权限失败均不因调度本身产生业务
+写入。物化保留 §45 的原 owner 两 counter/total/aggregate 守恒；公平游标、结果通知
+与完整回卷纯进程态。CLOSED Target 延期保留全部占用，GC 不获得 payload 释放/对象删除
+权限。失败重新发现，未知 native 写结果仍必须服从 Store fence 与正式 recovery。

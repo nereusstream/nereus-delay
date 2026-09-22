@@ -16,6 +16,7 @@ import com.nereusstream.delay.ownership.SourceRecordConsumer;
 import com.nereusstream.delay.ownership.SourceReplayMutation;
 import com.nereusstream.delay.ownership.SourceReplayRecord;
 import com.nereusstream.delay.ownership.SourceReplaySuccessor;
+import com.nereusstream.delay.ownership.TargetReservationExpiryWorkClassExecutor;
 import com.nereusstream.delay.ownership.TargetReservationQueryWorkClassExecutor;
 import com.nereusstream.delay.ownership.TargetSourceApplyRuntime;
 import com.nereusstream.delay.ownership.WorkerSourceApplyLoop;
@@ -1404,6 +1405,11 @@ class TargetCommandStoreTest {
                     queries.read(budget(), thirdReservation.reservationId(), (a, b) -> guard())
                             .orElseThrow()
                             .effectiveStatus());
+            final var expiryStore = new TargetReservationExpiryStore(backend, scope, lineage, 1);
+            assertTrue(expiryStore
+                    .discover(budget(), null, (a, b) -> guard())
+                    .candidate()
+                    .isEmpty());
             final var staleBeforeFence = queries.prepare(budget(), thirdReservation.reservationId());
             final var fenceAt =
                     source(beforeFenceAt, beforeFenceAt.offset() + 1, beforeFenceAt.brokerLogAppendTimeEpochMs() + 1);
@@ -1528,7 +1534,17 @@ class TargetCommandStoreTest {
                             .appliedOutcome()
                             .commandResult()
                             .stableCode());
-            final var expiryStore = new TargetReservationExpiryStore(backend, scope, lineage, 1);
+            final var discovery = expiryStore.discover(budget(), null, (a, b) -> guard());
+            assertArrayEquals(
+                    thirdReservation.reservationId(),
+                    discovery.candidate().orElseThrow().reservationId());
+            assertTrue(expiryStore
+                    .discover(budget(), discovery.nextCursor(), (a, b) -> guard())
+                    .candidate()
+                    .isEmpty());
+            assertThrows(
+                    IllegalArgumentException.class, () -> new TargetReservationExpiryStore(backend, scope, lineage, 1)
+                            .discover(budget(), discovery.nextCursor(), (a, b) -> guard()));
             final long sourceSequenceBeforeExpiry = store.shardMutationSequence();
             final byte[] sourceBeforeExpiry =
                     store.get(ColumnFamily.META, com.nereusstream.delay.store.KeyCodec.metaFixed(3));
@@ -1559,12 +1575,83 @@ class TargetCommandStoreTest {
             assertEquals(localReadExhaustion, externalIncomplete.getCause());
             assertEquals(nativeBeforeExpiry, store.latestSequenceNumber());
             final var expiryCounters = new java.util.concurrent.atomic.AtomicReference<TargetQuotaDelta>();
-            assertTrue(expiryStore.materialize(
-                    budget(),
-                    thirdReservation.reservationId(),
-                    (a, b) -> guard(),
-                    (a, b, c) -> guard(),
-                    expiryCounters::set));
+            final var gcLimits = new TargetReservationExpiryWorkClassExecutor.Limits(2048, 100_000, 60_000_000_000L);
+            final var gcWriteFails = new java.util.concurrent.atomic.AtomicBoolean(true);
+            final var gcClockReads = new java.util.concurrent.atomic.AtomicInteger();
+            final var gcExecutor = new TargetReservationExpiryWorkClassExecutor(
+                    workerClasses,
+                    expiryStore,
+                    gcLimits,
+                    () -> {},
+                    queryAuthority,
+                    (a, b, c) -> {
+                        if (gcWriteFails.get()) {
+                            throw localReadExhaustion;
+                        }
+                        return guard();
+                    },
+                    expiryCounters::set,
+                    () -> {
+                        gcClockReads.incrementAndGet();
+                        return System.nanoTime();
+                    });
+            final int guardsBeforeGc = queryGuards.get();
+            final var lostGc = gcExecutor.submit(
+                    new TargetReservationExpiryWorkClassExecutor.Request(scope.shard(), bytes(16, 0xb1)));
+            assertEquals(WorkClass.GC, lostGc.task().workClass());
+            assertTrue(lostGc.task().bytes() > gcLimits.maximumBytes());
+            assertEquals(guardsBeforeGc, queryGuards.get());
+            assertEquals(0, gcClockReads.get());
+            assertEquals(nativeBeforeExpiry, store.latestSequenceNumber());
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> gcExecutor.submit(
+                            new TargetReservationExpiryWorkClassExecutor.Request(scope.shard(), bytes(16, 0xb2))));
+            assertEquals(0, gcClockReads.get());
+            queryOwnerCurrent.set(false);
+            workerClasses.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
+            assertEquals(
+                    TargetReservationExpiryWorkClassExecutor.Kind.FAILED,
+                    lostGc.result().orElseThrow().kind());
+            assertEquals(nativeBeforeExpiry, store.latestSequenceNumber());
+            queryOwnerCurrent.set(true);
+            final var limitedGcExecutor = new TargetReservationExpiryWorkClassExecutor(
+                    workerClasses,
+                    expiryStore,
+                    new TargetReservationExpiryWorkClassExecutor.Limits(2, 100_000, 60_000_000_000L),
+                    () -> {},
+                    queryAuthority,
+                    (a, b, c) -> {
+                        throw new AssertionError("exhausted shared discovery/materialization budget wrote");
+                    },
+                    expiryCounters::set,
+                    System::nanoTime);
+            final var limitedGc = limitedGcExecutor.submit(
+                    new TargetReservationExpiryWorkClassExecutor.Request(scope.shard(), bytes(16, 0xb3)));
+            workerClasses.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
+            assertEquals(
+                    TargetReservationExpiryWorkClassExecutor.Kind.READ_INCOMPLETE,
+                    limitedGc.result().orElseThrow().kind());
+            assertEquals(nativeBeforeExpiry, store.latestSequenceNumber());
+            final var failedGc = gcExecutor.submit(
+                    new TargetReservationExpiryWorkClassExecutor.Request(scope.shard(), bytes(16, 0xb4)));
+            workerClasses.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
+            assertEquals(
+                    TargetReservationExpiryWorkClassExecutor.Kind.FAILED,
+                    failedGc.result().orElseThrow().kind());
+            assertEquals(
+                    localReadExhaustion,
+                    failedGc.result().orElseThrow().failure().getCause());
+            assertEquals(nativeBeforeExpiry, store.latestSequenceNumber());
+            gcWriteFails.set(false);
+            final var successfulGc = gcExecutor.submit(
+                    new TargetReservationExpiryWorkClassExecutor.Request(scope.shard(), bytes(16, 0xb5)));
+            workerClasses.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
+            assertEquals(
+                    TargetReservationExpiryWorkClassExecutor.Kind.MATERIALIZED,
+                    successfulGc.result().orElseThrow().kind());
+            assertThrows(IllegalStateException.class, () -> workerClasses.retry(successfulGc.task()));
+            assertEquals(0, workerClasses.registeredActions());
             assertEquals(sourceSequenceBeforeExpiry, store.shardMutationSequence());
             assertArrayEquals(
                     sourceBeforeExpiry,
@@ -1649,6 +1736,75 @@ class TargetCommandStoreTest {
                             .commandResult()
                             .stableCode());
             assertEquals(sourceSequenceBeforeExpiry + 1, store.shardMutationSequence());
+            // A source Prepare can insert behind the completed candidate while a sweep cursor is retained.
+            final var fourthAt = source(
+                    afterMaterializationAt,
+                    afterMaterializationAt.offset() + 1,
+                    afterMaterializationAt.brokerLogAppendTimeEpochMs() + 1);
+            final var fourthMessage = new DelayMessageId(
+                    cancel(thirdMessage, fourthAt, 1900).commandId().bytes());
+            final var fourthBody = new PrepareLargeScheduleBody(
+                    fourthMessage,
+                    fourthAt.brokerLogAppendTimeEpochMs() + 1000,
+                    prepareIntent,
+                    100,
+                    bytes(32, 0xd2),
+                    100,
+                    trustSet.ref(),
+                    modelPrepare.objectStoreProfile());
+            final var fourthId = cancel(fourthMessage, fourthAt, 900).commandId();
+            final var fourth = new PreparedCommand(
+                    scope.shard(),
+                    fourthId,
+                    fourthMessage,
+                    CommandType.PREPARE_LARGE_SCHEDULE,
+                    fresh.protocolTuple(),
+                    fourthBody.retryUntilEpochMs(),
+                    fourthBody.canonicalBytes(),
+                    CommandHash.compute(
+                            fresh.protocolTuple(),
+                            CommandType.PREPARE_LARGE_SCHEDULE,
+                            fourthId,
+                            fourthMessage,
+                            fourthBody.retryUntilEpochMs(),
+                            fourthBody.canonicalBytes()));
+            assertEquals(
+                    StableCode.OK,
+                    apply(loop, entries, fourth, fourthAt)
+                            .appliedOutcome()
+                            .commandResult()
+                            .stableCode());
+            final var fourthReservation = TargetReservationRecord.decode(TargetValueEnvelope.decode(
+                            store.get(
+                                    ColumnFamily.ID,
+                                    Bytes.concat(
+                                            new byte[] {TargetKeyCodec.RESERVATION_TAG, 1}, fourthMessage.bytes())),
+                            TargetReservationRecord.VALUE_TYPE)
+                    .payload());
+            assertTrue(Arrays.compareUnsigned(fourthReservation.expiryKey(), thirdReservation.expiryKey()) < 0);
+            final long beforeSweepEnd = store.latestSequenceNumber();
+            final var endGc = gcExecutor.submit(
+                    new TargetReservationExpiryWorkClassExecutor.Request(scope.shard(), bytes(16, 0xb6)));
+            workerClasses.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
+            assertEquals(
+                    TargetReservationExpiryWorkClassExecutor.Kind.SWEEP_COMPLETE,
+                    endGc.result().orElseThrow().kind());
+            assertEquals(beforeSweepEnd, store.latestSequenceNumber());
+            final var restartGc = gcExecutor.submit(
+                    new TargetReservationExpiryWorkClassExecutor.Request(scope.shard(), bytes(16, 0xb7)));
+            workerClasses.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
+            assertEquals(
+                    TargetReservationExpiryWorkClassExecutor.Kind.MATERIALIZED,
+                    restartGc.result().orElseThrow().kind());
+            assertEquals(8, store.latestSequenceNumber() - beforeSweepEnd);
+            assertEquals(
+                    PayloadReservationStatus.EXPIRED,
+                    queries.read(budget(), fourthReservation.reservationId(), queryAuthority)
+                            .orElseThrow()
+                            .reservation()
+                            .status());
+            assertEquals(fourthAt, store.appliedShardLogPosition());
+            assertEquals(0, workerClasses.registeredActions());
         }
     }
 
