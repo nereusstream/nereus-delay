@@ -144,7 +144,8 @@ public final class TargetReservationQueryStore {
                 record,
                 PrepareLargeScheduleBody.decode(binding.canonicalBody()),
                 payloadOwner.phase(),
-                reader.source()));
+                reader.source(),
+                reader.closedIngressDeadlineThrough()));
     }
 
     private TargetQuotaIncarnation requireOwner(TargetStoreBackend.Reader reader, TargetQuotaIdentity identity) {
@@ -204,22 +205,36 @@ public final class TargetReservationQueryStore {
         private final PrepareLargeScheduleBody prepare;
         private final TargetQuotaPayloadOwner.Phase payloadPhase;
         private final SourcePosition readSource;
+        private final long closedIngressDeadlineThrough;
 
         private Snapshot(
                 TargetReservationRecord record,
                 PrepareLargeScheduleBody prepare,
                 TargetQuotaPayloadOwner.Phase payloadPhase,
-                SourcePosition readSource) {
+                SourcePosition readSource,
+                long closedIngressDeadlineThrough) {
             this.record = record;
             this.prepare = prepare;
             this.payloadPhase = payloadPhase;
             this.readSource = readSource;
+            this.closedIngressDeadlineThrough = closedIngressDeadlineThrough;
         }
 
+        /** Actual materialized record, which may still be RESERVED after the logical expiry fence. */
         public TargetReservationRecord reservation() {
             return record;
         }
 
+        /** Effective lifecycle at readSource, including the committed TIME_FENCE in that same Store view. */
+        public PayloadReservationStatus effectiveStatus() {
+            return record.effectiveStatus(closedIngressDeadlineThrough);
+        }
+
+        public long closedIngressDeadlineThrough() {
+            return closedIngressDeadlineThrough;
+        }
+
+        /** Actual durable accounting phase; an expiry overlay alone cannot authorize a byte release. */
         public TargetQuotaPayloadOwner.Phase payloadPhase() {
             return payloadPhase;
         }

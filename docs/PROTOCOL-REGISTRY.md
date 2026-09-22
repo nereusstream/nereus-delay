@@ -796,8 +796,12 @@ Target source dispatch now routes retained results before first fence authentica
 first fence atomically writes the existing fixed IngressFenceState, SYSTEM/POSITION, source
 frontier and actual root-owned storage charges. Lower cutoffs preserve the watermark while
 recording the latest proof. Fixed metadata remains backend-owned and counts toward the
-same finite batch budget. Reservation expiry overlays/materialization and production
-historical writer/time-source providers remain unfinished.
+same finite batch budget. Target reservation reads and Commit/Cancel/Reschedule now apply
+the committed watermark to still-materialized RESERVED records at expiry <= watermark;
+this read-only effective EXPIRED status does not change their stored versions, Prepare
+receipts, payload phase or quota before materialization. Earlier terminal states remain.
+Bounded expiry materialization, complete Close overlays and production historical
+writer/time-source providers remain unfinished.
 
 Applying a valid fence monotonically advances `closedIngressDeadlineThrough`. That source-ordered watermark is also the authoritative logical transition for every still-`PAYLOAD_RESERVED` reservation with `reservation_expiry <= close_through_epoch_ms`: its effective state becomes `RESERVATION_EXPIRED` at the fence Source Position. A prior Commit, Cancel, or Lane Close wins by Source Position. The bounded `RESERVATION_EXPIRY` cursor only materializes the already-decided effective state, counter transfer and GC/tombstone work; replay and every API/Commit check the watermark overlay even when that cursor has not reached the reservation.
 

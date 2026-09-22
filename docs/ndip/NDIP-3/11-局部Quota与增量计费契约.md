@@ -1981,3 +1981,17 @@ batch 成功后交付，physical capacity/source/Owner历史 authority仍须由�
 7-record budget拒绝，完整合法场景恰写8条（SYSTEM/POSITION、两root counters、aggregate、
 source/sequence、fence）。同批 fixed元数据计费已实现，reservation effective expiry及其
 之后的 retained/counter物化仍未实现，不能将本批当作payload释放权威。
+
+## 44. TIME_FENCE 有效 expiry 不提前释放配额
+
+reservation 的物理 RESERVED 可因已提交水位显示 effective EXPIRED。只读 Query 和
+Snapshot 不产生 mutation/counter/byte 变化；Commit/Cancel/Reschedule 只提交原有
+result/source accounting，不生成 Message，也不把 RESERVED owner 转为 ACTIVE/RETAINED。
+因此物化前 reservation count/bytes 仍保守占用，payload 与 expiry index 均保留。
+
+实际 Worker 检查确认 watermark=expiry-1 不到期、=expiry 到期；后续 Broker 时间仍在
+原有效窗口时，Commit 返回 RESERVATION_EXPIRED且不调用 proof resolver。Cancel 和
+正确 CAS 的 Reschedule 返回同码，错误 CAS 仍返回 VERSION_CONFLICT；原位置重放零写。
+查询保留原 Prepare receipt/版本，先前 COMMITTED/ABANDONED 保留结果，历史 Commit 仍
+返回 ALREADY_COMMITTED。完整额度转移必须由后续有界 expiry materializer 与物理容量
+权威共同完成，本批不提供 payload GC/release authority。

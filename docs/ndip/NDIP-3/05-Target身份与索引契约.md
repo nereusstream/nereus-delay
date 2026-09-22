@@ -659,3 +659,14 @@ key/NV/CF。Backend.IngressFenceChange 承载 exact before 与 nondecreasing aft
 SYSTEM 记录保留原 source/envelope identity，不能用 last proof 的请求 cutoff 反推有效水位。
 reopen 读取同一 fixed projection；完整 checkpoint/Floor authority 和 reservation effective
 source anchor仍需后续实现及集中验证，未赋予此记录 GC 删除权限。
+
+### reservation 的物理状态与 TIME_FENCE 有效状态（2026-09-22）
+
+NV38 主键/lookup/expiry 索引仍保存完整物理 reservation。TIME_FENCE 只读覆盖不改这些
+字节，物理 RESERVED 即使已逻辑到期，expiry 索引仍必须存在且逐字节一致，不能以有效
+EXPIRED 为理由忽略损坏或提前删索引。终态 COMMITTED/ABANDONED/EXPIRED 不被水位覆盖。
+
+Query Snapshot 固定同一 ReadView 的闭合水位并公开 effectiveStatus；reservation()
+保留原状态/版本/stamp，payloadPhase 保留真实计费相位。readSource 不是新制造的 expiry
+transition source，receipt 仍用 prepareAnchor。正式 expiry materialization/source 归属、
+Close 控制排序及 GC 删除权限仍待接入，本批不定义新 key/NV 或假造完成投影。

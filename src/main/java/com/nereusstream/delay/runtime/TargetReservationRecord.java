@@ -147,6 +147,16 @@ public record TargetReservationRecord(
                 hash);
     }
 
+    /** Logical time-fence overlay; does not materialize a lifecycle version, source stamp or quota transfer. */
+    public PayloadReservationStatus effectiveStatus(final long closedIngressDeadlineThrough) {
+        if (closedIngressDeadlineThrough < -1) {
+            throw new IllegalArgumentException("invalid committed ingress fence watermark");
+        }
+        return status == PayloadReservationStatus.RESERVED && expiryEpochMs <= closedIngressDeadlineThrough
+                ? PayloadReservationStatus.EXPIRED
+                : status;
+    }
+
     public TargetReservationRecord finish(
             PayloadReservationStatus next, TargetQuotaMutation stamp, PayloadReference payload) {
         if (status != PayloadReservationStatus.RESERVED || next == PayloadReservationStatus.RESERVED) {

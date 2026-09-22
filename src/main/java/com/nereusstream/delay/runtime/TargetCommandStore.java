@@ -762,6 +762,7 @@ public final class TargetCommandStore {
         final var queue =
                 TargetQueueState.decode(payload(reader, ColumnFamily.META, queueKey, TargetQueueState.VALUE_TYPE));
         binding.requireQueueProjection(queue);
+        final var effectiveStatus = reservation.effectiveStatus(reader.closedIngressDeadlineThrough());
         final byte[] expiry = reader.get(ColumnFamily.TIMELINE, reservation.expiryKey());
         if (reservation.status() == PayloadReservationStatus.RESERVED) {
             if (expiry == null
@@ -774,8 +775,9 @@ public final class TargetCommandStore {
             if (reader.get(ColumnFamily.ID, TargetKeyCodec.message(command.delayMessageId())) != null) {
                 throw new IllegalStateException("uncommitted reservation already owns a Message");
             }
-            if (queue.admissionState() == TargetQueueState.AdmissionState.CLOSED
-                    || closures.closed(reader, binding, source)) {
+            if (effectiveStatus == PayloadReservationStatus.RESERVED
+                    && (queue.admissionState() == TargetQueueState.AdmissionState.CLOSED
+                            || closures.closed(reader, binding, source))) {
                 return unchanged(rejected(StableCode.PAYLOAD_RESERVATION_CLOSED, source), owner);
             }
         } else if (expiry != null) {
@@ -812,7 +814,7 @@ public final class TargetCommandStore {
             payloadOwner.requireMessagePayload(message);
         } else if (reservation.status() == PayloadReservationStatus.ABANDONED) {
             return unchanged(rejected(StableCode.PAYLOAD_RESERVATION_CLOSED, source), owner);
-        } else if (reservation.status() == PayloadReservationStatus.EXPIRED) {
+        } else if (effectiveStatus == PayloadReservationStatus.EXPIRED) {
             return unchanged(rejected(StableCode.RESERVATION_EXPIRED, source), owner);
         } else if (source.brokerPersistenceTimeEpochMs() > reservation.expiryEpochMs()
                 || source.brokerPersistenceTimeEpochMs() > proof.notAfterEpochMs()
@@ -942,6 +944,9 @@ public final class TargetCommandStore {
                 payload(reader, ColumnFamily.TIMELINE, reservation.expiryKey(), TargetReservationRecord.VALUE_TYPE);
         if (!Arrays.equals(index, reservation.canonicalBytes())) {
             throw new IllegalStateException("reservation expiry projection differs");
+        }
+        if (reservation.effectiveStatus(reader.closedIngressDeadlineThrough()) == PayloadReservationStatus.EXPIRED) {
+            return unchanged(applied(StableCode.RESERVATION_EXPIRED, source, null), owner);
         }
         if (command.type() == CommandType.RESCHEDULE) {
             return unchanged(applied(StableCode.RESERVATION_NOT_COMMITTED, source, null), owner);

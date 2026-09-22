@@ -13,6 +13,7 @@ import com.nereusstream.delay.ownership.SourceAcknowledgement;
 import com.nereusstream.delay.ownership.SourceApplyCoordinator;
 import com.nereusstream.delay.ownership.SourceAssignment;
 import com.nereusstream.delay.ownership.SourceRecordConsumer;
+import com.nereusstream.delay.ownership.SourceReplayMutation;
 import com.nereusstream.delay.ownership.SourceReplayRecord;
 import com.nereusstream.delay.ownership.SourceReplaySuccessor;
 import com.nereusstream.delay.ownership.TargetReservationQueryWorkClassExecutor;
@@ -77,6 +78,8 @@ import com.nereusstream.delay.protocol.TargetQuotaPayloadOwner;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
 import com.nereusstream.delay.protocol.TargetQuotaUsage;
 import com.nereusstream.delay.protocol.TargetScheduleBinding;
+import com.nereusstream.delay.protocol.TargetTimeFenceBody;
+import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClass;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
@@ -521,7 +524,11 @@ class TargetCommandStoreTest {
                                 throw new AssertionError("Command resolved grant");
                             },
                             entry -> {
-                                throw new AssertionError("unexpected first fence authority");
+                                return new TargetSourceApplyRuntime.FenceControl(
+                                        (actualScope, author, mutation, position) ->
+                                                new TargetTimeFenceVerifier.Authorization(
+                                                        keys.getPublic(), 10, 5, (a, b, c, proof) -> true),
+                                        (a, b, c) -> guard());
                             },
                             (a, b, c) -> guard(),
                             (a, b) -> guard(),
@@ -1344,7 +1351,223 @@ class TargetCommandStoreTest {
                     () -> retainedSnapshot.receipt(new TargetReservationQueryStore.ReceiptLocation(
                             location.profile(), Bytes.utf8("bucket"), Bytes.utf8("wrong-object"))));
             assertEquals(beforeRetainedQuery, store.latestSequenceNumber());
+            final var thirdAt = source(
+                    retainedCommitAt, retainedCommitAt.offset() + 1, retainedCommitAt.brokerLogAppendTimeEpochMs() + 1);
+            final var thirdMessage = new DelayMessageId(
+                    cancel(secondMessage, thirdAt, 1800).commandId().bytes());
+            final var thirdBody = new PrepareLargeScheduleBody(
+                    thirdMessage,
+                    thirdAt.brokerLogAppendTimeEpochMs() + 1000,
+                    prepareIntent,
+                    100,
+                    bytes(32, 0xd1),
+                    500,
+                    trustSet.ref(),
+                    modelPrepare.objectStoreProfile());
+            final var thirdId = cancel(thirdMessage, thirdAt, 800).commandId();
+            final var third = new PreparedCommand(
+                    scope.shard(),
+                    thirdId,
+                    thirdMessage,
+                    CommandType.PREPARE_LARGE_SCHEDULE,
+                    fresh.protocolTuple(),
+                    thirdBody.retryUntilEpochMs(),
+                    thirdBody.canonicalBytes(),
+                    CommandHash.compute(
+                            fresh.protocolTuple(),
+                            CommandType.PREPARE_LARGE_SCHEDULE,
+                            thirdId,
+                            thirdMessage,
+                            thirdBody.retryUntilEpochMs(),
+                            thirdBody.canonicalBytes()));
+            assertEquals(
+                    StableCode.OK,
+                    apply(loop, entries, third, thirdAt)
+                            .appliedOutcome()
+                            .commandResult()
+                            .stableCode());
+            final byte[] thirdKey = Bytes.concat(new byte[] {TargetKeyCodec.RESERVATION_TAG, 1}, thirdMessage.bytes());
+            final byte[] thirdRaw = store.get(ColumnFamily.ID, thirdKey);
+            final var thirdReservation = TargetReservationRecord.decode(
+                    TargetValueEnvelope.decode(thirdRaw, TargetReservationRecord.VALUE_TYPE)
+                            .payload());
+            final byte[] thirdOwnerKey =
+                    Bytes.concat(new byte[] {TargetKeyCodec.QUOTA_PAYLOAD_OWNER_TAG, 1}, thirdMessage.bytes());
+            final byte[] thirdOwnerRaw = store.get(ColumnFamily.META, thirdOwnerKey);
+            final var thirdSnapshot = queries.read(budget(), thirdReservation.reservationId(), (a, b) -> guard())
+                    .orElseThrow();
+            final var thirdReceipt = thirdSnapshot.receipt(location);
+            final var beforeFenceAt = source(thirdAt, thirdAt.offset() + 1, thirdAt.brokerLogAppendTimeEpochMs() + 1);
+            applyFence(loop, entries, thirdReservation.expiryEpochMs() - 1, beforeFenceAt, keys);
+            assertEquals(
+                    PayloadReservationStatus.RESERVED,
+                    queries.read(budget(), thirdReservation.reservationId(), (a, b) -> guard())
+                            .orElseThrow()
+                            .effectiveStatus());
+            final var staleBeforeFence = queries.prepare(budget(), thirdReservation.reservationId());
+            final var fenceAt =
+                    source(beforeFenceAt, beforeFenceAt.offset() + 1, beforeFenceAt.brokerLogAppendTimeEpochMs() + 1);
+            applyFence(loop, entries, thirdReservation.expiryEpochMs(), fenceAt, keys);
+            assertThrows(IllegalStateException.class, () -> queries.complete(staleBeforeFence, (a, b) -> guard()));
+            final long beforeOverlayQuery = store.latestSequenceNumber();
+            final var expiredQuery = queryExecutor.submit(new TargetReservationQueryWorkClassExecutor.Request(
+                    scope.shard(), bytes(16, 0xe6), thirdReservation.reservationId()));
+            workerClasses.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
+            assertEquals(
+                    TargetReservationQueryWorkClassExecutor.Kind.COMPLETED,
+                    expiredQuery.result().orElseThrow().kind());
+            final var expiredSnapshot =
+                    expiredQuery.result().orElseThrow().snapshot().orElseThrow();
+            assertEquals(PayloadReservationStatus.EXPIRED, expiredSnapshot.effectiveStatus());
+            assertEquals(
+                    PayloadReservationStatus.RESERVED,
+                    expiredSnapshot.reservation().status());
+            assertEquals(1, expiredSnapshot.reservation().stateVersion());
+            assertEquals(thirdAt, expiredSnapshot.reservation().mutation().source());
+            assertEquals(fenceAt, expiredSnapshot.readSource());
+            assertEquals(thirdReservation.expiryEpochMs(), expiredSnapshot.closedIngressDeadlineThrough());
+            assertEquals(TargetQuotaPayloadOwner.Phase.RESERVED, expiredSnapshot.payloadPhase());
+            assertEquals(thirdReceipt, expiredSnapshot.receipt(location));
+            assertEquals(PayloadReservationStatus.RESERVED, thirdSnapshot.effectiveStatus());
+            assertEquals(beforeOverlayQuery, store.latestSequenceNumber());
+            assertEquals(
+                    PayloadReservationStatus.ABANDONED,
+                    queries.read(budget(), reserved.reservationId(), (a, b) -> guard())
+                            .orElseThrow()
+                            .effectiveStatus());
+            assertEquals(
+                    PayloadReservationStatus.COMMITTED,
+                    queries.read(budget(), secondReservation.reservationId(), (a, b) -> guard())
+                            .orElseThrow()
+                            .effectiveStatus());
+            final var thirdProof = CanonicalPayloadCommitProof.signed(
+                    thirdReservation.reservationId(),
+                    scope.tenantScope(),
+                    scope.shard().routeIncarnation().bytes(),
+                    scope.shard().partition(),
+                    thirdMessage,
+                    thirdBody.objectStoreProfile(),
+                    trustSet.version(),
+                    1,
+                    Bytes.utf8("bucket"),
+                    Bytes.utf8("object"),
+                    Bytes.utf8("version"),
+                    null,
+                    100,
+                    thirdBody.payloadSha256(),
+                    thirdReservation.expiryEpochMs(),
+                    proofKeys.getPrivate());
+            final int proofCallsBeforeExpired = proofResolutions.get();
+            final var expiredCommitAt = source(fenceAt, fenceAt.offset() + 1, fenceAt.brokerLogAppendTimeEpochMs() + 1);
+            assertTrue(expiredCommitAt.brokerLogAppendTimeEpochMs() < thirdReservation.expiryEpochMs());
+            final var expiredCommit = commit(thirdProof, expiredCommitAt, 810);
+            assertEquals(
+                    StableCode.RESERVATION_EXPIRED,
+                    apply(loop, entries, expiredCommit, expiredCommitAt)
+                            .appliedOutcome()
+                            .commandResult()
+                            .stableCode());
+            assertEquals(proofCallsBeforeExpired, proofResolutions.get());
+            final long beforeExpiredReplay = store.latestSequenceNumber();
+            assertEquals(
+                    StableCode.RESERVATION_EXPIRED,
+                    apply(loop, entries, expiredCommit, expiredCommitAt)
+                            .appliedOutcome()
+                            .commandResult()
+                            .stableCode());
+            assertEquals(beforeExpiredReplay, store.latestSequenceNumber());
+            final var expiredCancelAt = source(
+                    expiredCommitAt, expiredCommitAt.offset() + 1, expiredCommitAt.brokerLogAppendTimeEpochMs() + 1);
+            assertEquals(
+                    StableCode.RESERVATION_EXPIRED,
+                    apply(loop, entries, cancel(thirdMessage, expiredCancelAt, 811), expiredCancelAt)
+                            .appliedOutcome()
+                            .commandResult()
+                            .stableCode());
+            final var expiredRescheduleAt = source(
+                    expiredCancelAt, expiredCancelAt.offset() + 1, expiredCancelAt.brokerLogAppendTimeEpochMs() + 1);
+            assertEquals(
+                    StableCode.RESERVATION_EXPIRED,
+                    apply(
+                                    loop,
+                                    entries,
+                                    reschedule(thirdMessage, expiredRescheduleAt, 812, new MessagePrecondition(0L, 1L)),
+                                    expiredRescheduleAt)
+                            .appliedOutcome()
+                            .commandResult()
+                            .stableCode());
+            final var staleVersionAt = source(
+                    expiredRescheduleAt,
+                    expiredRescheduleAt.offset() + 1,
+                    expiredRescheduleAt.brokerLogAppendTimeEpochMs() + 1);
+            assertEquals(
+                    StableCode.VERSION_CONFLICT,
+                    apply(
+                                    loop,
+                                    entries,
+                                    reschedule(thirdMessage, staleVersionAt, 813, new MessagePrecondition(0L, 2L)),
+                                    staleVersionAt)
+                            .appliedOutcome()
+                            .commandResult()
+                            .stableCode());
+            assertArrayEquals(thirdRaw, store.get(ColumnFamily.ID, thirdKey));
+            assertArrayEquals(thirdRaw, store.get(ColumnFamily.ID, thirdReservation.lookupKey()));
+            assertArrayEquals(thirdRaw, store.get(ColumnFamily.TIMELINE, thirdReservation.expiryKey()));
+            assertArrayEquals(thirdOwnerRaw, store.get(ColumnFamily.META, thirdOwnerKey));
+            assertNull(store.get(ColumnFamily.ID, TargetKeyCodec.message(thirdMessage)));
+            final var fencedUsage = backend.prepareRead(
+                            budget(), reader -> reader.aggregate().usage())
+                    .value();
+            assertEquals(1, fencedUsage.resources().amount(CapacityDimension.RESERVATION_MESSAGES));
+            assertEquals(100, fencedUsage.resources().amount(CapacityDimension.RESERVATION_PAYLOAD_BYTES));
+            final var historicalAfterFenceAt = source(
+                    staleVersionAt, staleVersionAt.offset() + 1, staleVersionAt.brokerLogAppendTimeEpochMs() + 1);
+            assertEquals(
+                    StableCode.ALREADY_COMMITTED,
+                    apply(loop, entries, commit(proof, historicalAfterFenceAt, 814), historicalAfterFenceAt)
+                            .appliedOutcome()
+                            .commandResult()
+                            .stableCode());
         }
+    }
+
+    private static void applyFence(
+            WorkerSourceApplyLoop loop,
+            java.util.ArrayDeque<SourceRecordConsumer.PolledSourceRecord> queue,
+            long closeThrough,
+            KafkaSourcePosition position,
+            KeyPair keys) {
+        final var proof = new TrustedUtcIntervalEvidence(
+                closeThrough + 10,
+                closeThrough + 15,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                bytes(32, 0x91),
+                1,
+                1,
+                1,
+                bytes(32, 0x92),
+                0,
+                new byte[0]);
+        final var body = new TargetTimeFenceBody(
+                position.shardId(), position.brokerLogAppendTimeEpochMs() + 1000, closeThrough, 1, proof);
+        final var mutation = SystemMutation.signed(
+                position.shardId(),
+                SystemMutationType.TIME_FENCE,
+                body.retryUntil(),
+                body.proofId(),
+                body.canonicalBytes(),
+                AuthorIdentity.fence(bytes(32, 0x93), 1).canonicalBytes(),
+                1,
+                keys.getPrivate());
+        queue.add(new SourceRecordConsumer.PolledSourceRecord(
+                new SourceReplayMutation(mutation, position, null, null),
+                (entry, outcome) -> SourceAcknowledgement.AcknowledgementResult.acked()));
+        final var turn = loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100);
+        if (turn.failure() != null) {
+            throw new AssertionError("fence apply failed: " + turn.status(), turn.failure());
+        }
+        assertEquals(SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED, turn.status());
+        assertEquals(StableCode.OK, turn.appliedOutcome().systemMutationResult().stableCode());
     }
 
     private static TargetCommandStore.PayloadProofControls noProofs() {
