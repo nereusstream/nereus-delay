@@ -93,6 +93,12 @@ public final class PrepareLargeScheduleBody {
         });
     }
 
+    /** Apply Target nested allocation bounds before the general canonical decoder. */
+    public static PrepareLargeScheduleBody decodeForTarget(byte[] encoded, DelayMessageId message) {
+        TargetScheduleBody.validate(encoded, CommandType.PREPARE_LARGE_SCHEDULE, message);
+        return decode(encoded);
+    }
+
     public static PrepareLargeScheduleBody decode(final byte[] encoded) {
         final List<CanonicalProtobuf.Reader.Field> fields = QueryCodecSupport.read(encoded, "PrepareLargeScheduleBody");
         QueryCodecSupport.requireNumbers(

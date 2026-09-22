@@ -86,6 +86,63 @@ public final class TargetRecordAccounting {
         }
         final Charge result;
         switch (value.valueType()) {
+            case TargetReservationRecord.VALUE_TYPE -> {
+                final var reservation = TargetReservationRecord.decode(payload);
+                final boolean index = family == ColumnFamily.TIMELINE;
+                if ((family != ColumnFamily.ID && !index)
+                        || (index
+                                ? !Arrays.equals(key, reservation.expiryKey())
+                                : !Arrays.equals(key, reservation.key())
+                                        && !Arrays.equals(key, reservation.lookupKey()))
+                        || (index && reservation.status() != PayloadReservationStatus.RESERVED)) {
+                    throw new IllegalStateException("Target reservation key/family/status differs");
+                }
+                if (!Arrays.equals(
+                                payload,
+                                payload(ColumnFamily.ID, reservation.key(), TargetReservationRecord.VALUE_TYPE))
+                        || !Arrays.equals(
+                                payload,
+                                payload(
+                                        ColumnFamily.ID,
+                                        reservation.lookupKey(),
+                                        TargetReservationRecord.VALUE_TYPE))) {
+                    throw new IllegalStateException("reservation message/id lookup projections differ");
+                }
+                if (!index) {
+                    final byte[] expiry = reader.projected(ColumnFamily.TIMELINE, reservation.expiryKey(), overlay);
+                    if (reservation.status() == PayloadReservationStatus.RESERVED) {
+                        if (expiry == null
+                                || !Arrays.equals(
+                                        payload,
+                                        TargetValueEnvelope.decode(expiry, TargetReservationRecord.VALUE_TYPE)
+                                                .payload())) {
+                            throw new IllegalStateException("reserved record lacks its exact expiry index");
+                        }
+                    } else if (expiry != null) {
+                        throw new IllegalStateException("terminal reservation still owns an expiry index");
+                    }
+                }
+                final var bindingKey =
+                        TargetKeyCodec.scheduleBinding(reservation.locator().scheduleBindingDigest());
+                final var binding = TargetScheduleBinding.decodeForStore(
+                        bindingKey,
+                        payload(ColumnFamily.ID, bindingKey, TargetScheduleBinding.VALUE_TYPE),
+                        scope.shard());
+                reservation.requireBinding(binding);
+                final var payloadOwner = payloadOwner(reservation.locator().messageId());
+                payloadOwner.requireInitialBinding(binding);
+                reservation.requireOwner(payloadOwner);
+                reservation.mutation().requireAtOrBefore(operation);
+                final var owner = descriptor(payloadOwner.primaryIdentity());
+                owner.requirePayloadOwner(payloadOwner);
+                result = new Charge(
+                        owner,
+                        resources(owner.accounting()
+                                .recordCharge(
+                                        com.nereusstream.delay.protocol.TargetQuotaAccounting.RecordClass.STATE,
+                                        key.length,
+                                        payload.length)));
+            }
             case TargetTerminalGenerationRecord.VALUE_TYPE -> {
                 requireFamily(family, ColumnFamily.TERMINAL);
                 final var terminal = TargetTerminalGenerationRecord.decode(payload);

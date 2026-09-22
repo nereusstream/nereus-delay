@@ -2515,3 +2515,15 @@ Target bounded decoder 在一般 Schedule decoder 前限制嵌套分配；真实
 同批提交。逻辑 quota 拒绝在同一 ReadView 中丢弃业务投影后计量结果，禁止换视图沿用
 旧拒绝结论。仅根结果不能授权新 ingress/Claim，详见 NDIP-3 quota §36。production
 认证 providers、对象/strict/Broker/恢复/迁移集中验证均仍未完成。
+
+
+### NDIP-3 Target reservation（2026-09-22）
+
+新增 NV38/schema1 TargetReservationRecord；规范字段、hash、边界与生命周期见
+[身份与索引契约 §20](ndip/NDIP-3/05-Target身份与索引契约.md#20-targetreservationrecord)。
+ID `07 01 + MessageId[41]` 与 `08 01 + reservationId[32]` 保存相同完整值；RESERVED 另有
+TIMELINE `0d 01 + expiry:u64be + MessageId[41]`，终态必须删除该索引。Target reader 上限
+扩至 38，旧 Lane reader 仍为 11。复用既有 Prepare/Cancel wire、reservationId 公式和
+PayloadReservationStatus/StableCode，不创建新 CF。实际 Prepare/Cancel 与结果/计费/source
+同批，payload quota 只由唯一 owner 计一次，各 NV38 物理记录单独计 STATE。
+Commit、签名查询/upload、正式 expiry/Floor/GC、生产 providers 与集中恢复验证仍待完成。

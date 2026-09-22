@@ -3,6 +3,7 @@ package com.nereusstream.delay.runtime;
 import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CancelCommandBody;
+import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
 import com.nereusstream.delay.protocol.CanonicalTargetPartition;
 import com.nereusstream.delay.protocol.CommandCodec;
 import com.nereusstream.delay.protocol.CommandType;
@@ -10,6 +11,7 @@ import com.nereusstream.delay.protocol.MessagePrecondition;
 import com.nereusstream.delay.protocol.NativeDeliveryPolicy;
 import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.PayloadReference;
+import com.nereusstream.delay.protocol.PrepareLargeScheduleBody;
 import com.nereusstream.delay.protocol.PreparedCommand;
 import com.nereusstream.delay.protocol.ProtocolTuple;
 import com.nereusstream.delay.protocol.RescheduleCommandBody;
@@ -102,8 +104,9 @@ public final class TargetCommandStore {
     }
 
     /**
-     * Source-pinned Route/retry/payload authorization, including committed-object proof and all destination
-     * control closures. Resolve only for a new identity. Exceptions are authority failures, not business results.
+     * Source-pinned Route/retry/payload authorization, including Prepare size/TTL/trust-set limits, object proof
+     * and all destination control closures. Resolve only for a new identity. Exceptions are authority failures,
+     * not business results.
      * The first-command commit guard must hold the exact accepted snapshot; there is no permissive default.
      */
     @FunctionalInterface
@@ -240,7 +243,26 @@ public final class TargetCommandStore {
                                     unchanged(rejected(StableCode.INVALID_COMMAND, source), root),
                                     result);
                         }
-                        decision = schedule(reader, command, body, stamp, root, policy, schedules);
+                        decision = ingress(reader, command, body.intent(), null, stamp, root, policy, schedules);
+                    } else if (command.type() == CommandType.PREPARE_LARGE_SCHEDULE) {
+                        final PrepareLargeScheduleBody body;
+                        try {
+                            body = PrepareLargeScheduleBody.decodeForTarget(
+                                    command.canonicalBody(), command.delayMessageId());
+                            if (command.retryUntilEpochMs() != body.retryUntilEpochMs()) {
+                                throw new IllegalArgumentException("Prepare retry window differs from envelope");
+                            }
+                        } catch (IllegalArgumentException malformed) {
+                            return withResults(
+                                    reader,
+                                    command,
+                                    stamp,
+                                    root,
+                                    unchanged(rejected(StableCode.INVALID_COMMAND, source), root),
+                                    result);
+                        }
+                        decision = ingress(
+                                reader, command, body.intentWithoutPayload(), body, stamp, root, policy, schedules);
                     } else if (command.type() == CommandType.CANCEL) {
                         final CancelCommandBody body;
                         try {
@@ -295,7 +317,9 @@ public final class TargetCommandStore {
                                     reader,
                                     assembled,
                                     ingress[0] != null
-                                            ? TargetQuotaGrantGate.Operation.FIRST_SCHEDULE
+                                            ? command.type() == CommandType.PREPARE_LARGE_SCHEDULE
+                                                    ? TargetQuotaGrantGate.Operation.PREPARE
+                                                    : TargetQuotaGrantGate.Operation.FIRST_SCHEDULE
                                             : command.type() == CommandType.RESCHEDULE
                                                     ? TargetQuotaGrantGate.Operation.RESCHEDULE
                                                     : TargetQuotaGrantGate.Operation.CANCEL,
@@ -303,7 +327,9 @@ public final class TargetCommandStore {
                     return assembled;
                 },
                 (reader, exceeded) -> {
-                    if (ingress[0] == null || command.type() != CommandType.SCHEDULE) {
+                    if (ingress[0] == null
+                            || (command.type() != CommandType.SCHEDULE
+                                    && command.type() != CommandType.PREPARE_LARGE_SCHEDULE)) {
                         throw exceeded;
                     }
                     ingress[0] = null;
@@ -336,16 +362,16 @@ public final class TargetCommandStore {
         return prepared.result;
     }
 
-    private Decision schedule(
+    private Decision ingress(
             TargetStoreBackend.Reader reader,
             PreparedCommand command,
-            ScheduleCommandBody body,
+            CanonicalScheduleIntent intent,
+            PrepareLargeScheduleBody prepare,
             TargetQuotaMutation stamp,
             TargetQuotaIncarnation root,
             Policy policy,
             Schedules schedules) {
         final var source = stamp.source();
-        final var intent = body.intent();
         if (!policy.deliveryWindow()
                 .permits(intent.deliverAtEpochMs(), intent.expireAtEpochMs(), source.brokerPersistenceTimeEpochMs())) {
             return unchanged(rejected(StableCode.INVALID_DELIVERY_WINDOW, source), root);
@@ -355,7 +381,14 @@ public final class TargetCommandStore {
                 command.delayMessageId().bytes());
         final byte[] existing = reader.get(ColumnFamily.ID, TargetKeyCodec.message(command.delayMessageId()));
         final byte[] retained = reader.get(ColumnFamily.META, payloadKey);
-        if (existing != null && retained == null) {
+        if ((existing != null
+                        || reader.get(
+                                        ColumnFamily.ID,
+                                        Bytes.concat(
+                                                new byte[] {TargetKeyCodec.RESERVATION_TAG, 1},
+                                                command.delayMessageId().bytes()))
+                                != null)
+                && retained == null) {
             throw new IllegalStateException("existing Schedule identity has no payload owner");
         }
         if (retained != null) {
@@ -424,6 +457,80 @@ public final class TargetCommandStore {
                 intent.orderingMode(),
                 binding.orderingDomain(),
                 binding.digest());
+        if (prepare != null) {
+            if (intent.orderingMode() == OrderingMode.DELIVERY_TIME_FIFO) {
+                final byte[] orderKey = TargetKeyCodec.orderState(binding.target(), binding.orderingDomain());
+                final byte[] rawOrder = reader.get(ColumnFamily.META, orderKey);
+                if (rawOrder != null) {
+                    final var order = TargetOrderState.decodeForStore(
+                            orderKey,
+                            TargetValueEnvelope.decode(rawOrder, TargetOrderState.VALUE_TYPE)
+                                    .payload(),
+                            scope.shard(),
+                            registration.queue());
+                    if (order.orderingContract() != admitted.orderingContract()) {
+                        throw new IllegalStateException("Prepare cannot change the existing ordering contract");
+                    }
+                    if (order.gate() != TargetOrderState.Gate.OPEN) {
+                        return unchanged(
+                                rejected(
+                                        order.gate() == TargetOrderState.Gate.CLOSED
+                                                ? StableCode.LANE_CLOSED
+                                                : StableCode.ORDERING_DOMAIN_BROKEN,
+                                        source),
+                                registration.owner());
+                    }
+                }
+            }
+            final long expiry;
+            try {
+                expiry = Math.addExact(source.brokerPersistenceTimeEpochMs(), prepare.reservationTtlMs());
+            } catch (ArithmeticException overflow) {
+                return unchanged(rejected(StableCode.INVALID_COMMAND, source), registration.owner());
+            }
+            final var reservation = TargetReservationRecord.prepare(
+                    locator, command, stamp, expiry, lineage, admitted.orderingContract());
+            final var payloadOwner = TargetQuotaPayloadOwner.reserved(
+                    binding,
+                    reservation.reservationId(),
+                    scope.tenantScope(),
+                    registration.owner().accounting(),
+                    lineage,
+                    stamp);
+            reservation.requireBinding(binding);
+            reservation.requireOwner(payloadOwner);
+            if (reader.get(ColumnFamily.ID, reservation.key()) != null
+                    || reader.get(ColumnFamily.ID, reservation.lookupKey()) != null
+                    || reader.get(ColumnFamily.TIMELINE, reservation.expiryKey()) != null) {
+                throw new IllegalStateException("new reservation encountered retained identity/index");
+            }
+            final var edits = new ArrayList<>(registration.edits());
+            edits.add(reader.replace(
+                    ColumnFamily.ID,
+                    reservation.key(),
+                    TargetReservationRecord.VALUE_TYPE,
+                    reservation.canonicalBytes()));
+            edits.add(reader.replace(
+                    ColumnFamily.ID,
+                    reservation.lookupKey(),
+                    TargetReservationRecord.VALUE_TYPE,
+                    reservation.canonicalBytes()));
+            edits.add(reader.replace(
+                    ColumnFamily.TIMELINE,
+                    reservation.expiryKey(),
+                    TargetReservationRecord.VALUE_TYPE,
+                    reservation.canonicalBytes()));
+            edits.add(reader.replace(
+                    ColumnFamily.META,
+                    payloadOwner.key(),
+                    TargetQuotaPayloadOwner.VALUE_TYPE,
+                    payloadOwner.canonicalBytes()));
+            return new Decision(
+                    new TargetMessageStore.Input(List.of(), List.of(), edits),
+                    applied(StableCode.OK, source, null),
+                    registration.owner(),
+                    registration.owner().accounting());
+        }
         final var work = new TargetTimelineWorkRef(
                 locator,
                 TimelineWorkKind.INITIAL_SCHEDULE,
@@ -525,6 +632,116 @@ public final class TargetCommandStore {
                 registration.owner().accounting());
     }
 
+    private Decision cancelReservation(
+            TargetStoreBackend.Reader reader,
+            PreparedCommand command,
+            MessagePrecondition precondition,
+            byte[] payloadKey,
+            byte[] payloadRaw,
+            TargetQuotaMutation stamp,
+            CancellationControls controls) {
+        final var source = stamp.source();
+        final byte[] key = Bytes.concat(
+                new byte[] {TargetKeyCodec.RESERVATION_TAG, 1},
+                command.delayMessageId().bytes());
+        final var reservation = TargetReservationRecord.decode(
+                payload(reader, ColumnFamily.ID, key, TargetReservationRecord.VALUE_TYPE));
+        if (!Arrays.equals(key, reservation.key()) || !Arrays.equals(reservation.recoveryLineage(), lineage)) {
+            throw new IllegalStateException("reservation identity/lineage differs from actual Store");
+        }
+        reservation.mutation().requireAtOrBefore(reader.aggregate().mutation());
+        if (!Arrays.equals(
+                reservation.canonicalBytes(),
+                payload(reader, ColumnFamily.ID, reservation.lookupKey(), TargetReservationRecord.VALUE_TYPE))) {
+            throw new IllegalStateException("reservation lookup differs from its Message projection");
+        }
+        if (reservation.status() != PayloadReservationStatus.RESERVED
+                && reader.get(ColumnFamily.TIMELINE, reservation.expiryKey()) != null) {
+            throw new IllegalStateException("terminal reservation retains an expiry index");
+        }
+        final var payloadOwner = TargetQuotaPayloadOwner.decodeForStore(
+                payloadKey,
+                TargetValueEnvelope.decode(payloadRaw, TargetQuotaPayloadOwner.VALUE_TYPE)
+                        .payload(),
+                scope.shard(),
+                scope.tenantScope());
+        reservation.requireOwner(payloadOwner);
+        final var owner = descriptor(reader, payloadOwner.primaryIdentity());
+        owner.requirePayloadOwner(payloadOwner);
+        payloadOwner.mutation().requireAtOrBefore(reader.aggregate().mutation());
+        if ((precondition.expectedGeneration() != null && precondition.expectedGeneration() != 0)
+                || (precondition.expectedStateVersion() != null
+                        && precondition.expectedStateVersion() != reservation.stateVersion())) {
+            return unchanged(applied(StableCode.VERSION_CONFLICT, source, null), owner);
+        }
+        final var bindingKey =
+                TargetKeyCodec.scheduleBinding(reservation.locator().scheduleBindingDigest());
+        final var binding = TargetScheduleBinding.decodeForStore(
+                bindingKey,
+                payload(reader, ColumnFamily.ID, bindingKey, TargetScheduleBinding.VALUE_TYPE),
+                scope.shard());
+        reservation.requireBinding(binding);
+        payloadOwner.requireInitialBinding(binding);
+        final var queueKey = TargetKeyCodec.state(binding.target());
+        final var queue =
+                TargetQueueState.decode(payload(reader, ColumnFamily.META, queueKey, TargetQueueState.VALUE_TYPE));
+        binding.requireQueueProjection(queue);
+        if (reservation.status() != PayloadReservationStatus.RESERVED) {
+            final var code =
+                    switch (reservation.status()) {
+                        case ABANDONED -> StableCode.ALREADY_ABANDONED;
+                        case EXPIRED -> StableCode.RESERVATION_EXPIRED;
+                        case COMMITTED ->
+                            throw new IllegalStateException("committed reservation is missing its Message");
+                        default -> throw new IllegalStateException("unexpected reservation state");
+                    };
+            return unchanged(applied(code, source, null), owner);
+        }
+        if (queue.admissionState() == TargetQueueState.AdmissionState.CLOSED
+                || controls.closed(reader, binding, source)) {
+            return unchanged(applied(StableCode.PAYLOAD_RESERVATION_CLOSED, source, null), owner);
+        }
+        final var index =
+                payload(reader, ColumnFamily.TIMELINE, reservation.expiryKey(), TargetReservationRecord.VALUE_TYPE);
+        if (!Arrays.equals(index, reservation.canonicalBytes())) {
+            throw new IllegalStateException("reservation expiry projection differs");
+        }
+        final var after = reservation.finish(PayloadReservationStatus.ABANDONED, stamp, null);
+        final var retained = payloadOwner.retain(stamp, (prior, next, floor) -> {
+            if (prior != payloadOwner || !next.mutation().equals(stamp) || floor != null) {
+                throw new IllegalStateException("reservation release changed its exact source owner");
+            }
+        });
+        after.requireOwner(retained);
+        return new Decision(
+                new TargetMessageStore.Input(
+                        List.of(),
+                        List.of(),
+                        List.of(
+                                reader.replace(
+                                        ColumnFamily.ID,
+                                        key,
+                                        TargetReservationRecord.VALUE_TYPE,
+                                        after.canonicalBytes()),
+                                reader.replace(
+                                        ColumnFamily.ID,
+                                        reservation.lookupKey(),
+                                        TargetReservationRecord.VALUE_TYPE,
+                                        after.canonicalBytes()),
+                                reader.replace(
+                                        ColumnFamily.TIMELINE,
+                                        reservation.expiryKey(),
+                                        TargetReservationRecord.VALUE_TYPE,
+                                        null),
+                                reader.replace(
+                                        ColumnFamily.META,
+                                        payloadKey,
+                                        TargetQuotaPayloadOwner.VALUE_TYPE,
+                                        retained.canonicalBytes()))),
+                applied(StableCode.PAYLOAD_RESERVATION_ABANDONED, source, null),
+                owner);
+    }
+
     private Decision modifyMessage(
             TargetStoreBackend.Reader reader,
             PreparedCommand command,
@@ -542,8 +759,7 @@ public final class TargetCommandStore {
         final byte[] payloadRaw = reader.get(ColumnFamily.META, payloadKey);
         if (raw == null) {
             if (payloadRaw != null && reschedule == null) {
-                throw new IllegalStateException(
-                        "Cancel reservation/retained identity requires its pending business handler");
+                return cancelReservation(reader, command, precondition, payloadKey, payloadRaw, stamp, controls);
             }
             return unchanged(applied(StableCode.NOT_FOUND, source, null), root);
         }

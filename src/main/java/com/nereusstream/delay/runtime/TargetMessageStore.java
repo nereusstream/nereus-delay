@@ -240,7 +240,7 @@ public final class TargetMessageStore {
         final var edits = new LinkedHashMap<String, TargetStoreBackend.Edit>();
         for (var extra : input.extra()) {
             final int tag = Byte.toUnsignedInt(extra.key()[0]);
-            if (extra.family() == ColumnFamily.TIMELINE
+            if ((extra.family() == ColumnFamily.TIMELINE && tag != TargetKeyCodec.RESERVATION_EXPIRY_TAG)
                     || (extra.family() == ColumnFamily.ID && tag == TargetKeyCodec.MESSAGE_TAG)
                     || (extra.family() == ColumnFamily.META && tag == TargetKeyCodec.ORDER_STATE_TAG)) {
                 throw new IllegalArgumentException("extra edit bypasses Message/order projection ownership");

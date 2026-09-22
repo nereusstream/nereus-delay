@@ -6242,3 +6242,15 @@ Message/Reservation、结果/计费、生产认证快照与集中验证仍待后
 丢弃业务投影，转为仅结果/source 的持久拒绝；不可换视图沿用过时容量结论。九项必要
 开发检查通过。Route/retry/对象证明等生产 provider、Prepare/Commit 与其余业务、完整
 恢复/配置/迁移仍未完成，集中验证状态不变。
+
+
+### Target Prepare 与 reservation Cancel（2026-09-22）
+
+首次 Prepare 与 reservation Cancel 已接入实际 Worker Source Apply。NV38 保存原 Prepare
+anchor、冻结排序契约、按 MessageId/reservationId 查询及到期索引；Prepare 不创建 Message
+或投递工作，Cancel 原子转 ABANDONED、移除到期索引并将 payload 配额转入 retained。
+业务、首结果、真实增量费用与 source 同 batch；PREPARE 配额拒绝沿用同一 ReadView 的
+仅结果转换。九项必要开发检查通过。Commit、签名 receipt/query/upload、正式到期处理、
+Floor/GC、生产认证 providers、完整恢复/配置/迁移和集中验证仍未完成。
+
+记录格式见 NDIP-3 身份与索引契约 §20，实际计费边界见 quota 契约 §37。

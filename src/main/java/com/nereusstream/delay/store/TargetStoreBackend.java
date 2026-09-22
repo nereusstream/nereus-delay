@@ -638,12 +638,14 @@ public final class TargetStoreBackend {
                         switch (tag) {
                             case 5 -> 15;
                             case 6 -> 21;
+                            case 7, 8 -> 38;
                             default -> 0;
                         };
                     case TIMELINE ->
                         switch (tag) {
                             case 8, 9, 11, 12 -> 14;
                             case 10 -> 16;
+                            case 13 -> 38;
                             default -> 0;
                         };
                     case META ->

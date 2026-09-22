@@ -558,3 +558,53 @@ B1 VERIFIED 只覆盖这组源码、字段契约与检查结果，提案整体�
 历史 B1 子批次记录中的 pending 是各批次当时状态；由本节和新的聚合 evidence 说明后续
 归属，不改写历史 receipt/hash。B1 验证不能要求依赖 B1 的 C1/B6/F1 已先完成；B7 和最终
 Implemented gate 仍必须覆盖这张表，不因 B1 局部验收而省略任何工作。
+
+
+## 20. TargetReservationRecord
+
+新增 NV **38** / schema **1**，以下三种 key 均存完整同一 canonical record。旧 Lane
+reservation namespace 不变；Target reader 接受 NV1..38，旧 ValueEnvelope 仍只接受 1..11。
+
+| CF / tag | key（十六进制 tag） | 长度 |
+|---|---|---|
+| ID / 07 | `07 01 + MessageId[41]` | 43 |
+| ID / 08 | `08 01 + reservationId[32]` | 34 |
+| TIMELINE / 0d | `0d 01 + expiryEpochMs:u64be + MessageId[41]` | 51 |
+
+| 字段 | 内容 |
+|---|---|
+| 1 | uint32 schema=1 |
+| 2 | 完整 bounded TargetMessageLocator，generation=0、原 Prepare binding digest |
+| 3 | reservationId[32] |
+| 4 | prepareCommandId[41] |
+| 5 | CLIENT_COMMAND ProtocolTuple |
+| 6 | prepareCommandHash[32] |
+| 7 | uint64 expiryEpochMs，非负 signed-long 时间范围 |
+| 8 | PayloadReservationStatus：1 RESERVED、2 COMMITTED、3 ABANDONED、4 EXPIRED |
+| 9 | 非零 uint64 位模式 stateVersion |
+| 10 | source-only TargetQuotaMutation prepareAnchor，永久不变 |
+| 11 | source-only TargetQuotaMutation mutation，当前生命周期来源 |
+| 12 | committedPayload：无对象时显式 empty bytes，否则完整 bounded TargetPayloadReference |
+| 13 | recoveryLineage[16]，不能全零 |
+| 14 | OrderingContract：1 LEGACY_DELIVERY_TIME_FIFO、2 ADMISSION_WATERMARK |
+| 15 | SHA256(`nereus-delay-target-reservation\0` UTF-8 domain + 字段 1..14 canonical bytes) |
+
+reservationId 沿用 SHA256(`nereus-delay-reservation-id\0` + prepareCommandId + MessageId +
+prepareCommandHash)，不加入 Target 或后续状态。Prepare anchor 绑定完整原 Command frame
+SHA256、原 source 与完整 body；expiry 必须等于 checked broker persistence time + TTL。
+同 Shard、原 locator/binding、payload owner、accounting incarnation 和 lineage 必须一致。
+canonical 上限为 TargetMessageLocator.MAX_CANONICAL_BYTES + 2 ×
+TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES + TargetPayloadReference.MAX_CANONICAL_BYTES + 512；
+解码拒绝额外/缺失字段、非 canonical 编码及超限输入。
+
+RESERVED 的 stateVersion=1、mutation=prepareAnchor，唯一 payload owner 同为 RESERVED
+且 mutation 完全等于 anchor；三种记录必须相等。终态 stateVersion unsigned >1，mutation
+是 anchor 的 Store successor；仅 COMMITTED 携带同 reservationId 的完整对象引用。
+终态保留两条 ID 投影并删除 expiry；ABANDONED/EXPIRED owner 只能为 RETAINED/RELEASED，
+COMMITTED owner 可随后随 Message 生命周期转 retained/released。record mutation 不得晚于
+owner mutation，owner 不能恢复成 RESERVED。Floor/删除权威仍须独立证明。
+
+TargetRecordAccounting 在实际 before/after view 核对双 ID 与 expiry 的双向一致性、原
+binding 的全 frame 身份和 payload owner 的原始长度/hash/ObjectStoreProfile。每条真实记录
+均计 STATE，payload 维度只由唯一 payload owner 计量。仅 codec 支持 COMMITTED/EXPIRED，
+并不表示 Commit/到期 source writer、查询签名、对象上传或回收已经实现。

@@ -1864,3 +1864,30 @@ ReadView 中丢弃整个 ingress projection，以 HARD_QUOTA_EXCEEDED 结果重�
 Target ACTIVE_MESSAGES 限制触发持久拒绝、无 Message/payload/binding 残留、零写重放、
 当前 MessageId 冲突投影，以及已有 Cancel/Reschedule/Claim/replay 路径。对象证明、strict
 watermark、真实 authority/provider 与全账本恢复仍未验证，不构成完整 B4/C1/C2 验收。
+
+
+## 37. Prepare 与 reservation Cancel 的实际配额迁移
+
+Prepare 共用首次 ingress 的实际 registration、freshness/window/authorization 和同视图
+quota rejection；使用 PREPARE gate 与真实冻结 Target owner/grant。写入 NV38 双 ID、expiry、
+唯一 RESERVED payload owner、binding/必要共享记录和首结果/source；不创建 Message、
+ordinary/Native/ORDERED work 或推进 Admission watermark。已有 strict order gate 必须 OPEN，
+冻结 contract 不得改变。TTL 从本次 broker persistence time checked 相加；生产 Schedules
+provider 必须提供 source-pinned size/TTL/trust-set/Route/retry/object/control 权限。
+
+RESERVED 三条实际 NV38 记录分别计 STATE；payload owner 仅增加一次 RESERVATION_MESSAGES
+和 RESERVATION_PAYLOAD_BYTES。双 ID/expiry/完整 Prepare anchor 与实际 owner 必须相符，
+逻辑 quota 拒绝丢弃所有新业务投影并在同一 Reader/预算内重建 HARD_QUOTA_EXCEEDED，
+结果本身仍接受 source/accounting/commit guards，不能残留 reservation 或 payload owner。
+
+无 Message 的 Cancel 读取实际 reservation 与 owner，先核对前置 generation=0/stateVersion，
+再核对原 binding/queue 和 source-ordered closure；RESERVED 成功后 stateVersion+1，保留
+prepareAnchor/orderingContract，将两条 ID 更新为 ABANDONED、删除 expiry、owner 转 RETAINED。
+reservation 消息数/字节归零，字节转入 RETAINED_PAYLOAD_BYTES；对象与历史仍保留。
+同位置重放零写，新 Cancel 返回 ALREADY_ABANDONED；不能取消已 committed Message 的
+reservation 来绕过其已有 Message/attempt 义务。COMMITTED 缺 Message 为不一致而 fail closed。
+
+必要九项开发检查包含实际 Worker Prepare、双 ID/expiry、无 Message、reservation grant
+拒绝、同位置重放和 Cancel 后配额转移。生产认证、strict/损坏/溢出边界、Commit、签名
+receipt/query/upload、正式 expiry WorkClass/source writer、Floor/GC 与完整恢复矩阵仍待实现或
+集中验证；不将 codec 的终态枚举认定为相应业务路径已经完成。

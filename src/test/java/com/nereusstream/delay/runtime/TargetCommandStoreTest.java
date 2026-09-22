@@ -40,6 +40,7 @@ import com.nereusstream.delay.protocol.KafkaActivationBarrier;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.MessagePrecondition;
 import com.nereusstream.delay.protocol.OwnerIdentity;
+import com.nereusstream.delay.protocol.PrepareLargeScheduleBody;
 import com.nereusstream.delay.protocol.PreparedCommand;
 import com.nereusstream.delay.protocol.PreparedControlOperation;
 import com.nereusstream.delay.protocol.ProfileBindingControlState;
@@ -155,6 +156,7 @@ class TargetCommandStoreTest {
             final long[] targetAmounts = amounts.clone();
             Arrays.fill(targetAmounts, 50, 55, 0);
             targetAmounts[CapacityDimension.ACTIVE_MESSAGES.wireValue() - 1] = 1;
+            targetAmounts[CapacityDimension.RESERVATION_MESSAGES.wireValue() - 1] = 1;
             final var targetRequest = new TargetQuotaGrantControlRequest(
                     new TargetQuotaGrant(
                             scope.forTarget(initial.target()),
@@ -339,7 +341,7 @@ class TargetCommandStoreTest {
                 scheduleResolutions.incrementAndGet();
                 final var acceptedBinding = new TargetScheduleBinding(
                         incoming.delayMessageId(),
-                        CommandType.SCHEDULE,
+                        incoming.type(),
                         incoming.canonicalBody(),
                         position,
                         physical.id(),
@@ -502,7 +504,12 @@ class TargetCommandStoreTest {
                                 return new TargetSourceApplyRuntime.CommandControl(
                                         policy,
                                         (reader, bound, source) -> {
-                                            assertArrayEquals(binding.canonicalBytes(), bound.canonicalBytes());
+                                            if (bound.commandType() == CommandType.SCHEDULE) {
+                                                assertArrayEquals(binding.canonicalBytes(), bound.canonicalBytes());
+                                            } else {
+                                                assertEquals(CommandType.PREPARE_LARGE_SCHEDULE, bound.commandType());
+                                                assertArrayEquals(membership.digest(), bound.membershipGrantRef());
+                                            }
                                             return false;
                                         },
                                         scheduleProvider,
@@ -697,6 +704,184 @@ class TargetCommandStoreTest {
             assertEquals(1, conflicted.stateVersion());
             assertEquals(MessageStatus.SCHEDULED, conflicted.messageStatus());
             assertEquals(2, scheduleResolutions.get());
+            final var prepareAt =
+                    source(conflictAt, conflictAt.offset() + 1, conflictAt.brokerLogAppendTimeEpochMs() + 1);
+            final var modelPrepare = PrepareLargeScheduleBody.decode(
+                    vector("target-binding-channel-vectors.properties", "body.prepare"));
+            final var prepareIntent = CanonicalScheduleIntent.forPrepare(
+                    intent.profile(),
+                    intent.retryPolicy(),
+                    intent.deliverAtEpochMs(),
+                    intent.expireAtEpochMs(),
+                    intent.deliveryMode(),
+                    intent.orderingMode(),
+                    intent.orderingKey(),
+                    intent.adapterMetadata(),
+                    intent.businessKey(),
+                    intent.eventTimeEpochMs(),
+                    intent.nativeDeliveryPolicy());
+            final var prepareId = cancel(locator.messageId(), prepareAt, 500).commandId();
+            final var reservedMessage = new DelayMessageId(
+                    cancel(locator.messageId(), prepareAt, 1500).commandId().bytes());
+            final var prepareBody = new PrepareLargeScheduleBody(
+                    reservedMessage,
+                    prepareAt.brokerLogAppendTimeEpochMs() + 1000,
+                    prepareIntent,
+                    100,
+                    bytes(32, 0xd1),
+                    500,
+                    modelPrepare.trustSet(),
+                    modelPrepare.objectStoreProfile());
+            final var prepare = new PreparedCommand(
+                    scope.shard(),
+                    prepareId,
+                    reservedMessage,
+                    CommandType.PREPARE_LARGE_SCHEDULE,
+                    fresh.protocolTuple(),
+                    prepareBody.retryUntilEpochMs(),
+                    prepareBody.canonicalBytes(),
+                    CommandHash.compute(
+                            fresh.protocolTuple(),
+                            CommandType.PREPARE_LARGE_SCHEDULE,
+                            prepareId,
+                            reservedMessage,
+                            prepareBody.retryUntilEpochMs(),
+                            prepareBody.canonicalBytes()));
+            assertEquals(
+                    StableCode.OK,
+                    apply(loop, entries, prepare, prepareAt)
+                            .appliedOutcome()
+                            .commandResult()
+                            .stableCode());
+            assertNull(store.get(ColumnFamily.ID, TargetKeyCodec.message(reservedMessage)));
+            final byte[] reservationKey =
+                    Bytes.concat(new byte[] {TargetKeyCodec.RESERVATION_TAG, 1}, reservedMessage.bytes());
+            final var reserved = TargetReservationRecord.decode(TargetValueEnvelope.decode(
+                            store.get(ColumnFamily.ID, reservationKey), TargetReservationRecord.VALUE_TYPE)
+                    .payload());
+            assertEquals(PayloadReservationStatus.RESERVED, reserved.status());
+            assertArrayEquals(
+                    reserved.canonicalBytes(),
+                    TargetValueEnvelope.decode(
+                                    store.get(ColumnFamily.ID, reserved.lookupKey()),
+                                    TargetReservationRecord.VALUE_TYPE)
+                            .payload());
+            assertArrayEquals(
+                    reserved.canonicalBytes(),
+                    TargetValueEnvelope.decode(
+                                    store.get(ColumnFamily.TIMELINE, reserved.expiryKey()),
+                                    TargetReservationRecord.VALUE_TYPE)
+                            .payload());
+            final byte[] reservedOwnerKey =
+                    Bytes.concat(new byte[] {TargetKeyCodec.QUOTA_PAYLOAD_OWNER_TAG, 1}, reservedMessage.bytes());
+            final var reservedOwner = TargetQuotaPayloadOwner.decode(TargetValueEnvelope.decode(
+                            store.get(ColumnFamily.META, reservedOwnerKey), TargetQuotaPayloadOwner.VALUE_TYPE)
+                    .payload());
+            reserved.requireOwner(reservedOwner);
+            assertEquals(TargetQuotaPayloadOwner.Phase.RESERVED, reservedOwner.phase());
+            final long afterPrepare = store.latestSequenceNumber();
+            assertEquals(
+                    StableCode.OK,
+                    apply(loop, entries, prepare, prepareAt)
+                            .appliedOutcome()
+                            .commandResult()
+                            .stableCode());
+            assertEquals(afterPrepare, store.latestSequenceNumber());
+            assertEquals(3, scheduleResolutions.get());
+            final var quotaAt = source(prepareAt, prepareAt.offset() + 1, prepareAt.brokerLogAppendTimeEpochMs() + 1);
+            final var quotaMessage = new DelayMessageId(
+                    cancel(locator.messageId(), quotaAt, 1600).commandId().bytes());
+            final var quotaId = cancel(locator.messageId(), quotaAt, 550).commandId();
+            final var quotaBody = new PrepareLargeScheduleBody(
+                    quotaMessage,
+                    quotaAt.brokerLogAppendTimeEpochMs() + 1000,
+                    prepareIntent,
+                    100,
+                    bytes(32, 0xd1),
+                    500,
+                    modelPrepare.trustSet(),
+                    modelPrepare.objectStoreProfile());
+            final var quotaPrepare = new PreparedCommand(
+                    scope.shard(),
+                    quotaId,
+                    quotaMessage,
+                    CommandType.PREPARE_LARGE_SCHEDULE,
+                    fresh.protocolTuple(),
+                    quotaBody.retryUntilEpochMs(),
+                    quotaBody.canonicalBytes(),
+                    CommandHash.compute(
+                            fresh.protocolTuple(),
+                            CommandType.PREPARE_LARGE_SCHEDULE,
+                            quotaId,
+                            quotaMessage,
+                            quotaBody.retryUntilEpochMs(),
+                            quotaBody.canonicalBytes()));
+            assertEquals(
+                    StableCode.HARD_QUOTA_EXCEEDED,
+                    apply(loop, entries, quotaPrepare, quotaAt)
+                            .appliedOutcome()
+                            .commandResult()
+                            .stableCode());
+            assertNull(store.get(
+                    ColumnFamily.ID,
+                    Bytes.concat(new byte[] {TargetKeyCodec.RESERVATION_TAG, 1}, quotaMessage.bytes())));
+            assertNull(store.get(
+                    ColumnFamily.META,
+                    Bytes.concat(new byte[] {TargetKeyCodec.QUOTA_PAYLOAD_OWNER_TAG, 1}, quotaMessage.bytes())));
+            final var reservedUsage = backend.prepareRead(
+                            budget(), reader -> reader.aggregate().usage())
+                    .value();
+            assertEquals(1, reservedUsage.resources().amount(CapacityDimension.RESERVATION_MESSAGES));
+            assertEquals(100, reservedUsage.resources().amount(CapacityDimension.RESERVATION_PAYLOAD_BYTES));
+            final var abandonAt = source(quotaAt, quotaAt.offset() + 1, quotaAt.brokerLogAppendTimeEpochMs() + 1);
+            final var abandon = cancel(reservedMessage, abandonAt, 600);
+            assertEquals(
+                    StableCode.PAYLOAD_RESERVATION_ABANDONED,
+                    apply(loop, entries, abandon, abandonAt)
+                            .appliedOutcome()
+                            .commandResult()
+                            .stableCode());
+            final var abandoned = TargetReservationRecord.decode(TargetValueEnvelope.decode(
+                            store.get(ColumnFamily.ID, reservationKey), TargetReservationRecord.VALUE_TYPE)
+                    .payload());
+            assertEquals(PayloadReservationStatus.ABANDONED, abandoned.status());
+            assertArrayEquals(
+                    abandoned.canonicalBytes(),
+                    TargetValueEnvelope.decode(
+                                    store.get(ColumnFamily.ID, abandoned.lookupKey()),
+                                    TargetReservationRecord.VALUE_TYPE)
+                            .payload());
+            assertEquals(2, abandoned.stateVersion());
+            assertEquals(reserved.prepareAnchor(), abandoned.prepareAnchor());
+            assertNull(store.get(ColumnFamily.TIMELINE, reserved.expiryKey()));
+            final var releasedOwner = TargetQuotaPayloadOwner.decode(TargetValueEnvelope.decode(
+                            store.get(ColumnFamily.META, reservedOwnerKey), TargetQuotaPayloadOwner.VALUE_TYPE)
+                    .payload());
+            abandoned.requireOwner(releasedOwner);
+            assertEquals(TargetQuotaPayloadOwner.Phase.RETAINED, releasedOwner.phase());
+            final var retainedUsage = backend.prepareRead(
+                            budget(), reader -> reader.aggregate().usage())
+                    .value();
+            assertEquals(0, retainedUsage.resources().amount(CapacityDimension.RESERVATION_MESSAGES));
+            assertEquals(0, retainedUsage.resources().amount(CapacityDimension.RESERVATION_PAYLOAD_BYTES));
+            assertEquals(
+                    reservedUsage.resources().amount(CapacityDimension.RETAINED_BYTES) + 100,
+                    retainedUsage.resources().amount(CapacityDimension.RETAINED_BYTES));
+            final long afterAbandon = store.latestSequenceNumber();
+            assertEquals(
+                    StableCode.PAYLOAD_RESERVATION_ABANDONED,
+                    apply(loop, entries, abandon, abandonAt)
+                            .appliedOutcome()
+                            .commandResult()
+                            .stableCode());
+            assertEquals(afterAbandon, store.latestSequenceNumber());
+            final var repeatAt = source(abandonAt, abandonAt.offset() + 1, abandonAt.brokerLogAppendTimeEpochMs() + 1);
+            assertEquals(
+                    StableCode.ALREADY_ABANDONED,
+                    apply(loop, entries, cancel(reservedMessage, repeatAt, 601), repeatAt)
+                            .appliedOutcome()
+                            .commandResult()
+                            .stableCode());
         }
     }
 
@@ -781,7 +966,11 @@ class TargetCommandStoreTest {
                             position.canonicalBytes(), outcome.commandResult().appliedSourcePosition());
                     return SourceAcknowledgement.AcknowledgementResult.acked();
                 }));
-        return loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100);
+        final var result = loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100);
+        if (result.failure() != null) {
+            throw new AssertionError("source apply failed: " + result.status(), result.failure());
+        }
+        return result;
     }
 
     private static WorkClassExecutionRegistry workClasses() {
