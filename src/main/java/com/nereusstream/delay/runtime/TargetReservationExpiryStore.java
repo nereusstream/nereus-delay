@@ -152,17 +152,30 @@ public final class TargetReservationExpiryStore {
             TargetStoreBackend.ReadAuthority reads,
             TargetStoreBackend.CommitAuthority writes,
             TargetQuotaDelta.ReservationExpiryAuthority authority) {
+        return materializeTerminal(budget, reservationId, reads, writes, authority, false);
+    }
+
+    /** Shared exact-projection accounting; the public Close facade supplies its separate authority. */
+    boolean materializeTerminal(
+            BoundedReadBudget budget,
+            byte[] reservationId,
+            TargetStoreBackend.ReadAuthority reads,
+            TargetStoreBackend.CommitAuthority writes,
+            TargetQuotaDelta.ReservationExpiryAuthority authority,
+            boolean closure) {
         Objects.requireNonNull(writes, "writes");
         Objects.requireNonNull(authority, "authority");
+        final var terminal = closure ? PayloadReservationStatus.ABANDONED : PayloadReservationStatus.EXPIRED;
         final var found = queries.read(budget, reservationId, reads);
-        if (found.isPresent()
+        if (!closure
+                && found.isPresent()
                 && found.orElseThrow().reservation().status() == PayloadReservationStatus.RESERVED
                 && found.orElseThrow().effectiveStatus() == PayloadReservationStatus.ABANDONED) {
             throw new ClosedTargetException();
         }
         if (found.isEmpty()
                 || found.orElseThrow().reservation().status() != PayloadReservationStatus.RESERVED
-                || found.orElseThrow().effectiveStatus() != PayloadReservationStatus.EXPIRED) {
+                || found.orElseThrow().effectiveStatus() != terminal) {
             return false;
         }
         final var expected = found.orElseThrow().reservation();
@@ -176,14 +189,16 @@ public final class TargetReservationExpiryStore {
                 throw new IllegalStateException("reservation changed before expiry materialization; rediscover");
             }
             final byte[] rawFence = reader.get(ColumnFamily.META, KeyCodec.metaFixed(4));
-            if (rawFence == null) {
-                throw new IllegalStateException("reservation expiry lost its committed fence");
-            }
-            final var fence = IngressFenceState.decode(
-                    TargetValueEnvelope.decode(rawFence, 1).payload());
-            if (fence.proofId() == null
-                    || expected.effectiveStatus(fence.closedThroughEpochMs()) != PayloadReservationStatus.EXPIRED) {
-                throw new IllegalStateException("reservation has no authenticated persisted expiry decision");
+            if (!closure) {
+                if (rawFence == null) {
+                    throw new IllegalStateException("reservation expiry lost its committed fence");
+                }
+                final var fence = IngressFenceState.decode(
+                        TargetValueEnvelope.decode(rawFence, 1).payload());
+                if (fence.proofId() == null
+                        || expected.effectiveStatus(fence.closedThroughEpochMs()) != PayloadReservationStatus.EXPIRED) {
+                    throw new IllegalStateException("reservation has no authenticated persisted expiry decision");
+                }
             }
             final var queue = TargetQueueState.decode(TargetValueEnvelope.decode(
                             reader.get(
@@ -203,10 +218,10 @@ public final class TargetReservationExpiryStore {
                             .payload(),
                     scope.shard());
             final var decision = TargetReservationControls.resolve(reader, expected, binding, queue, controls);
-            if (decision.status() == PayloadReservationStatus.ABANDONED) {
+            if (!closure && decision.status() == PayloadReservationStatus.ABANDONED) {
                 throw new ClosedTargetException();
             }
-            if (decision.status() != PayloadReservationStatus.EXPIRED) {
+            if (decision.status() != terminal || (closure && decision.closure().isEmpty())) {
                 throw new IllegalStateException("expiry decision changed before materialization; rediscover");
             }
             if (reader.get(
@@ -221,9 +236,12 @@ public final class TargetReservationExpiryStore {
             }
             aggregate.mutation().requireAtOrBefore(reader.sourceSequence(), reader.source());
             final byte[] digest = Bytes.sha256(
-                    Bytes.utf8("nereus-delay-target-reservation-expiry\0"),
+                    Bytes.utf8(
+                            closure
+                                    ? "nereus-delay-target-reservation-closure-materialization\0"
+                                    : "nereus-delay-target-reservation-expiry\0"),
                     expected.canonicalBytes(),
-                    rawFence,
+                    rawFence == null ? new byte[0] : rawFence,
                     aggregate.mutation().canonicalBytes(),
                     decision.closure()
                             .map(TargetReservationControls.Closure::digest)
@@ -233,7 +251,8 @@ public final class TargetReservationExpiryStore {
                     reader.source(),
                     digest,
                     TargetQuotaMutation.increment(aggregate.mutation().localOrdinal()),
-                    true);
+                    !closure,
+                    closure);
             final byte[] ownerKey = Bytes.concat(
                     new byte[] {TargetKeyCodec.QUOTA_PAYLOAD_OWNER_TAG, 1},
                     expected.locator().messageId().bytes());
@@ -245,7 +264,9 @@ public final class TargetReservationExpiryStore {
                     scope.shard(),
                     scope.tenantScope());
             expected.requireOwner(owner);
-            final var expired = expected.finish(PayloadReservationStatus.EXPIRED, stamp, null);
+            final var expired = closure
+                    ? expected.finishClosed(stamp, decision.closure().orElseThrow())
+                    : expected.finish(PayloadReservationStatus.EXPIRED, stamp, null);
             final var retained = owner.retain(stamp, (prior, next, floor) -> {
                 if (prior != owner || !next.mutation().equals(stamp) || floor != null) {
                     throw new IllegalStateException("expiry changed its exact payload transition");
@@ -327,20 +348,31 @@ public final class TargetReservationExpiryStore {
             updates.add(new TargetQuotaDelta.Update(
                     identity, prior.usage().subtract(removed.get(identity)).add(added.get(identity))));
         }
-        final var delta = TargetQuotaDelta.prepareReservationExpiry(
-                aggregate,
-                reader.sourceSequence(),
-                reader.source(),
-                stamp.mutationDigest(),
-                updates,
-                reader::counter,
-                value -> {
-                    try {
-                        authority.requireAuthorized(value);
-                    } catch (ReadIncompleteException external) {
-                        throw new IllegalStateException("external expiry quota authority did not complete", external);
-                    }
-                });
+        final TargetQuotaDelta.ReservationExpiryAuthority guarded = value -> {
+            try {
+                authority.requireAuthorized(value);
+            } catch (ReadIncompleteException external) {
+                throw new IllegalStateException(
+                        "external reservation materialization authority did not complete", external);
+            }
+        };
+        final var delta = stamp.reservationClosure()
+                ? TargetQuotaDelta.prepareReservationClosure(
+                        aggregate,
+                        reader.sourceSequence(),
+                        reader.source(),
+                        stamp.mutationDigest(),
+                        updates,
+                        reader::counter,
+                        guarded::requireAuthorized)
+                : TargetQuotaDelta.prepareReservationExpiry(
+                        aggregate,
+                        reader.sourceSequence(),
+                        reader.source(),
+                        stamp.mutationDigest(),
+                        updates,
+                        reader::counter,
+                        guarded);
         if (!delta.mutation().equals(stamp)) {
             throw new IllegalStateException("expiry accounting differs from its materialization stamp");
         }

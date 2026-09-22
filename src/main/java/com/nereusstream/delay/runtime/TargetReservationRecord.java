@@ -35,13 +35,47 @@ public record TargetReservationRecord(
         TargetQuotaMutation mutation,
         PayloadReference committedPayload,
         byte[] recoveryLineage,
-        TargetOrderState.OrderingContract orderingContract) {
+        TargetOrderState.OrderingContract orderingContract,
+        TargetReservationControls.Closure closure) {
     public static final int VALUE_TYPE = 38;
     public static final int MAX_CANONICAL_BYTES = TargetMessageLocator.MAX_CANONICAL_BYTES
             + TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES
             + TargetQuotaMutation.MAX_CANONICAL_BYTES
             + TargetPayloadReference.MAX_CANONICAL_BYTES
-            + 512;
+            + 512
+            + TargetReservationControls.Closure.MAX_CANONICAL_BYTES
+            + 5;
+
+    public TargetReservationRecord(
+            TargetMessageLocator locator,
+            byte[] reservationId,
+            CommandId prepareCommandId,
+            ProtocolTuple prepareTuple,
+            byte[] prepareCommandHash,
+            long expiryEpochMs,
+            PayloadReservationStatus status,
+            long stateVersion,
+            TargetQuotaMutation prepareAnchor,
+            TargetQuotaMutation mutation,
+            PayloadReference committedPayload,
+            byte[] recoveryLineage,
+            TargetOrderState.OrderingContract orderingContract) {
+        this(
+                locator,
+                reservationId,
+                prepareCommandId,
+                prepareTuple,
+                prepareCommandHash,
+                expiryEpochMs,
+                status,
+                stateVersion,
+                prepareAnchor,
+                mutation,
+                committedPayload,
+                recoveryLineage,
+                orderingContract,
+                null);
+    }
 
     public TargetReservationRecord {
         Objects.requireNonNull(locator, "locator");
@@ -52,8 +86,9 @@ public record TargetReservationRecord(
         Objects.requireNonNull(prepareAnchor, "prepareAnchor").requireSourceApplied();
         Objects.requireNonNull(mutation, "mutation");
         if (mutation.isLocalMutation()
-                && (!mutation.reservationExpiry() || status != PayloadReservationStatus.EXPIRED)) {
-            throw new IllegalArgumentException("only expired reservations may carry a local expiry stamp");
+                && !((mutation.reservationExpiry() && status == PayloadReservationStatus.EXPIRED)
+                        || (mutation.reservationClosure() && status == PayloadReservationStatus.ABANDONED))) {
+            throw new IllegalArgumentException("reservation local stamp must match its terminal cause");
         }
         Bytes.requireLength(reservationId, 32, "reservationId");
         Bytes.requireLength(prepareCommandHash, 32, "prepareCommandHash");
@@ -79,6 +114,23 @@ public record TargetReservationRecord(
                 || expiryEpochMs <= prepareAnchor.source().brokerPersistenceTimeEpochMs()
                 || (status == PayloadReservationStatus.COMMITTED) != (committedPayload != null)) {
             throw new IllegalArgumentException("invalid Target reservation identity/lifecycle/anchor");
+        }
+        if ((closure != null) != mutation.reservationClosure()) {
+            throw new IllegalArgumentException("local Close requires its durable closure evidence");
+        }
+        if (closure != null
+                && (!closure.target().equals(locator.target())
+                        || !Arrays.equals(closure.bindingDigest(), locator.scheduleBindingDigest())
+                        || !Arrays.equals(closure.recoveryLineage(), recoveryLineage)
+                        || !closure.source().shardId().equals(mutation.source().shardId())
+                        || closure.source().compareTo(prepareAnchor.source()) <= 0
+                        || closure.source().compareTo(mutation.source()) > 0
+                        || (closure.source().compareTo(mutation.source()) == 0
+                                && !Arrays.equals(
+                                        closure.source().canonicalBytes(),
+                                        mutation.source().canonicalBytes()))
+                        || closure.fenceAtClose() >= expiryEpochMs)) {
+            throw new IllegalArgumentException("closure does not prove Close-before-expiry for this reservation");
         }
         if (status == PayloadReservationStatus.RESERVED) {
             if (stateVersion != 1 || !prepareAnchor.equals(mutation)) {
@@ -184,6 +236,29 @@ public record TargetReservationRecord(
                 orderingContract);
     }
 
+    public TargetReservationRecord finishClosed(TargetQuotaMutation stamp, TargetReservationControls.Closure evidence) {
+        if (status != PayloadReservationStatus.RESERVED || !stamp.reservationClosure()) {
+            throw new IllegalStateException(
+                    "Close materialization requires an uncommitted reservation and typed stamp");
+        }
+        stamp.requireStoreSuccessorOf(mutation);
+        return new TargetReservationRecord(
+                locator,
+                reservationId,
+                prepareCommandId,
+                prepareTuple,
+                prepareCommandHash,
+                expiryEpochMs,
+                PayloadReservationStatus.ABANDONED,
+                TargetQueueState.nextRevision(stateVersion),
+                prepareAnchor,
+                stamp,
+                null,
+                recoveryLineage,
+                orderingContract,
+                Objects.requireNonNull(evidence, "closure"));
+    }
+
     public byte[] key() {
         return Bytes.concat(
                 new byte[] {TargetKeyCodec.RESERVATION_TAG, 1},
@@ -279,7 +354,12 @@ public record TargetReservationRecord(
         final byte[] fields = fields();
         return CanonicalProtobuf.message(out -> {
             out.writeBytes(fields);
-            CanonicalProtobuf.bytes(out, 15, Bytes.sha256(Bytes.utf8("nereus-delay-target-reservation\0"), fields));
+            final byte[] evidence = closure == null
+                    ? new byte[0]
+                    : CanonicalProtobuf.message(value -> CanonicalProtobuf.bytes(value, 16, closure.canonicalBytes()));
+            CanonicalProtobuf.bytes(
+                    out, 15, Bytes.sha256(Bytes.utf8("nereus-delay-target-reservation\0"), fields, evidence));
+            out.writeBytes(evidence);
         });
     }
 
@@ -289,7 +369,11 @@ public record TargetReservationRecord(
         }
         final var f = QueryCodecSupport.read(encoded, "TargetReservationRecord");
         QueryCodecSupport.requireNumbers(
-                f, new int[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}, "TargetReservationRecord");
+                f,
+                f.size() == 16
+                        ? new int[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
+                        : new int[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
+                "TargetReservationRecord");
         if (QueryCodecSupport.uint(f.get(0), 1) != 1) {
             throw new IllegalArgumentException("unknown Target reservation version");
         }
@@ -311,7 +395,10 @@ public record TargetReservationRecord(
                     case 1 -> TargetOrderState.OrderingContract.LEGACY_DELIVERY_TIME_FIFO;
                     case 2 -> TargetOrderState.OrderingContract.ADMISSION_WATERMARK;
                     default -> throw new IllegalArgumentException("unknown reservation ordering contract");
-                });
+                },
+                f.size() == 16
+                        ? TargetReservationControls.Closure.decode(QueryCodecSupport.bytes(f.get(15), 16))
+                        : null);
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "TargetReservationRecord");
         return result;
     }

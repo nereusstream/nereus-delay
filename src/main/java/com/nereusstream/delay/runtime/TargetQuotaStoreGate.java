@@ -80,8 +80,10 @@ public final class TargetQuotaStoreGate {
                 || quota.changes().size() > maximumTargets) {
             throw new IllegalArgumentException("logical Store gate requires its bounded affected Target set");
         }
-        if (quota.counters().mutation().reservationExpiry()) {
-            throw new IllegalStateException("reservation expiry requires its dedicated local maintenance authority");
+        if (quota.counters().mutation().reservationExpiry()
+                || quota.counters().mutation().reservationClosure()) {
+            throw new IllegalStateException(
+                    "reservation terminalization requires its dedicated local maintenance authority");
         }
         final boolean local = quota.counters().mutation().isLocalClaim();
         final boolean claim = operation == TargetQuotaGrantGate.Operation.CLAIM

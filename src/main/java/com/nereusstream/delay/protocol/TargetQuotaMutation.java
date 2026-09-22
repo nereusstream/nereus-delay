@@ -8,9 +8,19 @@ public record TargetQuotaMutation(
         SourcePosition source,
         byte[] mutationDigest,
         long localClaimOrdinal,
-        boolean reservationExpiry) {
+        boolean reservationExpiry,
+        boolean reservationClosure) {
     public static final int MAX_SOURCE_CANONICAL_BYTES = 11 + 4 + TargetSourcePosition.MAX_CANONICAL_BYTES + 34;
     public static final int MAX_CANONICAL_BYTES = MAX_SOURCE_CANONICAL_BYTES + 11;
+
+    public TargetQuotaMutation(
+            long sequence,
+            SourcePosition source,
+            byte[] mutationDigest,
+            long localClaimOrdinal,
+            boolean reservationExpiry) {
+        this(sequence, source, mutationDigest, localClaimOrdinal, reservationExpiry, false);
+    }
 
     public TargetQuotaMutation(
             final long sequence,
@@ -25,7 +35,9 @@ public record TargetQuotaMutation(
     }
 
     public TargetQuotaMutation {
-        if (sequence == 0 || (reservationExpiry && localClaimOrdinal == 0)) {
+        if (sequence == 0
+                || ((reservationExpiry || reservationClosure) && localClaimOrdinal == 0)
+                || (reservationExpiry && reservationClosure)) {
             throw new IllegalArgumentException("quota source sequence must be nonzero");
         }
         source = TargetSourcePosition.requireBounded(source);
@@ -38,7 +50,7 @@ public record TargetQuotaMutation(
     }
 
     public boolean isLocalClaim() {
-        return localClaimOrdinal != 0 && !reservationExpiry;
+        return localClaimOrdinal != 0 && !reservationExpiry && !reservationClosure;
     }
 
     public boolean isLocalMutation() {
@@ -119,7 +131,8 @@ public record TargetQuotaMutation(
             CanonicalProtobuf.bytes(out, 2, source.canonicalBytes());
             CanonicalProtobuf.bytes(out, 3, mutationDigest);
             if (isLocalMutation()) {
-                CanonicalProtobuf.uint64Bits(out, reservationExpiry ? 5 : 4, localClaimOrdinal);
+                CanonicalProtobuf.uint64Bits(
+                        out, reservationClosure ? 6 : reservationExpiry ? 5 : 4, localClaimOrdinal);
             }
         });
     }
@@ -127,16 +140,19 @@ public record TargetQuotaMutation(
     public static TargetQuotaMutation decode(final byte[] encoded) {
         final var fields = TargetCompatibilityCodec.read(encoded, MAX_CANONICAL_BYTES, 4, false, "TargetQuotaMutation");
         final boolean expiry = fields.size() == 4 && fields.getLast().number() == 5;
+        final boolean closure = fields.size() == 4 && fields.getLast().number() == 6;
+        final int ordinalField = closure ? 6 : expiry ? 5 : 4;
         QueryCodecSupport.requireNumbers(
                 fields,
-                fields.size() == 4 ? new int[] {1, 2, 3, expiry ? 5 : 4} : new int[] {1, 2, 3},
+                fields.size() == 4 ? new int[] {1, 2, 3, ordinalField} : new int[] {1, 2, 3},
                 "TargetQuotaMutation");
         final var result = new TargetQuotaMutation(
                 QueryCodecSupport.uint64Bits(fields.get(0), 1),
                 TargetSourcePosition.decode(QueryCodecSupport.bytes(fields.get(1), 2)),
                 QueryCodecSupport.fixed(fields.get(2), 3, 32),
-                fields.size() == 4 ? QueryCodecSupport.uint64Bits(fields.get(3), expiry ? 5 : 4) : 0,
-                expiry);
+                fields.size() == 4 ? QueryCodecSupport.uint64Bits(fields.get(3), ordinalField) : 0,
+                expiry,
+                closure);
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "TargetQuotaMutation");
         return result;
     }
@@ -147,6 +163,7 @@ public record TargetQuotaMutation(
                 && sequence == that.sequence
                 && localClaimOrdinal == that.localClaimOrdinal
                 && reservationExpiry == that.reservationExpiry
+                && reservationClosure == that.reservationClosure
                 && Arrays.equals(source.canonicalBytes(), that.source.canonicalBytes())
                 && Arrays.equals(mutationDigest, that.mutationDigest);
     }

@@ -1,6 +1,8 @@
 package com.nereusstream.delay.runtime;
 
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.CanonicalProtobuf;
+import com.nereusstream.delay.protocol.QueryCodecSupport;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.TargetPartitionId;
 import com.nereusstream.delay.protocol.TargetQueueState;
@@ -52,13 +54,15 @@ public final class TargetReservationControls {
         }
     }
 
-    /** A source-pinned authority response, not a caller-supplied control command or a persisted marker format. */
+    /** Source-pinned evidence; terminal reservations retain its canonical bytes, independently of marker retention. */
     public record Closure(
             TargetPartitionId target,
             byte[] bindingDigest,
             byte[] recoveryLineage,
             SourcePosition source,
             long fenceAtClose) {
+        public static final int MAX_CANONICAL_BYTES = TargetSourcePosition.MAX_CANONICAL_BYTES + 160;
+
         public Closure {
             Objects.requireNonNull(target, "target");
             Bytes.requireLength(bindingDigest, 32, "bindingDigest");
@@ -99,6 +103,33 @@ public final class TargetReservationControls {
                     target, source, fenceAtClose, Arrays.hashCode(bindingDigest), Arrays.hashCode(recoveryLineage));
         }
 
+        public byte[] canonicalBytes() {
+            return CanonicalProtobuf.message(out -> {
+                CanonicalProtobuf.bytes(out, 1, target.bytes());
+                CanonicalProtobuf.bytes(out, 2, bindingDigest);
+                CanonicalProtobuf.bytes(out, 3, recoveryLineage);
+                CanonicalProtobuf.bytes(out, 4, source.canonicalBytes());
+                CanonicalProtobuf.uint64Bits(out, 5, fenceAtClose);
+                CanonicalProtobuf.bytes(out, 6, digest());
+            });
+        }
+
+        public static Closure decode(byte[] encoded) {
+            if (encoded == null || encoded.length > MAX_CANONICAL_BYTES) {
+                throw new IllegalArgumentException("reservation closure exceeds bounded schema");
+            }
+            final var f = QueryCodecSupport.read(encoded, "reservation closure");
+            QueryCodecSupport.requireNumbers(f, new int[] {1, 2, 3, 4, 5, 6}, "reservation closure");
+            final var result = new Closure(
+                    new TargetPartitionId(QueryCodecSupport.fixed(f.get(0), 1, 32)),
+                    QueryCodecSupport.fixed(f.get(1), 2, 32),
+                    QueryCodecSupport.fixed(f.get(2), 3, 16),
+                    TargetSourcePosition.decode(QueryCodecSupport.bytes(f.get(3), 4)),
+                    QueryCodecSupport.uint64Bits(f.get(4), 5));
+            QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "reservation closure");
+            return result;
+        }
+
         public byte[] digest() {
             return Bytes.sha256(
                     Bytes.utf8("nereus-delay-target-reservation-closure\0"),
@@ -131,7 +162,7 @@ public final class TargetReservationControls {
         binding.requireQueueProjection(queue);
         final long watermark = reader.closedIngressDeadlineThrough();
         if (reservation.status() != PayloadReservationStatus.RESERVED) {
-            return new Decision(reservation.status(), watermark, Optional.empty());
+            return new Decision(reservation.status(), watermark, Optional.ofNullable(reservation.closure()));
         }
         reader.requireWithinElapsedBudget();
         final Optional<Closure> closure = readClosure(authority, reader, binding);

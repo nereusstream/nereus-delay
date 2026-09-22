@@ -115,11 +115,12 @@ public final class TargetQuotaPayloadOwner {
         this.phase = Objects.requireNonNull(phase, "phase");
         this.mutation = Objects.requireNonNull(mutation, "mutation");
         if (mutation.isLocalMutation()
-                && (!mutation.reservationExpiry()
+                && (!(mutation.reservationExpiry() || mutation.reservationClosure())
                         || kind != Kind.OBJECT
                         || phase != Phase.RETAINED
                         || committed != null)) {
-            throw new IllegalArgumentException("local expiry can only retain an uncommitted object reservation");
+            throw new IllegalArgumentException(
+                    "local reservation terminalization can only retain an uncommitted object reservation");
         }
         this.recoveryLineage = TargetCompatibilityCodec.assigned(recoveryLineage, 16, "recoveryLineage");
         Bytes.requireLength(payloadSha256, 32, "payloadSha256");
@@ -383,9 +384,10 @@ public final class TargetQuotaPayloadOwner {
             final TargetQuotaMutation stamp,
             final RecoveryFloorRef floor,
             final TransitionAuthority authority) {
-        if (stamp.reservationExpiry()) {
+        if (stamp.reservationExpiry() || stamp.reservationClosure()) {
             if (phase != Phase.RESERVED || nextPhase != Phase.RETAINED || payload != null || floor != null) {
-                throw new IllegalStateException("local expiry cannot replay, commit or release payload");
+                throw new IllegalStateException(
+                        "local reservation terminalization cannot replay, commit or release payload");
             }
             stamp.requireStoreSuccessorOf(mutation);
         } else {

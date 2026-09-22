@@ -724,3 +724,12 @@ CLOSED queue 的所有 domain 逻辑 head 为空，实际候选、Message、ORDE
 和 Admission 义务保留。转换时仍检查原 OPEN 的真实最小项；后续物化负责有界清理，
 不能以关闭为理由旁路剩余索引审计、恢复、计费或已投递可能性保护。legacy reader拒绝
 NV39，Target完整恢复审计/受控迁移与旧路径清退仍须专门完成。
+
+### 关闭reservation保留的证据与索引（2026-09-22）
+
+NV38/schema1可选field16保存Close证据，与mutation field6以及ABANDONED一一对应；
+普通Cancel不添加field16，不能把已有Cancel改因于后来Close。编码/摘要上界见Registry。
+双ID必须相同，terminal不保留expiry，Prepare anchor和原receipt不变；payload唯一owner
+必须RETAINED且未Commit。Close source在Prepare之后、物化frontier之前或同一完整位置，
+绑定原Target/binding/lineage并证明fenceAtClose<expiry。Query可直接保留该cause，不要求
+当前控制marker或queue slot永远存在。完整cursor/retirement/Floor GC仍是独立义务。

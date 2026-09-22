@@ -950,7 +950,10 @@ public final class TargetCommandStore {
         if (reservation.status() != PayloadReservationStatus.RESERVED) {
             final var code =
                     switch (reservation.status()) {
-                        case ABANDONED -> StableCode.ALREADY_ABANDONED;
+                        case ABANDONED ->
+                            reservation.closure() == null
+                                    ? StableCode.ALREADY_ABANDONED
+                                    : StableCode.PAYLOAD_RESERVATION_CLOSED;
                         case EXPIRED -> StableCode.RESERVATION_EXPIRED;
                         case COMMITTED ->
                             throw new IllegalStateException("committed reservation is missing its Message");

@@ -101,6 +101,7 @@ public final class TargetQuotaDelta {
                 maximumTouchedCounters,
                 lookup,
                 false,
+                false,
                 false);
     }
 
@@ -130,6 +131,7 @@ public final class TargetQuotaDelta {
                 Math.min(maximumTouchedCounters, MAX_LOCAL_CLAIM_COUNTERS),
                 lookup,
                 true,
+                false,
                 false);
         requireLocalClaimChanges(kind, delta.changes);
         authority.requireAuthorized(kind, delta);
@@ -154,7 +156,33 @@ public final class TargetQuotaDelta {
         if (source == null || sequence == 0) {
             throw new IllegalStateException("reservation expiry requires an applied source frontier");
         }
-        final var delta = prepareInternal(aggregate, sequence, source, source, digest, updates, 2, lookup, true, true);
+        final var delta =
+                prepareInternal(aggregate, sequence, source, source, digest, updates, 2, lookup, true, true, false);
+        requireReservationExpiryChanges(delta.changes);
+        authority.requireAuthorized(delta);
+        return delta;
+    }
+
+    /** Exact source-preserving Close materialization; no grant/ingress/Claim authority is implied. */
+    @FunctionalInterface
+    public interface ReservationClosureAuthority {
+        void requireAuthorized(TargetQuotaDelta delta);
+    }
+
+    public static TargetQuotaDelta prepareReservationClosure(
+            TargetQuotaAggregate aggregate,
+            long sequence,
+            SourcePosition source,
+            byte[] digest,
+            List<Update> updates,
+            Function<TargetQuotaIdentity, TargetQuotaCounter> lookup,
+            ReservationClosureAuthority authority) {
+        Objects.requireNonNull(authority, "closureAuthority");
+        if (source == null || sequence == 0) {
+            throw new IllegalStateException("reservation closure requires an applied source frontier");
+        }
+        final var delta =
+                prepareInternal(aggregate, sequence, source, source, digest, updates, 2, lookup, true, false, true);
         requireReservationExpiryChanges(delta.changes);
         authority.requireAuthorized(delta);
         return delta;
@@ -216,7 +244,8 @@ public final class TargetQuotaDelta {
             final int maximumTouchedCounters,
             final Function<TargetQuotaIdentity, TargetQuotaCounter> lookup,
             final boolean localClaim,
-            final boolean reservationExpiry) {
+            final boolean reservationExpiry,
+            final boolean reservationClosure) {
         Objects.requireNonNull(aggregate, "aggregate");
         Objects.requireNonNull(updates, "updates");
         Objects.requireNonNull(lookup, "lookup");
@@ -234,7 +263,8 @@ public final class TargetQuotaDelta {
                 source,
                 mutationDigest,
                 ordinal,
-                reservationExpiry);
+                reservationExpiry,
+                reservationClosure);
         if (!aggregate.shard().equals(source.shardId())
                 || (!localClaim && lastStoreSource != null && source.compareTo(lastStoreSource) <= 0)) {
             throw new IllegalStateException("quota source must advance the Store Source Position");

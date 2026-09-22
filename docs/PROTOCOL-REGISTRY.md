@@ -2577,8 +2577,8 @@ write. GC cursor/WorkClass, production activation and complete recovery/Close au
 
 ### Target reservation closure authority overlay
 
-TargetReservationControls.Closure is a process-local authority response, not a new wire/NV/key
-allocation. It binds Target, original binding digest, recovery lineage, full first applicable Close
+TargetReservationControls.Closure originates as a source-pinned authority response, without a
+standalone NV/key allocation. Local Close materialization below retains its canonical evidence in NV38. It binds Target, original binding digest, recovery lineage, full first applicable Close
 source and the committed fence at that Close. RESERVED uses that historical fence to preserve
 Close-before-expiry versus expiry-before-Close; terminal records retain their physical result.
 Query and Source commands share the decision; expiry GC defers Close-first and permits expiry-first
@@ -2632,3 +2632,31 @@ CLOSED queues have null logical heads while retaining physical candidates and ad
 Reservation controls combine the persisted marker with mandatory remaining historical scopes.
 Closure materialization, aggregate phase transfer, production coverage providers/activation,
 full recovery audits/Floor/migration and centralized validation remain incomplete.
+
+### Target reservation local Close materialization
+
+TargetQuotaMutation adds optional raw uint64 field6 `reservationClosure` ordinal, mutually
+exclusive with local Claim field4 and reservation expiry field5. All share the same nonzero local
+ordering domain; exactly one field may be encoded. The canonical byte maximum and fixed
+bookkeeping commitments do not change. A local Close stamp cannot represent source application,
+ordinary Claim, Commit, allocation, or same-source Recovery Floor coverage. Dedicated local
+maintenance authority only permits the original Target/tenant mirror reservation-to-retained delta.
+
+NV38/schema1 gains optional field16 canonical Closure evidence, present iff the mutation uses
+field6 and the status is ABANDONED. Existing records without field16 retain identical bytes.
+The field15 digest hashes the existing reservation domain, canonical fields1..14, then the full
+encoded field16 (tag+length+value); output field order remains1..16. Closure canonical fields:
+1 Target[32], 2 binding digest[32], 3 lineage[16], 4 full canonical SourcePosition,
+5 raw uint64 fenceAtClose (OPEN=-1), 6 existing closure digest[32]. Evidence ceiling is
+TargetSourcePosition.MAX_CANONICAL_BYTES+160; reservation ceiling increases by that value+5.
+The digest algorithm is the previously registered reservation-closure digest. Decoder enforces
+complete canonical bytes, exact identity/lineage/source ordering and fenceAtClose<expiry.
+
+The immutable original Prepare anchor and receipt survive terminalization. Field16 distinguishes
+Close from Cancel, so Query retains its durable cause and post-CAS Cancel/Reschedule return
+PAYLOAD_RESERVATION_CLOSED for a materialized Close. Uncommitted OBJECT/RETAINED payload owners
+also accept field6 only for RESERVED→RETAINED, never replay/commit/release. The batch updates
+two reservation ID projections, deletes expiry, retains owner, and includes counter/total/aggregate;
+source META3/5 remains unchanged. Old Target readers reject the unknown ordinal/field16 branch;
+production reader activation/migration, persistent close cursor, aggregate transfer and full
+recovery/Floor validation remain pending.

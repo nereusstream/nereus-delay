@@ -10,14 +10,13 @@
 
 [原 29 切片集中验证交接清单](12-集中验证交接清单.md)
 
-Target Close 已接入实际 Worker Source Apply：平台角色、完整冻结 source Shard 集合、
-ControlRef/注册与签名校验后，首次 marker、Close 时水位、队列 CLOSED/control version、
-空逻辑 head、SYSTEM/POSITION 和实际 STATE 费用/source 同批提交。已有 Message、物理
-候选、Claim/已 Admission 义务保留；reservation 从 durable marker 合并历史 Close/fence。
-12 项必要开发检查通过，包括四个实际 Worker/Store 场景、新协议边界/授权及既有重放/
-grant 路径。跨域/legacy Close、完整 source 覆盖的生产权限仍由强制接口提供，测试使用
-fixture；ABANDONED 物化、关闭汇总计费、生产装配和恢复/迁移仍未完成。全部29切片与
-集中验证义务保持，未声明完整 Close 或生产激活完成。
+Target reservation 已有 Close 单条原子物化入口：从已接受的 Close/source/历史水位
+重验决定，在到期之前即可保存带关闭证据的 ABANDONED 双ID、删除expiry，并把payload
+从RESERVED转入RETAINED，实际STATE差额与counter/total/aggregate同批；不推进source。
+Query 保留原receipt和关闭原因；Cancel/Reschedule在既有CAS检查后保持关闭码，Commit
+保持PAYLOAD_RESERVATION_CLOSED。6项必要开发检查通过，包括四个实际Worker/Store场景
+与原Claim/bookkeeping向量。持久关闭cursor/GC调度、关闭汇总转移、已Admission收尾、
+生产历史权限/factory/配置和完整恢复/迁移仍待实施；全部29切片与集中验证义务不缩减。
 
 以下为前序认证入口实施记录；持久 writer 的当前进展以上述说明为准。
 

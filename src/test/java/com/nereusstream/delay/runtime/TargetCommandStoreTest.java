@@ -2,6 +2,7 @@ package com.nereusstream.delay.runtime;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -1679,7 +1680,7 @@ class TargetCommandStoreTest {
                             (a, b, c) -> {
                                 throw new IllegalStateException("expiry physical capacity unavailable");
                             },
-                            delta -> {}));
+                            closureChange -> {}));
             assertEquals(nativeBeforeExpiry, store.latestSequenceNumber());
             assertArrayEquals(thirdRaw, store.get(ColumnFamily.ID, thirdKey));
             assertArrayEquals(thirdOwnerRaw, store.get(ColumnFamily.META, thirdOwnerKey));
@@ -2104,6 +2105,99 @@ class TargetCommandStoreTest {
                     closeSnapshot.reservation().status());
             assertEquals(TargetQuotaPayloadOwner.Phase.RESERVED, closeSnapshot.payloadPhase());
             assertEquals(preCloseSnapshot.receipt(location), closeSnapshot.receipt(location));
+            final var closures = new TargetReservationClosureStore(backend, scope, lineage, 1, reservationControls);
+            final long beforeClosureSourceSequence = store.shardMutationSequence();
+            final byte[] beforeClosureSource =
+                    store.get(ColumnFamily.META, com.nereusstream.delay.store.KeyCodec.metaFixed(3));
+            final long beforeClosureWrite = store.latestSequenceNumber();
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> closures.materialize(
+                            budget(),
+                            fifthReservation.reservationId(),
+                            queryAuthority,
+                            (a, b, c) -> {
+                                throw new IllegalStateException("closure capacity unavailable");
+                            },
+                            closureChange -> {}));
+            assertEquals(beforeClosureWrite, store.latestSequenceNumber());
+            assertArrayEquals(fifthRaw, store.get(ColumnFamily.ID, fifthKey));
+            assertArrayEquals(fifthRaw, store.get(ColumnFamily.TIMELINE, fifthReservation.expiryKey()));
+            final var closureDelta = new java.util.concurrent.atomic.AtomicReference<TargetQuotaDelta>();
+            assertTrue(closures.materialize(
+                    budget(),
+                    fifthReservation.reservationId(),
+                    queryAuthority,
+                    (a, b, c) -> guard(),
+                    closureDelta::set));
+            assertEquals(8, store.latestSequenceNumber() - beforeClosureWrite);
+            assertEquals(beforeClosureSourceSequence, store.shardMutationSequence());
+            assertArrayEquals(
+                    beforeClosureSource,
+                    store.get(ColumnFamily.META, com.nereusstream.delay.store.KeyCodec.metaFixed(3)));
+            assertEquals(closeAt, store.appliedShardLogPosition());
+            final var closedDurable = queries.read(budget(), fifthReservation.reservationId(), queryAuthority)
+                    .orElseThrow();
+            assertEquals(
+                    PayloadReservationStatus.ABANDONED,
+                    closedDurable.reservation().status());
+            assertEquals(closeSnapshot.closure(), closedDurable.closure());
+            assertEquals(preCloseSnapshot.receipt(location), closedDurable.receipt(location));
+            assertEquals(TargetQuotaPayloadOwner.Phase.RETAINED, closedDurable.payloadPhase());
+            assertEquals(2, closedDurable.reservation().stateVersion());
+            final var closureStamp = closedDurable.reservation().mutation();
+            assertTrue(closureStamp.reservationClosure());
+            assertFalse(closureStamp.reservationExpiry());
+            assertFalse(closureStamp.isLocalClaim());
+            assertEquals(1, closureStamp.localOrdinal());
+            assertEquals(
+                    closureStamp,
+                    com.nereusstream.delay.protocol.TargetQuotaMutation.decode(closureStamp.canonicalBytes()));
+            assertEquals(closureStamp, closureDelta.get().mutation());
+            assertThrows(IllegalArgumentException.class, closureStamp::requireSourceApplied);
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> new com.nereusstream.delay.protocol.TargetQuotaMutation(
+                            closureStamp.sequence(),
+                            closureStamp.source(),
+                            closureStamp.mutationDigest(),
+                            1,
+                            true,
+                            true));
+            final var forgedExpiry = new com.nereusstream.delay.protocol.TargetQuotaMutation(
+                    closureStamp.sequence(), closureStamp.source(), closureStamp.mutationDigest(), 1, true);
+            assertThrows(IllegalStateException.class, () -> forgedExpiry.requireAtOrBefore(closureStamp));
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> fifthReservation.finishClosed(
+                            forgedExpiry, closedDurable.closure().orElseThrow()));
+            final byte[] closedReservationRaw = store.get(ColumnFamily.ID, fifthKey);
+            assertArrayEquals(closedReservationRaw, store.get(ColumnFamily.ID, fifthReservation.lookupKey()));
+            assertNull(store.get(ColumnFamily.TIMELINE, fifthReservation.expiryKey()));
+            final var afterClosureUsage = backend.prepareRead(
+                            budget(), reader -> reader.aggregate().usage())
+                    .value();
+            assertEquals(
+                    beforeCloseUsage.resources().amount(CapacityDimension.RESERVATION_MESSAGES) - 1,
+                    afterClosureUsage.resources().amount(CapacityDimension.RESERVATION_MESSAGES));
+            assertEquals(
+                    beforeCloseUsage.resources().amount(CapacityDimension.RESERVATION_PAYLOAD_BYTES) - 100,
+                    afterClosureUsage.resources().amount(CapacityDimension.RESERVATION_PAYLOAD_BYTES));
+            assertEquals(
+                    beforeCloseUsage.resources().amount(CapacityDimension.RETAINED_BYTES) + 100,
+                    afterClosureUsage.resources().amount(CapacityDimension.RETAINED_BYTES));
+            final long afterClosureWrite = store.latestSequenceNumber();
+            assertFalse(closures.materialize(
+                    budget(),
+                    fifthReservation.reservationId(),
+                    queryAuthority,
+                    (a, b, c) -> {
+                        throw new AssertionError("terminal Close rewrote");
+                    },
+                    closureChange -> {
+                        throw new AssertionError("terminal Close reaccounted");
+                    }));
+            assertEquals(afterClosureWrite, store.latestSequenceNumber());
             final var fifthFenceAt = source(closeAt, closeAt.offset() + 1, closeAt.brokerLogAppendTimeEpochMs() + 1);
             applyFence(loop, entries, fifthReservation.expiryEpochMs(), fifthFenceAt, keys);
             assertEquals(
@@ -2116,7 +2210,7 @@ class TargetCommandStoreTest {
             final var closedRescheduleAt =
                     source(fifthFenceAt, fifthFenceAt.offset() + 1, fifthFenceAt.brokerLogAppendTimeEpochMs() + 1);
             final var closedReschedule =
-                    reschedule(fifthMessage, closedRescheduleAt, 1100, new MessagePrecondition(0L, 1L));
+                    reschedule(fifthMessage, closedRescheduleAt, 1100, new MessagePrecondition(0L, 2L));
             assertEquals(
                     StableCode.PAYLOAD_RESERVATION_CLOSED,
                     apply(loop, entries, closedReschedule, closedRescheduleAt)
@@ -2173,14 +2267,12 @@ class TargetCommandStoreTest {
                         new TargetReservationExpiryWorkClassExecutor.Request(scope.shard(), bytes(16, 0xc0 + n)));
                 workerClasses.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
                 assertEquals(
-                        n % 2 == 0
-                                ? TargetReservationExpiryWorkClassExecutor.Kind.SWEEP_COMPLETE
-                                : TargetReservationExpiryWorkClassExecutor.Kind.DEFERRED_CLOSED_TARGET,
+                        TargetReservationExpiryWorkClassExecutor.Kind.SWEEP_COMPLETE,
                         gc.result().orElseThrow().kind());
             }
             assertEquals(beforeClosedGc, store.latestSequenceNumber());
-            assertArrayEquals(fifthRaw, store.get(ColumnFamily.ID, fifthKey));
-            assertArrayEquals(fifthRaw, store.get(ColumnFamily.TIMELINE, fifthReservation.expiryKey()));
+            assertArrayEquals(closedReservationRaw, store.get(ColumnFamily.ID, fifthKey));
+            assertNull(store.get(ColumnFamily.TIMELINE, fifthReservation.expiryKey()));
             assertEquals(
                     PayloadReservationStatus.EXPIRED,
                     queries.read(budget(), thirdReservation.reservationId(), queryAuthority)

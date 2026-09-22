@@ -2051,3 +2051,18 @@ RETAINED_BYTES，不删除物理候选或 payload owner；保留原义务直至�
 关闭汇总计费仍未完成。四个 Worker 场景核对这些维度不变、12条原子写、物理容量拒绝
 零写及同位置 replay零写；STATE 的实际增量走现有精确计费器，完整独立恢复fold和跨账本
 核对留待集中验证。后续物化不得重复收费或把逻辑 ABANDONED 直接当作已释放对象。
+
+## 49. reservation Close 单条终态物化费用
+
+新增ReservationClosureAuthority与prepareReservationClosure，明确区别于expiry/Claim/
+新ingress授权。只接受原Target及tenant mirror两个已有counter，禁止增减cardinality；
+允许实际STATE变化、reservation count减1、reservation payload转入等量retained。
+TargetQuotaMutation field6与field4/5共享ordinal宽度，所以固定bookkeeping费用不变。
+普通TargetQuotaStoreGate显式拒绝这种local维护stamp。
+
+TargetReservationClosureStore在一个batch更新NV38双ID（含field16证据）、删expiry、
+owner保留对象，再按实际before/after收费。四个场景验证8条写、source sequence/position
+不变、receipt保持、物理准入失败零写、重复零写，reservation减少1/100bytes且retained
+增加100bytes。对象仍可能受upload deadline/late PUT等约束，当前没有删除或释放授权。
+完整closed aggregate/counterTransferredByCloseVersion与持久扫描尚待实现，不能据此
+声称已有整Target O(1)配额转移或自动关闭清理。

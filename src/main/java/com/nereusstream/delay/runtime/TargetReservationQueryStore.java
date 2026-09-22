@@ -155,7 +155,7 @@ public final class TargetReservationQueryStore {
             decision = TargetReservationControls.resolve(reader, record, binding, queue, controls);
         } else {
             decision = new TargetReservationControls.Decision(
-                    record.status(), reader.closedIngressDeadlineThrough(), Optional.empty());
+                    record.status(), reader.closedIngressDeadlineThrough(), Optional.ofNullable(record.closure()));
         }
         return Optional.of(new Snapshot(
                 record,
