@@ -15,6 +15,7 @@ import com.nereusstream.delay.ownership.SourceAssignment;
 import com.nereusstream.delay.ownership.SourceRecordConsumer;
 import com.nereusstream.delay.ownership.SourceReplayRecord;
 import com.nereusstream.delay.ownership.SourceReplaySuccessor;
+import com.nereusstream.delay.ownership.TargetReservationQueryWorkClassExecutor;
 import com.nereusstream.delay.ownership.TargetSourceApplyRuntime;
 import com.nereusstream.delay.ownership.WorkerSourceApplyLoop;
 import com.nereusstream.delay.protocol.AdapterKind;
@@ -546,7 +547,8 @@ class TargetCommandStoreTest {
                     System::nanoTime);
             final var entries = new java.util.ArrayDeque<SourceRecordConsumer.PolledSourceRecord>();
             final SourceRecordConsumer consumer = () -> java.util.Optional.ofNullable(entries.poll());
-            final var loop = new WorkerSourceApplyLoop(consumer, workClasses(), runtime);
+            final var workerClasses = workClasses();
+            final var loop = new WorkerSourceApplyLoop(consumer, workerClasses, runtime);
             final var completed = apply(loop, entries, command, at);
             assertEquals(SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED, completed.status());
             assertEquals(
@@ -828,11 +830,99 @@ class TargetCommandStoreTest {
                     () -> queries.complete(queries.prepare(budget(), reserved.reservationId()), (a, b) -> {
                         throw new IllegalStateException("Owner lost");
                     }));
-            assertThrows(
+            final var localReadExhaustion = assertThrows(
                     com.nereusstream.delay.store.ReadIncompleteException.class,
                     () -> queries.prepare(
                             new BoundedReadBudget(1, 32L << 20, 60_000_000_000L, System::nanoTime),
                             reserved.reservationId()));
+            final var queryGuards = new java.util.concurrent.atomic.AtomicInteger();
+            final var queryGuardChecks = new java.util.concurrent.atomic.AtomicInteger();
+            final var queryGuardCloses = new java.util.concurrent.atomic.AtomicInteger();
+            final var queryOwnerCurrent = new java.util.concurrent.atomic.AtomicBoolean(true);
+            final TargetStoreBackend.ReadAuthority queryAuthority = (a, b) -> {
+                queryGuards.incrementAndGet();
+                return new TargetStoreBackend.CommitGuard() {
+                    public void requireCurrent() {
+                        queryGuardChecks.incrementAndGet();
+                        if (!queryOwnerCurrent.get()) {
+                            throw new IllegalStateException("query Owner lost");
+                        }
+                    }
+
+                    public void close() {
+                        queryGuardCloses.incrementAndGet();
+                    }
+                };
+            };
+            final var queryLimits = new TargetReservationQueryWorkClassExecutor.Limits(2048, 100_000, 60_000_000_000L);
+            final var queryExecutor = new TargetReservationQueryWorkClassExecutor(
+                    workerClasses, queries, queryLimits, () -> {}, queryAuthority, System::nanoTime);
+            final var queuedQuery = queryExecutor.submit(new TargetReservationQueryWorkClassExecutor.Request(
+                    scope.shard(), bytes(16, 0xe1), reserved.reservationId()));
+            assertTrue(queuedQuery.result().isEmpty());
+            assertEquals(WorkClass.QUERY, queuedQuery.task().workClass());
+            assertTrue(queuedQuery.task().bytes() > queryLimits.maximumBytes());
+            assertEquals(0, queryGuards.get());
+            assertThrows(
+                    RuntimeException.class,
+                    () -> queryExecutor.submit(new TargetReservationQueryWorkClassExecutor.Request(
+                            scope.shard(), bytes(16, 0xe2), reserved.reservationId())));
+            assertEquals(0, queryGuards.get());
+            workerClasses.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
+            assertEquals(
+                    TargetReservationQueryWorkClassExecutor.Kind.COMPLETED,
+                    queuedQuery.result().orElseThrow().kind());
+            assertEquals(
+                    prepareReceipt,
+                    queuedQuery.result().orElseThrow().snapshot().orElseThrow().receipt(location));
+            assertEquals(1, queryGuards.get());
+            assertEquals(2, queryGuardChecks.get());
+            assertEquals(1, queryGuardCloses.get());
+            final var lostQuery = queryExecutor.submit(new TargetReservationQueryWorkClassExecutor.Request(
+                    scope.shard(), bytes(16, 0xe3), reserved.reservationId()));
+            queryOwnerCurrent.set(false);
+            workerClasses.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
+            assertEquals(
+                    TargetReservationQueryWorkClassExecutor.Kind.FAILED,
+                    lostQuery.result().orElseThrow().kind());
+            assertTrue(lostQuery.result().orElseThrow().snapshot().isEmpty());
+            final var unreadBudget = budget();
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> queries.read(unreadBudget, reserved.reservationId(), queryAuthority));
+            assertEquals(0, unreadBudget.actualRecords());
+            queryOwnerCurrent.set(true);
+            final var limitedExecutor = new TargetReservationQueryWorkClassExecutor(
+                    workerClasses,
+                    queries,
+                    new TargetReservationQueryWorkClassExecutor.Limits(1, 100_000, 60_000_000_000L),
+                    () -> {},
+                    queryAuthority,
+                    System::nanoTime);
+            final var incompleteQuery = limitedExecutor.submit(new TargetReservationQueryWorkClassExecutor.Request(
+                    scope.shard(), bytes(16, 0xe4), reserved.reservationId()));
+            workerClasses.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
+            assertEquals(
+                    TargetReservationQueryWorkClassExecutor.Kind.READ_INCOMPLETE,
+                    incompleteQuery.result().orElseThrow().kind());
+            final var failedAuthority = new TargetReservationQueryWorkClassExecutor(
+                    workerClasses,
+                    queries,
+                    queryLimits,
+                    () -> {},
+                    (a, b) -> {
+                        throw localReadExhaustion;
+                    },
+                    System::nanoTime);
+            final var authorityQuery = failedAuthority.submit(new TargetReservationQueryWorkClassExecutor.Request(
+                    scope.shard(), bytes(16, 0xe5), reserved.reservationId()));
+            workerClasses.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
+            assertEquals(
+                    TargetReservationQueryWorkClassExecutor.Kind.FAILED,
+                    authorityQuery.result().orElseThrow().kind());
+            assertTrue(authorityQuery.result().orElseThrow().failure() instanceof IllegalStateException);
+            assertEquals(0, workerClasses.pending(WorkClass.QUERY));
+            assertEquals(0, workerClasses.registeredActions());
             final var staleQuery = queries.prepare(budget(), reserved.reservationId());
             assertEquals(beforeQueries, store.latestSequenceNumber());
 

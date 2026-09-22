@@ -338,6 +338,20 @@ public final class TargetStoreBackend {
         return new ReadPlan<>(this, read.view(), read.value());
     }
 
+    /** Holds current read authority before the first local read and until the verified value is delivered. */
+    public <T> T guardedRead(BoundedReadBudget budget, Function<Reader, T> planner, ReadAuthority authority) {
+        Objects.requireNonNull(authority, "authority");
+        try (var guard = Objects.requireNonNull(authority.acquire(store.metadata(), scope), "read guard")) {
+            guard.requireCurrent();
+            final var plan = prepareRead(budget, planner);
+            plan.completed = true;
+            return store.withReadView(plan.view, () -> {
+                guard.requireCurrent();
+                return plan.value;
+            });
+        }
+    }
+
     public <T> T completeRead(final ReadPlan<T> plan, final ReadAuthority authority) {
         Objects.requireNonNull(plan, "plan");
         Objects.requireNonNull(authority, "authority");

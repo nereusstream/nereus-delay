@@ -53,6 +53,21 @@ public final class TargetReservationQueryStore {
         return new Prepared(this, backend.prepareRead(budget, reader -> read(reader, id)));
     }
 
+    /** Local routing preflight; no Store or external authority reads. */
+    public void requireShard(com.nereusstream.delay.protocol.ShardId shard) {
+        if (!scope.shard().equals(Objects.requireNonNull(shard, "shard"))) {
+            throw new IllegalArgumentException("reservation query targets another Shard");
+        }
+    }
+
+    /** Event-loop read under one authority guard acquired before any projection is loaded. */
+    public Optional<Snapshot> read(
+            BoundedReadBudget budget, byte[] reservationId, TargetStoreBackend.ReadAuthority authority) {
+        Bytes.requireLength(reservationId, 32, "reservationId");
+        final byte[] id = Bytes.copy(reservationId);
+        return backend.guardedRead(budget, reader -> read(reader, id), authority);
+    }
+
     public Optional<Snapshot> complete(Prepared prepared, TargetStoreBackend.ReadAuthority authority) {
         Objects.requireNonNull(prepared, "prepared");
         if (prepared.owner != this) {

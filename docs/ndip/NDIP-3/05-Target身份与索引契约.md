@@ -627,3 +627,11 @@ owner/lineage/source 和 RESERVED expiry；终态必须无 reservation expiry。
 该受保护 view 的缺失，不证明 identity GC/Floor 或 first-Schedule eligibility。新读取
 接口不改变任何 CF/tag/NV。receipt 重建沿用既有 PayloadReservationReceipt 的 Prepare
 source/state=1，当前 lifecycle mutation 和 payload phase 通过独立 snapshot 展示。
+
+
+### QUERY 请求身份与原 Store view（2026-09-22）
+
+TargetReservationQueryWorkClassExecutor 的本地 task digest 绑定完整 Shard、requestId、
+reservationId 和 record/byte/elapsed 预算，不是持久 wire 或新 CF/tag。QueryStore.read 在
+首次读取前取得 guard，再沿既有 NV38 点查校验；返回前必须还是原 Store view。已有
+prepare/complete API 不变，仍不允许在 complete 之前获取内部 Snapshot。

@@ -10,6 +10,12 @@
 
 [原 29 切片集中验证交接清单](ndip/NDIP-3/12-集中验证交接清单.md)
 
+Target reservation durable 查询已接入 QUERY WorkClass：同一 Worker registry 的任务
+身份绑定 Shard/request/reservation 和完整读取预算，排队费用包含最大读取字节。队列拒绝
+不获取外部权限、不读 Store；执行时在第一次读取前持有当前 ReadAuthority，结束再核对
+Store view/权限。四项必要开发检查通过。公网认证路由、effective control overlay、生产
+Owner/read providers、Object Store/upload authority 及完整 Worker factory 仍待装配。
+
 TargetReservationQueryStore 已实现有界 durable 点查及读取屏障：实际 root/source、NV38
 双 ID、expiry、binding 和 payload owner 核对通过后，才在当前 ReadAuthority 下返回快照。
 可用服务端固定对象位置重建原 Prepare receipt，Cancel/Commit 不改 receipt anchor；

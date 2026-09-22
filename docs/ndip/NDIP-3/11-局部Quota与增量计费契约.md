@@ -1934,3 +1934,16 @@ receipt 只重建不可变 Prepare 内容，不登记对象、不签发 upload h
 bytes。后续服务必须重验控制 overlay、upload deadline/quiescence 和 adapter authority。
 本批四个开发场景核对读前后 native sequence 不变、Owner failure、预算耗尽、stale view、
 RESERVED/ABANDONED/COMMITTED+RETAINED 和 receipt 恒定；完整 Query/GC/Broker 权威仍未完成。
+
+
+## 41. QUERY 排队费用与读取权限边界
+
+Target reservation QUERY 任务按完整 canonical request/预算 identity 和 maximumReadBytes
+计入同一 Worker WorkClass pool；record/byte/elapsed 三项均有显式正数上限，费用相加禁止
+溢出。队列满/重复 identity/本地 eligibility 拒绝不读取 Store、不获取外部 Owner 权限。
+执行时 ReadAuthority 持有实际 Owner/Store/lease 权威，从首次读取之前覆盖到最终 view 检查。
+
+预算耗尽为 READ_INCOMPLETE，不生成部分快照；外部权限或时钟失败为 FAILED，即使其
+异常恰好使用 ReadIncompleteException。成功、Owner loss、预算不足与拒绝均不分配 source、
+不写业务/计费/fairness；registry 的队列/action 与费用仅为进程内状态。生产 limits 仍须证明
+最大合法查询/记录与 WorkClass pool 配置相容，开发 fixture 的 100 KB 不作为生产默认。
