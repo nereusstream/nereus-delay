@@ -3010,6 +3010,23 @@ public final class ShardStore implements AutoCloseable {
             controlSnapshot = next;
         }
 
+        /** One Target fixed-record write, including the in-memory proof projection after successful commit. */
+        void putTargetIngressFence(final IngressFenceState next) throws RocksDBException {
+            Objects.requireNonNull(next, "next");
+            if (runtimeMetadata != null
+                    || next.closedThroughEpochMs() < 0
+                    || next.closedThroughEpochMs() < closedIngressDeadlineThrough
+                    || next.proofId() == null) {
+                throw new IllegalStateException("invalid or competing Target ingress fence update");
+            }
+            batch.put(
+                    handle(ColumnFamily.META),
+                    KeyCodec.metaFixed(META_INGRESS_FENCE_STATE),
+                    ValueEnvelope.encode(META_FIXED_VALUE_TYPE, next.canonicalBytes()));
+            closedIngressDeadlineThrough = next.closedThroughEpochMs();
+            runtimeMetadata = currentRuntimeMetadata.withLastIngressFenceProofId(next.proofId());
+        }
+
         /** Advances the source-ordered ingress fence in the same atomic WriteBatch. */
         public void putIngressFenceDeadline(final long closeThroughEpochMs) throws RocksDBException {
             if (closeThroughEpochMs < 0) {

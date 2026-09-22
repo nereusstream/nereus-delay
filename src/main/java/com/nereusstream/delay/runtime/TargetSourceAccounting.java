@@ -2,6 +2,7 @@ package com.nereusstream.delay.runtime;
 
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.SourcePosition;
+import com.nereusstream.delay.protocol.TargetQuotaAccounting;
 import com.nereusstream.delay.protocol.TargetQuotaBookkeeping;
 import com.nereusstream.delay.protocol.TargetQuotaCounter;
 import com.nereusstream.delay.protocol.TargetQuotaIdentity;
@@ -11,6 +12,7 @@ import com.nereusstream.delay.protocol.TargetQuotaScope;
 import com.nereusstream.delay.protocol.TargetQuotaUsage;
 import com.nereusstream.delay.protocol.TargetSourcePosition;
 import com.nereusstream.delay.store.ColumnFamily;
+import com.nereusstream.delay.store.KeyCodec;
 import com.nereusstream.delay.store.TargetKeyCodec;
 import com.nereusstream.delay.store.TargetStoreBackend;
 import com.nereusstream.delay.store.TargetValueEnvelope;
@@ -62,6 +64,14 @@ public final class TargetSourceAccounting implements TargetMessageStore.Accounti
     @Override
     public TargetStoreBackend.Mutation assemble(
             final TargetStoreBackend.Reader reader, final List<TargetStoreBackend.Edit> business) {
+        return assemble(reader, business, null);
+    }
+
+    /** Includes the backend-owned fence projection, charged once to the actual root and its tenant mirror. */
+    public TargetStoreBackend.Mutation assemble(
+            final TargetStoreBackend.Reader reader,
+            final List<TargetStoreBackend.Edit> business,
+            final TargetStoreBackend.IngressFenceChange fence) {
         if (business.size() > reader.maximumWriteRecords() || !scope.shard().equals(reader.shardId())) {
             throw new IllegalArgumentException("source accounting record/scope limit mismatch");
         }
@@ -158,6 +168,30 @@ public final class TargetSourceAccounting implements TargetMessageStore.Accounti
                 }
             }
         }
+        if (fence != null) {
+            if (priorRoot == null
+                    || !Arrays.equals(fence.before(), reader.get(ColumnFamily.META, KeyCodec.metaFixed(4)))) {
+                throw new IllegalStateException("Target fence requires an established root and exact fixed before");
+            }
+            if (fence.before() != null) {
+                final var fee = TargetRecordAccounting.resources(descriptor
+                        .accounting()
+                        .recordCharge(
+                                TargetQuotaAccounting.RecordClass.STATE,
+                                KeyCodec.metaFixed(4).length,
+                                TargetValueEnvelope.decode(fence.before(), 1).payload().length));
+                merge(removed, rootId, fee);
+                merge(removed, seed.tenantOwner(), fee);
+            }
+            final var fee = TargetRecordAccounting.resources(descriptor
+                    .accounting()
+                    .recordCharge(
+                            TargetQuotaAccounting.RecordClass.STATE,
+                            KeyCodec.metaFixed(4).length,
+                            fence.after().canonicalBytes().length));
+            merge(added, rootId, fee);
+            merge(added, seed.tenantOwner(), fee);
+        }
         final var identities = new LinkedHashSet<>(removed.keySet());
         identities.addAll(added.keySet());
         // Both root counters exist even when the bootstrap has no other root-owned business records.
@@ -250,7 +284,7 @@ public final class TargetSourceAccounting implements TargetMessageStore.Accounti
                 reader::counter);
         final var totals = TargetQuotaTotalsDelta.prepare(delta, scope, maximumTargets, reader::total);
         nextRoot.requireRoot(delta.nextAggregate());
-        return new TargetStoreBackend.Mutation(totals, complete);
+        return new TargetStoreBackend.Mutation(totals, complete, fence);
     }
 
     private void accumulate(

@@ -471,3 +471,13 @@ TargetChannelIdentity.MAX_PROFILE_REF_BYTES，随后必须通过完整 canonical
 原 Prepare trust-set semantic ref/source activation 与 Object Store ref 不变，首次与历史
 验签分别检查 issuance/window 和 retained key。原子计费/状态见 NDIP-3 quota §39；生产
 provider、expiry/GC 和集中恢复认证仍未完成。
+
+### Target TIME_FENCE fixed projection
+
+The Target source writer reuses the existing META fixed ingress-fence key and NV type 1.
+Its backend-only change validates the exact prior bytes and a nondecreasing watermark with
+an assigned proof, then writes that single physical record in the result/source/accounting
+batch. The root's frozen accounting charges actual before/after storage once, with the
+usual tenant mirror. No CF, key tag, NV type or bookkeeping format is added. The last-proof
+in-memory projection changes only after successful commit; write-unknown fencing remains.
+Reservation expiry overlays and complete recovery/production authority remain unfinished.

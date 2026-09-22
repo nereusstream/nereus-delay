@@ -17,6 +17,8 @@ import com.nereusstream.delay.runtime.TargetQuotaGrantControlVerifier;
 import com.nereusstream.delay.runtime.TargetQuotaGrantStore;
 import com.nereusstream.delay.runtime.TargetStoreBootstrap;
 import com.nereusstream.delay.runtime.TargetSystemReplayStore;
+import com.nereusstream.delay.runtime.TargetTimeFenceStore;
+import com.nereusstream.delay.runtime.TargetTimeFenceVerifier;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.ReadIncompleteException;
@@ -54,6 +56,18 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         GrantControl resolve(SourceReplayMutation entry);
     }
 
+    public record FenceControl(TargetTimeFenceVerifier.Authority authority, TargetStoreBackend.CommitAuthority commit) {
+        public FenceControl {
+            Objects.requireNonNull(authority, "authority");
+            Objects.requireNonNull(commit, "commit");
+        }
+    }
+
+    @FunctionalInterface
+    public interface Fences {
+        FenceControl resolve(SourceReplayMutation entry);
+    }
+
     public record CommandControl(
             TargetCommandStore.Policy policy,
             TargetCommandStore.CancellationControls cancellations,
@@ -79,6 +93,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             OxiaOwnerLeaseStore leases,
             SourceReplaySuccessor successor,
             GrantControls grants,
+            Fences fences,
             TargetStoreBackend.CommitAuthority duplicateWrites,
             TargetStoreBackend.ReadAuthority reads,
             Commands commands) {
@@ -86,6 +101,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             Objects.requireNonNull(leases, "leases");
             Objects.requireNonNull(successor, "successor");
             Objects.requireNonNull(grants, "grants");
+            Objects.requireNonNull(fences, "fences");
             Objects.requireNonNull(duplicateWrites, "duplicateWrites");
             Objects.requireNonNull(reads, "reads");
             Objects.requireNonNull(commands, "commands");
@@ -97,6 +113,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     private final StoreMetadata metadata;
     private final TargetQuotaScope scope;
     private final TargetQuotaGrantStore grants;
+    private final TargetTimeFenceStore fences;
     private final TargetSystemReplayStore replay;
     private final TargetCommandReplayStore commandReplay;
     private final TargetCommandStore commands;
@@ -139,6 +156,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         }
         final byte[] lineage = initialized.root().recoveryLineage();
         grants = new TargetQuotaGrantStore(backend, scope, lineage, limits.counters(), limits.domains());
+        fences = new TargetTimeFenceStore(backend, scope, lineage, limits.counters(), limits.domains());
         replay = new TargetSystemReplayStore(backend, scope, lineage, limits.counters(), limits.domains());
         commandReplay = new TargetCommandReplayStore(backend, scope, lineage, limits.counters(), limits.domains());
         commands = new TargetCommandStore(backend, scope, lineage, limits.counters(), limits.domains());
@@ -170,8 +188,6 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             final var budget =
                     new BoundedReadBudget(limits.records(), limits.bytes(), limits.elapsedNanos(), monotonicClock);
             final TargetSystemReplayStore.Prepared duplicate;
-            final TargetQuotaGrantStore.Prepared first;
-            final GrantControl control;
             // Only backend preparation yields are retryable. External resolution and commit failures must fence.
             try {
                 duplicate = replay.prepareIfPresent(budget, mutation.mutation(), entry.position())
@@ -179,22 +195,30 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             } catch (ReadIncompleteException incomplete) {
                 throw new ReadYield(incomplete);
             }
-            if (duplicate == null) {
-                control = Objects.requireNonNull(authorities.grants().resolve(mutation), "grant control");
+            final SystemMutationResult result;
+            if (duplicate != null) {
+                result = replay.commit(
+                        duplicate, writes(authorities.duplicateWrites(), entry, clock), reads(entry, clock));
+            } else if (mutation.mutation().type() == SystemMutationType.TIME_FENCE) {
+                final var control = Objects.requireNonNull(authorities.fences().resolve(mutation), "fence control");
+                final TargetTimeFenceStore.Prepared first;
+                try {
+                    first = fences.prepareFirst(budget, mutation.mutation(), entry.position(), control.authority());
+                } catch (ReadIncompleteException incomplete) {
+                    throw new ReadYield(incomplete);
+                }
+                result = fences.commit(first, writes(control.commit(), entry, clock));
+            } else {
+                final var control = Objects.requireNonNull(authorities.grants().resolve(mutation), "grant control");
+                final TargetQuotaGrantStore.Prepared first;
                 try {
                     first = grants.prepareFirst(
                             budget, control.prepared(), mutation.mutation(), entry.position(), control.authority());
                 } catch (ReadIncompleteException incomplete) {
                     throw new ReadYield(incomplete);
                 }
-            } else {
-                control = null;
-                first = null;
+                result = grants.commit(first, writes(control.commit(), entry, clock));
             }
-            final SystemMutationResult result = duplicate == null
-                    ? grants.commit(first, writes(control.commit(), entry, clock))
-                    : replay.commit(
-                            duplicate, writes(authorities.duplicateWrites(), entry, clock), reads(entry, clock));
             // Broker ACK carries this physical record's anchor, while the Store retains the first logical result.
             return SourceReplayOutcome.systemMutation(
                     entry.position(),
@@ -374,6 +398,9 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             throw new IllegalArgumentException("Kafka source cannot carry Pulsar connection proof");
         }
         if (entry instanceof SourceReplayRecord) {
+            return;
+        }
+        if (entry instanceof SourceReplayMutation fence && fence.mutation().type() == SystemMutationType.TIME_FENCE) {
             return;
         }
         if (!(entry instanceof SourceReplayMutation mutation)

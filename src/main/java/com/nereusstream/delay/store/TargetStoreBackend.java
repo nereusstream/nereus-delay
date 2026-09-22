@@ -63,10 +63,43 @@ public final class TargetStoreBackend {
         }
     }
 
-    public record Mutation(TargetQuotaTotalsDelta quota, List<Edit> business) {
+    /** Backend-owned fixed projection; its exact storage charge is assembled against the Shard root. */
+    public record IngressFenceChange(byte[] before, IngressFenceState after) {
+        public IngressFenceChange {
+            before = before == null ? null : Bytes.copy(before);
+            Objects.requireNonNull(after, "after");
+            final var prior = before == null
+                    ? new IngressFenceState(IngressFenceState.OPEN, null)
+                    : IngressFenceState.decode(
+                            TargetValueEnvelope.decode(before, 1).payload());
+            if (after.closedThroughEpochMs() < 0
+                    || after.proofId() == null
+                    || after.closedThroughEpochMs() < prior.closedThroughEpochMs()) {
+                throw new IllegalArgumentException("Target fence must retain a proof and never regress");
+            }
+        }
+
+        @Override
+        public byte[] before() {
+            return before == null ? null : Bytes.copy(before);
+        }
+
+        public byte[] encodedAfter() {
+            return TargetValueEnvelope.encode(1, after.canonicalBytes());
+        }
+    }
+
+    public record Mutation(TargetQuotaTotalsDelta quota, List<Edit> business, IngressFenceChange ingressFence) {
+        public Mutation(final TargetQuotaTotalsDelta quota, final List<Edit> business) {
+            this(quota, business, null);
+        }
+
         public Mutation {
             Objects.requireNonNull(quota, "quota");
             business = List.copyOf(business);
+            if (ingressFence != null && quota.counters().mutation().isLocalClaim()) {
+                throw new IllegalArgumentException("only a source mutation may advance the Target fence");
+            }
         }
     }
 
@@ -391,6 +424,12 @@ public final class TargetStoreBackend {
                         throw new IllegalStateException("Target business read set changed");
                     }
                 }
+                if (mutation.ingressFence() != null
+                        && !Arrays.equals(
+                                mutation.ingressFence().before(),
+                                reader.get(ColumnFamily.META, KeyCodec.metaFixed(4)))) {
+                    throw new IllegalStateException("Target ingress fence read set changed");
+                }
                 return measure(mutation);
             } finally {
                 reader.active = false;
@@ -412,6 +451,14 @@ public final class TargetStoreBackend {
                     bytes, Math.addExact((long) edit.key.length, edit.after == null ? 0 : edit.after.length));
         }
         int records = mutation.business().size();
+        if (mutation.ingressFence() != null) {
+            bytes = Math.addExact(
+                    bytes,
+                    Math.addExact(
+                            (long) KeyCodec.metaFixed(4).length,
+                            mutation.ingressFence().encodedAfter().length));
+            records = Math.incrementExact(records);
+        }
         for (var change : mutation.quota().counters().changes()) {
             bytes = Math.addExact(
                     bytes,
@@ -462,6 +509,10 @@ public final class TargetStoreBackend {
                         } else {
                             batch.put(edit.family, edit.key, edit.after);
                         }
+                    }
+                    if (prepared.mutation.ingressFence() != null) {
+                        batch.putTargetIngressFence(
+                                prepared.mutation.ingressFence().after());
                     }
                     final var quota = prepared.mutation.quota();
                     for (var change : quota.counters().changes()) {

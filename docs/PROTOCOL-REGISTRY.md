@@ -792,8 +792,12 @@ seven fields, a 24-byte ShardSubject, and 422 bytes/10 fields of time evidence w
 These bounds do not define a new wire tuple or alter the ProofId preimage. The separate
 first-application verifier requires historical writer/config/key and authenticated sample
 providers at the exact source; provider uncertainty propagates without a durable denial.
-This reader/verifier does not yet implement Target source dispatch, durable fence metadata,
-atomic result/accounting updates or the reservation expiry overlay.
+Target source dispatch now routes retained results before first fence authentication. A successful
+first fence atomically writes the existing fixed IngressFenceState, SYSTEM/POSITION, source
+frontier and actual root-owned storage charges. Lower cutoffs preserve the watermark while
+recording the latest proof. Fixed metadata remains backend-owned and counts toward the
+same finite batch budget. Reservation expiry overlays/materialization and production
+historical writer/time-source providers remain unfinished.
 
 Applying a valid fence monotonically advances `closedIngressDeadlineThrough`. That source-ordered watermark is also the authoritative logical transition for every still-`PAYLOAD_RESERVED` reservation with `reservation_expiry <= close_through_epoch_ms`: its effective state becomes `RESERVATION_EXPIRED` at the fence Source Position. A prior Commit, Cancel, or Lane Close wins by Source Position. The bounded `RESERVATION_EXPIRY` cursor only materializes the already-decided effective state, counter transfer and GC/tombstone work; replay and every API/Commit check the watermark overlay even when that cursor has not reached the reservation.
 

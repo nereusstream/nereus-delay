@@ -10,6 +10,15 @@
 
 [原 29 切片集中验证交接清单](ndip/NDIP-3/12-集中验证交接清单.md)
 
+Target TIME_FENCE 已接入实际 Worker Source Apply：首结果重放优先，首次认证通过后，
+单调 deadline/最后 ProofId、SYSTEM/POSITION、source 和 root 费用同 batch。固定 META
+采用单次物理写入并同步内存 proof；原位置重放零写，后续重复不重查首次 authority。
+八项必要开发检查通过，含 ACK UNKNOWN、真实字节费用、较低 fence、预算/guard 失败及
+本地 reopen。reservation effective expiry/物化、生产历史权限/时间源与完整恢复仍待实施；
+原 29 切片和集中验证状态保持未完成。
+
+以下为前序认证入口实施记录；持久 writer 的当前进展以上述说明为准。
+
 Target TIME_FENCE 的有界 body/ProofId 解码及首次认证校验器已实现：强制历史 Fence
 writer/config/key、完整 source 与时间证据 provider，校验外层签名、retry 边界、安全余量和
 interval width；外部认证失败原样传播。八项必要开发检查通过。本批不写 Store：Target

@@ -1961,3 +1961,23 @@ root owner、before/after、全部业务及 META 投影的真实费用、有限�
 业务 key 白名单直写。source、first SYSTEM/POSITION、单调 fence/proof 与费用必须同批；
 失败无部分投影，原位置重放先取 immutable first result。reservation effective expiry
 及之后的有界物化/配额转移仍未接入，未声明任何释放或 GC 权威。
+
+## 43. 持久 TIME_FENCE 的固定项按实际字节计费
+
+正式首次 writer 通过 TargetSourceAccounting.assemble(reader, business, fence) 计入
+既有 META fixed ingress fence。收费使用实际 root descriptor 的冻结 accounting：每个
+存在的 before/after 分别计算 STATE(key bytes + typed payload bytes + 12-byte NV +
+record overhead)，做移除/加入差额。root 与 tenant mirror同步，aggregate只累加 primary；
+bookkeeping inventory 没有新 counter/total/grant条目，因而不改其格式或隐含 reserve。
+
+Backend 度量该 fixed record的实际 key+encoded after bytes及一条写记录；同批 SYSTEM/
+POSITION、counter、aggregate、source/sequence仍逐项计量。专用变更禁止 local Claim、
+水位回退与无 proof；普通 business Edit继续禁止写 fixed META。首次结果仅在全部 native
+batch 成功后交付，physical capacity/source/Owner历史 authority仍须由强制 commit provider
+保护，不用逻辑新 ingress限额阻断已有 source维护义务。
+
+必要真实 Store 场景确认首次固定费用只加入一次；较低 cutoff保留现水位、更换 last proof，
+同长度替换净 fixed费用为零；原位置重放完全零写，后续重复/签名拒绝不动 fixed projection。
+7-record budget拒绝，完整合法场景恰写8条（SYSTEM/POSITION、两root counters、aggregate、
+source/sequence、fence）。同批 fixed元数据计费已实现，reservation effective expiry及其
+之后的 retained/counter物化仍未实现，不能将本批当作payload释放权威。

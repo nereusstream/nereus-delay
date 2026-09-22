@@ -183,6 +183,9 @@ class TargetCommandReplayStoreTest {
                             entry -> {
                                 throw new AssertionError("Command replay resolved grant authority");
                             },
+                            entry -> {
+                                throw new AssertionError("unexpected first fence authority");
+                            },
                             (a, b, c) -> guard(),
                             (a, b) -> guard(),
                             entry -> {
@@ -373,6 +376,9 @@ class TargetCommandReplayStoreTest {
                             SourceReplaySuccessor.strictKafka(),
                             entry -> {
                                 throw new AssertionError("expired Command resolved grant");
+                            },
+                            entry -> {
+                                throw new AssertionError("unexpected first fence authority");
                             },
                             (a, b, c) -> guard(),
                             (a, b) -> guard(),

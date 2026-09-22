@@ -35,12 +35,15 @@ import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
+import com.nereusstream.delay.protocol.TargetQuotaAccounting;
 import com.nereusstream.delay.protocol.TargetQuotaAggregate;
 import com.nereusstream.delay.protocol.TargetQuotaGrant;
 import com.nereusstream.delay.protocol.TargetQuotaGrantActivation;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlBody;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlRequest;
 import com.nereusstream.delay.protocol.TargetQuotaUsage;
+import com.nereusstream.delay.protocol.TargetTimeFenceBody;
+import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClass;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
@@ -48,6 +51,8 @@ import com.nereusstream.delay.scheduler.WorkClassPolicy;
 import com.nereusstream.delay.scheduler.WorkClassRuntimeConfig;
 import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.ColumnFamily;
+import com.nereusstream.delay.store.IngressFenceState;
+import com.nereusstream.delay.store.KeyCodec;
 import com.nereusstream.delay.store.ShardStore;
 import com.nereusstream.delay.store.ShardStoreConfig;
 import com.nereusstream.delay.store.SharedRocksDbResources;
@@ -255,6 +260,14 @@ class TargetQuotaGrantStoreTest {
                     .orElseThrow();
             store.recordOpenedOwnerEpoch(active.ownerEpoch());
             final var resolutions = new java.util.concurrent.atomic.AtomicInteger();
+            final var fenceResolutions = new java.util.concurrent.atomic.AtomicInteger();
+            final TargetTimeFenceVerifier.Authority fenceAuthority = (actualScope, author, mutation, position) -> {
+                assertEquals(scope.shardScope(), actualScope);
+                assertArrayEquals(AuthorIdentity.fence(bytes(32, 0x71), 1).canonicalBytes(), author.canonicalBytes());
+                assertEquals(origin.nativeTopicUuid(), ((KafkaSourcePosition) position).nativeTopicUuid());
+                return new TargetTimeFenceVerifier.Authorization(
+                        keys.getPublic(), 10, 5, (ignoredScope, ignoredAuthor, ignoredSource, proof) -> true);
+            };
             final var runtime = new TargetSourceApplyRuntime(
                     initialized,
                     store,
@@ -267,6 +280,10 @@ class TargetQuotaGrantStoreTest {
                                 resolutions.incrementAndGet();
                                 return new TargetSourceApplyRuntime.GrantControl(
                                         operation.control(), allowed, (a, b, c) -> guard());
+                            },
+                            entry -> {
+                                fenceResolutions.incrementAndGet();
+                                return new TargetSourceApplyRuntime.FenceControl(fenceAuthority, (a, b, c) -> guard());
                             },
                             (a, b, c) -> guard(),
                             (a, b) -> guard(),
@@ -431,8 +448,148 @@ class TargetQuotaGrantStoreTest {
                             store.get(ColumnFamily.META, template.key()), TargetQuotaGrantActivation.VALUE_TYPE)
                     .payload());
             assertEquals(activation.mutation(), unchanged.mutation());
+            final var fence = fence(scope.shard(), 600, keys);
+            final var fenceAt = source(origin, origin.offset() + 4, 503);
+            final var fenceStore =
+                    new TargetTimeFenceStore(initialized.backend(), scope.shardScope(), shard.recoveryLineage(), 16, 1);
+            final long nativeBeforeFence = store.latestSequenceNumber();
+            final var incomplete = assertThrows(
+                    com.nereusstream.delay.store.ReadIncompleteException.class,
+                    () -> fenceStore.prepareFirst(
+                            new BoundedReadBudget(1, 1_000_000, 60_000_000_000L, () -> 0),
+                            fence,
+                            fenceAt,
+                            fenceAuthority));
+            final var authorityFailure = assertThrows(
+                    IllegalStateException.class,
+                    () -> fenceStore.prepareFirst(budget(), fence, fenceAt, (a, b, c, d) -> {
+                        throw incomplete;
+                    }));
+            assertSame(incomplete, authorityFailure.getCause());
+            assertEquals(nativeBeforeFence, store.latestSequenceNumber());
+            final var failedFence = fenceStore.prepareFirst(budget(), fence, fenceAt, fenceAuthority);
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> fenceStore.commit(failedFence, (a, b, c) -> {
+                        throw new IllegalStateException("fence capacity unavailable");
+                    }));
+            assertEquals(nativeBeforeFence, store.latestSequenceNumber());
+            assertNull(store.get(ColumnFamily.META, KeyCodec.metaFixed(4)));
+            assertNull(store.get(ColumnFamily.DEDUPE, systemKey(fence)));
+            final var shortBackend = new TargetStoreBackend(
+                    store,
+                    scope.shardScope(),
+                    shard.identity().accountingIncarnation(),
+                    shard.recoveryLineage(),
+                    new TargetStoreBackend.WriteLimits(7, 2 << 20));
+            assertThrows(IllegalStateException.class, () -> new TargetTimeFenceStore(
+                            shortBackend, scope.shardScope(), shard.recoveryLineage(), 16, 1)
+                    .prepareFirst(budget(), fence, fenceAt, fenceAuthority));
+            assertEquals(nativeBeforeFence, store.latestSequenceNumber());
+            final var priorFenceUsage = TargetQuotaAggregate.decode(TargetValueEnvelope.decode(
+                                    store.get(ColumnFamily.META, aggregateKey), TargetQuotaAggregate.VALUE_TYPE)
+                            .payload())
+                    .usage();
+            final var fenceAcks = new java.util.concurrent.atomic.AtomicInteger();
+            entries.add(new SourceRecordConsumer.PolledSourceRecord(
+                    new SourceReplayMutation(fence, fenceAt, null, null),
+                    (entry, outcome) -> fenceAcks.incrementAndGet() == 1
+                            ? SourceAcknowledgement.AcknowledgementResult.unknown(null)
+                            : SourceAcknowledgement.AcknowledgementResult.acked()));
+            assertEquals(
+                    SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN,
+                    loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100)
+                            .status());
+            final long afterFenceWrite = store.latestSequenceNumber();
+            assertEquals(8, afterFenceWrite - nativeBeforeFence);
+            final var fenceComplete = loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100);
+            assertEquals(SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED, fenceComplete.status());
+            assertEquals(
+                    StableCode.OK,
+                    fenceComplete.appliedOutcome().systemMutationResult().stableCode());
+            assertEquals(afterFenceWrite, store.latestSequenceNumber());
+            assertEquals(1, fenceResolutions.get());
+            assertEquals(2, polls.get());
+            final var fenceBody = TargetTimeFenceBody.decode(fence.canonicalBody());
+            final var fenceState = IngressFenceState.decode(
+                    TargetValueEnvelope.decode(store.get(ColumnFamily.META, KeyCodec.metaFixed(4)), 1)
+                            .payload());
+            assertEquals(600, fenceState.closedThroughEpochMs());
+            assertArrayEquals(fenceBody.proofId(), fenceState.proofId());
+            assertArrayEquals(fenceBody.proofId(), store.runtimeMetadata().lastIngressFenceProofId());
+            assertEquals(fenceAt, store.appliedShardLogPosition());
+            final var fenceFirst = resultRecord(store, systemKey(fence));
+            final var fencePosition = resultRecord(
+                    store, Bytes.concat(new byte[] {TargetKeyCodec.RESULT_POSITION_TAG, 1}, fenceAt.canonicalBytes()));
+            fencePosition.requireFirst(fenceFirst);
+            final var fixedCharge = shard.accounting()
+                    .recordCharge(
+                            TargetQuotaAccounting.RecordClass.STATE,
+                            KeyCodec.metaFixed(4).length,
+                            fenceState.canonicalBytes().length);
+            final var afterFenceUsage = TargetQuotaAggregate.decode(TargetValueEnvelope.decode(
+                                    store.get(ColumnFamily.META, aggregateKey), TargetQuotaAggregate.VALUE_TYPE)
+                            .payload())
+                    .usage();
+            assertEquals(
+                    priorFenceUsage
+                            .resources()
+                            .add(fenceFirst.recordCharge())
+                            .add(fencePosition.recordCharge())
+                            .add(fixedCharge),
+                    afterFenceUsage.resources());
+            final var replayFence = new TargetSystemReplayStore(
+                    initialized.backend(), scope.shardScope(), shard.recoveryLineage(), 16, 1);
+            replayFence.commit(
+                    replayFence.prepareIfPresent(budget(), fence, fenceAt).orElseThrow(),
+                    (a, b, c) -> {
+                        throw new AssertionError("physical fence replay wrote");
+                    },
+                    (a, b) -> guard());
+            assertEquals(afterFenceWrite, store.latestSequenceNumber());
+            // A later lower fence records its proof but cannot regress the persisted closed-through watermark.
+            final var lower = fence(scope.shard(), 550, keys);
+            final var lowerAt = source(origin, origin.offset() + 5, 504);
+            final var lowerResult = applyMutation(loop, entries, lower, lowerAt);
+            assertEquals(StableCode.OK, lowerResult.stableCode());
+            final byte[] retainedFence = store.get(ColumnFamily.META, KeyCodec.metaFixed(4));
+            final var lowerState = IngressFenceState.decode(
+                    TargetValueEnvelope.decode(retainedFence, 1).payload());
+            assertEquals(600, lowerState.closedThroughEpochMs());
+            assertArrayEquals(TargetTimeFenceBody.decode(lower.canonicalBody()).proofId(), lowerState.proofId());
+            assertArrayEquals(lowerState.proofId(), store.runtimeMetadata().lastIngressFenceProofId());
+            assertEquals(2, fenceResolutions.get());
+            final var lowerFirst = resultRecord(store, systemKey(lower));
+            final var lowerPosition = resultRecord(
+                    store, Bytes.concat(new byte[] {TargetKeyCodec.RESULT_POSITION_TAG, 1}, lowerAt.canonicalBytes()));
+            final var lowerUsage = TargetQuotaAggregate.decode(TargetValueEnvelope.decode(
+                                    store.get(ColumnFamily.META, aggregateKey), TargetQuotaAggregate.VALUE_TYPE)
+                            .payload())
+                    .usage();
+            assertEquals(
+                    afterFenceUsage.resources().add(lowerFirst.recordCharge()).add(lowerPosition.recordCharge()),
+                    lowerUsage.resources());
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> new TargetStoreBackend.IngressFenceChange(
+                            retainedFence, new IngressFenceState(599, lowerState.proofId())));
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> new TargetStoreBackend.Edit(
+                            ColumnFamily.META, KeyCodec.metaFixed(4), retainedFence, retainedFence));
+            applyMutation(loop, entries, fence, source(origin, origin.offset() + 6, 505));
+            assertEquals(2, fenceResolutions.get());
+            assertArrayEquals(retainedFence, store.get(ColumnFamily.META, KeyCodec.metaFixed(4)));
+            final var wrongFence = fence(
+                    scope.shard(), 650, KeyPairGenerator.getInstance("Ed25519").generateKeyPair());
+            assertEquals(
+                    StableCode.UNAUTHORIZED_SYSTEM_MUTATION,
+                    applyMutation(loop, entries, wrongFence, source(origin, origin.offset() + 7, 506))
+                            .stableCode());
+            assertArrayEquals(retainedFence, store.get(ColumnFamily.META, KeyCodec.metaFixed(4)));
+            assertEquals(3, fenceResolutions.get());
             final var duplicateEntry = new SourceReplayMutation(
-                    operation.mutation(), source(origin, origin.offset() + 4, 503), null, null);
+                    operation.mutation(), source(origin, origin.offset() + 8, 507), null, null);
             entries.add(new SourceRecordConsumer.PolledSourceRecord(duplicateEntry, (entry, outcome) -> {
                 acknowledgements.incrementAndGet();
                 assertArrayEquals(
@@ -445,7 +602,7 @@ class TargetQuotaGrantStoreTest {
                     loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100)
                             .status());
             assertEquals(1, resolutions.get());
-            assertEquals(2, polls.get());
+            assertEquals(6, polls.get());
             final long beforeOwnerLossRetry = store.latestSequenceNumber();
             leaseAuthority.transition(active, ShardLifecycleState.DRAINING).orElseThrow();
             assertEquals(
@@ -458,6 +615,62 @@ class TargetQuotaGrantStoreTest {
             assertEquals(true, runtime.fenced());
             assertThrows(IllegalStateException.class, loop::close);
         }
+        try (var resources = new SharedRocksDbResources(config);
+                var reopened = ShardStore.openTarget(config, scope.shard(), resources)) {
+            final var state = IngressFenceState.decode(
+                    TargetValueEnvelope.decode(reopened.get(ColumnFamily.META, KeyCodec.metaFixed(4)), 1)
+                            .payload());
+            assertEquals(600, state.closedThroughEpochMs());
+            assertArrayEquals(
+                    TargetTimeFenceBody.decode(fence(scope.shard(), 550, keys).canonicalBody())
+                            .proofId(),
+                    state.proofId());
+            assertArrayEquals(state.proofId(), reopened.runtimeMetadata().lastIngressFenceProofId());
+            assertEquals(source(origin, origin.offset() + 8, 507), reopened.appliedShardLogPosition());
+        }
+    }
+
+    private static SystemMutation fence(com.nereusstream.delay.protocol.ShardId shard, long close, KeyPair keys) {
+        final var proof = new TrustedUtcIntervalEvidence(
+                close + 10,
+                close + 15,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                bytes(32, 0x72),
+                1,
+                1,
+                1,
+                bytes(32, 0x73),
+                0,
+                new byte[0]);
+        final var body = new TargetTimeFenceBody(shard, 2000, close, 1, proof);
+        return SystemMutation.signed(
+                shard,
+                SystemMutationType.TIME_FENCE,
+                body.retryUntil(),
+                body.proofId(),
+                body.canonicalBytes(),
+                AuthorIdentity.fence(bytes(32, 0x71), 1).canonicalBytes(),
+                1,
+                keys.getPrivate());
+    }
+
+    private static TargetResultRecord resultRecord(ShardStore store, byte[] key) {
+        return TargetResultRecord.decode(
+                TargetValueEnvelope.decode(store.get(ColumnFamily.DEDUPE, key), TargetResultRecord.VALUE_TYPE)
+                        .payload());
+    }
+
+    private static SystemMutationResult applyMutation(
+            WorkerSourceApplyLoop loop,
+            java.util.ArrayDeque<SourceRecordConsumer.PolledSourceRecord> entries,
+            SystemMutation mutation,
+            KafkaSourcePosition source) {
+        entries.add(new SourceRecordConsumer.PolledSourceRecord(
+                new SourceReplayMutation(mutation, source, null, null),
+                (entry, outcome) -> SourceAcknowledgement.AcknowledgementResult.acked()));
+        final var turn = loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100);
+        assertEquals(SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED, turn.status());
+        return turn.appliedOutcome().systemMutationResult();
     }
 
     private static WorkClassExecutionRegistry workClasses() {

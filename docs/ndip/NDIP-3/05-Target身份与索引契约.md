@@ -647,3 +647,15 @@ ProofId 按原公式重算；结构与摘要有效仍须历史 writer/key 和时
 管理，不能伪装成任意 business Edit；后续 writer 必须与结果/source 和计费同一原子 batch，
 证明固定投影的 before/after 字节费用及最大写入预算。查询 effective expiry 必须从已提交
 source-ordered 水位推导，不能从此校验器返回值或本机时钟推导。
+
+### TIME_FENCE 固定 META 原子更新（2026-09-22）
+
+Target source writer 复用 KeyCodec.metaFixed(4) 的 NV type 1 IngressFenceState，未新建
+key/NV/CF。Backend.IngressFenceChange 承载 exact before 与 nondecreasing after，after
+必须有非零 ProofId；仍不向普通业务 Edit 放开此 key。实际 batch 只写该固定项一次，
+最后 proof 的内存副本也在 commit 成功后更新，source/结果/计费同批。
+
+后续较低 fence 可更新最后 proof而保留较高 watermark。物理 POSITION 和 immutable
+SYSTEM 记录保留原 source/envelope identity，不能用 last proof 的请求 cutoff 反推有效水位。
+reopen 读取同一 fixed projection；完整 checkpoint/Floor authority 和 reservation effective
+source anchor仍需后续实现及集中验证，未赋予此记录 GC 删除权限。

@@ -520,6 +520,9 @@ class TargetCommandStoreTest {
                             entry -> {
                                 throw new AssertionError("Command resolved grant");
                             },
+                            entry -> {
+                                throw new AssertionError("unexpected first fence authority");
+                            },
                             (a, b, c) -> guard(),
                             (a, b) -> guard(),
                             entry -> {
