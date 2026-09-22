@@ -1,16 +1,21 @@
 package com.nereusstream.delay.ownership;
 
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.CanonicalProtobuf;
 import com.nereusstream.delay.protocol.CommandCodec;
 import com.nereusstream.delay.protocol.PreparedControlOperation;
 import com.nereusstream.delay.protocol.PulsarActivationBarrier;
 import com.nereusstream.delay.protocol.PulsarSourcePosition;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.SystemMutationType;
+import com.nereusstream.delay.protocol.TargetCloseBody;
+import com.nereusstream.delay.protocol.TargetCloseRequest;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlBody;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
 import com.nereusstream.delay.runtime.CommandResult;
 import com.nereusstream.delay.runtime.SystemMutationResult;
+import com.nereusstream.delay.runtime.TargetCloseStore;
+import com.nereusstream.delay.runtime.TargetCloseVerifier;
 import com.nereusstream.delay.runtime.TargetCommandReplayStore;
 import com.nereusstream.delay.runtime.TargetCommandStore;
 import com.nereusstream.delay.runtime.TargetQuotaGrantControlVerifier;
@@ -68,6 +73,22 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         FenceControl resolve(SourceReplayMutation entry);
     }
 
+    public record CloseControl(
+            PreparedControlOperation prepared,
+            TargetCloseVerifier.Authority authority,
+            TargetStoreBackend.CommitAuthority commit) {
+        public CloseControl {
+            Objects.requireNonNull(prepared, "prepared");
+            Objects.requireNonNull(authority, "authority");
+            Objects.requireNonNull(commit, "commit");
+        }
+    }
+
+    @FunctionalInterface
+    public interface Closes {
+        CloseControl resolve(SourceReplayMutation entry);
+    }
+
     public record CommandControl(
             TargetCommandStore.Policy policy,
             TargetCommandStore.CancellationControls cancellations,
@@ -96,6 +117,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             SourceReplaySuccessor successor,
             GrantControls grants,
             Fences fences,
+            Closes closes,
             TargetStoreBackend.CommitAuthority duplicateWrites,
             TargetStoreBackend.ReadAuthority reads,
             Commands commands) {
@@ -104,6 +126,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             Objects.requireNonNull(successor, "successor");
             Objects.requireNonNull(grants, "grants");
             Objects.requireNonNull(fences, "fences");
+            Objects.requireNonNull(closes, "closes");
             Objects.requireNonNull(duplicateWrites, "duplicateWrites");
             Objects.requireNonNull(reads, "reads");
             Objects.requireNonNull(commands, "commands");
@@ -116,6 +139,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     private final TargetQuotaScope scope;
     private final TargetQuotaGrantStore grants;
     private final TargetTimeFenceStore fences;
+    private final TargetCloseStore closes;
     private final TargetSystemReplayStore replay;
     private final TargetCommandReplayStore commandReplay;
     private final TargetCommandStore commands;
@@ -159,6 +183,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         final byte[] lineage = initialized.root().recoveryLineage();
         grants = new TargetQuotaGrantStore(backend, scope, lineage, limits.counters(), limits.domains());
         fences = new TargetTimeFenceStore(backend, scope, lineage, limits.counters(), limits.domains());
+        closes = new TargetCloseStore(backend, scope, lineage, limits.counters(), limits.domains());
         replay = new TargetSystemReplayStore(backend, scope, lineage, limits.counters(), limits.domains());
         commandReplay = new TargetCommandReplayStore(backend, scope, lineage, limits.counters(), limits.domains());
         commands = new TargetCommandStore(backend, scope, lineage, limits.counters(), limits.domains());
@@ -210,6 +235,17 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                     throw new ReadYield(incomplete);
                 }
                 result = fences.commit(first, writes(control.commit(), entry, clock));
+            } else if (isTargetClose(mutation.mutation())) {
+                final var control =
+                        Objects.requireNonNull(authorities.closes().resolve(mutation), "Target Close control");
+                final TargetCloseStore.Prepared first;
+                try {
+                    first = closes.prepareFirst(
+                            budget, control.prepared(), mutation.mutation(), entry.position(), control.authority());
+                } catch (ReadIncompleteException incomplete) {
+                    throw new ReadYield(incomplete);
+                }
+                result = closes.commit(first, writes(control.commit(), entry, clock));
             } else {
                 final var control = Objects.requireNonNull(authorities.grants().resolve(mutation), "grant control");
                 final TargetQuotaGrantStore.Prepared first;
@@ -411,7 +447,28 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             throw new IllegalArgumentException(
                     "Target source business branch is not wired yet; source must remain pending");
         }
-        TargetQuotaGrantControlBody.decode(mutation.mutation().canonicalBody());
+        if (isTargetClose(mutation.mutation())) {
+            TargetCloseBody.decode(mutation.mutation().canonicalBody());
+        } else {
+            TargetQuotaGrantControlBody.decode(mutation.mutation().canonicalBody());
+        }
+    }
+
+    /** Bounded structural discriminator only; the selected full decoder must still validate every field. */
+    private static boolean isTargetClose(com.nereusstream.delay.protocol.SystemMutation mutation) {
+        final byte[] body = mutation.canonicalBody();
+        if (body.length
+                > Math.max(TargetCloseBody.MAX_CANONICAL_BYTES, TargetQuotaGrantControlBody.MAX_CANONICAL_BYTES)) {
+            throw new IllegalArgumentException("Target control body exceeds activated codec bounds");
+        }
+        final var reader = new CanonicalProtobuf.Reader(body);
+        for (int field = 0; field < 5 && reader.hasRemaining(); field++) {
+            final var value = reader.next();
+            if (value.number() == 11) {
+                return value.wireType() == 0 && value.unsignedValue() == TargetCloseRequest.CONTROL_KIND;
+            }
+        }
+        return false;
     }
 
     @Override

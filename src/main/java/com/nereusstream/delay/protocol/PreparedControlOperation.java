@@ -276,6 +276,26 @@ public final class PreparedControlOperation {
             throw new IllegalArgumentException("Control Operation requires at least one target");
         }
         switch (kind) {
+            case CLOSE_TARGET -> {
+                requireOnlyKinds(values, ControlTargetKind.SHARD);
+                final var close = branch(request, TargetCloseRequest.class);
+                requireCount(
+                        values,
+                        ControlTargetKind.SHARD,
+                        close.shards().size(),
+                        close.shards().size());
+                requireMutationPresence(values, ControlTargetKind.SHARD, true);
+                for (int index = 0; index < values.size(); index++) {
+                    final var actual = values.get(index);
+                    if (actual.targetIndex() != index
+                            || !actual.shard()
+                                    .shardId()
+                                    .equals(close.shards().get(index).shard())) {
+                        throw new IllegalArgumentException(
+                                "Target close target set differs from its frozen Shard coverage");
+                    }
+                }
+            }
             case PUBLISH_TARGET_QUOTA_GRANT -> {
                 requireOnlyKinds(values, ControlTargetKind.SHARD);
                 requireCount(values, ControlTargetKind.SHARD, 1, 1);

@@ -10,13 +10,14 @@
 
 [原 29 切片集中验证交接清单](ndip/NDIP-3/12-集中验证交接清单.md)
 
-Target reservation 的 Query、Commit、Cancel/Reschedule 和 expiry GC 已统一使用源顺序
-Close/fence 判断。强制历史权限接口返回最早适用 Close 的完整 source、原 binding/lineage
-及 Close 当时的水位：Close 先发生保持逻辑 ABANDONED，expiry 先发生保持 EXPIRED。
-GC 延期前者且不写，后者允许到期物化；查询保留原 receipt、物理状态与计费相位。
-四个实际 Worker/Store 开发场景通过，但历史 Close 证据由 fixture provider 提供。
-持久 Close marker writer、ABANDONED 物化、生产历史权限/触发/factory、恢复/迁移与
-集中验证仍未完成，全部29切片和最终验证义务保持。
+Target Close 已接入实际 Worker Source Apply：平台角色、完整冻结 source Shard 集合、
+ControlRef/注册与签名校验后，首次 marker、Close 时水位、队列 CLOSED/control version、
+空逻辑 head、SYSTEM/POSITION 和实际 STATE 费用/source 同批提交。已有 Message、物理
+候选、Claim/已 Admission 义务保留；reservation 从 durable marker 合并历史 Close/fence。
+12 项必要开发检查通过，包括四个实际 Worker/Store 场景、新协议边界/授权及既有重放/
+grant 路径。跨域/legacy Close、完整 source 覆盖的生产权限仍由强制接口提供，测试使用
+fixture；ABANDONED 物化、关闭汇总计费、生产装配和恢复/迁移仍未完成。全部29切片与
+集中验证义务保持，未声明完整 Close 或生产激活完成。
 
 以下为前序认证入口实施记录；持久 writer 的当前进展以上述说明为准。
 

@@ -20,6 +20,7 @@ import com.nereusstream.delay.ownership.TargetReservationExpiryWorkClassExecutor
 import com.nereusstream.delay.ownership.TargetReservationQueryWorkClassExecutor;
 import com.nereusstream.delay.ownership.TargetSourceApplyRuntime;
 import com.nereusstream.delay.ownership.WorkerSourceApplyLoop;
+import com.nereusstream.delay.protocol.AcknowledgementSet;
 import com.nereusstream.delay.protocol.AdapterKind;
 import com.nereusstream.delay.protocol.AuthorIdentity;
 import com.nereusstream.delay.protocol.Bytes;
@@ -29,12 +30,16 @@ import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
 import com.nereusstream.delay.protocol.CanonicalTargetPartition;
 import com.nereusstream.delay.protocol.CapacityDimension;
 import com.nereusstream.delay.protocol.CapacityVector;
+import com.nereusstream.delay.protocol.CloseLaneRequest;
+import com.nereusstream.delay.protocol.ClosePolicy;
 import com.nereusstream.delay.protocol.CommandHash;
 import com.nereusstream.delay.protocol.CommandId;
 import com.nereusstream.delay.protocol.CommandType;
 import com.nereusstream.delay.protocol.CommitLargeScheduleBody;
 import com.nereusstream.delay.protocol.ControlAuthor;
 import com.nereusstream.delay.protocol.ControlAuthorizationContext;
+import com.nereusstream.delay.protocol.ControlReason;
+import com.nereusstream.delay.protocol.ControlReasonKind;
 import com.nereusstream.delay.protocol.ControlRef;
 import com.nereusstream.delay.protocol.ControlRole;
 import com.nereusstream.delay.protocol.ControlRoleSet;
@@ -63,6 +68,9 @@ import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
+import com.nereusstream.delay.protocol.TargetCloseBody;
+import com.nereusstream.delay.protocol.TargetCloseRecord;
+import com.nereusstream.delay.protocol.TargetCloseRequest;
 import com.nereusstream.delay.protocol.TargetControlScope;
 import com.nereusstream.delay.protocol.TargetDispatchCompatibility;
 import com.nereusstream.delay.protocol.TargetMembershipGrant;
@@ -508,8 +516,23 @@ class TargetCommandStoreTest {
                                     store.get(ColumnFamily.ID, message.encodedKey()), TargetMessageRecord.VALUE_TYPE)
                             .payload());
             final var reservationClosures = new java.util.HashMap<String, TargetReservationControls.Closure>();
-            final TargetReservationControls.Authority reservationControls = (reader, bound) ->
-                    java.util.Optional.ofNullable(reservationClosures.get(Bytes.hex(bound.digest())));
+            final var closeStore = new TargetCloseStore(backend, scope, lineage, 16, 1);
+            final var closeResolutions = new java.util.concurrent.atomic.AtomicInteger();
+            final var closeAuthority = new TargetCloseVerifier.Authority(
+                    registrations,
+                    (version, source) -> keys.getPublic(),
+                    (actualScope, closeRequest, source, queue) -> {
+                        assertEquals(scope, actualScope);
+                        assertEquals(physical.id(), closeRequest.target());
+                        assertEquals(1, closeRequest.shards().size());
+                        assertEquals(
+                                scope.shard(), closeRequest.shards().getFirst().shard());
+                    },
+                    actor,
+                    prepared -> true);
+            final TargetReservationControls.Authority reservationControls =
+                    closeStore.reservationControls((reader, bound) ->
+                            java.util.Optional.ofNullable(reservationClosures.get(Bytes.hex(bound.digest()))));
             final var resolutions = new java.util.concurrent.atomic.AtomicInteger();
             final var proofKeys =
                     java.security.KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
@@ -535,6 +558,17 @@ class TargetCommandStoreTest {
                                         (actualScope, author, mutation, position) ->
                                                 new TargetTimeFenceVerifier.Authorization(
                                                         keys.getPublic(), 10, 5, (a, b, c, proof) -> true),
+                                        (a, b, c) -> guard());
+                            },
+                            entry -> {
+                                closeResolutions.incrementAndGet();
+                                final var closeBody =
+                                        TargetCloseBody.decode(entry.mutation().canonicalBody());
+                                return new TargetSourceApplyRuntime.CloseControl(
+                                        registrations
+                                                .find(closeBody.controlRef().operationId())
+                                                .orElseThrow(),
+                                        closeAuthority,
                                         (a, b, c) -> guard());
                             },
                             (a, b, c) -> guard(),
@@ -1574,7 +1608,7 @@ class TargetCommandStoreTest {
                             .appliedOutcome()
                             .commandResult()
                             .stableCode());
-            // Historical Close responses are authority fixtures; the durable Close marker writer is still pending.
+            // This binding-scope Close remains a historical authority fixture; the later global Close uses its writer.
             final var lateClosure = new TargetReservationControls.Closure(
                     thirdReservation.locator().target(),
                     thirdReservation.locator().scheduleBindingDigest(),
@@ -1933,15 +1967,135 @@ class TargetCommandStoreTest {
                             .payload());
             final var preCloseSnapshot = queries.read(budget(), fifthReservation.reservationId(), queryAuthority)
                     .orElseThrow();
-            final var closeAt = source(fifthAt, fifthAt.offset() + 1, fifthAt.brokerLogAppendTimeEpochMs() + 1);
-            applyFence(loop, entries, fifthReservation.expiryEpochMs() - 1, closeAt, keys);
-            final var earlyClosure = new TargetReservationControls.Closure(
-                    fifthReservation.locator().target(),
-                    fifthReservation.locator().scheduleBindingDigest(),
+            final byte[] pendingKey = TargetKeyCodec.message(fresh.delayMessageId());
+            final byte[] pendingRaw = store.get(ColumnFamily.ID, pendingKey);
+            final var queueBeforeClose = TargetQueueState.decode(TargetValueEnvelope.decode(
+                            store.get(ColumnFamily.META, TargetKeyCodec.state(physical.id())),
+                            TargetQueueState.VALUE_TYPE)
+                    .payload());
+            final var pendingHead = queueBeforeClose.domains().getFirst().ordinaryHead();
+            assertTrue(pendingHead != null);
+            final byte[] pendingWork = store.get(ColumnFamily.TIMELINE, pendingHead.key());
+            final var beforeCloseFenceAt =
+                    source(fifthAt, fifthAt.offset() + 1, fifthAt.brokerLogAppendTimeEpochMs() + 1);
+            applyFence(loop, entries, fifthReservation.expiryEpochMs() - 1, beforeCloseFenceAt, keys);
+            final var closeAt = source(
+                    beforeCloseFenceAt,
+                    beforeCloseFenceAt.offset() + 1,
+                    beforeCloseFenceAt.brokerLogAppendTimeEpochMs() + 1);
+            final var closeRequest = new TargetCloseRequest(
+                    physical.id(),
+                    List.of(new TargetCloseRequest.ShardTarget(
+                            scope.shard(),
+                            queueBeforeClose.accountingIncarnation(),
+                            queueBeforeClose.controlVersion())),
+                    new CloseLaneRequest(
+                            new ControlReason(ControlReasonKind.OPERATOR_REQUEST, null, null),
+                            ClosePolicy._FREEZE_UNADMITTED_AND_PRESERVE_ADMITTED,
+                            false,
+                            AcknowledgementSet.empty()));
+            final var signedClose = signedClose(
+                    closeRequest, bytes(32, 0xca), actor, keys, closeAt.brokerLogAppendTimeEpochMs() + 2000);
+            registrations.register(signedClose.control());
+            final var closeBody = TargetCloseBody.decode(signedClose.mutation().canonicalBody());
+            assertArrayEquals(closeBody.canonicalBytes(), signedClose.mutation().canonicalBody());
+            assertEquals(closeRequest, TargetCloseRequest.decode(closeRequest.canonicalBytes()));
+            final long beforeCloseNative = store.latestSequenceNumber();
+            final var beforeCloseUsage = backend.prepareRead(
+                            budget(), reader -> reader.aggregate().usage())
+                    .value();
+            final var rejectedClosePlan = closeStore.prepareFirst(
+                    budget(), signedClose.control(), signedClose.mutation(), closeAt, closeAuthority);
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> closeStore.commit(rejectedClosePlan, (a, b, c) -> {
+                        throw new IllegalStateException("Close physical capacity unavailable");
+                    }));
+            assertEquals(beforeCloseNative, store.latestSequenceNumber());
+            assertNull(store.get(ColumnFamily.META, TargetKeyCodec.close(physical.id())));
+            assertArrayEquals(pendingRaw, store.get(ColumnFamily.ID, pendingKey));
+            assertArrayEquals(
+                    queueBeforeClose.canonicalBytes(),
+                    TargetValueEnvelope.decode(
+                                    store.get(ColumnFamily.META, TargetKeyCodec.state(physical.id())),
+                                    TargetQueueState.VALUE_TYPE)
+                            .payload());
+            applyClose(loop, entries, signedClose, closeAt);
+            assertEquals(12, store.latestSequenceNumber() - beforeCloseNative);
+            assertEquals(1, closeResolutions.get());
+            final byte[] markerRaw = store.get(ColumnFamily.META, TargetKeyCodec.close(physical.id()));
+            final var durableClose = TargetCloseRecord.decodeForStore(
+                    TargetKeyCodec.close(physical.id()),
+                    TargetValueEnvelope.decode(markerRaw, TargetCloseRecord.VALUE_TYPE)
+                            .payload(),
+                    scope.shard(),
+                    lineage);
+            assertEquals(closeAt, durableClose.mutation().source());
+            assertEquals(fifthReservation.expiryEpochMs() - 1, durableClose.fenceAtClose());
+            final var queueAfterClose = TargetQueueState.decode(TargetValueEnvelope.decode(
+                            store.get(ColumnFamily.META, TargetKeyCodec.state(physical.id())),
+                            TargetQueueState.VALUE_TYPE)
+                    .payload());
+            durableClose.requireQueue(queueAfterClose);
+            assertEquals(TargetQueueState.AdmissionState.CLOSED, queueAfterClose.admissionState());
+            assertEquals(queueBeforeClose.controlVersion() + 1, queueAfterClose.controlVersion());
+            assertNull(queueAfterClose.domains().getFirst().ordinaryHead());
+            assertNull(queueAfterClose.domains().getFirst().nativeHead());
+            assertArrayEquals(pendingWork, store.get(ColumnFamily.TIMELINE, pendingHead.key()));
+            assertArrayEquals(pendingRaw, store.get(ColumnFamily.ID, pendingKey));
+            final var afterCloseUsage = backend.prepareRead(
+                            budget(), reader -> reader.aggregate().usage())
+                    .value();
+            for (var dimension : List.of(
+                    CapacityDimension.ACTIVE_MESSAGES,
+                    CapacityDimension.RESERVATION_MESSAGES,
+                    CapacityDimension.RESERVATION_PAYLOAD_BYTES,
+                    CapacityDimension.RETAINED_BYTES)) {
+                assertEquals(
+                        beforeCloseUsage.resources().amount(dimension),
+                        afterCloseUsage.resources().amount(dimension));
+            }
+            final long afterCloseNative = store.latestSequenceNumber();
+            applyClose(loop, entries, signedClose, closeAt);
+            assertEquals(afterCloseNative, store.latestSequenceNumber());
+            assertEquals(1, closeResolutions.get());
+            final var markerClock = new java.util.concurrent.atomic.AtomicLong();
+            final var markerBudget = new BoundedReadBudget(2048, 100_000, 1, markerClock::get);
+            final var boundedMarkerQueries = new TargetReservationQueryStore(
+                    backend, scope, lineage, closeStore.reservationControls((reader, bound) -> {
+                        markerClock.set(10);
+                        return java.util.Optional.empty();
+                    }));
+            assertThrows(
+                    com.nereusstream.delay.store.ReadIncompleteException.class,
+                    () -> boundedMarkerQueries.read(markerBudget, fifthReservation.reservationId(), queryAuthority));
+            assertEquals(BoundedReadBudget.Exhaustion.ELAPSED, markerBudget.exhaustion());
+            final var failedScopeQueries = new TargetReservationQueryStore(
+                    backend, scope, lineage, closeStore.reservationControls((reader, bound) -> {
+                        throw localReadExhaustion;
+                    }));
+            assertEquals(
+                    localReadExhaustion,
+                    assertThrows(
+                                    IllegalStateException.class,
+                                    () -> failedScopeQueries.read(
+                                            budget(), fifthReservation.reservationId(), queryAuthority))
+                            .getCause());
+            final var futureScopeQueries = new TargetReservationQueryStore(
+                    backend,
+                    scope,
                     lineage,
-                    closeAt,
-                    fifthReservation.expiryEpochMs() - 1);
-            reservationClosures.put(Bytes.hex(earlyClosure.bindingDigest()), earlyClosure);
+                    closeStore.reservationControls(
+                            (reader, bound) -> java.util.Optional.of(new TargetReservationControls.Closure(
+                                    bound.target(),
+                                    bound.digest(),
+                                    lineage,
+                                    source(closeAt, closeAt.offset() + 1, closeAt.brokerLogAppendTimeEpochMs() + 1),
+                                    durableClose.fenceAtClose()))));
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> futureScopeQueries.read(budget(), fifthReservation.reservationId(), queryAuthority));
+            assertEquals(afterCloseNative, store.latestSequenceNumber());
             final var closeSnapshot = queries.read(budget(), fifthReservation.reservationId(), queryAuthority)
                     .orElseThrow();
             assertEquals(PayloadReservationStatus.ABANDONED, closeSnapshot.effectiveStatus());
@@ -2034,6 +2188,64 @@ class TargetCommandStoreTest {
                             .effectiveStatus());
             assertEquals(0, workerClasses.registeredActions());
         }
+    }
+
+    private static Signed signedClose(
+            TargetCloseRequest request,
+            byte[] operation,
+            ControlAuthorizationContext actor,
+            KeyPair keys,
+            long retryUntil) {
+        final var ref = new ControlRef(
+                operation,
+                PreparedControlOperation.requestHash(request.operationKind(), request.operationRequest()),
+                0);
+        final var body = new TargetCloseBody(request.shards().getFirst().shard(), retryUntil, ref, request);
+        final var mutation = SystemMutation.signed(
+                body.shard(),
+                SystemMutationType.APPLY_SHARD_CONTROL,
+                body.retryUntil(),
+                body.logicalIdentity(),
+                body.canonicalBytes(),
+                AuthorIdentity.control(actor.actorIdHash(), actor.roleSet().digest(), actor.tenantResourceScopeHash())
+                        .canonicalBytes(),
+                1,
+                keys.getPrivate());
+        final var target = new ControlTargetRef(
+                0,
+                ControlTargetKind.SHARD,
+                new ShardSubject(body.shard()),
+                mutation.systemMutationId(),
+                mutation.mutationHash());
+        return new Signed(
+                PreparedControlOperation.prepare(
+                        operation,
+                        request.operationKind(),
+                        new ControlAuthor(
+                                actor.actorIdHash(), actor.roleSet().digest(), actor.tenantResourceScopeHash()),
+                        request.operationRequest(),
+                        List.of(target),
+                        1,
+                        400,
+                        1,
+                        keys.getPrivate()),
+                mutation);
+    }
+
+    private static void applyClose(
+            WorkerSourceApplyLoop loop,
+            java.util.ArrayDeque<SourceRecordConsumer.PolledSourceRecord> entries,
+            Signed close,
+            KafkaSourcePosition at) {
+        entries.add(new SourceRecordConsumer.PolledSourceRecord(
+                new SourceReplayMutation(close.mutation(), at, null, null),
+                (entry, outcome) -> SourceAcknowledgement.AcknowledgementResult.acked()));
+        final var turn = loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100);
+        if (turn.failure() != null) {
+            throw new AssertionError("Close apply failed: " + turn.status(), turn.failure());
+        }
+        assertEquals(SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED, turn.status());
+        assertEquals(StableCode.OK, turn.appliedOutcome().systemMutationResult().stableCode());
     }
 
     private static void applyFence(

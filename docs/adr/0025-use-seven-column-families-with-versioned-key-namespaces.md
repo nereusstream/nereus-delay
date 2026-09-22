@@ -504,7 +504,48 @@ materialization after revalidation. A CLOSED queue without historical evidence f
 The local expiry operation digest additionally binds the closure digest, or 32 zero bytes for
 proven absence. Closure digest hashes domain `nereus-delay-target-reservation-closure\0`, Target[32],
 binding digest[32], lineage[16], full canonical SourcePosition, and raw u64be fenceAtClose (OPEN=-1).
-No mutation field or bookkeeping size changes. GC discovery/WorkClass now exist; durable Close
-markers, historical authority providers, closure materialization and full production/recovery
-activation remain incomplete. Development tests inject closure responses and do not certify a
-real Close writer or external authority.
+No mutation field or bookkeeping size changes. GC discovery/WorkClass now exist. The durable
+Target Close marker described below now supplies global Target evidence; remaining historical
+scope/coverage providers, closure materialization and full production/recovery activation remain
+incomplete. Development coverage does not certify external historical authority.
+
+### Durable Target Close control and first marker
+
+`ControlOperationKind.CLOSE_TARGET=19`; canonical ControlOperationRequest branch 19.
+`TargetCloseRequest` schema1 fields: 1 version=1; 2 Target[32]; repeated 3 ShardTarget;
+4 canonical CloseLaneRequest. ShardTarget fields: 1 ShardSubject (<=24 bytes),
+2 assigned accounting incarnation[16], 3 raw uint64 expectedControlVersion (neither 0 nor
+UINT64_MAX). Each nested ShardTarget <=55 bytes. The complete nonempty Shard set is sorted
+by unsigned canonical ShardSubject bytes, without duplicates. MAX_SHARDS=4096 and policy
+<=512 bytes; request ceiling is `2+34+4096*57+3+512` bytes. This encoding ceiling is not a
+production default. Mandatory finite activation limits and authenticated complete coverage
+must reject oversized/incomplete sets. Prepared targets must exactly match all indices/Shards,
+with a registered mutation identity/hash for each. Minimum role: PLATFORM_OPERATOR, plus
+source-pinned coverage/resource/tenant and close-policy safety proof; a tenant role alone fails.
+
+`TargetCloseBody` uses ApplyShardControl kind18: fields 1 ShardSubject, 2 APPLY_SHARD_CONTROL,
+3 retryUntil, 10 ControlRef, 11 kind=18, 12 raw uint64 newControlVersion=expected+1,
+13 semantic hash, 15 ControlPayload oneof18 containing the complete TargetCloseRequest.
+Field14 is absent; the selected prior version lives in the frozen request. Semantic hash:
+SHA-256(`nereus-delay-target-close-control\0` || u16be(18) || canonical request).
+Body ceiling is request ceiling+192; nested ControlPayload needs request ceiling+5 bytes.
+Existing ControlRef requestHash/index/logical identity and signed SystemMutation bindings apply.
+Every Shard independently linearizes the operation; no cross-Shard atomicity is promised.
+
+New META key `0x1c || 0x01 || Target[32]` (34 bytes), NV valueType39/schema1:
+fields 1 version=1; 2 canonical TargetCloseBody; 3 raw uint64 fenceAtClose (OPEN=-1 keeps
+all bits); 4 source-only TargetQuotaMutation; 5 recoveryLineage[16]; 6 record digest[32].
+Digest is SHA-256(`nereus-delay-target-close-record\0` || canonical fields1..5).
+Payload ceiling is `2+4+TargetCloseBody.MAX_CANONICAL_BYTES+11+4+
+TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES+18+34`. Local Claim/expiry stamps are rejected.
+Exact key/Shard/lineage, source frontier and corresponding CLOSED queue incarnation/version
+are checked. The immutable first marker captures the committed META4 fence in the same batch.
+Target-only readers accept NV39; legacy ValueEnvelope and ApplyShardControlBody reject it.
+No new CF, mutation ordinal, fixed bookkeeping width, or legacy reader activation is introduced.
+
+The marker charges actual key/payload/NV-envelope STATE bytes to its Target owner and tenant
+mirror; queue before/after and root-owned first results use existing source accounting.
+CLOSED queues have null logical heads while retaining physical candidates and admitted work.
+Reservation controls combine the persisted marker with mandatory remaining historical scopes.
+Closure materialization, aggregate phase transfer, production coverage providers/activation,
+full recovery audits/Floor/migration and centralized validation remain incomplete.

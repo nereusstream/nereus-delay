@@ -285,6 +285,9 @@ class TargetQuotaGrantStoreTest {
                                 fenceResolutions.incrementAndGet();
                                 return new TargetSourceApplyRuntime.FenceControl(fenceAuthority, (a, b, c) -> guard());
                             },
+                            entry -> {
+                                throw new AssertionError("unexpected first Target Close authority");
+                            },
                             (a, b, c) -> guard(),
                             (a, b) -> guard(),
                             entry -> {

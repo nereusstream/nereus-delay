@@ -711,3 +711,16 @@ ABANDONED物化及stable cause仍需正式writer实现；本批不改变其持�
 
 GC对Close-first候选延期；expiry-first候选可在当前guard与控制证据下物化EXPIRED。
 operation digest增加closure digest输入，不改TargetQuotaMutation field5的宽度或格式。
+
+### durable Close marker 与保留索引（2026-09-22）
+
+META/0x1c/schema1/Target[32] 对应 NV39 TargetCloseRecord，字段/摘要/有限边界见
+Protocol Registry 的 Durable Target Close control and first marker。首次 marker 不可
+覆盖；原请求冻结所有 source Shards，每个 marker 只证明所在 Shard 已接受的关闭位置。
+绑定 selected accounting incarnation/control version、完整 source-only mutation、lineage
+和 Close 时 META4 水位。OPEN=-1保留raw bits；不能用当前更大水位重写历史结果。
+
+CLOSED queue 的所有 domain 逻辑 head 为空，实际候选、Message、ORDER_STATE、Claim
+和 Admission 义务保留。转换时仍检查原 OPEN 的真实最小项；后续物化负责有界清理，
+不能以关闭为理由旁路剩余索引审计、恢复、计费或已投递可能性保护。legacy reader拒绝
+NV39，Target完整恢复审计/受控迁移与旧路径清退仍须专门完成。

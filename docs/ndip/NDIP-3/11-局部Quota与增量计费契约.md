@@ -2037,3 +2037,17 @@ Close和recovery激活、retained释放及外部对象删除仍待后续实现�
 Query、旧snapshot和receipt没有quota副作用；关闭命令只写既有result/source计费。Close
 ABANDONED本地物化、关闭汇总计费、guarded对象GC与Recovery Floor保护尚未实现，不能
 用这项overlay取代它们。四项开发场景使用历史Close provider fixture，不是生产权限证据。
+
+## 48. 首次持久 Target Close 的实际 STATE 费用
+
+TargetCloseStore 在原 ReadView 获取 root、队列、首次 marker absence 和 META4 水位，
+校验完整冻结控制后，同批保存 NV39/队列/首结果与 SourceAccounting。marker 为 Target
+owner 的 STATE，按完整 key+payload+NV envelope 收费；队列按真实 before/after 差额，
+SYSTEM/POSITION 仍属 Shard root。counter/tenant mirror、Target total、aggregate 和固定
+source META3/5同批，不能单独提交 marker 后补账，也不引入固定 bookkeeping重定价。
+
+当前关闭不转移 ACTIVE_MESSAGES、RESERVATION_MESSAGES、RESERVATION_PAYLOAD_BYTES、
+RETAINED_BYTES，不删除物理候选或 payload owner；保留原义务直至后续有界物化/收尾。
+关闭汇总计费仍未完成。四个 Worker 场景核对这些维度不变、12条原子写、物理容量拒绝
+零写及同位置 replay零写；STATE 的实际增量走现有精确计费器，完整独立恢复fold和跨账本
+核对留待集中验证。后续物化不得重复收费或把逻辑 ABANDONED 直接当作已释放对象。

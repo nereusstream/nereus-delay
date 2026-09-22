@@ -196,6 +196,10 @@ public final class TargetQueueHeadUpdater {
             final TargetKeyCodec.Domain domain,
             final int tag,
             final List<TargetStoreBackend.Edit> overlay) {
+        // Closed queues intentionally retain physical candidates until bounded terminal materialization.
+        if (queue.admissionState() == TargetQueueState.AdmissionState.CLOSED) {
+            return null;
+        }
         final byte[] lower = TargetKeyCodec.candidatePrefix(TargetKeyCodec.CandidateKind.DUE, queue.targetId(), domain);
         lower[0] = (byte) tag;
         final ShardStore.KeyValue row = reader.first(ColumnFamily.TIMELINE, lower, upperBound(lower), overlay);

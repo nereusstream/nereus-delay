@@ -28,6 +28,30 @@ public final class TargetReservationControls {
         Optional<Closure> firstClosure(TargetStoreBackend.Reader reader, TargetScheduleBinding binding);
     }
 
+    /** Internal adapter may perform budgeted Store reads; it must use readClosure for external delegates. */
+    static Authority withStoreReads(Authority authority) {
+        return new StoreReads(Objects.requireNonNull(authority, "authority"));
+    }
+
+    private record StoreReads(Authority delegate) implements Authority {
+        @Override
+        public Optional<Closure> firstClosure(TargetStoreBackend.Reader reader, TargetScheduleBinding binding) {
+            return delegate.firstClosure(reader, binding);
+        }
+    }
+
+    static Optional<Closure> readClosure(
+            Authority authority, TargetStoreBackend.Reader reader, TargetScheduleBinding binding) {
+        if (authority instanceof StoreReads) {
+            return Objects.requireNonNull(authority.firstClosure(reader, binding), "reservation closure decision");
+        }
+        try {
+            return Objects.requireNonNull(authority.firstClosure(reader, binding), "reservation closure decision");
+        } catch (ReadIncompleteException external) {
+            throw new IllegalStateException("reservation closure authority did not complete", external);
+        }
+    }
+
     /** A source-pinned authority response, not a caller-supplied control command or a persisted marker format. */
     public record Closure(
             TargetPartitionId target,
@@ -110,12 +134,7 @@ public final class TargetReservationControls {
             return new Decision(reservation.status(), watermark, Optional.empty());
         }
         reader.requireWithinElapsedBudget();
-        final Optional<Closure> closure;
-        try {
-            closure = Objects.requireNonNull(authority.firstClosure(reader, binding), "reservation closure decision");
-        } catch (ReadIncompleteException external) {
-            throw new IllegalStateException("reservation closure authority did not complete", external);
-        }
+        final Optional<Closure> closure = readClosure(authority, reader, binding);
         reader.requireWithinElapsedBudget();
         if (closure.isEmpty()) {
             if (queue.admissionState() == TargetQueueState.AdmissionState.CLOSED) {

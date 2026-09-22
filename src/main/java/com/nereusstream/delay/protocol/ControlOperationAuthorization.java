@@ -68,6 +68,7 @@ public final class ControlOperationAuthorization {
                     GET_CHECKPOINT_CATALOG,
                     PUBLISH_QUOTA_GRANT,
                     PUBLISH_TARGET_QUOTA_GRANT,
+                    CLOSE_TARGET,
                     ROTATE_EQUIVALENT_SECRET_REFERENCE -> new ControlRole[] {ControlRole.PLATFORM_OPERATOR};
         };
     }

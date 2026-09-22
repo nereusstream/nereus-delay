@@ -36,6 +36,7 @@ public final class TargetKeyCodec {
     public static final int QUOTA_PAYLOAD_OWNER_TAG = 25;
     public static final int QUOTA_INCARNATION_TAG = 26;
     public static final int QUOTA_CLAIM_CHARGE_TAG = 27;
+    public static final int CLOSE_TAG = 28;
     // Target result tags belong to DEDUPE, independently of META and ID tags.
     public static final int RESULT_COMMAND_TAG = 6;
     public static final int RESULT_QUERY_TAG = 7;
@@ -50,6 +51,12 @@ public final class TargetKeyCodec {
     public static final int CANDIDATE_PREFIX_BYTES = 2 + TargetPartitionId.LENGTH + 2 + 8;
 
     private TargetKeyCodec() {}
+
+    public static byte[] close(TargetPartitionId target) {
+        return Bytes.concat(
+                new byte[] {CLOSE_TAG, KEY_FORMAT},
+                Objects.requireNonNull(target, "target").bytes());
+    }
 
     public enum CandidateKind {
         DUE(DUE_TAG),

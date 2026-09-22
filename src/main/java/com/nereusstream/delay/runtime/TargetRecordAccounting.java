@@ -217,6 +217,25 @@ public final class TargetRecordAccounting {
                         TargetQuotaIncarnation.decodeForStore(key, payload, scope.shard(), scope.tenantScope());
                 result = new Charge(owner, owner.ownContribution());
             }
+            case com.nereusstream.delay.protocol.TargetCloseRecord.VALUE_TYPE -> {
+                requireFamily(family, ColumnFamily.META);
+                final var close = com.nereusstream.delay.protocol.TargetCloseRecord.decodeForStore(
+                        key, payload, scope.shard(), lineage);
+                close.mutation().requireAtOrBefore(operation);
+                final var queue = TargetQueueState.decode(payload(
+                        ColumnFamily.META,
+                        TargetKeyCodec.state(close.body().request().target()),
+                        TargetQueueState.VALUE_TYPE));
+                close.requireQueue(queue);
+                final var owner = descriptor(close.ownerIdentity());
+                result = new Charge(
+                        owner,
+                        resources(owner.accounting()
+                                .recordCharge(
+                                        com.nereusstream.delay.protocol.TargetQuotaAccounting.RecordClass.STATE,
+                                        key.length,
+                                        payload.length)));
+            }
             case TargetQueueState.VALUE_TYPE -> {
                 requireFamily(family, ColumnFamily.META);
                 final var queue = TargetQueueState.decode(payload);
