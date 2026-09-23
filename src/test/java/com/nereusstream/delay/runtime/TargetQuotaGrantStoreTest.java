@@ -263,6 +263,47 @@ class TargetQuotaGrantStoreTest {
                         new TargetReservationClosureStore(backend, scope, lineage, 1, controls)
                                 .progress(budget(), target, (a, b) -> ownerGuard(leases, oldActive)));
                 assertEquals(4, store.shardMutationSequence());
+                final var oldClasses = workClasses();
+                final var oldRuntime = new TargetSourceApplyRuntime(
+                        initialized, store, firstAssignment, oldActive,
+                        new TargetSourceApplyRuntime.Authorities(
+                                leases, SourceReplaySuccessor.strictKafka(),
+                                entry -> { throw new AssertionError("GC cannot resolve a grant"); },
+                                entry -> { throw new AssertionError("GC cannot resolve a fence"); },
+                                entry -> { throw new AssertionError("GC cannot resolve a Close"); },
+                                (a, b, c) -> ownerGuard(leases, oldActive),
+                                (a, b) -> ownerGuard(leases, oldActive),
+                                entry -> { throw new AssertionError("GC cannot resolve a command"); }),
+                        new TargetSourceApplyRuntime.Limits(4096, 32L << 20, 60_000_000_000L, 16, 1),
+                        System::nanoTime);
+                final var oldWorker = new TargetWorkerShardRuntime(
+                        () -> java.util.Optional.empty(), oldClasses, store, resources, oldRuntime,
+                        new TargetWorkerShardRuntime.Maintenance(
+                                controls,
+                                new TargetReservationClosureWorkClassExecutor.Limits(
+                                        4096, 250_000, 60_000_000_000L),
+                                new TargetReservationExpiryWorkClassExecutor.Limits(
+                                        2048, 100_000, 60_000_000_000L),
+                                (a, b, c) -> ownerGuard(leases, oldActive),
+                                ignored -> { throw new AssertionError("old GC cannot materialize"); },
+                                ignored -> { throw new AssertionError("old GC cannot expire"); },
+                                ignored -> { throw new AssertionError("old GC cannot complete Close"); },
+                                System::currentTimeMillis));
+                final var oldPending = oldWorker.runMaintenanceTurn(new SchedulerBudget(1, 1, 60_000_000_000L));
+                assertTrue(oldPending.pending());
+                assertEquals(TargetReservationGcRuntime.Lane.CLOSE, oldPending.lane());
+                final long beforeOldLoss = store.latestSequenceNumber();
+                assertTrue(leases.release(oldActive));
+                final var oldFailed = oldWorker.runMaintenanceTurn(
+                        new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
+                assertEquals(oldPending.task(), oldFailed.task());
+                assertEquals(TargetReservationClosureWorkClassExecutor.Kind.FAILED,
+                        oldFailed.closeResult().orElseThrow().kind());
+                assertTrue(oldRuntime.fenced());
+                assertEquals(beforeOldLoss, store.latestSequenceNumber());
+                assertEquals(TargetReservationClosureStore.Progress.OPEN,
+                        new TargetReservationClosureStore(backend, scope, lineage, 1, controls)
+                                .progress(budget(), target, (a, b) -> guard()));
             }
         }
 
