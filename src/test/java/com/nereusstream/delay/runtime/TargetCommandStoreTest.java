@@ -79,6 +79,7 @@ import com.nereusstream.delay.protocol.ProtocolTuple;
 import com.nereusstream.delay.protocol.RescheduleCommandBody;
 import com.nereusstream.delay.protocol.ScheduleCommandBody;
 import com.nereusstream.delay.protocol.SelfRoutingId;
+import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.StableCode;
@@ -980,38 +981,251 @@ class TargetCommandStoreTest {
                                 },
                                 () -> 100));
                 assertEquals(beforeClaim, store.latestSequenceNumber());
-                final var claimHost = TargetWorkerHostTestBridge.withoutMaintenanceTimer(
-                        workerClasses, resources, List.of(claimWorker));
-                final var inventory = claimHost.rebuildTargetInventory(
-                        new TargetWorkerTargetInventory.Limits(1, 16, 4, 8, 4096, 32L << 20, 60_000_000_000L),
-                        () -> 100,
-                        System::nanoTime);
-                assertEquals(TargetWorkerTargetInventory.Stop.COMPLETE, inventory.stop());
-                final long schedulingCost = headCost.schedulingCost();
-                final var ordinary = claimHost.newOrdinaryDrr(
-                        inventory,
-                        new TargetWorkerOrdinaryDrr.Limits(
-                                schedulingCost, schedulingCost, schedulingCost, 16, 4096, 32L << 20, 60_000_000_000L),
-                        () -> 100,
-                        System::nanoTime);
-                final var claimBudget = new SchedulerBudget(1, schedulingCost, 60_000_000_000L);
-                final TargetWorkerOrdinaryDrr.Requests claimRequests = (shard, selected) -> {
-                    assertEquals(claimWorker, shard);
-                    assertEquals(selectedHead, selected.head());
-                    return java.util.Optional.of(new TargetWorkerOrdinaryDrr.Request(
-                            actualOwner,
-                            message.deliverAtEpochMs() + 1000,
-                            bytes(32, 0x71),
-                            (kind, delta) -> {},
-                            (a, b, c) -> guard()));
-                };
-                assertEquals(
-                        TargetWorkerOrdinaryDrr.FreezeStop.READY,
-                        ordinary.freezeRecoveryFirstPass(message.deliverAtEpochMs(), claimBudget, claimRequests)
-                                .stop());
-                claim = ordinary.claimOrdinary(message.deliverAtEpochMs(), claimBudget, claimRequests)
-                        .claims()
-                        .getFirst();
+                final var otherShard = new ShardId(
+                        scope.shard().routeIncarnation(), scope.shard().partition() + 1);
+                final var otherScope = new TargetQuotaScope(otherShard, scope.tenantScope(), null);
+                final var otherSource = new KafkaSourcePosition(
+                        otherShard,
+                        origin.authenticatedClusterId(),
+                        origin.nativeTopicUuid(),
+                        origin.offset(),
+                        origin.leaderEpoch(),
+                        origin.brokerLogAppendTimeEpochMs());
+                final var otherGrantRequest = new TargetQuotaGrantControlRequest(
+                        new TargetQuotaGrant(
+                                otherScope,
+                                bytes(32, 0x81),
+                                1,
+                                originalGrant.accounting(),
+                                new TargetQuotaUsage(new CapacityVector(amounts), 64, 64, 64, 64),
+                                originalGrant.tenantPolicyVersion(),
+                                originalGrant.tenantPolicyHash()),
+                        null,
+                        null);
+                final var otherSigned = signed(otherGrantRequest, bytes(32, 0x82), actor, keys);
+                registrations.register(otherSigned.control());
+                try (var otherStore = ShardStore.openTarget(config, otherShard, resources)) {
+                    final var otherInitialized = TargetStoreBootstrap.commit(
+                            TargetStoreBootstrap.prepare(
+                                    otherStore,
+                                    otherScope,
+                                    bytes(16, 0xcd),
+                                    new TargetStoreBackend.WriteLimits(64, 2 << 20),
+                                    budget(),
+                                    otherSigned.control(),
+                                    otherSigned.mutation(),
+                                    otherSource,
+                                    authority(
+                                            registrations,
+                                            keys,
+                                            actor,
+                                            otherSource,
+                                            otherGrantRequest,
+                                            (a, b, c, d) -> {}),
+                                    (a, b, c) -> {}),
+                            (a, b, c) -> guard());
+                    final var otherTargetGrantRequest = new TargetQuotaGrantControlRequest(
+                            new TargetQuotaGrant(
+                                    otherScope.forTarget(physical.id()),
+                                    bytes(32, 0x85),
+                                    1,
+                                    originalGrant.accounting(),
+                                    new TargetQuotaUsage(new CapacityVector(targetAmounts), 1, 64, 64, 64),
+                                    originalGrant.tenantPolicyVersion(),
+                                    originalGrant.tenantPolicyHash()),
+                            null,
+                            null);
+                    final var otherTargetSigned = signed(otherTargetGrantRequest, bytes(32, 0x86), actor, keys);
+                    registrations.register(otherTargetSigned.control());
+                    final var otherGrantAt =
+                            source(otherSource, otherSource.offset() + 1, otherSource.brokerLogAppendTimeEpochMs() + 1);
+                    final var otherBackend = otherInitialized.backend();
+                    final var otherLineage = otherInitialized.root().recoveryLineage();
+                    final var otherGrants = new TargetQuotaGrantStore(otherBackend, otherScope, otherLineage, 16, 1);
+                    assertEquals(
+                            StableCode.OK,
+                            otherGrants
+                                    .commit(
+                                            otherGrants.prepareFirst(
+                                                    budget(),
+                                                    otherTargetSigned.control(),
+                                                    otherTargetSigned.mutation(),
+                                                    otherGrantAt,
+                                                    authority(
+                                                            registrations,
+                                                            keys,
+                                                            actor,
+                                                            otherGrantAt,
+                                                            otherTargetGrantRequest,
+                                                            (a, b, c, d) -> {})),
+                                            (a, b, c) -> guard())
+                                    .stableCode());
+                    final var otherActivation = TargetQuotaGrantActivation.decode(TargetValueEnvelope.decode(
+                                    otherStore.get(
+                                            ColumnFamily.META,
+                                            Bytes.concat(
+                                                    new byte[] {TargetKeyCodec.QUOTA_GRANT_ACTIVATION_TAG, 1},
+                                                    otherTargetGrantRequest
+                                                            .next()
+                                                            .scope()
+                                                            .keySuffix())),
+                                    TargetQuotaGrantActivation.VALUE_TYPE)
+                            .payload());
+                    final var otherQueue = new TargetQueueState(
+                            physical.id(),
+                            1,
+                            1,
+                            TargetQueueState.AdmissionState.OPEN,
+                            otherActivation.allocation().identity().accountingIncarnation(),
+                            0,
+                            List.of());
+                    final var otherQueueAt = source(
+                            otherGrantAt, otherGrantAt.offset() + 1, otherGrantAt.brokerLogAppendTimeEpochMs() + 1);
+                    new TargetMessageStore(otherBackend, 1, 1, 1)
+                            .applyAccounted(
+                                    budget(),
+                                    reader -> new TargetMessageStore.Input(
+                                            List.of(),
+                                            List.of(),
+                                            List.of(
+                                                    reader.replace(
+                                                            ColumnFamily.META,
+                                                            TargetKeyCodec.identity(physical.id()),
+                                                            CanonicalTargetPartition.VALUE_TYPE,
+                                                            physical.canonicalBytes()),
+                                                    reader.replace(
+                                                            ColumnFamily.META,
+                                                            TargetKeyCodec.state(physical.id()),
+                                                            TargetQueueState.VALUE_TYPE,
+                                                            otherQueue.canonicalBytes()))),
+                                    new TargetSourceAccounting(
+                                            otherScope,
+                                            otherLineage,
+                                            otherQueueAt,
+                                            Bytes.sha256(Bytes.utf8("other-shard-target-queue-fixture")),
+                                            16,
+                                            1,
+                                            1),
+                                    (a, b, c) -> guard());
+                    final var otherAssignment = new SourceAssignment(
+                            otherShard,
+                            bytes(32, 0x83),
+                            1,
+                            new KafkaActivationBarrier(
+                                    otherShard,
+                                    otherSource.authenticatedClusterId(),
+                                    otherSource.nativeTopicUuid(),
+                                    otherSource.offset() + 1));
+                    final var otherActive = leases.transition(
+                                    leases.acquire(otherAssignment, "other-claim-worker", bytes(32, 0x84), 1, 10000)
+                                            .orElseThrow(),
+                                    ShardLifecycleState.ACTIVE_FOR_COMMANDS)
+                            .orElseThrow();
+                    otherStore.recordOpenedOwnerEpoch(otherActive.ownerEpoch());
+                    final var otherRuntime = new TargetSourceApplyRuntime(
+                            otherInitialized,
+                            otherStore,
+                            otherAssignment,
+                            otherActive,
+                            new TargetSourceApplyRuntime.Authorities(
+                                    leases,
+                                    SourceReplaySuccessor.strictKafka(),
+                                    entry -> {
+                                        throw new AssertionError("other Shard resolved a grant");
+                                    },
+                                    entry -> {
+                                        throw new AssertionError("other Shard resolved a fence");
+                                    },
+                                    entry -> {
+                                        throw new AssertionError("other Shard resolved a Close");
+                                    },
+                                    entry -> {
+                                        throw new AssertionError("other Shard resolved membership");
+                                    },
+                                    (a, b, c) -> guard(),
+                                    (a, b) -> guard(),
+                                    entry -> {
+                                        throw new AssertionError("other Shard resolved a command");
+                                    }),
+                            new TargetSourceApplyRuntime.Limits(4096, 32L << 20, 60_000_000_000L, 16, 1),
+                            System::nanoTime);
+                    final var otherWorker = new TargetWorkerShardRuntime(
+                            () -> java.util.Optional.empty(),
+                            workerClasses,
+                            otherStore,
+                            resources,
+                            otherRuntime,
+                            new TargetWorkerShardRuntime.Maintenance(
+                                    new TargetCloseStore(
+                                                    otherInitialized.backend(),
+                                                    otherScope,
+                                                    otherInitialized.root().recoveryLineage(),
+                                                    16,
+                                                    1)
+                                            .reservationControls((reader, bound) -> java.util.Optional.empty()),
+                                    new TargetReservationClosureWorkClassExecutor.Limits(
+                                            4096, 250_000, 60_000_000_000L),
+                                    new TargetReservationExpiryWorkClassExecutor.Limits(2048, 100_000, 60_000_000_000L),
+                                    (a, b, c) -> guard(),
+                                    ignored -> {},
+                                    ignored -> {},
+                                    ignored -> {},
+                                    () -> 100));
+                    final var claimHost = TargetWorkerHostTestBridge.withoutMaintenanceTimer(
+                            workerClasses, resources, List.of(claimWorker, otherWorker));
+                    final var inventory = claimHost.rebuildTargetInventory(
+                            new TargetWorkerTargetInventory.Limits(2, 16, 4, 8, 4096, 32L << 20, 60_000_000_000L),
+                            () -> 100,
+                            System::nanoTime);
+                    assertEquals(TargetWorkerTargetInventory.Stop.COMPLETE, inventory.stop());
+                    assertEquals(
+                            java.util.Set.of(scope.shard(), otherShard),
+                            inventory.snapshot().cuts().keySet());
+                    assertEquals(
+                            List.of(scope.shard(), otherShard),
+                            inventory.snapshot().targets().stream()
+                                    .filter(target -> target.id().equals(physical.id()))
+                                    .findFirst()
+                                    .orElseThrow()
+                                    .sources()
+                                    .stream()
+                                    .map(TargetWorkerTargetInventory.Source::shard)
+                                    .toList());
+                    final long schedulingCost = headCost.schedulingCost();
+                    final var ordinary = claimHost.newOrdinaryDrr(
+                            inventory,
+                            new TargetWorkerOrdinaryDrr.Limits(
+                                    schedulingCost,
+                                    schedulingCost,
+                                    schedulingCost,
+                                    16,
+                                    4096,
+                                    32L << 20,
+                                    60_000_000_000L),
+                            () -> 100,
+                            System::nanoTime);
+                    final var claimBudget = new SchedulerBudget(1, schedulingCost, 60_000_000_000L);
+                    final TargetWorkerOrdinaryDrr.Requests claimRequests = (shard, selected) -> {
+                        assertEquals(claimWorker, shard);
+                        assertEquals(selectedHead, selected.head());
+                        return java.util.Optional.of(new TargetWorkerOrdinaryDrr.Request(
+                                actualOwner,
+                                message.deliverAtEpochMs() + 1000,
+                                bytes(32, 0x71),
+                                (kind, delta) -> {},
+                                (a, b, c) -> guard()));
+                    };
+                    assertEquals(
+                            TargetWorkerOrdinaryDrr.FreezeStop.READY,
+                            ordinary.freezeRecoveryFirstPass(message.deliverAtEpochMs(), claimBudget, claimRequests)
+                                    .stop());
+                    final long otherBeforeClaim = otherStore.latestSequenceNumber();
+                    claim = ordinary.claimOrdinary(message.deliverAtEpochMs(), claimBudget, claimRequests)
+                            .claims()
+                            .getFirst();
+                    assertEquals(otherBeforeClaim, otherStore.latestSequenceNumber());
+                    assertTrue(leases.release(otherActive));
+                }
                 final long afterClaim = store.latestSequenceNumber();
                 assertNotEquals(scanCut, claimWorker.readTargetQueueCut(budget(), () -> 100));
                 assertNotEquals(
