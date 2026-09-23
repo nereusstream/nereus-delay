@@ -168,6 +168,14 @@ public final class TargetWorkerShardRuntime
         return target.scanTargetQueues(budget, after, maximumTargets, ownerClock);
     }
 
+    /** Refreshes the exact physical Target's heads under current Worker admission. */
+    public synchronized Optional<TargetQueueSnapshotReader.Entry> readTargetQueue(
+            final BoundedReadBudget budget, final TargetPartitionId targetId, final LongSupplier ownerClock) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        return target.readTargetQueue(budget, targetId, ownerClock);
+    }
+
     /** Reads the frozen cost of one current head; Claim still rechecks Store and live authority. */
     public synchronized TargetHeadCostProbe.Cost probeSelectedHead(
             final BoundedReadBudget budget, final TargetHeadRef selected, final LongSupplier ownerClock) {

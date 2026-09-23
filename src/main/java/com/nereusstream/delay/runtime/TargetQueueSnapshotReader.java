@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /** Reads bounded, validated Target head summaries for one active source Shard. */
 public final class TargetQueueSnapshotReader {
@@ -58,6 +59,43 @@ public final class TargetQueueSnapshotReader {
             throw new IllegalArgumentException("invalid activated Target domain limit");
         }
         this.maximumDomains = maximumDomains;
+    }
+
+    /** Refreshes one exact Target after a Claim or source change without re-reading message bodies. */
+    public Optional<Entry> readTarget(
+            final BoundedReadBudget budget,
+            final TargetPartitionId target,
+            final TargetStoreBackend.ReadAuthority authority) {
+        Objects.requireNonNull(target, "target");
+        return backend.guardedRead(
+                Objects.requireNonNull(budget, "budget"),
+                reader -> {
+                    final byte[] queueKey = TargetKeyCodec.state(target);
+                    final byte[] queueRaw = reader.get(ColumnFamily.META, queueKey);
+                    final byte[] identityKey = TargetKeyCodec.identity(target);
+                    final byte[] identityRaw = reader.get(ColumnFamily.META, identityKey);
+                    if (queueRaw == null && identityRaw == null) {
+                        reader.requireWithinElapsedBudget();
+                        return Optional.empty();
+                    }
+                    if (queueRaw == null || identityRaw == null) {
+                        throw new IllegalStateException("Target queue and physical identity must coexist");
+                    }
+                    final var physical = CanonicalTargetPartition.decodeForStore(
+                            identityKey,
+                            TargetValueEnvelope.decode(identityRaw, CanonicalTargetPartition.VALUE_TYPE)
+                                    .payload());
+                    final var queue = TargetQueueState.decodeForStore(
+                            queueKey,
+                            TargetValueEnvelope.decode(queueRaw, TargetQueueState.VALUE_TYPE)
+                                    .payload(),
+                            physical,
+                            reader.shardId(),
+                            maximumDomains);
+                    reader.requireWithinElapsedBudget();
+                    return Optional.of(new Entry(queue, physical));
+                },
+                Objects.requireNonNull(authority, "authority"));
     }
 
     /** A page limit or read-budget yield is not an empty-prefix proof; resume after nextAfter. */

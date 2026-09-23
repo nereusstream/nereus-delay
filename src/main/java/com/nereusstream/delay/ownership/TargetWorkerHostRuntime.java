@@ -197,6 +197,15 @@ public final class TargetWorkerHostRuntime {
                 expectedShard, () -> expectedShard.scanTargetQueues(budget, after, maximumTargets, ownerClock));
     }
 
+    /** Refreshes one Target summary only through its currently admitted source Shard. */
+    public Optional<TargetQueueSnapshotReader.Entry> readTargetQueue(
+            final TargetWorkerShardRuntime expectedShard,
+            final BoundedReadBudget budget,
+            final TargetPartitionId targetId,
+            final LongSupplier ownerClock) {
+        return withShardAdmission(expectedShard, () -> expectedShard.readTargetQueue(budget, targetId, ownerClock));
+    }
+
     /** Lazily probes one head under exact host/Owner admission before fair byte-cost selection. */
     public TargetHeadCostProbe.Cost probeSelectedHead(
             final TargetWorkerShardRuntime expectedShard,

@@ -3,6 +3,7 @@ package com.nereusstream.delay.runtime;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -882,6 +883,21 @@ class TargetCommandStoreTest {
                 assertTrue(scanComplete);
                 assertTrue(scannedTargets.contains(binding.target()));
                 assertEquals(beforeScan, store.latestSequenceNumber());
+                assertThrows(
+                        com.nereusstream.delay.store.ReadIncompleteException.class,
+                        () -> claimWorker.readTargetQueue(
+                                new BoundedReadBudget(1, 32L << 20, 60_000_000_000L, System::nanoTime),
+                                binding.target(),
+                                () -> 100));
+                assertEquals(
+                        actualQueue,
+                        claimWorker
+                                .readTargetQueue(budget(), binding.target(), () -> 100)
+                                .orElseThrow()
+                                .queue());
+                assertTrue(claimWorker
+                        .readTargetQueue(budget(), new TargetPartitionId(bytes(32, 0x7e)), () -> 100)
+                        .isEmpty());
                 final var selectedHead = actualQueue.domains().getFirst().ordinaryHead();
                 assertThrows(
                         com.nereusstream.delay.store.ReadIncompleteException.class,
@@ -965,6 +981,13 @@ class TargetCommandStoreTest {
                         (a, b, c) -> guard(),
                         () -> 100);
                 final long afterClaim = store.latestSequenceNumber();
+                final var refreshed = claimWorker
+                        .readTargetQueue(budget(), binding.target(), () -> 100)
+                        .orElseThrow()
+                        .queue();
+                assertNotEquals(actualQueue.headRevision(), refreshed.headRevision());
+                assertNotEquals(selectedHead, refreshed.domains().getFirst().ordinaryHead());
+                assertEquals(afterClaim, store.latestSequenceNumber());
                 assertThrows(
                         IllegalStateException.class,
                         () -> claimWorker.probeSelectedHead(budget(), selectedHead, () -> 100));
@@ -3466,6 +3489,7 @@ class TargetCommandStoreTest {
             assertThrows(
                     IllegalStateException.class,
                     () -> reopenedWorker.scanTargetQueues(budget(), null, 1, () -> 101));
+            assertThrows(IllegalStateException.class, () -> reopenedWorker.readTargetQueue(budget(), null, () -> 101));
             assertThrows(
                     IllegalStateException.class, () -> reopenedWorker.probeSelectedHead(budget(), null, () -> 101));
             assertThrows(

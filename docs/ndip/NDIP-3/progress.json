@@ -243,7 +243,7 @@
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
       "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
-      "progress": "Design §10.5 now fixes the baseline physical Target weight, lazy frozen-byte cost, source-Shard rotation, bounded recovery first pass, ordinary-before-early rule, process-only fairness state and conditional visit bound. A real Owner-guarded Worker probe now derives one selected head's execution bytes and DRR cost from its frozen Message, binding and incarnation artifact. Actual Target DRR/Claim/Producer selection, page-coherence and E1/E4/E5/E6 integration remain unimplemented or unverified."
+      "progress": "Design §10.5 now fixes the baseline physical Target weight, lazy frozen-byte cost, source-Shard rotation, bounded recovery first pass, ordinary-before-early rule, process-only fairness state and conditional visit bound. A real Owner-guarded Worker probe now derives one selected head's execution bytes and DRR cost from its frozen Message, binding and incarnation artifact. The Worker can also refresh an exact Target's head summary after Claim through a bounded, Owner-guarded point read without loading message bodies; real Store coverage checks pre/post-Claim revision, budget yield and zero refresh writes. Actual Target DRR/Claim/Producer selection, page-coherence and E1/E4/E5/E6 integration remain unimplemented or unverified."
     },
     {
       "id": "B6",

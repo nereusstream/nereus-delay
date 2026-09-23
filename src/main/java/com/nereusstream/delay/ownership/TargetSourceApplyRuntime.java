@@ -54,6 +54,7 @@ import com.nereusstream.delay.store.TargetStoreBackend;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.LongSupplier;
 
 /** Active Target source execution over the existing bounded poll/apply/ACK loop. */
@@ -444,6 +445,13 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         requireGcOwner(clock);
         return new TargetQueueSnapshotReader(backend, limits.domains())
                 .scan(budget, after, maximumTargets, workerReads(clock));
+    }
+
+    synchronized Optional<TargetQueueSnapshotReader.Entry> readTargetQueue(
+            final BoundedReadBudget budget, final TargetPartitionId target, final LongSupplier ownerClock) {
+        final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
+        requireGcOwner(clock);
+        return new TargetQueueSnapshotReader(backend, limits.domains()).readTarget(budget, target, workerReads(clock));
     }
 
     /** Validates one current head and its frozen byte cost only when the Worker selects it. */
