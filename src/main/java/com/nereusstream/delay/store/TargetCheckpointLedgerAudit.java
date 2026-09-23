@@ -2,6 +2,10 @@ package com.nereusstream.delay.store;
 
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CapacityVector;
+import com.nereusstream.delay.protocol.RecoveryCandidateKind;
+import com.nereusstream.delay.protocol.RecoveryCandidateRef;
+import com.nereusstream.delay.protocol.RecoveryFloorRef;
+import com.nereusstream.delay.protocol.RecoveryInstallState;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutationType;
@@ -85,6 +89,7 @@ final class TargetCheckpointLedgerAudit {
         final List<TargetResultLedgerAudit.Stored> resultRows = new ArrayList<>();
         final List<TargetQuotaGrantActivation> grantActivations = new ArrayList<>();
         final List<TargetQuotaCounter> counters = new ArrayList<>();
+        final var recovery = new RecoveryMetadata();
         final var rootCharge =
                 TargetRecordAccounting.resources(proof.bookkeeping().charge());
         merge(rebuilt, proof.root().identity(), rootCharge);
@@ -96,7 +101,7 @@ final class TargetCheckpointLedgerAudit {
                     final byte[] key = iterator.key();
                     final byte[] raw = iterator.value();
                     budget.scan(key.length, raw.length);
-                    if (!skipInfrastructure(family, key, raw, proof, counters, rebuilt)) {
+                    if (!skipInfrastructure(family, key, raw, proof, counters, rebuilt, recovery)) {
                         final int type = TargetStoreBackend.businessType(family, key);
                         final byte[] payload =
                                 TargetValueEnvelope.decode(raw, type).payload();
@@ -130,6 +135,7 @@ final class TargetCheckpointLedgerAudit {
                 throw new IllegalArgumentException("cannot scan Target checkpoint business ledger", failure);
             }
         }
+        recovery.verify(proof);
         final long resultBytes = limits.maxKeyValueBytes() > Long.MAX_VALUE - limits.maxPointReadBytes()
                 ? Long.MAX_VALUE
                 : limits.maxKeyValueBytes() + limits.maxPointReadBytes();
@@ -201,7 +207,8 @@ final class TargetCheckpointLedgerAudit {
             final byte[] raw,
             final TargetCheckpointRootVerifier.RootProof proof,
             final List<TargetQuotaCounter> counters,
-            final Map<TargetQuotaIdentity, TargetQuotaUsage> rebuilt) {
+            final Map<TargetQuotaIdentity, TargetQuotaUsage> rebuilt,
+            final RecoveryMetadata recovery) {
         if (family != ColumnFamily.META || key.length < 2 || key[1] != TargetKeyCodec.KEY_FORMAT) {
             return false;
         }
@@ -240,7 +247,7 @@ final class TargetCheckpointLedgerAudit {
             if (key.length != 3 || Byte.toUnsignedInt(key[2]) == 0 || Byte.toUnsignedInt(key[2]) > 4) {
                 throw new IllegalArgumentException("unknown Target checkpoint recovery metadata key");
             }
-            TargetValueEnvelope.decode(raw, 1);
+            recovery.accept(Byte.toUnsignedInt(key[2]), TargetValueEnvelope.decode(raw, 1).payload());
             return true;
         }
         if (tag == TargetKeyCodec.QUOTA_COUNTER_TAG) {
@@ -276,6 +283,57 @@ final class TargetCheckpointLedgerAudit {
             return true;
         }
         return false;
+    }
+
+    /** Decode the entire local recovery projection before accepting a copied image as a candidate. */
+    private static final class RecoveryMetadata {
+        private RecoveryCandidateRef lineageBase;
+        private RecoveryFloorRef floor;
+        private long catalogGeneration;
+        private RecoveryInstallState installState;
+
+        void accept(final int kind, final byte[] payload) {
+            switch (kind) {
+                case 1 -> lineageBase = RecoveryCandidateRef.decode(payload);
+                case 2 -> floor = RecoveryFloorRef.decode(payload);
+                case 3 -> {
+                    Bytes.requireLength(payload, Long.BYTES, "Target recovery catalog generation");
+                    catalogGeneration = Bytes.readU64be(payload, 0);
+                    if (catalogGeneration == 0) {
+                        throw new IllegalArgumentException("Target recovery catalog generation must be nonzero");
+                    }
+                }
+                case 4 -> installState = RecoveryInstallState.decode(payload);
+                default -> throw new IllegalArgumentException("unknown Target checkpoint recovery metadata key");
+            }
+        }
+
+        void verify(final TargetCheckpointRootVerifier.RootProof proof) {
+            final var metadata = proof.metadata();
+            final byte[] lineage = proof.root().recoveryLineage();
+            if (lineageBase != null) {
+                requireFixedBytes(lineageBase.recoveryLineageId(), lineage, "recovery lineage");
+                if (lineageBase.kind() == RecoveryCandidateKind.LOCAL_STORE) {
+                    requireFixedBytes(
+                            lineageBase.storeIncarnation(), metadata.storeIncarnation(), "local recovery incarnation");
+                }
+            }
+            if (floor != null) {
+                if (!metadata.shardId().equals(floor.appliedSourcePosition().shardId())) {
+                    throw new IllegalArgumentException("Target recovery Floor belongs to another Shard");
+                }
+                requireFixedBytes(floor.recoveryLineageId(), lineage, "recovery Floor lineage");
+            }
+            if (installState != null) {
+                requireFixedBytes(
+                        installState.storeIncarnation(), metadata.storeIncarnation(), "recovery install incarnation");
+                if (!Arrays.equals(
+                        installState.checkpointId(), lineageBase == null ? null : lineageBase.checkpointId())) {
+                    throw new IllegalArgumentException("Target recovery install checkpoint differs from lineage base");
+                }
+            }
+            new StoreRecoveryMetadata(lineageBase, floor, catalogGeneration, installState);
+        }
     }
 
     private static void requireFixedBytes(final byte[] actual, final byte[] expected, final String description) {

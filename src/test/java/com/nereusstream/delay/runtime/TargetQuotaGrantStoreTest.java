@@ -43,6 +43,8 @@ import com.nereusstream.delay.protocol.ProfileRef;
 import com.nereusstream.delay.protocol.ProtocolTuple;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
 import com.nereusstream.delay.protocol.QuotaGrantRef;
+import com.nereusstream.delay.protocol.RecoveryCandidateKind;
+import com.nereusstream.delay.protocol.RecoveryCandidateRef;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.SourcePosition;
@@ -1241,6 +1243,36 @@ class TargetQuotaGrantStoreTest {
             restored.write(batch -> batch.put(ColumnFamily.META, mirrorKey, originalMirror));
         }
         TargetCheckpointRootVerifier.auditQuotaProjections(physicalDb, scope.shard(), imageLimits, quotaAuditLimits);
+        try (var resources = new SharedRocksDbResources(config);
+                var corrupt = ShardStore.openTarget(config, scope.shard(), resources)) {
+            corrupt.recordRecoveryMetadata(
+                    new RecoveryCandidateRef(
+                            RecoveryCandidateKind.LOCAL_STORE,
+                            bytes(16, 0x71),
+                            bytes(16, 0x72),
+                            bytes(32, 0x73),
+                            corrupt.metadata().storeIncarnation()),
+                    null);
+        }
+        assertTrue(assertThrows(
+                        IllegalArgumentException.class,
+                        () -> TargetCheckpointRootVerifier.auditIndependentLedger(
+                                physicalDb, scope.shard(), imageLimits, quotaAuditLimits, ledgerAuditLimits))
+                .getMessage()
+                .contains("recovery lineage"));
+        try (var resources = new SharedRocksDbResources(config);
+                var restored = ShardStore.openTarget(config, scope.shard(), resources)) {
+            restored.recordRecoveryMetadata(
+                    new RecoveryCandidateRef(
+                            RecoveryCandidateKind.LOCAL_STORE,
+                            lineage,
+                            checkpointId,
+                            bytes(32, 0x73),
+                            restored.metadata().storeIncarnation()),
+                    null);
+        }
+        TargetCheckpointRootVerifier.auditIndependentLedger(
+                physicalDb, scope.shard(), imageLimits, quotaAuditLimits, ledgerAuditLimits);
         try (var resources = new SharedRocksDbResources(config);
                 var corrupt = ShardStore.openTarget(config, scope.shard(), resources)) {
             corrupt.write(batch -> batch.delete(ColumnFamily.META, mirrorKey));
