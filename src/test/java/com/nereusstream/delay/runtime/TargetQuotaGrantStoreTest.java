@@ -11,6 +11,7 @@ import com.nereusstream.delay.ownership.InMemoryControlTargetRegistrationAuthori
 import com.nereusstream.delay.ownership.InMemoryOwnerLeaseStore;
 import com.nereusstream.delay.ownership.OwnerLease;
 import com.nereusstream.delay.ownership.OxiaOwnerLeaseStore;
+import com.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend;
 import com.nereusstream.delay.ownership.ShardLifecycleState;
 import com.nereusstream.delay.ownership.SourceAcknowledgement;
 import com.nereusstream.delay.ownership.SourceApplyCoordinator;
@@ -88,11 +89,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Properties;
 import java.util.UUID;
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -100,6 +104,117 @@ import org.junit.jupiter.api.io.TempDir;
 class TargetQuotaGrantStoreTest {
     @TempDir
     Path root;
+
+    @Test
+    @Tag("real-service")
+    void realOxiaOwnerTakeoverReopensTargetRootAndRejectsOldOwnerRead() throws Exception {
+        final String endpoint = System.getenv("NEREUS_DELAY_OXIA_ENDPOINT");
+        Assumptions.assumeTrue(endpoint != null && !endpoint.isBlank(), "NEREUS_DELAY_OXIA_ENDPOINT is not configured");
+        final String configuredNamespace = System.getenv("NEREUS_DELAY_OXIA_NAMESPACE");
+        final String namespace = configuredNamespace == null || configuredNamespace.isBlank()
+                ? "default"
+                : configuredNamespace;
+        final String prefix = "nereus-delay-real-target-root/" + UUID.randomUUID();
+        final var template = TargetQuotaGrantActivation.decode(raw("target.initial.activation"));
+        final var source = (KafkaSourcePosition) template.mutation().source();
+        final var firstPosition = source(source, source.offset() - 1, source.brokerLogAppendTimeEpochMs() - 1);
+        final var scope = template.request().next().scope().shardScope();
+        final var original = template.request().next();
+        final long[] amounts = original.limit().resources().amounts();
+        Arrays.fill(amounts, 0, 15, 1L << 30);
+        Arrays.fill(amounts, 50, 55, 1L << 30);
+        final var firstGrant = new TargetQuotaGrantControlRequest(
+                new TargetQuotaGrant(
+                        scope,
+                        bytes(32, 0x71),
+                        1,
+                        original.accounting(),
+                        new TargetQuotaUsage(new CapacityVector(amounts), 64, 64, 64, 64),
+                        original.tenantPolicyVersion(),
+                        original.tenantPolicyHash()),
+                null,
+                null);
+        final var keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final var actor = new ControlAuthorizationContext(
+                bytes(32, 0xa1), ControlRoleSet.of(ControlRole.PLATFORM_OPERATOR), bytes(32, 0xa2));
+        final var signed = signed(firstGrant, bytes(32, 0x70), actor, keys);
+        final var registrations = new InMemoryControlTargetRegistrationAuthority();
+        registrations.register(signed.control());
+        final var grantAuthority = authority(
+                registrations, keys, actor, firstPosition, firstGrant, (a, b, c, d) -> {});
+        final var barrier = new KafkaActivationBarrier(
+                scope.shard(), firstPosition.authenticatedClusterId(), firstPosition.nativeTopicUuid(),
+                firstPosition.offset() + 1);
+        final var firstAssignment = new SourceAssignment(
+                scope.shard(), Bytes.sha256(Bytes.utf8("first-real-target-root-owner")), 1, barrier);
+        final var secondAssignment = new SourceAssignment(
+                scope.shard(), Bytes.sha256(Bytes.utf8("second-real-target-root-owner")), 2, barrier);
+        final var config = ShardStoreConfig.defaults(root);
+        final var limits = new TargetStoreBackend.WriteLimits(64, 2 << 20);
+        final byte[] lineage = bytes(16, 0xcc);
+        final OwnerLease oldActive;
+        final byte[] originalRoot;
+
+        try (var first = OxiaSyncOwnerLeaseBackend.connect(
+                endpoint, namespace, "target-root-owner-a-" + UUID.randomUUID(), Duration.ofSeconds(15), prefix)) {
+            final var leases = new OxiaOwnerLeaseStore(first.backend());
+            final long now = System.currentTimeMillis();
+            oldActive = leases.transition(
+                            leases.acquire(firstAssignment, "target-root-a", first.sessionIdentity(), now, 60_000)
+                                    .orElseThrow(),
+                            ShardLifecycleState.ACTIVE_FOR_COMMANDS)
+                    .orElseThrow();
+            try (var resources = new SharedRocksDbResources(config);
+                    var store = ShardStore.openTarget(config, scope.shard(), resources)) {
+                final var initialized = TargetStoreBootstrap.commit(
+                        TargetStoreBootstrap.prepare(
+                                store, scope, lineage, limits, budget(), signed.control(), signed.mutation(),
+                                firstPosition, grantAuthority, (a, b, c) -> {}),
+                        (a, b, c) -> ownerGuard(leases, oldActive));
+                assertEquals(1, store.shardMutationSequence());
+                assertArrayEquals(lineage, initialized.root().recoveryLineage());
+                originalRoot = initialized.root().canonicalBytes();
+                store.recordOpenedOwnerEpoch(oldActive.ownerEpoch());
+            }
+        }
+
+        try (var second = OxiaSyncOwnerLeaseBackend.connect(
+                endpoint, namespace, "target-root-owner-b-" + UUID.randomUUID(), Duration.ofSeconds(15), prefix);
+                var resources = new SharedRocksDbResources(config);
+                var reopened = ShardStore.openTarget(config, scope.shard(), resources)) {
+            final var leases = new OxiaOwnerLeaseStore(second.backend());
+            assertTrue(leases.current(scope.shard()).isEmpty());
+            assertEquals(oldActive.ownerEpoch(), reopened.runtimeMetadata().lastOpenedOwnerEpoch());
+            final long now = System.currentTimeMillis();
+            final var replacement = leases.transition(
+                            leases.acquire(secondAssignment, "target-root-b", second.sessionIdentity(), now, 60_000)
+                                    .orElseThrow(),
+                            ShardLifecycleState.ACTIVE_FOR_COMMANDS)
+                    .orElseThrow();
+            assertTrue(Long.compareUnsigned(replacement.ownerEpoch(), oldActive.ownerEpoch()) > 0);
+            final long beforeRejectedRead = reopened.latestSequenceNumber();
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> TargetStoreBootstrap.reopen(
+                            reopened, scope, limits, budget(),
+                            (metadata, actualScope) -> ownerGuard(leases, oldActive)));
+            assertEquals(beforeRejectedRead, reopened.latestSequenceNumber());
+            reopened.recordOpenedOwnerEpoch(replacement.ownerEpoch());
+            final var recovered = TargetStoreBootstrap.reopen(
+                    reopened, scope, limits, budget(), (metadata, actualScope) -> {
+                        if (!scope.equals(actualScope)
+                                || reopened.runtimeMetadata().lastOpenedOwnerEpoch() != replacement.ownerEpoch()) {
+                            throw new IllegalStateException("Target reopen has another scope or Owner epoch");
+                        }
+                        return ownerGuard(leases, replacement);
+                    });
+            assertArrayEquals(lineage, recovered.root().recoveryLineage());
+            assertArrayEquals(originalRoot, recovered.root().canonicalBytes());
+            assertArrayEquals(firstPosition.canonicalBytes(), reopened.appliedShardLogPosition().canonicalBytes());
+            assertEquals(1, reopened.shardMutationSequence());
+            assertTrue(leases.release(replacement));
+        }
+    }
 
     @Test
     void signedFirstGrantCommitsAllocationResultAndPositionWhileExternalFailureMakesNoWrite() throws Exception {
@@ -1551,6 +1666,24 @@ class TargetQuotaGrantStoreTest {
         return new TargetStoreBackend.CommitGuard() {
             @Override
             public void requireCurrent() {}
+
+            @Override
+            public void close() {}
+        };
+    }
+
+    private static TargetStoreBackend.CommitGuard ownerGuard(
+            final OxiaOwnerLeaseStore leases, final OwnerLease expected) {
+        return new TargetStoreBackend.CommitGuard() {
+            @Override
+            public void requireCurrent() {
+                final OwnerLease current = leases.current(expected.shardId()).orElseThrow();
+                if (!expected.sameIdentity(current)
+                        || current.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS
+                        || !current.validAt(System.currentTimeMillis())) {
+                    throw new IllegalStateException("Target Owner lease changed before Store access");
+                }
+            }
 
             @Override
             public void close() {}
