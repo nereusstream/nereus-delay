@@ -27,6 +27,7 @@ import com.nereusstream.delay.runtime.TargetCloseStore;
 import com.nereusstream.delay.runtime.TargetCloseVerifier;
 import com.nereusstream.delay.runtime.TargetCommandReplayStore;
 import com.nereusstream.delay.runtime.TargetCommandStore;
+import com.nereusstream.delay.runtime.TargetHeadCostProbe;
 import com.nereusstream.delay.runtime.TargetMembershipControlStore;
 import com.nereusstream.delay.runtime.TargetMembershipControlVerifier;
 import com.nereusstream.delay.runtime.TargetQueueSnapshotReader;
@@ -442,10 +443,22 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
         requireGcOwner(clock);
         return new TargetQueueSnapshotReader(backend, limits.domains())
-                .scan(budget, after, maximumTargets, (actual, actualScope) -> {
-                    requireGcOwner(clock);
-                    return gcGuard(authorities.reads().acquire(actual, actualScope), actual, actualScope, clock);
-                });
+                .scan(budget, after, maximumTargets, workerReads(clock));
+    }
+
+    /** Validates one current head and its frozen byte cost only when the Worker selects it. */
+    synchronized TargetHeadCostProbe.Cost probeSelectedHead(
+            final BoundedReadBudget budget, final TargetHeadRef selected, final LongSupplier ownerClock) {
+        final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
+        requireGcOwner(clock);
+        return new TargetHeadCostProbe(backend, scope, limits.domains()).probe(budget, selected, workerReads(clock));
+    }
+
+    private TargetStoreBackend.ReadAuthority workerReads(final LongSupplier clock) {
+        return (actual, actualScope) -> {
+            requireGcOwner(clock);
+            return gcGuard(authorities.reads().acquire(actual, actualScope), actual, actualScope, clock);
+        };
     }
 
     /** Queues an unpublished candidate on this Owner's exact source/Store WorkClass graph. */

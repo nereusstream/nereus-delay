@@ -6,6 +6,7 @@ import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.TargetHeadRef;
 import com.nereusstream.delay.protocol.TargetPartitionId;
 import com.nereusstream.delay.runtime.TargetClaimRecord;
+import com.nereusstream.delay.runtime.TargetHeadCostProbe;
 import com.nereusstream.delay.runtime.TargetQueueSnapshotReader;
 import com.nereusstream.delay.runtime.TargetQuotaDelta;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
@@ -194,6 +195,15 @@ public final class TargetWorkerHostRuntime {
             final LongSupplier ownerClock) {
         return withShardAdmission(
                 expectedShard, () -> expectedShard.scanTargetQueues(budget, after, maximumTargets, ownerClock));
+    }
+
+    /** Lazily probes one head under exact host/Owner admission before fair byte-cost selection. */
+    public TargetHeadCostProbe.Cost probeSelectedHead(
+            final TargetWorkerShardRuntime expectedShard,
+            final BoundedReadBudget budget,
+            final TargetHeadRef selected,
+            final LongSupplier ownerClock) {
+        return withShardAdmission(expectedShard, () -> expectedShard.probeSelectedHead(budget, selected, ownerClock));
     }
 
     /** Test seam for the host lifecycle reservation without constructing a physical Target Store. */

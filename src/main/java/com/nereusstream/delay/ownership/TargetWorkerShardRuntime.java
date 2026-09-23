@@ -6,6 +6,7 @@ import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.TargetHeadRef;
 import com.nereusstream.delay.protocol.TargetPartitionId;
 import com.nereusstream.delay.runtime.TargetClaimRecord;
+import com.nereusstream.delay.runtime.TargetHeadCostProbe;
 import com.nereusstream.delay.runtime.TargetQueueSnapshotReader;
 import com.nereusstream.delay.runtime.TargetQuotaDelta;
 import com.nereusstream.delay.runtime.TargetReservationControls;
@@ -165,6 +166,14 @@ public final class TargetWorkerShardRuntime
         requireNewTurnsAdmitted();
         resources.requireRuntimeBusinessAdmission();
         return target.scanTargetQueues(budget, after, maximumTargets, ownerClock);
+    }
+
+    /** Reads the frozen cost of one current head; Claim still rechecks Store and live authority. */
+    public synchronized TargetHeadCostProbe.Cost probeSelectedHead(
+            final BoundedReadBudget budget, final TargetHeadRef selected, final LongSupplier ownerClock) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        return target.probeSelectedHead(budget, selected, ownerClock);
     }
 
     /** Admits only an ACK-settled active Shard to the bound, unpublished CHECKPOINT work class. */

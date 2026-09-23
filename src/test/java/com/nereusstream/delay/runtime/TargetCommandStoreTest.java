@@ -882,6 +882,29 @@ class TargetCommandStoreTest {
                 assertTrue(scanComplete);
                 assertTrue(scannedTargets.contains(binding.target()));
                 assertEquals(beforeScan, store.latestSequenceNumber());
+                final var selectedHead = actualQueue.domains().getFirst().ordinaryHead();
+                assertThrows(
+                        com.nereusstream.delay.store.ReadIncompleteException.class,
+                        () -> claimWorker.probeSelectedHead(
+                                new BoundedReadBudget(1, 32L << 20, 60_000_000_000L, System::nanoTime),
+                                selectedHead,
+                                () -> 100));
+                final var headCost = claimWorker.probeSelectedHead(budget(), selectedHead, () -> 100);
+                assertEquals(selectedHead, headCost.head());
+                assertEquals(actualQueue, headCost.queue());
+                assertEquals(claimExecutionBytes, headCost.executionBytes());
+                assertEquals(
+                        originalGrant
+                                .accounting()
+                                .schedulingCost(
+                                        intent.adapterMetadata().kind()
+                                                        == com.nereusstream.delay.protocol.AdapterMetadata.Kind.KAFKA
+                                                ? AdapterKind.KAFKA
+                                                : AdapterKind.PULSAR,
+                                        message.payloadLength(),
+                                        intent.adapterMetadata().canonicalBytes().length),
+                        headCost.schedulingCost());
+                assertEquals(beforeScan, store.latestSequenceNumber());
                 final long beforeClaim = store.latestSequenceNumber();
                 assertThrows(
                         IllegalStateException.class,
@@ -941,6 +964,11 @@ class TargetCommandStoreTest {
                         (kind, delta) -> {},
                         (a, b, c) -> guard(),
                         () -> 100);
+                final long afterClaim = store.latestSequenceNumber();
+                assertThrows(
+                        IllegalStateException.class,
+                        () -> claimWorker.probeSelectedHead(budget(), selectedHead, () -> 100));
+                assertEquals(afterClaim, store.latestSequenceNumber());
                 claimWorker.closeSource();
             }
             final var before = TargetMessageRecord.decode(TargetValueEnvelope.decode(
@@ -3438,6 +3466,8 @@ class TargetCommandStoreTest {
             assertThrows(
                     IllegalStateException.class,
                     () -> reopenedWorker.scanTargetQueues(budget(), null, 1, () -> 101));
+            assertThrows(
+                    IllegalStateException.class, () -> reopenedWorker.probeSelectedHead(budget(), null, () -> 101));
             assertThrows(
                     IllegalStateException.class,
                     () -> reopenedWorker.claim(

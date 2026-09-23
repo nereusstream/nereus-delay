@@ -240,9 +240,10 @@
       "title": "公平性唤醒和后续语义",
       "status": "PLANNED",
       "evidence": [],
-      "implementationStatus": "NOT_STARTED",
+      "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
-      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
+      "progress": "Design §10.5 now fixes the baseline physical Target weight, lazy frozen-byte cost, source-Shard rotation, bounded recovery first pass, ordinary-before-early rule, process-only fairness state and conditional visit bound. A real Owner-guarded Worker probe now derives one selected head's execution bytes and DRR cost from its frozen Message, binding and incarnation artifact. Actual Target DRR/Claim/Producer selection, page-coherence and E1/E4/E5/E6 integration remain unimplemented or unverified."
     },
     {
       "id": "B6",
@@ -343,6 +344,7 @@
         "src/main/java/com/nereusstream/delay/ownership/TargetWorkerShardFleetRuntime.java",
         "src/main/java/com/nereusstream/delay/ownership/TargetWorkerMaintenanceLoop.java",
         "src/main/java/com/nereusstream/delay/ownership/TargetWorkerHostRuntime.java",
+        "src/main/java/com/nereusstream/delay/runtime/TargetHeadCostProbe.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetQueueSnapshotReader.java",
         "src/main/java/com/nereusstream/delay/ownership/SourceApplyTarget.java",
         "src/main/java/com/nereusstream/delay/ownership/SourceApplyCoordinator.java",
