@@ -26,8 +26,11 @@ import com.nereusstream.delay.ownership.TargetReservationExpiryWorkClassExecutor
 import com.nereusstream.delay.ownership.TargetReservationGcRuntime;
 import com.nereusstream.delay.ownership.TargetReservationQueryWorkClassExecutor;
 import com.nereusstream.delay.ownership.TargetSourceApplyRuntime;
+import com.nereusstream.delay.ownership.TargetWorkerHostTestBridge;
+import com.nereusstream.delay.ownership.TargetWorkerOrdinaryDrr;
 import com.nereusstream.delay.ownership.TargetWorkerShardFleetRuntime;
 import com.nereusstream.delay.ownership.TargetWorkerShardRuntime;
+import com.nereusstream.delay.ownership.TargetWorkerTargetInventory;
 import com.nereusstream.delay.ownership.WorkerSourceApplyLoop;
 import com.nereusstream.delay.protocol.AcknowledgementSet;
 import com.nereusstream.delay.protocol.AdapterKind;
@@ -977,17 +980,38 @@ class TargetCommandStoreTest {
                                 },
                                 () -> 100));
                 assertEquals(beforeClaim, store.latestSequenceNumber());
-                claim = claimWorker.claim(
-                        budget(),
-                        actualQueue.domains().getFirst().ordinaryHead(),
-                        actualOwner,
-                        message.deliverAtEpochMs(),
-                        message.deliverAtEpochMs() + 1000,
-                        claimExecutionBytes,
-                        bytes(32, 0x71),
-                        (kind, delta) -> {},
-                        (a, b, c) -> guard(),
-                        () -> 100);
+                final var claimHost = TargetWorkerHostTestBridge.withoutMaintenanceTimer(
+                        workerClasses, resources, List.of(claimWorker));
+                final var inventory = claimHost.rebuildTargetInventory(
+                        new TargetWorkerTargetInventory.Limits(1, 16, 4, 8, 4096, 32L << 20, 60_000_000_000L),
+                        () -> 100,
+                        System::nanoTime);
+                assertEquals(TargetWorkerTargetInventory.Stop.COMPLETE, inventory.stop());
+                final long schedulingCost = headCost.schedulingCost();
+                final var ordinary = claimHost.newOrdinaryDrr(
+                        inventory,
+                        new TargetWorkerOrdinaryDrr.Limits(
+                                schedulingCost, schedulingCost, schedulingCost, 16, 4096, 32L << 20, 60_000_000_000L),
+                        () -> 100,
+                        System::nanoTime);
+                final var claimBudget = new SchedulerBudget(1, schedulingCost, 60_000_000_000L);
+                final TargetWorkerOrdinaryDrr.Requests claimRequests = (shard, selected) -> {
+                    assertEquals(claimWorker, shard);
+                    assertEquals(selectedHead, selected.head());
+                    return java.util.Optional.of(new TargetWorkerOrdinaryDrr.Request(
+                            actualOwner,
+                            message.deliverAtEpochMs() + 1000,
+                            bytes(32, 0x71),
+                            (kind, delta) -> {},
+                            (a, b, c) -> guard()));
+                };
+                assertEquals(
+                        TargetWorkerOrdinaryDrr.FreezeStop.READY,
+                        ordinary.freezeRecoveryFirstPass(message.deliverAtEpochMs(), claimBudget, claimRequests)
+                                .stop());
+                claim = ordinary.claimOrdinary(message.deliverAtEpochMs(), claimBudget, claimRequests)
+                        .claims()
+                        .getFirst();
                 final long afterClaim = store.latestSequenceNumber();
                 assertNotEquals(scanCut, claimWorker.readTargetQueueCut(budget(), () -> 100));
                 assertNotEquals(
