@@ -26,6 +26,7 @@ import com.nereusstream.delay.ownership.TargetSourceApplyRuntime;
 import com.nereusstream.delay.ownership.TargetWorkerShardRuntime;
 import com.nereusstream.delay.ownership.WorkerSourceApplyLoop;
 import com.nereusstream.delay.protocol.AcknowledgementSet;
+import com.nereusstream.delay.protocol.AdapterKind;
 import com.nereusstream.delay.protocol.AuthorIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalTargetPartition;
@@ -45,6 +46,10 @@ import com.nereusstream.delay.protocol.ControlRole;
 import com.nereusstream.delay.protocol.ControlRoleSet;
 import com.nereusstream.delay.protocol.ControlTargetKind;
 import com.nereusstream.delay.protocol.ControlTargetRef;
+import com.nereusstream.delay.protocol.CredentialBinding;
+import com.nereusstream.delay.protocol.CredentialBindingHead;
+import com.nereusstream.delay.protocol.CredentialBindingProtection;
+import com.nereusstream.delay.protocol.DestinationProfileSemantic;
 import com.nereusstream.delay.protocol.EvidenceCursor;
 import com.nereusstream.delay.protocol.KafkaActivationBarrier;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
@@ -52,6 +57,7 @@ import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.PreparedControlOperation;
 import com.nereusstream.delay.protocol.ProfileKind;
 import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
 import com.nereusstream.delay.protocol.ProtocolTuple;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
 import com.nereusstream.delay.protocol.QuotaGrantRef;
@@ -65,6 +71,14 @@ import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
 import com.nereusstream.delay.protocol.TargetCloseBody;
 import com.nereusstream.delay.protocol.TargetCloseRequest;
+import com.nereusstream.delay.protocol.TargetControlScope;
+import com.nereusstream.delay.protocol.TargetDispatchCompatibility;
+import com.nereusstream.delay.protocol.TargetMembershipControlBody;
+import com.nereusstream.delay.protocol.TargetMembershipControlRequest;
+import com.nereusstream.delay.protocol.TargetMembershipGrant;
+import com.nereusstream.delay.protocol.TargetMembershipPolicy;
+import com.nereusstream.delay.protocol.TargetPartitionHashInput;
+import com.nereusstream.delay.protocol.TargetPartitionPolicy;
 import com.nereusstream.delay.protocol.TargetQueueState;
 import com.nereusstream.delay.protocol.TargetQuotaAccounting;
 import com.nereusstream.delay.protocol.TargetQuotaAggregate;
@@ -271,6 +285,7 @@ class TargetQuotaGrantStoreTest {
                                 entry -> { throw new AssertionError("GC cannot resolve a grant"); },
                                 entry -> { throw new AssertionError("GC cannot resolve a fence"); },
                                 entry -> { throw new AssertionError("GC cannot resolve a Close"); },
+                                entry -> { throw new AssertionError("GC cannot resolve membership issuance"); },
                                 (a, b, c) -> ownerGuard(leases, oldActive),
                                 (a, b) -> ownerGuard(leases, oldActive),
                                 entry -> { throw new AssertionError("GC cannot resolve a command"); }),
@@ -356,6 +371,7 @@ class TargetQuotaGrantStoreTest {
                             entry -> { throw new AssertionError("GC cannot resolve a grant"); },
                             entry -> { throw new AssertionError("GC cannot resolve a fence"); },
                             entry -> { throw new AssertionError("GC cannot resolve a Close"); },
+                            entry -> { throw new AssertionError("GC cannot resolve membership issuance"); },
                             (a, b, c) -> ownerGuard(leases, replacement), ownerReads,
                             entry -> { throw new AssertionError("GC cannot resolve a command"); }),
                     new TargetSourceApplyRuntime.Limits(4096, 32L << 20, 60_000_000_000L, 16, 1),
@@ -610,6 +626,9 @@ class TargetQuotaGrantStoreTest {
                             },
                             entry -> {
                                 throw new AssertionError("unexpected first Target Close authority");
+                            },
+                            entry -> {
+                                throw new AssertionError("unexpected membership issue authority");
                             },
                             (a, b, c) -> guard(),
                             (a, b) -> guard(),
@@ -1603,6 +1622,220 @@ class TargetQuotaGrantStoreTest {
                 () -> TargetCheckpointRootVerifier.validate(physicalDb, scope.shard(), imageLimits));
     }
 
+    @Test
+    void membershipIssueAtomicallySeedsIdentityPolicyGrantAndResultAfterTargetAllocation() throws Exception {
+        final var template = TargetQuotaGrantActivation.decode(raw("target.initial.activation"));
+        final var base = (KafkaSourcePosition) template.mutation().source();
+        final var earlier = source(base, base.offset() - 1, base.brokerLogAppendTimeEpochMs() - 1);
+        final var issueAt = source(base, base.offset() + 1, base.brokerLogAppendTimeEpochMs() + 1);
+        final var scope = template.request().next().scope().shardScope();
+        final byte[] lineage = bytes(16, 0xcc);
+        final var physical = CanonicalTargetPartition.decode(
+                vector("target-compatibility-vectors.properties", "pulsar.target"));
+        final var dispatch = TargetDispatchCompatibility.decode(
+                vector("target-compatibility-vectors.properties", "pulsar.journal.dispatch"));
+        final var controlScope = new TargetControlScope(physical.id(), scope.shard(), List.of(), List.of());
+        final var capability = new ProfileSemanticEnvelope(
+                ProfileKind.DELIVERY_CAPABILITY, Bytes.utf8("cap"), 1, dispatch.capability());
+        final var destination = new ProfileSemanticEnvelope(
+                ProfileKind.DESTINATION, Bytes.utf8("member"), 1,
+                new DestinationProfileSemantic(
+                        AdapterKind.PULSAR, physical.resource(), 8, TargetPartitionPolicy.EXPLICIT_ONLY,
+                        TargetPartitionHashInput.DELAY_MESSAGE_ID, List.of(5), capability.ref(), 3, 60000,
+                        bytes(32, 0xaa), 20000, 10000, 10000, 1, Bytes.utf8("member"),
+                        86400000, 172800000, 2, bytes(32, 0xbb)));
+        assertEquals(dispatch, TargetDispatchCompatibility.fromProfiles(physical, destination, capability));
+        final var actor = new ControlAuthorizationContext(
+                bytes(32, 0xa1),
+                ControlRoleSet.of(ControlRole.TENANT_POLICY_ADMINISTRATOR, ControlRole.PLATFORM_OPERATOR),
+                bytes(32, 0xa2));
+        final var policy = new TargetMembershipPolicy(
+                scope.tenantScope(), destination.ref(), dispatch.digest(), dispatch, controlScope,
+                actor.tenantResourceScopeHash());
+        final byte[] operationId = bytes(32, 0x72);
+        final var request = TargetMembershipControlRequest.issue(policy,
+                TargetMembershipGrant.prepareRegistration(
+                        policy.tenantScope(), policy.memberProfile(), dispatch, policy.offered(),
+                        policy.controls(), policy.digest(), operationId));
+        final var keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final var member = signedMembership(request, operationId, actor, keys, scope.shard());
+        final var registrations = new InMemoryControlTargetRegistrationAuthority();
+        registrations.register(member.control());
+        final long[] rootAmounts = template.request().next().limit().resources().amounts();
+        Arrays.fill(rootAmounts, 0, 15, 1L << 30);
+        Arrays.fill(rootAmounts, 50, 55, 1L << 30);
+        final var rootGrant = new TargetQuotaGrantControlRequest(
+                new TargetQuotaGrant(scope, bytes(32, 0x71), 1, template.request().next().accounting(),
+                        new TargetQuotaUsage(new CapacityVector(rootAmounts), 64, 64, 64, 64),
+                        template.request().next().tenantPolicyVersion(),
+                        template.request().next().tenantPolicyHash()), null, null);
+        final var signedRoot = signed(rootGrant, bytes(32, 0x70), actor, keys);
+        registrations.register(signedRoot.control());
+        final long[] targetAmounts = rootAmounts.clone();
+        Arrays.fill(targetAmounts, 50, 55, 0);
+        targetAmounts[CapacityDimension.ACTIVE_MESSAGES.wireValue() - 1] = 1;
+        targetAmounts[CapacityDimension.RESERVATION_MESSAGES.wireValue() - 1] = 1;
+        final var targetGrant = new TargetQuotaGrantControlRequest(
+                new TargetQuotaGrant(scope.forTarget(physical.id()), bytes(32, 0x73), 1,
+                        template.request().next().accounting(),
+                        new TargetQuotaUsage(new CapacityVector(targetAmounts), 1, 64, 64, 64),
+                        template.request().next().tenantPolicyVersion(),
+                        template.request().next().tenantPolicyHash()), null, null);
+        final var signedTarget = signed(targetGrant, bytes(32, 0x74), actor, keys);
+        registrations.register(signedTarget.control());
+        final var authority = new TargetMembershipControlVerifier.Authority(
+                registrations,
+                (ref, position, kind) -> policy,
+                (version, position) -> version == 1 ? keys.getPublic() : null,
+                new ProfileCatalog() {
+                    @Override
+                    public ProfileSemanticEnvelope resolve(ProfileRef ref) {
+                        return ref.equals(destination.ref()) ? destination
+                                : ref.equals(capability.ref()) ? capability : null;
+                    }
+
+                    @Override
+                    public CredentialBinding resolveBinding(ProfileRef ref, long generation) {
+                        throw new AssertionError("membership issue cannot resolve a private credential");
+                    }
+
+                    @Override
+                    public CredentialBindingHead resolveHead(ProfileRef ref) {
+                        throw new AssertionError("membership issue cannot resolve a private credential");
+                    }
+
+                    @Override
+                    public CredentialBindingProtection resolveProtection(
+                            ProfileRef ref, long generation) {
+                        throw new AssertionError("membership issue cannot resolve a private credential");
+                    }
+                },
+                actor,
+                prepared -> true);
+        final var config = ShardStoreConfig.defaults(root);
+        final byte[] grantKey;
+        final byte[] grantBytes;
+        try (var resources = new SharedRocksDbResources(config);
+                var store = ShardStore.openTarget(config, scope.shard(), resources)) {
+            final var initialized = TargetStoreBootstrap.commit(
+                    TargetStoreBootstrap.prepare(
+                            store, scope, lineage, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(),
+                            signedRoot.control(), signedRoot.mutation(), earlier,
+                            authority(registrations, keys, actor, earlier, rootGrant, (a, b, c, d) -> {}),
+                            (a, b, c) -> {}),
+                    (a, b, c) -> guard());
+            final var backend = initialized.backend();
+            final var quota = new TargetQuotaGrantStore(backend, scope, lineage, 16, 1);
+            assertEquals(StableCode.OK, quota.commit(
+                    quota.prepareFirst(budget(), signedTarget.control(), signedTarget.mutation(), base,
+                            authority(registrations, keys, actor, base, targetGrant, (a, b, c, d) -> {})),
+                    (a, b, c) -> guard()).stableCode());
+            assertNull(store.get(ColumnFamily.META, TargetKeyCodec.identity(physical.id())));
+            final var issues = new TargetMembershipIssueStore(backend, scope, lineage, 16, 1);
+            final long before = store.latestSequenceNumber();
+            final var unavailable = new TargetMembershipControlVerifier.Authority(
+                    registrations,
+                    (ref, position, kind) -> { throw new IllegalStateException("policy authority unavailable"); },
+                    authority.keys(), authority.profiles(), actor, prepared -> true);
+            assertThrows(IllegalStateException.class, () -> issues.prepareFirst(
+                    budget(), member.control(), member.mutation(), issueAt, physical, unavailable));
+            assertEquals(before, store.latestSequenceNumber());
+            assertArrayEquals(base.canonicalBytes(), store.appliedShardLogPosition().canonicalBytes());
+            final var prepared = issues.prepareFirst(
+                    budget(), member.control(), member.mutation(), issueAt, physical, authority);
+            assertThrows(IllegalStateException.class, () -> issues.commit(prepared, (a, b, c) -> {
+                throw new IllegalStateException("Owner lost before native commit");
+            }));
+            assertEquals(before, store.latestSequenceNumber());
+            final var assignment = new SourceAssignment(
+                    scope.shard(), bytes(32, 0x61), 1,
+                    new KafkaActivationBarrier(scope.shard(), issueAt.authenticatedClusterId(),
+                            issueAt.nativeTopicUuid(), issueAt.offset()));
+            final var leases = new OxiaOwnerLeaseStore(new InMemoryOwnerLeaseStore());
+            final var active = leases.transition(
+                    leases.acquire(assignment, "membership-worker", bytes(32, 0x62), 1, 10000).orElseThrow(),
+                    ShardLifecycleState.ACTIVE_FOR_COMMANDS).orElseThrow();
+            store.recordOpenedOwnerEpoch(active.ownerEpoch());
+            final var resolutions = new java.util.concurrent.atomic.AtomicInteger();
+            final var runtime = new TargetSourceApplyRuntime(
+                    initialized, store, assignment, active,
+                    new TargetSourceApplyRuntime.Authorities(
+                            leases, SourceReplaySuccessor.strictKafka(),
+                            entry -> { throw new AssertionError("membership issue resolved quota grant"); },
+                            entry -> { throw new AssertionError("membership issue resolved fence"); },
+                            entry -> { throw new AssertionError("membership issue resolved Target Close"); },
+                            entry -> {
+                                resolutions.incrementAndGet();
+                                return new TargetSourceApplyRuntime.MembershipIssueControl(
+                                        member.control(), physical, authority, (a, b, c) -> guard());
+                            },
+                            (a, b, c) -> guard(), (a, b) -> guard(),
+                            entry -> { throw new AssertionError("membership issue resolved Command"); }),
+                    new TargetSourceApplyRuntime.Limits(2048, 32L << 20, 60_000_000_000L, 16, 1),
+                    System::nanoTime);
+            final var acks = new java.util.concurrent.atomic.AtomicInteger();
+            final var queue = new java.util.ArrayDeque<SourceRecordConsumer.PolledSourceRecord>();
+            queue.add(new SourceRecordConsumer.PolledSourceRecord(
+                    new SourceReplayMutation(member.mutation(), issueAt, null, null),
+                    (entry, outcome) -> {
+                        assertEquals(StableCode.OK, outcome.systemMutationResult().stableCode());
+                        return acks.incrementAndGet() == 1
+                                ? SourceAcknowledgement.AcknowledgementResult.unknown(null)
+                                : SourceAcknowledgement.AcknowledgementResult.acked();
+                    }));
+            final var loop = new WorkerSourceApplyLoop(
+                    () -> java.util.Optional.ofNullable(queue.poll()), workClasses(), runtime);
+            assertEquals(SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN,
+                    loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100).status());
+            final long afterIssue = store.latestSequenceNumber();
+            assertEquals(SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                    loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100).status());
+            assertEquals(afterIssue, store.latestSequenceNumber());
+            assertEquals(1, resolutions.get());
+            assertArrayEquals(issueAt.canonicalBytes(), store.appliedShardLogPosition().canonicalBytes());
+            assertArrayEquals(physical.canonicalBytes(), TargetValueEnvelope.decode(
+                    store.get(ColumnFamily.META, TargetKeyCodec.identity(physical.id())),
+                    CanonicalTargetPartition.VALUE_TYPE).payload());
+            assertArrayEquals(policy.canonicalBytes(), TargetValueEnvelope.decode(
+                    store.get(ColumnFamily.META, policy.encodedKey()), TargetMembershipPolicy.VALUE_TYPE).payload());
+            final var grant = TargetMembershipGrant.fromRegistration(
+                    request.value(), member.mutation().mutationHash(), issueAt);
+            grantKey = grant.encodedKey();
+            grantBytes = grant.canonicalBytes();
+            assertArrayEquals(grantBytes, TargetValueEnvelope.decode(
+                    store.get(ColumnFamily.META, grantKey), TargetMembershipGrant.VALUE_TYPE).payload());
+            final var first = resultRecord(store, systemKey(member.mutation()));
+            assertEquals(ApplyStatus.APPLIED, SystemMutationResult.decode(first.typedPayload()).applyStatus());
+            final var replay = new TargetSystemReplayStore(backend, scope, lineage, 16, 1);
+            final var duplicateAt = source(issueAt, issueAt.offset() + 1, issueAt.brokerLogAppendTimeEpochMs() + 1);
+            final var duplicate = replay.prepareIfPresent(budget(), member.mutation(), duplicateAt).orElseThrow();
+            assertEquals(StableCode.OK, replay.commit(duplicate, (a, b, c) -> guard(), (a, b) -> guard())
+                    .stableCode());
+            assertArrayEquals(grantBytes, TargetValueEnvelope.decode(
+                    store.get(ColumnFamily.META, grantKey), TargetMembershipGrant.VALUE_TYPE).payload());
+            final var close = signedMembership(
+                    TargetMembershipControlRequest.close(
+                            policy, grant.digest(),
+                            new ControlReason(ControlReasonKind.POLICY_CHANGE, null, null)),
+                    bytes(32, 0x75), actor, keys, scope.shard());
+            final var closeAt = source(duplicateAt, duplicateAt.offset() + 1,
+                    duplicateAt.brokerLogAppendTimeEpochMs() + 1);
+            queue.add(new SourceRecordConsumer.PolledSourceRecord(
+                    new SourceReplayMutation(close.mutation(), closeAt, null, null),
+                    (entry, outcome) -> { throw new AssertionError("unwired membership close was ACKed"); }));
+            final long beforeUnwiredClose = store.latestSequenceNumber();
+            assertEquals(SourceApplyCoordinator.TurnStatus.SUBMISSION_REJECTED,
+                    loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100).status());
+            assertTrue(loop.pendingEntry().isPresent());
+            assertEquals(beforeUnwiredClose, store.latestSequenceNumber());
+        }
+        try (var resources = new SharedRocksDbResources(config);
+                var reopened = ShardStore.openTarget(config, scope.shard(), resources)) {
+            assertArrayEquals(grantBytes, TargetValueEnvelope.decode(
+                    reopened.get(ColumnFamily.META, grantKey), TargetMembershipGrant.VALUE_TYPE).payload());
+        }
+    }
+
     private static CheckpointUploadIntent pendingCandidate(
             final ShardId shard,
             final byte[] lineage,
@@ -1788,6 +2021,30 @@ class TargetQuotaGrantStoreTest {
     }
 
     private record Signed(PreparedControlOperation control, SystemMutation mutation) {}
+
+    private static Signed signedMembership(
+            TargetMembershipControlRequest request, byte[] operation, ControlAuthorizationContext actor,
+            KeyPair keys, ShardId shard) {
+        final var body = new TargetMembershipControlBody(
+                shard, 500,
+                new ControlRef(operation,
+                        PreparedControlOperation.requestHash(request.operationKind(), request.operationRequest()), 0),
+                request);
+        final var mutation = SystemMutation.signed(
+                shard, SystemMutationType.APPLY_SHARD_CONTROL, body.retryUntil(), body.logicalIdentity(),
+                body.canonicalBytes(),
+                AuthorIdentity.control(actor.actorIdHash(), actor.roleSet().digest(), actor.tenantResourceScopeHash())
+                        .canonicalBytes(),
+                1, keys.getPrivate());
+        final var target = new ControlTargetRef(
+                0, ControlTargetKind.SHARD, new ShardSubject(shard),
+                mutation.systemMutationId(), mutation.mutationHash());
+        final var control = PreparedControlOperation.prepare(
+                operation, request.operationKind(),
+                new ControlAuthor(actor.actorIdHash(), actor.roleSet().digest(), actor.tenantResourceScopeHash()),
+                request.operationRequest(), List.of(target), 1, 400, 1, keys.getPrivate());
+        return new Signed(control, mutation);
+    }
 
     private static Signed signedClose(
             TargetCloseRequest request, byte[] operation, ControlAuthorizationContext actor, KeyPair keys,

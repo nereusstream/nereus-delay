@@ -895,6 +895,9 @@ class TargetCommandStoreTest {
                                         closeAuthority,
                                         (a, b, c) -> guard());
                             },
+                            entry -> {
+                                throw new AssertionError("unexpected membership issue authority");
+                            },
                             (a, b, c) -> guard(),
                             (a, b) -> guard(),
                             entry -> {
@@ -3052,6 +3055,9 @@ class TargetCommandStoreTest {
                             },
                             entry -> {
                                 throw new AssertionError("reopened GC cannot resolve a Close control");
+                            },
+                            entry -> {
+                                throw new AssertionError("reopened GC cannot resolve membership issuance");
                             },
                             (a, b, c) -> guard(),
                             ownerReads,

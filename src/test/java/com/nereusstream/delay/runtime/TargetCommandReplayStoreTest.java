@@ -189,6 +189,9 @@ class TargetCommandReplayStoreTest {
                             entry -> {
                                 throw new AssertionError("unexpected first Target Close authority");
                             },
+                            entry -> {
+                                throw new AssertionError("unexpected membership issue authority");
+                            },
                             (a, b, c) -> guard(),
                             (a, b) -> guard(),
                             entry -> {
@@ -385,6 +388,9 @@ class TargetCommandReplayStoreTest {
                             },
                             entry -> {
                                 throw new AssertionError("unexpected first Target Close authority");
+                            },
+                            entry -> {
+                                throw new AssertionError("unexpected membership issue authority");
                             },
                             (a, b, c) -> guard(),
                             (a, b) -> guard(),
