@@ -32,8 +32,12 @@ frontier 后重建 backend；Target source runtime 可接纳此重建结果，�
 Close GC 现可由 Target source runtime 在同一 WorkClass 图上构造，并在任务接纳和 native 写前检查
 Owner lease/Store；本地 lease CAS 场景中旧 Owner 排队后失权零写，新 Owner epoch
 重开后完成 OPEN 游标。Target reservation GC 现有调用方驱动的有界 turn：Close 与
-普通 expiry 交替，每轮至多排一项，小预算下保留同一待处理任务。真实 Oxia 接管、
-带活跃 reservation 的恢复、生产事件循环持续触发、
+普通 expiry 交替，每轮至多排一项，小预算下保留同一待处理任务。
+`TargetWorkerShardRuntime` 现把重开后的 Target source loop 与 GC turn 装配到同一
+Store/共享资源/WorkClass 图，两个入口均受 Worker 资源 admission gate 限制；四组
+实际 Store 参数场景经此入口跑完原有 GC 序列。它仍需要上层持续驱动、Owner drain
+和原生 source teardown，未形成生产 timer。真实 Oxia 接管、带活跃 reservation 的恢复、
+生产事件循环持续触发、
 跨 Target 服务机会界限、expiry-first 混合顺序、关闭汇总转移、生产历史权限/配置/
 factory、format2 回填、完整迁移/恢复和集中验证仍未完成。原 29 切片不缩减。
 

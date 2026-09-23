@@ -22,6 +22,7 @@ import com.nereusstream.delay.ownership.TargetReservationExpiryWorkClassExecutor
 import com.nereusstream.delay.ownership.TargetReservationGcRuntime;
 import com.nereusstream.delay.ownership.TargetReservationQueryWorkClassExecutor;
 import com.nereusstream.delay.ownership.TargetSourceApplyRuntime;
+import com.nereusstream.delay.ownership.TargetWorkerShardRuntime;
 import com.nereusstream.delay.ownership.WorkerSourceApplyLoop;
 import com.nereusstream.delay.protocol.AcknowledgementSet;
 import com.nereusstream.delay.protocol.AdapterKind;
@@ -2905,31 +2906,41 @@ class TargetCommandStoreTest {
                             }),
                     new TargetSourceApplyRuntime.Limits(4096, 32L << 20, 60_000_000_000L, 16, 1),
                     System::nanoTime);
-            final var reopenedLoop =
-                    new WorkerSourceApplyLoop(() -> java.util.Optional.empty(), reopenedWorkClasses, reopenedRuntime);
             final var reopenedCursorDelta = new java.util.concurrent.atomic.AtomicReference<TargetQuotaDelta>();
-            final var reopenedGc = reopenedRuntime.newReservationGcRuntime(
+            final var reopenedWorker = new TargetWorkerShardRuntime(
+                    () -> java.util.Optional.empty(),
                     reopenedWorkClasses,
-                    reopenedControls,
-                    new TargetReservationClosureWorkClassExecutor.Limits(4096, 250_000, 60_000_000_000L),
-                    new TargetReservationExpiryWorkClassExecutor.Limits(2048, 100_000, 60_000_000_000L),
-                    (a, b, c) -> guard(),
-                    ignored -> {
-                        throw new AssertionError("reopened completed Close cannot materialize");
-                    },
-                    ignored -> {
-                        throw new AssertionError("reopened completed Close cannot expire");
-                    },
-                    reopenedCursorDelta::set,
-                    () -> 101);
-            final var queued = reopenedGc.runTurn(new SchedulerBudget(1, 1, 60_000_000_000L));
+                    reopened,
+                    reopened.sharedResources(),
+                    reopenedRuntime,
+                    new TargetWorkerShardRuntime.Maintenance(
+                            reopenedControls,
+                            new TargetReservationClosureWorkClassExecutor.Limits(4096, 250_000, 60_000_000_000L),
+                            new TargetReservationExpiryWorkClassExecutor.Limits(2048, 100_000, 60_000_000_000L),
+                            (a, b, c) -> guard(),
+                            ignored -> {
+                                throw new AssertionError("reopened completed Close cannot materialize");
+                            },
+                            ignored -> {
+                                throw new AssertionError("reopened completed Close cannot expire");
+                            },
+                            reopenedCursorDelta::set,
+                            () -> 101));
+            assertEquals(
+                    SourceApplyCoordinator.TurnStatus.WAITING_FOR_SOURCE,
+                    reopenedWorker
+                            .runSourceTurn(new SchedulerBudget(1, 1, 60_000_000_000L), () -> 101)
+                            .status());
+            assertTrue(reopenedWorker.pendingSourceEntry().isEmpty());
+            final var queued = reopenedWorker.runMaintenanceTurn(new SchedulerBudget(1, 1, 60_000_000_000L));
             assertTrue(queued.pending());
             assertEquals(TargetReservationGcRuntime.Lane.CLOSE, queued.lane());
             assertEquals(beforeReopenedGc, reopened.latestSequenceNumber());
             final var kinds = new java.util.ArrayList<TargetReservationClosureWorkClassExecutor.Kind>();
             final var expiryKinds = new java.util.ArrayList<TargetReservationExpiryWorkClassExecutor.Kind>();
             for (int i = 0; i < 2 * (reopenedCloseTargets.length + 1); i++) {
-                final var turn = reopenedGc.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
+                final var turn =
+                        reopenedWorker.runMaintenanceTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
                 assertFalse(turn.pending());
                 if (i == 0) {
                     assertEquals(queued.task(), turn.task());
@@ -2964,7 +2975,7 @@ class TargetCommandStoreTest {
             assertEquals(
                     TargetReservationClosureStore.Progress.COMPLETE,
                     reopenedClosures.progress(budget(), reopenedCloseTargets[2], ownerReads));
-            reopenedLoop.close();
+            reopenedWorker.closeSource();
         }
     }
 

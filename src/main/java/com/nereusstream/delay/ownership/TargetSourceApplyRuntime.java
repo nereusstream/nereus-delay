@@ -32,6 +32,7 @@ import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.ReadIncompleteException;
 import com.nereusstream.delay.store.ShardStore;
+import com.nereusstream.delay.store.SharedRocksDbResources;
 import com.nereusstream.delay.store.StoreMetadata;
 import com.nereusstream.delay.store.TargetStoreBackend;
 import java.util.Arrays;
@@ -344,6 +345,13 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         maintenanceRuntime =
                 new TargetReservationGcRuntime(registry, scope.shard(), lease.ownerEpoch(), closeGc, expiryGc);
         return maintenanceRuntime;
+    }
+
+    synchronized void requireWorkerStore(final ShardStore expectedStore, final SharedRocksDbResources resources) {
+        if (store != Objects.requireNonNull(expectedStore, "store")
+                || store.sharedResources() != Objects.requireNonNull(resources, "resources")) {
+            throw new IllegalArgumentException("Target Worker requires the exact source Store resource graph");
+        }
     }
 
     private TargetStoreBackend.CommitGuard gcGuard(
