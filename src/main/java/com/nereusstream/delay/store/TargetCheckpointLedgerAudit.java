@@ -20,10 +20,13 @@ import com.nereusstream.delay.protocol.TargetQuotaTotal;
 import com.nereusstream.delay.protocol.TargetQuotaUsage;
 import com.nereusstream.delay.runtime.ApplyStatus;
 import com.nereusstream.delay.runtime.SystemMutationResult;
+import com.nereusstream.delay.runtime.TargetExpiryRef;
+import com.nereusstream.delay.runtime.TargetMessageRecord;
 import com.nereusstream.delay.runtime.TargetQuotaDelta;
 import com.nereusstream.delay.runtime.TargetRecordAccounting;
 import com.nereusstream.delay.runtime.TargetResultLedgerAudit;
 import com.nereusstream.delay.runtime.TargetResultRecord;
+import com.nereusstream.delay.runtime.TargetTimelineWorkRef;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -107,6 +110,9 @@ final class TargetCheckpointLedgerAudit {
                                 TargetValueEnvelope.decode(raw, type).payload();
                         if (family == ColumnFamily.DEDUPE) {
                             resultRows.add(new TargetResultLedgerAudit.Stored(key, type, payload));
+                        } else if (family == ColumnFamily.ID && type == TargetMessageRecord.VALUE_TYPE) {
+                            auditMessageIndexes(
+                                    TargetMessageRecord.decodeForStore(key, payload, proof.metadata().shardId()), view);
                         } else if (family == ColumnFamily.META
                                 && type == TargetQuotaGrantActivation.VALUE_TYPE) {
                             grantActivations.add(TargetQuotaGrantActivation.decodeForStore(
@@ -160,6 +166,30 @@ final class TargetCheckpointLedgerAudit {
         }
         auditGrantResults(grantActivations, resultRows, proof.root().identity());
         TargetQuotaDelta.audit(proof.aggregate(), counters, rebuilt);
+    }
+
+    private static void auditMessageIndexes(final TargetMessageRecord message, final TargetRecordAccounting.View view) {
+        if (!message.runtime().terminal()) {
+            final var expiry = new TargetExpiryRef(message.locator(), message.expireAtEpochMs());
+            requireMessageIndex(
+                    view, expiry.encodedKey(), TargetExpiryRef.VALUE_TYPE, expiry.canonicalBytes());
+        }
+        final TargetTimelineWorkRef work = message.runtime().timeline();
+        if (work != null) {
+            requireMessageIndex(view, work.ordinaryKey(), TargetTimelineWorkRef.VALUE_TYPE, work.canonicalBytes());
+            if (work.nativeCandidate()) {
+                requireMessageIndex(view, work.nativeKey(), TargetTimelineWorkRef.VALUE_TYPE, work.canonicalBytes());
+            }
+        }
+    }
+
+    private static void requireMessageIndex(
+            final TargetRecordAccounting.View view, final byte[] key, final int type, final byte[] expected) {
+        final byte[] raw = view.projected(ColumnFamily.TIMELINE, key, List.of());
+        if (raw == null
+                || !Bytes.constantTimeEquals(TargetValueEnvelope.decode(raw, type).payload(), expected)) {
+            throw new IllegalStateException("Target checkpoint Message lacks its exact current timeline index");
+        }
     }
 
     private static void auditGrantResults(

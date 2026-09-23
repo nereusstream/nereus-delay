@@ -2898,6 +2898,33 @@ class TargetCommandStoreTest {
                 new CheckpointManifestLimits(1_000, 256L << 20, 256L << 20, 1_024, 1 << 20, 1_000, 1_024),
                 new TargetCheckpointRootVerifier.QuotaAuditLimits(100_000, 256L << 20),
                 new TargetCheckpointRootVerifier.LedgerAuditLimits(100_000, 256L << 20, 500_000, 256L << 20));
+        final var orphan = TargetMessageRecord.decode(vector("target-identity-vectors.properties", "message.initial"));
+        assertFalse(orphan.runtime().terminal());
+        assertTrue(orphan.runtime().timeline() != null);
+        try (var resources = new SharedRocksDbResources(config);
+                var corrupt = ShardStore.openTarget(config, scope.shard(), resources)) {
+            assertNull(corrupt.get(ColumnFamily.ID, orphan.encodedKey()));
+            corrupt.write(batch -> batch.put(
+                    ColumnFamily.ID,
+                    orphan.encodedKey(),
+                    TargetValueEnvelope.encode(TargetMessageRecord.VALUE_TYPE, orphan.canonicalBytes())));
+        }
+        assertTrue(assertThrows(
+                        IllegalStateException.class,
+                        () -> TargetCheckpointRootVerifier.auditIndependentLedger(
+                                physicalDb,
+                                scope.shard(),
+                                new CheckpointManifestLimits(1_000, 256L << 20, 256L << 20, 1_024, 1 << 20, 1_000,
+                                        1_024),
+                                new TargetCheckpointRootVerifier.QuotaAuditLimits(100_000, 256L << 20),
+                                new TargetCheckpointRootVerifier.LedgerAuditLimits(
+                                        100_000, 256L << 20, 500_000, 256L << 20)))
+                .getMessage()
+                .contains("Message lacks its exact current timeline index"));
+        try (var resources = new SharedRocksDbResources(config);
+                var restored = ShardStore.openTarget(config, scope.shard(), resources)) {
+            restored.write(batch -> batch.delete(ColumnFamily.ID, orphan.encodedKey()));
+        }
         try (var resources = new SharedRocksDbResources(config);
                 var reopened = ShardStore.openTarget(config, scope.shard(), resources)) {
             final var priorOwner = reopenOwner[0];
