@@ -467,6 +467,15 @@ class TargetCommandStoreTest {
                             store.get(ColumnFamily.ID, TargetKeyCodec.message(messageId)),
                             TargetMessageRecord.VALUE_TYPE)
                     .payload());
+            final long claimExecutionBytes = originalGrant
+                    .accounting()
+                    .accountedPublishBytes(
+                            intent.adapterMetadata().kind()
+                                            == com.nereusstream.delay.protocol.AdapterMetadata.Kind.KAFKA
+                                    ? AdapterKind.KAFKA
+                                    : AdapterKind.PULSAR,
+                            message.payloadLength(),
+                            binding.intent().adapterMetadata().canonicalBytes().length);
             final var locator = message.locator();
             final var work = message.runtime().timeline();
             final var payload = TargetQuotaPayloadOwner.decode(TargetValueEnvelope.decode(
@@ -849,12 +858,28 @@ class TargetCommandStoreTest {
                                         bytes(16, 0x72), bytes(16, 0x73), active.ownerEpoch(), bytes(32, 0x74)),
                                 message.deliverAtEpochMs(),
                                 message.deliverAtEpochMs() + 1000,
-                                100,
+                                claimExecutionBytes,
                                 bytes(32, 0x71),
                                 (kind, delta) -> {},
                                 (a, b, c) -> guard(),
                                 () -> 100));
                 assertEquals(beforeClaim, store.latestSequenceNumber());
+                for (long incorrectBytes : new long[] {claimExecutionBytes - 1, claimExecutionBytes + 1}) {
+                    assertThrows(
+                            IllegalArgumentException.class,
+                            () -> claimWorker.claim(
+                                    budget(),
+                                    actualQueue.domains().getFirst().ordinaryHead(),
+                                    actualOwner,
+                                    message.deliverAtEpochMs(),
+                                    message.deliverAtEpochMs() + 1000,
+                                    incorrectBytes,
+                                    bytes(32, 0x71),
+                                    (kind, delta) -> {},
+                                    (a, b, c) -> guard(),
+                                    () -> 100));
+                    assertEquals(beforeClaim, store.latestSequenceNumber());
+                }
                 assertThrows(
                         IllegalStateException.class,
                         () -> claimWorker.claim(
@@ -863,7 +888,7 @@ class TargetCommandStoreTest {
                                 actualOwner,
                                 message.deliverAtEpochMs(),
                                 message.deliverAtEpochMs() + 1000,
-                                100,
+                                claimExecutionBytes,
                                 bytes(32, 0x71),
                                 (kind, delta) -> {},
                                 (a, b, c) -> {
@@ -877,7 +902,7 @@ class TargetCommandStoreTest {
                         actualOwner,
                         message.deliverAtEpochMs(),
                         message.deliverAtEpochMs() + 1000,
-                        100,
+                        claimExecutionBytes,
                         bytes(32, 0x71),
                         (kind, delta) -> {},
                         (a, b, c) -> guard(),

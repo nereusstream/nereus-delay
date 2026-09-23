@@ -1,5 +1,6 @@
 package com.nereusstream.delay.runtime;
 
+import com.nereusstream.delay.protocol.AdapterKind;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.OwnerIdentity;
@@ -140,6 +141,18 @@ public final class TargetClaimStore {
                             payload(reader, ColumnFamily.META, descriptorKey, TargetQuotaIncarnation.VALUE_TYPE),
                             scope.shard(),
                             scope.tenantScope());
+                    final var metadata = binding.intent().adapterMetadata();
+                    final var adapter =
+                            switch (metadata.kind()) {
+                                case KAFKA -> AdapterKind.KAFKA;
+                                case PULSAR -> AdapterKind.PULSAR;
+                            };
+                    final long accountedBytes = descriptor
+                            .accounting()
+                            .accountedPublishBytes(adapter, message.payloadLength(), metadata.canonicalBytes().length);
+                    if (executionBytes != accountedBytes) {
+                        throw new IllegalArgumentException("Target Claim execution bytes differ from frozen Schedule");
+                    }
                     final var charge = new TargetQuotaClaimCharge(
                             claim.claimId(),
                             claim.work(),
