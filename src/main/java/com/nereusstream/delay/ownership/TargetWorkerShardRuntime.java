@@ -18,7 +18,7 @@ import java.util.function.LongSupplier;
  * <p>The host drives bounded turns and owns Owner drain and native source teardown. The shared
  * resource envelope gates both turns before source poll or GC task submission.
  */
-public final class TargetWorkerShardRuntime {
+public final class TargetWorkerShardRuntime implements TargetWorkerShardFleetRuntime.ShardTurns {
     /** Authority inputs for this Owner's Close and ordinary expiry maintenance. */
     public record Maintenance(
             TargetReservationControls.Authority controls,
@@ -42,6 +42,7 @@ public final class TargetWorkerShardRuntime {
     }
 
     private final ShardId shardId;
+    private final WorkClassExecutionRegistry workClasses;
     private final SharedRocksDbResources resources;
     private final WorkerSourceApplyLoop sourceLoop;
     private final TargetReservationGcRuntime maintenance;
@@ -54,6 +55,7 @@ public final class TargetWorkerShardRuntime {
             final TargetSourceApplyRuntime target,
             final Maintenance maintenanceInputs) {
         final var exactClasses = Objects.requireNonNull(workClasses, "workClasses");
+        this.workClasses = exactClasses;
         final var exactStore = Objects.requireNonNull(store, "store");
         this.resources = Objects.requireNonNull(resources, "resources");
         final var exactTarget = Objects.requireNonNull(target, "target");
@@ -76,6 +78,15 @@ public final class TargetWorkerShardRuntime {
 
     public ShardId shardId() {
         return shardId;
+    }
+
+    @Override
+    public void requireFleetComposition(
+            final WorkClassExecutionRegistry expectedClasses, final SharedRocksDbResources expectedResources) {
+        if (resources != Objects.requireNonNull(expectedResources, "expectedResources")
+                || workClasses != Objects.requireNonNull(expectedClasses, "expectedClasses")) {
+            throw new IllegalArgumentException("Target Worker shard uses another resource or WorkClass graph");
+        }
     }
 
     public synchronized SourceApplyCoordinator.TurnResult runSourceTurn(

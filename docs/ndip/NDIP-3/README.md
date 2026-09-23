@@ -36,8 +36,11 @@ Owner lease/Store；本地 lease CAS 场景中旧 Owner 排队后失权零写，
 `TargetWorkerShardRuntime` 现把重开后的 Target source loop 与 GC turn 装配到同一
 Store/共享资源/WorkClass 图，两个入口均受 Worker 资源 admission gate 限制；四组
 实际 Store 参数场景经此入口跑完原有 GC 序列。它仍需要上层持续驱动、Owner drain
-和原生 source teardown，未形成生产 timer。真实 Oxia 接管、带活跃 reservation 的恢复、
-生产事件循环持续触发、
+和原生 source teardown，未形成生产 timer。
+`TargetWorkerShardFleetRuntime` 另对同一 Worker 图的 Target Shard 分别轮转 source 和
+GC turn；两 Shard 调用次序及失败后前进已做局部检查，真实 Store 的重开 GC 改经该
+fleet 的单 Shard 路径。它仍由上层调用，尚无持续 tick 或 Owner drain。真实 Oxia 接管、
+带活跃 reservation 的恢复、生产事件循环持续触发、
 跨 Target 服务机会界限、expiry-first 混合顺序、关闭汇总转移、生产历史权限/配置/
 factory、format2 回填、完整迁移/恢复和集中验证仍未完成。原 29 切片不缩减。
 

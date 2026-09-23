@@ -22,6 +22,7 @@ import com.nereusstream.delay.ownership.TargetReservationExpiryWorkClassExecutor
 import com.nereusstream.delay.ownership.TargetReservationGcRuntime;
 import com.nereusstream.delay.ownership.TargetReservationQueryWorkClassExecutor;
 import com.nereusstream.delay.ownership.TargetSourceApplyRuntime;
+import com.nereusstream.delay.ownership.TargetWorkerShardFleetRuntime;
 import com.nereusstream.delay.ownership.TargetWorkerShardRuntime;
 import com.nereusstream.delay.ownership.WorkerSourceApplyLoop;
 import com.nereusstream.delay.protocol.AcknowledgementSet;
@@ -2926,21 +2927,28 @@ class TargetCommandStoreTest {
                             },
                             reopenedCursorDelta::set,
                             () -> 101));
+            final var reopenedFleet = new TargetWorkerShardFleetRuntime(
+                    reopenedWorkClasses, reopened.sharedResources(), java.util.List.of(reopenedWorker));
+            assertEquals(java.util.List.of(scope.shard()), reopenedFleet.shardIds());
             assertEquals(
                     SourceApplyCoordinator.TurnStatus.WAITING_FOR_SOURCE,
-                    reopenedWorker
-                            .runSourceTurn(new SchedulerBudget(1, 1, 60_000_000_000L), () -> 101)
+                    reopenedFleet
+                            .runNextSourceTurn(new SchedulerBudget(1, 1, 60_000_000_000L), () -> 101)
+                            .result()
                             .status());
             assertTrue(reopenedWorker.pendingSourceEntry().isEmpty());
-            final var queued = reopenedWorker.runMaintenanceTurn(new SchedulerBudget(1, 1, 60_000_000_000L));
+            final var queued = reopenedFleet
+                    .runNextMaintenanceTurn(new SchedulerBudget(1, 1, 60_000_000_000L))
+                    .result();
             assertTrue(queued.pending());
             assertEquals(TargetReservationGcRuntime.Lane.CLOSE, queued.lane());
             assertEquals(beforeReopenedGc, reopened.latestSequenceNumber());
             final var kinds = new java.util.ArrayList<TargetReservationClosureWorkClassExecutor.Kind>();
             final var expiryKinds = new java.util.ArrayList<TargetReservationExpiryWorkClassExecutor.Kind>();
             for (int i = 0; i < 2 * (reopenedCloseTargets.length + 1); i++) {
-                final var turn =
-                        reopenedWorker.runMaintenanceTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
+                final var turn = reopenedFleet
+                        .runNextMaintenanceTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L))
+                        .result();
                 assertFalse(turn.pending());
                 if (i == 0) {
                     assertEquals(queued.task(), turn.task());
