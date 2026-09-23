@@ -46,6 +46,7 @@ public final class TargetWorkerShardRuntime implements TargetWorkerShardFleetRun
     private final SharedRocksDbResources resources;
     private final WorkerSourceApplyLoop sourceLoop;
     private final TargetReservationGcRuntime maintenance;
+    private boolean sourceAndMaintenancePaused;
 
     public TargetWorkerShardRuntime(
             final SourceRecordConsumer consumer,
@@ -91,14 +92,28 @@ public final class TargetWorkerShardRuntime implements TargetWorkerShardFleetRun
 
     public synchronized SourceApplyCoordinator.TurnResult runSourceTurn(
             final SchedulerBudget budget, final LongSupplier ownerClock) {
+        requireNewTurnsAdmitted();
         resources.requireRuntimeBusinessAdmission();
         return sourceLoop.runTurn(
                 Objects.requireNonNull(budget, "budget"), Objects.requireNonNull(ownerClock, "ownerClock"));
     }
 
     public synchronized TargetReservationGcRuntime.Turn runMaintenanceTurn(final SchedulerBudget budget) {
+        requireNewTurnsAdmitted();
         resources.requireRuntimeBusinessAdmission();
         return maintenance.runTurn(Objects.requireNonNull(budget, "budget"));
+    }
+
+    /** Stops new source polls and GC submissions before Owner drain begins. */
+    public synchronized void pauseNewTurns() {
+        sourceAndMaintenancePaused = true;
+    }
+
+    /** Runs only the exact GC action already queued when admission was paused. */
+    public synchronized Optional<TargetReservationGcRuntime.Turn> settlePendingMaintenance(
+            final SchedulerBudget budget) {
+        resources.requireRuntimeBusinessAdmission();
+        return maintenance.settlePendingTurn(Objects.requireNonNull(budget, "budget"));
     }
 
     public synchronized Optional<SourceReplayEntry> pendingSourceEntry() {
@@ -108,5 +123,11 @@ public final class TargetWorkerShardRuntime implements TargetWorkerShardFleetRun
     /** Closes the native source when no ACK is pending; Owner drain remains the host's responsibility. */
     public synchronized void closeSource() {
         sourceLoop.close();
+    }
+
+    private void requireNewTurnsAdmitted() {
+        if (sourceAndMaintenancePaused) {
+            throw new IllegalStateException("Target Worker source and GC admission is paused");
+        }
     }
 }

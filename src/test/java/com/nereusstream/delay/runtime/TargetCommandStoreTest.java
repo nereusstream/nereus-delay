@@ -2983,6 +2983,34 @@ class TargetCommandStoreTest {
             assertEquals(
                     TargetReservationClosureStore.Progress.COMPLETE,
                     reopenedClosures.progress(budget(), reopenedCloseTargets[2], ownerReads));
+            final long beforePausedGc = reopened.latestSequenceNumber();
+            final var pausedSubmission = reopenedFleet
+                    .runNextMaintenanceTurn(new SchedulerBudget(1, 1, 60_000_000_000L))
+                    .result();
+            assertTrue(pausedSubmission.pending());
+            reopenedWorker.pauseNewTurns();
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> reopenedFleet.runNextMaintenanceTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L)));
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> reopenedFleet.runNextSourceTurn(new SchedulerBudget(1, 1, 60_000_000_000L), () -> 101));
+            assertEquals(
+                    pausedSubmission.task(),
+                    reopenedWorker
+                            .settlePendingMaintenance(new SchedulerBudget(1, 1, 60_000_000_000L))
+                            .orElseThrow()
+                            .task());
+            final var settled = reopenedWorker
+                    .settlePendingMaintenance(new SchedulerBudget(100, 2_000_000, 60_000_000_000L))
+                    .orElseThrow();
+            assertFalse(settled.pending());
+            assertEquals(pausedSubmission.task(), settled.task());
+            assertTrue(reopenedWorker
+                    .settlePendingMaintenance(new SchedulerBudget(100, 2_000_000, 60_000_000_000L))
+                    .isEmpty());
+            assertEquals(0, reopenedWorkClasses.registeredActions());
+            assertEquals(beforePausedGc, reopened.latestSequenceNumber());
             reopenedWorker.closeSource();
         }
     }

@@ -41,6 +41,9 @@ Store/共享资源/WorkClass 图，两个入口受资源 admission gate 限制�
 实际 Store 重开 GC 经生产 fleet 构造的单 Shard 路径通过。fleet 自身不触发周期或 Owner drain。
 `TargetWorkerMaintenanceLoop` 已提供显式可启动的固定间隔有界 GC tick，失败后继续
 轮转且关闭等待在途 turn；宿主启动接线、Owner drain 和真实 Broker/Oxia 仍缺。
+Target Worker 另可停止新的 source/GC turn，只处理已提交的 GC task；四组实际 Store
+场景验证小预算保留身份、续跑完成后零新提交与零额外 native 写。Owner CAS/Store
+关闭和真实宿主接线仍未完成。
 带活跃 reservation 的恢复、生产事件循环持续触发、
 跨 Target 服务机会界限、expiry-first 混合顺序、关闭汇总转移、生产历史权限/配置/
 factory、format2 回填、完整迁移/恢复和集中验证仍未完成。原 29 切片不缩减。

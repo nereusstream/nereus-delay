@@ -85,14 +85,37 @@ public final class TargetReservationGcRuntime {
             }
             requestOrdinal = next;
         }
+        return runPendingTurn(budget);
+    }
+
+    /** Settles only an already submitted action, so drain cannot create another GC request. */
+    public synchronized Optional<Turn> settlePendingTurn(final SchedulerBudget budget) {
+        Objects.requireNonNull(budget, "budget");
+        if (running) {
+            throw new IllegalStateException("reservation GC turn cannot recurse");
+        }
+        if (pendingClose == null && pendingExpiry == null) {
+            return Optional.empty();
+        }
+        return Optional.of(runPendingTurn(budget));
+    }
+
+    private Turn runPendingTurn(final SchedulerBudget budget) {
         final Lane lane = pendingClose == null ? Lane.EXPIRY : Lane.CLOSE;
         final WorkClassTask task = pendingClose == null ? pendingExpiry.task() : pendingClose.task();
         final List<WorkClassTask> completed;
-        running = true;
-        try {
-            completed = workClasses.runTurn(budget);
-        } finally {
-            running = false;
+        final boolean alreadyCompleted = pendingClose == null
+                ? pendingExpiry.result().isPresent()
+                : pendingClose.result().isPresent();
+        if (alreadyCompleted) {
+            completed = List.of();
+        } else {
+            running = true;
+            try {
+                completed = workClasses.runTurn(budget);
+            } finally {
+                running = false;
+            }
         }
         if (lane == Lane.CLOSE) {
             final var result = pendingClose.result();

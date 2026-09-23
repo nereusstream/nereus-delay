@@ -42,8 +42,12 @@ GC turn；两 Shard 调用次序及失败后前进已做局部检查，真实 St
 fleet 的单 Shard 路径。fleet 自身不触发周期或 Owner drain。
 `TargetWorkerMaintenanceLoop.start` 现可用正数固定间隔与有限 SchedulerBudget 启动
 单线程 GC tick；普通 turn/故障回调失败不会停止后续 tick，关闭先取消新 tick 并等待
-正在执行的 GC turn 退出。尚无 Worker 启动宿主调用它，也未装配 Owner drain。真实 Oxia
-接管、带活跃 reservation 的恢复、生产宿主持续触发、
+正在执行的 GC turn 退出。尚无 Worker 启动宿主调用它，也未装配 Owner drain。
+Target Worker 现可暂停新的 source/GC turn，并只对已经排队的 GC action 做有界续跑：
+小预算仍保留同一任务，完成后再次调用不创建新任务。四组实际 Store 重开场景验证
+暂停后不能再走 fleet 新 turn、pending 任务可完成且无额外 native 写。这是 drain 前的
+队列收敛入口，Owner CAS/Store 关闭与真实宿主接线仍待完成。真实 Oxia 接管、带活跃
+reservation 的恢复、生产宿主持续触发、
 跨 Target 服务机会界限、expiry-first 混合顺序、关闭汇总转移、生产历史权限/配置/
 factory、format2 回填、完整迁移/恢复和集中验证仍未完成。原 29 切片不缩减。
 
