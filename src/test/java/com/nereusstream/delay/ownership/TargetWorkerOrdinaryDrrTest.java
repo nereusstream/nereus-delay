@@ -18,6 +18,7 @@ import com.nereusstream.delay.protocol.TargetQuotaAccounting;
 import com.nereusstream.delay.runtime.TargetHeadCostProbe;
 import com.nereusstream.delay.runtime.TargetQueueSnapshotReader;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
+import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.TargetKeyCodec;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -126,6 +127,40 @@ class TargetWorkerOrdinaryDrrTest {
         assertEquals(List.of(secondShard), turn.claims());
     }
 
+    @Test
+    void incompleteReadYieldsWithoutDroppingTheHeadOrBlockingAnotherTarget() {
+        final ShardId shard = shard(1);
+        final var physicalA = target(0);
+        final var physicalB = target(1);
+        final var first = head(physicalA, shard, 50);
+        final var second = head(physicalB, shard, 50);
+        final var reads = new FakeReads(first, second);
+        reads.incompleteOnce(shard, physicalA.id());
+        final var drr =
+                schedule(List.of(targetState(physicalA, first), targetState(physicalB, second)), reads, ONE_VISIT);
+        final var budget = new SchedulerBudget(1, 100, 1_000_000_000L);
+
+        final var yielded = drr.runOrdinary(
+                100, budget, (source, cost) -> Optional.of(() -> cost.head().target()));
+        assertEquals(TargetWorkerOrdinaryDrr.Stop.READ_INCOMPLETE, yielded.stop());
+        assertTrue(yielded.claims().isEmpty());
+        assertEquals(1, yielded.targetVisits());
+        assertEquals(
+                List.of(physicalB.id()),
+                drr.runOrdinary(
+                                100,
+                                budget,
+                                (source, cost) -> Optional.of(() -> cost.head().target()))
+                        .claims());
+        assertEquals(
+                List.of(physicalA.id()),
+                drr.runOrdinary(
+                                100,
+                                budget,
+                                (source, cost) -> Optional.of(() -> cost.head().target()))
+                        .claims());
+    }
+
     private static TargetWorkerOrdinaryDrr schedule(
             final List<TargetWorkerTargetInventory.Target> targets,
             final FakeReads reads,
@@ -185,6 +220,7 @@ class TargetWorkerOrdinaryDrrTest {
         private final Map<TargetHeadRef, Long> costs = new HashMap<>();
         private final Map<ShardId, TargetQueueSnapshotReader.Cut> cuts = new HashMap<>();
         private final Set<TargetHeadRef> failOnce = new HashSet<>();
+        private final Set<Key> incompleteOnce = new HashSet<>();
 
         private FakeReads(final Head... heads) {
             for (Head head : heads) {
@@ -202,6 +238,10 @@ class TargetWorkerOrdinaryDrrTest {
             failOnce.add(head);
         }
 
+        private void incompleteOnce(final ShardId shard, final TargetPartitionId target) {
+            incompleteOnce.add(new Key(shard, target));
+        }
+
         @Override
         public boolean membershipCurrent() {
             return true;
@@ -209,7 +249,14 @@ class TargetWorkerOrdinaryDrrTest {
 
         @Override
         public Optional<TargetQueueSnapshotReader.Entry> refresh(final ShardId shard, final TargetPartitionId target) {
-            return Optional.ofNullable(entries.get(new Key(shard, target)));
+            final var key = new Key(shard, target);
+            if (incompleteOnce.remove(key)) {
+                final var budget = new BoundedReadBudget(1, 100, 1_000_000_000L, () -> 0);
+                budget.tryCharge(1, 1);
+                budget.beforeRead();
+                throw budget.incomplete();
+            }
+            return Optional.ofNullable(entries.get(key));
         }
 
         @Override

@@ -14,6 +14,7 @@ import com.nereusstream.delay.runtime.TargetQueueSnapshotReader;
 import com.nereusstream.delay.runtime.TargetQuotaDelta;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.store.BoundedReadBudget;
+import com.nereusstream.delay.store.ReadIncompleteException;
 import com.nereusstream.delay.store.TargetStoreBackend;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -79,12 +80,25 @@ public final class TargetWorkerOrdinaryDrr {
         Optional<Request> resolve(TargetWorkerShardRuntime shard, TargetHeadCostProbe.Cost cost);
     }
 
-    public record Turn<T>(List<T> claims, int targetVisits, long schedulingBytes) {
+    public enum Stop {
+        NORMAL,
+        READ_INCOMPLETE
+    }
+
+    public record Turn<T>(List<T> claims, int targetVisits, long schedulingBytes, Stop stop) {
         public Turn {
             claims = List.copyOf(Objects.requireNonNull(claims, "claims"));
-            if (claims.size() > 1 || targetVisits < 0 || schedulingBytes < 0) {
+            Objects.requireNonNull(stop, "stop");
+            if (claims.size() > 1
+                    || targetVisits < 0
+                    || schedulingBytes < 0
+                    || (stop == Stop.READ_INCOMPLETE && !claims.isEmpty())) {
                 throw new IllegalArgumentException("invalid Target ordinary Claim turn");
             }
+        }
+
+        public Turn(final List<T> claims, final int targetVisits, final long schedulingBytes) {
+            this(claims, targetVisits, schedulingBytes, Stop.NORMAL);
         }
     }
 
@@ -228,7 +242,12 @@ public final class TargetWorkerOrdinaryDrr {
             final TargetState target = ring.get(cursor);
             cursor = cursor == ring.size() - 1 ? 0 : cursor + 1;
             visits++;
-            final Optional<Claimed<T>> claimed = visit(target, nowEpochMs, budget.maxBytes() - bytes, selector);
+            final Optional<Claimed<T>> claimed;
+            try {
+                claimed = visit(target, nowEpochMs, budget.maxBytes() - bytes, selector);
+            } catch (ReadIncompleteException incomplete) {
+                return new Turn<>(claims, visits, bytes, Stop.READ_INCOMPLETE);
+            }
             if (claimed.isPresent()) {
                 claims.add(claimed.orElseThrow().value());
                 bytes = Math.addExact(bytes, claimed.orElseThrow().cost());
