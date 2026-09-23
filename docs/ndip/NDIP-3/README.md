@@ -473,3 +473,5 @@ Target 专用控制/语义快照及认证摘要仍未实现，发布与恢复门
 Broker cut、完整控制/语义认证及发布/安装仍待完成。
 
 本地 format 2 候选的完整账本扫描现要求当前 grant activation 对应实际保留的首条成功 System 结果，并对齐 source mutation、ID/hash 与首次 allocation。真实 Store 中规范编码但错配的 activation 仅在完整审计被拒绝。控制请求认证、结果 Floor 清理后的证明和发布/恢复链仍待完成；C5 门禁不变。
+
+实际 Target Worker Shard 现从自身绑定的 Source/Store/WorkClass 图提交本地候选；待确认 ACK、未结清 GC、暂停的新 turn 或资源门关闭会在排队前拒绝；候选排队至终态期间阻止同 Shard 新 source/GC turn。真实重开 Store 经 GC 后的排队拒绝、创建与零写复用通过局部测试。生产宿主调度、Broker cut 和完整控制/语义发布恢复链仍待实现。

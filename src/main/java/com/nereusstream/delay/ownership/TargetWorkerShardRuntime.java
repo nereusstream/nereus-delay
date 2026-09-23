@@ -1,13 +1,19 @@
 package com.nereusstream.delay.ownership;
 
+import com.nereusstream.delay.protocol.CheckpointUploadIntent;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.runtime.TargetQuotaDelta;
 import com.nereusstream.delay.runtime.TargetReservationControls;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
+import com.nereusstream.delay.store.CheckpointManifestLimits;
+import com.nereusstream.delay.store.CheckpointUploadIntentAuthority;
 import com.nereusstream.delay.store.ShardStore;
 import com.nereusstream.delay.store.SharedRocksDbResources;
+import com.nereusstream.delay.store.TargetCheckpointCandidateWorkClassExecutor;
+import com.nereusstream.delay.store.TargetCheckpointRootVerifier;
 import com.nereusstream.delay.store.TargetStoreBackend;
+import java.nio.file.Path;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.LongSupplier;
@@ -46,9 +52,11 @@ public final class TargetWorkerShardRuntime
     private final WorkClassExecutionRegistry workClasses;
     private final SharedRocksDbResources resources;
     private final WorkerSourceApplyLoop sourceLoop;
+    private final TargetSourceApplyRuntime target;
     private final TargetReservationGcRuntime maintenance;
     private final TargetOwnerDrainCoordinator drainCoordinator;
     private boolean sourceAndMaintenancePaused;
+    private TargetCheckpointCandidateWorkClassExecutor.Submission pendingCheckpoint;
 
     public TargetWorkerShardRuntime(
             final SourceRecordConsumer consumer,
@@ -62,6 +70,7 @@ public final class TargetWorkerShardRuntime
         final var exactStore = Objects.requireNonNull(store, "store");
         this.resources = Objects.requireNonNull(resources, "resources");
         final var exactTarget = Objects.requireNonNull(target, "target");
+        this.target = exactTarget;
         final var inputs = Objects.requireNonNull(maintenanceInputs, "maintenanceInputs");
         exactTarget.requireWorkerStore(exactStore, this.resources);
         this.resources.bindWorkClassExecutionRegistry(exactClasses);
@@ -108,8 +117,49 @@ public final class TargetWorkerShardRuntime
         return maintenance.runTurn(Objects.requireNonNull(budget, "budget"));
     }
 
+    /** Admits only an ACK-settled active Shard to the bound, unpublished CHECKPOINT work class. */
+    public synchronized TargetCheckpointCandidateWorkClassExecutor.Submission submitLocalCheckpointCandidate(
+            final CheckpointUploadIntentAuthority intents,
+            final LongSupplier ownerClock,
+            final Path checkpointPath,
+            final CheckpointUploadIntent pending,
+            final CheckpointManifestLimits physicalLimits,
+            final TargetCheckpointRootVerifier.QuotaAuditLimits quotaLimits,
+            final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        if (sourceLoop.pendingEntry().isPresent()) {
+            throw new IllegalStateException("Target checkpoint cannot cut a pending source acknowledgement");
+        }
+        if (maintenance.hasPendingTurn()) {
+            throw new IllegalStateException("Target checkpoint cannot cut a pending GC action");
+        }
+        final var submitted = target.submitLocalCheckpointCandidate(
+                workClasses, intents, ownerClock, checkpointPath, pending, physicalLimits, quotaLimits, ledgerLimits);
+        pendingCheckpoint = submitted;
+        return submitted;
+    }
+
+    /** Runs one shared bounded turn and releases the local source/GC cut only after this action settles. */
+    public synchronized Optional<TargetCheckpointCandidateWorkClassExecutor.Outcome> runCheckpointTurn(
+            final SchedulerBudget budget) {
+        if (pendingCheckpoint == null) {
+            return Optional.empty();
+        }
+        resources.requireRuntimeBusinessAdmission();
+        if (pendingCheckpoint.outcome().isEmpty()) {
+            workClasses.runTurn(Objects.requireNonNull(budget, "budget"));
+        }
+        final var outcome = pendingCheckpoint.outcome();
+        if (outcome.isPresent()) {
+            pendingCheckpoint = null;
+        }
+        return outcome;
+    }
+
     /** Stops new source polls and GC submissions before Owner drain begins. */
     public synchronized void pauseNewTurns() {
+        requireCheckpointSettled();
         if (sourceLoop.pendingEntry().isPresent()) {
             throw new IllegalStateException("Target Worker cannot pause a pending source acknowledgement");
         }
@@ -161,6 +211,16 @@ public final class TargetWorkerShardRuntime
     private void requireNewTurnsAdmitted() {
         if (sourceAndMaintenancePaused) {
             throw new IllegalStateException("Target Worker source and GC admission is paused");
+        }
+        requireCheckpointSettled();
+    }
+
+    private void requireCheckpointSettled() {
+        if (pendingCheckpoint != null && pendingCheckpoint.outcome().isPresent()) {
+            pendingCheckpoint = null;
+        }
+        if (pendingCheckpoint != null) {
+            throw new IllegalStateException("Target Worker checkpoint cut is still pending");
         }
     }
 }

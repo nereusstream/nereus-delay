@@ -38,6 +38,8 @@ import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
 import com.nereusstream.delay.protocol.CanonicalTargetPartition;
 import com.nereusstream.delay.protocol.CapacityDimension;
 import com.nereusstream.delay.protocol.CapacityVector;
+import com.nereusstream.delay.protocol.CheckpointUploadIntent;
+import com.nereusstream.delay.protocol.CheckpointUploadState;
 import com.nereusstream.delay.protocol.CloseLaneRequest;
 import com.nereusstream.delay.protocol.ClosePolicy;
 import com.nereusstream.delay.protocol.CommandHash;
@@ -67,6 +69,7 @@ import com.nereusstream.delay.protocol.PreparedCommand;
 import com.nereusstream.delay.protocol.PreparedControlOperation;
 import com.nereusstream.delay.protocol.ProfileBindingControlState;
 import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
 import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
 import com.nereusstream.delay.protocol.ProtocolTuple;
 import com.nereusstream.delay.protocol.RescheduleCommandBody;
@@ -104,6 +107,7 @@ import com.nereusstream.delay.scheduler.WorkClassPolicy;
 import com.nereusstream.delay.scheduler.WorkClassRuntimeConfig;
 import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.CheckpointManifestLimits;
+import com.nereusstream.delay.store.CheckpointUploadIntentStore;
 import com.nereusstream.delay.store.ColumnFamily;
 import com.nereusstream.delay.store.ShardStore;
 import com.nereusstream.delay.store.ShardStoreConfig;
@@ -3068,6 +3072,91 @@ class TargetCommandStoreTest {
             assertEquals(
                     TargetReservationClosureStore.Progress.COMPLETE,
                     reopenedClosures.progress(budget(), reopenedCloseTargets[2], ownerReads));
+            if (!claimed && !rescheduled) {
+                final var candidateId = bytes(16, 0x6c);
+                final var pendingCandidate = new CheckpointUploadIntent(
+                        new ShardSubject(scope.shard()),
+                        reopenedLineage,
+                        candidateId,
+                        new OwnerIdentity(
+                                bytes(8, 0x6d),
+                                bytes(8, 0x6e),
+                                activeReopened.ownerEpoch(),
+                                activeReopened.leaseToken()),
+                        reopened.metadata().storeIncarnation(),
+                        bytes(32, 0x6f),
+                        1,
+                        null,
+                        null,
+                        new ProfileRef(bytes(8, 0x70), 1, bytes(32, 0x71), ProfileKind.OBJECT_STORE),
+                        new TrustedUtcIntervalEvidence(
+                                1,
+                                2,
+                                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                                bytes(32, 0x72),
+                                1,
+                                1,
+                                1,
+                                bytes(32, 0x73),
+                                0,
+                                null),
+                        5_000,
+                        CheckpointUploadState.PENDING_UPLOAD,
+                        1,
+                        null,
+                        null);
+                final var candidateIntents = new CheckpointUploadIntentStore();
+                candidateIntents.create(pendingCandidate);
+                final var candidatePath = root.resolve("reopened-worker-candidate");
+                final var candidateLimits =
+                        new CheckpointManifestLimits(1_000, 256L << 20, 256L << 20, 1_024, 1 << 20, 1_000, 1_024);
+                final var quotaLimits = new TargetCheckpointRootVerifier.QuotaAuditLimits(100_000, 256L << 20);
+                final var ledgerLimits = new TargetCheckpointRootVerifier.LedgerAuditLimits(
+                        100_000, 256L << 20, 500_000, 256L << 20);
+                final long beforeCandidate = reopened.operationStatistics().nativeWriteCalls();
+                final var candidate = reopenedWorker.submitLocalCheckpointCandidate(
+                        candidateIntents,
+                        () -> 101,
+                        candidatePath,
+                        pendingCandidate,
+                        candidateLimits,
+                        quotaLimits,
+                        ledgerLimits);
+                assertEquals(beforeCandidate, reopened.operationStatistics().nativeWriteCalls());
+                assertThrows(
+                        IllegalStateException.class,
+                        () -> reopenedWorker.runSourceTurn(new SchedulerBudget(1, 1, 1_000), () -> 101));
+                assertThrows(
+                        IllegalStateException.class,
+                        () -> reopenedWorker.runMaintenanceTurn(new SchedulerBudget(1, 1, 1_000)));
+                assertThrows(IllegalStateException.class, reopenedWorker::pauseNewTurns);
+                assertTrue(reopenedWorker.runCheckpointTurn(new SchedulerBudget(1, 1, 1_000)).isEmpty());
+                assertEquals(beforeCandidate, reopened.operationStatistics().nativeWriteCalls());
+                assertEquals(
+                        candidatePath,
+                        reopenedWorker
+                                .runCheckpointTurn(new SchedulerBudget(1, candidate.task().bytes(), 1_000))
+                                .orElseThrow()
+                                .checkpointPath());
+                assertEquals(candidatePath, candidate.outcome().orElseThrow().checkpointPath());
+                assertEquals(beforeCandidate + 1, reopened.operationStatistics().nativeWriteCalls());
+                final var reused = reopenedWorker.submitLocalCheckpointCandidate(
+                        candidateIntents,
+                        () -> 101,
+                        candidatePath,
+                        pendingCandidate,
+                        candidateLimits,
+                        quotaLimits,
+                        ledgerLimits);
+                assertEquals(
+                        candidatePath,
+                        reopenedWorker
+                                .runCheckpointTurn(new SchedulerBudget(1, reused.task().bytes(), 1_000))
+                                .orElseThrow()
+                                .checkpointPath());
+                assertEquals(candidatePath, reused.outcome().orElseThrow().checkpointPath());
+                assertEquals(beforeCandidate + 1, reopened.operationStatistics().nativeWriteCalls());
+            }
             final long beforePausedGc = reopened.latestSequenceNumber();
             final var pausedSubmission = reopenedFleet
                     .runNextMaintenanceTurn(new SchedulerBudget(1, 1, 60_000_000_000L))

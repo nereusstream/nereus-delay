@@ -65,6 +65,11 @@ public final class TargetReservationGcRuntime {
         this.expiries = Objects.requireNonNull(expiries, "expiries");
     }
 
+    /** A queued GC action must settle before a local checkpoint source/Store cut is admitted. */
+    public synchronized boolean hasPendingTurn() {
+        return pendingClose != null || pendingExpiry != null;
+    }
+
     /** At most one GC action is outstanding; an unexecuted queued action survives a small shared turn budget. */
     public synchronized Turn runTurn(final SchedulerBudget budget) {
         Objects.requireNonNull(budget, "budget");
