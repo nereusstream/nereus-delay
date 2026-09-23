@@ -103,6 +103,7 @@ public final class TargetWorkerHostRuntime {
     private final Set<ShardId> withdrawn = new HashSet<>();
     private final Set<ShardId> draining = new HashSet<>();
     private final Map<ShardId, ShardDrain> completed = new HashMap<>();
+    private TargetWorkerTargetInventory.Snapshot pendingTargetInventory;
     private boolean stopping;
 
     /** Starts bounded reservation GC ticks for one exact Worker graph. */
@@ -220,7 +221,33 @@ public final class TargetWorkerHostRuntime {
             final LongSupplier ownerClock,
             final LongSupplier monotonicClock) {
         final var current = currentTargetWorkers();
-        return TargetWorkerTargetInventory.rebuild(this, current, limits, ownerClock, monotonicClock);
+        synchronized (this) {
+            pendingTargetInventory = null;
+        }
+        final var result = TargetWorkerTargetInventory.rebuild(this, current, limits, ownerClock, monotonicClock);
+        synchronized (this) {
+            pendingTargetInventory = result.snapshot();
+        }
+        return result;
+    }
+
+    /** Starts ordinary byte DRR only from this Host's complete, still-current inventory. */
+    public TargetWorkerOrdinaryDrr newOrdinaryDrr(
+            final TargetWorkerTargetInventory.Result inventory,
+            final TargetWorkerOrdinaryDrr.Limits limits,
+            final LongSupplier ownerClock,
+            final LongSupplier monotonicClock) {
+        final var complete = Objects.requireNonNull(inventory, "inventory");
+        if (complete.stop() != TargetWorkerTargetInventory.Stop.COMPLETE) {
+            throw new IllegalArgumentException("Target DRR requires a complete inventory");
+        }
+        synchronized (this) {
+            if (complete.snapshot() != pendingTargetInventory) {
+                throw new IllegalArgumentException("Target DRR inventory was not built by this Host");
+            }
+            pendingTargetInventory = null;
+        }
+        return new TargetWorkerOrdinaryDrr(this, complete.snapshot(), limits, ownerClock, monotonicClock);
     }
 
     synchronized List<TargetWorkerShardRuntime> currentTargetWorkers() {
