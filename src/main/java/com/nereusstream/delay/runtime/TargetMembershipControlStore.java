@@ -7,6 +7,7 @@ import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
+import com.nereusstream.delay.protocol.TargetMembershipClosureRecord;
 import com.nereusstream.delay.protocol.TargetMembershipControlBody;
 import com.nereusstream.delay.protocol.TargetMembershipGrant;
 import com.nereusstream.delay.protocol.TargetMembershipPolicy;
@@ -25,15 +26,15 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Objects;
 
-/** First authenticated membership issuance over one Target Store/source batch. Closure remains a separate control. */
-public final class TargetMembershipIssueStore {
+/** First authenticated membership issuance and closure over one Target Store/source batch. */
+public final class TargetMembershipControlStore {
     public static final class Prepared {
-        private final TargetMembershipIssueStore owner;
+        private final TargetMembershipControlStore owner;
         private final TargetStoreBackend.Prepared batch;
         private final SystemMutationResult result;
 
         private Prepared(
-                TargetMembershipIssueStore owner, TargetStoreBackend.Prepared batch, SystemMutationResult result) {
+                TargetMembershipControlStore owner, TargetStoreBackend.Prepared batch, SystemMutationResult result) {
             this.owner = owner;
             this.batch = batch;
             this.result = result;
@@ -46,7 +47,7 @@ public final class TargetMembershipIssueStore {
     private final int maximumCounters;
     private final int maximumDomains;
 
-    public TargetMembershipIssueStore(
+    public TargetMembershipControlStore(
             TargetStoreBackend backend,
             TargetQuotaScope scope,
             byte[] lineage,
@@ -57,7 +58,7 @@ public final class TargetMembershipIssueStore {
         Bytes.requireLength(lineage, 16, "lineage");
         if (scope.target() != null || Arrays.equals(lineage, new byte[16])
                 || maximumCounters < 2 || maximumDomains < 1 || maximumDomains > 64) {
-            throw new IllegalArgumentException("membership issue needs bounded Shard/lineage accounting");
+            throw new IllegalArgumentException("membership control needs bounded Shard/lineage accounting");
         }
         this.lineage = Bytes.copy(lineage);
         this.maximumCounters = maximumCounters;
@@ -79,16 +80,13 @@ public final class TargetMembershipIssueStore {
         TargetSourcePosition.requireBounded(source);
         if (!scope.shard().equals(source.shardId()) || !scope.shard().equals(mutation.shardId())
                 || mutation.type() != SystemMutationType.APPLY_SHARD_CONTROL) {
-            throw new IllegalArgumentException("membership issue source/Shard mismatch");
+            throw new IllegalArgumentException("membership control source/Shard mismatch");
         }
         final var body = TargetMembershipControlBody.decode(mutation.canonicalBody());
-        if (!body.request().isIssue()) {
-            throw new IllegalArgumentException("membership closure is not an issuance");
-        }
         final var result = new SystemMutationResult[1];
         final var batch = backend.prepare(budget, reader -> {
             if (reader.source() == null || source.compareTo(reader.source()) <= 0) {
-                throw new IllegalStateException("first membership issue needs a strictly earlier source frontier");
+                throw new IllegalStateException("first membership control needs a strictly earlier source frontier");
             }
             final byte[] firstKey = Bytes.concat(
                     new byte[] {TargetKeyCodec.RESULT_SYSTEM_TAG, TargetKeyCodec.KEY_FORMAT},
@@ -110,7 +108,11 @@ public final class TargetMembershipIssueStore {
             } else {
                 try {
                     change = TargetMembershipControlVerifier.verifyFirstApplication(
-                            control, mutation, source, physical, ignored -> null, authority);
+                            control, mutation, source, physical,
+                            ref -> body.request().isIssue()
+                                    ? null
+                                    : TargetMembershipStoreAuthority.resolve(reader, scope, lineage, ref),
+                            authority);
                     rejection = null;
                 } catch (CommandResolutionException denied) {
                     if (denied.stableCode() != StableCode.UNAUTHORIZED_SYSTEM_MUTATION
@@ -123,22 +125,35 @@ public final class TargetMembershipIssueStore {
                 }
             }
             if (rejection == null) {
-                if (change.action() != TargetMembershipControlVerifier.Action.GRANT) {
-                    throw new IllegalStateException("membership issue verifier returned another action");
-                }
                 final TargetMembershipGrant grant = change.after().grant();
                 final TargetMembershipPolicy policy = body.request().policy();
                 if (!Arrays.equals(policy.tenantScope(), scope.tenantScope())
                         || !physical.id().equals(grant.offered().target())) {
-                    throw new IllegalStateException("membership issue differs from Store tenant/Target");
+                    throw new IllegalStateException("membership control differs from Store tenant/Target");
                 }
-                addImmutable(reader, edits, TargetKeyCodec.identity(physical.id()),
-                        CanonicalTargetPartition.VALUE_TYPE, physical.canonicalBytes());
-                addImmutable(reader, edits, policy.encodedKey(), TargetMembershipPolicy.VALUE_TYPE,
-                        policy.canonicalBytes());
-                requireAbsent(reader, ColumnFamily.META, grant.encodedKey());
-                edits.add(reader.replace(ColumnFamily.META, grant.encodedKey(),
-                        TargetMembershipGrant.VALUE_TYPE, grant.canonicalBytes()));
+                if (change.action() == TargetMembershipControlVerifier.Action.GRANT) {
+                    addImmutable(reader, edits, TargetKeyCodec.identity(physical.id()),
+                            CanonicalTargetPartition.VALUE_TYPE, physical.canonicalBytes());
+                    addImmutable(reader, edits, policy.encodedKey(), TargetMembershipPolicy.VALUE_TYPE,
+                            policy.canonicalBytes());
+                    requireAbsent(reader, ColumnFamily.META, grant.encodedKey());
+                    edits.add(reader.replace(ColumnFamily.META, grant.encodedKey(),
+                            TargetMembershipGrant.VALUE_TYPE, grant.canonicalBytes()));
+                } else {
+                    requireExact(reader, TargetKeyCodec.identity(physical.id()),
+                            CanonicalTargetPartition.VALUE_TYPE, physical.canonicalBytes());
+                    requireExact(reader, policy.encodedKey(), TargetMembershipPolicy.VALUE_TYPE,
+                            policy.canonicalBytes());
+                    if (change.action() == TargetMembershipControlVerifier.Action.CLOSE) {
+                        final var closure = new TargetMembershipClosureRecord(body, stamp, lineage);
+                        closure.requireGrant(grant);
+                        requireAbsent(reader, ColumnFamily.META, closure.key());
+                        edits.add(reader.replace(ColumnFamily.META, closure.key(),
+                                TargetMembershipClosureRecord.VALUE_TYPE, closure.canonicalBytes()));
+                    } else if (change.action() != TargetMembershipControlVerifier.Action.ALREADY_CLOSED) {
+                        throw new IllegalStateException("membership verifier returned an unknown action");
+                    }
+                }
             }
             final var outcome = SystemMutationResult.from(mutation,
                     rejection == null ? ApplyStatus.APPLIED : ApplyStatus.REJECTED,
@@ -181,7 +196,7 @@ public final class TargetMembershipIssueStore {
     public SystemMutationResult commit(Prepared prepared, TargetStoreBackend.CommitAuthority authority) {
         Objects.requireNonNull(prepared, "prepared");
         if (prepared.owner != this) {
-            throw new IllegalArgumentException("foreign membership issue plan");
+            throw new IllegalArgumentException("foreign membership control plan");
         }
         backend.commit(prepared.batch, Objects.requireNonNull(authority, "authority"));
         return prepared.result;
@@ -194,7 +209,7 @@ public final class TargetMembershipIssueStore {
         key[0] = TargetKeyCodec.QUOTA_INCARNATION_TAG;
         final byte[] raw = reader.get(ColumnFamily.META, key);
         if (raw == null) {
-            throw new IllegalStateException("membership issue lacks its controlled Shard root");
+            throw new IllegalStateException("membership control lacks its controlled Shard root");
         }
         final var root = TargetQuotaIncarnation.decodeForStore(key,
                 TargetValueEnvelope.decode(raw, TargetQuotaIncarnation.VALUE_TYPE).payload(),
@@ -220,9 +235,17 @@ public final class TargetMembershipIssueStore {
         }
     }
 
+    private static void requireExact(
+            TargetStoreBackend.Reader reader, byte[] key, int type, byte[] payload) {
+        final byte[] raw = reader.get(ColumnFamily.META, key);
+        if (raw == null || !Arrays.equals(TargetValueEnvelope.decode(raw, type).payload(), payload)) {
+            throw new IllegalStateException("membership retained metadata differs from authorized Control");
+        }
+    }
+
     private static void requireAbsent(TargetStoreBackend.Reader reader, ColumnFamily family, byte[] key) {
         if (reader.get(family, key) != null) {
-            throw new IllegalStateException("first membership issue encountered an existing result/grant");
+            throw new IllegalStateException("first membership control encountered an existing result/grant");
         }
     }
 }

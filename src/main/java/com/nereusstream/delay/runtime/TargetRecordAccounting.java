@@ -8,6 +8,7 @@ import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.TargetChannelIdentity;
 import com.nereusstream.delay.protocol.TargetControlScope;
 import com.nereusstream.delay.protocol.TargetDispatchCompatibility;
+import com.nereusstream.delay.protocol.TargetMembershipClosureRecord;
 import com.nereusstream.delay.protocol.TargetMembershipGrant;
 import com.nereusstream.delay.protocol.TargetMembershipPolicy;
 import com.nereusstream.delay.protocol.TargetNativePolicyScope;
@@ -378,6 +379,36 @@ public final class TargetRecordAccounting {
                                 .target(),
                         key,
                         payload);
+            }
+            case TargetMembershipClosureRecord.VALUE_TYPE -> {
+                requireFamily(family, ColumnFamily.META);
+                final var closure = TargetMembershipClosureRecord.decodeForStore(key, payload, scope.shard(), lineage);
+                closure.mutation().requireAtOrBefore(operation);
+                final byte[] memberKey = TargetKeyCodec.membershipGrant(closure.body().request().value());
+                final var member = TargetMembershipGrant.decodeForStore(
+                        memberKey,
+                        payload(ColumnFamily.META, memberKey, TargetMembershipGrant.VALUE_TYPE),
+                        scope.shard());
+                final var target = member.offered().target();
+                final var targetScope = scope.forTarget(target);
+                final byte[] allocationKey = Bytes.concat(
+                        new byte[] {TargetKeyCodec.QUOTA_GRANT_ACTIVATION_TAG, TargetKeyCodec.KEY_FORMAT},
+                        targetScope.keySuffix());
+                final var allocation = TargetQuotaGrantActivation.decodeForStore(
+                        allocationKey,
+                        payload(ColumnFamily.META, allocationKey, TargetQuotaGrantActivation.VALUE_TYPE),
+                        scope.shard(),
+                        scope.tenantScope());
+                if (allocation.allocation() == null) {
+                    throw new IllegalStateException("membership closure lacks first Target allocation");
+                }
+                result = metadata(TargetQuotaMetadataRecords.membershipClosure(
+                        allocation,
+                        descriptor(allocation.allocation().identity()),
+                        physical(target),
+                        member,
+                        key,
+                        payload));
             }
             case TargetResultRecord.VALUE_TYPE -> {
                 requireFamily(family, ColumnFamily.DEDUPE);

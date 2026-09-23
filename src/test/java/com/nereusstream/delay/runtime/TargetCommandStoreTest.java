@@ -297,7 +297,7 @@ class TargetCommandStoreTest {
                     controls.digest(),
                     60000,
                     nativeModel.artifacts());
-            // Source-applied membership/Native controls are fixture inputs until their formal handlers are wired.
+            // This Schedule fixture seeds membership and Native records independently of their source handlers.
             new TargetMessageStore(backend, 1, 1, 1)
                     .applyAccounted(
                             budget(),
@@ -382,7 +382,6 @@ class TargetCommandStoreTest {
                     destination,
                     capability,
                     profiles,
-                    ref -> new TargetMembershipAuthority.AppliedGrant(membership, null),
                     60000);
             final var scheduleResolutions = new java.util.concurrent.atomic.AtomicInteger();
             final TargetCommandStore.Schedules scheduleProvider = (incoming, position) -> {
@@ -409,7 +408,6 @@ class TargetCommandStoreTest {
                                 destination,
                                 capability,
                                 profiles,
-                                ref -> new TargetMembershipAuthority.AppliedGrant(membership, null),
                                 60000),
                         TargetOrderState.OrderingContract.ADMISSION_WATERMARK);
             };
@@ -896,7 +894,7 @@ class TargetCommandStoreTest {
                                         (a, b, c) -> guard());
                             },
                             entry -> {
-                                throw new AssertionError("unexpected membership issue authority");
+                                throw new AssertionError("unexpected membership control authority");
                             },
                             (a, b, c) -> guard(),
                             (a, b) -> guard(),

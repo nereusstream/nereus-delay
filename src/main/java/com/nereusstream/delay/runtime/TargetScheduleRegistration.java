@@ -11,7 +11,6 @@ import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.TargetControlScope;
 import com.nereusstream.delay.protocol.TargetDispatchCompatibility;
 import com.nereusstream.delay.protocol.TargetDomainState;
-import com.nereusstream.delay.protocol.TargetMembershipGrant;
 import com.nereusstream.delay.protocol.TargetNativePolicyScope;
 import com.nereusstream.delay.protocol.TargetQueueState;
 import com.nereusstream.delay.protocol.TargetQuotaGrantActivation;
@@ -19,7 +18,6 @@ import com.nereusstream.delay.protocol.TargetQuotaIncarnation;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
 import com.nereusstream.delay.protocol.TargetScheduleBinding;
 import com.nereusstream.delay.store.ColumnFamily;
-import com.nereusstream.delay.store.ReadIncompleteException;
 import com.nereusstream.delay.store.TargetKeyCodec;
 import com.nereusstream.delay.store.TargetStoreBackend;
 import com.nereusstream.delay.store.TargetValueEnvelope;
@@ -37,7 +35,7 @@ public final class TargetScheduleRegistration {
     private TargetScheduleRegistration() {}
 
     /**
-     * Source-authenticated inputs. Membership closures and Profile activations must be fenced at commit;
+     * Source-authenticated inputs. Profile activations must be fenced at commit;
      * a supplied binding is a proposal, and its slot/contracts are recomputed from actual records below.
      * initialNativeLeadCapMs applies only when the physical Target has no queue yet.
      */
@@ -47,7 +45,6 @@ public final class TargetScheduleRegistration {
             ProfileSemanticEnvelope destination,
             ProfileSemanticEnvelope capability,
             ProfileBindingControlState profiles,
-            TargetMembershipAuthority membership,
             long initialNativeLeadCapMs) {
         public Authority {
             Objects.requireNonNull(proposed, "proposed");
@@ -55,7 +52,6 @@ public final class TargetScheduleRegistration {
             Objects.requireNonNull(destination, "destination");
             Objects.requireNonNull(capability, "capability");
             Objects.requireNonNull(profiles, "profiles");
-            Objects.requireNonNull(membership, "membership");
             if (initialNativeLeadCapMs < 0) {
                 throw new IllegalArgumentException("negative initial Native lead cap");
             }
@@ -112,25 +108,16 @@ public final class TargetScheduleRegistration {
             throw new IllegalStateException("first binding requires an advancing source");
         }
         // A provider cannot issue a grant merely by returning its digest or a proposed binding.
-        final byte[] grantKey = TargetKeyCodec.membershipGrant(binding.membershipGrantRef());
-        final var grant = TargetMembershipGrant.decodeForStore(
-                grantKey, required(reader, grantKey, TargetMembershipGrant.VALUE_TYPE), shardScope.shard());
-        final int grantOrder = grant.activationSource().compareTo(reader.source());
-        if (grantOrder > 0
-                || (grantOrder == 0
-                        && !Arrays.equals(
-                                grant.activationSource().canonicalBytes(),
-                                reader.source().canonicalBytes()))) {
-            throw new IllegalStateException("membership activation is ahead of the actual Store source");
-        }
+        final var applied = Objects.requireNonNull(
+                TargetMembershipStoreAuthority.resolve(reader, shardScope, lineage, binding.membershipGrantRef()),
+                "first binding lacks a durable membership grant");
+        final var grant = applied.grant();
         final var authorization = TargetMembershipAuthorization.firstBinding(
                 ref -> {
-                    try {
-                        return authority.membership().resolve(ref);
-                    } catch (ReadIncompleteException external) {
-                        throw new IllegalStateException(
-                                "external membership failure is not a local read yield", external);
+                    if (!Arrays.equals(ref, binding.membershipGrantRef())) {
+                        throw new IllegalStateException("first binding resolved another membership grant");
                     }
+                    return applied;
                 },
                 grant,
                 binding,

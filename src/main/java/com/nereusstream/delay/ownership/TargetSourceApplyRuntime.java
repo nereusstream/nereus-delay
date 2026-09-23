@@ -22,8 +22,8 @@ import com.nereusstream.delay.runtime.TargetCloseStore;
 import com.nereusstream.delay.runtime.TargetCloseVerifier;
 import com.nereusstream.delay.runtime.TargetCommandReplayStore;
 import com.nereusstream.delay.runtime.TargetCommandStore;
+import com.nereusstream.delay.runtime.TargetMembershipControlStore;
 import com.nereusstream.delay.runtime.TargetMembershipControlVerifier;
-import com.nereusstream.delay.runtime.TargetMembershipIssueStore;
 import com.nereusstream.delay.runtime.TargetQuotaDelta;
 import com.nereusstream.delay.runtime.TargetQuotaGrantControlVerifier;
 import com.nereusstream.delay.runtime.TargetQuotaGrantStore;
@@ -104,12 +104,12 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         CloseControl resolve(SourceReplayMutation entry);
     }
 
-    public record MembershipIssueControl(
+    public record MembershipControl(
             PreparedControlOperation prepared,
             CanonicalTargetPartition physical,
             TargetMembershipControlVerifier.Authority authority,
             TargetStoreBackend.CommitAuthority commit) {
-        public MembershipIssueControl {
+        public MembershipControl {
             Objects.requireNonNull(prepared, "prepared");
             Objects.requireNonNull(physical, "physical");
             Objects.requireNonNull(authority, "authority");
@@ -118,8 +118,8 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     }
 
     @FunctionalInterface
-    public interface MembershipIssues {
-        MembershipIssueControl resolve(SourceReplayMutation entry);
+    public interface MembershipControls {
+        MembershipControl resolve(SourceReplayMutation entry);
     }
 
     public record CommandControl(
@@ -151,7 +151,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             GrantControls grants,
             Fences fences,
             Closes closes,
-            MembershipIssues membershipIssues,
+            MembershipControls membershipControls,
             TargetStoreBackend.CommitAuthority duplicateWrites,
             TargetStoreBackend.ReadAuthority reads,
             Commands commands) {
@@ -161,7 +161,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             Objects.requireNonNull(grants, "grants");
             Objects.requireNonNull(fences, "fences");
             Objects.requireNonNull(closes, "closes");
-            Objects.requireNonNull(membershipIssues, "membershipIssues");
+            Objects.requireNonNull(membershipControls, "membershipControls");
             Objects.requireNonNull(duplicateWrites, "duplicateWrites");
             Objects.requireNonNull(reads, "reads");
             Objects.requireNonNull(commands, "commands");
@@ -176,7 +176,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     private final TargetQuotaGrantStore grants;
     private final TargetTimeFenceStore fences;
     private final TargetCloseStore closes;
-    private final TargetMembershipIssueStore membershipIssues;
+    private final TargetMembershipControlStore membershipControls;
     private final TargetSystemReplayStore replay;
     private final TargetCommandReplayStore commandReplay;
     private final TargetCommandStore commands;
@@ -264,7 +264,8 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         grants = new TargetQuotaGrantStore(backend, scope, lineage, limits.counters(), limits.domains());
         fences = new TargetTimeFenceStore(backend, scope, lineage, limits.counters(), limits.domains());
         closes = new TargetCloseStore(backend, scope, lineage, limits.counters(), limits.domains());
-        membershipIssues = new TargetMembershipIssueStore(backend, scope, lineage, limits.counters(), limits.domains());
+        membershipControls = new TargetMembershipControlStore(
+                backend, scope, lineage, limits.counters(), limits.domains());
         replay = new TargetSystemReplayStore(backend, scope, lineage, limits.counters(), limits.domains());
         commandReplay = new TargetCommandReplayStore(backend, scope, lineage, limits.counters(), limits.domains());
         commands = new TargetCommandStore(backend, scope, lineage, limits.counters(), limits.domains());
@@ -525,18 +526,18 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                     throw new ReadYield(incomplete);
                 }
                 result = closes.commit(first, writes(control.commit(), entry, clock));
-            } else if (isMembershipIssue(mutation.mutation())) {
+            } else if (isMembershipControl(mutation.mutation())) {
                 final var control = Objects.requireNonNull(
-                        authorities.membershipIssues().resolve(mutation), "membership issue control");
-                final TargetMembershipIssueStore.Prepared first;
+                        authorities.membershipControls().resolve(mutation), "membership control");
+                final TargetMembershipControlStore.Prepared first;
                 try {
-                    first = membershipIssues.prepareFirst(
+                    first = membershipControls.prepareFirst(
                             budget, control.prepared(), mutation.mutation(), entry.position(),
                             control.physical(), control.authority());
                 } catch (ReadIncompleteException incomplete) {
                     throw new ReadYield(incomplete);
                 }
-                result = membershipIssues.commit(first, writes(control.commit(), entry, clock));
+                result = membershipControls.commit(first, writes(control.commit(), entry, clock));
             } else {
                 final var control = Objects.requireNonNull(authorities.grants().resolve(mutation), "grant control");
                 final TargetQuotaGrantStore.Prepared first;
@@ -740,11 +741,8 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         }
         if (isTargetClose(mutation.mutation())) {
             TargetCloseBody.decode(mutation.mutation().canonicalBody());
-        } else if (isMembershipIssue(mutation.mutation())) {
-            final var body = TargetMembershipControlBody.decode(mutation.mutation().canonicalBody());
-            if (!body.request().isIssue()) {
-                throw new IllegalArgumentException("Target membership closure is not wired yet");
-            }
+        } else if (isMembershipControl(mutation.mutation())) {
+            TargetMembershipControlBody.decode(mutation.mutation().canonicalBody());
         } else {
             TargetQuotaGrantControlBody.decode(mutation.mutation().canonicalBody());
         }
@@ -755,8 +753,9 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         return targetControlKind(mutation) == TargetCloseRequest.CONTROL_KIND;
     }
 
-    private static boolean isMembershipIssue(com.nereusstream.delay.protocol.SystemMutation mutation) {
-        return targetControlKind(mutation) == 15;
+    private static boolean isMembershipControl(com.nereusstream.delay.protocol.SystemMutation mutation) {
+        final int kind = targetControlKind(mutation);
+        return kind == 15 || kind == 16;
     }
 
     private static int targetControlKind(com.nereusstream.delay.protocol.SystemMutation mutation) {

@@ -38,6 +38,7 @@ public final class TargetKeyCodec {
     public static final int QUOTA_CLAIM_CHARGE_TAG = 27;
     public static final int CLOSE_TAG = 28;
     public static final int CLOSE_CURSOR_TAG = 29;
+    public static final int MEMBERSHIP_CLOSURE_TAG = 30;
     // Target result tags belong to DEDUPE, independently of META and ID tags.
     public static final int RESULT_COMMAND_TAG = 6;
     public static final int RESULT_QUERY_TAG = 7;
@@ -64,6 +65,11 @@ public final class TargetKeyCodec {
         return Bytes.concat(
                 new byte[] {CLOSE_TAG, KEY_FORMAT},
                 Objects.requireNonNull(target, "target").bytes());
+    }
+
+    public static byte[] membershipClosure(final byte[] grantRef) {
+        requireAssignedDigest(grantRef, "membershipGrantRef");
+        return Bytes.concat(new byte[] {MEMBERSHIP_CLOSURE_TAG, KEY_FORMAT}, grantRef);
     }
 
     public static byte[] targetReservationPrefix(TargetPartitionId target) {

@@ -6,6 +6,7 @@ import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.TargetChannelIdentity;
 import com.nereusstream.delay.protocol.TargetControlScope;
 import com.nereusstream.delay.protocol.TargetDispatchCompatibility;
+import com.nereusstream.delay.protocol.TargetMembershipClosureRecord;
 import com.nereusstream.delay.protocol.TargetMembershipGrant;
 import com.nereusstream.delay.protocol.TargetMembershipPolicy;
 import com.nereusstream.delay.protocol.TargetNativePolicyScope;
@@ -24,7 +25,7 @@ import java.util.Objects;
 
 /** Exact META record contributions and bounded attribution read sets; no source, publication or deletion authority. */
 public final class TargetQuotaMetadataRecords {
-    public static final int MAX_READ_RECORDS = 4;
+    public static final int MAX_READ_RECORDS = 5;
 
     private TargetQuotaMetadataRecords() {}
 
@@ -194,6 +195,33 @@ public final class TargetQuotaMetadataRecords {
                 stateCharge(owner, key, payload),
                 point(TargetQuotaGrantActivation.VALUE_TYPE, grant.key(), grant.canonicalBytes()),
                 identityPoint(physicalIdentity));
+    }
+
+    public static Record membershipClosure(
+            final TargetQuotaGrantActivation allocation,
+            final TargetQuotaIncarnation owner,
+            final CanonicalTargetPartition physicalIdentity,
+            final TargetMembershipGrant member,
+            final byte[] key,
+            final byte[] payload) {
+        requireSharedOrigin(allocation, owner);
+        requireTarget(owner, physicalIdentity.id());
+        requireTenant(owner, member.tenantScope());
+        member.required().requireTargetProjection(physicalIdentity);
+        member.offered().requireTargetProjection(physicalIdentity);
+        requireLaterSource(owner, member.activationSource());
+        final var closure = TargetMembershipClosureRecord.decodeForStore(
+                key, payload, owner.identity().shard(), owner.recoveryLineage());
+        closure.requireGrant(member);
+        return new Record(
+                TargetMembershipClosureRecord.VALUE_TYPE,
+                key,
+                payload,
+                owner,
+                stateCharge(owner, key, payload),
+                point(TargetQuotaGrantActivation.VALUE_TYPE, allocation.key(), allocation.canonicalBytes()),
+                identityPoint(physicalIdentity),
+                point(TargetMembershipGrant.VALUE_TYPE, member.encodedKey(), member.canonicalBytes()));
     }
 
     public static Record queue(

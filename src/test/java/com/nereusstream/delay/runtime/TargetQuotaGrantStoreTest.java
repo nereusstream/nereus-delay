@@ -2,6 +2,7 @@ package com.nereusstream.delay.runtime;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -73,6 +74,7 @@ import com.nereusstream.delay.protocol.TargetCloseBody;
 import com.nereusstream.delay.protocol.TargetCloseRequest;
 import com.nereusstream.delay.protocol.TargetControlScope;
 import com.nereusstream.delay.protocol.TargetDispatchCompatibility;
+import com.nereusstream.delay.protocol.TargetMembershipClosureRecord;
 import com.nereusstream.delay.protocol.TargetMembershipControlBody;
 import com.nereusstream.delay.protocol.TargetMembershipControlRequest;
 import com.nereusstream.delay.protocol.TargetMembershipGrant;
@@ -1623,7 +1625,7 @@ class TargetQuotaGrantStoreTest {
     }
 
     @Test
-    void membershipIssueAtomicallySeedsIdentityPolicyGrantAndResultAfterTargetAllocation() throws Exception {
+    void membershipIssueAndClosePreserveFirstSourceAndAtomicResults() throws Exception {
         final var template = TargetQuotaGrantActivation.decode(raw("target.initial.activation"));
         final var base = (KafkaSourcePosition) template.mutation().source();
         final var earlier = source(base, base.offset() - 1, base.brokerLogAppendTimeEpochMs() - 1);
@@ -1714,7 +1716,10 @@ class TargetQuotaGrantStoreTest {
                 prepared -> true);
         final var config = ShardStoreConfig.defaults(root);
         final byte[] grantKey;
+        final byte[] grantRef;
         final byte[] grantBytes;
+        final byte[] closureKey;
+        final byte[] closureBytes;
         try (var resources = new SharedRocksDbResources(config);
                 var store = ShardStore.openTarget(config, scope.shard(), resources)) {
             final var initialized = TargetStoreBootstrap.commit(
@@ -1731,7 +1736,7 @@ class TargetQuotaGrantStoreTest {
                             authority(registrations, keys, actor, base, targetGrant, (a, b, c, d) -> {})),
                     (a, b, c) -> guard()).stableCode());
             assertNull(store.get(ColumnFamily.META, TargetKeyCodec.identity(physical.id())));
-            final var issues = new TargetMembershipIssueStore(backend, scope, lineage, 16, 1);
+            final var issues = new TargetMembershipControlStore(backend, scope, lineage, 16, 1);
             final long before = store.latestSequenceNumber();
             final var unavailable = new TargetMembershipControlVerifier.Authority(
                     registrations,
@@ -1766,8 +1771,11 @@ class TargetQuotaGrantStoreTest {
                             entry -> { throw new AssertionError("membership issue resolved Target Close"); },
                             entry -> {
                                 resolutions.incrementAndGet();
-                                return new TargetSourceApplyRuntime.MembershipIssueControl(
-                                        member.control(), physical, authority, (a, b, c) -> guard());
+                                final var selected = TargetMembershipControlBody.decode(
+                                        entry.mutation().canonicalBody());
+                                return new TargetSourceApplyRuntime.MembershipControl(
+                                        registrations.find(selected.controlRef().operationId()).orElseThrow(),
+                                        physical, authority, (a, b, c) -> guard());
                             },
                             (a, b, c) -> guard(), (a, b) -> guard(),
                             entry -> { throw new AssertionError("membership issue resolved Command"); }),
@@ -1801,6 +1809,7 @@ class TargetQuotaGrantStoreTest {
             final var grant = TargetMembershipGrant.fromRegistration(
                     request.value(), member.mutation().mutationHash(), issueAt);
             grantKey = grant.encodedKey();
+            grantRef = grant.digest();
             grantBytes = grant.canonicalBytes();
             assertArrayEquals(grantBytes, TargetValueEnvelope.decode(
                     store.get(ColumnFamily.META, grantKey), TargetMembershipGrant.VALUE_TYPE).payload());
@@ -1818,21 +1827,76 @@ class TargetQuotaGrantStoreTest {
                             policy, grant.digest(),
                             new ControlReason(ControlReasonKind.POLICY_CHANGE, null, null)),
                     bytes(32, 0x75), actor, keys, scope.shard());
+            registrations.register(close.control());
             final var closeAt = source(duplicateAt, duplicateAt.offset() + 1,
                     duplicateAt.brokerLogAppendTimeEpochMs() + 1);
+            final var closeAcks = new java.util.concurrent.atomic.AtomicInteger();
             queue.add(new SourceRecordConsumer.PolledSourceRecord(
                     new SourceReplayMutation(close.mutation(), closeAt, null, null),
-                    (entry, outcome) -> { throw new AssertionError("unwired membership close was ACKed"); }));
-            final long beforeUnwiredClose = store.latestSequenceNumber();
-            assertEquals(SourceApplyCoordinator.TurnStatus.SUBMISSION_REJECTED,
+                    (entry, outcome) -> {
+                        assertEquals(StableCode.OK, outcome.systemMutationResult().stableCode());
+                        return closeAcks.incrementAndGet() == 1
+                                ? SourceAcknowledgement.AcknowledgementResult.unknown(null)
+                                : SourceAcknowledgement.AcknowledgementResult.acked();
+                    }));
+            assertEquals(SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN,
                     loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100).status());
-            assertTrue(loop.pendingEntry().isPresent());
-            assertEquals(beforeUnwiredClose, store.latestSequenceNumber());
+            final long afterClose = store.latestSequenceNumber();
+            assertEquals(SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                    loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100).status());
+            assertEquals(afterClose, store.latestSequenceNumber());
+            assertEquals(2, resolutions.get());
+            closureKey = TargetKeyCodec.membershipClosure(grant.digest());
+            closureBytes = TargetValueEnvelope.decode(
+                    store.get(ColumnFamily.META, closureKey), TargetMembershipClosureRecord.VALUE_TYPE).payload();
+            final var marker = TargetMembershipClosureRecord.decodeForStore(
+                    closureKey, closureBytes, scope.shard(), lineage);
+            assertArrayEquals(closeAt.canonicalBytes(), marker.closedAt().canonicalBytes());
+            marker.requireGrant(grant);
+            assertThrows(IllegalStateException.class, () -> TargetMembershipClosureRecord.decodeForStore(
+                    TargetKeyCodec.membershipClosure(bytes(32, 0x7e)), closureBytes, scope.shard(), lineage));
+            assertThrows(IllegalStateException.class, () -> TargetMembershipClosureRecord.decodeForStore(
+                    closureKey, closureBytes, scope.shard(), bytes(16, 0x7e)));
+            final var second = signedMembership(
+                    TargetMembershipControlRequest.close(
+                            policy, grant.digest(),
+                            new ControlReason(ControlReasonKind.POLICY_CHANGE, null, null)),
+                    bytes(32, 0x76), actor, keys, scope.shard());
+            registrations.register(second.control());
+            final var secondAt = source(closeAt, closeAt.offset() + 1,
+                    closeAt.brokerLogAppendTimeEpochMs() + 1);
+            queue.add(new SourceRecordConsumer.PolledSourceRecord(
+                    new SourceReplayMutation(second.mutation(), secondAt, null, null),
+                    (entry, outcome) -> {
+                        assertEquals(StableCode.OK, outcome.systemMutationResult().stableCode());
+                        return SourceAcknowledgement.AcknowledgementResult.acked();
+                    }));
+            assertEquals(SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                    loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100).status());
+            assertEquals(3, resolutions.get());
+            assertArrayEquals(closureBytes, TargetValueEnvelope.decode(
+                    store.get(ColumnFamily.META, closureKey), TargetMembershipClosureRecord.VALUE_TYPE).payload());
+            final var applied = backend.guardedRead(
+                    budget(), reader -> TargetMembershipStoreAuthority.resolve(reader, scope, lineage, grant.digest()),
+                    (a, b) -> guard());
+            assertArrayEquals(closeAt.canonicalBytes(), applied.closedAt().canonicalBytes());
+            assertTrue(applied.allowsFirstBinding(duplicateAt));
+            assertFalse(applied.allowsFirstBinding(secondAt));
         }
         try (var resources = new SharedRocksDbResources(config);
                 var reopened = ShardStore.openTarget(config, scope.shard(), resources)) {
             assertArrayEquals(grantBytes, TargetValueEnvelope.decode(
                     reopened.get(ColumnFamily.META, grantKey), TargetMembershipGrant.VALUE_TYPE).payload());
+            assertArrayEquals(closureBytes, TargetValueEnvelope.decode(
+                    reopened.get(ColumnFamily.META, closureKey), TargetMembershipClosureRecord.VALUE_TYPE).payload());
+            final var recovered = TargetStoreBootstrap.reopen(
+                    reopened, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(),
+                    (a, b) -> guard());
+            final var historical = recovered.backend().guardedRead(
+                    budget(), reader -> TargetMembershipStoreAuthority.resolve(reader, scope, lineage, grantRef),
+                    (a, b) -> guard());
+            assertArrayEquals(TargetMembershipClosureRecord.decode(closureBytes).closedAt().canonicalBytes(),
+                    historical.closedAt().canonicalBytes());
         }
     }
 

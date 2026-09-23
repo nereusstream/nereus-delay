@@ -1199,6 +1199,7 @@ owner 的冻结 accounting artifact 计费，保留态与 DRAINING 不自动释�
 | control scope | 19 / `0d 01 + digest` | first allocation | 完整 scope key/Target/Source Shard 一致 |
 | membership grant | 22 / `0f 01 + digest` | first allocation | 完整 tenant、required/offered physical 投影；实际 activation source 严格晚于 allocation、同物理 source |
 | membership policy | 23 / `10 01 + digest` | first allocation | 完整 tenant、offered physical 投影和 controls Source Shard |
+| first membership closure | 41 / `1e 01 + grantRef` | first allocation | 完整首个 CLOSE body、source mutation stamp、recovery lineage；反查原 grant/Target 身份，后续 CLOSE 不覆盖 |
 | queue | 12 / `09 01 + TargetId` | queue incarnation | 完整 queue/physical/Shard/activated slot bound；一个 Target、ACTIVE+DRAINING 执行域数 |
 | strict order state | 17 / `0a 01 + TargetId + orderingDomain` | state incarnation | 完整 key/Target/Shard；一个 strict-domain，CLOSED 仍保留 |
 | channel identity | 20 / `0e 01 + digest` | channel context incarnation | 完整含 credential lease 的 channel key/Shard/Target/incarnation |
@@ -1829,7 +1830,8 @@ Message/Claim/history/payload。generation successor 禁止 uint32 wrap。旧 FI
 
 ## 35. 首次绑定记录的同视图准备边界
 
-TargetScheduleRegistration 读取实际 membership grant、Target quota activation 和
+TargetScheduleRegistration 在同一 Store ReadView 读取实际 membership grant 和首次
+closure，再读取 Target quota activation 和
 frozen incarnation descriptor，再从 queue 各非 VACANT domain 读取完整 dispatch/control/
 Native scope。新 ingress 不得引用 draining owner、不同 artifact/lineage 或未来 activation。
 它只返回 before/after edits，未生成费用、更未提交；调用者必须将所有共享记录、queue、
