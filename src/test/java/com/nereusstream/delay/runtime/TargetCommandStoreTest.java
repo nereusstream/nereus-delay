@@ -153,6 +153,9 @@ class TargetCommandStoreTest {
         final var registrations = new InMemoryControlTargetRegistrationAuthority();
         registrations.register(signed.control());
         final var config = ShardStoreConfig.defaults(root);
+        final byte[][] reopenIdentity = new byte[2][];
+        final com.nereusstream.delay.protocol.TargetPartitionId[] reopenedCloseTargets =
+                new com.nereusstream.delay.protocol.TargetPartitionId[2];
         try (var resources = new SharedRocksDbResources(config);
                 var store = ShardStore.openTarget(config, scope.shard(), resources)) {
             final var initialized = TargetStoreBootstrap.commit(
@@ -170,10 +173,13 @@ class TargetCommandStoreTest {
                     (a, b, c) -> guard());
             final var backend = initialized.backend();
             final var lineage = initialized.root().recoveryLineage();
+            reopenIdentity[0] = initialized.root().identity().accountingIncarnation();
+            reopenIdentity[1] = lineage;
             final var model =
                     TargetMessageRecord.decode(vector("target-identity-vectors.properties", "message.initial"));
             final var physical =
                     CanonicalTargetPartition.decode(vector("target-identity-vectors.properties", "pulsar.canonical"));
+            reopenedCloseTargets[0] = physical.id();
             final long[] targetAmounts = amounts.clone();
             Arrays.fill(targetAmounts, 50, 55, 0);
             targetAmounts[CapacityDimension.ACTIVE_MESSAGES.wireValue() - 1] = 1;
@@ -447,6 +453,7 @@ class TargetCommandStoreTest {
             final var emptyPhysical =
                     new CanonicalTargetPartition(physical.resource(), physical.physicalPartition() + 1);
             final var emptyTarget = emptyPhysical.id();
+            reopenedCloseTargets[1] = emptyTarget;
             final var emptyGrantRequest = new TargetQuotaGrantControlRequest(
                     new TargetQuotaGrant(
                             scope.forTarget(emptyTarget),
@@ -2638,6 +2645,69 @@ class TargetCommandStoreTest {
                             .orElseThrow()
                             .effectiveStatus());
             assertEquals(0, workerClasses.registeredActions());
+        }
+        try (var resources = new SharedRocksDbResources(config);
+                var reopened = ShardStore.openTarget(config, scope.shard(), resources)) {
+            final var reopenedBackend = new TargetStoreBackend(
+                    reopened,
+                    scope,
+                    reopenIdentity[0],
+                    reopenIdentity[1],
+                    new TargetStoreBackend.WriteLimits(64, 2 << 20));
+            final var reopenedCloseStore = new TargetCloseStore(reopenedBackend, scope, reopenIdentity[1], 16, 1);
+            final var reopenedControls =
+                    reopenedCloseStore.reservationControls((reader, binding) -> java.util.Optional.empty());
+            final var reopenedClosures =
+                    new TargetReservationClosureStore(reopenedBackend, scope, reopenIdentity[1], 1, reopenedControls);
+            final var observed = new java.util.HashSet<com.nereusstream.delay.protocol.TargetPartitionId>();
+            TargetReservationClosureStore.ScanCursor afterTarget = null;
+            for (int i = 0; i < 2; i++) {
+                final var discovered = reopenedClosures.discoverNextTarget(budget(), afterTarget, (a, b) -> guard());
+                observed.add(discovered.target().orElseThrow());
+                assertEquals(TargetReservationClosureStore.Progress.COMPLETE, discovered.progress());
+                afterTarget = discovered.nextCursor();
+            }
+            assertEquals(java.util.Set.of(reopenedCloseTargets), observed);
+            assertTrue(reopenedClosures
+                    .discoverNextTarget(budget(), afterTarget, (a, b) -> guard())
+                    .target()
+                    .isEmpty());
+            final long beforeReopenedGc = reopened.latestSequenceNumber();
+            final var reopenedWorkClasses = workClasses();
+            final var reopenedGc = new TargetReservationClosureWorkClassExecutor(
+                    reopenedWorkClasses,
+                    reopenedBackend,
+                    scope,
+                    reopenIdentity[1],
+                    1,
+                    reopenedControls,
+                    new TargetReservationClosureWorkClassExecutor.Limits(4096, 250_000, 60_000_000_000L),
+                    () -> {},
+                    (a, b) -> guard(),
+                    (a, b, c) -> {
+                        throw new AssertionError("reopened completed Close cannot write");
+                    },
+                    ignored -> {
+                        throw new AssertionError("reopened completed Close cannot materialize");
+                    },
+                    ignored -> {
+                        throw new AssertionError("reopened completed Close cannot expire");
+                    },
+                    ignored -> {
+                        throw new AssertionError("reopened completed Close cannot complete twice");
+                    },
+                    System::nanoTime);
+            for (int i = 0; i < 3; i++) {
+                final var scan = reopenedGc.submit(
+                        new TargetReservationClosureWorkClassExecutor.SweepRequest(scope.shard(), bytes(16, 0xe8 + i)));
+                reopenedWorkClasses.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
+                assertEquals(
+                        i == 2
+                                ? TargetReservationClosureWorkClassExecutor.Kind.SWEEP_COMPLETE
+                                : TargetReservationClosureWorkClassExecutor.Kind.SKIPPED_COMPLETE,
+                        scan.result().orElseThrow().kind());
+            }
+            assertEquals(beforeReopenedGc, reopened.latestSequenceNumber());
         }
     }
 

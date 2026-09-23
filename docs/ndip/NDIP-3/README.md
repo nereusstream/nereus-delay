@@ -22,9 +22,11 @@ Close 发现入口验证 marker、CLOSED queue、游标与双 ID，只读当前�
 零写，重提 field7 与两 counter/total/aggregate 共 5 条原子写、source 不变，重复零写。
 GC 现还可每次有界读取一条按 Target 排序的 NV40：跳过已完成 Target、处理未完成
 Target，扫到末尾回卷；轮转位置仅在进程内，重建时从持久 NV40 起点重新扫描。
-两 Target 的四组实际 Worker 场景和有限预算/外来游标检查通过。生产持续触发、跨
-Target 服务机会界限、Owner 接管实测、expiry-first 混合顺序、关闭汇总转移、生产
-历史权限/配置/factory、format2 回填、完整迁移/恢复和集中验证仍未完成。原 29 切片不缩减。
+两 Target 的四组实际 Worker 场景和有限预算/外来游标检查通过；关闭原 Store 后，
+新 RocksDB/backend/GC executor 从 NV40 起点重新扫描两个 COMPLETE Target、零写回卷。
+这仅验证完成状态的本地持久重读；未完成游标续跑、真实 Owner 接管、生产持续触发、
+跨 Target 服务机会界限、expiry-first 混合顺序、关闭汇总转移、生产历史权限/配置/
+factory、format2 回填、完整迁移/恢复和集中验证仍未完成。原 29 切片不缩减。
 
 以下为前序认证入口实施记录；持久 writer 的当前进展以上述说明为准。
 
