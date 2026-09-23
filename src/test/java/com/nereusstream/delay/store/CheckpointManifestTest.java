@@ -185,6 +185,25 @@ class CheckpointManifestTest {
     }
 
     @Test
+    void formatTwoManifestRoundTripsWithoutBecomingPublishedRecoveryAuthority() {
+        final CheckpointManifest manifest = manifestWithFiles(List.of(file("target.sst", 1)), 2);
+        final byte[] encoded = manifest.canonicalJsonBytes();
+        final CheckpointManifest decoded = CheckpointManifest.decodeCanonicalJson(encoded);
+
+        assertTrue(manifest.canonicalJson().contains("\"storeFormatVersion\":2"));
+        assertEquals(2, decoded.storeFormatVersion());
+        assertEquals(manifest.canonicalJson(), decoded.canonicalJson());
+        assertThrows(IllegalArgumentException.class, () -> new RecoveryCatalog().publish(decoded, 0));
+        assertThrows(IllegalArgumentException.class, () -> new OxiaRecoveryCatalog(new RecoveryCatalog())
+                .publish(decoded, 0));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> CheckpointManifest.decodeCanonicalJson(manifest.canonicalJson()
+                        .replace("\"storeFormatVersion\":2", "\"storeFormatVersion\":3")
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+    }
+
+    @Test
     void inventoryRejectsSymlinkedCheckpointFiles() throws Exception {
         final Path root = tempDir.resolve("symlink-checkpoint");
         Files.createDirectories(root);
@@ -312,6 +331,11 @@ class CheckpointManifestTest {
     }
 
     private CheckpointManifest manifestWithFiles(final List<CheckpointManifest.FileEntry> files) {
+        return manifestWithFiles(files, 1);
+    }
+
+    private CheckpointManifest manifestWithFiles(
+            final List<CheckpointManifest.FileEntry> files, final int storeFormat) {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 2);
         final KafkaSourcePosition position =
                 new KafkaSourcePosition(shardId, "cluster-a", UUID.randomUUID(), 9, 3, 1000);
@@ -336,7 +360,7 @@ class CheckpointManifestTest {
                 shardId,
                 Bytes.sha256(Bytes.utf8("db")),
                 UUID.randomUUID(),
-                1,
+                storeFormat,
                 7,
                 position,
                 new byte[32],

@@ -117,6 +117,9 @@ public final class CheckpointRestoreCoordinator {
         if (!shardId.equals(exact.manifest().shardId())) {
             throw new IllegalArgumentException("checkpoint restore request belongs to another shard");
         }
+        if (exact.manifest().storeFormatVersion() != 1) {
+            throw new IllegalArgumentException("checkpoint restore requires the supported format-1 install path");
+        }
         if (pin != null && catalog == null) {
             throw new IllegalArgumentException("RecoveryPin requires a catalog authority");
         }

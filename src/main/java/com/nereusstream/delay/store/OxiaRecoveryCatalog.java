@@ -39,6 +39,9 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
     public RecoveryCatalog.Publication publish(
             final CheckpointManifest manifest, final long expectedCatalogGeneration) {
         Objects.requireNonNull(manifest, "manifest");
+        if (manifest.storeFormatVersion() != 1) {
+            throw new IllegalArgumentException("Oxia checkpoint publication requires a recoverable format-1 manifest");
+        }
         final RecoveryCatalog.Publication result =
                 Objects.requireNonNull(backend.publish(manifest, expectedCatalogGeneration), "Oxia publish result");
         validatePublicationIdentity(manifest, result);
@@ -103,6 +106,9 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
             final long expectedCatalogGeneration) {
         final CheckpointUploadIntent intent = Objects.requireNonNull(publishedIntent, "publishedIntent");
         final CheckpointManifest requested = Objects.requireNonNull(manifest, "manifest");
+        if (requested.storeFormatVersion() != 1) {
+            throw new IllegalArgumentException("Oxia checkpoint publication requires a recoverable format-1 manifest");
+        }
         validateUploadedPublicationRequest(intent, requested, expectedCatalogGeneration);
         final RecoveryCatalog.Publication result = Objects.requireNonNull(
                 backend.publishUploadedCheckpoint(intent, requested, expectedCatalogGeneration),

@@ -453,6 +453,9 @@ public final class ShardStore implements AutoCloseable {
         }
         if (manifest != null) {
             manifest.validateLimits(limits);
+            if (manifest.storeFormatVersion() != 1) {
+                throw new IllegalArgumentException("checkpoint restore requires the supported format-1 install path");
+            }
         }
         if (catalog != null) {
             catalog.validatePublishedRestoreCandidate(Objects.requireNonNull(manifest, "manifest"));

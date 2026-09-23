@@ -405,8 +405,9 @@ drain 前可用 `settlePendingSourceTurn` 只重试保留的 source entry，空�
 失权与重投的关闭配方仍待完成。
 
 本地 Target drain 另通过 lease transition/release「CAS 成功而响应丢失」的返回空与
-抛错重试用例。最终 checkpoint 仍缺 format 2 Manifest 与恢复通路；现有 format 1
-通路不能证明 Target 快照可恢复，真实 Oxia/Broker 故障证据仍待完成。
+抛错重试用例。format 2 Manifest 已可规范编码/解码，但 Target 控制快照与发布/
+恢复通路仍缺；现有 format 1 通路不能证明 Target 快照可恢复，真实 Oxia/Broker
+故障证据仍待完成。
 
 全 fleet 本地 host 现启动定时 GC、提供 source 单轮入口，并在关闭时等待在途 GC
 后逐 Shard 运行 source settlement 与 Owner drain。单 Shard 撤出也会等待原在途
@@ -416,3 +417,6 @@ turn，之后仅 drain 该 Shard；其它 Shard 在其 drain 期间继续接收 
 
 现有 scheduled/drain checkpoint 执行器及物理快照入口已提前拒绝 Target format 2
 Store，避免旧链先写入不可发布的 checkpoint ID；format 2 的可恢复发布链仍待实现。
+
+format 2 Manifest 现可规范编码/解码；上传、Catalog/Oxia 和下载/安装继续提前
+拒绝其发布或接管，直到 Target 控制快照、物理校验与恢复权威闭合。

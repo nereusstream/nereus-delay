@@ -164,6 +164,43 @@ class CheckpointRestoreCoordinatorTest {
     }
 
     @Test
+    void formatTwoManifestCannotStartDownloadBeforeTargetInstallSupport() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 19);
+        final CheckpointManifest manifest = minimalManifest(shardId, 2);
+        final ProfileRef profile =
+                new ProfileRef(Bytes.utf8("checkpoint-store"), 1, bytes(32, 70), ProfileKind.OBJECT_STORE);
+        final CheckpointResource resource = new CheckpointResource(
+                manifest.recoveryLineageId(),
+                manifest.checkpointId(),
+                profile,
+                Bytes.utf8("container"),
+                Bytes.utf8("manifest"),
+                Bytes.utf8("version"),
+                manifest.canonicalJsonBytes().length,
+                manifest.manifestSha256());
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("target-restore-rejected"));
+        final AtomicBoolean downloaderCalled = new AtomicBoolean();
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {
+            final CheckpointRestoreCoordinator coordinator = new CheckpointRestoreCoordinator(
+                    config,
+                    shardId,
+                    resources,
+                    (request, target) -> {
+                        downloaderCalled.set(true);
+                        return target;
+                    },
+                    null,
+                    CheckpointManifestLimits.unbounded());
+
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> coordinator.restore(new CheckpointDownloadRequest(manifest, resource), null));
+            assertTrue(!downloaderCalled.get());
+            assertTrue(!Files.exists(config.rootPath().resolve("checkpoint-download-tmp")));
+        }
+    }
+
+    @Test
     void rejectsAProviderPathOutsideTheCoordinatorStagingBoundary() throws Exception {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 12);
         final CheckpointManifest manifest = minimalManifest(shardId);
@@ -278,6 +315,10 @@ class CheckpointRestoreCoordinatorTest {
     }
 
     private static CheckpointManifest minimalManifest(final ShardId shardId) {
+        return minimalManifest(shardId, 1);
+    }
+
+    private static CheckpointManifest minimalManifest(final ShardId shardId, final int storeFormat) {
         final UUID sourceStore = UUID.randomUUID();
         final OwnerIdentity owner = new OwnerIdentity(bytes(8, 40), bytes(8, 41), 1, bytes(32, 42));
         final KafkaSourcePosition position =
@@ -296,7 +337,7 @@ class CheckpointRestoreCoordinatorTest {
                 shardId,
                 bytes(32, 47),
                 sourceStore,
-                1,
+                storeFormat,
                 0,
                 position,
                 bytes(32, 48),

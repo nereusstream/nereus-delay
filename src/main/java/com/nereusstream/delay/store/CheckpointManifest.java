@@ -55,7 +55,7 @@ public record CheckpointManifest(
         Objects.requireNonNull(shardId, "shardId");
         requireNonZero(dbIdentity, "dbIdentity");
         Objects.requireNonNull(sourceStoreIncarnation, "sourceStoreIncarnation");
-        if (storeFormatVersion != 1) {
+        if (storeFormatVersion != 1 && storeFormatVersion != 2) {
             throw new IllegalArgumentException("unsupported store format version");
         }
         Objects.requireNonNull(appliedShardLogPosition, "appliedShardLogPosition");
@@ -217,7 +217,7 @@ public record CheckpointManifest(
         field(json, "shardId", shardIdJson());
         field(json, "shardMutationSequence", quote(u64Bits(shardMutationSequence)));
         field(json, "sourceStoreIncarnation", quote(sourceStoreIncarnation.toString()));
-        field(json, "storeFormatVersion", "1");
+        field(json, "storeFormatVersion", Integer.toString(storeFormatVersion));
         json.append('}');
         return json.toString();
     }

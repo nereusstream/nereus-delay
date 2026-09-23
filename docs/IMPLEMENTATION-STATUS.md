@@ -18428,3 +18428,11 @@ checkpoint ID, output directory or extra native write. The existing
 manifest, physical verifier and restore path remain format-1 only; this guard
 prevents a misleading local checkpoint attempt while the Target recovery
 contract and publication path are built.
+
+The checkpoint manifest codec now round-trips canonical JSON with Store
+format 2 while retaining format 1 bytes and rejecting unknown formats.
+Local tests also confirm format-2 upload and restore preflights do not call
+their adapters or advance the pending intent. Catalog and Oxia publication
+remain closed for format 2. Target control-state evidence, physical image
+verification, catalog ancestry and install/replay authority are still required
+before this manifest can represent a recoverable Target checkpoint.

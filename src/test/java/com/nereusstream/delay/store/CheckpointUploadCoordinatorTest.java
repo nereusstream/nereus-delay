@@ -52,6 +52,27 @@ class CheckpointUploadCoordinatorTest {
     }
 
     @Test
+    void formatTwoManifestCannotStartUploadBeforePhysicalRecoverySupport() throws Exception {
+        final Fixture fixture = fixture(2);
+        final CheckpointUploadIntentStore intentStore = new CheckpointUploadIntentStore();
+        intentStore.create(fixture.pending());
+        final AtomicBoolean adapterCalled = new AtomicBoolean();
+        try (SharedRocksDbResources resources =
+                new SharedRocksDbResources(ShardStoreConfig.defaults(tempDir.resolve("target-upload-rejected")))) {
+            final CheckpointUploadCoordinator coordinator = new CheckpointUploadCoordinator(resources, intentStore);
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> coordinator.upload(
+                            fixture.directory(), fixture.pending(), fixture.manifest(), 1_000, request -> {
+                                adapterCalled.set(true);
+                                return fixture.resource();
+                            }));
+            assertEquals(false, adapterCalled.get());
+            assertEquals(fixture.pending(), intentStore.current().orElseThrow());
+        }
+    }
+
+    @Test
     void providerFailureAndWrongIdentityLeavePendingIntentForRetry() throws Exception {
         final Fixture fixture = fixture();
         final CheckpointUploadIntentStore intentStore = new CheckpointUploadIntentStore();
@@ -343,6 +364,10 @@ class CheckpointUploadCoordinatorTest {
     }
 
     private Fixture fixture() throws Exception {
+        return fixture(1);
+    }
+
+    private Fixture fixture(final int storeFormat) throws Exception {
         final Path directory = tempDir.resolve("checkpoint-" + UUID.randomUUID());
         Files.createDirectories(directory);
         Files.writeString(directory.resolve("CURRENT"), "MANIFEST-1\n");
@@ -377,7 +402,7 @@ class CheckpointUploadCoordinatorTest {
                 shard,
                 bytes(32, 10),
                 storeIncarnation,
-                1,
+                storeFormat,
                 7,
                 position,
                 bytes(32, 11),

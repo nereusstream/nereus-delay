@@ -55,6 +55,9 @@ public final class CheckpointUploadCoordinator {
         Objects.requireNonNull(pending, "pending");
         Objects.requireNonNull(manifest, "manifest");
         Objects.requireNonNull(adapter, "adapter");
+        if (manifest.storeFormatVersion() != 1) {
+            throw new IllegalArgumentException("checkpoint upload requires a recoverable format-1 manifest");
+        }
         if (nowEpochMs < 0) {
             throw new IllegalArgumentException("nowEpochMs must be non-negative");
         }

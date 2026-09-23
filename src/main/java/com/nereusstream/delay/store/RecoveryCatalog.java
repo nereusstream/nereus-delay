@@ -37,6 +37,9 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
 
     public synchronized Publication publish(final CheckpointManifest manifest, final long expectedCatalogGeneration) {
         Objects.requireNonNull(manifest, "manifest");
+        if (manifest.storeFormatVersion() != 1) {
+            throw new IllegalArgumentException("checkpoint catalog requires a recoverable format-1 manifest");
+        }
         if (catalogShard != null && !catalogShard.equals(manifest.shardId())) {
             throw new IllegalArgumentException("checkpoint catalog is bound to a different shard");
         }
