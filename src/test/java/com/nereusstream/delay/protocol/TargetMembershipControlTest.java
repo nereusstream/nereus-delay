@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import com.nereusstream.delay.ownership.ControlTargetRegistrationAuthority;
 import com.nereusstream.delay.ownership.InMemoryControlTargetRegistrationAuthority;
 import com.nereusstream.delay.runtime.ApplyStatus;
 import com.nereusstream.delay.runtime.CommandResolutionException;
@@ -190,6 +191,56 @@ class TargetMembershipControlTest {
     }
 
     @Test
+    void registrationBackendFailurePropagatesWithoutBecomingUnauthorized() {
+        final var issue = prepare(issue(policy), repeated(32, 0x72), actor, key, 1);
+        registrations.register(issue.prepared);
+        final var failing = new ControlTargetRegistrationAuthority() {
+            @Override
+            public RegistrationResult register(final PreparedControlOperation prepared) {
+                return registrations.register(prepared);
+            }
+
+            @Override
+            public java.util.Optional<PreparedControlOperation> find(final byte[] operationId) {
+                return registrations.find(operationId);
+            }
+
+            @Override
+            public void validateMutation(
+                    final PreparedControlOperation prepared,
+                    final ControlTargetRef target,
+                    final SystemMutation mutation) {
+                throw new IllegalStateException("registration backend unavailable");
+            }
+        };
+        final var original = authority(policy, actor, true, true);
+        final var external = new TargetMembershipControlVerifier.Authority(
+                failing, original.policies(), original.keys(), original.profiles(), actor, original.scopeProof());
+        assertThrows(IllegalStateException.class, () -> verify(issue, at(6), ref -> null, external));
+    }
+
+    @Test
+    void signedPreparedTargetMutationMismatchIsStableUnauthorized() {
+        final var issue = prepare(issue(policy), repeated(32, 0x72), actor, key, 1);
+        final var target = new ControlTargetRef(
+                0, ControlTargetKind.SHARD, new ShardSubject(source.shardId()),
+                issue.mutation.systemMutationId(), repeated(32, 0x7a));
+        final var prepared = PreparedControlOperation.prepare(
+                issue.prepared.operationId(), issue.prepared.kind(), issue.prepared.author(),
+                issue.prepared.request(), List.of(target),
+                issue.prepared.controlQueryPolicyVersion(), issue.prepared.registrationRetryUntil(),
+                issue.prepared.signingKeyVersion(), key.getPrivate());
+        registrations.register(prepared);
+        final var mismatched = new Prepared(prepared, issue.mutation);
+        assertEquals(
+                StableCode.UNAUTHORIZED_SYSTEM_MUTATION,
+                assertThrows(
+                                CommandResolutionException.class,
+                                () -> verify(mismatched, at(6), ref -> null, authority(policy, actor, true, true)))
+                        .stableCode());
+    }
+
+    @Test
     void registeredBodyHashCannotHideAMutationAuthorReplacement() {
         final var issue = prepare(issue(policy), repeated(32, 0x72), actor, key, 1);
         registrations.register(issue.prepared);
@@ -339,10 +390,13 @@ class TargetMembershipControlTest {
                                 actor,
                                 a.scopeProof())));
         final var wrong = CanonicalTargetPartition.decode(hex(compat, "kafka.target"));
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> TargetMembershipControlVerifier.verifyFirstApplication(
-                        issue.prepared, issue.mutation, at(6), wrong, ref -> null, a));
+        assertEquals(
+                StableCode.UNAUTHORIZED_SYSTEM_MUTATION,
+                assertThrows(
+                                CommandResolutionException.class,
+                                () -> TargetMembershipControlVerifier.verifyFirstApplication(
+                                        issue.prepared, issue.mutation, at(6), wrong, ref -> null, a))
+                        .stableCode());
     }
 
     @Test

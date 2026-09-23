@@ -6,6 +6,7 @@ import com.nereusstream.delay.protocol.CanonicalTargetPartition;
 import com.nereusstream.delay.protocol.ControlAuthorizationContext;
 import com.nereusstream.delay.protocol.ControlOperationAuthorization;
 import com.nereusstream.delay.protocol.ControlOperationKind;
+import com.nereusstream.delay.protocol.ControlTargetMutationBinding;
 import com.nereusstream.delay.protocol.DestinationProfileSemantic;
 import com.nereusstream.delay.protocol.PreparedControlOperation;
 import com.nereusstream.delay.protocol.SourcePosition;
@@ -125,6 +126,12 @@ public final class TargetMembershipControlVerifier {
         if (registered == null || !Arrays.equals(prepared.canonicalBytes(), registered.canonicalBytes())) {
             throw unauthorized("membership Control operation is not registered exactly");
         }
+        try {
+            ControlTargetMutationBinding.validate(prepared, prepared.targets().getFirst(), mutation);
+        } catch (IllegalArgumentException rejected) {
+            throw unauthorized(rejected.getMessage());
+        }
+        // Backend corruption or read failure is not an unauthorized source mutation.
         authority.registrations.validateMutation(prepared, prepared.targets().getFirst(), mutation);
         final var approved = authority.policies.resolve(request.policy().digest(), source, request.operationKind());
         if (approved == null
@@ -132,7 +139,11 @@ public final class TargetMembershipControlVerifier {
                 || !Arrays.equals(approved.controlResourceScope(), authority.actor.tenantResourceScopeHash())) {
             throw unauthorized("membership policy is not approved for this exact Control/source scope");
         }
-        approved.offered().requireTargetProjection(physical);
+        try {
+            approved.offered().requireTargetProjection(physical);
+        } catch (IllegalArgumentException rejected) {
+            throw unauthorized(rejected.getMessage());
+        }
         if (request.isIssue()) {
             final var grant = TargetMembershipGrant.fromRegistration(request.value(), mutation.mutationHash(), source);
             approved.requireGrant(grant);
@@ -143,20 +154,31 @@ public final class TargetMembershipControlVerifier {
                 throw unauthorized("membership Destination Profile is not available exactly");
             }
             final var capability = authority.profiles.resolve(dest.deliveryCapability());
-            if (capability == null
-                    || !capability.ref().equals(dest.deliveryCapability())
-                    || !TargetDispatchCompatibility.fromProfiles(physical, destination, capability)
-                            .equals(grant.required())) {
+            if (capability == null || !capability.ref().equals(dest.deliveryCapability())) {
                 throw unauthorized("membership required contract differs from exact Profile semantics");
             }
-            grant.requireSourceRegistration(request.value(), prepared.operationId(), mutation.mutationHash(), source);
+            final TargetDispatchCompatibility required;
+            try {
+                required = TargetDispatchCompatibility.fromProfiles(physical, destination, capability);
+            } catch (IllegalArgumentException rejected) {
+                throw unauthorized(rejected.getMessage());
+            }
+            if (!required.equals(grant.required())) {
+                throw unauthorized("membership required contract differs from exact Profile semantics");
+            }
+            grant.requireSourceRegistration(
+                    request.value(), prepared.operationId(), mutation.mutationHash(), source);
             return new Change(Action.GRANT, null, new TargetMembershipAuthority.AppliedGrant(grant, null));
         }
         final var before = membership.resolve(request.value());
         if (before == null || !Arrays.equals(before.grant().digest(), request.value())) {
             throw unauthorized("membership close does not identify an applied grant");
         }
-        approved.requireGrant(before.grant());
+        try {
+            approved.requireGrant(before.grant());
+        } catch (IllegalArgumentException rejected) {
+            throw unauthorized(rejected.getMessage());
+        }
         if (source.compareTo(before.grant().activationSource()) <= 0) {
             throw unauthorized("membership close does not follow its grant activation");
         }
