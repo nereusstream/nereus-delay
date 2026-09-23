@@ -444,6 +444,197 @@ class TargetCommandStoreTest {
                             TargetQuotaPayloadOwner.VALUE_TYPE)
                     .payload());
 
+            final var emptyPhysical =
+                    new CanonicalTargetPartition(physical.resource(), physical.physicalPartition() + 1);
+            final var emptyTarget = emptyPhysical.id();
+            final var emptyGrantRequest = new TargetQuotaGrantControlRequest(
+                    new TargetQuotaGrant(
+                            scope.forTarget(emptyTarget),
+                            bytes(32, 0x61),
+                            1,
+                            originalGrant.accounting(),
+                            new TargetQuotaUsage(new CapacityVector(targetAmounts), 1, 64, 64, 64),
+                            originalGrant.tenantPolicyVersion(),
+                            originalGrant.tenantPolicyHash()),
+                    null,
+                    null);
+            final var emptyGrantAt =
+                    source(scheduleAt, scheduleAt.offset() + 1, scheduleAt.brokerLogAppendTimeEpochMs() + 1);
+            final var emptyGrant = signed(emptyGrantRequest, bytes(32, 0x62), actor, keys);
+            registrations.register(emptyGrant.control());
+            assertEquals(
+                    StableCode.OK,
+                    grantStore
+                            .commit(
+                                    grantStore.prepareFirst(
+                                            budget(),
+                                            emptyGrant.control(),
+                                            emptyGrant.mutation(),
+                                            emptyGrantAt,
+                                            authority(
+                                                    registrations,
+                                                    keys,
+                                                    actor,
+                                                    emptyGrantAt,
+                                                    emptyGrantRequest,
+                                                    (a, b, c, d) -> {})),
+                                    (a, b, c) -> guard())
+                            .stableCode());
+            final var emptyActivation = TargetQuotaGrantActivation.decode(TargetValueEnvelope.decode(
+                            store.get(
+                                    ColumnFamily.META,
+                                    Bytes.concat(
+                                            new byte[] {TargetKeyCodec.QUOTA_GRANT_ACTIVATION_TAG, 1},
+                                            emptyGrantRequest.next().scope().keySuffix())),
+                            TargetQuotaGrantActivation.VALUE_TYPE)
+                    .payload());
+            final var emptyQueue = new TargetQueueState(
+                    emptyTarget,
+                    1,
+                    1,
+                    TargetQueueState.AdmissionState.OPEN,
+                    emptyActivation.allocation().identity().accountingIncarnation(),
+                    0,
+                    List.of());
+            final var emptyQueueAt =
+                    source(emptyGrantAt, emptyGrantAt.offset() + 1, emptyGrantAt.brokerLogAppendTimeEpochMs() + 1);
+            new TargetMessageStore(backend, 1, 1, 1)
+                    .applyAccounted(
+                            budget(),
+                            reader -> new TargetMessageStore.Input(
+                                    List.of(),
+                                    List.of(),
+                                    List.of(
+                                            reader.replace(
+                                                    ColumnFamily.META,
+                                                    TargetKeyCodec.identity(emptyTarget),
+                                                    CanonicalTargetPartition.VALUE_TYPE,
+                                                    emptyPhysical.canonicalBytes()),
+                                            reader.replace(
+                                                    ColumnFamily.META,
+                                                    TargetKeyCodec.state(emptyTarget),
+                                                    TargetQueueState.VALUE_TYPE,
+                                                    emptyQueue.canonicalBytes()))),
+                            new TargetSourceAccounting(
+                                    scope,
+                                    lineage,
+                                    emptyQueueAt,
+                                    Bytes.sha256(Bytes.utf8("empty-close-target-queue-fixture")),
+                                    16,
+                                    1,
+                                    1),
+                            (a, b, c) -> guard());
+            final var emptyCloseAt =
+                    source(emptyQueueAt, emptyQueueAt.offset() + 1, emptyQueueAt.brokerLogAppendTimeEpochMs() + 1);
+            final var emptyCloseRequest = new TargetCloseRequest(
+                    emptyTarget,
+                    List.of(new TargetCloseRequest.ShardTarget(
+                            scope.shard(), emptyQueue.accountingIncarnation(), emptyQueue.controlVersion())),
+                    new CloseLaneRequest(
+                            new ControlReason(ControlReasonKind.OPERATOR_REQUEST, null, null),
+                            ClosePolicy._FREEZE_UNADMITTED_AND_PRESERVE_ADMITTED,
+                            false,
+                            AcknowledgementSet.empty()));
+            final var emptySignedClose = signedClose(
+                    emptyCloseRequest, bytes(32, 0x63), actor, keys, emptyCloseAt.brokerLogAppendTimeEpochMs() + 2000);
+            registrations.register(emptySignedClose.control());
+            final var emptyCloseStore = new TargetCloseStore(backend, scope, lineage, 16, 1);
+            assertEquals(
+                    StableCode.OK,
+                    emptyCloseStore
+                            .commit(
+                                    emptyCloseStore.prepareFirst(
+                                            budget(),
+                                            emptySignedClose.control(),
+                                            emptySignedClose.mutation(),
+                                            emptyCloseAt,
+                                            new TargetCloseVerifier.Authority(
+                                                    registrations,
+                                                    (version, position) -> keys.getPublic(),
+                                                    (actualScope, requestToClose, position, queueToClose) -> {
+                                                        assertEquals(scope, actualScope);
+                                                        assertEquals(emptyTarget, requestToClose.target());
+                                                        assertEquals(
+                                                                emptyQueue.controlVersion(),
+                                                                queueToClose.controlVersion());
+                                                    },
+                                                    actor,
+                                                    prepared -> true)),
+                                    (a, b, c) -> guard())
+                            .stableCode());
+            final var emptyWorkClasses = workClasses();
+            final var emptyCursorDelta = new java.util.concurrent.atomic.AtomicReference<TargetQuotaDelta>();
+            final var emptyWriteFails = new java.util.concurrent.atomic.AtomicBoolean(true);
+            final var emptyCloseGc = new TargetReservationClosureWorkClassExecutor(
+                    emptyWorkClasses,
+                    backend,
+                    scope,
+                    lineage,
+                    1,
+                    emptyCloseStore.reservationControls((reader, bound) -> java.util.Optional.empty()),
+                    new TargetReservationClosureWorkClassExecutor.Limits(4096, 250_000, 60_000_000_000L),
+                    () -> {},
+                    (a, b) -> guard(),
+                    (a, b, c) -> {
+                        if (emptyWriteFails.get()) {
+                            throw new IllegalStateException("empty Close capacity unavailable");
+                        }
+                        return guard();
+                    },
+                    ignored -> {
+                        throw new AssertionError("empty Target has no closure candidate");
+                    },
+                    ignored -> {
+                        throw new AssertionError("empty Target has no expiry candidate");
+                    },
+                    emptyCursorDelta::set,
+                    System::nanoTime);
+            final long beforeEmptyCompletion = store.latestSequenceNumber();
+            final long sourceSequenceBeforeEmptyCompletion = store.shardMutationSequence();
+            final var rejectedEmptyGc = emptyCloseGc.submit(
+                    new TargetReservationClosureWorkClassExecutor.Request(scope.shard(), emptyTarget, bytes(16, 0xd3)));
+            emptyWorkClasses.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
+            assertEquals(
+                    TargetReservationClosureWorkClassExecutor.Kind.FAILED,
+                    rejectedEmptyGc.result().orElseThrow().kind());
+            assertEquals(beforeEmptyCompletion, store.latestSequenceNumber());
+            emptyWriteFails.set(false);
+            final var emptyGcStep = emptyCloseGc.submit(
+                    new TargetReservationClosureWorkClassExecutor.Request(scope.shard(), emptyTarget, bytes(16, 0xd4)));
+            emptyWorkClasses.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
+            assertEquals(
+                    TargetReservationClosureWorkClassExecutor.Kind.RESERVATIONS_COMPLETE,
+                    emptyGcStep.result().orElseThrow().kind());
+            assertEquals(5, store.latestSequenceNumber() - beforeEmptyCompletion);
+            assertEquals(sourceSequenceBeforeEmptyCompletion, store.shardMutationSequence());
+            assertEquals(emptyCloseAt, store.appliedShardLogPosition());
+            assertTrue(emptyCursorDelta.get().mutation().reservationCloseCursor());
+            final var emptyCursor = com.nereusstream.delay.protocol.TargetCloseCursorRecord.decodeForStore(
+                    TargetKeyCodec.closeCursor(emptyTarget),
+                    TargetValueEnvelope.decode(
+                                    store.get(ColumnFamily.META, TargetKeyCodec.closeCursor(emptyTarget)),
+                                    com.nereusstream.delay.protocol.TargetCloseCursorRecord.VALUE_TYPE)
+                            .payload(),
+                    TargetCloseRecord.decodeForStore(
+                            TargetKeyCodec.close(emptyTarget),
+                            TargetValueEnvelope.decode(
+                                            store.get(ColumnFamily.META, TargetKeyCodec.close(emptyTarget)),
+                                            TargetCloseRecord.VALUE_TYPE)
+                                    .payload(),
+                            scope.shard(),
+                            lineage),
+                    lineage);
+            assertTrue(emptyCursor.complete());
+            assertEquals(2, emptyCursor.revision());
+            assertNull(emptyCursor.afterMessageId());
+            final var repeatedEmptyGc = emptyCloseGc.submit(
+                    new TargetReservationClosureWorkClassExecutor.Request(scope.shard(), emptyTarget, bytes(16, 0xd5)));
+            emptyWorkClasses.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
+            assertEquals(
+                    TargetReservationClosureWorkClassExecutor.Kind.ALREADY_COMPLETE,
+                    repeatedEmptyGc.result().orElseThrow().kind());
+            assertEquals(beforeEmptyCompletion + 5, store.latestSequenceNumber());
+
             final var assignment = new SourceAssignment(
                     scope.shard(),
                     bytes(32, 0x43),
@@ -481,7 +672,8 @@ class TargetCommandStoreTest {
             final var before = TargetMessageRecord.decode(TargetValueEnvelope.decode(
                             store.get(ColumnFamily.ID, message.encodedKey()), TargetMessageRecord.VALUE_TYPE)
                     .payload());
-            final var at = source(scheduleAt, scheduleAt.offset() + 1, scheduleAt.brokerLogAppendTimeEpochMs() + 1);
+            final var at =
+                    source(emptyCloseAt, emptyCloseAt.offset() + 1, emptyCloseAt.brokerLogAppendTimeEpochMs() + 1);
             final var command = rescheduled
                     ? reschedule(message.locator().messageId(), at, 1)
                     : cancel(message.locator().messageId(), at, 1);
