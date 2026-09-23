@@ -663,6 +663,70 @@ class TargetQuotaGrantStoreTest {
                                 physicalDb, scope.shard(), imageLimits, quotaAuditLimits)
                         .aggregate()
                         .usage());
+        final var ledgerAuditLimits =
+                new TargetCheckpointRootVerifier.LedgerAuditLimits(10_000, 64L << 20, 100_000, 64L << 20);
+        TargetCheckpointRootVerifier.auditIndependentLedger(
+                physicalDb, scope.shard(), imageLimits, quotaAuditLimits, ledgerAuditLimits);
+        assertTrue(assertThrows(
+                        IllegalArgumentException.class,
+                        () -> TargetCheckpointRootVerifier.auditIndependentLedger(
+                                physicalDb,
+                                scope.shard(),
+                                imageLimits,
+                                quotaAuditLimits,
+                                new TargetCheckpointRootVerifier.LedgerAuditLimits(1, 128, 100_000, 64L << 20)))
+                .getMessage()
+                .contains("ledger scan budget"));
+        assertTrue(assertThrows(
+                        IllegalArgumentException.class,
+                        () -> TargetCheckpointRootVerifier.auditIndependentLedger(
+                                physicalDb,
+                                scope.shard(),
+                                imageLimits,
+                                quotaAuditLimits,
+                                new TargetCheckpointRootVerifier.LedgerAuditLimits(10_000, 64L << 20, 1, 128)))
+                .getMessage()
+                .contains("point-read budget"));
+        final byte[] positionKey =
+                Bytes.concat(new byte[] {TargetKeyCodec.RESULT_POSITION_TAG, 1}, origin.canonicalBytes());
+        final byte[] originalPosition;
+        try (var resources = new SharedRocksDbResources(config);
+                var corrupt = ShardStore.openTarget(config, scope.shard(), resources)) {
+            originalPosition = corrupt.get(ColumnFamily.DEDUPE, positionKey);
+            assertNotNull(originalPosition);
+            corrupt.write(batch -> batch.delete(ColumnFamily.DEDUPE, positionKey));
+        }
+        TargetCheckpointRootVerifier.auditQuotaProjections(physicalDb, scope.shard(), imageLimits, quotaAuditLimits);
+        assertTrue(assertThrows(
+                        IllegalStateException.class,
+                        () -> TargetCheckpointRootVerifier.auditIndependentLedger(
+                                physicalDb, scope.shard(), imageLimits, quotaAuditLimits, ledgerAuditLimits))
+                .getMessage()
+                .contains("quota counter differs from independently rebuilt ledger usage"));
+        try (var resources = new SharedRocksDbResources(config);
+                var restored = ShardStore.openTarget(config, scope.shard(), resources)) {
+            restored.write(batch -> batch.put(ColumnFamily.DEDUPE, positionKey, originalPosition));
+        }
+        TargetCheckpointRootVerifier.auditIndependentLedger(
+                physicalDb, scope.shard(), imageLimits, quotaAuditLimits, ledgerAuditLimits);
+        final byte[] foreignKey = new byte[] {0x7f, 1, 1};
+        try (var resources = new SharedRocksDbResources(config);
+                var corrupt = ShardStore.openTarget(config, scope.shard(), resources)) {
+            corrupt.write(batch ->
+                    batch.put(ColumnFamily.DEDUPE, foreignKey, TargetValueEnvelope.encode(35, bytes(4, 0x29))));
+        }
+        assertTrue(assertThrows(
+                        IllegalArgumentException.class,
+                        () -> TargetCheckpointRootVerifier.auditIndependentLedger(
+                                physicalDb, scope.shard(), imageLimits, quotaAuditLimits, ledgerAuditLimits))
+                .getMessage()
+                .contains("unregistered or backend-owned Target key"));
+        try (var resources = new SharedRocksDbResources(config);
+                var restored = ShardStore.openTarget(config, scope.shard(), resources)) {
+            restored.write(batch -> batch.delete(ColumnFamily.DEDUPE, foreignKey));
+        }
+        TargetCheckpointRootVerifier.auditIndependentLedger(
+                physicalDb, scope.shard(), imageLimits, quotaAuditLimits, ledgerAuditLimits);
         assertTrue(assertThrows(
                         IllegalArgumentException.class,
                         () -> TargetCheckpointRootVerifier.auditQuotaProjections(
@@ -704,6 +768,12 @@ class TargetQuotaGrantStoreTest {
         assertEquals(rootProof.mutationSequence(), bound.mutationSequence());
         assertEquals(rootProof.source(), bound.source());
         assertArrayEquals(rootProof.root().digest(), bound.root().digest());
+        assertEquals(
+                rootProof.aggregate().usage(),
+                TargetCheckpointRootVerifier.auditManifestImageLedger(
+                                physicalDb, manifest, imageLimits, quotaAuditLimits, ledgerAuditLimits)
+                        .aggregate()
+                        .usage());
         assertManifestBindingFailure(
                 physicalDb,
                 copyManifest(

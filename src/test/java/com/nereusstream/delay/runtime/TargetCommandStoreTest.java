@@ -103,10 +103,12 @@ import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import com.nereusstream.delay.scheduler.WorkClassPolicy;
 import com.nereusstream.delay.scheduler.WorkClassRuntimeConfig;
 import com.nereusstream.delay.store.BoundedReadBudget;
+import com.nereusstream.delay.store.CheckpointManifestLimits;
 import com.nereusstream.delay.store.ColumnFamily;
 import com.nereusstream.delay.store.ShardStore;
 import com.nereusstream.delay.store.ShardStoreConfig;
 import com.nereusstream.delay.store.SharedRocksDbResources;
+import com.nereusstream.delay.store.TargetCheckpointRootVerifier;
 import com.nereusstream.delay.store.TargetKeyCodec;
 import com.nereusstream.delay.store.TargetStoreBackend;
 import com.nereusstream.delay.store.TargetValueEnvelope;
@@ -170,8 +172,10 @@ class TargetCommandStoreTest {
                 java.util.concurrent.atomic.AtomicBoolean throwTransitionAfterCommit,
                 java.util.concurrent.atomic.AtomicBoolean throwReleaseAfterCommit) {}
         final ReopenOwner[] reopenOwner = new ReopenOwner[1];
+        final Path physicalDb;
         try (var resources = new SharedRocksDbResources(config);
                 var store = ShardStore.openTarget(config, scope.shard(), resources)) {
+            physicalDb = store.dbPath();
             final var initialized = TargetStoreBootstrap.commit(
                     TargetStoreBootstrap.prepare(
                             store,
@@ -2883,6 +2887,12 @@ class TargetCommandStoreTest {
             assertEquals(beforeOldOwnerLoss, store.latestSequenceNumber());
             loop.close();
         }
+        TargetCheckpointRootVerifier.auditIndependentLedger(
+                physicalDb,
+                scope.shard(),
+                new CheckpointManifestLimits(1_000, 256L << 20, 256L << 20, 1_024, 1 << 20, 1_000, 1_024),
+                new TargetCheckpointRootVerifier.QuotaAuditLimits(100_000, 256L << 20),
+                new TargetCheckpointRootVerifier.LedgerAuditLimits(100_000, 256L << 20, 500_000, 256L << 20));
         try (var resources = new SharedRocksDbResources(config);
                 var reopened = ShardStore.openTarget(config, scope.shard(), resources)) {
             final var priorOwner = reopenOwner[0];

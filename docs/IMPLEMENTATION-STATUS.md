@@ -18466,3 +18466,15 @@ totals and mutation order. Inflating a valid aggregate, deleting a mirror or
 exhausting the scan budget rejects locally. This is internal quota projection
 consistency, not an independent rebuild from Message/Reservation/payload and
 other durable work ledgers; C5 remains in progress and the format-2 gates remain closed.
+The read-only checkpoint path can now fold registered Target business records
+across the closed CF set with separate finite full-scan and dependency-read
+budgets, using the same frozen record accounting rules as the writer. It compares
+the rebuilt usage by primary and tenant identity to every persisted counter.
+The actual Worker image, a source-accounted Target/result graph, and four
+parameterized command/claim/reschedule/close Store images pass; removing a
+durable POSITION result leaves the
+quota summaries internally consistent but fails this independent ledger check.
+Unknown business keys and either exhausted budget fail closed. A matching local
+manifest can be checked in the same image open. Protected zero-counter retirement
+needs independent identity authority, and fixed control/semantic projections,
+publication, restore and real Broker/Oxia recovery remain unverified.

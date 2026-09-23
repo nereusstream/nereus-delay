@@ -4,6 +4,7 @@ import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalTargetPartition;
 import com.nereusstream.delay.protocol.CapacityVector;
 import com.nereusstream.delay.protocol.DelayMessageId;
+import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.TargetChannelIdentity;
 import com.nereusstream.delay.protocol.TargetControlScope;
 import com.nereusstream.delay.protocol.TargetDispatchCompatibility;
@@ -34,6 +35,13 @@ import java.util.Objects;
 
 /** Rebuilds one actual business record's frozen contribution; never accepts a persisted usage field as its oracle. */
 public final class TargetRecordAccounting {
+    /** Exact selected Store view, implemented by both guarded plans and immutable recovery images. */
+    public interface View {
+        ShardId shardId();
+
+        byte[] projected(ColumnFamily family, byte[] key, List<TargetStoreBackend.Edit> overlay);
+    }
+
     public record Charge(TargetQuotaIncarnation owner, TargetQuotaUsage primary) {
         public Charge {
             Objects.requireNonNull(owner, "owner");
@@ -45,7 +53,7 @@ public final class TargetRecordAccounting {
         }
     }
 
-    private final TargetStoreBackend.Reader reader;
+    private final View reader;
     private final List<TargetStoreBackend.Edit> overlay;
     private final TargetQuotaScope scope;
     private final byte[] lineage;
@@ -54,7 +62,7 @@ public final class TargetRecordAccounting {
     private final int maximumDomains;
 
     public TargetRecordAccounting(
-            final TargetStoreBackend.Reader reader,
+            final View reader,
             final List<TargetStoreBackend.Edit> overlay,
             final TargetQuotaScope scope,
             final byte[] lineage,

@@ -9,10 +9,12 @@ import com.nereusstream.delay.protocol.TargetQuotaCounter;
 import com.nereusstream.delay.protocol.TargetQuotaIncarnation;
 import com.nereusstream.delay.protocol.TargetQuotaTotal;
 import com.nereusstream.delay.store.BoundedReadBudget;
+import com.nereusstream.delay.store.CheckpointManifestLimits;
 import com.nereusstream.delay.store.ColumnFamily;
 import com.nereusstream.delay.store.ShardStore;
 import com.nereusstream.delay.store.ShardStoreConfig;
 import com.nereusstream.delay.store.SharedRocksDbResources;
+import com.nereusstream.delay.store.TargetCheckpointRootVerifier;
 import com.nereusstream.delay.store.TargetKeyCodec;
 import com.nereusstream.delay.store.TargetStoreBackend;
 import com.nereusstream.delay.store.TargetValueEnvelope;
@@ -39,8 +41,10 @@ class TargetSourceAccountingTest {
         final var position = TargetResultRecord.decode(raw(results, "position"));
         final var scope = shard.scope();
         final var config = ShardStoreConfig.defaults(root);
+        final Path physicalDb;
         try (var resources = new SharedRocksDbResources(config);
                 var store = ShardStore.openTarget(config, scope.shard(), resources)) {
+            physicalDb = store.dbPath();
             final var backend = new TargetStoreBackend(
                     store,
                     scope,
@@ -146,6 +150,12 @@ class TargetSourceAccountingTest {
             assertEquals(primary.usage(), total.usage());
             assertEquals(2, store.shardMutationSequence());
         }
+        final var physicalLimits = new CheckpointManifestLimits(100, 64L << 20, 64L << 20, 1024, 1 << 20, 100, 1024);
+        final var quotaLimits = new TargetCheckpointRootVerifier.QuotaAuditLimits(1_000, 8L << 20);
+        final var ledgerLimits =
+                new TargetCheckpointRootVerifier.LedgerAuditLimits(10_000, 64L << 20, 100_000, 64L << 20);
+        TargetCheckpointRootVerifier.auditIndependentLedger(
+                physicalDb, scope.shard(), physicalLimits, quotaLimits, ledgerLimits);
     }
 
     private static TargetQuotaCounter counter(final ShardStore store, final byte[] key) {

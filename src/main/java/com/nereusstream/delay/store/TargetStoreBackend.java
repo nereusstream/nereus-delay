@@ -8,6 +8,7 @@ import com.nereusstream.delay.protocol.TargetQuotaIdentity;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
 import com.nereusstream.delay.protocol.TargetQuotaTotal;
 import com.nereusstream.delay.runtime.TargetQuotaTotalsDelta;
+import com.nereusstream.delay.runtime.TargetRecordAccounting;
 import com.nereusstream.delay.runtime.TargetResultLedgerAudit;
 import com.nereusstream.delay.runtime.TargetResultRecord;
 import java.util.ArrayList;
@@ -151,7 +152,7 @@ public final class TargetStoreBackend {
     }
 
     /** Read methods are valid only during prepare, under one Store view and shared read budget. */
-    public final class Reader {
+    public final class Reader implements TargetRecordAccounting.View {
         private boolean active = true;
         private final BoundedReadBudget budget;
 
@@ -711,7 +712,7 @@ public final class TargetStoreBackend {
     }
 
     /** Excludes fixed metadata and derived counter/total/aggregate keys, owned only by this backend. */
-    private static int businessType(final ColumnFamily family, final byte[] key) {
+    static int businessType(final ColumnFamily family, final byte[] key) {
         if (key.length < 3 || key[1] != 1) {
             throw new IllegalArgumentException("invalid Target business key");
         }

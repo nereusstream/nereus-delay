@@ -433,4 +433,9 @@ Catalog 发布与 restore/install，不能作为 checkpoint 成功证据。
 同一只读镜像还可在有限记录数和 key/value 字节预算下核对配额投影：NV31 inventory、
 primary counter 到 NV27 aggregate/各 Target total 的精确求和、tenant mirror 和 mutation
 先后关系。真实 Worker Store 通过，篡改 aggregate、删除 mirror 或耗尽预算会拒绝。
-各 counter 尚未从独立业务账本重算，其它 Target 投影和控制快照也尚未审计，C5 不提升。
+另一个有限只读扫描现可用与写入路径相同的冻结计费规则，从实际业务记录重算各
+primary/tenant counter；真实 Store 镜像通过，删除 POSITION 结果后虽配额投影仍自洽，
+账本核对却拒绝。Manifest 身份、配额投影和账本可在同一次只读打开中核对。
+四组实际 Schedule/Claim/Reschedule/Close 的关闭后 Store 镜像也通过本地账本核对。
+受保护零用量退休身份、固定控制/语义投影和其它 Target 关系仍缺认证与完整审计，
+C5、Catalog 发布及 restore/install 门禁不提升。

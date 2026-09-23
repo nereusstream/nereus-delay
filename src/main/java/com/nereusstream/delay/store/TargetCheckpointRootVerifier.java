@@ -19,6 +19,7 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -38,9 +39,8 @@ import org.rocksdb.RocksIterator;
 /**
  * Read-only physical check of the format-2 root, bookkeeping and source frontier.
  *
- * <p>This checks only the fixed accounting anchor and, when requested, physical manifest identity.
- * It does not audit Target projections, authenticate the manifest control digest, or make an image
- * publishable or recoverable.</p>
+ * <p>The optional quota and business-ledger scans establish only local projection consistency.
+ * This does not authenticate the manifest control digest or make an image publishable or recoverable.</p>
  */
 public final class TargetCheckpointRootVerifier {
     private static final int FIXED_VALUE_TYPE = 1;
@@ -75,10 +75,26 @@ public final class TargetCheckpointRootVerifier {
         }
     }
 
+    /** Finite full-scan and dependency point-read limits for a recovery-only business ledger fold. */
+    public record LedgerAuditLimits(int maxRecords, long maxKeyValueBytes, int maxPointReads, long maxPointReadBytes) {
+        public LedgerAuditLimits {
+            if (maxRecords <= 0
+                    || maxRecords == Integer.MAX_VALUE
+                    || maxKeyValueBytes <= 0
+                    || maxKeyValueBytes == Long.MAX_VALUE
+                    || maxPointReads <= 0
+                    || maxPointReads == Integer.MAX_VALUE
+                    || maxPointReadBytes <= 0
+                    || maxPointReadBytes == Long.MAX_VALUE) {
+                throw new IllegalArgumentException("Target ledger audit requires finite positive limits");
+            }
+        }
+    }
+
     /** Reads an immutable RocksDB image under finite physical limits without changing its markers. */
     public static RootProof validate(
             final Path image, final ShardId expectedShard, final CheckpointManifestLimits limits) {
-        return validateImage(image, expectedShard, limits, null, null);
+        return validateImage(image, expectedShard, limits, null, null, null);
     }
 
     /** Audits the bounded quota projection graph; independent work ledgers still require a separate fold. */
@@ -87,7 +103,23 @@ public final class TargetCheckpointRootVerifier {
             final ShardId expectedShard,
             final CheckpointManifestLimits physicalLimits,
             final QuotaAuditLimits quotaLimits) {
-        return validateImage(image, expectedShard, physicalLimits, null, Objects.requireNonNull(quotaLimits));
+        return validateImage(image, expectedShard, physicalLimits, null, Objects.requireNonNull(quotaLimits), null);
+    }
+
+    /** Rebuilds quota usage from bounded actual business records after the quota projection audit. */
+    public static RootProof auditIndependentLedger(
+            final Path image,
+            final ShardId expectedShard,
+            final CheckpointManifestLimits physicalLimits,
+            final QuotaAuditLimits quotaLimits,
+            final LedgerAuditLimits ledgerLimits) {
+        return validateImage(
+                image,
+                expectedShard,
+                physicalLimits,
+                null,
+                Objects.requireNonNull(quotaLimits, "quotaLimits"),
+                Objects.requireNonNull(ledgerLimits, "ledgerLimits"));
     }
 
     /**
@@ -96,12 +128,34 @@ public final class TargetCheckpointRootVerifier {
      */
     public static RootProof validateManifestImageIdentity(
             final Path image, final CheckpointManifest manifest, final CheckpointManifestLimits limits) {
+        requireFormat2Manifest(manifest, limits);
+        return validateImage(image, manifest.shardId(), limits, manifest, null, null);
+    }
+
+    /** Binds Manifest identity and both local audits in one immutable image read. */
+    public static RootProof auditManifestImageLedger(
+            final Path image,
+            final CheckpointManifest manifest,
+            final CheckpointManifestLimits physicalLimits,
+            final QuotaAuditLimits quotaLimits,
+            final LedgerAuditLimits ledgerLimits) {
+        requireFormat2Manifest(manifest, physicalLimits);
+        return validateImage(
+                image,
+                manifest.shardId(),
+                physicalLimits,
+                manifest,
+                Objects.requireNonNull(quotaLimits, "quotaLimits"),
+                Objects.requireNonNull(ledgerLimits, "ledgerLimits"));
+    }
+
+    private static void requireFormat2Manifest(
+            final CheckpointManifest manifest, final CheckpointManifestLimits limits) {
         Objects.requireNonNull(manifest, "manifest");
         if (manifest.storeFormatVersion() != 2) {
             throw new IllegalArgumentException("Target image binding requires a format-2 manifest");
         }
         manifest.validateLimits(Objects.requireNonNull(limits, "limits"));
-        return validateImage(image, manifest.shardId(), limits, manifest, null);
     }
 
     private static RootProof validateImage(
@@ -109,7 +163,8 @@ public final class TargetCheckpointRootVerifier {
             final ShardId expectedShard,
             final CheckpointManifestLimits limits,
             final CheckpointManifest manifest,
-            final QuotaAuditLimits quotaLimits) {
+            final QuotaAuditLimits quotaLimits,
+            final LedgerAuditLimits ledgerLimits) {
         Objects.requireNonNull(image, "image");
         Objects.requireNonNull(expectedShard, "expectedShard");
         Objects.requireNonNull(limits, "limits");
@@ -146,15 +201,16 @@ public final class TargetCheckpointRootVerifier {
         } catch (RocksDBException failure) {
             throw new IllegalArgumentException("cannot inspect Target checkpoint column families", failure);
         }
+        final List<String> familyNames = names.stream()
+                .map(name -> new String(name, StandardCharsets.UTF_8))
+                .toList();
         final Set<String> expectedFamilies = new HashSet<>();
         expectedFamilies.add(new String(RocksDB.DEFAULT_COLUMN_FAMILY, StandardCharsets.UTF_8));
         for (ColumnFamily family : ColumnFamily.values()) {
             expectedFamilies.add(family.rocksName());
         }
         final Set<String> actualFamilies = new HashSet<>();
-        for (byte[] name : names) {
-            actualFamilies.add(new String(name, StandardCharsets.UTF_8));
-        }
+        actualFamilies.addAll(familyNames);
         if (actualFamilies.size() != names.size() || !actualFamilies.equals(expectedFamilies)) {
             throw new IllegalArgumentException("Target checkpoint column-family set differs from the Store");
         }
@@ -169,10 +225,7 @@ public final class TargetCheckpointRootVerifier {
             }
             try (DBOptions dbOptions = new DBOptions().setCreateIfMissing(false).setCreateMissingColumnFamilies(false);
                     RocksDB db = RocksDB.openReadOnly(dbOptions, image.toString(), descriptors, handles)) {
-                final int metaIndex = names.stream()
-                        .map(name -> new String(name, StandardCharsets.UTF_8))
-                        .toList()
-                        .indexOf(ColumnFamily.META.rocksName());
+                final int metaIndex = familyNames.indexOf(ColumnFamily.META.rocksName());
                 final ColumnFamilyHandle meta = handles.get(metaIndex);
                 final RootProof proof = readRoot(db, meta, expectedShard);
                 if (manifest != null) {
@@ -180,6 +233,15 @@ public final class TargetCheckpointRootVerifier {
                 }
                 if (quotaLimits != null) {
                     auditQuotaProjections(db, meta, proof, quotaLimits);
+                }
+                if (ledgerLimits != null) {
+                    final Map<ColumnFamily, ColumnFamilyHandle> familyHandles = new EnumMap<>(ColumnFamily.class);
+                    for (ColumnFamily family : ColumnFamily.values()) {
+                        familyHandles.put(family, handles.get(familyNames.indexOf(family.rocksName())));
+                    }
+                    final ColumnFamilyHandle defaultHandle = handles.get(
+                            familyNames.indexOf(new String(RocksDB.DEFAULT_COLUMN_FAMILY, StandardCharsets.UTF_8)));
+                    TargetCheckpointLedgerAudit.audit(db, familyHandles, defaultHandle, proof, ledgerLimits);
                 }
                 return proof;
             } catch (RocksDBException failure) {
