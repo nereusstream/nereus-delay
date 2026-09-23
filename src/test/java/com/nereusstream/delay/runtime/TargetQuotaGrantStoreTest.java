@@ -64,10 +64,12 @@ import com.nereusstream.delay.store.KeyCodec;
 import com.nereusstream.delay.store.ShardStore;
 import com.nereusstream.delay.store.ShardStoreConfig;
 import com.nereusstream.delay.store.SharedRocksDbResources;
+import com.nereusstream.delay.store.TargetCheckpointCandidateTestBridge;
 import com.nereusstream.delay.store.TargetCheckpointRootVerifier;
 import com.nereusstream.delay.store.TargetKeyCodec;
 import com.nereusstream.delay.store.TargetStoreBackend;
 import com.nereusstream.delay.store.TargetValueEnvelope;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -667,6 +669,48 @@ class TargetQuotaGrantStoreTest {
                 new TargetCheckpointRootVerifier.LedgerAuditLimits(10_000, 64L << 20, 100_000, 64L << 20);
         TargetCheckpointRootVerifier.auditIndependentLedger(
                 physicalDb, scope.shard(), imageLimits, quotaAuditLimits, ledgerAuditLimits);
+        final Path failedCandidate = root.resolve("target-candidate-over-budget");
+        final Path unboundedCandidate = root.resolve("target-candidate-unbounded");
+        final Path candidate = root.resolve("target-candidate");
+        try (var resources = new SharedRocksDbResources(config);
+                var live = ShardStore.openTarget(config, scope.shard(), resources)) {
+            final long beforeInvalidLimits = live.operationStatistics().nativeWriteCalls();
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> TargetCheckpointCandidateTestBridge.create(
+                            live,
+                            unboundedCandidate,
+                            bytes(16, 0x38),
+                            CheckpointManifestLimits.unbounded(),
+                            quotaAuditLimits,
+                            ledgerAuditLimits));
+            assertEquals(beforeInvalidLimits, live.operationStatistics().nativeWriteCalls());
+            assertTrue(Files.notExists(unboundedCandidate));
+            assertTrue(assertThrows(
+                            IllegalStateException.class,
+                            () -> TargetCheckpointCandidateTestBridge.create(
+                                    live,
+                                    failedCandidate,
+                                    bytes(16, 0x37),
+                                    imageLimits,
+                                    quotaAuditLimits,
+                                    new TargetCheckpointRootVerifier.LedgerAuditLimits(1, 128, 100_000, 64L << 20)))
+                    .getCause()
+                    .getMessage()
+                    .contains("ledger scan budget"));
+            assertTrue(Files.notExists(failedCandidate));
+            assertArrayEquals(checkpointId, live.runtimeMetadata().lastCheckpointId());
+            assertEquals(
+                    candidate,
+                    TargetCheckpointCandidateTestBridge.create(
+                            live, candidate, checkpointId, imageLimits, quotaAuditLimits, ledgerAuditLimits));
+        }
+        assertTrue(Files.isRegularFile(candidate.resolve("CURRENT")));
+        assertEquals(
+                rootProof.source(),
+                TargetCheckpointRootVerifier.auditIndependentLedger(
+                                candidate, scope.shard(), imageLimits, quotaAuditLimits, ledgerAuditLimits)
+                        .source());
         assertTrue(assertThrows(
                         IllegalArgumentException.class,
                         () -> TargetCheckpointRootVerifier.auditIndependentLedger(

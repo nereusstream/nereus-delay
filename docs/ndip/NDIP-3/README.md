@@ -417,7 +417,7 @@ turn，之后仅 drain 该 Shard；其它 Shard 在其 drain 期间继续接收 
 不会在整宿主重试时再次 drain。上述仅有本地生命周期测试；生产 assignment 驱动、
 进程接线、真实 Broker/Oxia 接管和 format 2 checkpoint/restore 仍开放。
 
-现有 scheduled/drain checkpoint 执行器及物理快照入口已提前拒绝 Target format 2
+现有 scheduled/drain checkpoint 执行器及旧 `ShardStore.createCheckpoint` 入口仍提前拒绝 Target format 2
 Store，避免旧链先写入不可发布的 checkpoint ID；format 2 的可恢复发布链仍待实现。
 
 format 2 Manifest 现可规范编码/解码；上传、Catalog/Oxia 和下载/安装继续提前
@@ -442,3 +442,9 @@ primary/tenant counter；真实 Store 镜像通过，删除 POSITION 结果后�
 镜像通过，结果冲突的局部负例仍拒绝；此步骤不认证外部 Owner/控制权威。
 受保护零用量退休身份、固定控制/语义投影和其它 Target 关系仍缺认证与完整审计，
 C5、Catalog 发布及 restore/install 门禁不提升。
+
+format 2 Target Store 现能用显式 checkpoint ID 生成**本地物理候选镜像**：创建过程中
+沿用 Store 的 checkpoint 容量槽与失败回滚，镜像在原子落位前必须通过有限物理文件、
+配额投影和实际业务/结果账本审计。真实 Worker Store 的候选镜像通过；非法无界预算
+零写，审计预算失败撤销 checkpoint ID 且不留下候选目录。此入口没有 Owner/CHECKPOINT
+调度授权、认证控制快照、Manifest 发布、Catalog 或恢复安装权限，旧 format 2 门禁保持关闭。

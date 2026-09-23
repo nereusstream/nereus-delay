@@ -18485,3 +18485,14 @@ against the writer's per-record charges before accepting the quota fold. The
 existing real Worker and command-path images pass, as do focused result-ledger
 conflict tests. This is local image consistency only; it does not authenticate
 the external Owner/control state or open format-2 publish/restore gates.
+
+Format-2 Target Stores can now create a local physical checkpoint candidate
+with an explicit ID under finite physical, quota and business-ledger limits.
+The copied RocksDB image is audited before its directory is atomically moved
+into place; audit failure removes the staging image and restores the live
+Store's previous checkpoint ID. The real Worker Store candidate passes the
+read-only image audit; invalid physical limits cause no write, and an
+exhausted ledger budget leaves no candidate and rolls back the ID. This path
+does not publish a manifest or establish Owner, control-state, Catalog or
+restore/install authority. Existing format-2 upload and recovery gates stay
+closed.

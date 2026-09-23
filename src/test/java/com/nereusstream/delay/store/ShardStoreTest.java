@@ -64,7 +64,9 @@ class ShardStoreTest {
     @Test
     void physicalCheckpointPrimitivesAreNotPublicProductionApi() {
         for (var method : ShardStore.class.getDeclaredMethods()) {
-            if (method.getName().equals("createCheckpoint") || method.getName().equals("restoreFromCheckpoint")) {
+            if (method.getName().equals("createCheckpoint")
+                    || method.getName().equals("createTargetCheckpointCandidate")
+                    || method.getName().equals("restoreFromCheckpoint")) {
                 assertFalse(Modifier.isPublic(method.getModifiers()), method::toGenericString);
             }
         }
@@ -594,6 +596,18 @@ class ShardStoreTest {
         final Path checkpoint = tempDir.resolve("checkpoint-atomic-output");
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final Path wrongFormat = tempDir.resolve("target-candidate-on-format-one");
+            final long beforeWrongFormat = store.operationStatistics().nativeWriteCalls();
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> store.createTargetCheckpointCandidate(
+                            wrongFormat,
+                            bytes(16, 1),
+                            new CheckpointManifestLimits(100, 64L << 20, 64L << 20, 1024, 1 << 20, 100, 1024),
+                            new TargetCheckpointRootVerifier.QuotaAuditLimits(1_000, 8L << 20),
+                            new TargetCheckpointRootVerifier.LedgerAuditLimits(10_000, 64L << 20, 100_000, 64L << 20)));
+            assertEquals(beforeWrongFormat, store.operationStatistics().nativeWriteCalls());
+            assertFalse(Files.exists(wrongFormat));
             assertEquals(checkpoint, store.createCheckpoint(checkpoint));
             assertTrueFile(checkpoint.resolve("CURRENT"));
             final Path stagingRoot = checkpoint.getParent().resolve("checkpoint-tmp");

@@ -2582,6 +2582,38 @@ public final class ShardStore implements AutoCloseable {
      * never produced.</p>
      */
     synchronized Path createCheckpoint(final Path checkpointPath, final byte[] checkpointId) {
+        return createCheckpointImage(checkpointPath, checkpointId, 1, ignored -> {});
+    }
+
+    /**
+     * Creates a local format-2 image candidate under finite recovery audit limits. It is not a
+     * published checkpoint: Owner/WorkClass admission, authenticated control state, manifest,
+     * Catalog and install authority remain separate obligations for the caller's future executor.
+     */
+    synchronized Path createTargetCheckpointCandidate(
+            final Path checkpointPath,
+            final byte[] checkpointId,
+            final CheckpointManifestLimits physicalLimits,
+            final TargetCheckpointRootVerifier.QuotaAuditLimits quotaLimits,
+            final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits) {
+        Objects.requireNonNull(checkpointId, "checkpointId");
+        Objects.requireNonNull(physicalLimits, "physicalLimits");
+        Objects.requireNonNull(quotaLimits, "quotaLimits");
+        Objects.requireNonNull(ledgerLimits, "ledgerLimits");
+        TargetCheckpointRootVerifier.requireFinitePhysicalLimits(physicalLimits);
+        return createCheckpointImage(
+                checkpointPath,
+                checkpointId,
+                2,
+                candidate -> TargetCheckpointRootVerifier.auditIndependentLedger(
+                        candidate, shardId, physicalLimits, quotaLimits, ledgerLimits));
+    }
+
+    private Path createCheckpointImage(
+            final Path checkpointPath,
+            final byte[] checkpointId,
+            final int requiredFormat,
+            final java.util.function.Consumer<Path> validateCandidate) {
         Objects.requireNonNull(checkpointPath, "checkpointPath");
         final byte[] effectiveCheckpointId = checkpointId == null ? randomCheckpointId() : Bytes.copy(checkpointId);
         Bytes.requireLength(effectiveCheckpointId, 16, "checkpointId");
@@ -2593,9 +2625,8 @@ public final class ShardStore implements AutoCloseable {
             throw new IllegalArgumentException("checkpointId must not be all zero");
         }
         ensureOpen();
-        if (metadata.storeFormatVersion() != 1) {
-            throw new IllegalStateException(
-                    "physical checkpoint creation requires the supported format-1 recovery path");
+        if (metadata.storeFormatVersion() != requiredFormat) {
+            throw new IllegalStateException("physical checkpoint candidate requires its exact Store format");
         }
         final StoreRuntimeMetadata previousMetadata = runtimeMetadata;
         boolean slotAcquired = false;
@@ -2629,6 +2660,7 @@ public final class ShardStore implements AutoCloseable {
             try (Checkpoint checkpoint = Checkpoint.create(db)) {
                 checkpoint.createCheckpoint(temporary.toString());
             }
+            validateCandidate.accept(temporary);
             forceDirectory(temporary);
             try {
                 Files.move(temporary, absoluteTarget, StandardCopyOption.ATOMIC_MOVE);

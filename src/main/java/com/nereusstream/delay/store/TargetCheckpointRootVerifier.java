@@ -167,13 +167,7 @@ public final class TargetCheckpointRootVerifier {
             final LedgerAuditLimits ledgerLimits) {
         Objects.requireNonNull(image, "image");
         Objects.requireNonNull(expectedShard, "expectedShard");
-        Objects.requireNonNull(limits, "limits");
-        if (limits.maxFiles() == Integer.MAX_VALUE
-                || limits.maxTotalFileBytes() == Long.MAX_VALUE
-                || limits.maxIndividualFileBytes() == Long.MAX_VALUE
-                || limits.maxPathBytes() == Integer.MAX_VALUE) {
-            throw new IllegalArgumentException("Target checkpoint root validation requires finite physical limits");
-        }
+        requireFinitePhysicalLimits(limits);
         final var files = CheckpointFileInventory.collect(image, limits);
         if (manifest != null) {
             if (files.size() != manifest.files().size()) {
@@ -254,6 +248,16 @@ public final class TargetCheckpointRootVerifier {
             for (ColumnFamilyOptions option : options) {
                 option.close();
             }
+        }
+    }
+
+    static void requireFinitePhysicalLimits(final CheckpointManifestLimits limits) {
+        Objects.requireNonNull(limits, "limits");
+        if (limits.maxFiles() == Integer.MAX_VALUE
+                || limits.maxTotalFileBytes() == Long.MAX_VALUE
+                || limits.maxIndividualFileBytes() == Long.MAX_VALUE
+                || limits.maxPathBytes() == Integer.MAX_VALUE) {
+            throw new IllegalArgumentException("Target checkpoint root validation requires finite physical limits");
         }
     }
 
