@@ -64,6 +64,7 @@ import com.nereusstream.delay.protocol.DestinationProfileSemantic;
 import com.nereusstream.delay.protocol.KafkaActivationBarrier;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.MessagePrecondition;
+import com.nereusstream.delay.protocol.NativeDeliveryPolicy;
 import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.PayloadProofTrustSetControlState;
 import com.nereusstream.delay.protocol.PayloadProofTrustSetSemantic;
@@ -1107,6 +1108,125 @@ class TargetCommandStoreTest {
                                             1,
                                             1),
                                     (a, b, c) -> guard());
+                    final var otherControls =
+                            new TargetControlScope(physical.id(), otherShard, controls.controls(), controls.permits());
+                    final var otherMembershipPolicy = new TargetMembershipPolicy(
+                            otherScope.tenantScope(),
+                            destination.ref(),
+                            dispatch.digest(),
+                            dispatch,
+                            otherControls,
+                            bytes(32, 0x87));
+                    final var otherMembershipAt = source(
+                            otherQueueAt, otherQueueAt.offset() + 1, otherQueueAt.brokerLogAppendTimeEpochMs() + 1);
+                    final var otherMembership = new TargetMembershipGrant(
+                            otherScope.tenantScope(),
+                            destination.ref(),
+                            dispatch,
+                            dispatch,
+                            otherControls,
+                            otherMembershipPolicy.digest(),
+                            bytes(32, 0x88),
+                            bytes(32, 0x89),
+                            otherMembershipAt);
+                    new TargetMessageStore(otherBackend, 1, 1, 1)
+                            .applyAccounted(
+                                    budget(),
+                                    reader -> new TargetMessageStore.Input(
+                                            List.of(),
+                                            List.of(),
+                                            List.of(
+                                                    reader.replace(
+                                                            ColumnFamily.META,
+                                                            otherMembershipPolicy.encodedKey(),
+                                                            TargetMembershipPolicy.VALUE_TYPE,
+                                                            otherMembershipPolicy.canonicalBytes()),
+                                                    reader.replace(
+                                                            ColumnFamily.META,
+                                                            otherMembership.encodedKey(),
+                                                            TargetMembershipGrant.VALUE_TYPE,
+                                                            otherMembership.canonicalBytes()))),
+                                    new TargetSourceAccounting(
+                                            otherScope,
+                                            otherLineage,
+                                            otherMembershipAt,
+                                            otherMembership.sourceMutationDigest(),
+                                            16,
+                                            1,
+                                            1),
+                                    (a, b, c) -> guard());
+                    final var otherScheduleAt = source(
+                            otherMembershipAt,
+                            otherMembershipAt.offset() + 1,
+                            otherMembershipAt.brokerLogAppendTimeEpochMs() + 1);
+                    final var otherIntent = CanonicalScheduleIntent.create(
+                            destination.ref(),
+                            priorIntent.retryPolicy(),
+                            otherScheduleAt.brokerLogAppendTimeEpochMs() + 100,
+                            otherScheduleAt.brokerLogAppendTimeEpochMs() + 2000,
+                            priorIntent.deliveryMode(),
+                            priorIntent.orderingMode(),
+                            priorIntent.orderingKey(),
+                            model.inlinePayload(),
+                            null,
+                            priorIntent.adapterMetadata(),
+                            priorIntent.businessKey(),
+                            priorIntent.eventTimeEpochMs(),
+                            NativeDeliveryPolicy.FORBID);
+                    final var otherSeed = new DelayMessageId(SelfRoutingId.fromLogicalUuid(
+                                    otherShard, initial.messageId().routingId().logicalId())
+                            .bytes());
+                    final var otherSchedule = schedule(otherIntent, otherSeed, otherScheduleAt, 42);
+                    final var otherBinding = new TargetScheduleBinding(
+                            otherSchedule.delayMessageId(),
+                            CommandType.SCHEDULE,
+                            otherSchedule.canonicalBody(),
+                            otherScheduleAt,
+                            physical.id(),
+                            initial.domain(),
+                            otherActivation.allocation().identity().accountingIncarnation(),
+                            dispatch.digest(),
+                            dispatch.digest(),
+                            otherControls.digest(),
+                            otherMembership.digest(),
+                            null,
+                            null);
+                    final var otherProfiles = ProfileBindingControlState.empty()
+                            .activate(destination.ref(), otherSource)
+                            .activate(capability.ref(), otherGrantAt);
+                    final var otherAuthority = new TargetScheduleRegistration.Authority(
+                            otherBinding, physical, destination, capability, otherProfiles, 60000);
+                    final var otherCommands = new TargetCommandStore(otherBackend, otherScope, otherLineage, 16, 1);
+                    final var otherPolicy = new TargetCommandStore.Policy(
+                            otherScope,
+                            1000,
+                            1000,
+                            10,
+                            java.util.Set.of(otherSchedule.protocolTuple()),
+                            new TargetCommandStore.DeliveryWindow(10_000, 1, 100_000));
+                    assertEquals(
+                            StableCode.SCHEDULED,
+                            otherCommands
+                                    .commit(
+                                            otherCommands.prepareFirst(
+                                                    budget(),
+                                                    otherSchedule,
+                                                    otherScheduleAt,
+                                                    otherPolicy,
+                                                    (reader, bound, source) -> false,
+                                                    (reader, bound) -> java.util.Optional.empty(),
+                                                    (incoming, source) -> new TargetCommandStore.ScheduleAdmission(
+                                                            StableCode.OK,
+                                                            otherAuthority,
+                                                            TargetOrderState.OrderingContract.ADMISSION_WATERMARK),
+                                                    noProofs()),
+                                            (a, b, c) -> guard())
+                                    .stableCode());
+                    final var otherMessage = TargetMessageRecord.decode(TargetValueEnvelope.decode(
+                                    otherStore.get(
+                                            ColumnFamily.ID, TargetKeyCodec.message(otherSchedule.delayMessageId())),
+                                    TargetMessageRecord.VALUE_TYPE)
+                            .payload());
                     final var otherAssignment = new SourceAssignment(
                             otherShard,
                             bytes(32, 0x83),
@@ -1191,7 +1311,15 @@ class TargetCommandStoreTest {
                                     .stream()
                                     .map(TargetWorkerTargetInventory.Source::shard)
                                     .toList());
-                    final long schedulingCost = headCost.schedulingCost();
+                    final var otherHead = otherWorker
+                            .readTargetQueue(budget(), physical.id(), () -> 100)
+                            .orElseThrow()
+                            .queue()
+                            .domains()
+                            .getFirst()
+                            .ordinaryHead();
+                    final var otherHeadCost = otherWorker.probeSelectedHead(budget(), otherHead, () -> 100);
+                    final long schedulingCost = Math.max(headCost.schedulingCost(), otherHeadCost.schedulingCost());
                     final var ordinary = claimHost.newOrdinaryDrr(
                             inventory,
                             new TargetWorkerOrdinaryDrr.Limits(
@@ -1205,25 +1333,38 @@ class TargetCommandStoreTest {
                             () -> 100,
                             System::nanoTime);
                     final var claimBudget = new SchedulerBudget(1, schedulingCost, 60_000_000_000L);
+                    final long claimNow = Math.max(message.deliverAtEpochMs(), otherMessage.deliverAtEpochMs());
+                    final var otherOwner = new OwnerIdentity(
+                            bytes(16, 0x92), bytes(16, 0x93), otherActive.ownerEpoch(), otherActive.leaseToken());
                     final TargetWorkerOrdinaryDrr.Requests claimRequests = (shard, selected) -> {
-                        assertEquals(claimWorker, shard);
-                        assertEquals(selectedHead, selected.head());
+                        final boolean first = shard == claimWorker;
+                        assertTrue(first || shard == otherWorker);
+                        assertEquals(first ? selectedHead : otherHead, selected.head());
                         return java.util.Optional.of(new TargetWorkerOrdinaryDrr.Request(
-                                actualOwner,
-                                message.deliverAtEpochMs() + 1000,
-                                bytes(32, 0x71),
+                                first ? actualOwner : otherOwner,
+                                claimNow + 1000,
+                                bytes(32, first ? 0x71 : 0x91),
                                 (kind, delta) -> {},
                                 (a, b, c) -> guard()));
                     };
-                    assertEquals(
-                            TargetWorkerOrdinaryDrr.FreezeStop.READY,
-                            ordinary.freezeRecoveryFirstPass(message.deliverAtEpochMs(), claimBudget, claimRequests)
-                                    .stop());
+                    final var frozen = ordinary.freezeRecoveryFirstPass(claimNow, claimBudget, claimRequests);
+                    assertEquals(TargetWorkerOrdinaryDrr.FreezeStop.READY, frozen.stop());
+                    assertEquals(1, frozen.eligibleTargets());
                     final long otherBeforeClaim = otherStore.latestSequenceNumber();
-                    claim = ordinary.claimOrdinary(message.deliverAtEpochMs(), claimBudget, claimRequests)
+                    claim = ordinary.claimOrdinary(claimNow, claimBudget, claimRequests)
                             .claims()
                             .getFirst();
+                    assertEquals(selectedHead, claim.selected());
+                    assertEquals(actualOwner, claim.owner());
                     assertEquals(otherBeforeClaim, otherStore.latestSequenceNumber());
+                    final long firstAfterClaim = store.latestSequenceNumber();
+                    final var otherClaim = ordinary.claimOrdinary(claimNow, claimBudget, claimRequests)
+                            .claims()
+                            .getFirst();
+                    assertEquals(otherHead, otherClaim.selected());
+                    assertEquals(otherOwner, otherClaim.owner());
+                    assertEquals(firstAfterClaim, store.latestSequenceNumber());
+                    assertTrue(otherStore.latestSequenceNumber() > otherBeforeClaim);
                     assertTrue(leases.release(otherActive));
                 }
                 final long afterClaim = store.latestSequenceNumber();
