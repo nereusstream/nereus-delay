@@ -6,6 +6,7 @@ import com.nereusstream.delay.ownership.SourceReplayEntry;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.PulsarSourcePosition;
 import com.nereusstream.delay.protocol.ShardId;
+import com.nereusstream.delay.protocol.SourcePosition;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Objects;
@@ -36,6 +37,9 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
     private Message<byte[]> buffered;
     private SourceConnectionProof bufferedProof;
     private Message<byte[]> inFlight;
+    private SourceConnectionProof inFlightProof;
+    private PulsarSourcePosition lastAcknowledged;
+    private SourceConnectionProof lastAckProof;
     private boolean closed;
 
     public PulsarClientArtifactSourceRecordConsumer(
@@ -114,6 +118,7 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
             buffered = null;
             bufferedProof = null;
             inFlight = message;
+            inFlightProof = afterReceive;
             return Optional.of(new PolledSourceRecord(
                     entry, (candidate, ignoredOutcome) -> acknowledge(message, entry, candidate)));
         } catch (RuntimeException | Error failure) {
@@ -140,6 +145,37 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
         }
     }
 
+    @Override
+    public synchronized CheckpointCut checkpointCut(final SourcePosition expectedAppliedPosition) {
+        if (!(expectedAppliedPosition instanceof PulsarSourcePosition expected)) {
+            throw new IllegalArgumentException("Pulsar checkpoint requires a Pulsar source position");
+        }
+        requireCheckpointCut(expected);
+        return new CheckpointCut() {
+            @Override
+            public SourcePosition position() {
+                return expected;
+            }
+
+            @Override
+            public void requireCurrent() {
+                synchronized (PulsarClientArtifactSourceRecordConsumer.this) {
+                    requireCheckpointCut(expected);
+                }
+            }
+        };
+    }
+
+    private void requireCheckpointCut(final PulsarSourcePosition expected) {
+        ensureOpen();
+        if (!PulsarClientArtifactSourceConsumerFactory.isReceiptEnabled(consumer)
+                || inFlight != null || lastAcknowledged == null || lastAckProof == null
+                || !Bytes.constantTimeEquals(lastAcknowledged.canonicalBytes(), expected.canonicalBytes())
+                || !lastAckProof.equals(requireProof())) {
+            throw new IllegalStateException("Pulsar checkpoint source cut is not the current receipt-confirmed ACK");
+        }
+    }
+
     /** Canonical digest carried by Pulsar source connection proofs. */
     public static byte[] attestationDigest(final TopicResourceGuardAttestation attestation) {
         Objects.requireNonNull(attestation, "attestation");
@@ -163,13 +199,26 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
             }
         }
         try {
+            final SourceConnectionProof acknowledgedProof;
+            synchronized (this) {
+                acknowledgedProof = inFlightProof;
+            }
+            if (acknowledgedProof == null || !acknowledgedProof.equals(requireProof())) {
+                throw new IllegalStateException("Pulsar source proof changed before ACK");
+            }
             consumer.acknowledge(message);
+            if (!acknowledgedProof.equals(requireProof())) {
+                throw new IllegalStateException("Pulsar source proof changed after ACK");
+            }
             synchronized (this) {
                 if (inFlight != message) {
                     return SourceAcknowledgement.AcknowledgementResult.unknown(
                             new IllegalStateException("Pulsar source ACK state changed"));
                 }
+                lastAcknowledged = (PulsarSourcePosition) expected.position();
+                lastAckProof = acknowledgedProof;
                 inFlight = null;
+                inFlightProof = null;
             }
             return SourceAcknowledgement.AcknowledgementResult.acked();
         } catch (PulsarClientException | RuntimeException | Error failure) {

@@ -118,12 +118,15 @@ public final class KafkaClientArtifactSourceSmoke {
                 replayed.close();
                 throw new IllegalStateException("unacknowledged Kafka source record did not replay exactly");
             }
+            requireCutRejected(() -> replayed.consumer().checkpointCut(replayedPosition), "unacknowledged Kafka cut");
             requireAcked(
                     replayed.record()
                             .acknowledgement()
                             .acknowledge(replayed.record().entry(), null),
                     "first source record");
             requireCommittedOffset(admin, groupId, topic, 0, firstOffset + 1);
+            final SourceRecordConsumer.CheckpointCut firstCut = replayed.consumer().checkpointCut(replayedPosition);
+            firstCut.requireCurrent();
 
             final PolledSource secondObserved =
                     pollNext(bootstrap, groupId, clusterId, topic, toUuid(topicId), shard, second);
@@ -141,6 +144,9 @@ public final class KafkaClientArtifactSourceSmoke {
                             .acknowledge(secondObserved.record().entry(), null),
                     "second source record");
             requireCommittedOffset(admin, groupId, topic, 0, secondOffset + 1);
+            requireCutRejected(firstCut::requireCurrent, "superseded Kafka cut");
+            replayed.close();
+            secondObserved.consumer().checkpointCut(secondPosition).requireCurrent();
             secondObserved.close();
 
             final PolledSource afterRestart =
@@ -310,6 +316,15 @@ public final class KafkaClientArtifactSourceSmoke {
         if (result.disposition() != SourceAcknowledgement.Disposition.ACKED) {
             throw new IllegalStateException(label + " was not ACKED: " + result.disposition(), result.failure());
         }
+    }
+
+    private static void requireCutRejected(final Runnable action, final String label) {
+        try {
+            action.run();
+        } catch (IllegalStateException expected) {
+            return;
+        }
+        throw new IllegalStateException(label + " was accepted");
     }
 
     private record PolledSource(

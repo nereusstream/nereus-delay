@@ -1,5 +1,7 @@
 package com.nereusstream.delay.ownership;
 
+import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import java.security.PublicKey;
@@ -56,6 +58,21 @@ public final class WorkerSourceApplyLoop implements AutoCloseable {
     /** Returns the exact source record retained across an uncertain boundary. */
     public synchronized Optional<SourceReplayEntry> pendingEntry() {
         return coordinator.pendingEntry();
+    }
+
+    /** Requires both the Worker ACK state and the native adapter's durable source cut. */
+    public synchronized SourceRecordConsumer.CheckpointCut checkpointCut(final SourcePosition expectedPosition) {
+        if (closed || coordinator.pendingEntry().isPresent()) {
+            throw new IllegalStateException("Worker source has no settled checkpoint cut");
+        }
+        final var cut = consumer.checkpointCut(Objects.requireNonNull(expectedPosition, "expectedPosition"));
+        if (!Bytes.constantTimeEquals(
+                Objects.requireNonNull(cut.position(), "checkpoint cut position").canonicalBytes(),
+                expectedPosition.canonicalBytes())) {
+            throw new IllegalStateException("native checkpoint cut differs from the applied Store position");
+        }
+        cut.requireCurrent();
+        return cut;
     }
 
     synchronized boolean pendingRequiresApply() {

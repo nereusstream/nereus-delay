@@ -185,7 +185,10 @@ public final class PulsarClientArtifactSourceSmoke {
                             "Pulsar source replay did not retain exact position/proof boundary");
                 }
                 secondGeneration = replayEntry.sourceConnectionGeneration();
+                requireCutRejected(() -> replaySource.checkpointCut(firstPosition), "unacknowledged Pulsar cut");
                 requireAcked(replayed.acknowledgement().acknowledge(replayed.entry(), null), "first source record");
+                final SourceRecordConsumer.CheckpointCut firstCut = replaySource.checkpointCut(firstPosition);
+                firstCut.requireCurrent();
 
                 final SourceRecordConsumer.PolledSourceRecord second = pollUntil(replaySource, secondCommand, true);
                 final SourceReplayRecord secondEntry = sourceRecord(second);
@@ -195,6 +198,8 @@ public final class PulsarClientArtifactSourceSmoke {
                     throw new IllegalStateException("Pulsar source cursor did not move after ACK");
                 }
                 requireAcked(second.acknowledgement().acknowledge(second.entry(), null), "second source record");
+                requireCutRejected(firstCut::requireCurrent, "superseded Pulsar cut");
+                replaySource.checkpointCut(secondPosition).requireCurrent();
                 replaySource.close();
                 replayClosed = true;
             } finally {
@@ -324,6 +329,15 @@ public final class PulsarClientArtifactSourceSmoke {
         if (result.disposition() != SourceAcknowledgement.Disposition.ACKED) {
             throw new IllegalStateException(label + " was not ACKED: " + result.disposition(), result.failure());
         }
+    }
+
+    private static void requireCutRejected(final Runnable action, final String label) {
+        try {
+            action.run();
+        } catch (IllegalStateException expected) {
+            return;
+        }
+        throw new IllegalStateException(label + " was accepted");
     }
 
     private static void closeNative(final GuardedConsumer<byte[]> consumer) {

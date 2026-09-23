@@ -76,6 +76,7 @@ import com.nereusstream.delay.protocol.RescheduleCommandBody;
 import com.nereusstream.delay.protocol.ScheduleCommandBody;
 import com.nereusstream.delay.protocol.SelfRoutingId;
 import com.nereusstream.delay.protocol.ShardSubject;
+import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
@@ -2994,8 +2995,36 @@ class TargetCommandStoreTest {
                     new TargetSourceApplyRuntime.Limits(4096, 32L << 20, 60_000_000_000L, 16, 1),
                     System::nanoTime);
             final var reopenedCursorDelta = new java.util.concurrent.atomic.AtomicReference<TargetQuotaDelta>();
+            final var cutCurrent = new java.util.concurrent.atomic.AtomicBoolean(true);
+            final SourceRecordConsumer simulatedDurableSource = new SourceRecordConsumer() {
+                @Override
+                public java.util.Optional<PolledSourceRecord> poll() {
+                    return java.util.Optional.empty();
+                }
+
+                @Override
+                public CheckpointCut checkpointCut(final SourcePosition expected) {
+                    if (!Bytes.constantTimeEquals(
+                            expected.canonicalBytes(), reopened.appliedShardLogPosition().canonicalBytes())) {
+                        throw new IllegalStateException("checkpoint source differs from the Store");
+                    }
+                    return new CheckpointCut() {
+                        @Override
+                        public SourcePosition position() {
+                            return expected;
+                        }
+
+                        @Override
+                        public void requireCurrent() {
+                            if (!cutCurrent.get()) {
+                                throw new IllegalStateException("checkpoint source proof changed");
+                            }
+                        }
+                    };
+                }
+            };
             final var reopenedWorker = new TargetWorkerShardRuntime(
-                    () -> java.util.Optional.empty(),
+                    simulatedDurableSource,
                     reopenedWorkClasses,
                     reopened,
                     reopened.sharedResources(),
@@ -3114,7 +3143,14 @@ class TargetCommandStoreTest {
                 final var ledgerLimits = new TargetCheckpointRootVerifier.LedgerAuditLimits(
                         100_000, 256L << 20, 500_000, 256L << 20);
                 final long beforeCandidate = reopened.operationStatistics().nativeWriteCalls();
-                final var candidate = reopenedWorker.submitLocalCheckpointCandidate(
+                cutCurrent.set(false);
+                assertThrows(
+                        IllegalStateException.class,
+                        () -> reopenedWorker.submitProtectedCheckpointCandidate(
+                                candidateIntents, () -> 101, candidatePath, pendingCandidate, candidateLimits,
+                                quotaLimits, ledgerLimits));
+                cutCurrent.set(true);
+                final var candidate = reopenedWorker.submitProtectedCheckpointCandidate(
                         candidateIntents,
                         () -> 101,
                         candidatePath,
@@ -3140,7 +3176,22 @@ class TargetCommandStoreTest {
                                 .checkpointPath());
                 assertEquals(candidatePath, candidate.outcome().orElseThrow().checkpointPath());
                 assertEquals(beforeCandidate + 1, reopened.operationStatistics().nativeWriteCalls());
-                final var reused = reopenedWorker.submitLocalCheckpointCandidate(
+                final var staleCut = reopenedWorker.submitProtectedCheckpointCandidate(
+                        candidateIntents,
+                        () -> 101,
+                        candidatePath,
+                        pendingCandidate,
+                        candidateLimits,
+                        quotaLimits,
+                        ledgerLimits);
+                cutCurrent.set(false);
+                assertTrue(reopenedWorker
+                        .runCheckpointTurn(new SchedulerBudget(1, staleCut.task().bytes(), 1_000))
+                        .orElseThrow()
+                        .failure() instanceof IllegalStateException);
+                assertEquals(beforeCandidate + 1, reopened.operationStatistics().nativeWriteCalls());
+                cutCurrent.set(true);
+                final var reused = reopenedWorker.submitProtectedCheckpointCandidate(
                         candidateIntents,
                         () -> 101,
                         candidatePath,

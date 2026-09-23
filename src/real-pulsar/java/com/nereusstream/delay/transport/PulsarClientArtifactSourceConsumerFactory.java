@@ -1,5 +1,8 @@
 package com.nereusstream.delay.transport;
 
+import java.lang.ref.WeakReference;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.GuardedConsumer;
@@ -12,7 +15,27 @@ import org.apache.pulsar.client.api.TopicResourceGuard;
 
 /** Creates the single-topic, receipt-enabled P1 source consumer shape. */
 public final class PulsarClientArtifactSourceConsumerFactory {
+    // The public P1 Consumer API does not expose its ACK receipt setting. Track
+    // only the exact consumers built below with receipt mode enabled; a direct
+    // adapter constructor may still process source records, but cannot attest
+    // a checkpoint cut without this construction evidence.
+    private static final List<WeakReference<GuardedConsumer<?>>> RECEIPT_ENABLED = new ArrayList<>();
+
     private PulsarClientArtifactSourceConsumerFactory() {}
+
+    static synchronized boolean isReceiptEnabled(final GuardedConsumer<?> consumer) {
+        boolean found = false;
+        final var references = RECEIPT_ENABLED.iterator();
+        while (references.hasNext()) {
+            final GuardedConsumer<?> current = references.next().get();
+            if (current == null) {
+                references.remove();
+            } else if (current == consumer) {
+                found = true;
+            }
+        }
+        return found;
+    }
 
     public static GuardedConsumer<byte[]> create(
             final PulsarClient client,
@@ -52,6 +75,10 @@ public final class PulsarClientArtifactSourceConsumerFactory {
         }
         @SuppressWarnings("unchecked")
         final GuardedConsumer<byte[]> result = (GuardedConsumer<byte[]>) guarded;
+        synchronized (PulsarClientArtifactSourceConsumerFactory.class) {
+            isReceiptEnabled(result);
+            RECEIPT_ENABLED.add(new WeakReference<>(result));
+        }
         return result;
     }
 }

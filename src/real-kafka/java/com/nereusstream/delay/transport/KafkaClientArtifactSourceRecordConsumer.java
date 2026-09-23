@@ -3,13 +3,16 @@ package com.nereusstream.delay.transport;
 import com.nereusstream.delay.ownership.SourceAcknowledgement;
 import com.nereusstream.delay.ownership.SourceRecordConsumer;
 import com.nereusstream.delay.ownership.SourceReplayEntry;
+import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.ShardId;
+import com.nereusstream.delay.protocol.SourcePosition;
 import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerResourceGuard;
@@ -39,6 +42,7 @@ public final class KafkaClientArtifactSourceRecordConsumer implements SourceReco
     private final Duration pollTimeout;
     private final ArrayDeque<BufferedRecord> buffered = new ArrayDeque<>();
     private BufferedRecord inFlight;
+    private KafkaSourcePosition lastAcknowledged;
     private boolean closed;
 
     public KafkaClientArtifactSourceRecordConsumer(
@@ -86,7 +90,7 @@ public final class KafkaClientArtifactSourceRecordConsumer implements SourceReco
         final BufferedRecord fetched = buffered.removeFirst();
         final ConsumerRecord<byte[], byte[]> record = fetched.record();
         try {
-            if (record.timestamp() < 0 || record.offset() == -1L) {
+            if (record.timestamp() < 0 || record.offset() < 0 || record.offset() == Long.MAX_VALUE) {
                 throw new IllegalArgumentException("Kafka source record lacks a bounded broker position");
             }
             final KafkaSourcePosition position = new KafkaSourcePosition(
@@ -115,6 +119,41 @@ public final class KafkaClientArtifactSourceRecordConsumer implements SourceReco
         }
     }
 
+    @Override
+    public synchronized CheckpointCut checkpointCut(final SourcePosition expectedAppliedPosition) {
+        if (!(expectedAppliedPosition instanceof KafkaSourcePosition expected)) {
+            throw new IllegalArgumentException("Kafka checkpoint requires a Kafka source position");
+        }
+        requireCheckpointCut(expected);
+        return new CheckpointCut() {
+            @Override
+            public SourcePosition position() {
+                return expected;
+            }
+
+            @Override
+            public void requireCurrent() {
+                synchronized (KafkaClientArtifactSourceRecordConsumer.this) {
+                    requireCheckpointCut(expected);
+                }
+            }
+        };
+    }
+
+    private void requireCheckpointCut(final KafkaSourcePosition expected) {
+        ensureOpen();
+        if (inFlight != null || lastAcknowledged == null
+                || !Bytes.constantTimeEquals(lastAcknowledged.canonicalBytes(), expected.canonicalBytes())
+                || !expectedGuard.equals(consumer.resourceGuard())
+                || !consumer.assignment().equals(Set.of(topicPartition))) {
+            throw new IllegalStateException("Kafka checkpoint source cut is not the last durable ACK");
+        }
+        final OffsetAndMetadata committed = consumer.committed(Set.of(topicPartition), pollTimeout).get(topicPartition);
+        if (committed == null || committed.offset() != expected.offset() + 1) {
+            throw new IllegalStateException("Kafka checkpoint committed offset differs from the Store cut");
+        }
+    }
+
     private SourceAcknowledgement.AcknowledgementResult acknowledge(
             final BufferedRecord fetched, final SourceReplayEntry expected, final SourceReplayEntry candidate) {
         if (candidate != expected) {
@@ -135,6 +174,7 @@ public final class KafkaClientArtifactSourceRecordConsumer implements SourceReco
                     return SourceAcknowledgement.AcknowledgementResult.unknown(
                             new IllegalStateException("Kafka source ACK state changed"));
                 }
+                lastAcknowledged = (KafkaSourcePosition) expected.position();
                 inFlight = null;
             }
             return SourceAcknowledgement.AcknowledgementResult.acked();

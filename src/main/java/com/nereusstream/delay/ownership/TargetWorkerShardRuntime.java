@@ -52,12 +52,14 @@ public final class TargetWorkerShardRuntime
     private final ShardId shardId;
     private final WorkClassExecutionRegistry workClasses;
     private final SharedRocksDbResources resources;
+    private final ShardStore store;
     private final WorkerSourceApplyLoop sourceLoop;
     private final TargetSourceApplyRuntime target;
     private final TargetReservationGcRuntime maintenance;
     private final TargetOwnerDrainCoordinator drainCoordinator;
     private boolean sourceAndMaintenancePaused;
     private TargetCheckpointCandidateWorkClassExecutor.Submission pendingCheckpoint;
+    private SourceRecordConsumer.CheckpointCut preparedCheckpointCut;
 
     public TargetWorkerShardRuntime(
             final SourceRecordConsumer consumer,
@@ -69,6 +71,7 @@ public final class TargetWorkerShardRuntime
         final var exactClasses = Objects.requireNonNull(workClasses, "workClasses");
         this.workClasses = exactClasses;
         final var exactStore = Objects.requireNonNull(store, "store");
+        this.store = exactStore;
         this.resources = Objects.requireNonNull(resources, "resources");
         final var exactTarget = Objects.requireNonNull(target, "target");
         this.target = exactTarget;
@@ -107,6 +110,7 @@ public final class TargetWorkerShardRuntime
     public synchronized SourceApplyCoordinator.TurnResult runSourceTurn(
             final SchedulerBudget budget, final LongSupplier ownerClock) {
         requireNewTurnsAdmitted();
+        preparedCheckpointCut = null;
         resources.requireRuntimeBusinessAdmission();
         return sourceLoop.runTurn(
                 Objects.requireNonNull(budget, "budget"), Objects.requireNonNull(ownerClock, "ownerClock"));
@@ -114,6 +118,7 @@ public final class TargetWorkerShardRuntime
 
     public synchronized TargetReservationGcRuntime.Turn runMaintenanceTurn(final SchedulerBudget budget) {
         requireNewTurnsAdmitted();
+        preparedCheckpointCut = null;
         resources.requireRuntimeBusinessAdmission();
         return maintenance.runTurn(Objects.requireNonNull(budget, "budget"));
     }
@@ -138,6 +143,56 @@ public final class TargetWorkerShardRuntime
         final var submitted = target.submitLocalCheckpointCandidate(
                 workClasses, intents, ownerClock, checkpointPath, pending, physicalLimits, quotaLimits, ledgerLimits);
         pendingCheckpoint = submitted;
+        preparedCheckpointCut = null;
+        return submitted;
+    }
+
+    /** Scheduled candidates additionally require an exact broker-confirmed source cut. */
+    public synchronized TargetCheckpointCandidateWorkClassExecutor.Submission submitProtectedCheckpointCandidate(
+            final CheckpointUploadIntentAuthority intents,
+            final LongSupplier ownerClock,
+            final Path checkpointPath,
+            final CheckpointUploadIntent pending,
+            final CheckpointManifestLimits physicalLimits,
+            final TargetCheckpointRootVerifier.QuotaAuditLimits quotaLimits,
+            final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits) {
+        return submitProtectedCheckpointCandidate(
+                intents, ownerClock, checkpointPath, pending, physicalLimits, quotaLimits, ledgerLimits,
+                protectCheckpointCut());
+    }
+
+    /** Captures the cut before a scheduler creates its pending intent, under the exact host Shard lock. */
+    synchronized SourceRecordConsumer.CheckpointCut protectCheckpointCut() {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        if (maintenance.hasPendingTurn()) {
+            throw new IllegalStateException("Target checkpoint cannot cut a pending GC action");
+        }
+        final var cut = sourceLoop.checkpointCut(store.appliedShardLogPosition());
+        preparedCheckpointCut = cut;
+        return cut;
+    }
+
+    synchronized TargetCheckpointCandidateWorkClassExecutor.Submission submitProtectedCheckpointCandidate(
+            final CheckpointUploadIntentAuthority intents,
+            final LongSupplier ownerClock,
+            final Path checkpointPath,
+            final CheckpointUploadIntent pending,
+            final CheckpointManifestLimits physicalLimits,
+            final TargetCheckpointRootVerifier.QuotaAuditLimits quotaLimits,
+            final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits,
+            final SourceRecordConsumer.CheckpointCut cut) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        if (preparedCheckpointCut != Objects.requireNonNull(cut, "cut") || maintenance.hasPendingTurn()) {
+            throw new IllegalStateException("Target checkpoint cut is no longer prepared for this Shard");
+        }
+        cut.requireCurrent();
+        final var submitted = target.submitLocalCheckpointCandidate(
+                workClasses, intents, ownerClock, checkpointPath, pending, physicalLimits, quotaLimits, ledgerLimits,
+                cut::requireCurrent);
+        pendingCheckpoint = submitted;
+        preparedCheckpointCut = null;
         return submitted;
     }
 
@@ -172,6 +227,7 @@ public final class TargetWorkerShardRuntime
             throw new IllegalStateException("Target Worker cannot pause a pending source acknowledgement");
         }
         sourceAndMaintenancePaused = true;
+        preparedCheckpointCut = null;
     }
 
     /** Runs only the exact GC action already queued when admission was paused. */

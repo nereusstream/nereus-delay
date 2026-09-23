@@ -25,7 +25,10 @@ public final class TargetCheckpointCandidateSchedule {
     /** Supplies an already-authorized pending intent and finite audit limits at the source cut. */
     @FunctionalInterface
     public interface RequestFactory {
-        Request create(TargetWorkerShardRuntime shard, ScheduledCheckpoint claim);
+        Request create(
+                TargetWorkerShardRuntime shard,
+                ScheduledCheckpoint claim,
+                SourceRecordConsumer.CheckpointCut cut);
     }
 
     public record Request(
@@ -71,15 +74,17 @@ public final class TargetCheckpointCandidateSchedule {
             final TargetWorkerHostRuntime host, final CheckpointScheduler scheduler, final RequestFactory factory) {
         this(host, scheduler, (Dispatcher) (shard, claim) -> {
             final TargetWorkerShardRuntime worker = (TargetWorkerShardRuntime) shard;
-            final Request request = Objects.requireNonNull(factory, "factory").create(worker, claim);
-            final var submission = worker.submitLocalCheckpointCandidate(
+            final var cut = worker.protectCheckpointCut();
+            final Request request = Objects.requireNonNull(factory, "factory").create(worker, claim, cut);
+            final var submission = worker.submitProtectedCheckpointCandidate(
                     request.intents(),
                     request.ownerClock(),
                     request.checkpointPath(),
                     request.pending(),
                     request.physicalLimits(),
                     request.quotaLimits(),
-                    request.ledgerLimits());
+                    request.ledgerLimits(),
+                    cut);
             return new Candidate(submission.task(), submission::outcome);
         });
     }

@@ -370,13 +370,33 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             final CheckpointManifestLimits physicalLimits,
             final TargetCheckpointRootVerifier.QuotaAuditLimits quotaLimits,
             final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits) {
+        return submitLocalCheckpointCandidate(
+                registry, intents, ownerClock, checkpointPath, pending, physicalLimits, quotaLimits, ledgerLimits,
+                () -> {});
+    }
+
+    synchronized TargetCheckpointCandidateWorkClassExecutor.Submission submitLocalCheckpointCandidate(
+            final WorkClassExecutionRegistry registry,
+            final CheckpointUploadIntentAuthority intents,
+            final LongSupplier ownerClock,
+            final Path checkpointPath,
+            final CheckpointUploadIntent pending,
+            final CheckpointManifestLimits physicalLimits,
+            final TargetCheckpointRootVerifier.QuotaAuditLimits quotaLimits,
+            final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits,
+            final Runnable sourceCutGuard) {
         if (workClasses == null || workClasses != Objects.requireNonNull(registry, "registry")) {
             throw new IllegalStateException("Target checkpoint requires the bound source WorkClass graph");
         }
         final LongSupplier clock = Objects.requireNonNull(ownerClock, "ownerClock");
+        final Runnable cut = Objects.requireNonNull(sourceCutGuard, "sourceCutGuard");
         requireGcOwner(clock);
+        cut.run();
         final var executor = new TargetCheckpointCandidateWorkClassExecutor(
-                registry, store, authorities.leases(), intents, clock, () -> requireGcOwner(clock));
+                registry, store, authorities.leases(), intents, clock, () -> {
+                    requireGcOwner(clock);
+                    cut.run();
+                });
         return executor.submit(new TargetCheckpointCandidateWorkClassExecutor.Request(
                 checkpointPath, pending, lease, physicalLimits, quotaLimits, ledgerLimits));
     }

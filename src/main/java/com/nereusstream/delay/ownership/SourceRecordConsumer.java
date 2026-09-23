@@ -1,5 +1,6 @@
 package com.nereusstream.delay.ownership;
 
+import com.nereusstream.delay.protocol.SourcePosition;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -21,6 +22,21 @@ public interface SourceRecordConsumer extends AutoCloseable {
      * record retained by the Worker loop.
      */
     Optional<PolledSourceRecord> poll();
+
+    /**
+     * Captures a broker-confirmed source cut for a checkpoint. Implementations must
+     * reject an in-flight ACK, a different last durable ACK, or a changed guarded
+     * source identity. The returned capability is rechecked around physical I/O.
+     */
+    default CheckpointCut checkpointCut(final SourcePosition expectedAppliedPosition) {
+        throw new IllegalStateException("source adapter does not provide a protected checkpoint cut");
+    }
+
+    interface CheckpointCut {
+        SourcePosition position();
+
+        void requireCurrent();
+    }
 
     @Override
     default void close() {
