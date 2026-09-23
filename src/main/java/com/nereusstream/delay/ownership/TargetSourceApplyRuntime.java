@@ -19,8 +19,10 @@ import com.nereusstream.delay.runtime.TargetCloseStore;
 import com.nereusstream.delay.runtime.TargetCloseVerifier;
 import com.nereusstream.delay.runtime.TargetCommandReplayStore;
 import com.nereusstream.delay.runtime.TargetCommandStore;
+import com.nereusstream.delay.runtime.TargetQuotaDelta;
 import com.nereusstream.delay.runtime.TargetQuotaGrantControlVerifier;
 import com.nereusstream.delay.runtime.TargetQuotaGrantStore;
+import com.nereusstream.delay.runtime.TargetReservationControls;
 import com.nereusstream.delay.runtime.TargetStoreBootstrap;
 import com.nereusstream.delay.runtime.TargetSystemReplayStore;
 import com.nereusstream.delay.runtime.TargetTimeFenceStore;
@@ -138,6 +140,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     private final TargetStoreBackend backend;
     private final StoreMetadata metadata;
     private final TargetQuotaScope scope;
+    private final byte[] lineage;
     private final TargetQuotaGrantStore grants;
     private final TargetTimeFenceStore fences;
     private final TargetCloseStore closes;
@@ -148,6 +151,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     private final Authorities authorities;
     private final Limits limits;
     private final LongSupplier monotonicClock;
+    private WorkClassExecutionRegistry workClasses;
     private OwnerLease lease;
     private boolean fenced;
     private long lastOwnerTime = -1;
@@ -222,7 +226,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 || !assignment.activationBarrier().reachedBy(store.appliedShardLogPosition())) {
             throw new IllegalArgumentException("Target source runtime lacks exact active Owner/assignment/Store state");
         }
-        final byte[] lineage = exactRoot.recoveryLineage();
+        lineage = exactRoot.recoveryLineage();
         grants = new TargetQuotaGrantStore(backend, scope, lineage, limits.counters(), limits.domains());
         fences = new TargetTimeFenceStore(backend, scope, lineage, limits.counters(), limits.domains());
         closes = new TargetCloseStore(backend, scope, lineage, limits.counters(), limits.domains());
@@ -232,8 +236,88 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     }
 
     @Override
-    void bind(final WorkClassExecutionRegistry registry) {
+    synchronized void bind(final WorkClassExecutionRegistry registry) {
+        if (workClasses != null && workClasses != registry) {
+            throw new IllegalStateException("Target source runtime is bound to another work-class registry");
+        }
         store.sharedResources().bindWorkClassExecutionRegistry(registry);
+        workClasses = registry;
+    }
+
+    /** Builds Close GC on this exact active Owner, Store and shared WorkClass graph. */
+    public synchronized TargetReservationClosureWorkClassExecutor newCloseGcExecutor(
+            final WorkClassExecutionRegistry registry,
+            final TargetReservationControls.Authority controls,
+            final TargetReservationClosureWorkClassExecutor.Limits gcLimits,
+            final TargetStoreBackend.CommitAuthority physicalWrites,
+            final TargetQuotaDelta.ReservationClosureAuthority closureQuota,
+            final TargetQuotaDelta.ReservationExpiryAuthority expiryQuota,
+            final TargetQuotaDelta.CloseCursorAuthority cursorQuota,
+            final LongSupplier ownerClock) {
+        if (workClasses == null || workClasses != Objects.requireNonNull(registry, "registry")) {
+            throw new IllegalStateException("Close GC requires the bound Target source WorkClass graph");
+        }
+        Objects.requireNonNull(physicalWrites, "physicalWrites");
+        final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
+        requireGcOwner(clock);
+        return new TargetReservationClosureWorkClassExecutor(
+                registry,
+                backend,
+                scope,
+                lineage,
+                limits.domains(),
+                controls,
+                gcLimits,
+                () -> requireGcOwner(clock),
+                (actual, actualScope) -> {
+                    requireGcOwner(clock);
+                    return gcGuard(authorities.reads().acquire(actual, actualScope), actual, actualScope, clock);
+                },
+                (actual, actualScope, mutation) -> {
+                    final var stamp = mutation.quota().counters().mutation();
+                    if (!stamp.reservationClosure() && !stamp.reservationExpiry() && !stamp.reservationCloseCursor()) {
+                        throw new IllegalStateException("Close GC cannot commit another mutation kind");
+                    }
+                    requireGcOwner(clock);
+                    return gcGuard(physicalWrites.acquire(actual, actualScope, mutation), actual, actualScope, clock);
+                },
+                closureQuota,
+                expiryQuota,
+                cursorQuota,
+                monotonicClock);
+    }
+
+    private TargetStoreBackend.CommitGuard gcGuard(
+            final TargetStoreBackend.CommitGuard external,
+            final StoreMetadata actual,
+            final TargetQuotaScope actualScope,
+            final LongSupplier clock) {
+        final var delegate = Objects.requireNonNull(external, "Close GC authority guard");
+        return new TargetStoreBackend.CommitGuard() {
+            @Override
+            public void requireCurrent() {
+                if (!scope.equals(actualScope) || !Arrays.equals(metadata.encode(), actual.encode())) {
+                    throw new IllegalStateException("Close GC guard belongs to another Store/scope");
+                }
+                requireGcOwner(clock);
+                delegate.requireCurrent();
+                requireGcOwner(clock);
+            }
+
+            @Override
+            public void close() {
+                delegate.close();
+            }
+        };
+    }
+
+    private synchronized void requireGcOwner(final LongSupplier clock) {
+        try {
+            requireOwner(clock);
+        } catch (RuntimeException | Error failure) {
+            fenced = true;
+            throw failure;
+        }
     }
 
     @Override
@@ -446,7 +530,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         }
     }
 
-    private void requireOwner(final LongSupplier clock) {
+    private synchronized void requireOwner(final LongSupplier clock) {
         if (fenced || store.runtimeMetadata().lastOpenedOwnerEpoch() != lease.ownerEpoch()) {
             throw new IllegalStateException("Target source Owner/Store is fenced");
         }

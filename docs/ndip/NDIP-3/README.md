@@ -29,7 +29,9 @@ Store reopen 留存；新 GC 跳过两个 COMPLETE，再用 field7 将 OPEN 改�
 恰写 5 条 native 记录且 source frontier 不变。这是空 Target 的本地未完成游标续跑；
 Target reopen 现从持久 NV31 固定 root anchor 读取 NV33 root，核对 aggregate/source
 frontier 后重建 backend；Target source runtime 可接纳此重建结果，无需测试保存原 root 身份。
-真实 Owner lease 接管、带活跃 reservation 的恢复、生产持续触发、
+Close GC 现可由 Target source runtime 在同一 WorkClass 图上构造，并在任务接纳和 native 写前检查
+Owner lease/Store；本地 lease CAS 场景中旧 Owner 排队后失权零写，新 Owner epoch
+重开后完成 OPEN 游标。真实 Oxia 接管、带活跃 reservation 的恢复、生产持续触发、
 跨 Target 服务机会界限、expiry-first 混合顺序、关闭汇总转移、生产历史权限/配置/
 factory、format2 回填、完整迁移/恢复和集中验证仍未完成。原 29 切片不缩减。
 

@@ -155,6 +155,8 @@ class TargetCommandStoreTest {
         final var config = ShardStoreConfig.defaults(root);
         final com.nereusstream.delay.protocol.TargetPartitionId[] reopenedCloseTargets =
                 new com.nereusstream.delay.protocol.TargetPartitionId[3];
+        record ReopenOwner(SourceAssignment assignment, OxiaOwnerLeaseStore leases, long priorEpoch) {}
+        final ReopenOwner[] reopenOwner = new ReopenOwner[1];
         try (var resources = new SharedRocksDbResources(config);
                 var store = ShardStore.openTarget(config, scope.shard(), resources)) {
             final var initialized = TargetStoreBootstrap.commit(
@@ -693,6 +695,7 @@ class TargetCommandStoreTest {
                                     .orElseThrow(),
                             ShardLifecycleState.ACTIVE_FOR_COMMANDS)
                     .orElseThrow();
+            reopenOwner[0] = new ReopenOwner(assignment, leases, active.ownerEpoch());
             store.recordOpenedOwnerEpoch(active.ownerEpoch());
             TargetClaimRecord claim = null;
             if (claimed) {
@@ -2778,9 +2781,66 @@ class TargetCommandStoreTest {
                                     pendingCloseStore.reservationControls(
                                             (reader, bound) -> java.util.Optional.empty()))
                             .progress(budget(), pendingTarget, (a, b) -> guard()));
+            final var oldGc = runtime.newCloseGcExecutor(
+                    workerClasses,
+                    pendingCloseStore.reservationControls((reader, bound) -> java.util.Optional.empty()),
+                    new TargetReservationClosureWorkClassExecutor.Limits(4096, 250_000, 60_000_000_000L),
+                    (a, b, c) -> guard(),
+                    ignored -> {
+                        throw new AssertionError("old Owner cannot materialize Close");
+                    },
+                    ignored -> {
+                        throw new AssertionError("old Owner cannot expire Close");
+                    },
+                    ignored -> {
+                        throw new AssertionError("old Owner cannot complete Close");
+                    },
+                    () -> 100);
+            final long beforeOldOwnerLoss = store.latestSequenceNumber();
+            final var oldQueued = oldGc.submit(
+                    new TargetReservationClosureWorkClassExecutor.SweepRequest(scope.shard(), bytes(16, 0xe7)));
+            assertTrue(leases.release(active));
+            workerClasses.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
+            assertEquals(
+                    TargetReservationClosureWorkClassExecutor.Kind.FAILED,
+                    oldQueued.result().orElseThrow().kind());
+            assertTrue(runtime.fenced());
+            assertEquals(beforeOldOwnerLoss, store.latestSequenceNumber());
+            loop.close();
         }
         try (var resources = new SharedRocksDbResources(config);
                 var reopened = ShardStore.openTarget(config, scope.shard(), resources)) {
+            final var priorOwner = reopenOwner[0];
+            final var activeReopened = priorOwner
+                    .leases()
+                    .transition(
+                            priorOwner
+                                    .leases()
+                                    .acquire(
+                                            priorOwner.assignment(), "close-reopen-worker", bytes(32, 0x45), 101, 10000)
+                                    .orElseThrow(),
+                            ShardLifecycleState.ACTIVE_FOR_COMMANDS)
+                    .orElseThrow();
+            assertEquals(priorOwner.priorEpoch() + 1, activeReopened.ownerEpoch());
+            reopened.recordOpenedOwnerEpoch(activeReopened.ownerEpoch());
+            final TargetStoreBackend.ReadAuthority ownerReads =
+                    (actual, actualScope) -> new TargetStoreBackend.CommitGuard() {
+                        @Override
+                        public void requireCurrent() {
+                            assertEquals(scope, actualScope);
+                            assertArrayEquals(reopened.metadata().encode(), actual.encode());
+                            final var current =
+                                    priorOwner.leases().current(scope.shard()).orElseThrow();
+                            assertTrue(activeReopened.sameIdentity(current));
+                            assertEquals(ShardLifecycleState.ACTIVE_FOR_COMMANDS, current.state());
+                            assertEquals(
+                                    activeReopened.ownerEpoch(),
+                                    reopened.runtimeMetadata().lastOpenedOwnerEpoch());
+                        }
+
+                        @Override
+                        public void close() {}
+                    };
             assertThrows(
                     IllegalStateException.class,
                     () -> TargetStoreBootstrap.reopen(
@@ -2790,7 +2850,7 @@ class TargetCommandStoreTest {
                             budget(),
                             (a, b) -> guard()));
             final var recovered = TargetStoreBootstrap.reopen(
-                    reopened, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(), (a, b) -> guard());
+                    reopened, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(), ownerReads);
             final var reopenedBackend = recovered.backend();
             final var reopenedLineage = recovered.root().recoveryLineage();
             final var reopenedCloseStore = new TargetCloseStore(reopenedBackend, scope, reopenedLineage, 16, 1);
@@ -2802,7 +2862,7 @@ class TargetCommandStoreTest {
                     com.nereusstream.delay.protocol.TargetPartitionId, TargetReservationClosureStore.Progress>();
             TargetReservationClosureStore.ScanCursor afterTarget = null;
             for (int i = 0; i < reopenedCloseTargets.length; i++) {
-                final var discovered = reopenedClosures.discoverNextTarget(budget(), afterTarget, (a, b) -> guard());
+                final var discovered = reopenedClosures.discoverNextTarget(budget(), afterTarget, ownerReads);
                 assertNull(observed.put(discovered.target().orElseThrow(), discovered.progress()));
                 afterTarget = discovered.nextCursor();
             }
@@ -2813,24 +2873,44 @@ class TargetCommandStoreTest {
                             reopenedCloseTargets[2], TargetReservationClosureStore.Progress.OPEN),
                     observed);
             assertTrue(reopenedClosures
-                    .discoverNextTarget(budget(), afterTarget, (a, b) -> guard())
+                    .discoverNextTarget(budget(), afterTarget, ownerReads)
                     .target()
                     .isEmpty());
             final long beforeReopenedGc = reopened.latestSequenceNumber();
             final long sourceSequenceBeforeReopenedGc = reopened.shardMutationSequence();
             final var sourceBeforeReopenedGc = reopened.appliedShardLogPosition();
             final var reopenedWorkClasses = workClasses();
+            final var reopenedRuntime = new TargetSourceApplyRuntime(
+                    recovered,
+                    reopened,
+                    priorOwner.assignment(),
+                    activeReopened,
+                    new TargetSourceApplyRuntime.Authorities(
+                            priorOwner.leases(),
+                            SourceReplaySuccessor.strictKafka(),
+                            entry -> {
+                                throw new AssertionError("reopened GC cannot resolve a grant");
+                            },
+                            entry -> {
+                                throw new AssertionError("reopened GC cannot resolve a fence");
+                            },
+                            entry -> {
+                                throw new AssertionError("reopened GC cannot resolve a Close control");
+                            },
+                            (a, b, c) -> guard(),
+                            ownerReads,
+                            entry -> {
+                                throw new AssertionError("reopened GC cannot resolve a command");
+                            }),
+                    new TargetSourceApplyRuntime.Limits(4096, 32L << 20, 60_000_000_000L, 16, 1),
+                    System::nanoTime);
+            final var reopenedLoop =
+                    new WorkerSourceApplyLoop(() -> java.util.Optional.empty(), reopenedWorkClasses, reopenedRuntime);
             final var reopenedCursorDelta = new java.util.concurrent.atomic.AtomicReference<TargetQuotaDelta>();
-            final var reopenedGc = new TargetReservationClosureWorkClassExecutor(
+            final var reopenedGc = reopenedRuntime.newCloseGcExecutor(
                     reopenedWorkClasses,
-                    reopenedBackend,
-                    scope,
-                    reopenedLineage,
-                    1,
                     reopenedControls,
                     new TargetReservationClosureWorkClassExecutor.Limits(4096, 250_000, 60_000_000_000L),
-                    () -> {},
-                    (a, b) -> guard(),
                     (a, b, c) -> guard(),
                     ignored -> {
                         throw new AssertionError("reopened completed Close cannot materialize");
@@ -2839,7 +2919,7 @@ class TargetCommandStoreTest {
                         throw new AssertionError("reopened completed Close cannot expire");
                     },
                     reopenedCursorDelta::set,
-                    System::nanoTime);
+                    () -> 101);
             final var kinds = new java.util.ArrayList<TargetReservationClosureWorkClassExecutor.Kind>();
             for (int i = 0; i < reopenedCloseTargets.length + 1; i++) {
                 final var scan = reopenedGc.submit(
@@ -2862,7 +2942,8 @@ class TargetCommandStoreTest {
             assertTrue(reopenedCursorDelta.get().mutation().reservationCloseCursor());
             assertEquals(
                     TargetReservationClosureStore.Progress.COMPLETE,
-                    reopenedClosures.progress(budget(), reopenedCloseTargets[2], (a, b) -> guard()));
+                    reopenedClosures.progress(budget(), reopenedCloseTargets[2], ownerReads));
+            reopenedLoop.close();
         }
     }
 
