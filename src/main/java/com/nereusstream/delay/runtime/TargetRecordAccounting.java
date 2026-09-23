@@ -253,6 +253,35 @@ public final class TargetRecordAccounting {
                                         key.length,
                                         payload.length)));
             }
+            case com.nereusstream.delay.protocol.TargetCloseCursorRecord.VALUE_TYPE -> {
+                requireFamily(family, ColumnFamily.META);
+                final var cursor = com.nereusstream.delay.protocol.TargetCloseCursorRecord.decode(payload);
+                final var markerKey = TargetKeyCodec.close(cursor.target());
+                final var marker = com.nereusstream.delay.protocol.TargetCloseRecord.decodeForStore(
+                        markerKey,
+                        payload(
+                                ColumnFamily.META,
+                                markerKey,
+                                com.nereusstream.delay.protocol.TargetCloseRecord.VALUE_TYPE),
+                        scope.shard(),
+                        lineage);
+                if (!Arrays.equals(key, cursor.key()) || !Arrays.equals(cursor.recoveryLineage(), lineage)) {
+                    throw new IllegalStateException("Close cursor key/lineage differs from Store projection");
+                }
+                cursor.requireMarker(marker);
+                cursor.mutation().requireAtOrBefore(operation);
+                final var queue = TargetQueueState.decode(
+                        payload(ColumnFamily.META, TargetKeyCodec.state(cursor.target()), TargetQueueState.VALUE_TYPE));
+                marker.requireQueue(queue);
+                final var owner = descriptor(cursor.ownerIdentity(marker));
+                result = new Charge(
+                        owner,
+                        resources(owner.accounting()
+                                .recordCharge(
+                                        com.nereusstream.delay.protocol.TargetQuotaAccounting.RecordClass.STATE,
+                                        key.length,
+                                        payload.length)));
+            }
             case TargetQueueState.VALUE_TYPE -> {
                 requireFamily(family, ColumnFamily.META);
                 final var queue = TargetQueueState.decode(payload);

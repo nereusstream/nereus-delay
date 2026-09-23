@@ -753,3 +753,7 @@ index缺失时报错或无候选，不凭此证明其它Message/Admission/legacy
 当前索引及发现接口只是持久关闭游标的基础。仍需确立cursor版本/原子推进、终态源因
 选择、restart续跑和公平GC任务；first remaining不代替完整物理扫描、归档/汇总转移、
 Floor及Admitted保护。生产限额必须覆盖新增索引的最大实际批次和STATE费用。
+
+### 2026-09-23 Close 游标身份
+
+`meta_cf/0x1d/schema1/Target[32]` 仅由首次接受的 Target Close 创建，值 NV40 严格绑定完整首 marker 摘要、recovery lineage、Target 与 source stamp。活跃索引仍是 `id_cf/0x09/schema1/Target/MessageId`；发现从这个前缀寻首项并拒绝落在游标 after 以前的活跃记录。终态删除首项时才同批前移游标；没有其它项时完成。旧 format2 持久库必须受控回填活跃索引并建立游标，不能把缺失当作扫描结束。

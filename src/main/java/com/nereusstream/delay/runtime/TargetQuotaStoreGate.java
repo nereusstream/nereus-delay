@@ -81,7 +81,8 @@ public final class TargetQuotaStoreGate {
             throw new IllegalArgumentException("logical Store gate requires its bounded affected Target set");
         }
         if (quota.counters().mutation().reservationExpiry()
-                || quota.counters().mutation().reservationClosure()) {
+                || quota.counters().mutation().reservationClosure()
+                || quota.counters().mutation().reservationCloseCursor()) {
             throw new IllegalStateException(
                     "reservation terminalization requires its dedicated local maintenance authority");
         }

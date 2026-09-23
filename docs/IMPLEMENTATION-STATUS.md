@@ -10,12 +10,15 @@
 
 [原 29 切片集中验证交接清单](ndip/NDIP-3/12-集中验证交接清单.md)
 
-Target reservation 新增按Target排序的活跃索引，Prepare与Commit/Cancel/到期/Close物化
-在原子账本批次中分别建立和删除它。Close发现入口在受保护Store视图中核对持久marker、
-CLOSED queue、索引与双ID，按Target前缀只读第一个剩余候选，不扫描全Shard，也不决定
-终态。四个实际Worker/Store开发场景通过，验证索引生命周期、有限预算、上界和原账本
-守恒；Close/到期物化各增为9条native写。持久Close cursor及可恢复GC调度、关闭汇总
-转移、生产历史权限/配置/factory、完整迁移/恢复和集中验证仍未完成。原29切片不缩减。
+Target Close 首次原子批次现写入绑定首个 NV39 marker 与 recovery lineage 的 NV40
+持久游标；按 Target 的活跃 reservation 索引仍由 Prepare 建立、各终态删除。受保护的
+Close 发现入口验证 marker、CLOSED queue、游标与双 ID，只读当前第一个剩余候选。
+首候选由 Close 或到期物化时，游标与终态、原 payload owner、两 counter/total/aggregate
+同批前移；非首候选终态不跳过索引。空扫描可用独立 field7 本地 mutation 记录完成，
+不推进 source。四个实际 Worker 场景及协议检查通过；首次 Close 13 条 native 写，
+带游标的 Close 物化 10 条。空扫描成功提交尚待实际 Store 场景验证；可恢复 GC 调度、
+关闭汇总转移、生产历史权限/配置/factory、format2 回填、完整迁移/恢复和集中验证
+仍未完成。原 29 切片不缩减。
 
 以下为前序认证入口实施记录；持久 writer 的当前进展以上述说明为准。
 

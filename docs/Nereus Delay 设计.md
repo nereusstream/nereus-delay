@@ -6451,3 +6451,7 @@ index缺失时报错或无候选，不凭此证明其它Message/Admission/legacy
 当前索引及发现接口只是持久关闭游标的基础。仍需确立cursor版本/原子推进、终态源因
 选择、restart续跑和公平GC任务；first remaining不代替完整物理扫描、归档/汇总转移、
 Floor及Admitted保护。生产限额必须覆盖新增索引的最大实际批次和STATE费用。
+
+### 2026-09-23 NDIP-3 Target Close 游标实施边界
+
+首次接受 Target Close 现同批建立 NV40 持久游标；活跃 reservation 首候选终态化时同批推进，空索引可用独立 field7 本地 mutation 标完成。身份绑定首次 marker 与 lineage，费用由实际 Target/tenant mirror 账本承担，source 不因本地物化前移。可恢复 GC 调度、关闭汇总/其它 admitted 义务、format2 回填和生产恢复认证仍属于未完成实现。

@@ -1,6 +1,8 @@
 package com.nereusstream.delay.runtime;
 
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.TargetCloseCursorRecord;
+import com.nereusstream.delay.protocol.TargetCloseRecord;
 import com.nereusstream.delay.protocol.TargetQueueState;
 import com.nereusstream.delay.protocol.TargetQuotaBookkeeping;
 import com.nereusstream.delay.protocol.TargetQuotaIdentity;
@@ -273,7 +275,7 @@ public final class TargetReservationExpiryStore {
                 }
             });
             expired.requireOwner(retained);
-            final var edits = List.of(
+            final var edits = new ArrayList<>(List.of(
                     reader.replace(
                             ColumnFamily.ID,
                             expected.key(),
@@ -292,14 +294,78 @@ public final class TargetReservationExpiryStore {
                             ColumnFamily.META,
                             ownerKey,
                             TargetQuotaPayloadOwner.VALUE_TYPE,
-                            retained.canonicalBytes()));
+                            retained.canonicalBytes())));
+            final var cursorEdit = closeCursorEdit(reader, expected, stamp, queue);
+            if (cursorEdit != null) {
+                edits.add(cursorEdit);
+            }
             return account(reader, edits, stamp, authority);
         });
         backend.commit(plan, writes);
         return true;
     }
 
-    private TargetStoreBackend.Mutation account(
+    private TargetStoreBackend.Edit closeCursorEdit(
+            TargetStoreBackend.Reader reader,
+            TargetReservationRecord expected,
+            TargetQuotaMutation stamp,
+            TargetQueueState queue) {
+        final var target = expected.locator().target();
+        final byte[] markerKey = TargetKeyCodec.close(target);
+        final byte[] rawMarker = reader.get(ColumnFamily.META, markerKey);
+        if (rawMarker == null) {
+            if (reader.get(ColumnFamily.META, TargetKeyCodec.closeCursor(target)) != null) {
+                throw new IllegalStateException("Close cursor exists without its first marker");
+            }
+            return null;
+        }
+        final var marker = TargetCloseRecord.decodeForStore(
+                markerKey,
+                TargetValueEnvelope.decode(rawMarker, TargetCloseRecord.VALUE_TYPE)
+                        .payload(),
+                scope.shard(),
+                lineage);
+        marker.requireQueue(queue);
+        marker.mutation().requireAtOrBefore(reader.aggregate().mutation());
+        final byte[] cursorKey = TargetKeyCodec.closeCursor(target);
+        final var cursor = TargetCloseCursorRecord.decodeForStore(
+                cursorKey,
+                TargetValueEnvelope.decode(reader.get(ColumnFamily.META, cursorKey), TargetCloseCursorRecord.VALUE_TYPE)
+                        .payload(),
+                marker,
+                lineage);
+        cursor.mutation().requireAtOrBefore(reader.aggregate().mutation());
+        final byte[] prefix = TargetKeyCodec.targetReservationPrefix(target);
+        final byte[] upper = TargetKeyCodec.targetReservationUpperBound(target);
+        final var first = reader.first(ColumnFamily.ID, prefix, upper, List.of());
+        if (first == null || cursor.complete()) {
+            throw new IllegalStateException("Close cursor disagrees with an active reservation index");
+        }
+        final byte[] after = cursor.afterMessageId();
+        if (after != null
+                && Arrays.compareUnsigned(
+                                first.key(),
+                                TargetKeyCodec.targetReservation(
+                                        target, new com.nereusstream.delay.protocol.DelayMessageId(after)))
+                        <= 0) {
+            throw new IllegalStateException("Close cursor regressed behind an active reservation");
+        }
+        if (!Arrays.equals(first.key(), expected.targetIndexKey())) {
+            return null;
+        }
+        if (!Arrays.equals(
+                TargetValueEnvelope.decode(first.value(), TargetReservationRecord.VALUE_TYPE)
+                        .payload(),
+                expected.canonicalBytes())) {
+            throw new IllegalStateException("Close cursor candidate differs from its active index");
+        }
+        final var next = reader.first(ColumnFamily.ID, Bytes.concat(first.key(), new byte[] {0}), upper, List.of());
+        final var advanced = cursor.advance(expected.locator().messageId(), next == null, stamp);
+        return reader.replace(
+                ColumnFamily.META, cursorKey, TargetCloseCursorRecord.VALUE_TYPE, advanced.canonicalBytes());
+    }
+
+    TargetStoreBackend.Mutation account(
             TargetStoreBackend.Reader reader,
             List<TargetStoreBackend.Edit> edits,
             TargetQuotaMutation stamp,
@@ -358,8 +424,8 @@ public final class TargetReservationExpiryStore {
                         "external reservation materialization authority did not complete", external);
             }
         };
-        final var delta = stamp.reservationClosure()
-                ? TargetQuotaDelta.prepareReservationClosure(
+        final var delta = stamp.reservationCloseCursor()
+                ? TargetQuotaDelta.prepareCloseCursor(
                         aggregate,
                         reader.sourceSequence(),
                         reader.source(),
@@ -367,14 +433,23 @@ public final class TargetReservationExpiryStore {
                         updates,
                         reader::counter,
                         guarded::requireAuthorized)
-                : TargetQuotaDelta.prepareReservationExpiry(
-                        aggregate,
-                        reader.sourceSequence(),
-                        reader.source(),
-                        stamp.mutationDigest(),
-                        updates,
-                        reader::counter,
-                        guarded);
+                : stamp.reservationClosure()
+                        ? TargetQuotaDelta.prepareReservationClosure(
+                                aggregate,
+                                reader.sourceSequence(),
+                                reader.source(),
+                                stamp.mutationDigest(),
+                                updates,
+                                reader::counter,
+                                guarded::requireAuthorized)
+                        : TargetQuotaDelta.prepareReservationExpiry(
+                                aggregate,
+                                reader.sourceSequence(),
+                                reader.source(),
+                                stamp.mutationDigest(),
+                                updates,
+                                reader::counter,
+                                guarded);
         if (!delta.mutation().equals(stamp)) {
             throw new IllegalStateException("expiry accounting differs from its materialization stamp");
         }

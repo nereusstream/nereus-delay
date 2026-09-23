@@ -9,9 +9,20 @@ public record TargetQuotaMutation(
         byte[] mutationDigest,
         long localClaimOrdinal,
         boolean reservationExpiry,
-        boolean reservationClosure) {
+        boolean reservationClosure,
+        boolean reservationCloseCursor) {
     public static final int MAX_SOURCE_CANONICAL_BYTES = 11 + 4 + TargetSourcePosition.MAX_CANONICAL_BYTES + 34;
     public static final int MAX_CANONICAL_BYTES = MAX_SOURCE_CANONICAL_BYTES + 11;
+
+    public TargetQuotaMutation(
+            long sequence,
+            SourcePosition source,
+            byte[] mutationDigest,
+            long localClaimOrdinal,
+            boolean reservationExpiry,
+            boolean reservationClosure) {
+        this(sequence, source, mutationDigest, localClaimOrdinal, reservationExpiry, reservationClosure, false);
+    }
 
     public TargetQuotaMutation(
             long sequence,
@@ -36,8 +47,10 @@ public record TargetQuotaMutation(
 
     public TargetQuotaMutation {
         if (sequence == 0
-                || ((reservationExpiry || reservationClosure) && localClaimOrdinal == 0)
-                || (reservationExpiry && reservationClosure)) {
+                || ((reservationExpiry || reservationClosure || reservationCloseCursor) && localClaimOrdinal == 0)
+                || (reservationExpiry && reservationClosure)
+                || (reservationExpiry && reservationCloseCursor)
+                || (reservationClosure && reservationCloseCursor)) {
             throw new IllegalArgumentException("quota source sequence must be nonzero");
         }
         source = TargetSourcePosition.requireBounded(source);
@@ -50,7 +63,7 @@ public record TargetQuotaMutation(
     }
 
     public boolean isLocalClaim() {
-        return localClaimOrdinal != 0 && !reservationExpiry && !reservationClosure;
+        return localClaimOrdinal != 0 && !reservationExpiry && !reservationClosure && !reservationCloseCursor;
     }
 
     public boolean isLocalMutation() {
@@ -132,7 +145,9 @@ public record TargetQuotaMutation(
             CanonicalProtobuf.bytes(out, 3, mutationDigest);
             if (isLocalMutation()) {
                 CanonicalProtobuf.uint64Bits(
-                        out, reservationClosure ? 6 : reservationExpiry ? 5 : 4, localClaimOrdinal);
+                        out,
+                        reservationCloseCursor ? 7 : reservationClosure ? 6 : reservationExpiry ? 5 : 4,
+                        localClaimOrdinal);
             }
         });
     }
@@ -141,7 +156,8 @@ public record TargetQuotaMutation(
         final var fields = TargetCompatibilityCodec.read(encoded, MAX_CANONICAL_BYTES, 4, false, "TargetQuotaMutation");
         final boolean expiry = fields.size() == 4 && fields.getLast().number() == 5;
         final boolean closure = fields.size() == 4 && fields.getLast().number() == 6;
-        final int ordinalField = closure ? 6 : expiry ? 5 : 4;
+        final boolean cursor = fields.size() == 4 && fields.getLast().number() == 7;
+        final int ordinalField = cursor ? 7 : closure ? 6 : expiry ? 5 : 4;
         QueryCodecSupport.requireNumbers(
                 fields,
                 fields.size() == 4 ? new int[] {1, 2, 3, ordinalField} : new int[] {1, 2, 3},
@@ -152,7 +168,8 @@ public record TargetQuotaMutation(
                 QueryCodecSupport.fixed(fields.get(2), 3, 32),
                 fields.size() == 4 ? QueryCodecSupport.uint64Bits(fields.get(3), ordinalField) : 0,
                 expiry,
-                closure);
+                closure,
+                cursor);
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "TargetQuotaMutation");
         return result;
     }
@@ -164,6 +181,7 @@ public record TargetQuotaMutation(
                 && localClaimOrdinal == that.localClaimOrdinal
                 && reservationExpiry == that.reservationExpiry
                 && reservationClosure == that.reservationClosure
+                && reservationCloseCursor == that.reservationCloseCursor
                 && Arrays.equals(source.canonicalBytes(), that.source.canonicalBytes())
                 && Arrays.equals(mutationDigest, that.mutationDigest);
     }

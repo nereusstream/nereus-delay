@@ -102,6 +102,7 @@ public final class TargetQuotaDelta {
                 lookup,
                 false,
                 false,
+                false,
                 false);
     }
 
@@ -132,6 +133,7 @@ public final class TargetQuotaDelta {
                 lookup,
                 true,
                 false,
+                false,
                 false);
         requireLocalClaimChanges(kind, delta.changes);
         authority.requireAuthorized(kind, delta);
@@ -156,8 +158,8 @@ public final class TargetQuotaDelta {
         if (source == null || sequence == 0) {
             throw new IllegalStateException("reservation expiry requires an applied source frontier");
         }
-        final var delta =
-                prepareInternal(aggregate, sequence, source, source, digest, updates, 2, lookup, true, true, false);
+        final var delta = prepareInternal(
+                aggregate, sequence, source, source, digest, updates, 2, lookup, true, true, false, false);
         requireReservationExpiryChanges(delta.changes);
         authority.requireAuthorized(delta);
         return delta;
@@ -181,11 +183,73 @@ public final class TargetQuotaDelta {
         if (source == null || sequence == 0) {
             throw new IllegalStateException("reservation closure requires an applied source frontier");
         }
-        final var delta =
-                prepareInternal(aggregate, sequence, source, source, digest, updates, 2, lookup, true, false, true);
+        final var delta = prepareInternal(
+                aggregate, sequence, source, source, digest, updates, 2, lookup, true, false, true, false);
         requireReservationExpiryChanges(delta.changes);
         authority.requireAuthorized(delta);
         return delta;
+    }
+
+    /** Source-preserving cursor completion with no payload transition. */
+    @FunctionalInterface
+    public interface CloseCursorAuthority {
+        void requireAuthorized(TargetQuotaDelta delta);
+    }
+
+    public static TargetQuotaDelta prepareCloseCursor(
+            TargetQuotaAggregate aggregate,
+            long sequence,
+            SourcePosition source,
+            byte[] digest,
+            List<Update> updates,
+            Function<TargetQuotaIdentity, TargetQuotaCounter> lookup,
+            CloseCursorAuthority authority) {
+        Objects.requireNonNull(authority, "closeCursorAuthority");
+        if (source == null || sequence == 0) {
+            throw new IllegalStateException("Close cursor requires an established source frontier");
+        }
+        final var delta = prepareInternal(
+                aggregate, sequence, source, source, digest, updates, 2, lookup, true, false, false, true);
+        requireCloseCursorChanges(delta.changes);
+        authority.requireAuthorized(delta);
+        return delta;
+    }
+
+    private static void requireCloseCursorChanges(List<Change> changes) {
+        if (changes.size() != 2) {
+            throw new IllegalStateException("Close cursor requires exact Target and tenant mirror counters");
+        }
+        final var primary = changes.stream()
+                .filter(c -> !c.next().identity().kind().isMirror())
+                .findFirst()
+                .orElseThrow();
+        final var mirror = changes.stream()
+                .filter(c -> c.next().identity().kind().isMirror())
+                .findFirst()
+                .orElseThrow();
+        if (!primary.next().identity().target().equals(mirror.next().identity().target())
+                || !Arrays.equals(
+                        primary.next().identity().accountingIncarnation(),
+                        mirror.next().identity().accountingIncarnation())) {
+            throw new IllegalStateException("Close cursor owner/mirror differ");
+        }
+        for (var change : changes) {
+            if (change.prior().usage().targets() != change.next().usage().targets()
+                    || change.prior().usage().executionDomains()
+                            != change.next().usage().executionDomains()
+                    || change.prior().usage().strictOrderDomains()
+                            != change.next().usage().strictOrderDomains()
+                    || change.prior().usage().accountingIncarnations()
+                            != change.next().usage().accountingIncarnations()) {
+                throw new IllegalStateException("Close cursor changed accounting cardinality");
+            }
+            for (var dimension : CapacityDimension.values()) {
+                if (difference(change, dimension) != difference(primary, dimension)
+                        || (dimension != CapacityDimension.LOGICAL_STATE_BYTES && difference(change, dimension) != 0)) {
+                    throw new IllegalStateException("Close cursor changed payload or unmatched mirror dimension");
+                }
+            }
+        }
     }
 
     private static void requireReservationExpiryChanges(final List<Change> changes) {
@@ -245,7 +309,8 @@ public final class TargetQuotaDelta {
             final Function<TargetQuotaIdentity, TargetQuotaCounter> lookup,
             final boolean localClaim,
             final boolean reservationExpiry,
-            final boolean reservationClosure) {
+            final boolean reservationClosure,
+            final boolean reservationCloseCursor) {
         Objects.requireNonNull(aggregate, "aggregate");
         Objects.requireNonNull(updates, "updates");
         Objects.requireNonNull(lookup, "lookup");
@@ -264,7 +329,8 @@ public final class TargetQuotaDelta {
                 mutationDigest,
                 ordinal,
                 reservationExpiry,
-                reservationClosure);
+                reservationClosure,
+                reservationCloseCursor);
         if (!aggregate.shard().equals(source.shardId())
                 || (!localClaim && lastStoreSource != null && source.compareTo(lastStoreSource) <= 0)) {
             throw new IllegalStateException("quota source must advance the Store Source Position");
@@ -291,7 +357,7 @@ public final class TargetQuotaDelta {
                     throw new IllegalStateException("quota lookup returned another identity");
                 }
                 aggregate.requireCounter(prior);
-                if (!prior.usage().equals(update.nextUsage())) {
+                if (reservationCloseCursor || !prior.usage().equals(update.nextUsage())) {
                     changes.add(new Change(prior, prior.advance(update.nextUsage(), mutation)));
                 }
             } else {

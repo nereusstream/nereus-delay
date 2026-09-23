@@ -1,9 +1,12 @@
 package com.nereusstream.delay.runtime;
 
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.DelayMessageId;
+import com.nereusstream.delay.protocol.TargetCloseCursorRecord;
 import com.nereusstream.delay.protocol.TargetCloseRecord;
 import com.nereusstream.delay.protocol.TargetPartitionId;
 import com.nereusstream.delay.protocol.TargetQueueState;
+import com.nereusstream.delay.protocol.TargetQuotaMutation;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
 import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.ColumnFamily;
@@ -50,6 +53,9 @@ public final class TargetReservationClosureStore {
                     final byte[] markerKey = TargetKeyCodec.close(target);
                     final byte[] raw = reader.get(ColumnFamily.META, markerKey);
                     if (raw == null) {
+                        if (reader.get(ColumnFamily.META, TargetKeyCodec.closeCursor(target)) != null) {
+                            throw new IllegalStateException("Close cursor exists without its first marker");
+                        }
                         return Optional.empty();
                     }
                     final var marker = TargetCloseRecord.decodeForStore(
@@ -64,6 +70,16 @@ public final class TargetReservationClosureStore {
                                     TargetQueueState.VALUE_TYPE)
                             .payload());
                     marker.requireQueue(queue);
+                    final byte[] cursorKey = TargetKeyCodec.closeCursor(target);
+                    final var cursor = TargetCloseCursorRecord.decodeForStore(
+                            cursorKey,
+                            TargetValueEnvelope.decode(
+                                            reader.get(ColumnFamily.META, cursorKey),
+                                            TargetCloseCursorRecord.VALUE_TYPE)
+                                    .payload(),
+                            marker,
+                            lineage);
+                    cursor.mutation().requireAtOrBefore(reader.aggregate().mutation());
                     final var row = reader.first(
                             ColumnFamily.ID,
                             TargetKeyCodec.targetReservationPrefix(target),
@@ -71,6 +87,15 @@ public final class TargetReservationClosureStore {
                             List.of());
                     if (row == null) {
                         return Optional.empty();
+                    }
+                    if (cursor.complete()
+                            || cursor.afterMessageId() != null
+                                    && Arrays.compareUnsigned(
+                                                    row.key(),
+                                                    TargetKeyCodec.targetReservation(
+                                                            target, new DelayMessageId(cursor.afterMessageId())))
+                                            <= 0) {
+                        throw new IllegalStateException("Close cursor disagrees with active reservation order");
                     }
                     final var reservation = TargetReservationRecord.decode(
                             TargetValueEnvelope.decode(row.value(), TargetReservationRecord.VALUE_TYPE)
@@ -119,5 +144,103 @@ public final class TargetReservationClosureStore {
             TargetQuotaDelta.ReservationClosureAuthority authority) {
         Objects.requireNonNull(authority, "closureAuthority");
         return terminals.materializeTerminal(budget, reservationId, reads, writes, authority::requireAuthorized, true);
+    }
+
+    /** Persist an empty scan as a local cursor mutation, with exact Target and tenant accounting. */
+    public boolean completeEmpty(
+            BoundedReadBudget budget,
+            TargetPartitionId target,
+            TargetStoreBackend.ReadAuthority reads,
+            TargetStoreBackend.CommitAuthority writes,
+            TargetQuotaDelta.CloseCursorAuthority authority) {
+        Objects.requireNonNull(target, "target");
+        Objects.requireNonNull(writes, "writes");
+        Objects.requireNonNull(authority, "cursorAuthority");
+        final boolean pending = backend.guardedRead(
+                budget,
+                reader -> {
+                    final byte[] raw = reader.get(ColumnFamily.META, TargetKeyCodec.close(target));
+                    if (raw == null) {
+                        return false;
+                    }
+                    final var marker = TargetCloseRecord.decodeForStore(
+                            TargetKeyCodec.close(target),
+                            TargetValueEnvelope.decode(raw, TargetCloseRecord.VALUE_TYPE)
+                                    .payload(),
+                            scope.shard(),
+                            lineage);
+                    final var cursor = loadCursor(reader, target, marker);
+                    final var row = reader.first(
+                            ColumnFamily.ID,
+                            TargetKeyCodec.targetReservationPrefix(target),
+                            TargetKeyCodec.targetReservationUpperBound(target),
+                            List.of());
+                    if (cursor.complete() && row != null) {
+                        throw new IllegalStateException("completed Close cursor retains an active reservation");
+                    }
+                    return !cursor.complete() && row == null;
+                },
+                reads);
+        if (!pending) {
+            return false;
+        }
+        final var plan = backend.prepare(budget, reader -> {
+            if (reader.source() == null || !reader.shardId().equals(scope.shard())) {
+                throw new IllegalStateException("Close completion requires its established Shard source");
+            }
+            final byte[] markerKey = TargetKeyCodec.close(target);
+            final var marker = TargetCloseRecord.decodeForStore(
+                    markerKey,
+                    TargetValueEnvelope.decode(reader.get(ColumnFamily.META, markerKey), TargetCloseRecord.VALUE_TYPE)
+                            .payload(),
+                    scope.shard(),
+                    lineage);
+            final var queue = TargetQueueState.decode(TargetValueEnvelope.decode(
+                            reader.get(ColumnFamily.META, TargetKeyCodec.state(target)), TargetQueueState.VALUE_TYPE)
+                    .payload());
+            marker.requireQueue(queue);
+            marker.mutation().requireAtOrBefore(reader.aggregate().mutation());
+            final var cursor = loadCursor(reader, target, marker);
+            if (cursor.complete()
+                    || reader.first(
+                                    ColumnFamily.ID,
+                                    TargetKeyCodec.targetReservationPrefix(target),
+                                    TargetKeyCodec.targetReservationUpperBound(target),
+                                    List.of())
+                            != null) {
+                throw new IllegalStateException("Close cursor changed before empty completion; rediscover");
+            }
+            cursor.mutation().requireAtOrBefore(reader.aggregate().mutation());
+            final byte[] digest = Bytes.sha256(
+                    Bytes.utf8("nereus-delay-target-close-cursor-empty\0"),
+                    cursor.canonicalBytes(),
+                    marker.canonicalBytes(),
+                    reader.aggregate().mutation().canonicalBytes());
+            final var stamp = new TargetQuotaMutation(
+                    reader.sourceSequence(),
+                    reader.source(),
+                    digest,
+                    TargetQuotaMutation.increment(reader.aggregate().mutation().localOrdinal()),
+                    false,
+                    false,
+                    true);
+            final var next = cursor.completeEmpty(stamp);
+            final var edit = reader.replace(
+                    ColumnFamily.META, cursor.key(), TargetCloseCursorRecord.VALUE_TYPE, next.canonicalBytes());
+            return terminals.account(reader, List.of(edit), stamp, authority::requireAuthorized);
+        });
+        backend.commit(plan, writes);
+        return true;
+    }
+
+    private TargetCloseCursorRecord loadCursor(
+            TargetStoreBackend.Reader reader, TargetPartitionId target, TargetCloseRecord marker) {
+        final byte[] key = TargetKeyCodec.closeCursor(target);
+        return TargetCloseCursorRecord.decodeForStore(
+                key,
+                TargetValueEnvelope.decode(reader.get(ColumnFamily.META, key), TargetCloseCursorRecord.VALUE_TYPE)
+                        .payload(),
+                marker,
+                lineage);
     }
 }

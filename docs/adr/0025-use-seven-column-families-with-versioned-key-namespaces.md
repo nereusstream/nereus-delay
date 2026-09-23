@@ -601,3 +601,7 @@ is not commit authority or a durable cursor. Existing format-2 stores containing
 without the new index must be handled by a controlled backfill/migration and full accounting
 check before activation. Cursor publication, restart progress, fair GC, aggregate phase transfer,
 recovery/Floor and Broker validation remain required.
+
+### 2026-09-23 Target Close cursor namespace
+
+The Target-only `meta_cf` key tag `0x1d`, schema `0x01`, followed by TargetId[32] stores NV40 Close progress. It is a separate versioned key namespace, bound to the first accepted NV39 marker and recovery lineage. The ID/0x09 active reservation index remains the ordered source of candidates; its deletion and cursor advance share one atomic batch. Old format2 stores require controlled migration before these new projection requirements can be enabled.

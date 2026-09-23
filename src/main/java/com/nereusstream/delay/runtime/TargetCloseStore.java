@@ -7,6 +7,7 @@ import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
 import com.nereusstream.delay.protocol.TargetCloseBody;
+import com.nereusstream.delay.protocol.TargetCloseCursorRecord;
 import com.nereusstream.delay.protocol.TargetCloseRecord;
 import com.nereusstream.delay.protocol.TargetDomainState;
 import com.nereusstream.delay.protocol.TargetQueueState;
@@ -209,6 +210,10 @@ public final class TargetCloseStore {
                         ColumnFamily.META, queueKey, TargetQueueState.VALUE_TYPE, closed.canonicalBytes()));
                 edits.add(reader.replace(
                         ColumnFamily.META, markerKey, TargetCloseRecord.VALUE_TYPE, marker.canonicalBytes()));
+                final var cursor = TargetCloseCursorRecord.initial(marker);
+                requireAbsent(reader, ColumnFamily.META, cursor.key());
+                edits.add(reader.replace(
+                        ColumnFamily.META, cursor.key(), TargetCloseCursorRecord.VALUE_TYPE, cursor.canonicalBytes()));
             }
             result[0] = outcome;
             return new TargetSourceAccounting(

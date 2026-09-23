@@ -2073,10 +2073,13 @@ id_cf/0x09/schema1/Target/MessageId复制当前NV38 RESERVED字节，另计完�
 它不另占一份reservation payload，仍只有唯一owner占RESERVATION_MESSAGES/BYTES。
 Prepare原子增加索引；Commit/Cancel/本地expiry/Close原子删除索引并收回实际STATE。
 TargetRecordAccounting对每个相关编辑核对原双ID、expiry、活跃索引的最终一致性，
-终态必须没有两类活动索引。Close和expiry物化各为5条业务+2counter+total+aggregate，
-即9条native写；物理容量/有限预算必须据此重算，不能沿用先前8条批次声明。
+终态必须没有两类活动索引。无Close游标更新的物化为5条业务+2counter+total+aggregate，即9条native写；删除当前首项并同批推进NV40时增为10条。物理容量/有限预算必须据此重算，不能沿用先前8条批次声明。
 
 现有format2持久reservation若无新增索引，新reader不能假定其为已迁移，亦不得
 据空发现结果宣布Close完成。受控迁移须重建每个仍RESERVED的对应索引、更新原Target/
 mirror/total/aggregate真实STATE并验证全部ID/expiry/owner/lineage以及Store fence，
 再允许激活新的发现/物化入口；不能绕过双账本守恒。
+
+### 2026-09-23 NV40 Close cursor 计费
+
+首次 Close 在源操作中把 NV40 初始值的实际 key、payload、envelope STATE 收到原 Target 与 tenant mirror。field7 是与 Claim field4、expiry field5、closure field6 互斥的同一 raw uint64 本地 ordinal，不推进 source META3/5。Close/expiry 首候选终态批次把游标 before/after 差额和 NV38/expiry/owner 转移一起计入原两 counter、total、aggregate；即使净 STATE 字节为零也持久推进这些账本 revision。空扫描完成只允许 cursor 的 STATE 变化与原 owner/mirror 对称，禁止 payload、target/domain/incarnation cardinality 转移。当前完整关闭汇总及受控迁移计费仍未完成。

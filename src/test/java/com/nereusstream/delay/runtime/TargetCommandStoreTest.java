@@ -2022,7 +2022,7 @@ class TargetCommandStoreTest {
                                     TargetQueueState.VALUE_TYPE)
                             .payload());
             applyClose(loop, entries, signedClose, closeAt);
-            assertEquals(12, store.latestSequenceNumber() - beforeCloseNative);
+            assertEquals(13, store.latestSequenceNumber() - beforeCloseNative);
             assertEquals(1, closeResolutions.get());
             final byte[] markerRaw = store.get(ColumnFamily.META, TargetKeyCodec.close(physical.id()));
             final var durableClose = TargetCloseRecord.decodeForStore(
@@ -2032,6 +2032,17 @@ class TargetCommandStoreTest {
                     scope.shard(),
                     lineage);
             assertEquals(closeAt, durableClose.mutation().source());
+            final var initialCursor = com.nereusstream.delay.protocol.TargetCloseCursorRecord.decodeForStore(
+                    TargetKeyCodec.closeCursor(physical.id()),
+                    TargetValueEnvelope.decode(
+                                    store.get(ColumnFamily.META, TargetKeyCodec.closeCursor(physical.id())),
+                                    com.nereusstream.delay.protocol.TargetCloseCursorRecord.VALUE_TYPE)
+                            .payload(),
+                    durableClose,
+                    lineage);
+            assertEquals(1, initialCursor.revision());
+            assertFalse(initialCursor.complete());
+            assertNull(initialCursor.afterMessageId());
             assertEquals(fifthReservation.expiryEpochMs() - 1, durableClose.fenceAtClose());
             final var queueAfterClose = TargetQueueState.decode(TargetValueEnvelope.decode(
                             store.get(ColumnFamily.META, TargetKeyCodec.state(physical.id())),
@@ -2112,6 +2123,18 @@ class TargetCommandStoreTest {
                             queryAuthority)
                     .isEmpty());
             assertArrayEquals(fifthRaw, store.get(ColumnFamily.ID, fifthReservation.targetIndexKey()));
+            final long beforeIncompleteClose = store.latestSequenceNumber();
+            assertFalse(closedDiscovery.completeEmpty(
+                    budget(),
+                    physical.id(),
+                    queryAuthority,
+                    (a, b, c) -> {
+                        throw new AssertionError("active reservation cannot complete Close");
+                    },
+                    cursorChange -> {
+                        throw new AssertionError("active reservation cannot account Close completion");
+                    }));
+            assertEquals(beforeIncompleteClose, store.latestSequenceNumber());
             assertThrows(
                     com.nereusstream.delay.store.ReadIncompleteException.class,
                     () -> closedDiscovery.discover(
@@ -2155,7 +2178,7 @@ class TargetCommandStoreTest {
                     queryAuthority,
                     (a, b, c) -> guard(),
                     closureDelta::set));
-            assertEquals(9, store.latestSequenceNumber() - beforeClosureWrite);
+            assertEquals(10, store.latestSequenceNumber() - beforeClosureWrite);
             assertEquals(beforeClosureSourceSequence, store.shardMutationSequence());
             assertArrayEquals(
                     beforeClosureSource,
@@ -2179,6 +2202,18 @@ class TargetCommandStoreTest {
                     closureStamp,
                     com.nereusstream.delay.protocol.TargetQuotaMutation.decode(closureStamp.canonicalBytes()));
             assertEquals(closureStamp, closureDelta.get().mutation());
+            final var terminalCursor = com.nereusstream.delay.protocol.TargetCloseCursorRecord.decodeForStore(
+                    TargetKeyCodec.closeCursor(physical.id()),
+                    TargetValueEnvelope.decode(
+                                    store.get(ColumnFamily.META, TargetKeyCodec.closeCursor(physical.id())),
+                                    com.nereusstream.delay.protocol.TargetCloseCursorRecord.VALUE_TYPE)
+                            .payload(),
+                    durableClose,
+                    lineage);
+            assertEquals(2, terminalCursor.revision());
+            assertTrue(terminalCursor.complete());
+            assertArrayEquals(fifthReservation.locator().messageId().bytes(), terminalCursor.afterMessageId());
+            assertEquals(closureStamp, terminalCursor.mutation());
             assertThrows(IllegalArgumentException.class, closureStamp::requireSourceApplied);
             assertThrows(
                     IllegalArgumentException.class,
@@ -2203,6 +2238,16 @@ class TargetCommandStoreTest {
             assertTrue(new TargetReservationClosureStore(backend, scope, lineage, 1, reservationControls)
                     .discover(budget(), physical.id(), queryAuthority)
                     .isEmpty());
+            assertFalse(closures.completeEmpty(
+                    budget(),
+                    physical.id(),
+                    queryAuthority,
+                    (a, b, c) -> {
+                        throw new AssertionError("completed Close cannot rewrite cursor");
+                    },
+                    cursorChange -> {
+                        throw new AssertionError("completed Close cannot reaccount cursor");
+                    }));
             final var afterClosureUsage = backend.prepareRead(
                             budget(), reader -> reader.aggregate().usage())
                     .value();

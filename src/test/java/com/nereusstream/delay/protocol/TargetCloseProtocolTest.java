@@ -133,6 +133,48 @@ class TargetCloseProtocolTest {
     }
 
     @Test
+    void closeCursorBindsFirstMarkerAndMonotonicLocalProgress() {
+        final var request = request(1);
+        final var body = new TargetCloseBody(
+                shard(0),
+                500,
+                new ControlRef(
+                        OPERATION,
+                        PreparedControlOperation.requestHash(request.operationKind(), request.operationRequest()),
+                        0),
+                request);
+        final var source = source(shard(0));
+        final var marker =
+                new TargetCloseRecord(body, -1, new TargetQuotaMutation(1, source, bytes(32, 4)), INCARNATION);
+        final var initial = TargetCloseCursorRecord.initial(marker);
+        assertTrue(initial.canonicalBytes().length <= TargetCloseCursorRecord.MAX_CANONICAL_BYTES);
+        assertArrayEquals(
+                initial.canonicalBytes(),
+                TargetCloseCursorRecord.decodeForStore(initial.key(), initial.canonicalBytes(), marker, INCARNATION)
+                        .canonicalBytes());
+        final var message = DelayMessageId.random(shard(0));
+        final var closureStamp = new TargetQuotaMutation(1, source, bytes(32, 5), 1, false, true);
+        final var complete = initial.advance(message, true, closureStamp);
+        assertTrue(complete.complete());
+        assertArrayEquals(message.bytes(), complete.afterMessageId());
+        assertThrows(IllegalStateException.class, () -> complete.advance(message, true, closureStamp));
+        assertThrows(
+                IllegalStateException.class,
+                () -> TargetCloseCursorRecord.decodeForStore(
+                        initial.key(), complete.canonicalBytes(), marker, bytes(16, 9)));
+        final var other = new TargetCloseRecord(body, 0, marker.mutation(), INCARNATION);
+        assertThrows(IllegalStateException.class, () -> complete.requireMarker(other));
+        final var cursorStamp = new TargetQuotaMutation(1, source, bytes(32, 6), 1, false, false, true);
+        final var empty = initial.completeEmpty(cursorStamp);
+        assertTrue(empty.complete());
+        assertEquals(2, empty.revision());
+        assertThrows(IllegalStateException.class, () -> empty.completeEmpty(cursorStamp));
+        final byte[] corrupt = empty.canonicalBytes();
+        corrupt[corrupt.length - 1] ^= 1;
+        assertThrows(IllegalArgumentException.class, () -> TargetCloseCursorRecord.decode(corrupt));
+    }
+
+    @Test
     void externalCoverageFailurePropagatesAndUntrustedSignatureIsDenied() throws Exception {
         final var keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         final var platform = actor(ControlRole.PLATFORM_OPERATOR);

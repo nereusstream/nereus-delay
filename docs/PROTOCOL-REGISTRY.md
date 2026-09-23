@@ -2668,19 +2668,21 @@ value NV38/schema1 byte-identical to both existing ID projections while physical
 The namespace is independent of DEDUPE tag9 and TIMELINE tag9. Keys are ordered by Target,
 then MessageId. The exclusive upper bound increments the last non-0xff prefix byte, so the
 all-0xff Target has `[0x09][0x02]` as its bound and cannot bleed into the next format/tag.
-No new NV type, mutation kind, fixed bookkeeping width, or CF is introduced.
+The active-index change itself introduced no new NV type, mutation kind, fixed bookkeeping width, or CF; NV40 and field7 are allocated below.
 
 Prepare inserts the third ID projection together with MessageId/reservationId and expiry;
 Commit, Cancel, local EXPIRED and local Close ABANDONED remove it in their existing atomic
 business/quota/source batches. Terminal projections require the index absent. All active reads
 and exact accounting require the three ID copies byte-identical and the expiry copy present.
 Each active index row charges actual STATE key/payload/NV-envelope bytes to the same Target and
-mirror. Local expiry and Close materialization now make nine native writes (five business,
-Target/mirror counters, total, aggregate); source META3/5 remains unchanged.
+mirror. A local terminal materialization without a Close cursor makes nine native writes; a first-candidate terminal batch that also advances NV40 makes ten (six business, Target/mirror counters, total, aggregate). Source META3/5 remains unchanged.
 
 The bounded first-candidate reader verifies the accepted Target Close marker, its CLOSED
 queue, source/lineage/incarnation and exact index/ID projection under ReadAuthority. Discovery
-is not commit authority or a durable cursor. Existing format-2 stores containing reservations
-without the new index must be handled by a controlled backfill/migration and full accounting
-check before activation. Cursor publication, restart progress, fair GC, aggregate phase transfer,
-recovery/Floor and Broker validation remain required.
+is not commit authority; the separate durable cursor is registered below. Existing format-2 stores containing reservations without the new index must be handled by a controlled backfill/migration and full accounting check before activation. Restart/Owner takeover, fair GC, aggregate phase transfer, recovery/Floor and Broker validation remain required.
+
+### Target Close cursor NV40
+
+Target-only `meta_cf` key `[0x1d][0x01][TargetId:32]` stores NV40/schema1 `TargetCloseCursorRecord`. Canonical fields: 1 version=1; 2 TargetId[32]; 3 SHA-256 of the first accepted NV39 marker canonical bytes[32]; 4 recovery lineage[16]; 5 nonzero raw uint64 revision; optional 6 after DelayMessageId[32]; 7 phase OPEN=1 or COMPLETE=2; 8 complete canonical TargetQuotaMutation; 9 SHA-256[32] of `"nereus-delay-target-close-cursor\0" || canonicalProtobuf(fields 1..8)`. Revision1 is OPEN with no after and the exact marker mutation; later revisions require an advancing local mutation and the same marker/lineage. The Target and tenant mirror charge actual key, value and NV envelope bytes as STATE. Legacy ValueEnvelope rejects NV40.
+
+TargetQuotaMutation adds optional nonzero raw uint64 field7 for independent Close cursor completion. It is exclusive with local Claim field4, reservation expiry field5 and closure field6, sharing the same ordinal and unchanged maximum width. A terminal materialization can advance the cursor with its field5/6 stamp only when deleting the current first active Target index entry; it marks COMPLETE when no further active entry exists. An empty scan may write COMPLETE under field7 with exact Target/tenant mirror accounting, leaving source META3/5 unchanged. The first cursor is created in the accepted Close marker's source batch. Existing format2 persistent reservations and markers require controlled backfill and accounting before activating this reader.
