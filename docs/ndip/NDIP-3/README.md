@@ -422,3 +422,8 @@ Store，避免旧链先写入不可发布的 checkpoint ID；format 2 的可恢�
 
 format 2 Manifest 现可规范编码/解码；上传、Catalog/Oxia 和下载/安装继续提前
 拒绝其发布或接管，直到 Target 控制快照、物理校验与恢复权威闭合。
+
+format 2 的只读物理根核对现可在有限文件预算下检查真实 RocksDB 镜像中的
+bookkeeping、root、aggregate 与 source frontier；本地真实 Worker Store 镜像通过，
+持久 mutation sequence 被改写后拒绝。它尚未审核所有 Target 投影或认证控制快照，
+也未绑定 Manifest/发布/恢复，不能作为 checkpoint 成功证据。

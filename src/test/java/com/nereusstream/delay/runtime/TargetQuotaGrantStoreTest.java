@@ -41,6 +41,7 @@ import com.nereusstream.delay.protocol.TargetQuotaGrant;
 import com.nereusstream.delay.protocol.TargetQuotaGrantActivation;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlBody;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlRequest;
+import com.nereusstream.delay.protocol.TargetQuotaIncarnation;
 import com.nereusstream.delay.protocol.TargetQuotaUsage;
 import com.nereusstream.delay.protocol.TargetTimeFenceBody;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
@@ -50,12 +51,14 @@ import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import com.nereusstream.delay.scheduler.WorkClassPolicy;
 import com.nereusstream.delay.scheduler.WorkClassRuntimeConfig;
 import com.nereusstream.delay.store.BoundedReadBudget;
+import com.nereusstream.delay.store.CheckpointManifestLimits;
 import com.nereusstream.delay.store.ColumnFamily;
 import com.nereusstream.delay.store.IngressFenceState;
 import com.nereusstream.delay.store.KeyCodec;
 import com.nereusstream.delay.store.ShardStore;
 import com.nereusstream.delay.store.ShardStoreConfig;
 import com.nereusstream.delay.store.SharedRocksDbResources;
+import com.nereusstream.delay.store.TargetCheckpointRootVerifier;
 import com.nereusstream.delay.store.TargetKeyCodec;
 import com.nereusstream.delay.store.TargetStoreBackend;
 import com.nereusstream.delay.store.TargetValueEnvelope;
@@ -618,8 +621,10 @@ class TargetQuotaGrantStoreTest {
             assertEquals(true, runtime.fenced());
             assertThrows(IllegalStateException.class, loop::close);
         }
+        final Path physicalDb;
         try (var resources = new SharedRocksDbResources(config);
                 var reopened = ShardStore.openTarget(config, scope.shard(), resources)) {
+            physicalDb = reopened.dbPath();
             final var state = IngressFenceState.decode(
                     TargetValueEnvelope.decode(reopened.get(ColumnFamily.META, KeyCodec.metaFixed(4)), 1)
                             .payload());
@@ -631,6 +636,34 @@ class TargetQuotaGrantStoreTest {
             assertArrayEquals(state.proofId(), reopened.runtimeMetadata().lastIngressFenceProofId());
             assertEquals(source(origin, origin.offset() + 8, 507), reopened.appliedShardLogPosition());
         }
+        final var imageLimits = new CheckpointManifestLimits(100, 64L << 20, 64L << 20, 1024, 1 << 20, 100, 1024);
+        final var rootProof = TargetCheckpointRootVerifier.validate(physicalDb, scope.shard(), imageLimits);
+        assertEquals(2, rootProof.metadata().storeFormatVersion());
+        assertEquals(source(origin, origin.offset() + 8, 507), rootProof.source());
+        assertEquals(
+                rootProof.mutationSequence(), rootProof.aggregate().mutation().sequence());
+        assertArrayEquals(lineage, rootProof.root().recoveryLineage());
+        try (var resources = new SharedRocksDbResources(config);
+                var corrupt = ShardStore.openTarget(config, scope.shard(), resources)) {
+            corrupt.write(batch -> batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(5), Bytes.u64beBits(999)));
+        }
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> TargetCheckpointRootVerifier.validate(physicalDb, scope.shard(), imageLimits));
+        try (var resources = new SharedRocksDbResources(config);
+                var corrupt = ShardStore.openTarget(config, scope.shard(), resources)) {
+            corrupt.write(batch -> {
+                batch.putValue(
+                        ColumnFamily.META, 1, KeyCodec.metaFixed(5), Bytes.u64beBits(rootProof.mutationSequence()));
+                batch.put(
+                        ColumnFamily.META,
+                        rootProof.root().key(),
+                        TargetValueEnvelope.encode(TargetQuotaIncarnation.VALUE_TYPE, new byte[] {1}));
+            });
+        }
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> TargetCheckpointRootVerifier.validate(physicalDb, scope.shard(), imageLimits));
     }
 
     private static SystemMutation fence(com.nereusstream.delay.protocol.ShardId shard, long close, KeyPair keys) {

@@ -18446,3 +18446,12 @@ of closing an already released Store again. Focused scheduler tests cover
 admission, replacement rejection during failed or in-flight drain, stale
 instance rejection and shutdown waiting. Assignment-driven production wiring,
 real Broker/Oxia takeover and format-2 checkpoint recovery remain open.
+
+`TargetCheckpointRootVerifier` now opens a closed format-2 RocksDB image read-only
+under finite file limits and checks its fixed bookkeeping anchor, root
+incarnation, aggregate mutation and applied source frontier. The actual Target
+Worker Store image passes; changing its persisted mutation sequence afterward
+is rejected. Empty Target, wrong-Shard and format-1 images are rejected. This
+is only a physical root check: Target projection audit, authenticated control
+snapshot, manifest binding, publish/catalog authority and restore/install are
+still absent, so every format-2 checkpoint gate remains closed.
