@@ -407,3 +407,7 @@ drain 前可用 `settlePendingSourceTurn` 只重试保留的 source entry，空�
 本地 Target drain 另通过 lease transition/release「CAS 成功而响应丢失」的返回空与
 抛错重试用例。最终 checkpoint 仍缺 format 2 Manifest 与恢复通路；现有 format 1
 通路不能证明 Target 快照可恢复，真实 Oxia/Broker 故障证据仍待完成。
+
+全 fleet 本地 host 现启动定时 GC、提供 source 单轮入口，并在关闭时等待在途 GC
+后逐 Shard 运行 source settlement 与 Owner drain；两 Shard 可控调度测试通过。
+生产进程接线、单 Shard 动态成员管理和真实 Broker/Oxia 仍开放。

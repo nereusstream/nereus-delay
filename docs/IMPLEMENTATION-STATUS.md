@@ -18401,3 +18401,13 @@ final checkpoint is still blocked by the format boundary:
 `CheckpointManifest` accepts only format 1, and the current restore path opens
 format 1. A format-2 RocksDB snapshot alone is not a publishable, recoverable
 Target checkpoint.
+
+`TargetWorkerHostRuntime` now starts a whole-fleet maintenance loop and
+serializes source admission with shutdown. Its shutdown closes the loop and
+waits for the active GC turn, then attempts retained-source settlement and
+local Owner drain for every Shard. Per-Shard pending/failure results remain
+retryable; one ordinary failure does not skip later Shards. A controlled
+two-Shard scheduler test proves that neither drain begins before the blocked
+GC turn exits and that retry completes after one Shard failure. Production
+process wiring, dynamic single-Shard rebalance, real Broker/Oxia recovery and
+format-2 checkpoint authority remain open.

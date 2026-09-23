@@ -18,7 +18,8 @@ import java.util.function.LongSupplier;
  * <p>The host drives bounded turns and owns Owner drain and native source teardown. The shared
  * resource envelope gates both turns before source poll or GC task submission.
  */
-public final class TargetWorkerShardRuntime implements TargetWorkerShardFleetRuntime.ShardTurns {
+public final class TargetWorkerShardRuntime
+        implements TargetWorkerShardFleetRuntime.ShardTurns, TargetWorkerHostRuntime.Shard {
     /** Authority inputs for this Owner's Close and ordinary expiry maintenance. */
     public record Maintenance(
             TargetReservationControls.Authority controls,
