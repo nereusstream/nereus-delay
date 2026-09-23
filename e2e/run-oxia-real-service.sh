@@ -166,7 +166,7 @@ GRADLE_USER_HOME="$delay_gradle_user_home" \
         --tests com.nereusstream.delay.ownership.OxiaRealServiceSmokeTest \
         --tests com.nereusstream.delay.ownership.OxiaRealControlAuthoritySmokeTest \
         --tests com.nereusstream.delay.runtime.OxiaRealProfileCatalogSmokeTest \
-        --tests com.nereusstream.delay.runtime.TargetQuotaGrantStoreTest.realOxiaOwnerTakeoverReopensTargetRootAndRejectsOldOwnerRead \
+        --tests com.nereusstream.delay.runtime.TargetQuotaGrantStoreTest.realOxiaOwnerTakeoverReopensTargetRootAndCompletesCloseGc \
         --tests com.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest \
         --tests com.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest \
         --tests com.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest \

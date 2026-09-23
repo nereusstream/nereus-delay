@@ -19,16 +19,27 @@ import com.nereusstream.delay.ownership.SourceAssignment;
 import com.nereusstream.delay.ownership.SourceRecordConsumer;
 import com.nereusstream.delay.ownership.SourceReplayMutation;
 import com.nereusstream.delay.ownership.SourceReplaySuccessor;
+import com.nereusstream.delay.ownership.TargetReservationClosureWorkClassExecutor;
+import com.nereusstream.delay.ownership.TargetReservationExpiryWorkClassExecutor;
+import com.nereusstream.delay.ownership.TargetReservationGcRuntime;
 import com.nereusstream.delay.ownership.TargetSourceApplyRuntime;
+import com.nereusstream.delay.ownership.TargetWorkerShardRuntime;
 import com.nereusstream.delay.ownership.WorkerSourceApplyLoop;
+import com.nereusstream.delay.protocol.AcknowledgementSet;
 import com.nereusstream.delay.protocol.AuthorIdentity;
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.CanonicalTargetPartition;
+import com.nereusstream.delay.protocol.CapacityDimension;
 import com.nereusstream.delay.protocol.CapacityVector;
 import com.nereusstream.delay.protocol.CheckpointUploadIntent;
 import com.nereusstream.delay.protocol.CheckpointUploadState;
+import com.nereusstream.delay.protocol.CloseLaneRequest;
+import com.nereusstream.delay.protocol.ClosePolicy;
 import com.nereusstream.delay.protocol.CompatibleControlSnapshot;
 import com.nereusstream.delay.protocol.ControlAuthor;
 import com.nereusstream.delay.protocol.ControlAuthorizationContext;
+import com.nereusstream.delay.protocol.ControlReason;
+import com.nereusstream.delay.protocol.ControlReasonKind;
 import com.nereusstream.delay.protocol.ControlRef;
 import com.nereusstream.delay.protocol.ControlRole;
 import com.nereusstream.delay.protocol.ControlRoleSet;
@@ -52,6 +63,9 @@ import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
+import com.nereusstream.delay.protocol.TargetCloseBody;
+import com.nereusstream.delay.protocol.TargetCloseRequest;
+import com.nereusstream.delay.protocol.TargetQueueState;
 import com.nereusstream.delay.protocol.TargetQuotaAccounting;
 import com.nereusstream.delay.protocol.TargetQuotaAggregate;
 import com.nereusstream.delay.protocol.TargetQuotaCounter;
@@ -107,7 +121,7 @@ class TargetQuotaGrantStoreTest {
 
     @Test
     @Tag("real-service")
-    void realOxiaOwnerTakeoverReopensTargetRootAndRejectsOldOwnerRead() throws Exception {
+    void realOxiaOwnerTakeoverReopensTargetRootAndCompletesCloseGc() throws Exception {
         final String endpoint = System.getenv("NEREUS_DELAY_OXIA_ENDPOINT");
         Assumptions.assumeTrue(endpoint != null && !endpoint.isBlank(), "NEREUS_DELAY_OXIA_ENDPOINT is not configured");
         final String configuredNamespace = System.getenv("NEREUS_DELAY_OXIA_NAMESPACE");
@@ -152,6 +166,13 @@ class TargetQuotaGrantStoreTest {
         final var config = ShardStoreConfig.defaults(root);
         final var limits = new TargetStoreBackend.WriteLimits(64, 2 << 20);
         final byte[] lineage = bytes(16, 0xcc);
+        final var physical = CanonicalTargetPartition.decode(
+                vector("target-identity-vectors.properties", "pulsar.canonical"));
+        final var target = physical.id();
+        final var grantAt = source(firstPosition, firstPosition.offset() + 1,
+                firstPosition.brokerLogAppendTimeEpochMs() + 1);
+        final var queueAt = source(grantAt, grantAt.offset() + 1, grantAt.brokerLogAppendTimeEpochMs() + 1);
+        final var closeAt = source(queueAt, queueAt.offset() + 1, queueAt.brokerLogAppendTimeEpochMs() + 1);
         final OwnerLease oldActive;
         final byte[] originalRoot;
 
@@ -171,10 +192,77 @@ class TargetQuotaGrantStoreTest {
                                 store, scope, lineage, limits, budget(), signed.control(), signed.mutation(),
                                 firstPosition, grantAuthority, (a, b, c) -> {}),
                         (a, b, c) -> ownerGuard(leases, oldActive));
-                assertEquals(1, store.shardMutationSequence());
                 assertArrayEquals(lineage, initialized.root().recoveryLineage());
                 originalRoot = initialized.root().canonicalBytes();
                 store.recordOpenedOwnerEpoch(oldActive.ownerEpoch());
+                final var backend = initialized.backend();
+                final long[] targetAmounts = amounts.clone();
+                Arrays.fill(targetAmounts, 50, 55, 0);
+                targetAmounts[CapacityDimension.ACTIVE_MESSAGES.wireValue() - 1] = 1;
+                targetAmounts[CapacityDimension.RESERVATION_MESSAGES.wireValue() - 1] = 1;
+                final var targetGrant = new TargetQuotaGrantControlRequest(
+                        new TargetQuotaGrant(
+                                scope.forTarget(target), bytes(32, 0x72), 1, original.accounting(),
+                                new TargetQuotaUsage(new CapacityVector(targetAmounts), 1, 64, 64, 64),
+                                original.tenantPolicyVersion(), original.tenantPolicyHash()),
+                        null, null);
+                final var signedTargetGrant = signed(targetGrant, bytes(32, 0x73), actor, keys);
+                registrations.register(signedTargetGrant.control());
+                final var grantStore = new TargetQuotaGrantStore(backend, scope, lineage, 16, 1);
+                assertEquals(StableCode.OK, grantStore.commit(
+                                grantStore.prepareFirst(budget(), signedTargetGrant.control(),
+                                        signedTargetGrant.mutation(), grantAt,
+                                        authority(registrations, keys, actor, grantAt, targetGrant,
+                                                (a, b, c, d) -> {})),
+                                (a, b, c) -> ownerGuard(leases, oldActive))
+                        .stableCode());
+                final var activation = TargetQuotaGrantActivation.decode(TargetValueEnvelope.decode(
+                        store.get(ColumnFamily.META, Bytes.concat(
+                                new byte[] {TargetKeyCodec.QUOTA_GRANT_ACTIVATION_TAG, 1},
+                                targetGrant.next().scope().keySuffix())),
+                        TargetQuotaGrantActivation.VALUE_TYPE).payload());
+                final var queue = new TargetQueueState(
+                        target, 1, 1, TargetQueueState.AdmissionState.OPEN,
+                        activation.allocation().identity().accountingIncarnation(), 0, List.of());
+                new TargetMessageStore(backend, 1, 1, 1).applyAccounted(
+                        budget(),
+                        reader -> new TargetMessageStore.Input(List.of(), List.of(), List.of(
+                                reader.replace(ColumnFamily.META, TargetKeyCodec.identity(target),
+                                        CanonicalTargetPartition.VALUE_TYPE, physical.canonicalBytes()),
+                                reader.replace(ColumnFamily.META, TargetKeyCodec.state(target),
+                                        TargetQueueState.VALUE_TYPE, queue.canonicalBytes()))),
+                        new TargetSourceAccounting(scope, lineage, queueAt,
+                                Bytes.sha256(Bytes.utf8("real-oxia-close-queue-fixture")), 16, 1, 1),
+                        (a, b, c) -> ownerGuard(leases, oldActive));
+                final var closeRequest = new TargetCloseRequest(
+                        target,
+                        List.of(new TargetCloseRequest.ShardTarget(
+                                scope.shard(), queue.accountingIncarnation(), queue.controlVersion())),
+                        new CloseLaneRequest(
+                                new ControlReason(ControlReasonKind.OPERATOR_REQUEST, null, null),
+                                ClosePolicy._FREEZE_UNADMITTED_AND_PRESERVE_ADMITTED,
+                                false, AcknowledgementSet.empty()));
+                final var signedClose = signedClose(closeRequest, bytes(32, 0x74), actor, keys,
+                        closeAt.brokerLogAppendTimeEpochMs() + 2000);
+                registrations.register(signedClose.control());
+                final var closeStore = new TargetCloseStore(backend, scope, lineage, 16, 1);
+                assertEquals(StableCode.OK, closeStore.commit(
+                                closeStore.prepareFirst(
+                                        budget(), signedClose.control(), signedClose.mutation(), closeAt,
+                                        new TargetCloseVerifier.Authority(
+                                                registrations, (version, position) -> keys.getPublic(),
+                                                (actualScope, request, position, actualQueue) -> {
+                                                    assertEquals(scope, actualScope);
+                                                    assertEquals(target, request.target());
+                                                    assertEquals(queue.controlVersion(), actualQueue.controlVersion());
+                                                }, actor, prepared -> true)),
+                                (a, b, c) -> ownerGuard(leases, oldActive))
+                        .stableCode());
+                final var controls = closeStore.reservationControls((reader, binding) -> java.util.Optional.empty());
+                assertEquals(TargetReservationClosureStore.Progress.OPEN,
+                        new TargetReservationClosureStore(backend, scope, lineage, 1, controls)
+                                .progress(budget(), target, (a, b) -> ownerGuard(leases, oldActive)));
+                assertEquals(4, store.shardMutationSequence());
             }
         }
 
@@ -210,8 +298,60 @@ class TargetQuotaGrantStoreTest {
                     });
             assertArrayEquals(lineage, recovered.root().recoveryLineage());
             assertArrayEquals(originalRoot, recovered.root().canonicalBytes());
-            assertArrayEquals(firstPosition.canonicalBytes(), reopened.appliedShardLogPosition().canonicalBytes());
-            assertEquals(1, reopened.shardMutationSequence());
+            assertArrayEquals(closeAt.canonicalBytes(), reopened.appliedShardLogPosition().canonicalBytes());
+            assertEquals(4, reopened.shardMutationSequence());
+            final var closeStore = new TargetCloseStore(recovered.backend(), scope, lineage, 16, 1);
+            final var controls = closeStore.reservationControls((reader, binding) -> java.util.Optional.empty());
+            final var closures = new TargetReservationClosureStore(recovered.backend(), scope, lineage, 1, controls);
+            final TargetStoreBackend.ReadAuthority ownerReads =
+                    (metadata, actualScope) -> ownerGuard(leases, replacement);
+            assertEquals(TargetReservationClosureStore.Progress.OPEN,
+                    closures.progress(budget(), target, ownerReads));
+            final var classes = workClasses();
+            final var sourceRuntime = new TargetSourceApplyRuntime(
+                    recovered, reopened, secondAssignment, replacement,
+                    new TargetSourceApplyRuntime.Authorities(
+                            leases, SourceReplaySuccessor.strictKafka(),
+                            entry -> { throw new AssertionError("GC cannot resolve a grant"); },
+                            entry -> { throw new AssertionError("GC cannot resolve a fence"); },
+                            entry -> { throw new AssertionError("GC cannot resolve a Close"); },
+                            (a, b, c) -> ownerGuard(leases, replacement), ownerReads,
+                            entry -> { throw new AssertionError("GC cannot resolve a command"); }),
+                    new TargetSourceApplyRuntime.Limits(4096, 32L << 20, 60_000_000_000L, 16, 1),
+                    System::nanoTime);
+            final var cursorDelta = new java.util.concurrent.atomic.AtomicReference<TargetQuotaDelta>();
+            final var worker = new TargetWorkerShardRuntime(
+                    () -> java.util.Optional.empty(), classes, reopened, resources, sourceRuntime,
+                    new TargetWorkerShardRuntime.Maintenance(
+                            controls,
+                            new TargetReservationClosureWorkClassExecutor.Limits(4096, 250_000, 60_000_000_000L),
+                            new TargetReservationExpiryWorkClassExecutor.Limits(2048, 100_000, 60_000_000_000L),
+                            (a, b, c) -> ownerGuard(leases, replacement),
+                            ignored -> { throw new AssertionError("empty Close cannot materialize"); },
+                            ignored -> { throw new AssertionError("empty Close cannot expire"); },
+                            cursorDelta::set, System::currentTimeMillis));
+            final long beforeGc = reopened.latestSequenceNumber();
+            final var pending = worker.runMaintenanceTurn(new SchedulerBudget(1, 1, 60_000_000_000L));
+            assertTrue(pending.pending());
+            assertEquals(TargetReservationGcRuntime.Lane.CLOSE, pending.lane());
+            assertEquals(beforeGc, reopened.latestSequenceNumber());
+            final var completed = worker.runMaintenanceTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
+            assertEquals(pending.task(), completed.task());
+            assertEquals(TargetReservationClosureWorkClassExecutor.Kind.RESERVATIONS_COMPLETE,
+                    completed.closeResult().orElseThrow().kind());
+            assertEquals(5, reopened.latestSequenceNumber() - beforeGc);
+            assertTrue(cursorDelta.get().mutation().reservationCloseCursor());
+            assertEquals(TargetReservationClosureStore.Progress.COMPLETE,
+                    closures.progress(budget(), target, ownerReads));
+            assertEquals(4, reopened.shardMutationSequence());
+            assertArrayEquals(closeAt.canonicalBytes(), reopened.appliedShardLogPosition().canonicalBytes());
+            assertEquals(TargetReservationExpiryWorkClassExecutor.Kind.SWEEP_COMPLETE,
+                    worker.runMaintenanceTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L))
+                            .expiryResult().orElseThrow().kind());
+            assertEquals(TargetReservationClosureWorkClassExecutor.Kind.SWEEP_COMPLETE,
+                    worker.runMaintenanceTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L))
+                            .closeResult().orElseThrow().kind());
+            assertEquals(beforeGc + 5, reopened.latestSequenceNumber());
             assertTrue(leases.release(replacement));
         }
     }
@@ -1608,6 +1748,32 @@ class TargetQuotaGrantStoreTest {
 
     private record Signed(PreparedControlOperation control, SystemMutation mutation) {}
 
+    private static Signed signedClose(
+            TargetCloseRequest request, byte[] operation, ControlAuthorizationContext actor, KeyPair keys,
+            long retryUntil) {
+        final var ref = new ControlRef(
+                operation,
+                PreparedControlOperation.requestHash(request.operationKind(), request.operationRequest()),
+                0);
+        final var body = new TargetCloseBody(request.shards().getFirst().shard(), retryUntil, ref, request);
+        final var mutation = SystemMutation.signed(
+                body.shard(), SystemMutationType.APPLY_SHARD_CONTROL, body.retryUntil(), body.logicalIdentity(),
+                body.canonicalBytes(),
+                AuthorIdentity.control(actor.actorIdHash(), actor.roleSet().digest(), actor.tenantResourceScopeHash())
+                        .canonicalBytes(),
+                1, keys.getPrivate());
+        final var target = new ControlTargetRef(
+                0, ControlTargetKind.SHARD, new ShardSubject(body.shard()),
+                mutation.systemMutationId(), mutation.mutationHash());
+        return new Signed(
+                PreparedControlOperation.prepare(
+                        operation, request.operationKind(),
+                        new ControlAuthor(
+                                actor.actorIdHash(), actor.roleSet().digest(), actor.tenantResourceScopeHash()),
+                        request.operationRequest(), List.of(target), 1, 400, 1, keys.getPrivate()),
+                mutation);
+    }
+
     private static Signed signed(
             TargetQuotaGrantControlRequest request, byte[] operation, ControlAuthorizationContext actor, KeyPair keys) {
         final var ref = new ControlRef(
@@ -1700,6 +1866,14 @@ class TargetQuotaGrantStoreTest {
         final var values = new Properties();
         try (var stream =
                 TargetQuotaGrantStoreTest.class.getResourceAsStream("/ndip3/target-quota-grant-vectors.properties")) {
+            values.load(stream);
+        }
+        return HexFormat.of().parseHex(values.getProperty(key));
+    }
+
+    private static byte[] vector(String name, String key) throws Exception {
+        final var values = new Properties();
+        try (var stream = TargetQuotaGrantStoreTest.class.getResourceAsStream("/ndip3/" + name)) {
             values.load(stream);
         }
         return HexFormat.of().parseHex(values.getProperty(key));
