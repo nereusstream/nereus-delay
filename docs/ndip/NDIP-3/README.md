@@ -479,3 +479,5 @@ Broker cut、完整控制/语义认证及发布/安装仍待完成。
 宿主 drain 现在把未结清的 Target 本地候选作为 `PENDING_CHECKPOINT` 返回，携带精确 task；停机或单 Shard 撤出后仍可按当前实例、有限预算结清，再重试 Owner drain。两 Shard 局部编排测试通过。生产 checkpoint 调度、Broker cut、认证快照、Catalog 发布和安装仍未贯通。
 
 宿主现在通过当前登记的精确 Target Worker Shard 接纳本地候选，入队期间阻止同 Shard 撤出或替换，停机等待先开始的入队；错实例和停机后的新请求拒绝。两 Shard 并发局部测试通过。定时触发、Broker cut、认证快照、Catalog 发布和安装仍待实现。
+
+A process-local Target candidate schedule now routes due claims through exact host Shard admission and holds each claim until the exact queued task reaches a terminal candidate outcome. Failed admission reschedules; insufficient turn budget retains the claim, and settlement can continue after host stop. A two-Shard host seam suite passes 12 focused tests. Production timer wiring, pending-intent creation, protected Broker cut, authenticated control/semantic state, publication and restore remain open; C5 and format-2 gates are unchanged.

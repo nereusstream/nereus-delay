@@ -13,6 +13,7 @@ import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import com.nereusstream.delay.scheduler.WorkClassPolicy;
 import com.nereusstream.delay.scheduler.WorkClassRuntimeConfig;
 import com.nereusstream.delay.scheduler.WorkClassTask;
+import com.nereusstream.delay.store.CheckpointScheduler;
 import com.nereusstream.delay.store.ShardStoreConfig;
 import com.nereusstream.delay.store.SharedRocksDbResources;
 import com.nereusstream.delay.store.TargetCheckpointCandidateWorkClassExecutor;
@@ -239,6 +240,116 @@ class TargetWorkerShardFleetRuntimeTest {
                 assertEquals(1, first.drainCalls.get());
                 assertEquals(1, second.drainCalls.get());
                 assertThrows(IllegalStateException.class, () -> host.settlePendingCheckpointTurn(first, budget));
+            } finally {
+                loop.close();
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void scheduledCandidatesRetainClaimsUntilExactTerminalOutcomeAcrossHostStop() {
+        final var registry = registry();
+        final var executor = Executors.newSingleThreadScheduledExecutor();
+        try (var resources = new SharedRocksDbResources(
+                ShardStoreConfig.defaults(tempDir.resolve("scheduled-candidates")))) {
+            final var first = new StubShard(new ShardId(RouteIncarnation.random(), 1), registry, resources);
+            final var second = new StubShard(new ShardId(RouteIncarnation.random(), 2), registry, resources);
+            final var fleet = new TargetWorkerShardFleetRuntime(registry, resources, first, second);
+            final var budget = new SchedulerBudget(1, 1_000, 1_000_000);
+            final var loop = new TargetWorkerMaintenanceLoop(
+                    fleet, budget, Duration.ofSeconds(10), failure -> {}, executor);
+            final var host = new TargetWorkerHostRuntime(fleet, loop, List.of(first, second));
+            final var schedule = new TargetCheckpointCandidateSchedule(
+                    host,
+                    new CheckpointScheduler(10, 0, 2),
+                    (TargetCheckpointCandidateSchedule.Dispatcher) (shard, claim) -> {
+                        final var stub = (StubShard) shard;
+                        final var task = new WorkClassTask(
+                                WorkClass.CHECKPOINT, "scheduled/" + stub.shard.partition(), 64);
+                        stub.pendingCheckpoint = task;
+                        return new TargetCheckpointCandidateSchedule.Candidate(
+                                task,
+                                () -> stub.pendingCheckpoint == null
+                                        ? Optional.of(new TargetCheckpointCandidateWorkClassExecutor.Outcome(
+                                                Path.of("candidate"), null))
+                                        : Optional.empty());
+                    });
+            try {
+                assertEquals(110, schedule.registerShard(first, 100));
+                assertEquals(110, schedule.registerShard(second, 100));
+                assertEquals(2, schedule.claimDueAndSubmit(110, 2).size());
+                assertTrue(schedule.claimDueAndSubmit(110, 2).isEmpty());
+                assertThrows(IllegalStateException.class, () -> schedule.unregister(first.shard));
+                assertEquals(
+                        TargetWorkerHostRuntime.Status.PENDING_CHECKPOINT,
+                        host.drainAll(new TargetOwnerDrainCoordinator.Request(5_000, budget), budget, () -> 101)
+                                .shards().getFirst().status());
+                assertTrue(schedule.settle(first.shard, new SchedulerBudget(1, 1, 1_000_000), 110).isEmpty());
+                assertTrue(schedule.pendingTask(first.shard).isPresent());
+                assertEquals(
+                        Path.of("candidate"), schedule.settle(first.shard, budget, 111)
+                                .orElseThrow()
+                                .checkpointPath());
+                assertTrue(schedule.pendingTask(first.shard).isEmpty());
+                assertTrue(schedule.settle(second.shard, budget, 112).isPresent());
+                assertTrue(host.drainAll(new TargetOwnerDrainCoordinator.Request(5_000, budget), budget, () -> 101)
+                        .complete());
+                schedule.unregister(first.shard);
+                schedule.unregister(second.shard);
+            } finally {
+                loop.close();
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void failedScheduledAdmissionReschedulesWithoutLeavingAnInFlightClaim() {
+        final var registry = registry();
+        final var executor = Executors.newSingleThreadScheduledExecutor();
+        try (var resources = new SharedRocksDbResources(
+                ShardStoreConfig.defaults(tempDir.resolve("scheduled-candidate-retry")))) {
+            final var shard = new StubShard(new ShardId(RouteIncarnation.random(), 1), registry, resources);
+            final var fleet = new TargetWorkerShardFleetRuntime(registry, resources, shard);
+            final var budget = new SchedulerBudget(1, 1_000, 1_000_000);
+            final var loop = new TargetWorkerMaintenanceLoop(
+                    fleet, budget, Duration.ofSeconds(10), failure -> {}, executor);
+            final var host = new TargetWorkerHostRuntime(fleet, loop, List.of(shard));
+            final var attempts = new AtomicInteger();
+            final var schedule = new TargetCheckpointCandidateSchedule(
+                    host,
+                    new CheckpointScheduler(10, 0, 1),
+                    (TargetCheckpointCandidateSchedule.Dispatcher) (selected, claim) -> {
+                        if (attempts.getAndIncrement() == 0) {
+                            throw new IllegalStateException("request preflight failed");
+                        }
+                        final var task = new WorkClassTask(WorkClass.CHECKPOINT, "retry", 64);
+                        shard.pendingCheckpoint = task;
+                        return new TargetCheckpointCandidateSchedule.Candidate(
+                                task,
+                                () -> shard.pendingCheckpoint == null
+                                        ? Optional.of(new TargetCheckpointCandidateWorkClassExecutor.Outcome(
+                                                Path.of("candidate"), null))
+                                        : Optional.empty());
+                    });
+            try {
+                assertThrows(
+                        IllegalArgumentException.class,
+                        () -> schedule.registerShard(new StubShard(shard.shard, registry, resources), 100));
+                assertEquals(110, schedule.registerShard(shard, 100));
+                assertThrows(IllegalStateException.class, () -> schedule.claimDueAndSubmit(110, 1));
+                assertTrue(schedule.pendingTask(shard.shard).isEmpty());
+                assertTrue(schedule.claimDueAndSubmit(110, 1).isEmpty());
+                assertEquals(1, schedule.claimDueAndSubmit(120, 1).size());
+                final WorkClassTask exact = schedule.pendingTask(shard.shard).orElseThrow();
+                shard.pendingCheckpoint = new WorkClassTask(WorkClass.CHECKPOINT, "retry", 64);
+                assertThrows(IllegalStateException.class, () -> schedule.settle(shard.shard, budget, 120));
+                shard.pendingCheckpoint = exact;
+                assertTrue(schedule.settle(shard.shard, budget, 120).isPresent());
+                schedule.unregister(shard.shard);
             } finally {
                 loop.close();
             }

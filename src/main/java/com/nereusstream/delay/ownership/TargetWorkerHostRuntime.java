@@ -185,6 +185,12 @@ public final class TargetWorkerHostRuntime {
     /** Test seam; the exact Shard instance is reserved against concurrent drain and replacement. */
     Optional<TargetCheckpointCandidateWorkClassExecutor.Outcome> settlePendingCheckpointTurn(
             final Shard expectedShard, final SchedulerBudget budget) {
+        return settlePendingCheckpointTurn(expectedShard, null, budget);
+    }
+
+    /** A scheduled claim may settle only the exact task returned by its own admission. */
+    Optional<TargetCheckpointCandidateWorkClassExecutor.Outcome> settlePendingCheckpointTurn(
+            final Shard expectedShard, final WorkClassTask expectedTask, final SchedulerBudget budget) {
         Objects.requireNonNull(budget, "budget");
         final Shard shard;
         final ShardId shardId;
@@ -200,9 +206,11 @@ public final class TargetWorkerHostRuntime {
         }
         try {
             synchronized (shard) {
-                return shard.pendingCheckpointTask().isEmpty()
-                        ? Optional.empty()
-                        : shard.runCheckpointTurn(budget);
+                final Optional<WorkClassTask> pending = shard.pendingCheckpointTask();
+                if (expectedTask != null && (pending.isEmpty() || pending.orElseThrow() != expectedTask)) {
+                    throw new IllegalStateException("Target host checkpoint task has changed");
+                }
+                return pending.isEmpty() ? Optional.empty() : shard.runCheckpointTurn(budget);
             }
         } finally {
             synchronized (this) {
