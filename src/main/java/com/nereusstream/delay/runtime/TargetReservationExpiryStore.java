@@ -285,6 +285,8 @@ public final class TargetReservationExpiryStore {
                             TargetReservationRecord.VALUE_TYPE,
                             expired.canonicalBytes()),
                     reader.replace(
+                            ColumnFamily.ID, expected.targetIndexKey(), TargetReservationRecord.VALUE_TYPE, null),
+                    reader.replace(
                             ColumnFamily.TIMELINE, expected.expiryKey(), TargetReservationRecord.VALUE_TYPE, null),
                     reader.replace(
                             ColumnFamily.META,

@@ -6362,13 +6362,12 @@ GC 不读取墙钟来认定到期，不将扫描游标写进 Store，不将队�
 
 ### reservation Close 与 TIME_FENCE 的源顺序覆盖（2026-09-22）
 
-Target reservation 已有 Close 单条原子物化入口：从已接受的 Close/source/历史水位
-重验决定，在到期之前即可保存带关闭证据的 ABANDONED 双ID、删除expiry，并把payload
-从RESERVED转入RETAINED，实际STATE差额与counter/total/aggregate同批；不推进source。
-Query 保留原receipt和关闭原因；Cancel/Reschedule在既有CAS检查后保持关闭码，Commit
-保持PAYLOAD_RESERVATION_CLOSED。6项必要开发检查通过，包括四个实际Worker/Store场景
-与原Claim/bookkeeping向量。持久关闭cursor/GC调度、关闭汇总转移、已Admission收尾、
-生产历史权限/factory/配置和完整恢复/迁移仍待实施；全部29切片与集中验证义务不缩减。
+Target reservation 新增按Target排序的活跃索引，Prepare与Commit/Cancel/到期/Close物化
+在原子账本批次中分别建立和删除它。Close发现入口在受保护Store视图中核对持久marker、
+CLOSED queue、索引与双ID，按Target前缀只读第一个剩余候选，不扫描全Shard，也不决定
+终态。四个实际Worker/Store开发场景通过，验证索引生命周期、有限预算、上界和原账本
+守恒；Close/到期物化各增为9条native写。持久Close cursor及可恢复GC调度、关闭汇总
+转移、生产历史权限/配置/factory、完整迁移/恢复和集中验证仍未完成。原29切片不缩减。
 
 判断依据为首次适用 Close 时固定的 closedIngressDeadlineThrough：小于 reservation
 expiry 时关闭先赢，后来的更大 fence 不改写它；大于等于 expiry 时到期已先赢。provider
@@ -6432,3 +6431,23 @@ PAYLOAD_RESERVATION_CLOSED，普通Cancel终态仍ALREADY_ABANDONED。Commit关�
 这只是可复用的单条写入入口。现有expiry GC仍不承担完整Close扫描；必须继续实现独立
 持久关闭cursor、canonical key order的有界调度与restart续跑、closed aggregate版本归属、
 已Admission义务退休和受保护对象GC。不得以点物化替代整队列关闭协议或生产恢复验证。
+
+### Target 活跃 reservation 的按目标有界发现（2026-09-23）
+
+id_cf/0x09/schema1/Target[32]/DelayMessageId[32] 保存与原NV38 RESERVED完全相同
+的规范payload，按Target和MessageId排序。仅物理RESERVED拥有该索引；Prepare同批创建，
+Commit、Cancel、expiry和Close单条终态物化同批删除。原MessageId和reservationId两条
+ID、expiry、owner继续是强制关系；每一条NV38的STATE按实际key+payload+envelope独立
+计费。旧format2已有reservation缺这个索引时，新读/写路径拒绝将其视作完整投影。
+适用持久数据必须通过受控迁移/回填及独立费用校验，不能原地默默激活新reader。
+
+TargetReservationClosureStore.discover先在ReadAuthority与共享BoundedReadBudget下读取
+完整首次Close marker、CLOSED queue及该Target前缀的第一项，核对Shard/lineage/
+incarnation、Prepare在Close之前、index/双ID完整字节。已终态或无marker不返回候选；
+index缺失时报错或无候选，不凭此证明其它Message/Admission/legacy义务已完成。
+可用合法prefix上界支持Target全0xff边界，不读下一个Target。单次seek有界；实际
+物化必须重新查询与重验控制/配额/Owner，不把发现结果当作提交授权。
+
+当前索引及发现接口只是持久关闭游标的基础。仍需确立cursor版本/原子推进、终态源因
+选择、restart续跑和公平GC任务；first remaining不代替完整物理扫描、归档/汇总转移、
+Floor及Admitted保护。生产限额必须覆盖新增索引的最大实际批次和STATE费用。

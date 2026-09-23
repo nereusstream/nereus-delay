@@ -44,6 +44,7 @@ public final class TargetKeyCodec {
     public static final int RESULT_POSITION_TAG = 9;
     public static final int RESERVATION_TAG = 7;
     public static final int RESERVATION_LOOKUP_TAG = 8;
+    public static final int TARGET_RESERVATION_TAG = 9;
     public static final int RESERVATION_EXPIRY_TAG = 13;
     public static final int MESSAGE_TAG = 5;
     public static final int SCHEDULE_BINDING_TAG = 6;
@@ -56,6 +57,29 @@ public final class TargetKeyCodec {
         return Bytes.concat(
                 new byte[] {CLOSE_TAG, KEY_FORMAT},
                 Objects.requireNonNull(target, "target").bytes());
+    }
+
+    public static byte[] targetReservationPrefix(TargetPartitionId target) {
+        return Bytes.concat(
+                new byte[] {TARGET_RESERVATION_TAG, KEY_FORMAT},
+                Objects.requireNonNull(target, "target").bytes());
+    }
+
+    public static byte[] targetReservation(TargetPartitionId target, DelayMessageId message) {
+        return Bytes.concat(
+                targetReservationPrefix(target),
+                Objects.requireNonNull(message, "message").bytes());
+    }
+
+    public static byte[] targetReservationUpperBound(TargetPartitionId target) {
+        final byte[] prefix = targetReservationPrefix(target);
+        for (int i = prefix.length - 1; i >= 0; i--) {
+            if (Byte.toUnsignedInt(prefix[i]) != 255) {
+                prefix[i]++;
+                return Arrays.copyOf(prefix, i + 1);
+            }
+        }
+        throw new IllegalStateException("Target reservation namespace has no upper bound");
     }
 
     public enum CandidateKind {

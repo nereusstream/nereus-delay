@@ -269,6 +269,11 @@ public record TargetReservationRecord(
         return Bytes.concat(new byte[] {TargetKeyCodec.RESERVATION_LOOKUP_TAG, 1}, reservationId);
     }
 
+    /** Present only while physically RESERVED; supports Target-local closing independently of expiry order. */
+    public byte[] targetIndexKey() {
+        return TargetKeyCodec.targetReservation(locator.target(), locator.messageId());
+    }
+
     public byte[] expiryKey() {
         return Bytes.concat(
                 new byte[] {TargetKeyCodec.RESERVATION_EXPIRY_TAG, 1},

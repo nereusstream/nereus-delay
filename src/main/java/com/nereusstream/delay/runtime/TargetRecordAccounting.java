@@ -88,12 +88,16 @@ public final class TargetRecordAccounting {
         switch (value.valueType()) {
             case TargetReservationRecord.VALUE_TYPE -> {
                 final var reservation = TargetReservationRecord.decode(payload);
-                final boolean index = family == ColumnFamily.TIMELINE;
-                if ((family != ColumnFamily.ID && !index)
-                        || (index
+                final boolean expiryIndex = family == ColumnFamily.TIMELINE;
+                final boolean targetIndex =
+                        family == ColumnFamily.ID && Arrays.equals(key, reservation.targetIndexKey());
+                final boolean index = expiryIndex || targetIndex;
+                if ((family != ColumnFamily.ID && !expiryIndex)
+                        || (expiryIndex
                                 ? !Arrays.equals(key, reservation.expiryKey())
                                 : !Arrays.equals(key, reservation.key())
-                                        && !Arrays.equals(key, reservation.lookupKey()))
+                                        && !Arrays.equals(key, reservation.lookupKey())
+                                        && !targetIndex)
                         || (index && reservation.status() != PayloadReservationStatus.RESERVED)) {
                     throw new IllegalStateException("Target reservation key/family/status differs");
                 }
@@ -108,7 +112,7 @@ public final class TargetRecordAccounting {
                                         TargetReservationRecord.VALUE_TYPE))) {
                     throw new IllegalStateException("reservation message/id lookup projections differ");
                 }
-                if (!index) {
+                {
                     final byte[] expiry = reader.projected(ColumnFamily.TIMELINE, reservation.expiryKey(), overlay);
                     if (reservation.status() == PayloadReservationStatus.RESERVED) {
                         if (expiry == null
@@ -121,6 +125,19 @@ public final class TargetRecordAccounting {
                     } else if (expiry != null) {
                         throw new IllegalStateException("terminal reservation still owns an expiry index");
                     }
+                }
+                final byte[] targetProjection =
+                        reader.projected(ColumnFamily.ID, reservation.targetIndexKey(), overlay);
+                if (reservation.status() == PayloadReservationStatus.RESERVED) {
+                    if (targetProjection == null
+                            || !Arrays.equals(
+                                    payload,
+                                    TargetValueEnvelope.decode(targetProjection, TargetReservationRecord.VALUE_TYPE)
+                                            .payload())) {
+                        throw new IllegalStateException("reserved accounting lacks its exact Target index");
+                    }
+                } else if (targetProjection != null) {
+                    throw new IllegalStateException("terminal accounting retains a Target reservation index");
                 }
                 final var bindingKey =
                         TargetKeyCodec.scheduleBinding(reservation.locator().scheduleBindingDigest());

@@ -1778,7 +1778,7 @@ class TargetCommandStoreTest {
             assertArrayEquals(
                     sourceBeforeExpiry,
                     store.get(ColumnFamily.META, com.nereusstream.delay.store.KeyCodec.metaFixed(3)));
-            assertEquals(8, store.latestSequenceNumber() - nativeBeforeExpiry);
+            assertEquals(9, store.latestSequenceNumber() - nativeBeforeExpiry);
             final var materialized = queries.read(budget(), thirdReservation.reservationId(), (a, b) -> guard())
                     .orElseThrow();
             assertEquals(
@@ -1918,7 +1918,7 @@ class TargetCommandStoreTest {
             assertEquals(
                     TargetReservationExpiryWorkClassExecutor.Kind.MATERIALIZED,
                     restartGc.result().orElseThrow().kind());
-            assertEquals(8, store.latestSequenceNumber() - beforeSweepEnd);
+            assertEquals(9, store.latestSequenceNumber() - beforeSweepEnd);
             assertEquals(
                     PayloadReservationStatus.EXPIRED,
                     queries.read(budget(), fourthReservation.reservationId(), queryAuthority)
@@ -2097,6 +2097,31 @@ class TargetCommandStoreTest {
                     IllegalStateException.class,
                     () -> futureScopeQueries.read(budget(), fifthReservation.reservationId(), queryAuthority));
             assertEquals(afterCloseNative, store.latestSequenceNumber());
+            final var closedDiscovery =
+                    new TargetReservationClosureStore(backend, scope, lineage, 1, reservationControls);
+            assertArrayEquals(
+                    fifthReservation.reservationId(),
+                    closedDiscovery
+                            .discover(budget(), physical.id(), queryAuthority)
+                            .orElseThrow()
+                            .reservationId());
+            assertTrue(closedDiscovery
+                    .discover(
+                            budget(),
+                            new com.nereusstream.delay.protocol.TargetPartitionId(bytes(32, 0xfe)),
+                            queryAuthority)
+                    .isEmpty());
+            assertArrayEquals(fifthRaw, store.get(ColumnFamily.ID, fifthReservation.targetIndexKey()));
+            assertThrows(
+                    com.nereusstream.delay.store.ReadIncompleteException.class,
+                    () -> closedDiscovery.discover(
+                            new BoundedReadBudget(2, 100_000, 60_000_000_000L, System::nanoTime),
+                            physical.id(),
+                            queryAuthority));
+            assertArrayEquals(
+                    new byte[] {TargetKeyCodec.TARGET_RESERVATION_TAG, 2},
+                    TargetKeyCodec.targetReservationUpperBound(
+                            new com.nereusstream.delay.protocol.TargetPartitionId(bytes(32, 0xff))));
             final var closeSnapshot = queries.read(budget(), fifthReservation.reservationId(), queryAuthority)
                     .orElseThrow();
             assertEquals(PayloadReservationStatus.ABANDONED, closeSnapshot.effectiveStatus());
@@ -2130,7 +2155,7 @@ class TargetCommandStoreTest {
                     queryAuthority,
                     (a, b, c) -> guard(),
                     closureDelta::set));
-            assertEquals(8, store.latestSequenceNumber() - beforeClosureWrite);
+            assertEquals(9, store.latestSequenceNumber() - beforeClosureWrite);
             assertEquals(beforeClosureSourceSequence, store.shardMutationSequence());
             assertArrayEquals(
                     beforeClosureSource,
@@ -2174,6 +2199,10 @@ class TargetCommandStoreTest {
             final byte[] closedReservationRaw = store.get(ColumnFamily.ID, fifthKey);
             assertArrayEquals(closedReservationRaw, store.get(ColumnFamily.ID, fifthReservation.lookupKey()));
             assertNull(store.get(ColumnFamily.TIMELINE, fifthReservation.expiryKey()));
+            assertNull(store.get(ColumnFamily.ID, fifthReservation.targetIndexKey()));
+            assertTrue(new TargetReservationClosureStore(backend, scope, lineage, 1, reservationControls)
+                    .discover(budget(), physical.id(), queryAuthority)
+                    .isEmpty());
             final var afterClosureUsage = backend.prepareRead(
                             budget(), reader -> reader.aggregate().usage())
                     .value();

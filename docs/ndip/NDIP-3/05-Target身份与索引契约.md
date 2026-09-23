@@ -733,3 +733,23 @@ NV38/schema1可选field16保存Close证据，与mutation field6以及ABANDONED�
 必须RETAINED且未Commit。Close source在Prepare之后、物化frontier之前或同一完整位置，
 绑定原Target/binding/lineage并证明fenceAtClose<expiry。Query可直接保留该cause，不要求
 当前控制marker或queue slot永远存在。完整cursor/retirement/Floor GC仍是独立义务。
+
+### Target 活跃 reservation 的按目标有界发现（2026-09-23）
+
+id_cf/0x09/schema1/Target[32]/DelayMessageId[32] 保存与原NV38 RESERVED完全相同
+的规范payload，按Target和MessageId排序。仅物理RESERVED拥有该索引；Prepare同批创建，
+Commit、Cancel、expiry和Close单条终态物化同批删除。原MessageId和reservationId两条
+ID、expiry、owner继续是强制关系；每一条NV38的STATE按实际key+payload+envelope独立
+计费。旧format2已有reservation缺这个索引时，新读/写路径拒绝将其视作完整投影。
+适用持久数据必须通过受控迁移/回填及独立费用校验，不能原地默默激活新reader。
+
+TargetReservationClosureStore.discover先在ReadAuthority与共享BoundedReadBudget下读取
+完整首次Close marker、CLOSED queue及该Target前缀的第一项，核对Shard/lineage/
+incarnation、Prepare在Close之前、index/双ID完整字节。已终态或无marker不返回候选；
+index缺失时报错或无候选，不凭此证明其它Message/Admission/legacy义务已完成。
+可用合法prefix上界支持Target全0xff边界，不读下一个Target。单次seek有界；实际
+物化必须重新查询与重验控制/配额/Owner，不把发现结果当作提交授权。
+
+当前索引及发现接口只是持久关闭游标的基础。仍需确立cursor版本/原子推进、终态源因
+选择、restart续跑和公平GC任务；first remaining不代替完整物理扫描、归档/汇总转移、
+Floor及Admitted保护。生产限额必须覆盖新增索引的最大实际批次和STATE费用。

@@ -725,7 +725,7 @@ public final class TargetStoreBackend {
                         switch (tag) {
                             case 5 -> 15;
                             case 6 -> 21;
-                            case 7, 8 -> 38;
+                            case 7, 8, 9 -> 38;
                             default -> 0;
                         };
                     case TIMELINE ->

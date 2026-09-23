@@ -136,6 +136,18 @@ public final class TargetReservationQueryStore {
                 scope.shard());
         record.requireBinding(binding);
         payloadOwner.requireInitialBinding(binding);
+        final byte[] targetIndex = reader.get(ColumnFamily.ID, record.targetIndexKey());
+        if (record.status() == PayloadReservationStatus.RESERVED) {
+            if (targetIndex == null
+                    || !Arrays.equals(
+                            record.canonicalBytes(),
+                            TargetValueEnvelope.decode(targetIndex, TargetReservationRecord.VALUE_TYPE)
+                                    .payload())) {
+                throw new IllegalStateException("reserved query lacks its exact Target index");
+            }
+        } else if (targetIndex != null) {
+            throw new IllegalStateException("terminal query retains a Target reservation index");
+        }
         final byte[] expiry = reader.get(ColumnFamily.TIMELINE, record.expiryKey());
         if (record.status() == PayloadReservationStatus.RESERVED) {
             if (expiry == null

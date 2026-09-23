@@ -562,6 +562,7 @@ public final class TargetCommandStore {
             reservation.requireOwner(payloadOwner);
             if (reader.get(ColumnFamily.ID, reservation.key()) != null
                     || reader.get(ColumnFamily.ID, reservation.lookupKey()) != null
+                    || reader.get(ColumnFamily.ID, reservation.targetIndexKey()) != null
                     || reader.get(ColumnFamily.TIMELINE, reservation.expiryKey()) != null) {
                 throw new IllegalStateException("new reservation encountered retained identity/index");
             }
@@ -574,6 +575,11 @@ public final class TargetCommandStore {
             edits.add(reader.replace(
                     ColumnFamily.ID,
                     reservation.lookupKey(),
+                    TargetReservationRecord.VALUE_TYPE,
+                    reservation.canonicalBytes()));
+            edits.add(reader.replace(
+                    ColumnFamily.ID,
+                    reservation.targetIndexKey(),
                     TargetReservationRecord.VALUE_TYPE,
                     reservation.canonicalBytes()));
             edits.add(reader.replace(
@@ -783,6 +789,7 @@ public final class TargetCommandStore {
         binding.requireQueueProjection(queue);
         final var effectiveStatus = TargetReservationControls.resolve(reader, reservation, binding, queue, closures)
                 .status();
+        requireReservationTargetIndex(reader, reservation);
         final byte[] expiry = reader.get(ColumnFamily.TIMELINE, reservation.expiryKey());
         if (reservation.status() == PayloadReservationStatus.RESERVED) {
             if (expiry == null
@@ -880,6 +887,8 @@ public final class TargetCommandStore {
                 committed.canonicalBytes()));
         edits.add(reader.replace(
                 ColumnFamily.TIMELINE, reservation.expiryKey(), TargetReservationRecord.VALUE_TYPE, null));
+        edits.add(reader.replace(
+                ColumnFamily.ID, reservation.targetIndexKey(), TargetReservationRecord.VALUE_TYPE, null));
         return scheduledDecision(
                 reader,
                 binding,
@@ -916,6 +925,7 @@ public final class TargetCommandStore {
                 payload(reader, ColumnFamily.ID, reservation.lookupKey(), TargetReservationRecord.VALUE_TYPE))) {
             throw new IllegalStateException("reservation lookup differs from its Message projection");
         }
+        requireReservationTargetIndex(reader, reservation);
         if (reservation.status() != PayloadReservationStatus.RESERVED
                 && reader.get(ColumnFamily.TIMELINE, reservation.expiryKey()) != null) {
             throw new IllegalStateException("terminal reservation retains an expiry index");
@@ -1000,6 +1010,11 @@ public final class TargetCommandStore {
                                         TargetReservationRecord.VALUE_TYPE,
                                         after.canonicalBytes()),
                                 reader.replace(
+                                        ColumnFamily.ID,
+                                        reservation.targetIndexKey(),
+                                        TargetReservationRecord.VALUE_TYPE,
+                                        null),
+                                reader.replace(
                                         ColumnFamily.TIMELINE,
                                         reservation.expiryKey(),
                                         TargetReservationRecord.VALUE_TYPE,
@@ -1011,6 +1026,22 @@ public final class TargetCommandStore {
                                         retained.canonicalBytes()))),
                 applied(StableCode.PAYLOAD_RESERVATION_ABANDONED, source, null),
                 owner);
+    }
+
+    private static void requireReservationTargetIndex(
+            TargetStoreBackend.Reader reader, TargetReservationRecord reservation) {
+        final byte[] raw = reader.get(ColumnFamily.ID, reservation.targetIndexKey());
+        if (reservation.status() == PayloadReservationStatus.RESERVED) {
+            if (raw == null
+                    || !Arrays.equals(
+                            reservation.canonicalBytes(),
+                            TargetValueEnvelope.decode(raw, TargetReservationRecord.VALUE_TYPE)
+                                    .payload())) {
+                throw new IllegalStateException("reserved command lacks its exact Target index");
+            }
+        } else if (raw != null) {
+            throw new IllegalStateException("terminal command retains a Target reservation index");
+        }
     }
 
     private Decision modifyMessage(

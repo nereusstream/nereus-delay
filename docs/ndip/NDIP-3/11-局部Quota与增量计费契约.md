@@ -2061,8 +2061,22 @@ TargetQuotaMutation field6与field4/5共享ordinal宽度，所以固定bookkeepi
 普通TargetQuotaStoreGate显式拒绝这种local维护stamp。
 
 TargetReservationClosureStore在一个batch更新NV38双ID（含field16证据）、删expiry、
-owner保留对象，再按实际before/after收费。四个场景验证8条写、source sequence/position
+owner保留对象，再按实际before/after收费。四个场景当时验证8条写；新增活跃索引后为9条写，source sequence/position
 不变、receipt保持、物理准入失败零写、重复零写，reservation减少1/100bytes且retained
 增加100bytes。对象仍可能受upload deadline/late PUT等约束，当前没有删除或释放授权。
 完整closed aggregate/counterTransferredByCloseVersion与持久扫描尚待实现，不能据此
 声称已有整Target O(1)配额转移或自动关闭清理。
+
+## 50. Target活跃reservation索引的费用与批次
+
+id_cf/0x09/schema1/Target/MessageId复制当前NV38 RESERVED字节，另计完整STATE；
+它不另占一份reservation payload，仍只有唯一owner占RESERVATION_MESSAGES/BYTES。
+Prepare原子增加索引；Commit/Cancel/本地expiry/Close原子删除索引并收回实际STATE。
+TargetRecordAccounting对每个相关编辑核对原双ID、expiry、活跃索引的最终一致性，
+终态必须没有两类活动索引。Close和expiry物化各为5条业务+2counter+total+aggregate，
+即9条native写；物理容量/有限预算必须据此重算，不能沿用先前8条批次声明。
+
+现有format2持久reservation若无新增索引，新reader不能假定其为已迁移，亦不得
+据空发现结果宣布Close完成。受控迁移须重建每个仍RESERVED的对应索引、更新原Target/
+mirror/total/aggregate真实STATE并验证全部ID/expiry/owner/lineage以及Store fence，
+再允许激活新的发现/物化入口；不能绕过双账本守恒。

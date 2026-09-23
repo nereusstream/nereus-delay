@@ -577,3 +577,27 @@ two reservation ID projections, deletes expiry, retains owner, and includes coun
 source META3/5 remains unchanged. Old Target readers reject the unknown ordinal/field16 branch;
 production reader activation/migration, persistent close cursor, aggregate transfer and full
 recovery/Floor validation remain pending.
+
+### Target reservation active index for bounded Close discovery
+
+New `id_cf` key tag `0x09`: `[0x09][0x01][TargetId:32][DelayMessageId:32]`,
+value NV38/schema1 byte-identical to both existing ID projections while physically RESERVED.
+The namespace is independent of DEDUPE tag9 and TIMELINE tag9. Keys are ordered by Target,
+then MessageId. The exclusive upper bound increments the last non-0xff prefix byte, so the
+all-0xff Target has `[0x09][0x02]` as its bound and cannot bleed into the next format/tag.
+No new NV type, mutation kind, fixed bookkeeping width, or CF is introduced.
+
+Prepare inserts the third ID projection together with MessageId/reservationId and expiry;
+Commit, Cancel, local EXPIRED and local Close ABANDONED remove it in their existing atomic
+business/quota/source batches. Terminal projections require the index absent. All active reads
+and exact accounting require the three ID copies byte-identical and the expiry copy present.
+Each active index row charges actual STATE key/payload/NV-envelope bytes to the same Target and
+mirror. Local expiry and Close materialization now make nine native writes (five business,
+Target/mirror counters, total, aggregate); source META3/5 remains unchanged.
+
+The bounded first-candidate reader verifies the accepted Target Close marker, its CLOSED
+queue, source/lineage/incarnation and exact index/ID projection under ReadAuthority. Discovery
+is not commit authority or a durable cursor. Existing format-2 stores containing reservations
+without the new index must be handled by a controlled backfill/migration and full accounting
+check before activation. Cursor publication, restart progress, fair GC, aggregate phase transfer,
+recovery/Floor and Broker validation remain required.
