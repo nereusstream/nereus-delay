@@ -18478,3 +18478,10 @@ Unknown business keys and either exhausted budget fail closed. A matching local
 manifest can be checked in the same image open. Protected zero-counter retirement
 needs independent identity authority, and fixed control/semantic projections,
 publication, restore and real Broker/Oxia recovery remain unverified.
+The same complete, bounded DEDUPE scan now feeds the independent Target result
+ledger checker. It verifies canonical result keys, source-event/stamp consistency,
+first-result references, descriptor ownership and the exact result subtotal
+against the writer's per-record charges before accepting the quota fold. The
+existing real Worker and command-path images pass, as do focused result-ledger
+conflict tests. This is local image consistency only; it does not authenticate
+the external Owner/control state or open format-2 publish/restore gates.

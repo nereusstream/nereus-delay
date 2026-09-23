@@ -1,6 +1,7 @@
 package com.nereusstream.delay.store;
 
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.CapacityVector;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.TargetQueueState;
 import com.nereusstream.delay.protocol.TargetQuotaAccounting;
@@ -12,6 +13,7 @@ import com.nereusstream.delay.protocol.TargetQuotaTotal;
 import com.nereusstream.delay.protocol.TargetQuotaUsage;
 import com.nereusstream.delay.runtime.TargetQuotaDelta;
 import com.nereusstream.delay.runtime.TargetRecordAccounting;
+import com.nereusstream.delay.runtime.TargetResultLedgerAudit;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -72,6 +74,8 @@ final class TargetCheckpointLedgerAudit {
                 proof.bookkeeping(),
                 TargetQueueState.MAX_DOMAIN_SLOTS);
         final Map<TargetQuotaIdentity, TargetQuotaUsage> rebuilt = new HashMap<>();
+        final Map<TargetQuotaIdentity, CapacityVector> resultContributions = new HashMap<>();
+        final List<TargetResultLedgerAudit.Stored> resultRows = new ArrayList<>();
         final List<TargetQuotaCounter> counters = new ArrayList<>();
         final var rootCharge =
                 TargetRecordAccounting.resources(proof.bookkeeping().charge());
@@ -86,11 +90,25 @@ final class TargetCheckpointLedgerAudit {
                     budget.scan(key.length, raw.length);
                     if (!skipInfrastructure(family, key, raw, proof, counters, rebuilt)) {
                         final int type = TargetStoreBackend.businessType(family, key);
-                        TargetValueEnvelope.decode(raw, type);
+                        final byte[] payload =
+                                TargetValueEnvelope.decode(raw, type).payload();
+                        if (family == ColumnFamily.DEDUPE) {
+                            resultRows.add(new TargetResultLedgerAudit.Stored(key, type, payload));
+                        }
                         final var charge = accounting.charge(family, key, raw);
                         if (charge != null) {
                             merge(rebuilt, charge.owner().identity(), charge.primary());
                             merge(rebuilt, charge.owner().tenantIdentity(), charge.mirror());
+                            if (family == ColumnFamily.DEDUPE) {
+                                resultContributions.merge(
+                                        charge.owner().identity(),
+                                        charge.primary().resources(),
+                                        CapacityVector::add);
+                                resultContributions.merge(
+                                        charge.owner().tenantIdentity(),
+                                        charge.mirror().resources(),
+                                        CapacityVector::add);
+                            }
                         }
                     }
                     iterator.next();
@@ -99,6 +117,28 @@ final class TargetCheckpointLedgerAudit {
             } catch (RocksDBException failure) {
                 throw new IllegalArgumentException("cannot scan Target checkpoint business ledger", failure);
             }
+        }
+        final long resultBytes = limits.maxKeyValueBytes() > Long.MAX_VALUE - limits.maxPointReadBytes()
+                ? Long.MAX_VALUE
+                : limits.maxKeyValueBytes() + limits.maxPointReadBytes();
+        final var resultSummary = TargetResultLedgerAudit.auditRows(
+                proof.root().scope(),
+                proof.root().recoveryLineage(),
+                proof.mutationSequence(),
+                proof.source(),
+                new TargetResultLedgerAudit.Limits(limits.maxRecords(), limits.maxPointReads(), resultBytes),
+                resultRows,
+                key -> {
+                    final byte[] raw = view.projected(ColumnFamily.META, key, List.of());
+                    if (raw == null) {
+                        return null;
+                    }
+                    final var value = TargetValueEnvelope.decodeAny(raw);
+                    return new TargetResultLedgerAudit.Stored(key, value.valueType(), value.payload());
+                });
+        if (resultSummary.resultRecords() != resultRows.size()
+                || !resultSummary.contributions().equals(resultContributions)) {
+            throw new IllegalStateException("Target checkpoint result ledger differs from actual DEDUPE accounting");
         }
         TargetQuotaDelta.audit(proof.aggregate(), counters, rebuilt);
     }

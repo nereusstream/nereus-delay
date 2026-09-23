@@ -437,5 +437,8 @@ primary counter 到 NV27 aggregate/各 Target total 的精确求和、tenant mir
 primary/tenant counter；真实 Store 镜像通过，删除 POSITION 结果后虽配额投影仍自洽，
 账本核对却拒绝。Manifest 身份、配额投影和账本可在同一次只读打开中核对。
 四组实际 Schedule/Claim/Reschedule/Close 的关闭后 Store 镜像也通过本地账本核对。
+同一完整 DEDUPE 扫描现送入结果账本校验：检查规范键、同源事件与 mutation、首结果
+引用、Owner 描述符，并将结果贡献小计与实际逐记录计费对齐。真实 Worker 和命令路径
+镜像通过，结果冲突的局部负例仍拒绝；此步骤不认证外部 Owner/控制权威。
 受保护零用量退休身份、固定控制/语义投影和其它 Target 关系仍缺认证与完整审计，
 C5、Catalog 发布及 restore/install 门禁不提升。

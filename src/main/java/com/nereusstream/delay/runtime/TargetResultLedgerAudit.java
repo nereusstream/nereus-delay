@@ -92,11 +92,25 @@ public final class TargetResultLedgerAudit {
             final Iterable<Stored> resultRows,
             final DescriptorLookup lookup,
             final CompletenessAuthority authority) {
+        Objects.requireNonNull(authority, "completenessAuthority");
+        final Summary summary = auditRows(scope, lineage, sourceSequence, frontier, limits, resultRows, lookup);
+        authority.requireComplete(summary);
+        return summary;
+    }
+
+    /** Checks supplied rows without claiming that the caller supplied a complete or externally authorized image. */
+    public static Summary auditRows(
+            final TargetQuotaScope scope,
+            final byte[] lineage,
+            final long sourceSequence,
+            final SourcePosition frontier,
+            final Limits limits,
+            final Iterable<Stored> resultRows,
+            final DescriptorLookup lookup) {
         Objects.requireNonNull(scope, "scope");
         Objects.requireNonNull(limits, "limits");
         Objects.requireNonNull(resultRows, "resultRows");
         Objects.requireNonNull(lookup, "descriptorLookup");
-        Objects.requireNonNull(authority, "completenessAuthority");
         Bytes.requireLength(lineage, 16, "lineage");
         final byte[] expectedLineage = Bytes.copy(lineage);
         if (scope.target() != null
@@ -224,7 +238,6 @@ public final class TargetResultLedgerAudit {
                 bytes,
                 contributions,
                 total);
-        authority.requireComplete(summary);
         return summary;
     }
 
