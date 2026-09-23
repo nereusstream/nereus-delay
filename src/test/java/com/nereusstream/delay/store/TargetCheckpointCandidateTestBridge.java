@@ -10,9 +10,23 @@ public final class TargetCheckpointCandidateTestBridge {
             final ShardStore store,
             final Path path,
             final byte[] checkpointId,
+            final byte[] lineage,
             final CheckpointManifestLimits physicalLimits,
             final TargetCheckpointRootVerifier.QuotaAuditLimits quotaLimits,
             final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits) {
-        return store.createTargetCheckpointCandidate(path, checkpointId, physicalLimits, quotaLimits, ledgerLimits);
+        return store.createTargetCheckpointCandidate(
+                path, checkpointId, lineage, physicalLimits, quotaLimits, ledgerLimits);
+    }
+
+    public static Path reuse(
+            final ShardStore store,
+            final Path path,
+            final byte[] checkpointId,
+            final byte[] lineage,
+            final CheckpointManifestLimits physicalLimits,
+            final TargetCheckpointRootVerifier.QuotaAuditLimits quotaLimits,
+            final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits) {
+        return store.reuseTargetCheckpointCandidate(
+                path, checkpointId, lineage, physicalLimits, quotaLimits, ledgerLimits);
     }
 }

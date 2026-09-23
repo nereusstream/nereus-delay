@@ -94,7 +94,7 @@ public final class TargetCheckpointRootVerifier {
     /** Reads an immutable RocksDB image under finite physical limits without changing its markers. */
     public static RootProof validate(
             final Path image, final ShardId expectedShard, final CheckpointManifestLimits limits) {
-        return validateImage(image, expectedShard, limits, null, null, null);
+        return validateImage(image, expectedShard, limits, null, null, null, null);
     }
 
     /** Audits the bounded quota projection graph; independent work ledgers still require a separate fold. */
@@ -103,7 +103,8 @@ public final class TargetCheckpointRootVerifier {
             final ShardId expectedShard,
             final CheckpointManifestLimits physicalLimits,
             final QuotaAuditLimits quotaLimits) {
-        return validateImage(image, expectedShard, physicalLimits, null, Objects.requireNonNull(quotaLimits), null);
+        return validateImage(
+                image, expectedShard, physicalLimits, null, Objects.requireNonNull(quotaLimits), null, null);
     }
 
     /** Rebuilds quota usage from bounded actual business records after the quota projection audit. */
@@ -119,7 +120,45 @@ public final class TargetCheckpointRootVerifier {
                 physicalLimits,
                 null,
                 Objects.requireNonNull(quotaLimits, "quotaLimits"),
-                Objects.requireNonNull(ledgerLimits, "ledgerLimits"));
+                Objects.requireNonNull(ledgerLimits, "ledgerLimits"),
+                null);
+    }
+
+    /** Binds a complete local candidate image to the exact live Store cut without granting publication authority. */
+    static RootProof auditLocalCandidate(
+            final Path image,
+            final ShardStore store,
+            final byte[] expectedLineage,
+            final byte[] checkpointId,
+            final CheckpointManifestLimits physicalLimits,
+            final QuotaAuditLimits quotaLimits,
+            final LedgerAuditLimits ledgerLimits) {
+        Objects.requireNonNull(store, "store");
+        Bytes.requireLength(expectedLineage, 16, "expectedLineage");
+        Bytes.requireLength(checkpointId, 16, "checkpointId");
+        if (!Thread.holdsLock(store)) {
+            throw new IllegalStateException("Target candidate audit requires the exact Store monitor");
+        }
+        final var runtime = store.runtimeMetadata();
+        if (!Bytes.constantTimeEquals(runtime.lastCheckpointId(), checkpointId)
+                || runtime.lastOpenedOwnerEpoch() == 0) {
+            throw new IllegalStateException("Target candidate has no matching local checkpoint or opened Owner");
+        }
+        final var expected = new CandidateIdentity(
+                store.metadata(),
+                Bytes.copy(expectedLineage),
+                store.appliedShardLogPosition(),
+                store.shardMutationSequence(),
+                store.latestSequenceNumber(),
+                runtime);
+        return validateImage(
+                image,
+                store.shardId(),
+                physicalLimits,
+                null,
+                Objects.requireNonNull(quotaLimits, "quotaLimits"),
+                Objects.requireNonNull(ledgerLimits, "ledgerLimits"),
+                expected);
     }
 
     /**
@@ -129,7 +168,7 @@ public final class TargetCheckpointRootVerifier {
     public static RootProof validateManifestImageIdentity(
             final Path image, final CheckpointManifest manifest, final CheckpointManifestLimits limits) {
         requireFormat2Manifest(manifest, limits);
-        return validateImage(image, manifest.shardId(), limits, manifest, null, null);
+        return validateImage(image, manifest.shardId(), limits, manifest, null, null, null);
     }
 
     /** Binds Manifest identity and both local audits in one immutable image read. */
@@ -146,7 +185,8 @@ public final class TargetCheckpointRootVerifier {
                 physicalLimits,
                 manifest,
                 Objects.requireNonNull(quotaLimits, "quotaLimits"),
-                Objects.requireNonNull(ledgerLimits, "ledgerLimits"));
+                Objects.requireNonNull(ledgerLimits, "ledgerLimits"),
+                null);
     }
 
     private static void requireFormat2Manifest(
@@ -164,7 +204,8 @@ public final class TargetCheckpointRootVerifier {
             final CheckpointManifestLimits limits,
             final CheckpointManifest manifest,
             final QuotaAuditLimits quotaLimits,
-            final LedgerAuditLimits ledgerLimits) {
+            final LedgerAuditLimits ledgerLimits,
+            final CandidateIdentity candidate) {
         Objects.requireNonNull(image, "image");
         Objects.requireNonNull(expectedShard, "expectedShard");
         requireFinitePhysicalLimits(limits);
@@ -224,6 +265,9 @@ public final class TargetCheckpointRootVerifier {
                 final RootProof proof = readRoot(db, meta, expectedShard);
                 if (manifest != null) {
                     requireManifestImageIdentity(db, meta, proof, manifest);
+                }
+                if (candidate != null) {
+                    requireLocalCandidateImageIdentity(db, meta, proof, candidate);
                 }
                 if (quotaLimits != null) {
                     auditQuotaProjections(db, meta, proof, quotaLimits);
@@ -492,6 +536,53 @@ public final class TargetCheckpointRootVerifier {
         final byte[] cursorBytes = requiredFixed(db, meta, 6, "evidence cursors");
         if (!StoreRuntimeMetadata.decodeEvidenceCursors(cursorBytes).equals(manifest.evidenceCursors())) {
             throw new IllegalArgumentException("Target image evidence cursors do not match manifest");
+        }
+    }
+
+    private static void requireLocalCandidateImageIdentity(
+            final RocksDB db, final ColumnFamilyHandle meta, final RootProof proof, final CandidateIdentity expected)
+            throws RocksDBException {
+        if (!Bytes.constantTimeEquals(
+                        proof.metadata().encode(), expected.metadata().encode())
+                || !Bytes.constantTimeEquals(proof.root().recoveryLineage(), expected.lineage())
+                || proof.mutationSequence() != expected.sequence()
+                || db.getLatestSequenceNumber() != expected.nativeSequence()
+                || !Bytes.constantTimeEquals(
+                        proof.source().canonicalBytes(), expected.source().canonicalBytes())) {
+            throw new IllegalArgumentException("Target candidate Store, lineage or write cut differs from live Store");
+        }
+        if (!Bytes.constantTimeEquals(
+                requiredFixed(db, meta, 7, "checkpoint identity"),
+                expected.runtime().lastCheckpointId())) {
+            throw new IllegalArgumentException("Target candidate checkpoint identity differs from live Store");
+        }
+        final byte[] epoch = requiredFixed(db, meta, 8, "opened Owner epoch");
+        if (epoch.length != Long.BYTES
+                || Bytes.readU64be(epoch, 0) != expected.runtime().lastOpenedOwnerEpoch()) {
+            throw new IllegalArgumentException("Target candidate opened Owner epoch differs from live Store");
+        }
+        if (!StoreRuntimeMetadata.decodeEvidenceCursors(requiredFixed(db, meta, 6, "evidence cursors"))
+                .equals(expected.runtime().evidenceCursors())) {
+            throw new IllegalArgumentException("Target candidate evidence cursors differ from live Store");
+        }
+    }
+
+    private record CandidateIdentity(
+            StoreMetadata metadata,
+            byte[] lineage,
+            SourcePosition source,
+            long sequence,
+            long nativeSequence,
+            StoreRuntimeMetadata runtime) {
+        private CandidateIdentity {
+            Objects.requireNonNull(metadata, "metadata");
+            Bytes.requireLength(lineage, 16, "lineage");
+            lineage = Bytes.copy(lineage);
+            Objects.requireNonNull(source, "source");
+            Objects.requireNonNull(runtime, "runtime");
+            if (sequence == 0 || nativeSequence == 0) {
+                throw new IllegalArgumentException("Target candidate has no source or native write sequence");
+            }
         }
     }
 

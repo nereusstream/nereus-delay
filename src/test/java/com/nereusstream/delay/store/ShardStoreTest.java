@@ -66,6 +66,7 @@ class ShardStoreTest {
         for (var method : ShardStore.class.getDeclaredMethods()) {
             if (method.getName().equals("createCheckpoint")
                     || method.getName().equals("createTargetCheckpointCandidate")
+                    || method.getName().equals("reuseTargetCheckpointCandidate")
                     || method.getName().equals("restoreFromCheckpoint")) {
                 assertFalse(Modifier.isPublic(method.getModifiers()), method::toGenericString);
             }
@@ -603,6 +604,7 @@ class ShardStoreTest {
                     () -> store.createTargetCheckpointCandidate(
                             wrongFormat,
                             bytes(16, 1),
+                            bytes(16, 2),
                             new CheckpointManifestLimits(100, 64L << 20, 64L << 20, 1024, 1 << 20, 100, 1024),
                             new TargetCheckpointRootVerifier.QuotaAuditLimits(1_000, 8L << 20),
                             new TargetCheckpointRootVerifier.LedgerAuditLimits(10_000, 64L << 20, 100_000, 64L << 20)));

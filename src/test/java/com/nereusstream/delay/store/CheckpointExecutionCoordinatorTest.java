@@ -92,6 +92,15 @@ class CheckpointExecutionCoordinatorTest {
                     () -> new CheckpointExecutionCoordinator(new CheckpointScheduler(100, 0, 1), store, publication));
             assertThrows(
                     IllegalArgumentException.class, () -> new CheckpointDrainWorkClassExecutor(workClasses(8), store));
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> store.createTargetCheckpointCandidate(
+                            tempDir.resolve("target-without-owner-candidate"),
+                            bytes(16, 4),
+                            bytes(16, 5),
+                            new CheckpointManifestLimits(100, 64L << 20, 64L << 20, 1024, 1 << 20, 100, 1024),
+                            new TargetCheckpointRootVerifier.QuotaAuditLimits(1_000, 8L << 20),
+                            new TargetCheckpointRootVerifier.LedgerAuditLimits(10_000, 64L << 20, 100_000, 64L << 20)));
             assertThrows(IllegalStateException.class, () -> store.createCheckpoint(checkpoint, bytes(16, 3)));
             assertFalse(Files.exists(checkpoint));
             assertEquals(2, store.metadata().storeFormatVersion());

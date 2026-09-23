@@ -18496,3 +18496,12 @@ exhausted ledger budget leaves no candidate and rolls back the ID. This path
 does not publish a manifest or establish Owner, control-state, Catalog or
 restore/install authority. Existing format-2 upload and recovery gates stay
 closed.
+
+Local Target candidate creation now also requires an already opened Owner epoch and
+applied source cut, then binds the copied image to the caller's lineage, exact
+Store identity, source sequence/position, native RocksDB sequence, checkpoint ID, opened Owner epoch and
+evidence cursors in the same read-only audit. A package-local retry entry
+reuses an existing candidate only after the same checks and business-ledger
+fold, with no native write. The real Worker image passes exact reuse; changed
+ID, lineage or an intervening native write is rejected. These are local recorded facts, not authentication
+of the current Owner or permission to upload/install the image.

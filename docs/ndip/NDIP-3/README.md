@@ -448,3 +448,9 @@ format 2 Target Store 现能用显式 checkpoint ID 生成**本地物理候选�
 配额投影和实际业务/结果账本审计。真实 Worker Store 的候选镜像通过；非法无界预算
 零写，审计预算失败撤销 checkpoint ID 且不留下候选目录。此入口没有 Owner/CHECKPOINT
 调度授权、认证控制快照、Manifest 发布、Catalog 或恢复安装权限，旧 format 2 门禁保持关闭。
+
+本地候选现还绑定调用方 lineage 与实际 Store/source 与 native write 切点、META7 checkpoint ID、
+META8 opened Owner epoch、META6 evidence cursors；没有已打开 Owner 或已应用 source
+时在写前拒绝。同一 checkpoint ID 响应丢失后，可在完整只读审计成功且上述身份未变时
+零写复用现有目录；错 ID/lineage 或任何后续 native 写均拒绝。该复用核对本地持久事实，不认证当前外部 Owner
+lease，也不解除 Manifest/上传/安装门禁。

@@ -681,6 +681,7 @@ class TargetQuotaGrantStoreTest {
                             live,
                             unboundedCandidate,
                             bytes(16, 0x38),
+                            lineage,
                             CheckpointManifestLimits.unbounded(),
                             quotaAuditLimits,
                             ledgerAuditLimits));
@@ -692,6 +693,7 @@ class TargetQuotaGrantStoreTest {
                                     live,
                                     failedCandidate,
                                     bytes(16, 0x37),
+                                    lineage,
                                     imageLimits,
                                     quotaAuditLimits,
                                     new TargetCheckpointRootVerifier.LedgerAuditLimits(1, 128, 100_000, 64L << 20)))
@@ -703,7 +705,49 @@ class TargetQuotaGrantStoreTest {
             assertEquals(
                     candidate,
                     TargetCheckpointCandidateTestBridge.create(
-                            live, candidate, checkpointId, imageLimits, quotaAuditLimits, ledgerAuditLimits));
+                            live, candidate, checkpointId, lineage, imageLimits, quotaAuditLimits, ledgerAuditLimits));
+            final long beforeReuse = live.operationStatistics().nativeWriteCalls();
+            assertEquals(
+                    candidate,
+                    TargetCheckpointCandidateTestBridge.reuse(
+                            live, candidate, checkpointId, lineage, imageLimits, quotaAuditLimits, ledgerAuditLimits));
+            assertEquals(beforeReuse, live.operationStatistics().nativeWriteCalls());
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> TargetCheckpointCandidateTestBridge.reuse(
+                            live,
+                            candidate,
+                            bytes(16, 0x39),
+                            lineage,
+                            imageLimits,
+                            quotaAuditLimits,
+                            ledgerAuditLimits));
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> TargetCheckpointCandidateTestBridge.reuse(
+                            live,
+                            candidate,
+                            checkpointId,
+                            bytes(16, 0x39),
+                            imageLimits,
+                            quotaAuditLimits,
+                            ledgerAuditLimits));
+            assertEquals(beforeReuse, live.operationStatistics().nativeWriteCalls());
+            final long candidateWriteCut = live.latestSequenceNumber();
+            live.recordLastCheckpointId(checkpointId);
+            assertTrue(Long.compareUnsigned(live.latestSequenceNumber(), candidateWriteCut) > 0);
+            assertTrue(assertThrows(
+                            IllegalArgumentException.class,
+                            () -> TargetCheckpointCandidateTestBridge.reuse(
+                                    live,
+                                    candidate,
+                                    checkpointId,
+                                    lineage,
+                                    imageLimits,
+                                    quotaAuditLimits,
+                                    ledgerAuditLimits))
+                    .getMessage()
+                    .contains("write cut"));
         }
         assertTrue(Files.isRegularFile(candidate.resolve("CURRENT")));
         assertEquals(

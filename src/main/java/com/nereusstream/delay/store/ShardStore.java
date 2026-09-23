@@ -2586,27 +2586,63 @@ public final class ShardStore implements AutoCloseable {
     }
 
     /**
-     * Creates a local format-2 image candidate under finite recovery audit limits. It is not a
+     * Creates a local format-2 image candidate under finite recovery audit limits. The expected
+     * lineage and live Store cut are matched to the copied image before placement. It is not a
      * published checkpoint: Owner/WorkClass admission, authenticated control state, manifest,
      * Catalog and install authority remain separate obligations for the caller's future executor.
      */
     synchronized Path createTargetCheckpointCandidate(
             final Path checkpointPath,
             final byte[] checkpointId,
+            final byte[] expectedLineage,
             final CheckpointManifestLimits physicalLimits,
             final TargetCheckpointRootVerifier.QuotaAuditLimits quotaLimits,
             final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits) {
-        Objects.requireNonNull(checkpointId, "checkpointId");
-        Objects.requireNonNull(physicalLimits, "physicalLimits");
-        Objects.requireNonNull(quotaLimits, "quotaLimits");
-        Objects.requireNonNull(ledgerLimits, "ledgerLimits");
-        TargetCheckpointRootVerifier.requireFinitePhysicalLimits(physicalLimits);
+        requireTargetCandidateInputs(checkpointId, expectedLineage, physicalLimits, quotaLimits, ledgerLimits);
         return createCheckpointImage(
                 checkpointPath,
                 checkpointId,
                 2,
-                candidate -> TargetCheckpointRootVerifier.auditIndependentLedger(
-                        candidate, shardId, physicalLimits, quotaLimits, ledgerLimits));
+                candidate -> TargetCheckpointRootVerifier.auditLocalCandidate(
+                        candidate, this, expectedLineage, checkpointId, physicalLimits, quotaLimits, ledgerLimits));
+    }
+
+    /** Reuses only an already complete candidate bound to this unchanged Store cut; performs no writes. */
+    synchronized Path reuseTargetCheckpointCandidate(
+            final Path checkpointPath,
+            final byte[] checkpointId,
+            final byte[] expectedLineage,
+            final CheckpointManifestLimits physicalLimits,
+            final TargetCheckpointRootVerifier.QuotaAuditLimits quotaLimits,
+            final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits) {
+        requireTargetCandidateInputs(checkpointId, expectedLineage, physicalLimits, quotaLimits, ledgerLimits);
+        final byte[] currentId = runtimeMetadata.lastCheckpointId();
+        if (currentId == null || !Bytes.constantTimeEquals(currentId, checkpointId)) {
+            throw new IllegalStateException("Target candidate checkpoint identity differs from live Store");
+        }
+        TargetCheckpointRootVerifier.auditLocalCandidate(
+                checkpointPath, this, expectedLineage, checkpointId, physicalLimits, quotaLimits, ledgerLimits);
+        return checkpointPath;
+    }
+
+    private void requireTargetCandidateInputs(
+            final byte[] checkpointId,
+            final byte[] expectedLineage,
+            final CheckpointManifestLimits physicalLimits,
+            final TargetCheckpointRootVerifier.QuotaAuditLimits quotaLimits,
+            final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits) {
+        Bytes.requireLength(checkpointId, 16, "checkpointId");
+        Bytes.requireLength(expectedLineage, 16, "expectedLineage");
+        Objects.requireNonNull(quotaLimits, "quotaLimits");
+        Objects.requireNonNull(ledgerLimits, "ledgerLimits");
+        TargetCheckpointRootVerifier.requireFinitePhysicalLimits(physicalLimits);
+        ensureOpen();
+        if (metadata.storeFormatVersion() != 2
+                || runtimeMetadata.lastOpenedOwnerEpoch() == 0
+                || appliedShardLogPosition() == null
+                || shardMutationSequence() == 0) {
+            throw new IllegalStateException("Target candidate requires an opened Owner and applied source cut");
+        }
     }
 
     private Path createCheckpointImage(
