@@ -86,6 +86,7 @@ import com.nereusstream.delay.protocol.TargetCloseRequest;
 import com.nereusstream.delay.protocol.TargetControlScope;
 import com.nereusstream.delay.protocol.TargetDispatchCompatibility;
 import com.nereusstream.delay.protocol.TargetMembershipGrant;
+import com.nereusstream.delay.protocol.TargetMembershipPolicy;
 import com.nereusstream.delay.protocol.TargetNativePolicyScope;
 import com.nereusstream.delay.protocol.TargetPartitionHashInput;
 import com.nereusstream.delay.protocol.TargetPartitionPolicy;
@@ -272,13 +273,15 @@ class TargetCommandStoreTest {
                             172800000,
                             2,
                             bytes(32, 0xbb)));
+            final var membershipPolicy = new TargetMembershipPolicy(
+                    scope.tenantScope(), destination.ref(), dispatch.digest(), dispatch, controls, bytes(32, 0x73));
             final var membership = new TargetMembershipGrant(
                     scope.tenantScope(),
                     destination.ref(),
                     dispatch,
                     dispatch,
                     controls,
-                    bytes(32, 0x71),
+                    membershipPolicy.digest(),
                     bytes(32, 0x72),
                     bytes(32, 0x73),
                     membershipAt);
@@ -310,6 +313,11 @@ class TargetCommandStoreTest {
                                                     TargetKeyCodec.identity(physical.id()),
                                                     CanonicalTargetPartition.VALUE_TYPE,
                                                     physical.canonicalBytes()),
+                                            reader.replace(
+                                                    ColumnFamily.META,
+                                                    membershipPolicy.encodedKey(),
+                                                    TargetMembershipPolicy.VALUE_TYPE,
+                                                    membershipPolicy.canonicalBytes()),
                                             reader.replace(
                                                     ColumnFamily.META,
                                                     membership.encodedKey(),

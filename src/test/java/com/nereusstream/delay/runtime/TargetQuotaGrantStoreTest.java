@@ -1722,6 +1722,7 @@ class TargetQuotaGrantStoreTest {
                 actor,
                 prepared -> true);
         final var config = ShardStoreConfig.defaults(root);
+        final Path physicalDb;
         final byte[] grantKey;
         final byte[] grantRef;
         final byte[] grantBytes;
@@ -1729,6 +1730,7 @@ class TargetQuotaGrantStoreTest {
         final byte[] closureBytes;
         try (var resources = new SharedRocksDbResources(config);
                 var store = ShardStore.openTarget(config, scope.shard(), resources)) {
+            physicalDb = store.dbPath();
             final var initialized = TargetStoreBootstrap.commit(
                     TargetStoreBootstrap.prepare(
                             store, scope, lineage, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(),
@@ -1977,6 +1979,32 @@ class TargetQuotaGrantStoreTest {
             assertArrayEquals(TargetMembershipClosureRecord.decode(closureBytes).closedAt().canonicalBytes(),
                     historical.closedAt().canonicalBytes());
         }
+        final var imageLimits = new CheckpointManifestLimits(100, 64L << 20, 64L << 20, 1024, 1 << 20, 100, 1024);
+        final var quotaLimits = new TargetCheckpointRootVerifier.QuotaAuditLimits(1_000, 8L << 20);
+        final var ledgerLimits =
+                new TargetCheckpointRootVerifier.LedgerAuditLimits(10_000, 64L << 20, 100_000, 64L << 20);
+        TargetCheckpointRootVerifier.auditIndependentLedger(
+                physicalDb, scope.shard(), imageLimits, quotaLimits, ledgerLimits);
+        try (var resources = new SharedRocksDbResources(config);
+                var missingPolicy = ShardStore.openTarget(config, scope.shard(), resources)) {
+            missingPolicy.write(batch -> batch.delete(ColumnFamily.META, policy.encodedKey()));
+        }
+        try (var resources = new SharedRocksDbResources(config);
+                var missingPolicy = ShardStore.openTarget(config, scope.shard(), resources)) {
+            final var recovered = TargetStoreBootstrap.reopen(
+                    missingPolicy, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(),
+                    (a, b) -> guard());
+            assertTrue(assertThrows(IllegalStateException.class,
+                    () -> recovered.backend().guardedRead(
+                            budget(), reader -> TargetMembershipStoreAuthority.resolve(
+                                    reader, scope, lineage, grantRef),
+                            (a, b) -> guard()))
+                    .getMessage().contains("lacks its durable policy"));
+        }
+        assertTrue(assertThrows(IllegalStateException.class,
+                () -> TargetCheckpointRootVerifier.auditIndependentLedger(
+                        physicalDb, scope.shard(), imageLimits, quotaLimits, ledgerLimits))
+                .getMessage().contains("missing frozen accounting dependency"));
     }
 
     private static CheckpointUploadIntent pendingCandidate(

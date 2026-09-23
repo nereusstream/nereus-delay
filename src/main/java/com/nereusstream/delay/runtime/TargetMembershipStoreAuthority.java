@@ -3,6 +3,7 @@ package com.nereusstream.delay.runtime;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.TargetMembershipClosureRecord;
 import com.nereusstream.delay.protocol.TargetMembershipGrant;
+import com.nereusstream.delay.protocol.TargetMembershipPolicy;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
 import com.nereusstream.delay.store.ColumnFamily;
 import com.nereusstream.delay.store.TargetKeyCodec;
@@ -39,6 +40,15 @@ public final class TargetMembershipStoreAuthority {
         final var grant = TargetMembershipGrant.decodeForStore(
                 grantKey, TargetValueEnvelope.decode(rawGrant, TargetMembershipGrant.VALUE_TYPE).payload(),
                 shardScope.shard());
+        final byte[] policyKey = TargetKeyCodec.membershipPolicy(grant.authorityPolicyRef());
+        final byte[] rawPolicy = reader.get(ColumnFamily.META, policyKey);
+        if (rawPolicy == null) {
+            throw new IllegalStateException("membership grant lacks its durable policy");
+        }
+        final var policy = TargetMembershipPolicy.decodeForStore(
+                policyKey, TargetValueEnvelope.decode(rawPolicy, TargetMembershipPolicy.VALUE_TYPE).payload(),
+                shardScope.shard());
+        policy.requireGrant(grant);
         final var frontier = reader.source();
         if (!Arrays.equals(grant.tenantScope(), shardScope.tenantScope()) || frontier == null) {
             throw new IllegalStateException("membership grant differs from Store tenant/source frontier");

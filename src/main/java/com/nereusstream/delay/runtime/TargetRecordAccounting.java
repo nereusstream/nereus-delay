@@ -362,11 +362,15 @@ public final class TargetRecordAccounting {
             }
             case TargetMembershipGrant.VALUE_TYPE -> {
                 requireFamily(family, ColumnFamily.META);
+                final var member = TargetMembershipGrant.decodeForStore(key, payload, scope.shard());
+                final byte[] policyKey = TargetKeyCodec.membershipPolicy(member.authorityPolicyRef());
+                final var policy = TargetMembershipPolicy.decodeForStore(
+                        policyKey, payload(ColumnFamily.META, policyKey, TargetMembershipPolicy.VALUE_TYPE),
+                        scope.shard());
+                policy.requireGrant(member);
                 result = shared(
                         TargetQuotaMetadataRecords.SharedRole.MEMBERSHIP_GRANT,
-                        TargetMembershipGrant.decodeForStore(key, payload, scope.shard())
-                                .offered()
-                                .target(),
+                        member.offered().target(),
                         key,
                         payload);
             }
