@@ -33,6 +33,9 @@ import java.util.concurrent.ThreadLocalRandom;
  * <p>The lease record is an Oxia ephemeral record. A separate durable epoch
  * record is incremented with version CAS before the ephemeral record is
  * created; losing a race may consume an epoch, but it can never reuse one.
+ * An uncertain epoch CAS fails acquisition even if a reread shows the proposed
+ * value, because another contender could have written that same value. The
+ * next acquisition reserves a later epoch.
  * The public client constructor does not own or close its client. The
  * {@link #connect} factory creates an ephemeral session marker and returns a
  * {@link ClientHandle} that owns the connected client.</p>
@@ -489,9 +492,10 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
                 } catch (KeyAlreadyExistsException | UnexpectedVersionIdException conflict) {
                     continue;
                 } catch (RuntimeException responseFailure) {
-                    if (epochValueWasCommitted(key, Bytes.u64be(1))) {
-                        return 1;
-                    }
+                    // A matching reread cannot identify the writer: another
+                    // contender may have created epoch 1 after our request
+                    // failed. Discard this uncertain allocation; a retry
+                    // must reserve a strictly later epoch.
                     throw responseFailure;
                 }
             }
@@ -516,24 +520,12 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
             } catch (KeyAlreadyExistsException | UnexpectedVersionIdException conflict) {
                 // Another worker won the version CAS. Re-read and retry.
             } catch (RuntimeException responseFailure) {
-                if (epochValueWasCommitted(key, expected)) {
-                    return next;
-                }
+                // The same next value could have been written by a competing
+                // CAS. Never issue a lease with an unproven epoch.
                 throw responseFailure;
             }
         }
         throw new IllegalStateException("Oxia owner epoch CAS did not converge");
-    }
-
-    private boolean epochValueWasCommitted(final String key, final byte[] expectedValue) {
-        final GetResult observed = client.get(key);
-        if (observed == null) {
-            return false;
-        }
-        if (!key.equals(observed.key()) || observed.value() == null || observed.version() == null) {
-            throw new IllegalStateException("Oxia owner epoch response has an invalid record identity");
-        }
-        return Arrays.equals(expectedValue, observed.value());
     }
 
     private StoredLease readLease(final ShardId shardId) {

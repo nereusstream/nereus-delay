@@ -206,20 +206,21 @@ class OxiaSyncOwnerLeaseBackendTest {
     }
 
     @Test
-    void epochCreateResponseLossUsesOnlyAnExactCommittedReread() {
+    void epochCreateResponseLossDiscardsUncertainEpochBeforeRetry() {
         final FakeRecordClient records = new FakeRecordClient();
         final OxiaSyncOwnerLeaseBackend backend = new OxiaSyncOwnerLeaseBackend(records, "delay/test");
         final ShardId shard = new ShardId(RouteIncarnation.random(), 18);
         records.failNextEpochPutAfterCommit = true;
 
-        final OwnerLease acquired =
-                backend.acquire(shard, "worker-epoch-create-loss", 100, 50).orElseThrow();
+        assertThrows(IllegalStateException.class, () -> backend.acquire(shard, "worker-epoch-create-loss", 100, 50));
+        assertTrue(backend.current(shard).isEmpty());
 
-        assertEquals(1, acquired.ownerEpoch());
+        final OwnerLease acquired = backend.acquire(shard, "worker-epoch-create-retry", 101, 50).orElseThrow();
+        assertEquals(2, acquired.ownerEpoch());
     }
 
     @Test
-    void epochUpdateResponseLossUsesOnlyAnExactCommittedReread() {
+    void epochUpdateResponseLossDiscardsUncertainEpochBeforeRetry() {
         final FakeRecordClient records = new FakeRecordClient();
         final OxiaSyncOwnerLeaseBackend backend = new OxiaSyncOwnerLeaseBackend(records, "delay/test");
         final ShardId shard = new ShardId(RouteIncarnation.random(), 19);
@@ -228,10 +229,37 @@ class OxiaSyncOwnerLeaseBackendTest {
         assertTrue(backend.release(first));
         records.failNextEpochPutAfterCommit = true;
 
-        final OwnerLease reacquired =
-                backend.acquire(shard, "worker-epoch-update-loss-2", 200, 50).orElseThrow();
+        assertThrows(IllegalStateException.class, () -> backend.acquire(shard, "worker-epoch-update-loss-2", 200, 50));
+        assertTrue(backend.current(shard).isEmpty());
 
-        assertEquals(2, reacquired.ownerEpoch());
+        final OwnerLease reacquired = backend.acquire(shard, "worker-epoch-update-retry", 201, 50).orElseThrow();
+        assertEquals(3, reacquired.ownerEpoch());
+    }
+
+    @Test
+    void competingEpochCreateCannotBeClaimedFromAnAmbiguousResponse() {
+        final FakeRecordClient records = new FakeRecordClient();
+        final OxiaSyncOwnerLeaseBackend backend = new OxiaSyncOwnerLeaseBackend(records, "delay/test");
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 21);
+        records.failNextEpochPutWithCompetingCommit = true;
+
+        assertThrows(IllegalStateException.class, () -> backend.acquire(shard, "worker-lost-create", 100, 50));
+        assertTrue(backend.current(shard).isEmpty());
+        assertEquals(2, backend.acquire(shard, "worker-after-create-race", 101, 50).orElseThrow().ownerEpoch());
+    }
+
+    @Test
+    void competingEpochUpdateCannotBeClaimedFromAnAmbiguousResponse() {
+        final FakeRecordClient records = new FakeRecordClient();
+        final OxiaSyncOwnerLeaseBackend backend = new OxiaSyncOwnerLeaseBackend(records, "delay/test");
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 22);
+        final OwnerLease first = backend.acquire(shard, "worker-first", 100, 50).orElseThrow();
+        assertTrue(backend.release(first));
+        records.failNextEpochPutWithCompetingCommit = true;
+
+        assertThrows(IllegalStateException.class, () -> backend.acquire(shard, "worker-lost-update", 200, 50));
+        assertTrue(backend.current(shard).isEmpty());
+        assertEquals(3, backend.acquire(shard, "worker-after-update-race", 201, 50).orElseThrow().ownerEpoch());
     }
 
     @Test
@@ -257,6 +285,7 @@ class OxiaSyncOwnerLeaseBackendTest {
         private boolean wrongKeyOnNextGet;
         private boolean wrongKeyOnNextPut;
         private boolean failNextEpochPutAfterCommit;
+        private boolean failNextEpochPutWithCompetingCommit;
         private Runnable afterPut;
 
         private Version ephemeralVersion() {
@@ -297,6 +326,13 @@ class OxiaSyncOwnerLeaseBackendTest {
                                     ? OptionVersionId.KEY_NOT_EXISTS
                                     : current.result.version().versionId());
                 }
+            }
+            if (failNextEpochPutWithCompetingCommit && key.contains("/epoch/")) {
+                failNextEpochPutWithCompetingCommit = false;
+                final Version competingVersion = new Version(
+                        nextVersion++, 0, 0, 1, Optional.empty(), Optional.empty());
+                records.put(key, new Entry(new GetResult(key, Bytes.copy(value), competingVersion)));
+                throw new IllegalStateException("simulated response loss after competing epoch CAS");
             }
             final boolean ephemeral = options.stream().anyMatch(option -> option == PutOption.AsEphemeralRecord);
             final Version version = new Version(
