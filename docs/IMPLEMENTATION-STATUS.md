@@ -24,7 +24,10 @@ GC 现还可每次有界读取一条按 Target 排序的 NV40：跳过已完成 
 Target，扫到末尾回卷；轮转位置仅在进程内，重建时从持久 NV40 起点重新扫描。
 两 Target 的四组实际 Worker 场景和有限预算/外来游标检查通过；关闭原 Store 后，
 新 RocksDB/backend/GC executor 从 NV40 起点重新扫描两个 COMPLETE Target、零写回卷。
-这仅验证完成状态的本地持久重读；未完成游标续跑、真实 Owner 接管、生产持续触发、
+现另建第三 Target 的实际 grant、source-accounted 队列与签名 Close，使 OPEN NV40 跨
+Store reopen 留存；新 GC 跳过两个 COMPLETE，再用 field7 将 OPEN 改为 COMPLETE，
+恰写 5 条 native 记录且 source frontier 不变。这是空 Target 的本地未完成游标续跑；
+真实 Owner lease 接管、带活跃 reservation 的恢复、生产持续触发、
 跨 Target 服务机会界限、expiry-first 混合顺序、关闭汇总转移、生产历史权限/配置/
 factory、format2 回填、完整迁移/恢复和集中验证仍未完成。原 29 切片不缩减。
 

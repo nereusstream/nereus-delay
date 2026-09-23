@@ -155,7 +155,7 @@ class TargetCommandStoreTest {
         final var config = ShardStoreConfig.defaults(root);
         final byte[][] reopenIdentity = new byte[2][];
         final com.nereusstream.delay.protocol.TargetPartitionId[] reopenedCloseTargets =
-                new com.nereusstream.delay.protocol.TargetPartitionId[2];
+                new com.nereusstream.delay.protocol.TargetPartitionId[3];
         try (var resources = new SharedRocksDbResources(config);
                 var store = ShardStore.openTarget(config, scope.shard(), resources)) {
             final var initialized = TargetStoreBootstrap.commit(
@@ -2645,6 +2645,142 @@ class TargetCommandStoreTest {
                             .orElseThrow()
                             .effectiveStatus());
             assertEquals(0, workerClasses.registeredActions());
+
+            final var pendingPhysical =
+                    new CanonicalTargetPartition(physical.resource(), physical.physicalPartition() + 2);
+            final var pendingTarget = pendingPhysical.id();
+            reopenedCloseTargets[2] = pendingTarget;
+            final var pendingGrantRequest = new TargetQuotaGrantControlRequest(
+                    new TargetQuotaGrant(
+                            scope.forTarget(pendingTarget),
+                            bytes(32, 0x64),
+                            1,
+                            originalGrant.accounting(),
+                            new TargetQuotaUsage(new CapacityVector(targetAmounts), 1, 64, 64, 64),
+                            originalGrant.tenantPolicyVersion(),
+                            originalGrant.tenantPolicyHash()),
+                    null,
+                    null);
+            final var pendingGrantAt = source(
+                    closedCommitAt, closedCommitAt.offset() + 1, closedCommitAt.brokerLogAppendTimeEpochMs() + 1);
+            final long retryUntil =
+                    Math.max(fifthReservation.expiryEpochMs(), pendingGrantAt.brokerLogAppendTimeEpochMs()) + 2000;
+            final var pendingGrant = signed(pendingGrantRequest, bytes(32, 0x65), actor, keys, retryUntil);
+            registrations.register(pendingGrant.control());
+            assertEquals(
+                    StableCode.OK,
+                    grantStore
+                            .commit(
+                                    grantStore.prepareFirst(
+                                            budget(),
+                                            pendingGrant.control(),
+                                            pendingGrant.mutation(),
+                                            pendingGrantAt,
+                                            authority(
+                                                    registrations,
+                                                    keys,
+                                                    actor,
+                                                    pendingGrantAt,
+                                                    pendingGrantRequest,
+                                                    (a, b, c, d) -> {})),
+                                    (a, b, c) -> guard())
+                            .stableCode());
+            final var pendingActivation = TargetQuotaGrantActivation.decode(TargetValueEnvelope.decode(
+                            store.get(
+                                    ColumnFamily.META,
+                                    Bytes.concat(
+                                            new byte[] {TargetKeyCodec.QUOTA_GRANT_ACTIVATION_TAG, 1},
+                                            pendingGrantRequest.next().scope().keySuffix())),
+                            TargetQuotaGrantActivation.VALUE_TYPE)
+                    .payload());
+            final var pendingQueue = new TargetQueueState(
+                    pendingTarget,
+                    1,
+                    1,
+                    TargetQueueState.AdmissionState.OPEN,
+                    pendingActivation.allocation().identity().accountingIncarnation(),
+                    0,
+                    List.of());
+            final var pendingQueueAt = source(
+                    pendingGrantAt, pendingGrantAt.offset() + 1, pendingGrantAt.brokerLogAppendTimeEpochMs() + 1);
+            new TargetMessageStore(backend, 1, 1, 1)
+                    .applyAccounted(
+                            budget(),
+                            reader -> new TargetMessageStore.Input(
+                                    List.of(),
+                                    List.of(),
+                                    List.of(
+                                            reader.replace(
+                                                    ColumnFamily.META,
+                                                    TargetKeyCodec.identity(pendingTarget),
+                                                    CanonicalTargetPartition.VALUE_TYPE,
+                                                    pendingPhysical.canonicalBytes()),
+                                            reader.replace(
+                                                    ColumnFamily.META,
+                                                    TargetKeyCodec.state(pendingTarget),
+                                                    TargetQueueState.VALUE_TYPE,
+                                                    pendingQueue.canonicalBytes()))),
+                            new TargetSourceAccounting(
+                                    scope,
+                                    lineage,
+                                    pendingQueueAt,
+                                    Bytes.sha256(Bytes.utf8("pending-close-target-queue-fixture")),
+                                    16,
+                                    1,
+                                    1),
+                            (a, b, c) -> guard());
+            final var pendingCloseAt = source(
+                    pendingQueueAt, pendingQueueAt.offset() + 1, pendingQueueAt.brokerLogAppendTimeEpochMs() + 1);
+            final var pendingCloseRequest = new TargetCloseRequest(
+                    pendingTarget,
+                    List.of(new TargetCloseRequest.ShardTarget(
+                            scope.shard(), pendingQueue.accountingIncarnation(), pendingQueue.controlVersion())),
+                    new CloseLaneRequest(
+                            new ControlReason(ControlReasonKind.OPERATOR_REQUEST, null, null),
+                            ClosePolicy._FREEZE_UNADMITTED_AND_PRESERVE_ADMITTED,
+                            false,
+                            AcknowledgementSet.empty()));
+            final var pendingSignedClose = signedClose(
+                    pendingCloseRequest,
+                    bytes(32, 0x66),
+                    actor,
+                    keys,
+                    pendingCloseAt.brokerLogAppendTimeEpochMs() + 2000);
+            registrations.register(pendingSignedClose.control());
+            final var pendingCloseStore = new TargetCloseStore(backend, scope, lineage, 16, 1);
+            assertEquals(
+                    StableCode.OK,
+                    pendingCloseStore
+                            .commit(
+                                    pendingCloseStore.prepareFirst(
+                                            budget(),
+                                            pendingSignedClose.control(),
+                                            pendingSignedClose.mutation(),
+                                            pendingCloseAt,
+                                            new TargetCloseVerifier.Authority(
+                                                    registrations,
+                                                    (version, position) -> keys.getPublic(),
+                                                    (actualScope, requestToClose, position, queueToClose) -> {
+                                                        assertEquals(scope, actualScope);
+                                                        assertEquals(pendingTarget, requestToClose.target());
+                                                        assertEquals(
+                                                                pendingQueue.controlVersion(),
+                                                                queueToClose.controlVersion());
+                                                    },
+                                                    actor,
+                                                    prepared -> true)),
+                                    (a, b, c) -> guard())
+                            .stableCode());
+            assertEquals(
+                    TargetReservationClosureStore.Progress.OPEN,
+                    new TargetReservationClosureStore(
+                                    backend,
+                                    scope,
+                                    lineage,
+                                    1,
+                                    pendingCloseStore.reservationControls(
+                                            (reader, bound) -> java.util.Optional.empty()))
+                            .progress(budget(), pendingTarget, (a, b) -> guard()));
         }
         try (var resources = new SharedRocksDbResources(config);
                 var reopened = ShardStore.openTarget(config, scope.shard(), resources)) {
@@ -2659,21 +2795,29 @@ class TargetCommandStoreTest {
                     reopenedCloseStore.reservationControls((reader, binding) -> java.util.Optional.empty());
             final var reopenedClosures =
                     new TargetReservationClosureStore(reopenedBackend, scope, reopenIdentity[1], 1, reopenedControls);
-            final var observed = new java.util.HashSet<com.nereusstream.delay.protocol.TargetPartitionId>();
+            final var observed = new java.util.HashMap<
+                    com.nereusstream.delay.protocol.TargetPartitionId, TargetReservationClosureStore.Progress>();
             TargetReservationClosureStore.ScanCursor afterTarget = null;
-            for (int i = 0; i < 2; i++) {
+            for (int i = 0; i < reopenedCloseTargets.length; i++) {
                 final var discovered = reopenedClosures.discoverNextTarget(budget(), afterTarget, (a, b) -> guard());
-                observed.add(discovered.target().orElseThrow());
-                assertEquals(TargetReservationClosureStore.Progress.COMPLETE, discovered.progress());
+                assertNull(observed.put(discovered.target().orElseThrow(), discovered.progress()));
                 afterTarget = discovered.nextCursor();
             }
-            assertEquals(java.util.Set.of(reopenedCloseTargets), observed);
+            assertEquals(
+                    java.util.Map.of(
+                            reopenedCloseTargets[0], TargetReservationClosureStore.Progress.COMPLETE,
+                            reopenedCloseTargets[1], TargetReservationClosureStore.Progress.COMPLETE,
+                            reopenedCloseTargets[2], TargetReservationClosureStore.Progress.OPEN),
+                    observed);
             assertTrue(reopenedClosures
                     .discoverNextTarget(budget(), afterTarget, (a, b) -> guard())
                     .target()
                     .isEmpty());
             final long beforeReopenedGc = reopened.latestSequenceNumber();
+            final long sourceSequenceBeforeReopenedGc = reopened.shardMutationSequence();
+            final var sourceBeforeReopenedGc = reopened.appliedShardLogPosition();
             final var reopenedWorkClasses = workClasses();
+            final var reopenedCursorDelta = new java.util.concurrent.atomic.AtomicReference<TargetQuotaDelta>();
             final var reopenedGc = new TargetReservationClosureWorkClassExecutor(
                     reopenedWorkClasses,
                     reopenedBackend,
@@ -2684,30 +2828,38 @@ class TargetCommandStoreTest {
                     new TargetReservationClosureWorkClassExecutor.Limits(4096, 250_000, 60_000_000_000L),
                     () -> {},
                     (a, b) -> guard(),
-                    (a, b, c) -> {
-                        throw new AssertionError("reopened completed Close cannot write");
-                    },
+                    (a, b, c) -> guard(),
                     ignored -> {
                         throw new AssertionError("reopened completed Close cannot materialize");
                     },
                     ignored -> {
                         throw new AssertionError("reopened completed Close cannot expire");
                     },
-                    ignored -> {
-                        throw new AssertionError("reopened completed Close cannot complete twice");
-                    },
+                    reopenedCursorDelta::set,
                     System::nanoTime);
-            for (int i = 0; i < 3; i++) {
+            final var kinds = new java.util.ArrayList<TargetReservationClosureWorkClassExecutor.Kind>();
+            for (int i = 0; i < reopenedCloseTargets.length + 1; i++) {
                 final var scan = reopenedGc.submit(
                         new TargetReservationClosureWorkClassExecutor.SweepRequest(scope.shard(), bytes(16, 0xe8 + i)));
                 reopenedWorkClasses.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
-                assertEquals(
-                        i == 2
-                                ? TargetReservationClosureWorkClassExecutor.Kind.SWEEP_COMPLETE
-                                : TargetReservationClosureWorkClassExecutor.Kind.SKIPPED_COMPLETE,
-                        scan.result().orElseThrow().kind());
+                kinds.add(scan.result().orElseThrow().kind());
             }
-            assertEquals(beforeReopenedGc, reopened.latestSequenceNumber());
+            assertEquals(
+                    2,
+                    java.util.Collections.frequency(
+                            kinds, TargetReservationClosureWorkClassExecutor.Kind.SKIPPED_COMPLETE));
+            assertEquals(
+                    1,
+                    java.util.Collections.frequency(
+                            kinds, TargetReservationClosureWorkClassExecutor.Kind.RESERVATIONS_COMPLETE));
+            assertEquals(TargetReservationClosureWorkClassExecutor.Kind.SWEEP_COMPLETE, kinds.getLast());
+            assertEquals(5, reopened.latestSequenceNumber() - beforeReopenedGc);
+            assertEquals(sourceSequenceBeforeReopenedGc, reopened.shardMutationSequence());
+            assertEquals(sourceBeforeReopenedGc, reopened.appliedShardLogPosition());
+            assertTrue(reopenedCursorDelta.get().mutation().reservationCloseCursor());
+            assertEquals(
+                    TargetReservationClosureStore.Progress.COMPLETE,
+                    reopenedClosures.progress(budget(), reopenedCloseTargets[2], (a, b) -> guard()));
         }
     }
 
@@ -2974,11 +3126,20 @@ class TargetCommandStoreTest {
 
     private static Signed signed(
             TargetQuotaGrantControlRequest request, byte[] operation, ControlAuthorizationContext actor, KeyPair keys) {
+        return signed(request, operation, actor, keys, 500);
+    }
+
+    private static Signed signed(
+            TargetQuotaGrantControlRequest request,
+            byte[] operation,
+            ControlAuthorizationContext actor,
+            KeyPair keys,
+            long retryUntil) {
         final var ref = new ControlRef(
                 operation,
                 PreparedControlOperation.requestHash(request.operationKind(), request.operationRequest()),
                 0);
-        final var body = new TargetQuotaGrantControlBody(request.next().scope().shard(), 500, ref, request);
+        final var body = new TargetQuotaGrantControlBody(request.next().scope().shard(), retryUntil, ref, request);
         final var mutation = SystemMutation.signed(
                 body.shard(),
                 SystemMutationType.APPLY_SHARD_CONTROL,
