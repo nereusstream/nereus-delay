@@ -429,3 +429,8 @@ bookkeeping、root、aggregate 与 source frontier；本地真实 Worker Store �
 DB/Store 身份、lineage、checkpoint ID、Owner epoch、source/sequence 和 evidence cursors
 与镜像绑定，局部错配均拒绝。它尚未审核所有 Target 投影、认证控制/语义摘要或接入
 Catalog 发布与 restore/install，不能作为 checkpoint 成功证据。
+
+同一只读镜像还可在有限记录数和 key/value 字节预算下核对配额投影：NV31 inventory、
+primary counter 到 NV27 aggregate/各 Target total 的精确求和、tenant mirror 和 mutation
+先后关系。真实 Worker Store 通过，篡改 aggregate、删除 mirror 或耗尽预算会拒绝。
+各 counter 尚未从独立业务账本重算，其它 Target 投影和控制快照也尚未审计，C5 不提升。

@@ -40,6 +40,7 @@ import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
 import com.nereusstream.delay.protocol.TargetQuotaAccounting;
 import com.nereusstream.delay.protocol.TargetQuotaAggregate;
+import com.nereusstream.delay.protocol.TargetQuotaCounter;
 import com.nereusstream.delay.protocol.TargetQuotaGrant;
 import com.nereusstream.delay.protocol.TargetQuotaGrantActivation;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlBody;
@@ -655,6 +656,22 @@ class TargetQuotaGrantStoreTest {
         assertEquals(
                 rootProof.mutationSequence(), rootProof.aggregate().mutation().sequence());
         assertArrayEquals(lineage, rootProof.root().recoveryLineage());
+        final var quotaAuditLimits = new TargetCheckpointRootVerifier.QuotaAuditLimits(1_000, 8L << 20);
+        assertEquals(
+                rootProof.aggregate().usage(),
+                TargetCheckpointRootVerifier.auditQuotaProjections(
+                                physicalDb, scope.shard(), imageLimits, quotaAuditLimits)
+                        .aggregate()
+                        .usage());
+        assertTrue(assertThrows(
+                        IllegalArgumentException.class,
+                        () -> TargetCheckpointRootVerifier.auditQuotaProjections(
+                                physicalDb,
+                                scope.shard(),
+                                imageLimits,
+                                new TargetCheckpointRootVerifier.QuotaAuditLimits(1, 128)))
+                .getMessage()
+                .contains("quota audit budget"));
         final var files = CheckpointFileInventory.collect(physicalDb, imageLimits).stream()
                 .map(file -> new CheckpointManifest.FileEntry(
                         file.name(),
@@ -795,6 +812,72 @@ class TargetQuotaGrantStoreTest {
                                 openedOwnerEpoch + 1)),
                 imageLimits,
                 "Owner epoch");
+        final byte[] aggregateKey = rootProof.aggregate().key();
+        final byte[] originalAggregate;
+        try (var resources = new SharedRocksDbResources(config);
+                var corrupt = ShardStore.openTarget(config, scope.shard(), resources)) {
+            originalAggregate = corrupt.get(ColumnFamily.META, aggregateKey);
+            final var inflated = new TargetQuotaAggregate(
+                    scope.shard(),
+                    rootProof.aggregate().accountingIncarnation(),
+                    rootProof.aggregate().usage().add(rootProof.aggregate().usage()),
+                    rootProof.aggregate().revision(),
+                    rootProof.aggregate().mutation());
+            corrupt.write(batch -> batch.put(
+                    ColumnFamily.META,
+                    aggregateKey,
+                    TargetValueEnvelope.encode(TargetQuotaAggregate.VALUE_TYPE, inflated.canonicalBytes())));
+        }
+        TargetCheckpointRootVerifier.validate(physicalDb, scope.shard(), imageLimits);
+        assertTrue(assertThrows(
+                        IllegalStateException.class,
+                        () -> TargetCheckpointRootVerifier.auditQuotaProjections(
+                                physicalDb, scope.shard(), imageLimits, quotaAuditLimits))
+                .getMessage()
+                .contains("aggregate differs from primary counters"));
+        try (var resources = new SharedRocksDbResources(config);
+                var restored = ShardStore.openTarget(config, scope.shard(), resources)) {
+            restored.write(batch -> batch.put(ColumnFamily.META, aggregateKey, originalAggregate));
+        }
+        TargetCheckpointRootVerifier.auditQuotaProjections(physicalDb, scope.shard(), imageLimits, quotaAuditLimits);
+        final byte[] mirrorKey = rootProof.bookkeeping().tenantOwner().key();
+        final byte[] originalMirror;
+        try (var resources = new SharedRocksDbResources(config);
+                var corrupt = ShardStore.openTarget(config, scope.shard(), resources)) {
+            originalMirror = corrupt.get(ColumnFamily.META, mirrorKey);
+            final var mirror =
+                    TargetQuotaCounter.decode(TargetValueEnvelope.decode(originalMirror, TargetQuotaCounter.VALUE_TYPE)
+                            .payload());
+            final var inflated = new TargetQuotaCounter(
+                    mirror.identity(), mirror.usage().add(mirror.usage()), mirror.revision(), mirror.mutation());
+            corrupt.write(batch -> batch.put(
+                    ColumnFamily.META,
+                    mirrorKey,
+                    TargetValueEnvelope.encode(TargetQuotaCounter.VALUE_TYPE, inflated.canonicalBytes())));
+        }
+        TargetCheckpointRootVerifier.validate(physicalDb, scope.shard(), imageLimits);
+        assertTrue(assertThrows(
+                        IllegalStateException.class,
+                        () -> TargetCheckpointRootVerifier.auditQuotaProjections(
+                                physicalDb, scope.shard(), imageLimits, quotaAuditLimits))
+                .getMessage()
+                .contains("primary and tenant mirror disagree"));
+        try (var resources = new SharedRocksDbResources(config);
+                var restored = ShardStore.openTarget(config, scope.shard(), resources)) {
+            restored.write(batch -> batch.put(ColumnFamily.META, mirrorKey, originalMirror));
+        }
+        TargetCheckpointRootVerifier.auditQuotaProjections(physicalDb, scope.shard(), imageLimits, quotaAuditLimits);
+        try (var resources = new SharedRocksDbResources(config);
+                var corrupt = ShardStore.openTarget(config, scope.shard(), resources)) {
+            corrupt.write(batch -> batch.delete(ColumnFamily.META, mirrorKey));
+        }
+        TargetCheckpointRootVerifier.validate(physicalDb, scope.shard(), imageLimits);
+        assertTrue(assertThrows(
+                        IllegalStateException.class,
+                        () -> TargetCheckpointRootVerifier.auditQuotaProjections(
+                                physicalDb, scope.shard(), imageLimits, quotaAuditLimits))
+                .getMessage()
+                .contains("bookkeeping inventory"));
         try (var resources = new SharedRocksDbResources(config);
                 var corrupt = ShardStore.openTarget(config, scope.shard(), resources)) {
             corrupt.write(batch -> batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(5), Bytes.u64beBits(999)));

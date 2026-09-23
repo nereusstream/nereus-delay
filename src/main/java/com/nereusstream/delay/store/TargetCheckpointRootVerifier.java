@@ -4,20 +4,28 @@ import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.SourcePositionCodec;
+import com.nereusstream.delay.protocol.TargetPartitionId;
 import com.nereusstream.delay.protocol.TargetQuotaAggregate;
 import com.nereusstream.delay.protocol.TargetQuotaBookkeeping;
+import com.nereusstream.delay.protocol.TargetQuotaCounter;
+import com.nereusstream.delay.protocol.TargetQuotaGrantActivation;
 import com.nereusstream.delay.protocol.TargetQuotaIdentity;
 import com.nereusstream.delay.protocol.TargetQuotaIncarnation;
+import com.nereusstream.delay.protocol.TargetQuotaTotal;
+import com.nereusstream.delay.protocol.TargetQuotaUsage;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.BiFunction;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ColumnFamilyOptions;
@@ -25,6 +33,7 @@ import org.rocksdb.DBOptions;
 import org.rocksdb.Options;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
+import org.rocksdb.RocksIterator;
 
 /**
  * Read-only physical check of the format-2 root, bookkeeping and source frontier.
@@ -54,10 +63,31 @@ public final class TargetCheckpointRootVerifier {
         }
     }
 
+    /** Maximum decoded accounting records and aggregate key/value bytes for a recovery-only scan. */
+    public record QuotaAuditLimits(int maxRecords, long maxKeyValueBytes) {
+        public QuotaAuditLimits {
+            if (maxRecords <= 0
+                    || maxRecords == Integer.MAX_VALUE
+                    || maxKeyValueBytes <= 0
+                    || maxKeyValueBytes == Long.MAX_VALUE) {
+                throw new IllegalArgumentException("Target quota audit requires finite positive limits");
+            }
+        }
+    }
+
     /** Reads an immutable RocksDB image under finite physical limits without changing its markers. */
     public static RootProof validate(
             final Path image, final ShardId expectedShard, final CheckpointManifestLimits limits) {
-        return validateImage(image, expectedShard, limits, null);
+        return validateImage(image, expectedShard, limits, null, null);
+    }
+
+    /** Audits the bounded quota projection graph; independent work ledgers still require a separate fold. */
+    public static RootProof auditQuotaProjections(
+            final Path image,
+            final ShardId expectedShard,
+            final CheckpointManifestLimits physicalLimits,
+            final QuotaAuditLimits quotaLimits) {
+        return validateImage(image, expectedShard, physicalLimits, null, Objects.requireNonNull(quotaLimits));
     }
 
     /**
@@ -71,14 +101,15 @@ public final class TargetCheckpointRootVerifier {
             throw new IllegalArgumentException("Target image binding requires a format-2 manifest");
         }
         manifest.validateLimits(Objects.requireNonNull(limits, "limits"));
-        return validateImage(image, manifest.shardId(), limits, manifest);
+        return validateImage(image, manifest.shardId(), limits, manifest, null);
     }
 
     private static RootProof validateImage(
             final Path image,
             final ShardId expectedShard,
             final CheckpointManifestLimits limits,
-            final CheckpointManifest manifest) {
+            final CheckpointManifest manifest,
+            final QuotaAuditLimits quotaLimits) {
         Objects.requireNonNull(image, "image");
         Objects.requireNonNull(expectedShard, "expectedShard");
         Objects.requireNonNull(limits, "limits");
@@ -147,6 +178,9 @@ public final class TargetCheckpointRootVerifier {
                 if (manifest != null) {
                     requireManifestImageIdentity(db, meta, proof, manifest);
                 }
+                if (quotaLimits != null) {
+                    auditQuotaProjections(db, meta, proof, quotaLimits);
+                }
                 return proof;
             } catch (RocksDBException failure) {
                 throw new IllegalArgumentException("cannot open Target checkpoint read-only", failure);
@@ -158,6 +192,149 @@ public final class TargetCheckpointRootVerifier {
             for (ColumnFamilyOptions option : options) {
                 option.close();
             }
+        }
+    }
+
+    private static void auditQuotaProjections(
+            final RocksDB db, final ColumnFamilyHandle meta, final RootProof proof, final QuotaAuditLimits limits)
+            throws RocksDBException {
+        final var budget = new QuotaAuditBudget(limits);
+        final ShardId shard = proof.metadata().shardId();
+        final byte[] tenant = proof.bookkeeping().tenantScope();
+        final List<TargetQuotaCounter> counters = scanQuota(
+                db,
+                meta,
+                TargetKeyCodec.QUOTA_COUNTER_TAG,
+                TargetQuotaCounter.VALUE_TYPE,
+                budget,
+                (key, payload) -> TargetQuotaCounter.decodeForStore(key, payload, shard));
+        final List<TargetQuotaTotal> totals = scanQuota(
+                db,
+                meta,
+                TargetKeyCodec.QUOTA_TOTAL_TAG,
+                TargetQuotaTotal.VALUE_TYPE,
+                budget,
+                (key, payload) -> TargetQuotaTotal.decodeForStore(key, payload, shard, tenant));
+        final List<TargetQuotaGrantActivation> grants = scanQuota(
+                db,
+                meta,
+                TargetKeyCodec.QUOTA_GRANT_ACTIVATION_TAG,
+                TargetQuotaGrantActivation.VALUE_TYPE,
+                budget,
+                (key, payload) -> TargetQuotaGrantActivation.decodeForStore(key, payload, shard, tenant));
+        proof.bookkeeping().auditInventory(proof.aggregate(), counters, totals, grants);
+        final Map<TargetQuotaIdentity, TargetQuotaCounter> byIdentity = new HashMap<>();
+        final Map<TargetPartitionId, TargetQuotaUsage> targetUsage = new HashMap<>();
+        TargetQuotaUsage shardUsage = TargetQuotaUsage.empty();
+        for (TargetQuotaCounter counter : counters) {
+            proof.aggregate().requireCounter(counter);
+            if (byIdentity.put(counter.identity(), counter) != null) {
+                throw new IllegalStateException("duplicate Target quota counter identity");
+            }
+            if (!counter.identity().kind().isMirror()) {
+                shardUsage = shardUsage.add(counter.usage());
+                if (counter.identity().kind().hasTarget()) {
+                    targetUsage.merge(counter.identity().target(), counter.usage(), TargetQuotaUsage::add);
+                }
+            }
+        }
+        if (!shardUsage.equals(proof.aggregate().usage())) {
+            throw new IllegalStateException("Target quota aggregate differs from primary counters");
+        }
+        for (TargetQuotaCounter counter : counters) {
+            if (counter.identity().kind().isMirror()) {
+                if (!byIdentity.containsKey(counter.identity().primary())) {
+                    throw new IllegalStateException("Target quota tenant mirror has no primary counter");
+                }
+                continue;
+            }
+            final TargetQuotaIdentity primary = counter.identity();
+            final TargetQuotaIdentity mirror = new TargetQuotaIdentity(
+                    primary.kind().hasTarget()
+                            ? TargetQuotaIdentity.Kind.TENANT_TARGET
+                            : TargetQuotaIdentity.Kind.TENANT_SHARD,
+                    shard,
+                    primary.accountingIncarnation(),
+                    primary.target(),
+                    tenant);
+            final TargetQuotaCounter actualMirror = byIdentity.get(mirror);
+            if (actualMirror == null
+                    || !counter.usage().resources().equals(actualMirror.usage().resources())) {
+                throw new IllegalStateException("Target quota primary and tenant mirror disagree");
+            }
+        }
+        final Map<TargetPartitionId, TargetQuotaTotal> byTarget = new HashMap<>();
+        for (TargetQuotaTotal total : totals) {
+            total.requireAggregate(proof.aggregate());
+            if (byTarget.put(total.scope().target(), total) != null
+                    || !total.usage()
+                            .equals(targetUsage.getOrDefault(total.scope().target(), TargetQuotaUsage.empty()))) {
+                throw new IllegalStateException("Target quota total differs from primary counters");
+            }
+        }
+        for (TargetQuotaCounter counter : counters) {
+            if (counter.identity().kind() == TargetQuotaIdentity.Kind.TARGET) {
+                final TargetQuotaTotal total = byTarget.get(counter.identity().target());
+                if (total == null) {
+                    throw new IllegalStateException("Target quota primary counter has no total");
+                }
+                total.requireCounter(counter);
+            }
+        }
+        if (!byTarget.keySet().containsAll(targetUsage.keySet())) {
+            throw new IllegalStateException("Target quota primary counter has no total");
+        }
+        for (TargetQuotaGrantActivation grant : grants) {
+            grant.mutation().requireAtOrBefore(proof.aggregate().mutation());
+        }
+    }
+
+    private static <T> List<T> scanQuota(
+            final RocksDB db,
+            final ColumnFamilyHandle meta,
+            final int tag,
+            final int valueType,
+            final QuotaAuditBudget budget,
+            final BiFunction<byte[], byte[], T> decoder)
+            throws RocksDBException {
+        final List<T> records = new ArrayList<>();
+        try (RocksIterator iterator = db.newIterator(meta)) {
+            iterator.seek(new byte[] {(byte) tag});
+            while (iterator.isValid()) {
+                final byte[] key = iterator.key();
+                if (key.length == 0 || Byte.toUnsignedInt(key[0]) != tag) {
+                    break;
+                }
+                final byte[] value = iterator.value();
+                budget.charge(key.length, value.length);
+                if (key.length < 2 || Byte.toUnsignedInt(key[1]) != TargetKeyCodec.KEY_FORMAT) {
+                    throw new IllegalArgumentException("Target quota projection has another key format");
+                }
+                records.add(decoder.apply(
+                        key, TargetValueEnvelope.decode(value, valueType).payload()));
+                iterator.next();
+            }
+            iterator.status();
+        }
+        return records;
+    }
+
+    private static final class QuotaAuditBudget {
+        private final QuotaAuditLimits limits;
+        private int records;
+        private long bytes;
+
+        private QuotaAuditBudget(final QuotaAuditLimits limits) {
+            this.limits = limits;
+        }
+
+        private void charge(final int keyBytes, final int valueBytes) {
+            final long nextBytes = (long) keyBytes + valueBytes;
+            if (records >= limits.maxRecords() || nextBytes > limits.maxKeyValueBytes() - bytes) {
+                throw new IllegalArgumentException("Target quota audit budget exceeded");
+            }
+            records++;
+            bytes += nextBytes;
         }
     }
 

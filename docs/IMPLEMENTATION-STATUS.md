@@ -18459,3 +18459,10 @@ that image. Local mismatches for those fields are rejected. Target projection
 audit, authenticated control and semantic digests, publish/catalog authority
 and restore/install are still absent, so every format-2 checkpoint gate remains
 closed.
+The same immutable image now also passes a finite-budget read-only audit of
+META quota counters, totals and grant activations: it checks the recorded
+inventory, exact primary sum against the aggregate, tenant mirrors, per-Target
+totals and mutation order. Inflating a valid aggregate, deleting a mirror or
+exhausting the scan budget rejects locally. This is internal quota projection
+consistency, not an independent rebuild from Message/Reservation/payload and
+other durable work ledgers; C5 remains in progress and the format-2 gates remain closed.
