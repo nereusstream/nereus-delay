@@ -2,6 +2,7 @@ package com.nereusstream.delay.store;
 
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CapacityVector;
+import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.RecoveryCandidateKind;
 import com.nereusstream.delay.protocol.RecoveryCandidateRef;
 import com.nereusstream.delay.protocol.RecoveryFloorRef;
@@ -23,6 +24,7 @@ import com.nereusstream.delay.runtime.ApplyStatus;
 import com.nereusstream.delay.runtime.SystemMutationResult;
 import com.nereusstream.delay.runtime.TargetExpiryRef;
 import com.nereusstream.delay.runtime.TargetMessageRecord;
+import com.nereusstream.delay.runtime.TargetOrderState;
 import com.nereusstream.delay.runtime.TargetQuotaDelta;
 import com.nereusstream.delay.runtime.TargetRecordAccounting;
 import com.nereusstream.delay.runtime.TargetResultLedgerAudit;
@@ -115,6 +117,8 @@ final class TargetCheckpointLedgerAudit {
                             auditMessageDependencies(
                                     TargetMessageRecord.decodeForStore(key, payload, proof.metadata().shardId()),
                                     view);
+                        } else if (family == ColumnFamily.META && type == TargetOrderState.VALUE_TYPE) {
+                            auditOrderStateDependencies(TargetOrderState.decode(payload), view);
                         } else if (family == ColumnFamily.META
                                 && type == TargetQuotaGrantActivation.VALUE_TYPE) {
                             grantActivations.add(TargetQuotaGrantActivation.decodeForStore(
@@ -204,6 +208,36 @@ final class TargetCheckpointLedgerAudit {
                 || !Bytes.constantTimeEquals(TargetValueEnvelope.decode(raw, type).payload(), expected)) {
             throw new IllegalStateException("Target checkpoint Message lacks its exact current timeline index");
         }
+    }
+
+    static void auditOrderStateDependencies(
+            final TargetOrderState state, final TargetRecordAccounting.View view) {
+        final var head = state.serviceableHead();
+        if (head != null) {
+            final byte[] raw = view.projected(ColumnFamily.TIMELINE, head.key(), List.of());
+            if (raw == null) {
+                throw new IllegalStateException("Target checkpoint strict domain lacks its serviceable head");
+            }
+            final byte[] work = TargetValueEnvelope.decode(raw, TargetTimelineWorkRef.VALUE_TYPE).payload();
+            state.requireServiceableProjection(
+                    head.key(), work, requireOrderMessage(head.messageId(), view));
+        }
+        final var barrier = state.barrier();
+        if (barrier != null) {
+            state.requireBarrierProjection(requireOrderMessage(barrier.locator().messageId(), view));
+        }
+    }
+
+    private static TargetMessageRecord requireOrderMessage(
+            final DelayMessageId messageId,
+            final TargetRecordAccounting.View view) {
+        final byte[] key = TargetKeyCodec.message(messageId);
+        final byte[] raw = view.projected(ColumnFamily.ID, key, List.of());
+        if (raw == null) {
+            throw new IllegalStateException("Target checkpoint strict domain lacks its referenced Message");
+        }
+        return TargetMessageRecord.decodeForStore(
+                key, TargetValueEnvelope.decode(raw, TargetMessageRecord.VALUE_TYPE).payload(), view.shardId());
     }
 
     private static void auditGrantResults(

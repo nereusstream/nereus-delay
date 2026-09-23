@@ -4,7 +4,15 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
+import com.nereusstream.delay.runtime.TargetMessageRecord;
+import com.nereusstream.delay.runtime.TargetOrderState;
+import com.nereusstream.delay.runtime.TargetRecordAccounting;
+import com.nereusstream.delay.runtime.TargetTimelineWorkRef;
 import java.nio.file.Path;
+import java.util.HexFormat;
+import java.util.List;
+import java.util.Objects;
+import java.util.Properties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -53,5 +61,88 @@ class TargetCheckpointRootVerifierTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> TargetCheckpointRootVerifier.validate(tempDir.resolve("absent"), shard, limits));
+    }
+
+    @Test
+    void strictOrderStateRequiresItsStoredHeadAndBarrierMessage() throws Exception {
+        final var state = TargetOrderState.decode(vector("order.head"));
+        final var message = TargetMessageRecord.decode(vector("order.message.initial"));
+        final var work = TargetTimelineWorkRef.decode(vector("work.fifo.initial"));
+        final var barrier = TargetOrderState.decode(vector("order.claimed"));
+        final var claimed = TargetMessageRecord.decode(vector("order.message.claimed"));
+        final var config = ShardStoreConfig.defaults(tempDir.resolve("strict"));
+        try (var resources = new SharedRocksDbResources(config);
+                var store = ShardStore.openTarget(
+                        config, message.locator().messageId().routingId().shardId(), resources)) {
+            final TargetRecordAccounting.View view = new TargetRecordAccounting.View() {
+                @Override
+                public ShardId shardId() {
+                    return store.shardId();
+                }
+
+                @Override
+                public byte[] projected(
+                        final ColumnFamily family,
+                        final byte[] key,
+                        final List<TargetStoreBackend.Edit> overlay) {
+                    if (!overlay.isEmpty()) {
+                        throw new IllegalArgumentException("test audit cannot use an overlay");
+                    }
+                    return store.get(family, key);
+                }
+            };
+            store.write(batch -> {
+                batch.put(ColumnFamily.META, state.encodedKey(),
+                        TargetValueEnvelope.encode(TargetOrderState.VALUE_TYPE, state.canonicalBytes()));
+                batch.put(ColumnFamily.ID, message.encodedKey(),
+                        TargetValueEnvelope.encode(TargetMessageRecord.VALUE_TYPE, message.canonicalBytes()));
+                batch.put(ColumnFamily.TIMELINE, state.serviceableHead().key(),
+                        TargetValueEnvelope.encode(TargetTimelineWorkRef.VALUE_TYPE, work.canonicalBytes()));
+            });
+            TargetCheckpointLedgerAudit.auditOrderStateDependencies(state, view);
+
+            store.write(batch -> batch.delete(ColumnFamily.TIMELINE, state.serviceableHead().key()));
+            assertTrue(assertThrows(IllegalStateException.class,
+                    () -> TargetCheckpointLedgerAudit.auditOrderStateDependencies(state, view))
+                    .getMessage().contains("lacks its serviceable head"));
+            store.write(batch -> batch.put(ColumnFamily.TIMELINE, state.serviceableHead().key(),
+                    TargetValueEnvelope.encode(TargetTimelineWorkRef.VALUE_TYPE, work.canonicalBytes())));
+            TargetCheckpointLedgerAudit.auditOrderStateDependencies(state, view);
+            store.write(batch -> batch.put(ColumnFamily.TIMELINE, state.serviceableHead().key(),
+                    TargetValueEnvelope.encode(TargetTimelineWorkRef.VALUE_TYPE,
+                            work.withRuntimeRevision(work.runtimeRevision() + 1).canonicalBytes())));
+            assertThrows(IllegalArgumentException.class,
+                    () -> TargetCheckpointLedgerAudit.auditOrderStateDependencies(state, view));
+            store.write(batch -> batch.put(ColumnFamily.TIMELINE, state.serviceableHead().key(),
+                    TargetValueEnvelope.encode(TargetTimelineWorkRef.VALUE_TYPE, work.canonicalBytes())));
+
+            store.write(batch -> {
+                batch.put(ColumnFamily.META, barrier.encodedKey(),
+                        TargetValueEnvelope.encode(TargetOrderState.VALUE_TYPE, barrier.canonicalBytes()));
+                batch.put(ColumnFamily.ID, claimed.encodedKey(),
+                        TargetValueEnvelope.encode(TargetMessageRecord.VALUE_TYPE, claimed.canonicalBytes()));
+            });
+            TargetCheckpointLedgerAudit.auditOrderStateDependencies(barrier, view);
+            store.write(batch -> batch.put(ColumnFamily.ID, claimed.encodedKey(),
+                    TargetValueEnvelope.encode(TargetMessageRecord.VALUE_TYPE, message.canonicalBytes())));
+            assertThrows(IllegalArgumentException.class,
+                    () -> TargetCheckpointLedgerAudit.auditOrderStateDependencies(barrier, view));
+            store.write(batch -> batch.put(ColumnFamily.ID, claimed.encodedKey(),
+                    TargetValueEnvelope.encode(TargetMessageRecord.VALUE_TYPE, claimed.canonicalBytes())));
+            store.write(batch -> batch.delete(ColumnFamily.ID, claimed.encodedKey()));
+            assertTrue(assertThrows(IllegalStateException.class,
+                    () -> TargetCheckpointLedgerAudit.auditOrderStateDependencies(barrier, view))
+                    .getMessage().contains("lacks its referenced Message"));
+        }
+    }
+
+    private static byte[] vector(final String key) throws Exception {
+        final var properties = new Properties();
+        final var resource = TargetCheckpointRootVerifierTest.class
+                .getResourceAsStream("/ndip3/target-identity-vectors.properties");
+        try (var stream = Objects.requireNonNull(resource)) {
+            properties.load(stream);
+        }
+        return HexFormat.of().parseHex(Objects.requireNonNull(properties.getProperty(key)));
     }
 }
