@@ -20,7 +20,10 @@ Close 发现入口验证 marker、CLOSED queue、游标与双 ID，只读当前�
 四个实际 Worker 场景及协议检查通过；首次 Close 13 条 native 写，带游标的 Close 物化
 10 条。另用第二个 Target 的实际 grant/队列/签名 Close 验证空索引完成：写权限失败
 零写，重提 field7 与两 counter/total/aggregate 共 5 条原子写、source 不变，重复零写。
-持久触发/跨 Target 公平调度与恢复枚举、expiry-first 混合顺序、关闭汇总转移、生产
+GC 现还可每次有界读取一条按 Target 排序的 NV40：跳过已完成 Target、处理未完成
+Target，扫到末尾回卷；轮转位置仅在进程内，重建时从持久 NV40 起点重新扫描。
+两 Target 的四组实际 Worker 场景和有限预算/外来游标检查通过。生产持续触发、跨
+Target 服务机会界限、Owner 接管实测、expiry-first 混合顺序、关闭汇总转移、生产
 历史权限/配置/factory、format2 回填、完整迁移/恢复和集中验证仍未完成。原 29 切片不缩减。
 
 以下为前序认证入口实施记录；持久 writer 的当前进展以上述说明为准。

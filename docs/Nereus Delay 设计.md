@@ -6459,3 +6459,7 @@ Floor及Admitted保护。生产限额必须覆盖新增索引的最大实际批�
 ### 2026-09-23 NDIP-3 Target Close GC 单步边界
 
 GC WorkClass 现可针对指定 Target 从持久 NV40 重新发现一个活跃 reservation，并按 Close/expiry 的有效终态调用原子点 writer；完成游标的重读不重复写入。持久触发、跨 Target 公平与 Owner 接管枚举、其它 admitted/汇总/对象义务和完整 Broker/恢复认证仍未实现。
+
+### 2026-09-23 NDIP-3 Close GC Target 发现边界
+
+GC action 可按持久 NV40 的 Target 顺序每次发现一条，跳过已完成者并让未完成者进入同预算终态物化；范围结束时进程内扫位回卷。重启从 NV40 起点重建，每 Target 的实际完成仍由其持久游标承载。生产触发、接管验证、跨 Target 公平界限与其它关闭义务未完成。

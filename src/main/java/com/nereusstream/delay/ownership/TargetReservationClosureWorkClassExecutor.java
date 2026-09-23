@@ -23,7 +23,7 @@ import java.util.Optional;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 
-/** One durable-cursor Target reservation Close step per GC action; no process-local scan position. */
+/** One bounded Close step per GC action; scan rotation is local, while each Target's progress is durable. */
 public final class TargetReservationClosureWorkClassExecutor {
     private final WorkClassExecutionRegistry workClasses;
     private final TargetReservationClosureStore closures;
@@ -37,6 +37,7 @@ public final class TargetReservationClosureWorkClassExecutor {
     private final TargetQuotaDelta.ReservationExpiryAuthority expiryQuota;
     private final TargetQuotaDelta.CloseCursorAuthority cursorQuota;
     private final LongSupplier monotonicClock;
+    private TargetReservationClosureStore.ScanCursor scanCursor;
     private Submission pending;
 
     /** Providers must retain current Owner/Store/physical/quota authority through the guarded batch. */
@@ -95,24 +96,53 @@ public final class TargetReservationClosureWorkClassExecutor {
         }
     }
 
+    public record SweepRequest(ShardId shard, byte[] requestId) {
+        public SweepRequest {
+            Objects.requireNonNull(shard, "shard");
+            Bytes.requireLength(requestId, 16, "requestId");
+            if (Arrays.equals(requestId, new byte[16])) {
+                throw new IllegalArgumentException("reservation Close sweep request identity must be assigned");
+            }
+            requestId = Bytes.copy(requestId);
+        }
+
+        @Override
+        public byte[] requestId() {
+            return Bytes.copy(requestId);
+        }
+    }
+
     /** Queue rejection reads no Store state; the next submission rediscovers from durable NV40. */
     public synchronized Submission submit(Request request) {
         Objects.requireNonNull(request, "request");
-        closures.requireShard(request.shard());
-        expiries.requireShard(request.shard());
-        queries.requireShard(request.shard());
+        return submit(request.shard(), request.target(), request.requestId());
+    }
+
+    /** One NV40 range seek; completed Targets are skipped and range end wraps the local rotation. */
+    public synchronized Submission submit(SweepRequest request) {
+        Objects.requireNonNull(request, "request");
+        return submit(request.shard(), null, request.requestId());
+    }
+
+    private Submission submit(ShardId shard, TargetPartitionId target, byte[] requestId) {
+        closures.requireShard(shard);
+        expiries.requireShard(shard);
+        queries.requireShard(shard);
         requireEligible();
         if (pending != null) {
             throw new IllegalStateException("reservation Close already has an outstanding GC action");
         }
         final byte[] identity = CanonicalProtobuf.message(out -> {
-            CanonicalProtobuf.bytes(out, 1, request.shard().routeIncarnation().bytes());
-            CanonicalProtobuf.uint32Bits(out, 2, request.shard().partition());
-            CanonicalProtobuf.bytes(out, 3, request.target().bytes());
-            CanonicalProtobuf.bytes(out, 4, request.requestId());
-            CanonicalProtobuf.uint64(out, 5, limits.maximumRecords());
-            CanonicalProtobuf.uint64(out, 6, limits.maximumBytes());
-            CanonicalProtobuf.uint64(out, 7, limits.maximumElapsedNanos());
+            CanonicalProtobuf.bytes(out, 1, shard.routeIncarnation().bytes());
+            CanonicalProtobuf.uint32Bits(out, 2, shard.partition());
+            CanonicalProtobuf.uint32(out, 3, target == null ? 2 : 1);
+            if (target != null) {
+                CanonicalProtobuf.bytes(out, 4, target.bytes());
+            }
+            CanonicalProtobuf.bytes(out, 5, requestId);
+            CanonicalProtobuf.uint64(out, 6, limits.maximumRecords());
+            CanonicalProtobuf.uint64(out, 7, limits.maximumBytes());
+            CanonicalProtobuf.uint64(out, 8, limits.maximumElapsedNanos());
         });
         final var task = new WorkClassTask(
                 WorkClass.GC,
@@ -122,7 +152,7 @@ public final class TargetReservationClosureWorkClassExecutor {
         final var submission = new Submission(task);
         pending = submission;
         try {
-            workClasses.submit(task, () -> execute(submission, request));
+            workClasses.submit(task, () -> execute(submission, target));
         } catch (RuntimeException | Error failure) {
             pending = null;
             throw failure;
@@ -130,7 +160,7 @@ public final class TargetReservationClosureWorkClassExecutor {
         return submission;
     }
 
-    private synchronized void execute(Submission submission, Request request) {
+    private synchronized void execute(Submission submission, TargetPartitionId requestedTarget) {
         if (pending != submission || submission.result != null) {
             throw new IllegalStateException("completed or foreign reservation Close action cannot run again");
         }
@@ -142,73 +172,28 @@ public final class TargetReservationClosureWorkClassExecutor {
                     (metadata, scope) -> guarded(() -> reads.acquire(metadata, scope));
             final TargetStoreBackend.CommitAuthority writeAuthority =
                     (metadata, scope, mutation) -> guarded(() -> writes.acquire(metadata, scope, mutation));
-            final var discovered = closures.discover(budget, request.target(), readAuthority);
-            if (discovered.isEmpty()) {
-                if (closures.completeEmpty(
-                        budget,
-                        request.target(),
-                        readAuthority,
-                        writeAuthority,
-                        delta -> external(() -> {
-                            cursorQuota.requireAuthorized(delta);
-                            return null;
-                        }))) {
-                    submission.complete(new Result(Kind.RESERVATIONS_COMPLETE, null));
+            TargetPartitionId target = requestedTarget;
+            TargetReservationClosureStore.ScanCursor nextCursor = null;
+            if (target == null) {
+                final var scan = closures.discoverNextTarget(budget, scanCursor, readAuthority);
+                if (scan.target().isEmpty()) {
+                    scanCursor = null;
+                    submission.complete(new Result(Kind.SWEEP_COMPLETE, null));
                     return;
                 }
-                final var progress = closures.progress(budget, request.target(), readAuthority);
-                submission.complete(new Result(
-                        switch (progress) {
-                            case NOT_CLOSED -> Kind.NO_CLOSE_MARKER;
-                            case OPEN -> Kind.RETRY_DISCOVERY;
-                            case COMPLETE -> Kind.ALREADY_COMPLETE;
-                        },
-                        null));
-                return;
-            }
-            final var candidate = discovered.orElseThrow();
-            final var snapshot = queries.read(budget, candidate.reservationId(), readAuthority);
-            if (snapshot.isEmpty()
-                    || snapshot.orElseThrow().reservation().status() != PayloadReservationStatus.RESERVED
-                    || !Arrays.equals(
-                            snapshot.orElseThrow().reservation().canonicalBytes(), candidate.canonicalBytes())) {
-                submission.complete(new Result(Kind.NO_LONGER_ELIGIBLE, null));
-                return;
-            }
-            final var decision = snapshot.orElseThrow().effectiveStatus();
-            final boolean changed;
-            final Kind kind;
-            if (decision == PayloadReservationStatus.ABANDONED) {
-                changed = closures.materialize(
-                        budget,
-                        candidate.reservationId(),
-                        readAuthority,
-                        writeAuthority,
-                        delta -> external(() -> {
-                            closureQuota.requireAuthorized(delta);
-                            return null;
-                        }));
-                kind = Kind.CLOSE_MATERIALIZED;
-            } else if (decision == PayloadReservationStatus.EXPIRED) {
-                try {
-                    changed = expiries.materialize(
-                            budget,
-                            candidate.reservationId(),
-                            readAuthority,
-                            writeAuthority,
-                            delta -> external(() -> {
-                                expiryQuota.requireAuthorized(delta);
-                                return null;
-                            }));
-                } catch (TargetReservationExpiryStore.ClosedTargetException changedDecision) {
-                    submission.complete(new Result(Kind.RETRY_DISCOVERY, null));
+                target = scan.target().orElseThrow();
+                nextCursor = scan.nextCursor();
+                if (scan.progress() == TargetReservationClosureStore.Progress.COMPLETE) {
+                    scanCursor = nextCursor;
+                    submission.complete(new Result(Kind.SKIPPED_COMPLETE, null));
                     return;
                 }
-                kind = Kind.EXPIRY_MATERIALIZED;
-            } else {
-                throw new IllegalStateException("closed Target reservation has no terminal effective decision");
             }
-            submission.complete(new Result(changed ? kind : Kind.NO_LONGER_ELIGIBLE, null));
+            final Kind outcome = executeTarget(budget, target, readAuthority, writeAuthority);
+            if (requestedTarget == null && outcome != Kind.RETRY_DISCOVERY) {
+                scanCursor = nextCursor;
+            }
+            submission.complete(new Result(outcome, null));
         } catch (ReadIncompleteException incomplete) {
             submission.complete(new Result(Kind.READ_INCOMPLETE, incomplete));
         } catch (RuntimeException failure) {
@@ -219,6 +204,73 @@ public final class TargetReservationClosureWorkClassExecutor {
         } finally {
             pending = null;
         }
+    }
+
+    private Kind executeTarget(
+            BoundedReadBudget budget,
+            TargetPartitionId target,
+            TargetStoreBackend.ReadAuthority readAuthority,
+            TargetStoreBackend.CommitAuthority writeAuthority) {
+        final var discovered = closures.discover(budget, target, readAuthority);
+        if (discovered.isEmpty()) {
+            if (closures.completeEmpty(
+                    budget,
+                    target,
+                    readAuthority,
+                    writeAuthority,
+                    delta -> external(() -> {
+                        cursorQuota.requireAuthorized(delta);
+                        return null;
+                    }))) {
+                return Kind.RESERVATIONS_COMPLETE;
+            }
+            final var progress = closures.progress(budget, target, readAuthority);
+            return switch (progress) {
+                case NOT_CLOSED -> Kind.NO_CLOSE_MARKER;
+                case OPEN -> Kind.RETRY_DISCOVERY;
+                case COMPLETE -> Kind.ALREADY_COMPLETE;
+            };
+        }
+        final var candidate = discovered.orElseThrow();
+        final var snapshot = queries.read(budget, candidate.reservationId(), readAuthority);
+        if (snapshot.isEmpty()
+                || snapshot.orElseThrow().reservation().status() != PayloadReservationStatus.RESERVED
+                || !Arrays.equals(snapshot.orElseThrow().reservation().canonicalBytes(), candidate.canonicalBytes())) {
+            return Kind.NO_LONGER_ELIGIBLE;
+        }
+        final var decision = snapshot.orElseThrow().effectiveStatus();
+        final boolean changed;
+        final Kind kind;
+        if (decision == PayloadReservationStatus.ABANDONED) {
+            changed = closures.materialize(
+                    budget,
+                    candidate.reservationId(),
+                    readAuthority,
+                    writeAuthority,
+                    delta -> external(() -> {
+                        closureQuota.requireAuthorized(delta);
+                        return null;
+                    }));
+            kind = Kind.CLOSE_MATERIALIZED;
+        } else if (decision == PayloadReservationStatus.EXPIRED) {
+            try {
+                changed = expiries.materialize(
+                        budget,
+                        candidate.reservationId(),
+                        readAuthority,
+                        writeAuthority,
+                        delta -> external(() -> {
+                            expiryQuota.requireAuthorized(delta);
+                            return null;
+                        }));
+            } catch (TargetReservationExpiryStore.ClosedTargetException changedDecision) {
+                return Kind.RETRY_DISCOVERY;
+            }
+            kind = Kind.EXPIRY_MATERIALIZED;
+        } else {
+            throw new IllegalStateException("closed Target reservation has no terminal effective decision");
+        }
+        return changed ? kind : Kind.NO_LONGER_ELIGIBLE;
     }
 
     private void requireEligible() {
@@ -265,6 +317,8 @@ public final class TargetReservationClosureWorkClassExecutor {
         ALREADY_COMPLETE,
         NO_CLOSE_MARKER,
         RETRY_DISCOVERY,
+        SKIPPED_COMPLETE,
+        SWEEP_COMPLETE,
         READ_INCOMPLETE,
         FAILED
     }

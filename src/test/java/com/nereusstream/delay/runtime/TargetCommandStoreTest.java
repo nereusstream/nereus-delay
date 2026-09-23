@@ -634,6 +634,45 @@ class TargetCommandStoreTest {
                     TargetReservationClosureWorkClassExecutor.Kind.ALREADY_COMPLETE,
                     repeatedEmptyGc.result().orElseThrow().kind());
             assertEquals(beforeEmptyCompletion + 5, store.latestSequenceNumber());
+            final var completedSweep = emptyCloseGc.submit(
+                    new TargetReservationClosureWorkClassExecutor.SweepRequest(scope.shard(), bytes(16, 0xd6)));
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> emptyCloseGc.submit(new TargetReservationClosureWorkClassExecutor.SweepRequest(
+                            scope.shard(), bytes(16, 0xd7))));
+            emptyWorkClasses.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
+            assertEquals(
+                    TargetReservationClosureWorkClassExecutor.Kind.SKIPPED_COMPLETE,
+                    completedSweep.result().orElseThrow().kind());
+            final var wrappedSweep = emptyCloseGc.submit(
+                    new TargetReservationClosureWorkClassExecutor.SweepRequest(scope.shard(), bytes(16, 0xd7)));
+            emptyWorkClasses.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
+            assertEquals(
+                    TargetReservationClosureWorkClassExecutor.Kind.SWEEP_COMPLETE,
+                    wrappedSweep.result().orElseThrow().kind());
+            assertEquals(beforeEmptyCompletion + 5, store.latestSequenceNumber());
+            final var sweepStore = new TargetReservationClosureStore(
+                    backend,
+                    scope,
+                    lineage,
+                    1,
+                    emptyCloseStore.reservationControls((reader, bound) -> java.util.Optional.empty()));
+            final var inspectedSweep = sweepStore.discoverNextTarget(budget(), null, (a, b) -> guard());
+            assertEquals(emptyTarget, inspectedSweep.target().orElseThrow());
+            assertEquals(TargetReservationClosureStore.Progress.COMPLETE, inspectedSweep.progress());
+            assertThrows(IllegalArgumentException.class, () -> new TargetReservationClosureStore(
+                            backend,
+                            scope,
+                            lineage,
+                            1,
+                            emptyCloseStore.reservationControls((reader, bound) -> java.util.Optional.empty()))
+                    .discoverNextTarget(budget(), inspectedSweep.nextCursor(), (a, b) -> guard()));
+            assertThrows(
+                    com.nereusstream.delay.store.ReadIncompleteException.class,
+                    () -> sweepStore.discoverNextTarget(
+                            new BoundedReadBudget(2, 100_000, 60_000_000_000L, System::nanoTime),
+                            null,
+                            (a, b) -> guard()));
 
             final var assignment = new SourceAssignment(
                     scope.shard(),
@@ -2393,14 +2432,21 @@ class TargetCommandStoreTest {
                     rejectedCloseGc.result().orElseThrow().kind());
             assertEquals(beforeClosureWrite, store.latestSequenceNumber());
             queryOwnerCurrent.set(true);
-            final var closeGcStep = closeGc.submit(new TargetReservationClosureWorkClassExecutor.Request(
-                    scope.shard(), physical.id(), bytes(16, 0xd1)));
-            assertEquals(WorkClass.GC, closeGcStep.task().workClass());
-            assertEquals(beforeClosureWrite, store.latestSequenceNumber());
-            workerClasses.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
-            assertEquals(
-                    TargetReservationClosureWorkClassExecutor.Kind.CLOSE_MATERIALIZED,
-                    closeGcStep.result().orElseThrow().kind());
+            boolean closeFoundBySweep = false;
+            for (int scan = 0; scan < 2; scan++) {
+                final var closeGcStep = closeGc.submit(new TargetReservationClosureWorkClassExecutor.SweepRequest(
+                        scope.shard(), bytes(16, 0xe0 + scan)));
+                assertEquals(WorkClass.GC, closeGcStep.task().workClass());
+                assertEquals(beforeClosureWrite, store.latestSequenceNumber());
+                workerClasses.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
+                final var kind = closeGcStep.result().orElseThrow().kind();
+                if (kind == TargetReservationClosureWorkClassExecutor.Kind.CLOSE_MATERIALIZED) {
+                    closeFoundBySweep = true;
+                    break;
+                }
+                assertEquals(TargetReservationClosureWorkClassExecutor.Kind.SKIPPED_COMPLETE, kind);
+            }
+            assertTrue(closeFoundBySweep);
             assertEquals(10, store.latestSequenceNumber() - beforeClosureWrite);
             assertEquals(beforeClosureSourceSequence, store.shardMutationSequence());
             assertArrayEquals(

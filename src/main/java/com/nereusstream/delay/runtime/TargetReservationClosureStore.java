@@ -49,6 +49,82 @@ public final class TargetReservationClosureStore {
         COMPLETE
     }
 
+    /** Process-local sweep position; NV40 and the accepted marker remain the recovery authority. */
+    public static final class ScanCursor {
+        private final TargetReservationClosureStore owner;
+        private final byte[] after;
+
+        private ScanCursor(TargetReservationClosureStore owner, byte[] after) {
+            this.owner = owner;
+            this.after = Bytes.copy(after);
+        }
+    }
+
+    public record ScanDiscovery(Optional<TargetPartitionId> target, Progress progress, ScanCursor nextCursor) {
+        public ScanDiscovery {
+            Objects.requireNonNull(target, "target");
+            if (target.isPresent() != (nextCursor != null)
+                    || target.isPresent() != (progress != null)
+                    || progress == Progress.NOT_CLOSED) {
+                throw new IllegalArgumentException("Close sweep candidate/progress/cursor disagree");
+            }
+        }
+    }
+
+    /** One bounded seek in the durable per-Target NV40 namespace, including completed cursors. */
+    public ScanDiscovery discoverNextTarget(
+            BoundedReadBudget budget, ScanCursor cursor, TargetStoreBackend.ReadAuthority reads) {
+        if (cursor != null && cursor.owner != this) {
+            throw new IllegalArgumentException("foreign Target Close scan cursor");
+        }
+        return backend.guardedRead(
+                budget,
+                reader -> {
+                    if (reader.source() == null || !reader.shardId().equals(scope.shard())) {
+                        throw new IllegalStateException("Close sweep requires its established Shard source");
+                    }
+                    final byte[] prefix = {(byte) TargetKeyCodec.CLOSE_CURSOR_TAG, TargetKeyCodec.KEY_FORMAT};
+                    final byte[] lower = cursor == null ? prefix : Bytes.concat(cursor.after, new byte[] {0});
+                    final byte[] upper = {(byte) TargetKeyCodec.CLOSE_CURSOR_TAG, (byte) (TargetKeyCodec.KEY_FORMAT + 1)
+                    };
+                    final var row = reader.first(ColumnFamily.META, lower, upper, List.of());
+                    if (row == null) {
+                        return new ScanDiscovery(Optional.empty(), null, null);
+                    }
+                    if (row.key().length != prefix.length + TargetPartitionId.LENGTH) {
+                        throw new IllegalStateException("Close cursor sweep found a malformed Target key");
+                    }
+                    final var target =
+                            new TargetPartitionId(Arrays.copyOfRange(row.key(), prefix.length, row.key().length));
+                    final byte[] markerKey = TargetKeyCodec.close(target);
+                    final var marker = TargetCloseRecord.decodeForStore(
+                            markerKey,
+                            TargetValueEnvelope.decode(
+                                            reader.get(ColumnFamily.META, markerKey), TargetCloseRecord.VALUE_TYPE)
+                                    .payload(),
+                            scope.shard(),
+                            lineage);
+                    marker.mutation().requireAtOrBefore(reader.aggregate().mutation());
+                    final var queue = TargetQueueState.decode(TargetValueEnvelope.decode(
+                                    reader.get(ColumnFamily.META, TargetKeyCodec.state(target)),
+                                    TargetQueueState.VALUE_TYPE)
+                            .payload());
+                    marker.requireQueue(queue);
+                    final var closeCursor = TargetCloseCursorRecord.decodeForStore(
+                            row.key(),
+                            TargetValueEnvelope.decode(row.value(), TargetCloseCursorRecord.VALUE_TYPE)
+                                    .payload(),
+                            marker,
+                            lineage);
+                    closeCursor.mutation().requireAtOrBefore(reader.aggregate().mutation());
+                    return new ScanDiscovery(
+                            Optional.of(target),
+                            closeCursor.complete() ? Progress.COMPLETE : Progress.OPEN,
+                            new ScanCursor(this, row.key()));
+                },
+                reads);
+    }
+
     /** Distinguish an absent marker from a completed cursor after an empty discovery. */
     public Progress progress(
             BoundedReadBudget budget, TargetPartitionId target, TargetStoreBackend.ReadAuthority reads) {
