@@ -18,6 +18,7 @@ import com.nereusstream.delay.protocol.TargetQuotaGrantActivation;
 import com.nereusstream.delay.protocol.TargetQuotaIdentity;
 import com.nereusstream.delay.protocol.TargetQuotaTotal;
 import com.nereusstream.delay.protocol.TargetQuotaUsage;
+import com.nereusstream.delay.protocol.TargetScheduleBinding;
 import com.nereusstream.delay.runtime.ApplyStatus;
 import com.nereusstream.delay.runtime.SystemMutationResult;
 import com.nereusstream.delay.runtime.TargetExpiryRef;
@@ -111,8 +112,9 @@ final class TargetCheckpointLedgerAudit {
                         if (family == ColumnFamily.DEDUPE) {
                             resultRows.add(new TargetResultLedgerAudit.Stored(key, type, payload));
                         } else if (family == ColumnFamily.ID && type == TargetMessageRecord.VALUE_TYPE) {
-                            auditMessageIndexes(
-                                    TargetMessageRecord.decodeForStore(key, payload, proof.metadata().shardId()), view);
+                            auditMessageDependencies(
+                                    TargetMessageRecord.decodeForStore(key, payload, proof.metadata().shardId()),
+                                    view);
                         } else if (family == ColumnFamily.META
                                 && type == TargetQuotaGrantActivation.VALUE_TYPE) {
                             grantActivations.add(TargetQuotaGrantActivation.decodeForStore(
@@ -168,7 +170,8 @@ final class TargetCheckpointLedgerAudit {
         TargetQuotaDelta.audit(proof.aggregate(), counters, rebuilt);
     }
 
-    private static void auditMessageIndexes(final TargetMessageRecord message, final TargetRecordAccounting.View view) {
+    private static void auditMessageDependencies(
+            final TargetMessageRecord message, final TargetRecordAccounting.View view) {
         if (!message.runtime().terminal()) {
             final var expiry = new TargetExpiryRef(message.locator(), message.expireAtEpochMs());
             requireMessageIndex(
@@ -181,6 +184,17 @@ final class TargetCheckpointLedgerAudit {
                 requireMessageIndex(view, work.nativeKey(), TargetTimelineWorkRef.VALUE_TYPE, work.canonicalBytes());
             }
         }
+        final byte[] bindingKey = TargetKeyCodec.scheduleBinding(message.locator().scheduleBindingDigest());
+        final byte[] bindingRaw = view.projected(ColumnFamily.ID, bindingKey, List.of());
+        if (bindingRaw == null) {
+            throw new IllegalStateException("Target checkpoint Message lacks its original Schedule binding");
+        }
+        final TargetScheduleBinding binding = TargetScheduleBinding.decodeForStore(
+                bindingKey,
+                TargetValueEnvelope.decode(bindingRaw, TargetScheduleBinding.VALUE_TYPE).payload(),
+                view.shardId());
+        binding.requireLocator(message.locator());
+        binding.requireMessageSource(message.scheduleSource());
     }
 
     private static void requireMessageIndex(

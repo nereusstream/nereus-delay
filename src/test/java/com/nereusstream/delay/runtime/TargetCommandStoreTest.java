@@ -2925,6 +2925,45 @@ class TargetCommandStoreTest {
                 var restored = ShardStore.openTarget(config, scope.shard(), resources)) {
             restored.write(batch -> batch.delete(ColumnFamily.ID, orphan.encodedKey()));
         }
+        final byte[] retainedBindingKey;
+        final byte[] retainedBindingRaw;
+        try (var resources = new SharedRocksDbResources(config);
+                var corrupt = ShardStore.openTarget(config, scope.shard(), resources)) {
+            final var messages = corrupt.scan(
+                    ColumnFamily.ID,
+                    new byte[] {TargetKeyCodec.MESSAGE_TAG, TargetKeyCodec.KEY_FORMAT},
+                    new byte[] {TargetKeyCodec.SCHEDULE_BINDING_TAG, TargetKeyCodec.KEY_FORMAT},
+                    1);
+            assertFalse(messages.isEmpty());
+            final var message = TargetMessageRecord.decode(TargetValueEnvelope.decode(
+                            messages.getFirst().value(), TargetMessageRecord.VALUE_TYPE)
+                    .payload());
+            retainedBindingKey = TargetKeyCodec.scheduleBinding(message.locator().scheduleBindingDigest());
+            retainedBindingRaw = corrupt.get(ColumnFamily.ID, retainedBindingKey);
+            assertTrue(retainedBindingRaw != null);
+            corrupt.write(batch -> batch.delete(ColumnFamily.ID, retainedBindingKey));
+        }
+        TargetCheckpointRootVerifier.auditQuotaProjections(
+                physicalDb,
+                scope.shard(),
+                new CheckpointManifestLimits(1_000, 256L << 20, 256L << 20, 1_024, 1 << 20, 1_000, 1_024),
+                new TargetCheckpointRootVerifier.QuotaAuditLimits(100_000, 256L << 20));
+        assertTrue(assertThrows(
+                        IllegalStateException.class,
+                        () -> TargetCheckpointRootVerifier.auditIndependentLedger(
+                                physicalDb,
+                                scope.shard(),
+                                new CheckpointManifestLimits(1_000, 256L << 20, 256L << 20, 1_024, 1 << 20, 1_000,
+                                        1_024),
+                                new TargetCheckpointRootVerifier.QuotaAuditLimits(100_000, 256L << 20),
+                                new TargetCheckpointRootVerifier.LedgerAuditLimits(
+                                        100_000, 256L << 20, 500_000, 256L << 20)))
+                .getMessage()
+                .contains("Message lacks its original Schedule binding"));
+        try (var resources = new SharedRocksDbResources(config);
+                var restored = ShardStore.openTarget(config, scope.shard(), resources)) {
+            restored.write(batch -> batch.put(ColumnFamily.ID, retainedBindingKey, retainedBindingRaw));
+        }
         try (var resources = new SharedRocksDbResources(config);
                 var reopened = ShardStore.openTarget(config, scope.shard(), resources)) {
             final var priorOwner = reopenOwner[0];
