@@ -30,6 +30,7 @@ import com.nereusstream.delay.protocol.AcknowledgementSet;
 import com.nereusstream.delay.protocol.AdapterKind;
 import com.nereusstream.delay.protocol.AuthorIdentity;
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
 import com.nereusstream.delay.protocol.CanonicalTargetPartition;
 import com.nereusstream.delay.protocol.CapacityDimension;
 import com.nereusstream.delay.protocol.CapacityVector;
@@ -37,6 +38,7 @@ import com.nereusstream.delay.protocol.CheckpointUploadIntent;
 import com.nereusstream.delay.protocol.CheckpointUploadState;
 import com.nereusstream.delay.protocol.CloseLaneRequest;
 import com.nereusstream.delay.protocol.ClosePolicy;
+import com.nereusstream.delay.protocol.CommandType;
 import com.nereusstream.delay.protocol.CompatibleControlSnapshot;
 import com.nereusstream.delay.protocol.ControlAuthor;
 import com.nereusstream.delay.protocol.ControlAuthorizationContext;
@@ -54,8 +56,12 @@ import com.nereusstream.delay.protocol.DestinationProfileSemantic;
 import com.nereusstream.delay.protocol.EvidenceCursor;
 import com.nereusstream.delay.protocol.KafkaActivationBarrier;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
+import com.nereusstream.delay.protocol.NativeDeliveryPolicy;
+import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.OwnerIdentity;
+import com.nereusstream.delay.protocol.PreparedCommand;
 import com.nereusstream.delay.protocol.PreparedControlOperation;
+import com.nereusstream.delay.protocol.ProfileBindingControlState;
 import com.nereusstream.delay.protocol.ProfileKind;
 import com.nereusstream.delay.protocol.ProfileRef;
 import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
@@ -91,6 +97,7 @@ import com.nereusstream.delay.protocol.TargetQuotaGrantControlBody;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlRequest;
 import com.nereusstream.delay.protocol.TargetQuotaIncarnation;
 import com.nereusstream.delay.protocol.TargetQuotaUsage;
+import com.nereusstream.delay.protocol.TargetScheduleBinding;
 import com.nereusstream.delay.protocol.TargetTimeFenceBody;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
@@ -1817,6 +1824,46 @@ class TargetQuotaGrantStoreTest {
             assertEquals(ApplyStatus.APPLIED, SystemMutationResult.decode(first.typedPayload()).applyStatus());
             final var replay = new TargetSystemReplayStore(backend, scope, lineage, 16, 1);
             final var duplicateAt = source(issueAt, issueAt.offset() + 1, issueAt.brokerLogAppendTimeEpochMs() + 1);
+            final var sampleBinding = TargetScheduleBinding.decode(
+                    vector("target-binding-channel-vectors.properties", "binding.best"));
+            final var sampleIntent = sampleBinding.intent();
+            final var scheduleIntent = CanonicalScheduleIntent.create(
+                    destination.ref(), sampleIntent.retryPolicy(),
+                    duplicateAt.brokerLogAppendTimeEpochMs() + 100,
+                    duplicateAt.brokerLogAppendTimeEpochMs() + 2000,
+                    sampleIntent.deliveryMode(), OrderingMode.BEST_EFFORT,
+                    sampleIntent.orderingKey(), bytes(4, 0x31), null,
+                    sampleIntent.adapterMetadata(), null, null, NativeDeliveryPolicy.FORBID);
+            final long commandTime = duplicateAt.brokerLogAppendTimeEpochMs();
+            final var schedule = PreparedCommand.schedule(
+                    scope.shard(),
+                    new UUID((commandTime << 16) | 0x7001L, 0x8000000000000001L),
+                    new UUID((commandTime << 16) | 0x7002L, 0x8000000000000002L),
+                    scheduleIntent, commandTime + 1000);
+            final var targetActivationKey = Bytes.concat(
+                    new byte[] {TargetKeyCodec.QUOTA_GRANT_ACTIVATION_TAG, TargetKeyCodec.KEY_FORMAT},
+                    scope.forTarget(physical.id()).keySuffix());
+            final var targetActivation = TargetQuotaGrantActivation.decodeForStore(
+                    targetActivationKey,
+                    TargetValueEnvelope.decode(store.get(ColumnFamily.META, targetActivationKey),
+                            TargetQuotaGrantActivation.VALUE_TYPE).payload(),
+                    scope.shard(), scope.tenantScope());
+            final var profiles = ProfileBindingControlState.empty()
+                    .activate(destination.ref(), earlier)
+                    .activate(capability.ref(), base);
+            final java.util.function.Function<SourcePosition, TargetScheduleBinding> bindingAt = position ->
+                    new TargetScheduleBinding(
+                            schedule.delayMessageId(), CommandType.SCHEDULE, schedule.canonicalBody(),
+                            position, physical.id(), new TargetKeyCodec.Domain(0, 1),
+                            targetActivation.allocation().identity().accountingIncarnation(),
+                            dispatch.digest(), dispatch.digest(), controlScope.digest(), grant.digest(), null, null);
+            final var beforeClose = backend.guardedRead(budget(), reader -> TargetScheduleRegistration.prepare(
+                    reader, schedule, duplicateAt, scope, lineage,
+                    new TargetScheduleRegistration.Authority(
+                            bindingAt.apply(duplicateAt), physical, destination, capability, profiles, 60_000),
+                    1), (a, b) -> guard());
+            assertEquals(StableCode.OK, beforeClose.code());
+            assertFalse(beforeClose.edits().isEmpty());
             final var duplicate = replay.prepareIfPresent(budget(), member.mutation(), duplicateAt).orElseThrow();
             assertEquals(StableCode.OK, replay.commit(duplicate, (a, b, c) -> guard(), (a, b) -> guard())
                     .stableCode());
@@ -1882,6 +1929,38 @@ class TargetQuotaGrantStoreTest {
             assertArrayEquals(closeAt.canonicalBytes(), applied.closedAt().canonicalBytes());
             assertTrue(applied.allowsFirstBinding(duplicateAt));
             assertFalse(applied.allowsFirstBinding(secondAt));
+            final var deniedAt = source(secondAt, secondAt.offset() + 1,
+                    secondAt.brokerLogAppendTimeEpochMs() + 1);
+            final long beforeDenied = store.latestSequenceNumber();
+            final var denied = backend.guardedRead(budget(), reader -> TargetScheduleRegistration.prepare(
+                    reader, schedule, deniedAt, scope, lineage,
+                    new TargetScheduleRegistration.Authority(
+                            bindingAt.apply(deniedAt), physical, destination, capability, profiles, 60_000),
+                    1), (a, b) -> guard());
+            assertEquals(StableCode.UNAUTHORIZED, denied.code());
+            assertTrue(denied.edits().isEmpty());
+            assertEquals(beforeDenied, store.latestSequenceNumber());
+            assertNull(store.get(ColumnFamily.ID, TargetKeyCodec.message(schedule.delayMessageId())));
+            final var commands = new TargetCommandStore(backend, scope, lineage, 16, 1);
+            final var commandPolicy = new TargetCommandStore.Policy(
+                    scope, 1000, 1000, 10, java.util.Set.of(schedule.protocolTuple()),
+                    new TargetCommandStore.DeliveryWindow(10_000, 1, 100_000));
+            final var rejected = commands.commit(commands.prepareFirst(
+                    budget(), schedule, deniedAt, commandPolicy,
+                    (reader, bound, position) -> false,
+                    (reader, bound) -> { throw new AssertionError("unexpected reservation closure lookup"); },
+                    (incoming, position) -> new TargetCommandStore.ScheduleAdmission(
+                            StableCode.OK,
+                            new TargetScheduleRegistration.Authority(
+                                    bindingAt.apply(position), physical, destination, capability, profiles, 60_000),
+                            TargetOrderState.OrderingContract.ADMISSION_WATERMARK),
+                    (bound, position) -> { throw new AssertionError("unexpected payload proof lookup"); }),
+                    (a, b, c) -> guard());
+            assertEquals(ApplyStatus.REJECTED, rejected.applyStatus());
+            assertEquals(StableCode.UNAUTHORIZED, rejected.stableCode());
+            assertArrayEquals(deniedAt.canonicalBytes(), store.appliedShardLogPosition().canonicalBytes());
+            assertNull(store.get(ColumnFamily.ID, TargetKeyCodec.message(schedule.delayMessageId())));
+            assertNull(store.get(ColumnFamily.ID, bindingAt.apply(deniedAt).encodedKey()));
         }
         try (var resources = new SharedRocksDbResources(config);
                 var reopened = ShardStore.openTarget(config, scope.shard(), resources)) {
