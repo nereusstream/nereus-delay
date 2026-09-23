@@ -1,12 +1,16 @@
 package com.nereusstream.delay.ownership;
 
 import com.nereusstream.delay.protocol.CheckpointUploadIntent;
+import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.ShardId;
+import com.nereusstream.delay.protocol.TargetHeadRef;
+import com.nereusstream.delay.runtime.TargetClaimRecord;
 import com.nereusstream.delay.runtime.TargetQuotaDelta;
 import com.nereusstream.delay.runtime.TargetReservationControls;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import com.nereusstream.delay.scheduler.WorkClassTask;
+import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.CheckpointManifestLimits;
 import com.nereusstream.delay.store.CheckpointUploadIntentAuthority;
 import com.nereusstream.delay.store.ShardStore;
@@ -121,6 +125,33 @@ public final class TargetWorkerShardRuntime
         preparedCheckpointCut = null;
         resources.requireRuntimeBusinessAdmission();
         return maintenance.runTurn(Objects.requireNonNull(budget, "budget"));
+    }
+
+    /** Claims one previously selected head only while this exact Worker admits new business turns. */
+    public synchronized TargetClaimRecord claim(
+            final BoundedReadBudget budget,
+            final TargetHeadRef selected,
+            final OwnerIdentity owner,
+            final long nowEpochMs,
+            final long deadlineEpochMs,
+            final long executionBytes,
+            final byte[] operationDigest,
+            final TargetQuotaDelta.LocalClaimAuthority quota,
+            final TargetStoreBackend.CommitAuthority physicalWrites,
+            final LongSupplier ownerClock) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        return target.claim(
+                budget,
+                selected,
+                owner,
+                nowEpochMs,
+                deadlineEpochMs,
+                executionBytes,
+                operationDigest,
+                quota,
+                physicalWrites,
+                ownerClock);
     }
 
     /** Admits only an ACK-settled active Shard to the bound, unpublished CHECKPOINT work class. */

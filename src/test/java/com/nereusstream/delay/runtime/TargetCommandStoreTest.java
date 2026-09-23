@@ -787,23 +787,102 @@ class TargetCommandStoreTest {
                     throwTransitionAfterCommit,
                     throwReleaseAfterCommit);
             store.recordOpenedOwnerEpoch(active.ownerEpoch());
+            final var workerClasses = workClasses();
             TargetClaimRecord claim = null;
             if (claimed) {
                 final var actualQueue = TargetQueueState.decode(TargetValueEnvelope.decode(
                                 store.get(ColumnFamily.META, TargetKeyCodec.state(binding.target())),
                                 TargetQueueState.VALUE_TYPE)
                         .payload());
-                final var claims = new TargetClaimStore(backend, scope, lineage, 1, (kind, delta) -> {});
-                final var plan = claims.prepareClaim(
+                final var claimRuntime = new TargetSourceApplyRuntime(
+                        initialized,
+                        store,
+                        assignment,
+                        active,
+                        new TargetSourceApplyRuntime.Authorities(
+                                leases,
+                                SourceReplaySuccessor.strictKafka(),
+                                entry -> {
+                                    throw new AssertionError("Claim resolved a grant");
+                                },
+                                entry -> {
+                                    throw new AssertionError("Claim resolved a fence");
+                                },
+                                entry -> {
+                                    throw new AssertionError("Claim resolved a Close");
+                                },
+                                entry -> {
+                                    throw new AssertionError("Claim resolved membership");
+                                },
+                                (a, b, c) -> guard(),
+                                (a, b) -> guard(),
+                                entry -> {
+                                    throw new AssertionError("Claim resolved a command");
+                                }),
+                        new TargetSourceApplyRuntime.Limits(4096, 32L << 20, 60_000_000_000L, 16, 1),
+                        System::nanoTime);
+                final var claimWorker = new TargetWorkerShardRuntime(
+                        () -> java.util.Optional.empty(),
+                        workerClasses,
+                        store,
+                        store.sharedResources(),
+                        claimRuntime,
+                        new TargetWorkerShardRuntime.Maintenance(
+                                new TargetCloseStore(backend, scope, lineage, 16, 1)
+                                        .reservationControls((reader, bound) -> java.util.Optional.empty()),
+                                new TargetReservationClosureWorkClassExecutor.Limits(4096, 250_000, 60_000_000_000L),
+                                new TargetReservationExpiryWorkClassExecutor.Limits(2048, 100_000, 60_000_000_000L),
+                                (a, b, c) -> guard(),
+                                ignored -> {},
+                                ignored -> {},
+                                ignored -> {},
+                                () -> 100));
+                final var actualOwner =
+                        new OwnerIdentity(bytes(16, 0x72), bytes(16, 0x73), active.ownerEpoch(), active.leaseToken());
+                final long beforeClaim = store.latestSequenceNumber();
+                assertThrows(
+                        IllegalStateException.class,
+                        () -> claimWorker.claim(
+                                budget(),
+                                actualQueue.domains().getFirst().ordinaryHead(),
+                                new OwnerIdentity(
+                                        bytes(16, 0x72), bytes(16, 0x73), active.ownerEpoch(), bytes(32, 0x74)),
+                                message.deliverAtEpochMs(),
+                                message.deliverAtEpochMs() + 1000,
+                                100,
+                                bytes(32, 0x71),
+                                (kind, delta) -> {},
+                                (a, b, c) -> guard(),
+                                () -> 100));
+                assertEquals(beforeClaim, store.latestSequenceNumber());
+                assertThrows(
+                        IllegalStateException.class,
+                        () -> claimWorker.claim(
+                                budget(),
+                                actualQueue.domains().getFirst().ordinaryHead(),
+                                actualOwner,
+                                message.deliverAtEpochMs(),
+                                message.deliverAtEpochMs() + 1000,
+                                100,
+                                bytes(32, 0x71),
+                                (kind, delta) -> {},
+                                (a, b, c) -> {
+                                    throw new IllegalStateException("Claim write authority unavailable");
+                                },
+                                () -> 100));
+                assertEquals(beforeClaim, store.latestSequenceNumber());
+                claim = claimWorker.claim(
                         budget(),
                         actualQueue.domains().getFirst().ordinaryHead(),
-                        new OwnerIdentity(bytes(16, 0x72), bytes(16, 0x73), active.ownerEpoch(), bytes(32, 0x74)),
+                        actualOwner,
                         message.deliverAtEpochMs(),
                         message.deliverAtEpochMs() + 1000,
                         100,
-                        bytes(32, 0x71));
-                claim = plan.claim();
-                claims.commit(plan, (a, b, c) -> guard());
+                        bytes(32, 0x71),
+                        (kind, delta) -> {},
+                        (a, b, c) -> guard(),
+                        () -> 100);
+                claimWorker.closeSource();
             }
             final var before = TargetMessageRecord.decode(TargetValueEnvelope.decode(
                             store.get(ColumnFamily.ID, message.encodedKey()), TargetMessageRecord.VALUE_TYPE)
@@ -932,7 +1011,6 @@ class TargetCommandStoreTest {
                     System::nanoTime);
             final var entries = new java.util.ArrayDeque<SourceRecordConsumer.PolledSourceRecord>();
             final SourceRecordConsumer consumer = () -> java.util.Optional.ofNullable(entries.poll());
-            final var workerClasses = workClasses();
             final var loop = new WorkerSourceApplyLoop(consumer, workerClasses, runtime);
             final var completed = apply(loop, entries, command, at);
             assertEquals(SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED, completed.status());
@@ -3298,6 +3376,24 @@ class TargetCommandStoreTest {
             assertThrows(
                     IllegalStateException.class,
                     () -> reopenedFleet.runNextSourceTurn(new SchedulerBudget(1, 1, 60_000_000_000L), () -> 101));
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> reopenedWorker.claim(
+                            budget(),
+                            null,
+                            new OwnerIdentity(
+                                    bytes(16, 0x72),
+                                    bytes(16, 0x73),
+                                    activeReopened.ownerEpoch(),
+                                    activeReopened.leaseToken()),
+                            101,
+                            1_000,
+                            100,
+                            bytes(32, 0x75),
+                            (kind, delta) -> {},
+                            (a, b, c) -> guard(),
+                            () -> 101));
+            assertEquals(beforePausedGc, reopened.latestSequenceNumber());
             final var pendingDrain = reopenedWorker.drain(
                     new TargetOwnerDrainCoordinator.Request(5_000, new SchedulerBudget(1, 1, 60_000_000_000L)),
                     () -> 101);

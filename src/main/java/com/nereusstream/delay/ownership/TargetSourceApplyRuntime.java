@@ -5,6 +5,7 @@ import com.nereusstream.delay.protocol.CanonicalProtobuf;
 import com.nereusstream.delay.protocol.CanonicalTargetPartition;
 import com.nereusstream.delay.protocol.CheckpointUploadIntent;
 import com.nereusstream.delay.protocol.CommandCodec;
+import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.PreparedControlOperation;
 import com.nereusstream.delay.protocol.PulsarActivationBarrier;
 import com.nereusstream.delay.protocol.PulsarSourcePosition;
@@ -12,12 +13,15 @@ import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.SystemMutationType;
 import com.nereusstream.delay.protocol.TargetCloseBody;
 import com.nereusstream.delay.protocol.TargetCloseRequest;
+import com.nereusstream.delay.protocol.TargetHeadRef;
 import com.nereusstream.delay.protocol.TargetMembershipControlBody;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlBody;
 import com.nereusstream.delay.protocol.TargetQuotaIncarnation;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
 import com.nereusstream.delay.runtime.CommandResult;
 import com.nereusstream.delay.runtime.SystemMutationResult;
+import com.nereusstream.delay.runtime.TargetClaimRecord;
+import com.nereusstream.delay.runtime.TargetClaimStore;
 import com.nereusstream.delay.runtime.TargetCloseStore;
 import com.nereusstream.delay.runtime.TargetCloseVerifier;
 import com.nereusstream.delay.runtime.TargetCommandReplayStore;
@@ -385,6 +389,46 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 || store.sharedResources() != Objects.requireNonNull(resources, "resources")) {
             throw new IllegalArgumentException("Target Worker requires the exact source Store resource graph");
         }
+    }
+
+    /**
+     * Commits one selected Target head under the active Owner and Store graph. The supplied write
+     * authority must also protect current time, policy, permits and the complete Owner identity.
+     */
+    synchronized TargetClaimRecord claim(
+            final BoundedReadBudget budget,
+            final TargetHeadRef selected,
+            final OwnerIdentity owner,
+            final long nowEpochMs,
+            final long deadlineEpochMs,
+            final long executionBytes,
+            final byte[] operationDigest,
+            final TargetQuotaDelta.LocalClaimAuthority quota,
+            final TargetStoreBackend.CommitAuthority physicalWrites,
+            final LongSupplier ownerClock) {
+        final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
+        requireGcOwner(clock);
+        final var exactOwner = Objects.requireNonNull(owner, "owner");
+        if (exactOwner.ownerEpoch() != lease.ownerEpoch()
+                || !Bytes.constantTimeEquals(exactOwner.leaseFencingDigest(), lease.leaseToken())) {
+            throw new IllegalStateException("Target Claim Owner identity differs from the active lease");
+        }
+        final var claims =
+                new TargetClaimStore(backend, scope, lineage, limits.domains(), Objects.requireNonNull(quota, "quota"));
+        final var prepared = claims.prepareClaim(
+                budget, selected, exactOwner, nowEpochMs, deadlineEpochMs, executionBytes, operationDigest);
+        claims.commit(prepared, (actual, actualScope, mutation) -> {
+            if (!mutation.quota().counters().mutation().isLocalClaim()) {
+                throw new IllegalStateException("Target Claim cannot commit another mutation kind");
+            }
+            requireGcOwner(clock);
+            return gcGuard(
+                    Objects.requireNonNull(physicalWrites, "physicalWrites").acquire(actual, actualScope, mutation),
+                    actual,
+                    actualScope,
+                    clock);
+        });
+        return prepared.claim();
     }
 
     /** Queues an unpublished candidate on this Owner's exact source/Store WorkClass graph. */

@@ -1,15 +1,21 @@
 package com.nereusstream.delay.ownership;
 
 import com.nereusstream.delay.protocol.CheckpointUploadIntent;
+import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.ShardId;
+import com.nereusstream.delay.protocol.TargetHeadRef;
+import com.nereusstream.delay.runtime.TargetClaimRecord;
+import com.nereusstream.delay.runtime.TargetQuotaDelta;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import com.nereusstream.delay.scheduler.WorkClassTask;
+import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.CheckpointManifestLimits;
 import com.nereusstream.delay.store.CheckpointUploadIntentAuthority;
 import com.nereusstream.delay.store.SharedRocksDbResources;
 import com.nereusstream.delay.store.TargetCheckpointCandidateWorkClassExecutor;
 import com.nereusstream.delay.store.TargetCheckpointRootVerifier;
+import com.nereusstream.delay.store.TargetStoreBackend;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -149,8 +155,40 @@ public final class TargetWorkerHostRuntime {
                         intents, ownerClock, checkpointPath, pending, physicalLimits, quotaLimits, ledgerLimits));
     }
 
+    /** Claims a selected Target head only on a currently admitted exact Shard instance. */
+    public TargetClaimRecord claim(
+            final TargetWorkerShardRuntime expectedShard,
+            final BoundedReadBudget budget,
+            final TargetHeadRef selected,
+            final OwnerIdentity owner,
+            final long nowEpochMs,
+            final long deadlineEpochMs,
+            final long executionBytes,
+            final byte[] operationDigest,
+            final TargetQuotaDelta.LocalClaimAuthority quota,
+            final TargetStoreBackend.CommitAuthority physicalWrites,
+            final LongSupplier ownerClock) {
+        return withShardAdmission(
+                expectedShard,
+                () -> expectedShard.claim(
+                        budget,
+                        selected,
+                        owner,
+                        nowEpochMs,
+                        deadlineEpochMs,
+                        executionBytes,
+                        operationDigest,
+                        quota,
+                        physicalWrites,
+                        ownerClock));
+    }
+
     /** Test seam for the host lifecycle reservation without constructing a physical Target Store. */
     <T> T withCheckpointAdmission(final Shard expectedShard, final Supplier<T> admission) {
+        return withShardAdmission(expectedShard, admission);
+    }
+
+    private <T> T withShardAdmission(final Shard expectedShard, final Supplier<T> admission) {
         Objects.requireNonNull(admission, "admission");
         final Shard shard;
         final ShardId shardId;
@@ -158,10 +196,10 @@ public final class TargetWorkerHostRuntime {
             shardId = Objects.requireNonNull(expectedShard, "shard").shardId();
             shard = requireShard(shardId);
             if (shard != expectedShard) {
-                throw new IllegalArgumentException("Target host checkpoint Shard instance has been replaced");
+                throw new IllegalArgumentException("Target host Shard instance has been replaced");
             }
             if (stopping || withdrawn.contains(shardId) || completed.containsKey(shardId) || !draining.add(shardId)) {
-                throw new IllegalStateException("Target host checkpoint admission is stopping or already in progress");
+                throw new IllegalStateException("Target host Shard admission is stopping or already in progress");
             }
         }
         try {
