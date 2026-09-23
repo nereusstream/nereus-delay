@@ -62,6 +62,20 @@ class TargetWorkerShardFleetRuntimeTest {
             assertEquals(2, first.maintenanceTurns.get());
             assertEquals(2, second.maintenanceTurns.get());
 
+            second.duringMaintenance =
+                    () -> assertThrows(IllegalStateException.class, () -> fleet.withdraw(second.shard));
+            assertEquals(first.shard, fleet.runNextMaintenanceTurn(budget).shardId());
+            assertEquals(second.shard, fleet.runNextMaintenanceTurn(budget).shardId());
+
+            fleet.withdraw(first.shard);
+            assertEquals(List.of(second.shard), fleet.shardIds());
+            assertEquals(
+                    second.shard, fleet.runNextSourceTurn(budget, () -> 101).shardId());
+            assertEquals(second.shard, fleet.runNextMaintenanceTurn(budget).shardId());
+            fleet.withdraw(second.shard);
+            assertTrue(fleet.runNextMaintenanceTurnIfPresent(budget).isEmpty());
+            assertThrows(IllegalStateException.class, () -> fleet.runNextSourceTurn(budget, () -> 101));
+
             assertThrows(
                     IllegalArgumentException.class,
                     () -> new TargetWorkerShardFleetRuntime(registry, resources, first, first));
@@ -185,6 +199,64 @@ class TargetWorkerShardFleetRuntimeTest {
         }
     }
 
+    @Test
+    void hostWithdrawsOnlyOneShardAfterItsActiveGcTurnAndKeepsOtherShardScheduled() throws Exception {
+        final var registry = registry();
+        final var executor = Executors.newSingleThreadScheduledExecutor();
+        final var closer = Executors.newSingleThreadExecutor();
+        final var releaseMaintenance = new CountDownLatch(1);
+        final var releaseDrain = new CountDownLatch(1);
+        try (var resources = new SharedRocksDbResources(ShardStoreConfig.defaults(tempDir.resolve("host-withdraw")))) {
+            final var first = new StubShard(new ShardId(RouteIncarnation.random(), 1), registry, resources);
+            final var second = new StubShard(new ShardId(RouteIncarnation.random(), 2), registry, resources);
+            final var fleet = new TargetWorkerShardFleetRuntime(registry, resources, first, second);
+            first.enteredMaintenance = new CountDownLatch(1);
+            first.releaseMaintenance = releaseMaintenance;
+            first.enteredDrain = new CountDownLatch(1);
+            first.releaseDrain = releaseDrain;
+            final var budget = new SchedulerBudget(1, 1000, 1_000_000);
+            final var loop =
+                    new TargetWorkerMaintenanceLoop(fleet, budget, Duration.ofSeconds(10), failure -> {}, executor);
+            final var host = new TargetWorkerHostRuntime(fleet, loop, List.of(first, second));
+            try {
+                loop.start();
+                assertTrue(first.enteredMaintenance.await(5, TimeUnit.SECONDS));
+                final var withdrawing = closer.submit(() -> host.drainShard(
+                        first.shard, new TargetOwnerDrainCoordinator.Request(5_000, budget), budget, () -> 101));
+                assertThrows(TimeoutException.class, () -> withdrawing.get(100, TimeUnit.MILLISECONDS));
+                assertEquals(0, first.drainCalls.get());
+
+                releaseMaintenance.countDown();
+                assertTrue(first.enteredDrain.await(5, TimeUnit.SECONDS));
+                assertEquals(List.of(second.shard), fleet.shardIds());
+                assertEquals(1, first.maintenanceTurns.get());
+                assertEquals(1, first.drainCalls.get());
+                assertEquals(0, second.drainCalls.get());
+                assertEquals(
+                        second.shard, host.runNextSourceTurn(budget, () -> 101).shardId());
+                loop.pollNow();
+                assertEquals(1, first.maintenanceTurns.get());
+                assertEquals(1, second.maintenanceTurns.get());
+
+                releaseDrain.countDown();
+                assertEquals(
+                        TargetWorkerHostRuntime.Status.RELEASED,
+                        withdrawing.get(5, TimeUnit.SECONDS).status());
+
+                assertTrue(host.drainAll(new TargetOwnerDrainCoordinator.Request(5_000, budget), budget, () -> 101)
+                        .complete());
+                assertEquals(1, second.drainCalls.get());
+            } finally {
+                releaseMaintenance.countDown();
+                releaseDrain.countDown();
+                loop.close();
+            }
+        } finally {
+            executor.shutdownNow();
+            closer.shutdownNow();
+        }
+    }
+
     private static WorkClassExecutionRegistry registry() {
         final var policies = new EnumMap<WorkClass, WorkClassPolicy>(WorkClass.class);
         for (WorkClass workClass : WorkClass.values()) {
@@ -221,6 +293,9 @@ class TargetWorkerShardFleetRuntimeTest {
         private volatile boolean failNextDrain;
         private volatile CountDownLatch enteredMaintenance;
         private volatile CountDownLatch releaseMaintenance;
+        private volatile CountDownLatch enteredDrain;
+        private volatile CountDownLatch releaseDrain;
+        private volatile Runnable duringMaintenance;
 
         private StubShard(
                 final ShardId shard,
@@ -265,6 +340,9 @@ class TargetWorkerShardFleetRuntimeTest {
                     throw new IllegalStateException("maintenance turn interrupted", interrupted);
                 }
             }
+            if (duringMaintenance != null) {
+                duringMaintenance.run();
+            }
             if (failNextMaintenance) {
                 failNextMaintenance = false;
                 throw new IllegalStateException("shard maintenance failure");
@@ -292,6 +370,17 @@ class TargetWorkerShardFleetRuntimeTest {
         public TargetOwnerDrainCoordinator.Result drain(
                 final TargetOwnerDrainCoordinator.Request request, final LongSupplier clock) {
             drainCalls.incrementAndGet();
+            if (enteredDrain != null) {
+                enteredDrain.countDown();
+            }
+            if (releaseDrain != null) {
+                try {
+                    releaseDrain.await();
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("shard drain interrupted", interrupted);
+                }
+            }
             if (failNextDrain) {
                 failNextDrain = false;
                 throw new IllegalStateException("shard drain failed");

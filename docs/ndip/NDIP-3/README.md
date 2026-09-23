@@ -409,5 +409,7 @@ drain 前可用 `settlePendingSourceTurn` 只重试保留的 source entry，空�
 通路不能证明 Target 快照可恢复，真实 Oxia/Broker 故障证据仍待完成。
 
 全 fleet 本地 host 现启动定时 GC、提供 source 单轮入口，并在关闭时等待在途 GC
-后逐 Shard 运行 source settlement 与 Owner drain；两 Shard 可控调度测试通过。
-生产进程接线、单 Shard 动态成员管理和真实 Broker/Oxia 仍开放。
+后逐 Shard 运行 source settlement 与 Owner drain。单 Shard 撤出也会等待原在途
+turn，之后仅 drain 该 Shard；其它 Shard 在其 drain 期间继续接收 source/GC。
+两 Shard 可控调度测试通过。生产 assignment 驱动的成员加入/替换、进程接线、
+真实 Broker/Oxia 接管和 format 2 checkpoint/restore 仍开放。

@@ -18411,3 +18411,12 @@ two-Shard scheduler test proves that neither drain begins before the blocked
 GC turn exits and that retry completes after one Shard failure. Production
 process wiring, dynamic single-Shard rebalance, real Broker/Oxia recovery and
 format-2 checkpoint authority remain open.
+
+The local Target host can now withdraw one Shard under the same fleet lock
+used by source and GC dispatch. Withdrawal waits for its selected turn, then
+settles and drains only that Shard while the other Shards continue to receive
+source and maintenance turns. A two-Shard test blocks both the old GC turn and
+the withdrawn Shard's drain, proving the remaining Shard advances after the
+withdrawal boundary. Final withdrawal leaves an idle maintenance timer.
+Assignment-driven addition/replacement, production process wiring, real
+Broker/Oxia takeover and recoverable format-2 checkpoint remain open.

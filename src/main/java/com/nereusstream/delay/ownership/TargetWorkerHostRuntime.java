@@ -7,9 +7,11 @@ import com.nereusstream.delay.scheduler.WorkClassTask;
 import com.nereusstream.delay.store.SharedRocksDbResources;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 
@@ -73,6 +75,7 @@ public final class TargetWorkerHostRuntime {
     private final TargetWorkerShardFleetRuntime fleet;
     private final TargetWorkerMaintenanceLoop maintenanceLoop;
     private final List<Shard> shards;
+    private final Set<ShardId> withdrawn = new HashSet<>();
     private boolean stopping;
 
     /** Starts bounded reservation GC ticks for one exact Worker graph. */
@@ -127,24 +130,65 @@ public final class TargetWorkerHostRuntime {
         maintenanceLoop.close();
         final var results = new ArrayList<ShardDrain>(shards.size());
         for (Shard shard : shards) {
+            results.add(drainOne(shard, request, sourceBudget, ownerClock));
+        }
+        return new Result(results);
+    }
+
+    /**
+     * Withdraws one Shard from future source/GC selection, waits for its selected turn to exit,
+     * then drains it while other Shards remain live. A pending result is retried with the same
+     * withdrawn Shard identity; the maintenance loop keeps serving the rest of the fleet.
+     */
+    public ShardDrain drainShard(
+            final ShardId shardId,
+            final TargetOwnerDrainCoordinator.Request request,
+            final SchedulerBudget sourceBudget,
+            final LongSupplier ownerClock) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(sourceBudget, "sourceBudget");
+        Objects.requireNonNull(ownerClock, "ownerClock");
+        final Shard shard;
+        synchronized (this) {
+            shard = requireShard(shardId);
+            if (!withdrawn.contains(shardId) && !stopping) {
+                fleet.withdraw(shardId);
+                withdrawn.add(shardId);
+            }
+        }
+        return drainOne(shard, request, sourceBudget, ownerClock);
+    }
+
+    private Shard requireShard(final ShardId shardId) {
+        final ShardId requested = Objects.requireNonNull(shardId, "shardId");
+        return shards.stream()
+                .filter(shard -> requested.equals(shard.shardId()))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Target host does not contain shard " + requested));
+    }
+
+    private static ShardDrain drainOne(
+            final Shard shard,
+            final TargetOwnerDrainCoordinator.Request request,
+            final SchedulerBudget sourceBudget,
+            final LongSupplier ownerClock) {
+        synchronized (shard) {
             SourceApplyCoordinator.TurnResult sourceTurn = null;
             try {
                 if (shard.pendingSourceEntry().isPresent()) {
                     sourceTurn = shard.settlePendingSourceTurn(sourceBudget, ownerClock)
                             .orElse(null);
                     if (shard.pendingSourceEntry().isPresent()) {
-                        results.add(new ShardDrain(shard.shardId(), Status.PENDING_SOURCE, sourceTurn, null, null));
-                        continue;
+                        return new ShardDrain(shard.shardId(), Status.PENDING_SOURCE, sourceTurn, null, null);
                     }
                 }
                 final TargetOwnerDrainCoordinator.Result drained = shard.drain(request, ownerClock);
-                results.add(new ShardDrain(
-                        shard.shardId(), map(drained.status()), sourceTurn, drained.pendingGcTask(), null));
+                return new ShardDrain(
+                        shard.shardId(), map(drained.status()), sourceTurn, drained.pendingGcTask(), null);
             } catch (RuntimeException failure) {
-                results.add(new ShardDrain(shard.shardId(), Status.FAILED, sourceTurn, null, failure));
+                return new ShardDrain(shard.shardId(), Status.FAILED, sourceTurn, null, failure);
             }
         }
-        return new Result(results);
     }
 
     public synchronized boolean stopping() {

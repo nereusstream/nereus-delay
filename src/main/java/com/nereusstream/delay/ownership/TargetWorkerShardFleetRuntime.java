@@ -10,6 +10,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.LongSupplier;
 
@@ -60,6 +61,7 @@ public final class TargetWorkerShardFleetRuntime {
     private final List<ShardTurns> shards;
     private int sourceCursor;
     private int maintenanceCursor;
+    private Thread activeTurnThread;
 
     public TargetWorkerShardFleetRuntime(
             final WorkClassExecutionRegistry workClasses,
@@ -95,29 +97,85 @@ public final class TargetWorkerShardFleetRuntime {
         if (admitted.isEmpty()) {
             throw new IllegalArgumentException("Target Worker fleet requires at least one shard");
         }
-        shards = List.copyOf(admitted);
+        shards = new ArrayList<>(admitted);
     }
 
     public synchronized List<ShardId> shardIds() {
         return shards.stream().map(ShardTurns::shardId).toList();
     }
 
+    /**
+     * Removes one Shard under the same lock as source and GC dispatch. The return boundary proves
+     * its previously selected turn has exited; later turns cannot select it again.
+     */
+    synchronized void withdraw(final ShardId shardId) {
+        if (activeTurnThread == Thread.currentThread()) {
+            throw new IllegalStateException("cannot withdraw a Target shard from its selected turn");
+        }
+        final ShardId requested = Objects.requireNonNull(shardId, "shardId");
+        for (int index = 0; index < shards.size(); index++) {
+            if (requested.equals(shards.get(index).shardId())) {
+                shards.remove(index);
+                sourceCursor = afterRemoval(sourceCursor, index, shards.size());
+                maintenanceCursor = afterRemoval(maintenanceCursor, index, shards.size());
+                return;
+            }
+        }
+        throw new IllegalArgumentException("Target Worker fleet does not contain shard " + requested);
+    }
+
+    private static int afterRemoval(final int cursor, final int removed, final int remaining) {
+        if (remaining == 0) {
+            return 0;
+        }
+        final int next = removed < cursor ? cursor - 1 : cursor;
+        return next == remaining ? 0 : next;
+    }
+
     public synchronized SourceTurn runNextSourceTurn(final SchedulerBudget budget, final LongSupplier ownerClock) {
         Objects.requireNonNull(budget, "budget");
         Objects.requireNonNull(ownerClock, "ownerClock");
+        requireNotInSelectedTurn();
+        if (shards.isEmpty()) {
+            throw new IllegalStateException("Target Worker fleet has no active source shard");
+        }
         final var selected = shards.get(sourceCursor);
         sourceCursor = sourceCursor == shards.size() - 1 ? 0 : sourceCursor + 1;
-        return new SourceTurn(selected.shardId(), selected.runSourceTurn(budget, ownerClock));
+        activeTurnThread = Thread.currentThread();
+        try {
+            return new SourceTurn(selected.shardId(), selected.runSourceTurn(budget, ownerClock));
+        } finally {
+            activeTurnThread = null;
+        }
     }
 
     public synchronized MaintenanceTurn runNextMaintenanceTurn(final SchedulerBudget budget) {
+        return runNextMaintenanceTurnIfPresent(budget)
+                .orElseThrow(() -> new IllegalStateException("Target Worker fleet has no active maintenance shard"));
+    }
+
+    /** An empty fleet gives the maintenance timer a quiet turn after its final Shard withdraws. */
+    synchronized Optional<MaintenanceTurn> runNextMaintenanceTurnIfPresent(final SchedulerBudget budget) {
         Objects.requireNonNull(budget, "budget");
+        requireNotInSelectedTurn();
+        if (shards.isEmpty()) {
+            return Optional.empty();
+        }
         final var selected = shards.get(maintenanceCursor);
         maintenanceCursor = maintenanceCursor == shards.size() - 1 ? 0 : maintenanceCursor + 1;
+        activeTurnThread = Thread.currentThread();
         try {
-            return new MaintenanceTurn(selected.shardId(), selected.runMaintenanceTurn(budget));
+            return Optional.of(new MaintenanceTurn(selected.shardId(), selected.runMaintenanceTurn(budget)));
         } catch (RuntimeException failure) {
             throw new MaintenanceDispatchFailure(selected.shardId(), failure);
+        } finally {
+            activeTurnThread = null;
+        }
+    }
+
+    private void requireNotInSelectedTurn() {
+        if (activeTurnThread == Thread.currentThread()) {
+            throw new IllegalStateException("cannot reenter Target fleet dispatch from its selected turn");
         }
     }
 }

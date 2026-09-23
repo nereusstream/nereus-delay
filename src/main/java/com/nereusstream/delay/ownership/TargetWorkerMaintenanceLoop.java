@@ -118,7 +118,7 @@ public final class TargetWorkerMaintenanceLoop implements AutoCloseable {
             }
             activeTurnThread = Thread.currentThread();
             try {
-                fleet.runNextMaintenanceTurn(budget);
+                fleet.runNextMaintenanceTurnIfPresent(budget);
             } catch (RuntimeException | Error caught) {
                 failure = caught;
                 firstFailure.compareAndSet(null, caught);
