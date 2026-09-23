@@ -18420,3 +18420,11 @@ the withdrawn Shard's drain, proving the remaining Shard advances after the
 withdrawal boundary. Final withdrawal leaves an idle maintenance timer.
 Assignment-driven addition/replacement, production process wiring, real
 Broker/Oxia takeover and recoverable format-2 checkpoint remain open.
+
+The scheduled and drain checkpoint executors now reject a format-2 Target
+Store at construction, and physical checkpoint creation rejects it before
+writing the checkpoint ID. A real Target Store regression confirms no
+checkpoint ID, output directory or extra native write. The existing
+manifest, physical verifier and restore path remain format-1 only; this guard
+prevents a misleading local checkpoint attempt while the Target recovery
+contract and publication path are built.

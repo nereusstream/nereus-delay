@@ -3,6 +3,7 @@ package com.nereusstream.delay.store;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.Bytes;
@@ -72,6 +73,30 @@ class CheckpointExecutionCoordinatorTest {
                     IllegalArgumentException.class,
                     () -> new CheckpointExecutionCoordinator(scheduler, store, foreignPublication));
             assertFalse(store.isCloseStarted());
+        }
+    }
+
+    @Test
+    void targetStoreCannotStartLegacyCheckpointExecution() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 21);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("target-checkpoint-rejection"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore store = ShardStore.openTarget(config, shard, resources)) {
+            final long writesBefore = store.operationStatistics().nativeWriteCalls();
+            final Path checkpoint = tempDir.resolve("target-unsupported-checkpoint");
+            final CheckpointPublicationCoordinator publication = new CheckpointPublicationCoordinator(
+                    resources, new CheckpointUploadIntentStore(), new RecoveryCatalog());
+
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> new CheckpointExecutionCoordinator(new CheckpointScheduler(100, 0, 1), store, publication));
+            assertThrows(
+                    IllegalArgumentException.class, () -> new CheckpointDrainWorkClassExecutor(workClasses(8), store));
+            assertThrows(IllegalStateException.class, () -> store.createCheckpoint(checkpoint, bytes(16, 3)));
+            assertFalse(Files.exists(checkpoint));
+            assertEquals(2, store.metadata().storeFormatVersion());
+            assertNull(store.runtimeMetadata().lastCheckpointId());
+            assertEquals(writesBefore, store.operationStatistics().nativeWriteCalls());
         }
     }
 

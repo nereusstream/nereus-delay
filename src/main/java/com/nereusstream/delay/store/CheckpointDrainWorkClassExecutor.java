@@ -33,6 +33,9 @@ public final class CheckpointDrainWorkClassExecutor {
     public CheckpointDrainWorkClassExecutor(final WorkClassExecutionRegistry workClasses, final ShardStore store) {
         this.workClasses = Objects.requireNonNull(workClasses, "workClasses");
         this.store = Objects.requireNonNull(store, "store");
+        if (this.store.metadata().storeFormatVersion() != 1) {
+            throw new IllegalArgumentException("drain checkpoint requires the supported format-1 recovery path");
+        }
         this.store.sharedResources().bindWorkClassExecutionRegistry(this.workClasses);
     }
 

@@ -413,3 +413,6 @@ drain 前可用 `settlePendingSourceTurn` 只重试保留的 source entry，空�
 turn，之后仅 drain 该 Shard；其它 Shard 在其 drain 期间继续接收 source/GC。
 两 Shard 可控调度测试通过。生产 assignment 驱动的成员加入/替换、进程接线、
 真实 Broker/Oxia 接管和 format 2 checkpoint/restore 仍开放。
+
+现有 scheduled/drain checkpoint 执行器及物理快照入口已提前拒绝 Target format 2
+Store，避免旧链先写入不可发布的 checkpoint ID；format 2 的可恢复发布链仍待实现。

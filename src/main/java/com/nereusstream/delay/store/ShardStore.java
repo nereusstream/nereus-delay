@@ -2590,6 +2590,10 @@ public final class ShardStore implements AutoCloseable {
             throw new IllegalArgumentException("checkpointId must not be all zero");
         }
         ensureOpen();
+        if (metadata.storeFormatVersion() != 1) {
+            throw new IllegalStateException(
+                    "physical checkpoint creation requires the supported format-1 recovery path");
+        }
         final StoreRuntimeMetadata previousMetadata = runtimeMetadata;
         boolean slotAcquired = false;
         boolean checkpointProjectionMutationAttempted = false;

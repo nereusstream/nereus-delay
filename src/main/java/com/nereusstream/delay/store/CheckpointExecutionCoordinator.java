@@ -43,6 +43,10 @@ public final class CheckpointExecutionCoordinator {
         if (publicationCoordinator.resources() != store.sharedResources()) {
             throw new IllegalArgumentException("checkpoint publication resources are not the Store resource envelope");
         }
+        if (store.metadata().storeFormatVersion() != 1) {
+            throw new IllegalArgumentException(
+                    "checkpoint execution requires the supported format-1 manifest and restore path");
+        }
     }
 
     /**
