@@ -23,6 +23,7 @@ import com.nereusstream.delay.runtime.TargetQuotaDelta;
 import com.nereusstream.delay.runtime.TargetQuotaGrantControlVerifier;
 import com.nereusstream.delay.runtime.TargetQuotaGrantStore;
 import com.nereusstream.delay.runtime.TargetReservationControls;
+import com.nereusstream.delay.runtime.TargetReservationExpiryStore;
 import com.nereusstream.delay.runtime.TargetStoreBootstrap;
 import com.nereusstream.delay.runtime.TargetSystemReplayStore;
 import com.nereusstream.delay.runtime.TargetTimeFenceStore;
@@ -152,6 +153,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     private final Limits limits;
     private final LongSupplier monotonicClock;
     private WorkClassExecutionRegistry workClasses;
+    private TargetReservationGcRuntime maintenanceRuntime;
     private OwnerLease lease;
     private boolean fenced;
     private long lastOwnerTime = -1;
@@ -285,6 +287,63 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 expiryQuota,
                 cursorQuota,
                 monotonicClock);
+    }
+
+    /** Builds ordinary reservation expiry on the same exact Owner, Store and WorkClass graph. */
+    public synchronized TargetReservationExpiryWorkClassExecutor newExpiryGcExecutor(
+            final WorkClassExecutionRegistry registry,
+            final TargetReservationControls.Authority controls,
+            final TargetReservationExpiryWorkClassExecutor.Limits gcLimits,
+            final TargetStoreBackend.CommitAuthority physicalWrites,
+            final TargetQuotaDelta.ReservationExpiryAuthority expiryQuota,
+            final LongSupplier ownerClock) {
+        if (workClasses == null || workClasses != Objects.requireNonNull(registry, "registry")) {
+            throw new IllegalStateException("expiry GC requires the bound Target source WorkClass graph");
+        }
+        Objects.requireNonNull(physicalWrites, "physicalWrites");
+        final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
+        requireGcOwner(clock);
+        return new TargetReservationExpiryWorkClassExecutor(
+                registry,
+                new TargetReservationExpiryStore(backend, scope, lineage, limits.domains(), controls),
+                gcLimits,
+                () -> requireGcOwner(clock),
+                (actual, actualScope) -> {
+                    requireGcOwner(clock);
+                    return gcGuard(authorities.reads().acquire(actual, actualScope), actual, actualScope, clock);
+                },
+                (actual, actualScope, mutation) -> {
+                    if (!mutation.quota().counters().mutation().reservationExpiry()) {
+                        throw new IllegalStateException("expiry GC cannot commit another mutation kind");
+                    }
+                    requireGcOwner(clock);
+                    return gcGuard(physicalWrites.acquire(actual, actualScope, mutation), actual, actualScope, clock);
+                },
+                expiryQuota,
+                monotonicClock);
+    }
+
+    /** Provides one bounded alternating Close/expiry action per caller-driven maintenance turn. */
+    public synchronized TargetReservationGcRuntime newReservationGcRuntime(
+            final WorkClassExecutionRegistry registry,
+            final TargetReservationControls.Authority controls,
+            final TargetReservationClosureWorkClassExecutor.Limits closeLimits,
+            final TargetReservationExpiryWorkClassExecutor.Limits expiryLimits,
+            final TargetStoreBackend.CommitAuthority physicalWrites,
+            final TargetQuotaDelta.ReservationClosureAuthority closureQuota,
+            final TargetQuotaDelta.ReservationExpiryAuthority expiryQuota,
+            final TargetQuotaDelta.CloseCursorAuthority cursorQuota,
+            final LongSupplier ownerClock) {
+        if (maintenanceRuntime != null) {
+            throw new IllegalStateException("Target reservation GC runtime is already bound to this Owner");
+        }
+        final var closeGc = newCloseGcExecutor(
+                registry, controls, closeLimits, physicalWrites, closureQuota, expiryQuota, cursorQuota, ownerClock);
+        final var expiryGc =
+                newExpiryGcExecutor(registry, controls, expiryLimits, physicalWrites, expiryQuota, ownerClock);
+        maintenanceRuntime =
+                new TargetReservationGcRuntime(registry, scope.shard(), lease.ownerEpoch(), closeGc, expiryGc);
+        return maintenanceRuntime;
     }
 
     private TargetStoreBackend.CommitGuard gcGuard(

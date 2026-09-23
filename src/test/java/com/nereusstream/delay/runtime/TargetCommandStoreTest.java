@@ -19,6 +19,7 @@ import com.nereusstream.delay.ownership.SourceReplayRecord;
 import com.nereusstream.delay.ownership.SourceReplaySuccessor;
 import com.nereusstream.delay.ownership.TargetReservationClosureWorkClassExecutor;
 import com.nereusstream.delay.ownership.TargetReservationExpiryWorkClassExecutor;
+import com.nereusstream.delay.ownership.TargetReservationGcRuntime;
 import com.nereusstream.delay.ownership.TargetReservationQueryWorkClassExecutor;
 import com.nereusstream.delay.ownership.TargetSourceApplyRuntime;
 import com.nereusstream.delay.ownership.WorkerSourceApplyLoop;
@@ -2907,10 +2908,11 @@ class TargetCommandStoreTest {
             final var reopenedLoop =
                     new WorkerSourceApplyLoop(() -> java.util.Optional.empty(), reopenedWorkClasses, reopenedRuntime);
             final var reopenedCursorDelta = new java.util.concurrent.atomic.AtomicReference<TargetQuotaDelta>();
-            final var reopenedGc = reopenedRuntime.newCloseGcExecutor(
+            final var reopenedGc = reopenedRuntime.newReservationGcRuntime(
                     reopenedWorkClasses,
                     reopenedControls,
                     new TargetReservationClosureWorkClassExecutor.Limits(4096, 250_000, 60_000_000_000L),
+                    new TargetReservationExpiryWorkClassExecutor.Limits(2048, 100_000, 60_000_000_000L),
                     (a, b, c) -> guard(),
                     ignored -> {
                         throw new AssertionError("reopened completed Close cannot materialize");
@@ -2920,12 +2922,23 @@ class TargetCommandStoreTest {
                     },
                     reopenedCursorDelta::set,
                     () -> 101);
+            final var queued = reopenedGc.runTurn(new SchedulerBudget(1, 1, 60_000_000_000L));
+            assertTrue(queued.pending());
+            assertEquals(TargetReservationGcRuntime.Lane.CLOSE, queued.lane());
+            assertEquals(beforeReopenedGc, reopened.latestSequenceNumber());
             final var kinds = new java.util.ArrayList<TargetReservationClosureWorkClassExecutor.Kind>();
-            for (int i = 0; i < reopenedCloseTargets.length + 1; i++) {
-                final var scan = reopenedGc.submit(
-                        new TargetReservationClosureWorkClassExecutor.SweepRequest(scope.shard(), bytes(16, 0xe8 + i)));
-                reopenedWorkClasses.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
-                kinds.add(scan.result().orElseThrow().kind());
+            final var expiryKinds = new java.util.ArrayList<TargetReservationExpiryWorkClassExecutor.Kind>();
+            for (int i = 0; i < 2 * (reopenedCloseTargets.length + 1); i++) {
+                final var turn = reopenedGc.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
+                assertFalse(turn.pending());
+                if (i == 0) {
+                    assertEquals(queued.task(), turn.task());
+                }
+                if (turn.lane() == TargetReservationGcRuntime.Lane.CLOSE) {
+                    kinds.add(turn.closeResult().orElseThrow().kind());
+                } else {
+                    expiryKinds.add(turn.expiryResult().orElseThrow().kind());
+                }
             }
             assertEquals(
                     2,
@@ -2936,6 +2949,14 @@ class TargetCommandStoreTest {
                     java.util.Collections.frequency(
                             kinds, TargetReservationClosureWorkClassExecutor.Kind.RESERVATIONS_COMPLETE));
             assertEquals(TargetReservationClosureWorkClassExecutor.Kind.SWEEP_COMPLETE, kinds.getLast());
+            assertEquals(
+                    java.util.List.of(
+                            TargetReservationExpiryWorkClassExecutor.Kind.SWEEP_COMPLETE,
+                            TargetReservationExpiryWorkClassExecutor.Kind.SWEEP_COMPLETE,
+                            TargetReservationExpiryWorkClassExecutor.Kind.SWEEP_COMPLETE,
+                            TargetReservationExpiryWorkClassExecutor.Kind.SWEEP_COMPLETE),
+                    expiryKinds);
+            assertEquals(0, reopenedWorkClasses.registeredActions());
             assertEquals(5, reopened.latestSequenceNumber() - beforeReopenedGc);
             assertEquals(sourceSequenceBeforeReopenedGc, reopened.shardMutationSequence());
             assertEquals(sourceBeforeReopenedGc, reopened.appliedShardLogPosition());
