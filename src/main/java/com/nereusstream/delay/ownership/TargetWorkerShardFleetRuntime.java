@@ -59,6 +59,8 @@ public final class TargetWorkerShardFleetRuntime {
     }
 
     private final List<ShardTurns> shards;
+    private final WorkClassExecutionRegistry workClasses;
+    private final SharedRocksDbResources resources;
     private int sourceCursor;
     private int maintenanceCursor;
     private Thread activeTurnThread;
@@ -97,11 +99,24 @@ public final class TargetWorkerShardFleetRuntime {
         if (admitted.isEmpty()) {
             throw new IllegalArgumentException("Target Worker fleet requires at least one shard");
         }
+        this.workClasses = exactClasses;
+        this.resources = exactResources;
         shards = new ArrayList<>(admitted);
     }
 
     public synchronized List<ShardId> shardIds() {
         return shards.stream().map(ShardTurns::shardId).toList();
+    }
+
+    /** Admits one exact Worker-graph instance under the same lock as both dispatch cursors. */
+    synchronized void admit(final ShardTurns runtime) {
+        requireNotInSelectedTurn();
+        final var candidate = Objects.requireNonNull(runtime, "shard runtime");
+        candidate.requireFleetComposition(workClasses, resources);
+        if (shards.stream().anyMatch(shard -> shard.shardId().equals(candidate.shardId()))) {
+            throw new IllegalArgumentException("Target Worker fleet contains a duplicate shard");
+        }
+        shards.add(candidate);
     }
 
     /**

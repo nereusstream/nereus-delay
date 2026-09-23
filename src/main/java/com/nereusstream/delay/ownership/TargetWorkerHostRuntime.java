@@ -7,8 +7,10 @@ import com.nereusstream.delay.scheduler.WorkClassTask;
 import com.nereusstream.delay.store.SharedRocksDbResources;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -76,6 +78,8 @@ public final class TargetWorkerHostRuntime {
     private final TargetWorkerMaintenanceLoop maintenanceLoop;
     private final List<Shard> shards;
     private final Set<ShardId> withdrawn = new HashSet<>();
+    private final Set<ShardId> draining = new HashSet<>();
+    private final Map<ShardId, ShardDrain> completed = new HashMap<>();
     private boolean stopping;
 
     /** Starts bounded reservation GC ticks for one exact Worker graph. */
@@ -100,7 +104,7 @@ public final class TargetWorkerHostRuntime {
             final List<? extends Shard> shards) {
         this.fleet = Objects.requireNonNull(fleet, "fleet");
         this.maintenanceLoop = Objects.requireNonNull(maintenanceLoop, "maintenanceLoop");
-        this.shards = List.copyOf(Objects.requireNonNull(shards, "shards"));
+        this.shards = new ArrayList<>(Objects.requireNonNull(shards, "shards"));
         if (!fleet.shardIds().equals(this.shards.stream().map(Shard::shardId).toList())) {
             throw new IllegalArgumentException("Target host drain shards differ from maintenance fleet");
         }
@@ -115,9 +119,43 @@ public final class TargetWorkerHostRuntime {
         return fleet.runNextSourceTurn(budget, ownerClock);
     }
 
+    /** Admits a new Shard or replaces a withdrawn instance after its Owner drain completes. */
+    public void admitShard(final TargetWorkerShardRuntime shard) {
+        admitShard(shard, shard);
+    }
+
+    /** Test seam for membership without constructing native Stores. */
+    synchronized void admitShard(final Shard shard, final TargetWorkerShardFleetRuntime.ShardTurns turns) {
+        if (stopping) {
+            throw new IllegalStateException("Target host admission is stopping");
+        }
+        if (Objects.requireNonNull(shard, "shard") != Objects.requireNonNull(turns, "turns")) {
+            throw new IllegalArgumentException("Target host source and maintenance instance differ");
+        }
+        final ShardId shardId = Objects.requireNonNull(shard.shardId(), "shardId");
+        final int previousIndex = indexOfShard(shardId);
+        if (previousIndex >= 0 && shards.get(previousIndex) == shard) {
+            throw new IllegalArgumentException("Target host cannot readmit the same shard instance");
+        }
+        if (previousIndex >= 0
+                && (!withdrawn.contains(shardId) || draining.contains(shardId) || !completed.containsKey(shardId))) {
+            throw new IllegalStateException("Target host cannot replace a live or incompletely drained shard");
+        }
+        synchronized (fleet) {
+            fleet.admit(turns);
+            if (previousIndex < 0) {
+                shards.add(shard);
+            } else {
+                shards.set(previousIndex, shard);
+                withdrawn.remove(shardId);
+                completed.remove(shardId);
+            }
+        }
+    }
+
     /**
-     * Stops all maintenance ticks before touching any Store. Each call attempts every Shard;
-     * pending source/GC and ordinary failures remain visible for a same-host retry.
+     * Stops all maintenance ticks before whole-host Store drain. Each call retries incomplete
+     * Shards; pending source/GC and ordinary failures remain visible for a same-host retry.
      */
     public synchronized Result drainAll(
             final TargetOwnerDrainCoordinator.Request request,
@@ -128,9 +166,22 @@ public final class TargetWorkerHostRuntime {
         Objects.requireNonNull(ownerClock, "ownerClock");
         stopping = true;
         maintenanceLoop.close();
+        while (!draining.isEmpty()) {
+            try {
+                wait();
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Target host drain interrupted while waiting for a shard", interrupted);
+            }
+        }
         final var results = new ArrayList<ShardDrain>(shards.size());
         for (Shard shard : shards) {
-            results.add(drainOne(shard, request, sourceBudget, ownerClock));
+            final ShardDrain prior = completed.get(shard.shardId());
+            final ShardDrain result = prior != null ? prior : drainOne(shard, request, sourceBudget, ownerClock);
+            if (result.complete()) {
+                completed.put(shard.shardId(), result);
+            }
+            results.add(result);
         }
         return new Result(results);
     }
@@ -141,7 +192,16 @@ public final class TargetWorkerHostRuntime {
      * withdrawn Shard identity; the maintenance loop keeps serving the rest of the fleet.
      */
     public ShardDrain drainShard(
-            final ShardId shardId,
+            final TargetWorkerShardRuntime shard,
+            final TargetOwnerDrainCoordinator.Request request,
+            final SchedulerBudget sourceBudget,
+            final LongSupplier ownerClock) {
+        return drainShard((Shard) shard, request, sourceBudget, ownerClock);
+    }
+
+    /** The exact instance check fences a late withdrawal after the same ShardId is replaced. */
+    ShardDrain drainShard(
+            final Shard expectedShard,
             final TargetOwnerDrainCoordinator.Request request,
             final SchedulerBudget sourceBudget,
             final LongSupplier ownerClock) {
@@ -150,13 +210,54 @@ public final class TargetWorkerHostRuntime {
         Objects.requireNonNull(ownerClock, "ownerClock");
         final Shard shard;
         synchronized (this) {
-            shard = requireShard(shardId);
-            if (!withdrawn.contains(shardId) && !stopping) {
-                fleet.withdraw(shardId);
-                withdrawn.add(shardId);
+            shard = requireShard(Objects.requireNonNull(expectedShard, "shard").shardId());
+            if (shard != expectedShard) {
+                throw new IllegalArgumentException("Target host shard instance has been replaced");
+            }
+            final ShardDrain prior = completed.get(shard.shardId());
+            if (prior != null) {
+                return prior;
+            }
+            final ShardId shardId = shard.shardId();
+            if (stopping) {
+                throw new IllegalStateException("Target host whole-fleet drain is stopping");
+            }
+            if (!draining.add(shardId)) {
+                throw new IllegalStateException("Target host shard drain is already in progress");
+            }
+            if (!withdrawn.contains(shardId)) {
+                try {
+                    fleet.withdraw(shardId);
+                    withdrawn.add(shardId);
+                } catch (RuntimeException | Error failure) {
+                    draining.remove(shardId);
+                    notifyAll();
+                    throw failure;
+                }
             }
         }
-        return drainOne(shard, request, sourceBudget, ownerClock);
+        ShardDrain result = null;
+        try {
+            result = drainOne(shard, request, sourceBudget, ownerClock);
+            return result;
+        } finally {
+            synchronized (this) {
+                if (result != null && result.complete() && requireShard(shard.shardId()) == shard) {
+                    completed.put(shard.shardId(), result);
+                }
+                draining.remove(shard.shardId());
+                notifyAll();
+            }
+        }
+    }
+
+    private int indexOfShard(final ShardId shardId) {
+        for (int index = 0; index < shards.size(); index++) {
+            if (shardId.equals(shards.get(index).shardId())) {
+                return index;
+            }
+        }
+        return -1;
     }
 
     private Shard requireShard(final ShardId shardId) {

@@ -188,7 +188,7 @@ class TargetWorkerShardFleetRuntimeTest {
                         host.drainAll(new TargetOwnerDrainCoordinator.Request(5_000, budget), budget, () -> 101);
                 assertTrue(retry.complete());
                 assertEquals(2, first.drainCalls.get());
-                assertEquals(2, second.drainCalls.get());
+                assertEquals(1, second.drainCalls.get());
             } finally {
                 releaseMaintenance.countDown();
                 loop.close();
@@ -222,7 +222,7 @@ class TargetWorkerShardFleetRuntimeTest {
                 loop.start();
                 assertTrue(first.enteredMaintenance.await(5, TimeUnit.SECONDS));
                 final var withdrawing = closer.submit(() -> host.drainShard(
-                        first.shard, new TargetOwnerDrainCoordinator.Request(5_000, budget), budget, () -> 101));
+                        first, new TargetOwnerDrainCoordinator.Request(5_000, budget), budget, () -> 101));
                 assertThrows(TimeoutException.class, () -> withdrawing.get(100, TimeUnit.MILLISECONDS));
                 assertEquals(0, first.drainCalls.get());
 
@@ -254,6 +254,195 @@ class TargetWorkerShardFleetRuntimeTest {
         } finally {
             executor.shutdownNow();
             closer.shutdownNow();
+        }
+    }
+
+    @Test
+    void hostAdmitsNewShardAndReplacesOnlyCompletedInstanceWithExactGraph() {
+        final var registry = registry();
+        final var executor = Executors.newSingleThreadScheduledExecutor();
+        try (var resources = new SharedRocksDbResources(ShardStoreConfig.defaults(tempDir.resolve("host-admit")))) {
+            final var first = new StubShard(new ShardId(RouteIncarnation.random(), 1), registry, resources);
+            final var second = new StubShard(new ShardId(RouteIncarnation.random(), 2), registry, resources);
+            final var replacement = new StubShard(first.shard, registry, resources);
+            final var foreign = new StubShard(new ShardId(RouteIncarnation.random(), 3), registry(), resources);
+            final var fleet = new TargetWorkerShardFleetRuntime(registry, resources, first);
+            final var budget = new SchedulerBudget(1, 1000, 1_000_000);
+            final var request = new TargetOwnerDrainCoordinator.Request(5_000, budget);
+            final var loop =
+                    new TargetWorkerMaintenanceLoop(fleet, budget, Duration.ofSeconds(10), failure -> {}, executor);
+            final var host = new TargetWorkerHostRuntime(fleet, loop, List.of(first));
+            try {
+                assertThrows(IllegalArgumentException.class, () -> host.admitShard(foreign, foreign));
+                assertThrows(IllegalArgumentException.class, () -> host.admitShard(first, second));
+                host.admitShard(second, second);
+                assertEquals(List.of(first.shard, second.shard), fleet.shardIds());
+                assertThrows(IllegalStateException.class, () -> host.admitShard(replacement, replacement));
+
+                first.failNextDrain = true;
+                assertEquals(
+                        TargetWorkerHostRuntime.Status.FAILED,
+                        host.drainShard(first, request, budget, () -> 101).status());
+                assertEquals(List.of(second.shard), fleet.shardIds());
+                assertThrows(IllegalStateException.class, () -> host.admitShard(replacement, replacement));
+                assertEquals(
+                        second.shard, host.runNextSourceTurn(budget, () -> 101).shardId());
+                loop.pollNow();
+                assertEquals(1, second.maintenanceTurns.get());
+
+                assertEquals(
+                        TargetWorkerHostRuntime.Status.RELEASED,
+                        host.drainShard(first, request, budget, () -> 101).status());
+                assertThrows(IllegalArgumentException.class, () -> host.admitShard(first, first));
+                host.admitShard(replacement, replacement);
+                assertEquals(List.of(second.shard, replacement.shard), fleet.shardIds());
+                assertThrows(IllegalArgumentException.class, () -> host.drainShard(first, request, budget, () -> 101));
+                assertEquals(
+                        second.shard, host.runNextSourceTurn(budget, () -> 101).shardId());
+                assertEquals(
+                        replacement.shard,
+                        host.runNextSourceTurn(budget, () -> 101).shardId());
+                loop.pollNow();
+                loop.pollNow();
+                assertEquals(1, replacement.maintenanceTurns.get());
+
+                assertTrue(host.drainAll(request, budget, () -> 101).complete());
+                assertEquals(2, first.drainCalls.get());
+                assertEquals(1, second.drainCalls.get());
+                assertEquals(1, replacement.drainCalls.get());
+                assertThrows(IllegalStateException.class, () -> host.admitShard(foreign, foreign));
+            } finally {
+                loop.close();
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void admissionWaitsForInFlightDrainAndRejectsReplacementUntilTerminalResult() throws Exception {
+        final var registry = registry();
+        final var executor = Executors.newSingleThreadScheduledExecutor();
+        final var drainer = Executors.newSingleThreadExecutor();
+        final var releaseDrain = new CountDownLatch(1);
+        try (var resources = new SharedRocksDbResources(ShardStoreConfig.defaults(tempDir.resolve("admit-drain")))) {
+            final var first = new StubShard(new ShardId(RouteIncarnation.random(), 1), registry, resources);
+            final var replacement = new StubShard(first.shard, registry, resources);
+            final var fleet = new TargetWorkerShardFleetRuntime(registry, resources, first);
+            final var budget = new SchedulerBudget(1, 1000, 1_000_000);
+            final var request = new TargetOwnerDrainCoordinator.Request(5_000, budget);
+            final var loop =
+                    new TargetWorkerMaintenanceLoop(fleet, budget, Duration.ofSeconds(10), failure -> {}, executor);
+            final var host = new TargetWorkerHostRuntime(fleet, loop, List.of(first));
+            first.enteredDrain = new CountDownLatch(1);
+            first.releaseDrain = releaseDrain;
+            try {
+                final var draining = drainer.submit(() -> host.drainShard(first, request, budget, () -> 101));
+                assertTrue(first.enteredDrain.await(5, TimeUnit.SECONDS));
+                assertTrue(fleet.shardIds().isEmpty());
+                assertThrows(IllegalStateException.class, () -> host.admitShard(replacement, replacement));
+                assertThrows(IllegalStateException.class, () -> host.drainShard(first, request, budget, () -> 101));
+                releaseDrain.countDown();
+                assertEquals(
+                        TargetWorkerHostRuntime.Status.RELEASED,
+                        draining.get(5, TimeUnit.SECONDS).status());
+                host.admitShard(replacement, replacement);
+                assertEquals(
+                        replacement.shard,
+                        host.runNextSourceTurn(budget, () -> 101).shardId());
+            } finally {
+                releaseDrain.countDown();
+                loop.close();
+            }
+        } finally {
+            executor.shutdownNow();
+            drainer.shutdownNow();
+        }
+    }
+
+    @Test
+    void wholeHostShutdownWaitsForSingleShardDrainWithoutRepeatingReleasedStore() throws Exception {
+        final var registry = registry();
+        final var executor = Executors.newSingleThreadScheduledExecutor();
+        final var drainer = Executors.newSingleThreadExecutor();
+        final var closer = Executors.newSingleThreadExecutor();
+        final var releaseDrain = new CountDownLatch(1);
+        try (var resources = new SharedRocksDbResources(ShardStoreConfig.defaults(tempDir.resolve("admit-shutdown")))) {
+            final var first = new StubShard(new ShardId(RouteIncarnation.random(), 1), registry, resources);
+            final var second = new StubShard(new ShardId(RouteIncarnation.random(), 2), registry, resources);
+            final var fleet = new TargetWorkerShardFleetRuntime(registry, resources, first, second);
+            final var budget = new SchedulerBudget(1, 1000, 1_000_000);
+            final var request = new TargetOwnerDrainCoordinator.Request(5_000, budget);
+            final var loop =
+                    new TargetWorkerMaintenanceLoop(fleet, budget, Duration.ofSeconds(10), failure -> {}, executor);
+            final var host = new TargetWorkerHostRuntime(fleet, loop, List.of(first, second));
+            first.enteredDrain = new CountDownLatch(1);
+            first.releaseDrain = releaseDrain;
+            try {
+                final var draining = drainer.submit(() -> host.drainShard(first, request, budget, () -> 101));
+                assertTrue(first.enteredDrain.await(5, TimeUnit.SECONDS));
+                final var closing = closer.submit(() -> host.drainAll(request, budget, () -> 101));
+                assertThrows(TimeoutException.class, () -> closing.get(100, TimeUnit.MILLISECONDS));
+                assertTrue(host.stopping());
+                assertEquals(0, second.drainCalls.get());
+                releaseDrain.countDown();
+                assertEquals(
+                        TargetWorkerHostRuntime.Status.RELEASED,
+                        draining.get(5, TimeUnit.SECONDS).status());
+                assertTrue(closing.get(5, TimeUnit.SECONDS).complete());
+                assertEquals(1, first.drainCalls.get());
+                assertEquals(1, second.drainCalls.get());
+            } finally {
+                releaseDrain.countDown();
+                loop.close();
+            }
+        } finally {
+            executor.shutdownNow();
+            drainer.shutdownNow();
+            closer.shutdownNow();
+        }
+    }
+
+    @Test
+    void admissionWaitsForSelectedMaintenanceTurnBeforePublishingNewMember() throws Exception {
+        final var registry = registry();
+        final var executor = Executors.newSingleThreadScheduledExecutor();
+        final var admitting = Executors.newSingleThreadExecutor();
+        final var releaseMaintenance = new CountDownLatch(1);
+        try (var resources = new SharedRocksDbResources(ShardStoreConfig.defaults(tempDir.resolve("admit-gc")))) {
+            final var first = new StubShard(new ShardId(RouteIncarnation.random(), 1), registry, resources);
+            final var second = new StubShard(new ShardId(RouteIncarnation.random(), 2), registry, resources);
+            first.enteredMaintenance = new CountDownLatch(1);
+            first.releaseMaintenance = releaseMaintenance;
+            final var fleet = new TargetWorkerShardFleetRuntime(registry, resources, first);
+            final var budget = new SchedulerBudget(1, 1000, 1_000_000);
+            final var loop =
+                    new TargetWorkerMaintenanceLoop(fleet, budget, Duration.ofSeconds(10), failure -> {}, executor);
+            final var host = new TargetWorkerHostRuntime(fleet, loop, List.of(first));
+            try {
+                loop.start();
+                assertTrue(first.enteredMaintenance.await(5, TimeUnit.SECONDS));
+                final var admissionStarted = new CountDownLatch(1);
+                final var adding = admitting.submit(() -> {
+                    admissionStarted.countDown();
+                    host.admitShard(second, second);
+                });
+                assertTrue(admissionStarted.await(5, TimeUnit.SECONDS));
+                assertThrows(TimeoutException.class, () -> adding.get(100, TimeUnit.MILLISECONDS));
+                releaseMaintenance.countDown();
+                adding.get(5, TimeUnit.SECONDS);
+                assertEquals(List.of(first.shard, second.shard), fleet.shardIds());
+                assertEquals(
+                        first.shard, host.runNextSourceTurn(budget, () -> 101).shardId());
+                assertEquals(
+                        second.shard, host.runNextSourceTurn(budget, () -> 101).shardId());
+            } finally {
+                releaseMaintenance.countDown();
+                loop.close();
+            }
+        } finally {
+            executor.shutdownNow();
+            admitting.shutdownNow();
         }
     }
 

@@ -18398,7 +18398,7 @@ exceptions. Exact authority rereads and retries complete the same drain
 without releasing a replacement Owner or reopening a closed Store. This is
 in-memory fault injection, not real Oxia/session failure evidence. A Target
 final checkpoint is still blocked by the format boundary:
-`CheckpointManifest` accepts only format 1, and the current restore path opens
+`CheckpointManifest` now encodes format 2, but the current restore path opens
 format 1. A format-2 RocksDB snapshot alone is not a publishable, recoverable
 Target checkpoint.
 
@@ -18436,3 +18436,13 @@ their adapters or advance the pending intent. Catalog and Oxia publication
 remain closed for format 2. Target control-state evidence, physical image
 verification, catalog ancestry and install/replay authority are still required
 before this manifest can represent a recoverable Target checkpoint.
+
+The local Target host now admits a new Shard on the exact Worker resource and
+WorkClass graph. A same-ID replacement requires the previous instance to be
+withdrawn and terminally drained; the drain API checks instance identity so
+late requests for the old instance cannot withdraw its replacement. Whole-host
+shutdown waits for any single-Shard drain and reuses completed results instead
+of closing an already released Store again. Focused scheduler tests cover
+admission, replacement rejection during failed or in-flight drain, stale
+instance rejection and shutdown waiting. Assignment-driven production wiring,
+real Broker/Oxia takeover and format-2 checkpoint recovery remain open.
