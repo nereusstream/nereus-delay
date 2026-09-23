@@ -18505,3 +18505,15 @@ reuses an existing candidate only after the same checks and business-ledger
 fold, with no native write. The real Worker image passes exact reuse; changed
 ID, lineage or an intervening native write is rejected. These are local recorded facts, not authentication
 of the current Owner or permission to upload/install the image.
+
+The local format-2 candidate now has a bounded CHECKPOINT work-class executor.
+Submission and execution reread the exact pending upload intent and session-bound
+active Owner Lease, matching the shard, Store incarnation, checkpoint ID/lineage,
+fencing identity, opened Owner epoch and deadline; both authorities are checked
+again after physical creation or zero-write reuse. A real Target Worker Store
+test passes queued creation and reuse, while queued intent reaping or Owner
+drain rejects a new candidate without a native write. Production checkpoint
+scheduling and protected Broker source cut, complete Owner identity assembly,
+authenticated control/semantic state, Manifest/Catalog publication and
+restore/install remain open. C5 is IN_PROGRESS and format-2 publish/restore
+gates remain closed.

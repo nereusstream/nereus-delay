@@ -22,6 +22,8 @@ import com.nereusstream.delay.ownership.WorkerSourceApplyLoop;
 import com.nereusstream.delay.protocol.AuthorIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CapacityVector;
+import com.nereusstream.delay.protocol.CheckpointUploadIntent;
+import com.nereusstream.delay.protocol.CheckpointUploadState;
 import com.nereusstream.delay.protocol.ControlAuthor;
 import com.nereusstream.delay.protocol.ControlAuthorizationContext;
 import com.nereusstream.delay.protocol.ControlRef;
@@ -32,7 +34,10 @@ import com.nereusstream.delay.protocol.ControlTargetRef;
 import com.nereusstream.delay.protocol.EvidenceCursor;
 import com.nereusstream.delay.protocol.KafkaActivationBarrier;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
+import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.PreparedControlOperation;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
 import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.StableCode;
@@ -58,6 +63,7 @@ import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.CheckpointFileInventory;
 import com.nereusstream.delay.store.CheckpointManifest;
 import com.nereusstream.delay.store.CheckpointManifestLimits;
+import com.nereusstream.delay.store.CheckpointUploadIntentStore;
 import com.nereusstream.delay.store.ColumnFamily;
 import com.nereusstream.delay.store.IngressFenceState;
 import com.nereusstream.delay.store.KeyCodec;
@@ -65,6 +71,7 @@ import com.nereusstream.delay.store.ShardStore;
 import com.nereusstream.delay.store.ShardStoreConfig;
 import com.nereusstream.delay.store.SharedRocksDbResources;
 import com.nereusstream.delay.store.TargetCheckpointCandidateTestBridge;
+import com.nereusstream.delay.store.TargetCheckpointCandidateWorkClassExecutor;
 import com.nereusstream.delay.store.TargetCheckpointRootVerifier;
 import com.nereusstream.delay.store.TargetKeyCodec;
 import com.nereusstream.delay.store.TargetStoreBackend;
@@ -674,6 +681,54 @@ class TargetQuotaGrantStoreTest {
         final Path candidate = root.resolve("target-candidate");
         try (var resources = new SharedRocksDbResources(config);
                 var live = ShardStore.openTarget(config, scope.shard(), resources)) {
+            final var candidateAssignment = new SourceAssignment(
+                    scope.shard(),
+                    bytes(32, 0x61),
+                    1,
+                    new KafkaActivationBarrier(
+                            scope.shard(), origin.authenticatedClusterId(), origin.nativeTopicUuid(), origin.offset()));
+            final var candidateLeases = new OxiaOwnerLeaseStore(new InMemoryOwnerLeaseStore());
+            final var candidateAcquiring = candidateLeases
+                    .acquire(candidateAssignment, "target-worker", bytes(32, 0x62), 1, 10_000)
+                    .orElseThrow();
+            final var candidateOwner = candidateLeases
+                    .transition(candidateAcquiring, ShardLifecycleState.ACTIVE_FOR_COMMANDS)
+                    .orElseThrow();
+            assertEquals(openedOwnerEpoch, candidateOwner.ownerEpoch());
+            final var pending = new CheckpointUploadIntent(
+                    new ShardSubject(scope.shard()),
+                    lineage,
+                    checkpointId,
+                    new OwnerIdentity(bytes(8, 0x40), bytes(8, 0x41), openedOwnerEpoch, candidateOwner.leaseToken()),
+                    live.metadata().storeIncarnation(),
+                    bytes(32, 0x42),
+                    1,
+                    null,
+                    null,
+                    new ProfileRef(bytes(8, 0x43), 1, bytes(32, 0x44), ProfileKind.OBJECT_STORE),
+                    new TrustedUtcIntervalEvidence(
+                            1,
+                            2,
+                            TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                            bytes(32, 0x45),
+                            1,
+                            1,
+                            1,
+                            bytes(32, 0x46),
+                            0,
+                            null),
+                    5_000,
+                    CheckpointUploadState.PENDING_UPLOAD,
+                    1,
+                    null,
+                    null);
+            final var candidateIntents = new CheckpointUploadIntentStore();
+            candidateIntents.create(pending);
+            final var candidateClasses = workClasses();
+            final var candidateExecutor = new TargetCheckpointCandidateWorkClassExecutor(
+                    candidateClasses, live, candidateLeases, candidateIntents, () -> 100);
+            final var candidateRequest = new TargetCheckpointCandidateWorkClassExecutor.Request(
+                    candidate, pending, candidateOwner, imageLimits, quotaAuditLimits, ledgerAuditLimits);
             final long beforeInvalidLimits = live.operationStatistics().nativeWriteCalls();
             assertThrows(
                     IllegalArgumentException.class,
@@ -702,16 +757,62 @@ class TargetQuotaGrantStoreTest {
                     .contains("ledger scan budget"));
             assertTrue(Files.notExists(failedCandidate));
             assertArrayEquals(checkpointId, live.runtimeMetadata().lastCheckpointId());
-            assertEquals(
-                    candidate,
-                    TargetCheckpointCandidateTestBridge.create(
-                            live, candidate, checkpointId, lineage, imageLimits, quotaAuditLimits, ledgerAuditLimits));
+            final long beforeQueue = live.operationStatistics().nativeWriteCalls();
+            final var queuedCandidate = candidateExecutor.submit(candidateRequest);
+            assertTrue(Files.notExists(candidate));
+            assertEquals(beforeQueue, live.operationStatistics().nativeWriteCalls());
+            candidateClasses.runTurn(new SchedulerBudget(1, queuedCandidate.task().bytes(), 1_000));
+            assertEquals(candidate, queuedCandidate.outcome().orElseThrow().checkpointPath());
             final long beforeReuse = live.operationStatistics().nativeWriteCalls();
-            assertEquals(
-                    candidate,
-                    TargetCheckpointCandidateTestBridge.reuse(
-                            live, candidate, checkpointId, lineage, imageLimits, quotaAuditLimits, ledgerAuditLimits));
+            final var queuedReuse = candidateExecutor.submit(candidateRequest);
+            candidateClasses.runTurn(new SchedulerBudget(1, queuedReuse.task().bytes(), 1_000));
+            assertEquals(candidate, queuedReuse.outcome().orElseThrow().checkpointPath());
             assertEquals(beforeReuse, live.operationStatistics().nativeWriteCalls());
+            final var staleIntents = new CheckpointUploadIntentStore();
+            staleIntents.create(pending);
+            final var staleIntentExecutor = new TargetCheckpointCandidateWorkClassExecutor(
+                    candidateClasses, live, candidateLeases, staleIntents, () -> 100);
+            final Path lostIntentCandidate = root.resolve("target-candidate-lost-intent");
+            final var queuedAfterIntentLoss = staleIntentExecutor.submit(
+                    new TargetCheckpointCandidateWorkClassExecutor.Request(
+                            lostIntentCandidate,
+                            pending,
+                            candidateOwner,
+                            imageLimits,
+                            quotaAuditLimits,
+                            ledgerAuditLimits));
+            staleIntents.beginReaping(
+                    pending,
+                    new TrustedUtcIntervalEvidence(
+                            5_000,
+                            5_001,
+                            TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                            bytes(32, 0x47),
+                            1,
+                            2,
+                            2,
+                            bytes(32, 0x48),
+                            0,
+                            null));
+            candidateClasses.runTurn(new SchedulerBudget(1, queuedAfterIntentLoss.task().bytes(), 1_000));
+            assertTrue(queuedAfterIntentLoss.outcome().orElseThrow().failure() instanceof IllegalStateException);
+            assertTrue(Files.notExists(lostIntentCandidate));
+            assertEquals(beforeReuse, live.operationStatistics().nativeWriteCalls());
+            final Path lostOwnerCandidate = root.resolve("target-candidate-lost-owner");
+            final var queuedAfterOwnerLoss = candidateExecutor.submit(
+                    new TargetCheckpointCandidateWorkClassExecutor.Request(
+                            lostOwnerCandidate,
+                            pending,
+                            candidateOwner,
+                            imageLimits,
+                            quotaAuditLimits,
+                            ledgerAuditLimits));
+            candidateLeases.transition(candidateOwner, ShardLifecycleState.DRAINING).orElseThrow();
+            final long beforeOwnerLoss = live.operationStatistics().nativeWriteCalls();
+            candidateClasses.runTurn(new SchedulerBudget(1, queuedAfterOwnerLoss.task().bytes(), 1_000));
+            assertTrue(queuedAfterOwnerLoss.outcome().orElseThrow().failure() instanceof IllegalStateException);
+            assertTrue(Files.notExists(lostOwnerCandidate));
+            assertEquals(beforeOwnerLoss, live.operationStatistics().nativeWriteCalls());
             assertThrows(
                     IllegalStateException.class,
                     () -> TargetCheckpointCandidateTestBridge.reuse(

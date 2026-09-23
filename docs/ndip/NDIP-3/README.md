@@ -454,3 +454,10 @@ META8 opened Owner epoch、META6 evidence cursors；没有已打开 Owner 或已
 时在写前拒绝。同一 checkpoint ID 响应丢失后，可在完整只读审计成功且上述身份未变时
 零写复用现有目录；错 ID/lineage 或任何后续 native 写均拒绝。该复用核对本地持久事实，不认证当前外部 Owner
 lease，也不解除 Manifest/上传/安装门禁。
+
+本地 Target 候选现在可经同一 Worker 的 `CHECKPOINT` 队列执行：提交和执行时核对当前
+session-bound ACTIVE Owner lease、精确 pending upload intent、Store/ID/lineage 和有效期，
+物理操作后再次核对。实际 Worker Store 的排队创建、零写复用与排队后 Owner/intent
+失效拒绝已通过局部测试。生产 checkpoint 调度与 source cut、完整 Owner 身份组装、
+认证控制/语义快照、Manifest/Catalog 发布和 restore/install 尚未贯通；C5 和 format 2
+发布/恢复门禁保持原状态。
