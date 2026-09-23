@@ -15,10 +15,12 @@ Target Close 首次原子批次现写入绑定首个 NV39 marker 与 recovery li
 Close 发现入口验证 marker、CLOSED queue、游标与双 ID，只读当前第一个剩余候选。
 首候选由 Close 或到期物化时，游标与终态、原 payload owner、两 counter/total/aggregate
 同批前移；非首候选终态不跳过索引。空扫描可用独立 field7 本地 mutation 记录完成，
-不推进 source。四个实际 Worker 场景及协议检查通过；首次 Close 13 条 native 写，
-带游标的 Close 物化 10 条。空扫描成功提交尚待实际 Store 场景验证；可恢复 GC 调度、
-关闭汇总转移、生产历史权限/配置/factory、format2 回填、完整迁移/恢复和集中验证
-仍未完成。原 29 切片不缩减。
+不推进 source。按 Target 的 GC WorkClass action 现从持久游标重新发现一个候选，
+共享读预算并按有效终态分流 Close/expiry；Owner 失权零写，重复任务读出已完成状态。
+四个实际 Worker 场景及协议检查通过；首次 Close 13 条 native 写，带游标的 Close 物化
+10 条。空扫描成功提交尚待实际 Store 场景验证；持久触发/跨 Target 公平调度与恢复
+枚举、关闭汇总转移、生产历史权限/配置/factory、format2 回填、完整迁移/恢复和集中
+验证仍未完成。原 29 切片不缩减。
 
 以下为前序认证入口实施记录；持久 writer 的当前进展以上述说明为准。
 

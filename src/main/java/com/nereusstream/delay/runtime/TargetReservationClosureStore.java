@@ -37,6 +37,55 @@ public final class TargetReservationClosureStore {
         this.lineage = Bytes.copy(lineage);
     }
 
+    public void requireShard(com.nereusstream.delay.protocol.ShardId shard) {
+        if (!scope.shard().equals(Objects.requireNonNull(shard, "shard"))) {
+            throw new IllegalArgumentException("Target Close discovery targets another Shard");
+        }
+    }
+
+    public enum Progress {
+        NOT_CLOSED,
+        OPEN,
+        COMPLETE
+    }
+
+    /** Distinguish an absent marker from a completed cursor after an empty discovery. */
+    public Progress progress(
+            BoundedReadBudget budget, TargetPartitionId target, TargetStoreBackend.ReadAuthority reads) {
+        Objects.requireNonNull(target, "target");
+        return backend.guardedRead(
+                budget,
+                reader -> {
+                    if (reader.source() == null || !reader.shardId().equals(scope.shard())) {
+                        throw new IllegalStateException("Target Close progress requires its established Shard source");
+                    }
+                    final byte[] key = TargetKeyCodec.close(target);
+                    final byte[] raw = reader.get(ColumnFamily.META, key);
+                    if (raw == null) {
+                        if (reader.get(ColumnFamily.META, TargetKeyCodec.closeCursor(target)) != null) {
+                            throw new IllegalStateException("Close cursor exists without its first marker");
+                        }
+                        return Progress.NOT_CLOSED;
+                    }
+                    final var marker = TargetCloseRecord.decodeForStore(
+                            key,
+                            TargetValueEnvelope.decode(raw, TargetCloseRecord.VALUE_TYPE)
+                                    .payload(),
+                            scope.shard(),
+                            lineage);
+                    marker.mutation().requireAtOrBefore(reader.aggregate().mutation());
+                    final var queue = TargetQueueState.decode(TargetValueEnvelope.decode(
+                                    reader.get(ColumnFamily.META, TargetKeyCodec.state(target)),
+                                    TargetQueueState.VALUE_TYPE)
+                            .payload());
+                    marker.requireQueue(queue);
+                    final var cursor = loadCursor(reader, target, marker);
+                    cursor.mutation().requireAtOrBefore(reader.aggregate().mutation());
+                    return cursor.complete() ? Progress.COMPLETE : Progress.OPEN;
+                },
+                reads);
+    }
+
     /**
      * Read the first remaining active reservation for one durably closed Target, without a Shard-wide scan.
      * This is discovery only: empty proves no remaining indexed reservations, not completion of all Close obligations.

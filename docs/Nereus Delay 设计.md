@@ -6455,3 +6455,7 @@ Floor及Admitted保护。生产限额必须覆盖新增索引的最大实际批�
 ### 2026-09-23 NDIP-3 Target Close 游标实施边界
 
 首次接受 Target Close 现同批建立 NV40 持久游标；活跃 reservation 首候选终态化时同批推进，空索引可用独立 field7 本地 mutation 标完成。身份绑定首次 marker 与 lineage，费用由实际 Target/tenant mirror 账本承担，source 不因本地物化前移。可恢复 GC 调度、关闭汇总/其它 admitted 义务、format2 回填和生产恢复认证仍属于未完成实现。
+
+### 2026-09-23 NDIP-3 Target Close GC 单步边界
+
+GC WorkClass 现可针对指定 Target 从持久 NV40 重新发现一个活跃 reservation，并按 Close/expiry 的有效终态调用原子点 writer；完成游标的重读不重复写入。持久触发、跨 Target 公平与 Owner 接管枚举、其它 admitted/汇总/对象义务和完整 Broker/恢复认证仍未实现。

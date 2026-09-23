@@ -17,6 +17,7 @@ import com.nereusstream.delay.ownership.SourceRecordConsumer;
 import com.nereusstream.delay.ownership.SourceReplayMutation;
 import com.nereusstream.delay.ownership.SourceReplayRecord;
 import com.nereusstream.delay.ownership.SourceReplaySuccessor;
+import com.nereusstream.delay.ownership.TargetReservationClosureWorkClassExecutor;
 import com.nereusstream.delay.ownership.TargetReservationExpiryWorkClassExecutor;
 import com.nereusstream.delay.ownership.TargetReservationQueryWorkClassExecutor;
 import com.nereusstream.delay.ownership.TargetSourceApplyRuntime;
@@ -2172,12 +2173,42 @@ class TargetCommandStoreTest {
             assertArrayEquals(fifthRaw, store.get(ColumnFamily.ID, fifthKey));
             assertArrayEquals(fifthRaw, store.get(ColumnFamily.TIMELINE, fifthReservation.expiryKey()));
             final var closureDelta = new java.util.concurrent.atomic.AtomicReference<TargetQuotaDelta>();
-            assertTrue(closures.materialize(
-                    budget(),
-                    fifthReservation.reservationId(),
+            final var closeGc = new TargetReservationClosureWorkClassExecutor(
+                    workerClasses,
+                    backend,
+                    scope,
+                    lineage,
+                    1,
+                    reservationControls,
+                    new TargetReservationClosureWorkClassExecutor.Limits(4096, 250_000, 60_000_000_000L),
+                    () -> {},
                     queryAuthority,
                     (a, b, c) -> guard(),
-                    closureDelta::set));
+                    closureDelta::set,
+                    ignored -> {
+                        throw new AssertionError("Close-first candidate used expiry accounting");
+                    },
+                    ignored -> {
+                        throw new AssertionError("active reservation completed empty Close");
+                    },
+                    System::nanoTime);
+            queryOwnerCurrent.set(false);
+            final var rejectedCloseGc = closeGc.submit(new TargetReservationClosureWorkClassExecutor.Request(
+                    scope.shard(), physical.id(), bytes(16, 0xd0)));
+            workerClasses.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
+            assertEquals(
+                    TargetReservationClosureWorkClassExecutor.Kind.FAILED,
+                    rejectedCloseGc.result().orElseThrow().kind());
+            assertEquals(beforeClosureWrite, store.latestSequenceNumber());
+            queryOwnerCurrent.set(true);
+            final var closeGcStep = closeGc.submit(new TargetReservationClosureWorkClassExecutor.Request(
+                    scope.shard(), physical.id(), bytes(16, 0xd1)));
+            assertEquals(WorkClass.GC, closeGcStep.task().workClass());
+            assertEquals(beforeClosureWrite, store.latestSequenceNumber());
+            workerClasses.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
+            assertEquals(
+                    TargetReservationClosureWorkClassExecutor.Kind.CLOSE_MATERIALIZED,
+                    closeGcStep.result().orElseThrow().kind());
             assertEquals(10, store.latestSequenceNumber() - beforeClosureWrite);
             assertEquals(beforeClosureSourceSequence, store.shardMutationSequence());
             assertArrayEquals(
@@ -2261,6 +2292,22 @@ class TargetCommandStoreTest {
                     beforeCloseUsage.resources().amount(CapacityDimension.RETAINED_BYTES) + 100,
                     afterClosureUsage.resources().amount(CapacityDimension.RETAINED_BYTES));
             final long afterClosureWrite = store.latestSequenceNumber();
+            final var repeatedCloseGc = closeGc.submit(new TargetReservationClosureWorkClassExecutor.Request(
+                    scope.shard(), physical.id(), bytes(16, 0xd2)));
+            workerClasses.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
+            assertEquals(
+                    TargetReservationClosureWorkClassExecutor.Kind.ALREADY_COMPLETE,
+                    repeatedCloseGc.result().orElseThrow().kind());
+            assertEquals(afterClosureWrite, store.latestSequenceNumber());
+            final var missingCloseGc = closeGc.submit(new TargetReservationClosureWorkClassExecutor.Request(
+                    scope.shard(),
+                    new com.nereusstream.delay.protocol.TargetPartitionId(bytes(32, 0xfe)),
+                    bytes(16, 0xd3)));
+            workerClasses.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
+            assertEquals(
+                    TargetReservationClosureWorkClassExecutor.Kind.NO_CLOSE_MARKER,
+                    missingCloseGc.result().orElseThrow().kind());
+            assertEquals(afterClosureWrite, store.latestSequenceNumber());
             assertFalse(closures.materialize(
                     budget(),
                     fifthReservation.reservationId(),
