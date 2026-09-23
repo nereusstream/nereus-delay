@@ -2938,6 +2938,9 @@ class TargetCommandStoreTest {
                             .result()
                             .status());
             assertTrue(reopenedWorker.pendingSourceEntry().isEmpty());
+            assertTrue(reopenedWorker
+                    .settlePendingSourceTurn(new SchedulerBudget(1, 1, 60_000_000_000L), () -> 101)
+                    .isEmpty());
             final var queued = reopenedFleet
                     .runNextMaintenanceTurn(new SchedulerBudget(1, 1, 60_000_000_000L))
                     .result();

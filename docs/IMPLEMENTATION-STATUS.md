@@ -18377,3 +18377,17 @@ The host still has to stop the maintenance loop and resolve pending source
 ACKs, and final checkpoint, real Oxia/Broker response loss, new Owner recovery
 and production lifecycle remain open. No NDIP-3 slice or release status is
 promoted by this local increment.
+
+The Target Worker now also exposes an entry-only source settlement turn before
+drain. It retries the exact retained apply/ACK operation without polling a new
+broker record; an empty turn performs no poll. Once the Store apply outcome is
+known, the native ACK retry bypasses new business admission but still checks
+the exact current Owner and durable source frontier. The local
+`SourceApplyCoordinatorTest` covers ACK UNKNOWN followed by ACK success, the
+same native entry and no extra poll. Real Broker response loss, Owner loss and
+replay after handoff remain open.
+
+A completed source WorkClass submission is now consumed directly during its
+settlement retry. The focused test leaves an unrelated shared WorkClass action
+queued and confirms that resolving the already completed source action does
+not run that action before drain.

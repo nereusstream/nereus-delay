@@ -399,3 +399,7 @@ aggregate/source 写入同一 RocksDB batch，并提供完整结果 namespace �
 lease release。替代 Owner 不被释放，写结果不确定时先关闭旧 Store。四组本地参数
 场景通过；宿主停维护循环、pending ACK 消解、checkpoint、真实 Oxia/Broker、
 恢复和生产关闭编排仍开放，C2/C5 与整份 NDIP-3 状态不提升。
+
+drain 前可用 `settlePendingSourceTurn` 只重试保留的 source entry，空时不 poll；
+已完成 Store apply 的 ACK 重试不要求新的业务 admission。真实 Broker ACK UNKNOWN、
+失权与重投的关闭配方仍待完成。

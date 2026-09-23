@@ -126,6 +126,22 @@ public final class TargetWorkerShardRuntime implements TargetWorkerShardFleetRun
         return sourceLoop.pendingEntry();
     }
 
+    /** Retries one retained source apply/ACK without polling a new record before drain. */
+    public synchronized Optional<SourceApplyCoordinator.TurnResult> settlePendingSourceTurn(
+            final SchedulerBudget budget, final LongSupplier ownerClock) {
+        if (sourceAndMaintenancePaused) {
+            throw new IllegalStateException("Target Worker source and GC admission is paused");
+        }
+        if (sourceLoop.pendingEntry().isEmpty()) {
+            return Optional.empty();
+        }
+        if (sourceLoop.pendingRequiresApply()) {
+            resources.requireRuntimeBusinessAdmission();
+        }
+        return sourceLoop.settlePendingEntry(
+                Objects.requireNonNull(budget, "budget"), Objects.requireNonNull(ownerClock, "ownerClock"));
+    }
+
     /** Runs or retries strict Target drain after the host has closed its maintenance loop. */
     public synchronized TargetOwnerDrainCoordinator.Result drain(
             final TargetOwnerDrainCoordinator.Request request, final LongSupplier clock) {

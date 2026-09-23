@@ -122,6 +122,29 @@ class SourceApplyCoordinatorTest {
     }
 
     @Test
+    void completedSourceActionDoesNotRunAnUnrelatedQueuedActionDuringSettlement() throws Exception {
+        try (Fixture fixture = new Fixture(tempDir.resolve("completed-source-action"))) {
+            final SourceReplayRecord entry = fixture.entry("completed-source-action");
+            final SourceApplyCoordinator coordinator = fixture.coordinator(
+                    entry, (ignored, outcome) -> SourceAcknowledgement.AcknowledgementResult.acked());
+            final var waiting = coordinator.runTurn(new SchedulerBudget(1, 1, 1_000), () -> 101);
+            assertEquals(SourceApplyCoordinator.TurnStatus.WAITING_FOR_WORK_CLASS, waiting.status());
+            fixture.workClasses.runTurn(fixture.budget());
+            final AtomicInteger unrelatedCalls = new AtomicInteger();
+            fixture.workClasses.submit(
+                    new WorkClassTask(WorkClass.LEASE_FENCE, "unrelated-during-source-settlement", 1),
+                    unrelatedCalls::incrementAndGet);
+
+            final var settled = coordinator.runTurn(fixture.budget(), () -> 101);
+            assertEquals(SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED, settled.status());
+            assertEquals(0, unrelatedCalls.get());
+            assertEquals(1, fixture.workClasses.registeredActions());
+            fixture.workClasses.runTurn(fixture.budget());
+            assertEquals(1, unrelatedCalls.get());
+        }
+    }
+
+    @Test
     void workerSourceLoopRetainsPollAcrossUnknownAckAndPollsAgainAfterAck() throws Exception {
         try (Fixture fixture = new Fixture(tempDir.resolve("worker-source"))) {
             final SourceReplayRecord entry = fixture.entry("worker-source");
@@ -149,11 +172,15 @@ class SourceApplyCoordinatorTest {
                 assertEquals(entry, loop.pendingEntry().orElseThrow());
                 assertEquals(1, polls.get());
 
-                final SourceApplyCoordinator.TurnResult second = loop.runTurn(fixture.budget(), () -> 101);
+                final SourceApplyCoordinator.TurnResult second =
+                        loop.settlePendingEntry(fixture.budget(), () -> 101).orElseThrow();
                 assertEquals(SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED, second.status());
                 assertTrue(loop.pendingEntry().isEmpty());
                 assertEquals(1, polls.get(), "ACK retry must not poll a replacement record");
                 assertEquals(2, acknowledgements.get());
+
+                assertTrue(loop.settlePendingEntry(fixture.budget(), () -> 101).isEmpty());
+                assertEquals(1, polls.get(), "empty settlement must not poll a new record");
 
                 final SourceApplyCoordinator.TurnResult idle = loop.runTurn(fixture.budget(), () -> 101);
                 assertEquals(SourceApplyCoordinator.TurnStatus.WAITING_FOR_SOURCE, idle.status());

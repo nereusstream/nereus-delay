@@ -58,6 +58,23 @@ public final class WorkerSourceApplyLoop implements AutoCloseable {
         return coordinator.pendingEntry();
     }
 
+    synchronized boolean pendingRequiresApply() {
+        return coordinator.pendingRequiresApply();
+    }
+
+    /** Retries only a retained source entry; an empty result never polls the broker. */
+    public synchronized Optional<SourceApplyCoordinator.TurnResult> settlePendingEntry(
+            final SchedulerBudget workBudget, final LongSupplier ownerClock) {
+        if (closed) {
+            throw new IllegalStateException("Worker source apply loop is closed");
+        }
+        if (coordinator.pendingEntry().isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(coordinator.runTurn(
+                Objects.requireNonNull(workBudget, "workBudget"), Objects.requireNonNull(ownerClock, "ownerClock")));
+    }
+
     /**
      * Closes the native source only after the coordinator has no pending
      * record. Closing with an unproven ACK would discard the broker retry

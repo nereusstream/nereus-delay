@@ -114,20 +114,22 @@ public final class SourceApplyCoordinator {
                     return TurnResult.rejected(TurnStatus.SUBMISSION_REJECTED, pending.entry, failure);
                 }
             }
-            try {
-                workClasses.runTurn(workBudget);
-            } catch (RuntimeException | Error failure) {
-                final SourceApplyWorkClassExecutor.ApplyOutcome observed =
-                        pending.submission.outcome().orElse(null);
-                if (observed == null) {
-                    return TurnResult.failed(TurnStatus.WORK_CLASS_FAILURE, pending.entry, failure);
-                }
-                if (target.isReadIncomplete(observed.failure())) {
-                    // A different selected action may have failed after this
-                    // source read yielded. Never hide that error as a read retry.
-                    pending.submission = null;
-                    target.fence();
-                    return TurnResult.failed(TurnStatus.WORK_CLASS_FAILURE, pending.entry, failure);
+            if (pending.submission.outcome().isEmpty()) {
+                try {
+                    workClasses.runTurn(workBudget);
+                } catch (RuntimeException | Error failure) {
+                    final SourceApplyWorkClassExecutor.ApplyOutcome observed =
+                            pending.submission.outcome().orElse(null);
+                    if (observed == null) {
+                        return TurnResult.failed(TurnStatus.WORK_CLASS_FAILURE, pending.entry, failure);
+                    }
+                    if (target.isReadIncomplete(observed.failure())) {
+                        // A different selected action may have failed after this
+                        // source read yielded. Never hide that error as a read retry.
+                        pending.submission = null;
+                        target.fence();
+                        return TurnResult.failed(TurnStatus.WORK_CLASS_FAILURE, pending.entry, failure);
+                    }
                 }
             }
             final SourceApplyWorkClassExecutor.ApplyOutcome applied =
@@ -194,6 +196,12 @@ public final class SourceApplyCoordinator {
     /** Returns the exact entry retained across ACK/apply uncertainty, if any. */
     public synchronized Optional<SourceReplayEntry> pendingEntry() {
         return Optional.ofNullable(pending == null ? null : pending.entry);
+    }
+
+    synchronized boolean pendingRequiresApply() {
+        return pending != null
+                && pending.appliedOutcome == null
+                && (pending.submission == null || pending.submission.outcome().isEmpty());
     }
 
     private SourceReplayEntry peekSource() {
