@@ -861,11 +861,18 @@ class TargetCommandStoreTest {
                 assertEquals(TargetQueueSnapshotReader.Stop.READ_BUDGET, partialPage.stop());
                 assertEquals(1, partialPage.entries().size());
                 assertEquals(partialPage.entries().getFirst().queue().targetId(), partialPage.nextAfter());
+                assertEquals(beforeScan, partialPage.cut().nativeSequence());
                 final var scannedTargets = new HashSet<TargetPartitionId>();
                 TargetPartitionId after = null;
+                TargetQueueSnapshotReader.Cut scanCut = null;
                 boolean scanComplete = false;
                 for (int pageIndex = 0; pageIndex < 8; pageIndex++) {
                     final var page = claimWorker.scanTargetQueues(budget(), after, 1, () -> 100);
+                    if (scanCut == null) {
+                        scanCut = page.cut();
+                    } else {
+                        assertEquals(scanCut, page.cut());
+                    }
                     for (var entry : page.entries()) {
                         assertTrue(scannedTargets.add(entry.queue().targetId()));
                         if (entry.queue().targetId().equals(binding.target())) {
@@ -882,6 +889,7 @@ class TargetCommandStoreTest {
                 }
                 assertTrue(scanComplete);
                 assertTrue(scannedTargets.contains(binding.target()));
+                assertEquals(scanCut, claimWorker.readTargetQueueCut(budget(), () -> 100));
                 assertEquals(beforeScan, store.latestSequenceNumber());
                 assertThrows(
                         com.nereusstream.delay.store.ReadIncompleteException.class,
@@ -981,6 +989,12 @@ class TargetCommandStoreTest {
                         (a, b, c) -> guard(),
                         () -> 100);
                 final long afterClaim = store.latestSequenceNumber();
+                assertNotEquals(scanCut, claimWorker.readTargetQueueCut(budget(), () -> 100));
+                assertNotEquals(
+                        partialPage.cut(),
+                        claimWorker
+                                .scanTargetQueues(budget(), partialPage.nextAfter(), 1, () -> 100)
+                                .cut());
                 final var refreshed = claimWorker
                         .readTargetQueue(budget(), binding.target(), () -> 100)
                         .orElseThrow()
@@ -3490,6 +3504,7 @@ class TargetCommandStoreTest {
                     IllegalStateException.class,
                     () -> reopenedWorker.scanTargetQueues(budget(), null, 1, () -> 101));
             assertThrows(IllegalStateException.class, () -> reopenedWorker.readTargetQueue(budget(), null, () -> 101));
+            assertThrows(IllegalStateException.class, () -> reopenedWorker.readTargetQueueCut(budget(), () -> 101));
             assertThrows(
                     IllegalStateException.class, () -> reopenedWorker.probeSelectedHead(budget(), null, () -> 101));
             assertThrows(

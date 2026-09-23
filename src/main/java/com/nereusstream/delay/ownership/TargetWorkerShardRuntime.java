@@ -176,6 +176,14 @@ public final class TargetWorkerShardRuntime
         return target.readTargetQueue(budget, targetId, ownerClock);
     }
 
+    /** Rechecks this source Shard's Store revision after paged head enumeration. */
+    public synchronized TargetQueueSnapshotReader.Cut readTargetQueueCut(
+            final BoundedReadBudget budget, final LongSupplier ownerClock) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        return target.readTargetQueueCut(budget, ownerClock);
+    }
+
     /** Reads the frozen cost of one current head; Claim still rechecks Store and live authority. */
     public synchronized TargetHeadCostProbe.Cost probeSelectedHead(
             final BoundedReadBudget budget, final TargetHeadRef selected, final LongSupplier ownerClock) {

@@ -33,10 +33,38 @@ public final class TargetQueueSnapshotReader {
         }
     }
 
-    public record Page(List<Entry> entries, TargetPartitionId nextAfter, Stop stop) {
+    /** A process read fence, not a durable fairness generation or an Owner authority token. */
+    public record Cut(byte[] storeIncarnation, long nativeSequence) {
+        public Cut {
+            if (Objects.requireNonNull(storeIncarnation, "storeIncarnation").length != 16) {
+                throw new IllegalArgumentException("invalid Target queue read cut");
+            }
+            storeIncarnation = Arrays.copyOf(storeIncarnation, storeIncarnation.length);
+        }
+
+        @Override
+        public byte[] storeIncarnation() {
+            return Arrays.copyOf(storeIncarnation, storeIncarnation.length);
+        }
+
+        @Override
+        public boolean equals(final Object other) {
+            return other instanceof Cut that
+                    && nativeSequence == that.nativeSequence
+                    && Arrays.equals(storeIncarnation, that.storeIncarnation);
+        }
+
+        @Override
+        public int hashCode() {
+            return 31 * Arrays.hashCode(storeIncarnation) + Long.hashCode(nativeSequence);
+        }
+    }
+
+    public record Page(List<Entry> entries, TargetPartitionId nextAfter, Stop stop, Cut cut) {
         public Page {
             entries = List.copyOf(Objects.requireNonNull(entries, "entries"));
             Objects.requireNonNull(stop, "stop");
+            Objects.requireNonNull(cut, "cut");
             if (!entries.isEmpty() && !entries.getLast().queue().targetId().equals(nextAfter)) {
                 throw new IllegalArgumentException("Target scan cursor does not follow its last complete entry");
             }
@@ -59,6 +87,18 @@ public final class TargetQueueSnapshotReader {
             throw new IllegalArgumentException("invalid activated Target domain limit");
         }
         this.maximumDomains = maximumDomains;
+    }
+
+    /** Rechecks the same Store revision after a multi-page scan before publishing its ring. */
+    public Cut readCut(final BoundedReadBudget budget, final TargetStoreBackend.ReadAuthority authority) {
+        return backend.guardedRead(
+                Objects.requireNonNull(budget, "budget"),
+                reader -> {
+                    final Cut cut = cut(reader);
+                    reader.requireWithinElapsedBudget();
+                    return cut;
+                },
+                Objects.requireNonNull(authority, "authority"));
     }
 
     /** Refreshes one exact Target after a Claim or source change without re-reading message bodies. */
@@ -111,13 +151,14 @@ public final class TargetQueueSnapshotReader {
                 Objects.requireNonNull(budget, "budget"),
                 reader -> {
                     final var entries = new ArrayList<Entry>();
+                    final Cut cut = cut(reader);
                     TargetPartitionId cursor = after;
                     byte[] lower = after == null ? LOWER : afterKey(TargetKeyCodec.state(after));
                     for (int index = 0; index < maximumTargets; index++) {
                         try {
                             final var row = reader.first(ColumnFamily.META, lower, UPPER, List.of());
                             if (row == null) {
-                                return new Page(entries, cursor, Stop.RANGE_END);
+                                return new Page(entries, cursor, Stop.RANGE_END, cut);
                             }
                             if (row.key().length != 2 + TargetPartitionId.LENGTH) {
                                 throw new IllegalArgumentException("Target state key is not fixed length");
@@ -145,12 +186,16 @@ public final class TargetQueueSnapshotReader {
                             cursor = verified.targetId();
                             lower = afterKey(row.key());
                         } catch (ReadIncompleteException incomplete) {
-                            return new Page(entries, cursor, Stop.READ_BUDGET);
+                            return new Page(entries, cursor, Stop.READ_BUDGET, cut);
                         }
                     }
-                    return new Page(entries, cursor, Stop.PAGE_LIMIT);
+                    return new Page(entries, cursor, Stop.PAGE_LIMIT, cut);
                 },
                 Objects.requireNonNull(authority, "authority"));
+    }
+
+    private static Cut cut(final TargetStoreBackend.Reader reader) {
+        return new Cut(reader.metadata().storeIncarnation(), reader.nativeSequence());
     }
 
     private static byte[] afterKey(final byte[] key) {

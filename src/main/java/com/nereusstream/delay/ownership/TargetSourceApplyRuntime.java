@@ -454,6 +454,13 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         return new TargetQueueSnapshotReader(backend, limits.domains()).readTarget(budget, target, workerReads(clock));
     }
 
+    synchronized TargetQueueSnapshotReader.Cut readTargetQueueCut(
+            final BoundedReadBudget budget, final LongSupplier ownerClock) {
+        final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
+        requireGcOwner(clock);
+        return new TargetQueueSnapshotReader(backend, limits.domains()).readCut(budget, workerReads(clock));
+    }
+
     /** Validates one current head and its frozen byte cost only when the Worker selects it. */
     synchronized TargetHeadCostProbe.Cost probeSelectedHead(
             final BoundedReadBudget budget, final TargetHeadRef selected, final LongSupplier ownerClock) {

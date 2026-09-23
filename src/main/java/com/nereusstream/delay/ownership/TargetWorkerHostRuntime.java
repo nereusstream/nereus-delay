@@ -206,6 +206,14 @@ public final class TargetWorkerHostRuntime {
         return withShardAdmission(expectedShard, () -> expectedShard.readTargetQueue(budget, targetId, ownerClock));
     }
 
+    /** Fences a completed page sequence on the same exact source Shard. */
+    public TargetQueueSnapshotReader.Cut readTargetQueueCut(
+            final TargetWorkerShardRuntime expectedShard,
+            final BoundedReadBudget budget,
+            final LongSupplier ownerClock) {
+        return withShardAdmission(expectedShard, () -> expectedShard.readTargetQueueCut(budget, ownerClock));
+    }
+
     /** Lazily probes one head under exact host/Owner admission before fair byte-cost selection. */
     public TargetHeadCostProbe.Cost probeSelectedHead(
             final TargetWorkerShardRuntime expectedShard,

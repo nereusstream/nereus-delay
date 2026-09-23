@@ -210,6 +210,12 @@ public final class TargetStoreBackend {
             return store.shardId();
         }
 
+        /** Native Store revision for detecting changes between separately protected read pages. */
+        public long nativeSequence() {
+            requireActive();
+            return store.latestSequenceNumber();
+        }
+
         /** Exact overlay read; absence is explicit and never inferred from a bounded range scan. */
         public byte[] projected(final ColumnFamily family, final byte[] key, final List<Edit> overlay) {
             requireActive();
