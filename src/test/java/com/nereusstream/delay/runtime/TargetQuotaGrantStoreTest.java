@@ -991,6 +991,46 @@ class TargetQuotaGrantStoreTest {
         }
         TargetCheckpointRootVerifier.auditIndependentLedger(
                 physicalDb, scope.shard(), imageLimits, quotaAuditLimits, ledgerAuditLimits);
+        final byte[] originalActivation;
+        try (var resources = new SharedRocksDbResources(config);
+                var corrupt = ShardStore.openTarget(config, scope.shard(), resources)) {
+            originalActivation = corrupt.get(ColumnFamily.META, template.key());
+            assertNotNull(originalActivation);
+            final var activation = TargetQuotaGrantActivation.decode(
+                    TargetValueEnvelope.decode(originalActivation, TargetQuotaGrantActivation.VALUE_TYPE)
+                            .payload());
+            final byte[] changedHash = activation.systemMutationHash();
+            changedHash[0] ^= 1;
+            final var changed = new TargetQuotaGrantActivation(
+                    activation.request(),
+                    activation.controlRef(),
+                    activation.mutation(),
+                    SystemMutation.computeSystemMutationId(
+                            scope.shard(),
+                            SystemMutationType.APPLY_SHARD_CONTROL,
+                            activation.controlRef()
+                                    .logicalOperationIdentity(TargetQuotaGrantControlRequest.CONTROL_KIND),
+                            changedHash),
+                    changedHash,
+                    activation.allocation());
+            corrupt.write(batch -> batch.put(
+                    ColumnFamily.META,
+                    template.key(),
+                    TargetValueEnvelope.encode(TargetQuotaGrantActivation.VALUE_TYPE, changed.canonicalBytes())));
+        }
+        TargetCheckpointRootVerifier.auditQuotaProjections(physicalDb, scope.shard(), imageLimits, quotaAuditLimits);
+        assertTrue(assertThrows(
+                        IllegalStateException.class,
+                        () -> TargetCheckpointRootVerifier.auditIndependentLedger(
+                                physicalDb, scope.shard(), imageLimits, quotaAuditLimits, ledgerAuditLimits))
+                .getMessage()
+                .contains("grant activation lacks its exact first System result"));
+        try (var resources = new SharedRocksDbResources(config);
+                var restored = ShardStore.openTarget(config, scope.shard(), resources)) {
+            restored.write(batch -> batch.put(ColumnFamily.META, template.key(), originalActivation));
+        }
+        TargetCheckpointRootVerifier.auditIndependentLedger(
+                physicalDb, scope.shard(), imageLimits, quotaAuditLimits, ledgerAuditLimits);
         assertTrue(assertThrows(
                         IllegalArgumentException.class,
                         () -> TargetCheckpointRootVerifier.auditQuotaProjections(

@@ -471,3 +471,5 @@ Target 专用控制/语义快照及认证摘要仍未实现，发布与恢复门
 候选动作前后复核该 runtime 的本地 fencing/时间守卫。真实 Source ACK 后的创建、
 零写复用及排队后 DRAINING 零写拒绝通过。生产宿主调度、pending ACK 处置、
 Broker cut、完整控制/语义认证及发布/安装仍待完成。
+
+本地 format 2 候选的完整账本扫描现要求当前 grant activation 对应实际保留的首条成功 System 结果，并对齐 source mutation、ID/hash 与首次 allocation。真实 Store 中规范编码但错配的 activation 仅在完整审计被拒绝。控制请求认证、结果 Floor 清理后的证明和发布/恢复链仍待完成；C5 门禁不变。

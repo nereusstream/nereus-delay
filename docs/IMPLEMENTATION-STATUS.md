@@ -18539,3 +18539,5 @@ before writing, and a queued action loses to Owner DRAINING with no new
 directory or native write. Host checkpoint triggering, pending ACK settlement,
 protected Broker source cut, full Owner/control identity, publication and
 restore remain open; C5 and format-2 gates are unchanged.
+
+The finite Target candidate ledger audit now binds each current grant activation to its retained first successful System result, checking the source mutation, System ID/hash, APPLIED/OK outcome and first allocation attachment. A canonical but mismatched activation passes the standalone quota projection audit and fails the full ledger audit on a real Store; restoring it passes. Authenticated control state, Floor-based result retirement proof, Broker cut, Catalog publication and install remain open. C5 and format-2 gates are unchanged.
