@@ -4,7 +4,9 @@ import com.nereusstream.delay.protocol.CheckpointUploadIntent;
 import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.TargetHeadRef;
+import com.nereusstream.delay.protocol.TargetPartitionId;
 import com.nereusstream.delay.runtime.TargetClaimRecord;
+import com.nereusstream.delay.runtime.TargetQueueSnapshotReader;
 import com.nereusstream.delay.runtime.TargetQuotaDelta;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
@@ -181,6 +183,17 @@ public final class TargetWorkerHostRuntime {
                         quota,
                         physicalWrites,
                         ownerClock));
+    }
+
+    /** Rebuilds one source Shard's verified Target heads under exact host/Owner admission. */
+    public TargetQueueSnapshotReader.Page scanTargetQueues(
+            final TargetWorkerShardRuntime expectedShard,
+            final BoundedReadBudget budget,
+            final TargetPartitionId after,
+            final int maximumTargets,
+            final LongSupplier ownerClock) {
+        return withShardAdmission(
+                expectedShard, () -> expectedShard.scanTargetQueues(budget, after, maximumTargets, ownerClock));
     }
 
     /** Test seam for the host lifecycle reservation without constructing a physical Target Store. */

@@ -89,6 +89,7 @@ import com.nereusstream.delay.protocol.TargetMembershipGrant;
 import com.nereusstream.delay.protocol.TargetMembershipPolicy;
 import com.nereusstream.delay.protocol.TargetNativePolicyScope;
 import com.nereusstream.delay.protocol.TargetPartitionHashInput;
+import com.nereusstream.delay.protocol.TargetPartitionId;
 import com.nereusstream.delay.protocol.TargetPartitionPolicy;
 import com.nereusstream.delay.protocol.TargetQueueState;
 import com.nereusstream.delay.protocol.TargetQuotaAggregate;
@@ -122,6 +123,7 @@ import java.nio.file.Path;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Properties;
@@ -848,6 +850,38 @@ class TargetCommandStoreTest {
                                 () -> 100));
                 final var actualOwner =
                         new OwnerIdentity(bytes(16, 0x72), bytes(16, 0x73), active.ownerEpoch(), active.leaseToken());
+                final long beforeScan = store.latestSequenceNumber();
+                final var incompletePage = claimWorker.scanTargetQueues(
+                        new BoundedReadBudget(1, 32L << 20, 60_000_000_000L, System::nanoTime), null, 1, () -> 100);
+                assertEquals(TargetQueueSnapshotReader.Stop.READ_BUDGET, incompletePage.stop());
+                assertTrue(incompletePage.entries().isEmpty());
+                final var partialPage = claimWorker.scanTargetQueues(
+                        new BoundedReadBudget(3, 32L << 20, 60_000_000_000L, System::nanoTime), null, 2, () -> 100);
+                assertEquals(TargetQueueSnapshotReader.Stop.READ_BUDGET, partialPage.stop());
+                assertEquals(1, partialPage.entries().size());
+                assertEquals(partialPage.entries().getFirst().queue().targetId(), partialPage.nextAfter());
+                final var scannedTargets = new HashSet<TargetPartitionId>();
+                TargetPartitionId after = null;
+                boolean scanComplete = false;
+                for (int pageIndex = 0; pageIndex < 8; pageIndex++) {
+                    final var page = claimWorker.scanTargetQueues(budget(), after, 1, () -> 100);
+                    for (var entry : page.entries()) {
+                        assertTrue(scannedTargets.add(entry.queue().targetId()));
+                        if (entry.queue().targetId().equals(binding.target())) {
+                            assertEquals(physical, entry.physical());
+                            assertEquals(actualQueue, entry.queue());
+                        }
+                    }
+                    if (page.complete()) {
+                        scanComplete = true;
+                        break;
+                    }
+                    assertEquals(TargetQueueSnapshotReader.Stop.PAGE_LIMIT, page.stop());
+                    after = page.nextAfter();
+                }
+                assertTrue(scanComplete);
+                assertTrue(scannedTargets.contains(binding.target()));
+                assertEquals(beforeScan, store.latestSequenceNumber());
                 final long beforeClaim = store.latestSequenceNumber();
                 assertThrows(
                         IllegalStateException.class,
@@ -3401,6 +3435,9 @@ class TargetCommandStoreTest {
             assertThrows(
                     IllegalStateException.class,
                     () -> reopenedFleet.runNextSourceTurn(new SchedulerBudget(1, 1, 60_000_000_000L), () -> 101));
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> reopenedWorker.scanTargetQueues(budget(), null, 1, () -> 101));
             assertThrows(
                     IllegalStateException.class,
                     () -> reopenedWorker.claim(

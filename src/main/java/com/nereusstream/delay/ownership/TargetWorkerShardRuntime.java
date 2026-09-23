@@ -4,7 +4,9 @@ import com.nereusstream.delay.protocol.CheckpointUploadIntent;
 import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.TargetHeadRef;
+import com.nereusstream.delay.protocol.TargetPartitionId;
 import com.nereusstream.delay.runtime.TargetClaimRecord;
+import com.nereusstream.delay.runtime.TargetQueueSnapshotReader;
 import com.nereusstream.delay.runtime.TargetQuotaDelta;
 import com.nereusstream.delay.runtime.TargetReservationControls;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
@@ -152,6 +154,17 @@ public final class TargetWorkerShardRuntime
                 quota,
                 physicalWrites,
                 ownerClock);
+    }
+
+    /** Reads one bounded page only while this exact Shard admits new Worker turns. */
+    public synchronized TargetQueueSnapshotReader.Page scanTargetQueues(
+            final BoundedReadBudget budget,
+            final TargetPartitionId after,
+            final int maximumTargets,
+            final LongSupplier ownerClock) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        return target.scanTargetQueues(budget, after, maximumTargets, ownerClock);
     }
 
     /** Admits only an ACK-settled active Shard to the bound, unpublished CHECKPOINT work class. */

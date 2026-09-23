@@ -343,6 +343,7 @@
         "src/main/java/com/nereusstream/delay/ownership/TargetWorkerShardFleetRuntime.java",
         "src/main/java/com/nereusstream/delay/ownership/TargetWorkerMaintenanceLoop.java",
         "src/main/java/com/nereusstream/delay/ownership/TargetWorkerHostRuntime.java",
+        "src/main/java/com/nereusstream/delay/runtime/TargetQueueSnapshotReader.java",
         "src/main/java/com/nereusstream/delay/ownership/SourceApplyTarget.java",
         "src/main/java/com/nereusstream/delay/ownership/SourceApplyCoordinator.java",
         "src/main/java/com/nereusstream/delay/ownership/SourceApplyWorkClassExecutor.java",

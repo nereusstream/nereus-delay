@@ -15,6 +15,7 @@ import com.nereusstream.delay.protocol.TargetCloseBody;
 import com.nereusstream.delay.protocol.TargetCloseRequest;
 import com.nereusstream.delay.protocol.TargetHeadRef;
 import com.nereusstream.delay.protocol.TargetMembershipControlBody;
+import com.nereusstream.delay.protocol.TargetPartitionId;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlBody;
 import com.nereusstream.delay.protocol.TargetQuotaIncarnation;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
@@ -28,6 +29,7 @@ import com.nereusstream.delay.runtime.TargetCommandReplayStore;
 import com.nereusstream.delay.runtime.TargetCommandStore;
 import com.nereusstream.delay.runtime.TargetMembershipControlStore;
 import com.nereusstream.delay.runtime.TargetMembershipControlVerifier;
+import com.nereusstream.delay.runtime.TargetQueueSnapshotReader;
 import com.nereusstream.delay.runtime.TargetQuotaDelta;
 import com.nereusstream.delay.runtime.TargetQuotaGrantControlVerifier;
 import com.nereusstream.delay.runtime.TargetQuotaGrantStore;
@@ -429,6 +431,21 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                     clock);
         });
         return prepared.claim();
+    }
+
+    /** Rebuilds bounded Target head summaries without granting Claim or Producer authority. */
+    synchronized TargetQueueSnapshotReader.Page scanTargetQueues(
+            final BoundedReadBudget budget,
+            final TargetPartitionId after,
+            final int maximumTargets,
+            final LongSupplier ownerClock) {
+        final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
+        requireGcOwner(clock);
+        return new TargetQueueSnapshotReader(backend, limits.domains())
+                .scan(budget, after, maximumTargets, (actual, actualScope) -> {
+                    requireGcOwner(clock);
+                    return gcGuard(authorities.reads().acquire(actual, actualScope), actual, actualScope, clock);
+                });
     }
 
     /** Queues an unpublished candidate on this Owner's exact source/Store WorkClass graph. */
