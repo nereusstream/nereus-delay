@@ -46,11 +46,12 @@
     {
       "id": "A3",
       "title": "审计及失败恢复",
-      "status": "PLANNED",
+      "status": "IN_PROGRESS",
       "evidence": [],
-      "implementationStatus": "NOT_STARTED",
+      "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
-      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
+      "progress": "A real Lane Store regression now keeps a healthy READY head while corrupting a later DUE candidate; ordinary discovery still returns the head and fenced rebuild rejects the damaged tail. One focused test passed. Caller audit, failure injection, complete A2 budget proof and independent P0 acceptance remain pending."
     },
     {
       "id": "B1",

@@ -4113,6 +4113,48 @@ class DelayShardTest {
     }
 
     @Test
+    void readyRebuildAuditsDamagedCandidateBehindHealthyHead() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("ready-damaged-tail"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 87);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("ready-damaged-tail-lane"));
+        final PreparedCommand first = PreparedCommand.schedule(
+                shardId,
+                new com.nereusstream.delay.protocol.ScheduleIntent(
+                        lane, 2_000, 5_000, OrderingMode.BEST_EFFORT, Bytes.utf8("first")),
+                9_000);
+        final PreparedCommand second = PreparedCommand.schedule(
+                shardId,
+                new com.nereusstream.delay.protocol.ScheduleIntent(
+                        lane, 3_000, 5_000, OrderingMode.BEST_EFFORT, Bytes.utf8("second")),
+                9_000);
+        final KafkaSourcePosition firstPosition = position(shardId, 0, 1_000);
+        final KafkaSourcePosition secondPosition = position(shardId, 1, 1_001);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(first, firstPosition).stableCode());
+            assertEquals(StableCode.SCHEDULED, shard.apply(second, secondPosition).stableCode());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+
+            final byte[] correctTail = KeyCodec.timelineDue(
+                    lane, 3_000, secondPosition.sourceOrderToken(), second.delayMessageId(), 0);
+            final byte[] damagedTail = KeyCodec.timelineDue(
+                    lane, 3_001, secondPosition.sourceOrderToken(), second.delayMessageId(), 0);
+            store.write(batch -> {
+                batch.delete(ColumnFamily.TIMELINE, correctTail);
+                batch.putValue(
+                        ColumnFamily.TIMELINE,
+                        1,
+                        damagedTail,
+                        new TimelineEntry(second.delayMessageId(), 0).encode());
+            });
+
+            assertEquals(first.delayMessageId(), shard.discoverReady(10_000, 1).get(0).messageId());
+            assertThrows(IllegalStateException.class, shard::rebuildReadyIndexes);
+        }
+    }
+
+    @Test
     void readyDiscoveryRejectsMissingTimelineEntry() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("ready-missing-timeline"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 83);
