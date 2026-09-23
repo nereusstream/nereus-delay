@@ -214,6 +214,31 @@ public final class TargetWorkerHostRuntime {
         return withShardAdmission(expectedShard, () -> expectedShard.readTargetQueueCut(budget, ownerClock));
     }
 
+    /** Rebuilds one bounded physical-Target inventory from every currently admitted source Shard. */
+    public TargetWorkerTargetInventory.Result rebuildTargetInventory(
+            final TargetWorkerTargetInventory.Limits limits,
+            final LongSupplier ownerClock,
+            final LongSupplier monotonicClock) {
+        final var current = currentTargetWorkers();
+        return TargetWorkerTargetInventory.rebuild(this, current, limits, ownerClock, monotonicClock);
+    }
+
+    synchronized List<TargetWorkerShardRuntime> currentTargetWorkers() {
+        if (stopping) {
+            throw new IllegalStateException("Target host inventory admission is stopping");
+        }
+        final List<TargetWorkerShardRuntime> current = new ArrayList<>();
+        for (Shard shard : shards) {
+            if (!withdrawn.contains(shard.shardId()) && !completed.containsKey(shard.shardId())) {
+                if (!(shard instanceof TargetWorkerShardRuntime worker)) {
+                    throw new IllegalStateException("Target host has a non-Worker Shard instance");
+                }
+                current.add(worker);
+            }
+        }
+        return List.copyOf(current);
+    }
+
     /** Lazily probes one head under exact host/Owner admission before fair byte-cost selection. */
     public TargetHeadCostProbe.Cost probeSelectedHead(
             final TargetWorkerShardRuntime expectedShard,
