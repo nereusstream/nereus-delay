@@ -8,6 +8,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.ownership.InMemoryControlTargetRegistrationAuthority;
 import com.nereusstream.delay.ownership.InMemoryOwnerLeaseStore;
+import com.nereusstream.delay.ownership.OwnerLease;
+import com.nereusstream.delay.ownership.OwnerLeaseStore;
 import com.nereusstream.delay.ownership.OxiaOwnerLeaseStore;
 import com.nereusstream.delay.ownership.ShardLifecycleState;
 import com.nereusstream.delay.ownership.SourceAcknowledgement;
@@ -159,7 +161,14 @@ class TargetCommandStoreTest {
         final var config = ShardStoreConfig.defaults(root);
         final com.nereusstream.delay.protocol.TargetPartitionId[] reopenedCloseTargets =
                 new com.nereusstream.delay.protocol.TargetPartitionId[3];
-        record ReopenOwner(SourceAssignment assignment, OxiaOwnerLeaseStore leases, long priorEpoch) {}
+        record ReopenOwner(
+                SourceAssignment assignment,
+                OxiaOwnerLeaseStore leases,
+                long priorEpoch,
+                java.util.concurrent.atomic.AtomicBoolean loseTransitionResponse,
+                java.util.concurrent.atomic.AtomicBoolean loseReleaseResponse,
+                java.util.concurrent.atomic.AtomicBoolean throwTransitionAfterCommit,
+                java.util.concurrent.atomic.AtomicBoolean throwReleaseAfterCommit) {}
         final ReopenOwner[] reopenOwner = new ReopenOwner[1];
         try (var resources = new SharedRocksDbResources(config);
                 var store = ShardStore.openTarget(config, scope.shard(), resources)) {
@@ -693,13 +702,75 @@ class TargetCommandStoreTest {
                             scheduleAt.authenticatedClusterId(),
                             scheduleAt.nativeTopicUuid(),
                             scheduleAt.offset()));
-            final var leases = new OxiaOwnerLeaseStore(new InMemoryOwnerLeaseStore());
+            final var delegateLeases = new InMemoryOwnerLeaseStore();
+            final var loseTransitionResponse = new java.util.concurrent.atomic.AtomicBoolean();
+            final var loseReleaseResponse = new java.util.concurrent.atomic.AtomicBoolean();
+            final var throwTransitionAfterCommit = new java.util.concurrent.atomic.AtomicBoolean();
+            final var throwReleaseAfterCommit = new java.util.concurrent.atomic.AtomicBoolean();
+            final var leases = new OxiaOwnerLeaseStore(new OwnerLeaseStore() {
+                @Override
+                public java.util.Optional<OwnerLease> acquire(
+                        com.nereusstream.delay.protocol.ShardId shard,
+                        String ownerId,
+                        long nowEpochMs,
+                        long leaseDurationMs) {
+                    return delegateLeases.acquire(shard, ownerId, nowEpochMs, leaseDurationMs);
+                }
+
+                @Override
+                public java.util.Optional<OwnerLease> acquire(
+                        SourceAssignment assigned,
+                        String ownerId,
+                        byte[] sessionIdentity,
+                        long nowEpochMs,
+                        long leaseDurationMs) {
+                    return delegateLeases.acquire(assigned, ownerId, sessionIdentity, nowEpochMs, leaseDurationMs);
+                }
+
+                @Override
+                public java.util.Optional<OwnerLease> renew(
+                        OwnerLease expected, long nowEpochMs, long leaseDurationMs) {
+                    return delegateLeases.renew(expected, nowEpochMs, leaseDurationMs);
+                }
+
+                @Override
+                public boolean release(OwnerLease expected) {
+                    final boolean released = delegateLeases.release(expected);
+                    if (released && throwReleaseAfterCommit.compareAndSet(true, false)) {
+                        throw new IllegalStateException("simulated release response loss after CAS");
+                    }
+                    return released && !loseReleaseResponse.compareAndSet(true, false);
+                }
+
+                @Override
+                public java.util.Optional<OwnerLease> transition(OwnerLease expected, ShardLifecycleState nextState) {
+                    final var transitioned = delegateLeases.transition(expected, nextState);
+                    if (transitioned.isPresent() && throwTransitionAfterCommit.compareAndSet(true, false)) {
+                        throw new IllegalStateException("simulated transition response loss after CAS");
+                    }
+                    return transitioned.isPresent() && loseTransitionResponse.compareAndSet(true, false)
+                            ? java.util.Optional.empty()
+                            : transitioned;
+                }
+
+                @Override
+                public java.util.Optional<OwnerLease> current(com.nereusstream.delay.protocol.ShardId shard) {
+                    return delegateLeases.current(shard);
+                }
+            });
             final var active = leases.transition(
                             leases.acquire(assignment, "cancel-worker", bytes(32, 0x44), 1, 10000)
                                     .orElseThrow(),
                             ShardLifecycleState.ACTIVE_FOR_COMMANDS)
                     .orElseThrow();
-            reopenOwner[0] = new ReopenOwner(assignment, leases, active.ownerEpoch());
+            reopenOwner[0] = new ReopenOwner(
+                    assignment,
+                    leases,
+                    active.ownerEpoch(),
+                    loseTransitionResponse,
+                    loseReleaseResponse,
+                    throwTransitionAfterCommit,
+                    throwReleaseAfterCommit);
             store.recordOpenedOwnerEpoch(active.ownerEpoch());
             TargetClaimRecord claim = null;
             if (claimed) {
@@ -3039,6 +3110,33 @@ class TargetCommandStoreTest {
             } else {
                 replacementOwner = null;
             }
+            if (!claimed && !rescheduled) {
+                priorOwner.loseTransitionResponse().set(true);
+                priorOwner.loseReleaseResponse().set(true);
+            }
+            if (claimed && !rescheduled) {
+                priorOwner.throwTransitionAfterCommit().set(true);
+                priorOwner.throwReleaseAfterCommit().set(true);
+                assertThrows(
+                        IllegalStateException.class,
+                        () -> reopenedWorker.drain(
+                                new TargetOwnerDrainCoordinator.Request(
+                                        5_000, new SchedulerBudget(100, 2_000_000, 60_000_000_000L)),
+                                () -> 101));
+                assertTrue(reopenedRuntime.fenced());
+                assertFalse(reopened.isClosed());
+                assertEquals(
+                        ShardLifecycleState.DRAINING,
+                        priorOwner.leases().current(scope.shard()).orElseThrow().state());
+                assertThrows(
+                        IllegalStateException.class,
+                        () -> reopenedWorker.drain(
+                                new TargetOwnerDrainCoordinator.Request(
+                                        5_000, new SchedulerBudget(100, 2_000_000, 60_000_000_000L)),
+                                () -> 101));
+                assertTrue(reopened.isClosed());
+                assertTrue(priorOwner.leases().current(scope.shard()).isEmpty());
+            }
             final var completedDrain = reopenedWorker.drain(
                     new TargetOwnerDrainCoordinator.Request(
                             5_000, new SchedulerBudget(100, 2_000_000, 60_000_000_000L)),
@@ -3050,6 +3148,10 @@ class TargetCommandStoreTest {
                                     : TargetOwnerDrainCoordinator.Status.RELEASED
                             : TargetOwnerDrainCoordinator.Status.OWNER_LOST_CLOSED,
                     completedDrain.status());
+            assertFalse(priorOwner.loseTransitionResponse().get());
+            assertFalse(priorOwner.loseReleaseResponse().get());
+            assertFalse(priorOwner.throwTransitionAfterCommit().get());
+            assertFalse(priorOwner.throwReleaseAfterCommit().get());
             assertNull(completedDrain.pendingGcTask());
             assertEquals(0, reopenedWorkClasses.registeredActions());
             assertTrue(reopened.isClosed());

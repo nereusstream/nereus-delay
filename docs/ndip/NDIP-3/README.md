@@ -403,3 +403,7 @@ lease release。替代 Owner 不被释放，写结果不确定时先关闭旧 St
 drain 前可用 `settlePendingSourceTurn` 只重试保留的 source entry，空时不 poll；
 已完成 Store apply 的 ACK 重试不要求新的业务 admission。真实 Broker ACK UNKNOWN、
 失权与重投的关闭配方仍待完成。
+
+本地 Target drain 另通过 lease transition/release「CAS 成功而响应丢失」的返回空与
+抛错重试用例。最终 checkpoint 仍缺 format 2 Manifest 与恢复通路；现有 format 1
+通路不能证明 Target 快照可恢复，真实 Oxia/Broker 故障证据仍待完成。

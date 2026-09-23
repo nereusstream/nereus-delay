@@ -18391,3 +18391,13 @@ A completed source WorkClass submission is now consumed directly during its
 settlement retry. The focused test leaves an unrelated shared WorkClass action
 queued and confirms that resolving the already completed source action does
 not run that action before drain.
+
+The Target drain local Store test also injects successful lease transition and
+release CAS operations whose responses are lost as either empty results or
+exceptions. Exact authority rereads and retries complete the same drain
+without releasing a replacement Owner or reopening a closed Store. This is
+in-memory fault injection, not real Oxia/session failure evidence. A Target
+final checkpoint is still blocked by the format boundary:
+`CheckpointManifest` accepts only format 1, and the current restore path opens
+format 1. A format-2 RocksDB snapshot alone is not a publishable, recoverable
+Target checkpoint.
