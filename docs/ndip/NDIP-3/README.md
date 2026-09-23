@@ -477,3 +477,5 @@ Broker cut、完整控制/语义认证及发布/安装仍待完成。
 实际 Target Worker Shard 现从自身绑定的 Source/Store/WorkClass 图提交本地候选；待确认 ACK、未结清 GC、暂停的新 turn 或资源门关闭会在排队前拒绝；候选排队至终态期间阻止同 Shard 新 source/GC turn。真实重开 Store 经 GC 后的排队拒绝、创建与零写复用通过局部测试。生产宿主调度、Broker cut 和完整控制/语义发布恢复链仍待实现。
 
 宿主 drain 现在把未结清的 Target 本地候选作为 `PENDING_CHECKPOINT` 返回，携带精确 task；停机或单 Shard 撤出后仍可按当前实例、有限预算结清，再重试 Owner drain。两 Shard 局部编排测试通过。生产 checkpoint 调度、Broker cut、认证快照、Catalog 发布和安装仍未贯通。
+
+宿主现在通过当前登记的精确 Target Worker Shard 接纳本地候选，入队期间阻止同 Shard 撤出或替换，停机等待先开始的入队；错实例和停机后的新请求拒绝。两 Shard 并发局部测试通过。定时触发、Broker cut、认证快照、Catalog 发布和安装仍待实现。

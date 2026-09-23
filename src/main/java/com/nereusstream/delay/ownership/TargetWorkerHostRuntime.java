@@ -1,11 +1,16 @@
 package com.nereusstream.delay.ownership;
 
+import com.nereusstream.delay.protocol.CheckpointUploadIntent;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import com.nereusstream.delay.scheduler.WorkClassTask;
+import com.nereusstream.delay.store.CheckpointManifestLimits;
+import com.nereusstream.delay.store.CheckpointUploadIntentAuthority;
 import com.nereusstream.delay.store.SharedRocksDbResources;
 import com.nereusstream.delay.store.TargetCheckpointCandidateWorkClassExecutor;
+import com.nereusstream.delay.store.TargetCheckpointRootVerifier;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -17,6 +22,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
+import java.util.function.Supplier;
 
 /** Owns whole-fleet source admission, maintenance ticks and ordered local shutdown. */
 public final class TargetWorkerHostRuntime {
@@ -125,6 +131,49 @@ public final class TargetWorkerHostRuntime {
             throw new IllegalStateException("Target host source admission is stopping");
         }
         return fleet.runNextSourceTurn(budget, ownerClock);
+    }
+
+    /** Submits an unpublished candidate only through the currently admitted exact Worker Shard. */
+    public TargetCheckpointCandidateWorkClassExecutor.Submission submitLocalCheckpointCandidate(
+            final TargetWorkerShardRuntime expectedShard,
+            final CheckpointUploadIntentAuthority intents,
+            final LongSupplier ownerClock,
+            final Path checkpointPath,
+            final CheckpointUploadIntent pending,
+            final CheckpointManifestLimits physicalLimits,
+            final TargetCheckpointRootVerifier.QuotaAuditLimits quotaLimits,
+            final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits) {
+        return withCheckpointAdmission(
+                expectedShard,
+                () -> expectedShard.submitLocalCheckpointCandidate(
+                        intents, ownerClock, checkpointPath, pending, physicalLimits, quotaLimits, ledgerLimits));
+    }
+
+    /** Test seam for the host lifecycle reservation without constructing a physical Target Store. */
+    <T> T withCheckpointAdmission(final Shard expectedShard, final Supplier<T> admission) {
+        Objects.requireNonNull(admission, "admission");
+        final Shard shard;
+        final ShardId shardId;
+        synchronized (this) {
+            shardId = Objects.requireNonNull(expectedShard, "shard").shardId();
+            shard = requireShard(shardId);
+            if (shard != expectedShard) {
+                throw new IllegalArgumentException("Target host checkpoint Shard instance has been replaced");
+            }
+            if (stopping || withdrawn.contains(shardId) || completed.containsKey(shardId) || !draining.add(shardId)) {
+                throw new IllegalStateException("Target host checkpoint admission is stopping or already in progress");
+            }
+        }
+        try {
+            synchronized (shard) {
+                return admission.get();
+            }
+        } finally {
+            synchronized (this) {
+                draining.remove(shardId);
+                notifyAll();
+            }
+        }
     }
 
     /** Settles only an existing candidate, including after whole-host stop or Shard withdrawal. */

@@ -248,6 +248,68 @@ class TargetWorkerShardFleetRuntimeTest {
     }
 
     @Test
+    void hostCheckpointAdmissionReservesExactShardWhileAnotherShardDrains() throws Exception {
+        final var registry = registry();
+        final var scheduler = Executors.newSingleThreadScheduledExecutor();
+        final var submitter = Executors.newSingleThreadExecutor();
+        final var entered = new CountDownLatch(1);
+        final var release = new CountDownLatch(1);
+        try (var resources = new SharedRocksDbResources(
+                ShardStoreConfig.defaults(tempDir.resolve("host-checkpoint-admission")))) {
+            final var first = new StubShard(new ShardId(RouteIncarnation.random(), 1), registry, resources);
+            final var second = new StubShard(new ShardId(RouteIncarnation.random(), 2), registry, resources);
+            final var fleet = new TargetWorkerShardFleetRuntime(registry, resources, first, second);
+            final var budget = new SchedulerBudget(1, 1_000, 1_000_000);
+            final var request = new TargetOwnerDrainCoordinator.Request(5_000, budget);
+            final var loop = new TargetWorkerMaintenanceLoop(
+                    fleet, budget, Duration.ofSeconds(10), failure -> {}, scheduler);
+            final var host = new TargetWorkerHostRuntime(fleet, loop, List.of(first, second));
+            try {
+                final var admitting = submitter.submit(() -> host.withCheckpointAdmission(first, () -> {
+                    entered.countDown();
+                    try {
+                        if (!release.await(10, TimeUnit.SECONDS)) {
+                            throw new IllegalStateException("checkpoint admission test timed out");
+                        }
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException("checkpoint admission test interrupted", interrupted);
+                    }
+                    return "admitted";
+                }));
+                assertTrue(entered.await(5, TimeUnit.SECONDS));
+                assertThrows(IllegalStateException.class, () -> host.drainShard(first, request, budget, () -> 101));
+                assertEquals(
+                        TargetWorkerHostRuntime.Status.RELEASED,
+                        host.drainShard(second, request, budget, () -> 101).status());
+                assertThrows(
+                        IllegalArgumentException.class,
+                        () -> host.withCheckpointAdmission(
+                                new StubShard(first.shard, registry, resources), () -> "stale"));
+                release.countDown();
+                assertEquals("admitted", admitting.get(5, TimeUnit.SECONDS));
+                assertEquals(
+                        TargetWorkerHostRuntime.Status.RELEASED,
+                        host.drainShard(first, request, budget, () -> 101).status());
+                final var replacement = new StubShard(first.shard, registry, resources);
+                host.admitShard(replacement, replacement);
+                assertThrows(IllegalArgumentException.class, () -> host.withCheckpointAdmission(first, () -> "stale"));
+                assertEquals("replacement", host.withCheckpointAdmission(replacement, () -> "replacement"));
+                assertTrue(host.drainAll(request, budget, () -> 101).complete());
+                assertThrows(
+                        IllegalStateException.class,
+                        () -> host.withCheckpointAdmission(replacement, () -> "late"));
+            } finally {
+                release.countDown();
+                loop.close();
+            }
+        } finally {
+            submitter.shutdownNow();
+            scheduler.shutdownNow();
+        }
+    }
+
+    @Test
     void hostWithdrawsOnlyOneShardAfterItsActiveGcTurnAndKeepsOtherShardScheduled() throws Exception {
         final var registry = registry();
         final var executor = Executors.newSingleThreadScheduledExecutor();
