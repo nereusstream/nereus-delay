@@ -6,6 +6,7 @@ import com.nereusstream.delay.runtime.TargetQuotaDelta;
 import com.nereusstream.delay.runtime.TargetReservationControls;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
+import com.nereusstream.delay.scheduler.WorkClassTask;
 import com.nereusstream.delay.store.CheckpointManifestLimits;
 import com.nereusstream.delay.store.CheckpointUploadIntentAuthority;
 import com.nereusstream.delay.store.ShardStore;
@@ -155,6 +156,13 @@ public final class TargetWorkerShardRuntime
             pendingCheckpoint = null;
         }
         return outcome;
+    }
+
+    /** Exact queued checkpoint task, if it has not yet reached a terminal outcome. */
+    public synchronized Optional<WorkClassTask> pendingCheckpointTask() {
+        return pendingCheckpoint == null || pendingCheckpoint.outcome().isPresent()
+                ? Optional.empty()
+                : Optional.of(pendingCheckpoint.task());
     }
 
     /** Stops new source polls and GC submissions before Owner drain begins. */

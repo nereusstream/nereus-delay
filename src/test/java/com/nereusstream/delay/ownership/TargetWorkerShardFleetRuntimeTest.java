@@ -15,6 +15,7 @@ import com.nereusstream.delay.scheduler.WorkClassRuntimeConfig;
 import com.nereusstream.delay.scheduler.WorkClassTask;
 import com.nereusstream.delay.store.ShardStoreConfig;
 import com.nereusstream.delay.store.SharedRocksDbResources;
+import com.nereusstream.delay.store.TargetCheckpointCandidateWorkClassExecutor;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.EnumMap;
@@ -196,6 +197,53 @@ class TargetWorkerShardFleetRuntimeTest {
         } finally {
             executor.shutdownNow();
             closer.shutdownNow();
+        }
+    }
+
+    @Test
+    void hostSettlesExactPendingCheckpointAfterStopBeforeRetryingDrain() {
+        final var registry = registry();
+        final var executor = Executors.newSingleThreadScheduledExecutor();
+        try (var resources = new SharedRocksDbResources(
+                ShardStoreConfig.defaults(tempDir.resolve("host-checkpoint")))) {
+            final var first = new StubShard(new ShardId(RouteIncarnation.random(), 1), registry, resources);
+            final var second = new StubShard(new ShardId(RouteIncarnation.random(), 2), registry, resources);
+            first.pendingCheckpoint = new WorkClassTask(WorkClass.CHECKPOINT, "host-checkpoint/first", 64);
+            final var fleet = new TargetWorkerShardFleetRuntime(registry, resources, first, second);
+            final var budget = new SchedulerBudget(1, 1_000, 1_000_000);
+            final var loop = new TargetWorkerMaintenanceLoop(
+                    fleet, budget, Duration.ofSeconds(10), failure -> {}, executor);
+            final var host = new TargetWorkerHostRuntime(fleet, loop, List.of(first, second));
+            try {
+                final var request = new TargetOwnerDrainCoordinator.Request(5_000, budget);
+                final var pending = host.drainAll(request, budget, () -> 101);
+                assertFalse(pending.complete());
+                assertEquals(TargetWorkerHostRuntime.Status.PENDING_CHECKPOINT, pending.shards().getFirst().status());
+                assertEquals(first.pendingCheckpoint, pending.shards().getFirst().pendingCheckpointTask());
+                assertEquals(TargetWorkerHostRuntime.Status.RELEASED, pending.shards().getLast().status());
+                assertEquals(0, first.drainCalls.get());
+                assertEquals(1, second.drainCalls.get());
+                assertThrows(
+                        IllegalArgumentException.class,
+                        () -> host.settlePendingCheckpointTurn(
+                                new StubShard(first.shard, registry, resources), budget));
+                assertTrue(host.settlePendingCheckpointTurn(first, new SchedulerBudget(1, 1, 1_000_000))
+                        .isEmpty());
+                assertEquals(TargetWorkerHostRuntime.Status.PENDING_CHECKPOINT,
+                        host.drainAll(request, budget, () -> 101).shards().getFirst().status());
+                assertEquals(0, first.drainCalls.get());
+                assertEquals(
+                        Path.of("checkpoint-candidate"),
+                        host.settlePendingCheckpointTurn(first, budget).orElseThrow().checkpointPath());
+                assertTrue(host.drainAll(request, budget, () -> 101).complete());
+                assertEquals(1, first.drainCalls.get());
+                assertEquals(1, second.drainCalls.get());
+                assertThrows(IllegalStateException.class, () -> host.settlePendingCheckpointTurn(first, budget));
+            } finally {
+                loop.close();
+            }
+        } finally {
+            executor.shutdownNow();
         }
     }
 
@@ -485,6 +533,7 @@ class TargetWorkerShardFleetRuntimeTest {
         private volatile CountDownLatch enteredDrain;
         private volatile CountDownLatch releaseDrain;
         private volatile Runnable duringMaintenance;
+        private volatile WorkClassTask pendingCheckpoint;
 
         private StubShard(
                 final ShardId shard,
@@ -553,6 +602,22 @@ class TargetWorkerShardFleetRuntimeTest {
         public Optional<SourceApplyCoordinator.TurnResult> settlePendingSourceTurn(
                 final SchedulerBudget budget, final LongSupplier ownerClock) {
             return Optional.empty();
+        }
+
+        @Override
+        public Optional<WorkClassTask> pendingCheckpointTask() {
+            return Optional.ofNullable(pendingCheckpoint);
+        }
+
+        @Override
+        public Optional<TargetCheckpointCandidateWorkClassExecutor.Outcome> runCheckpointTurn(
+                final SchedulerBudget budget) {
+            if (pendingCheckpoint == null || budget.maxBytes() < pendingCheckpoint.bytes()) {
+                return Optional.empty();
+            }
+            pendingCheckpoint = null;
+            return Optional.of(new TargetCheckpointCandidateWorkClassExecutor.Outcome(
+                    Path.of("checkpoint-candidate"), null));
         }
 
         @Override

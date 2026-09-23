@@ -5,6 +5,7 @@ import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import com.nereusstream.delay.scheduler.WorkClassTask;
 import com.nereusstream.delay.store.SharedRocksDbResources;
+import com.nereusstream.delay.store.TargetCheckpointCandidateWorkClassExecutor;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -27,10 +28,15 @@ public final class TargetWorkerHostRuntime {
         Optional<SourceApplyCoordinator.TurnResult> settlePendingSourceTurn(
                 SchedulerBudget budget, LongSupplier ownerClock);
 
+        Optional<WorkClassTask> pendingCheckpointTask();
+
+        Optional<TargetCheckpointCandidateWorkClassExecutor.Outcome> runCheckpointTurn(SchedulerBudget budget);
+
         TargetOwnerDrainCoordinator.Result drain(TargetOwnerDrainCoordinator.Request request, LongSupplier clock);
     }
 
     public enum Status {
+        PENDING_CHECKPOINT,
         PENDING_SOURCE,
         PENDING_GC,
         RELEASED,
@@ -43,12 +49,14 @@ public final class TargetWorkerHostRuntime {
             ShardId shardId,
             Status status,
             SourceApplyCoordinator.TurnResult sourceTurn,
+            WorkClassTask pendingCheckpointTask,
             WorkClassTask pendingGcTask,
             RuntimeException failure) {
         public ShardDrain {
             Objects.requireNonNull(shardId, "shardId");
             Objects.requireNonNull(status, "status");
             if ((status == Status.FAILED) != (failure != null)
+                    || (status == Status.PENDING_CHECKPOINT) != (pendingCheckpointTask != null)
                     || (status == Status.PENDING_GC) != (pendingGcTask != null)) {
                 throw new IllegalArgumentException("Target host drain result has inconsistent evidence");
             }
@@ -117,6 +125,42 @@ public final class TargetWorkerHostRuntime {
             throw new IllegalStateException("Target host source admission is stopping");
         }
         return fleet.runNextSourceTurn(budget, ownerClock);
+    }
+
+    /** Settles only an existing candidate, including after whole-host stop or Shard withdrawal. */
+    public Optional<TargetCheckpointCandidateWorkClassExecutor.Outcome> settlePendingCheckpointTurn(
+            final TargetWorkerShardRuntime expectedShard, final SchedulerBudget budget) {
+        return settlePendingCheckpointTurn((Shard) expectedShard, budget);
+    }
+
+    /** Test seam; the exact Shard instance is reserved against concurrent drain and replacement. */
+    Optional<TargetCheckpointCandidateWorkClassExecutor.Outcome> settlePendingCheckpointTurn(
+            final Shard expectedShard, final SchedulerBudget budget) {
+        Objects.requireNonNull(budget, "budget");
+        final Shard shard;
+        final ShardId shardId;
+        synchronized (this) {
+            shardId = Objects.requireNonNull(expectedShard, "shard").shardId();
+            shard = requireShard(shardId);
+            if (shard != expectedShard) {
+                throw new IllegalArgumentException("Target host checkpoint Shard instance has been replaced");
+            }
+            if (completed.containsKey(shardId) || !draining.add(shardId)) {
+                throw new IllegalStateException("Target host checkpoint Shard is drained or already in progress");
+            }
+        }
+        try {
+            synchronized (shard) {
+                return shard.pendingCheckpointTask().isEmpty()
+                        ? Optional.empty()
+                        : shard.runCheckpointTurn(budget);
+            }
+        } finally {
+            synchronized (this) {
+                draining.remove(shardId);
+                notifyAll();
+            }
+        }
     }
 
     /** Admits a new Shard or replaces a withdrawn instance after its Owner drain completes. */
@@ -276,18 +320,23 @@ public final class TargetWorkerHostRuntime {
         synchronized (shard) {
             SourceApplyCoordinator.TurnResult sourceTurn = null;
             try {
+                final Optional<WorkClassTask> checkpoint = shard.pendingCheckpointTask();
+                if (checkpoint.isPresent()) {
+                    return new ShardDrain(
+                            shard.shardId(), Status.PENDING_CHECKPOINT, null, checkpoint.orElseThrow(), null, null);
+                }
                 if (shard.pendingSourceEntry().isPresent()) {
                     sourceTurn = shard.settlePendingSourceTurn(sourceBudget, ownerClock)
                             .orElse(null);
                     if (shard.pendingSourceEntry().isPresent()) {
-                        return new ShardDrain(shard.shardId(), Status.PENDING_SOURCE, sourceTurn, null, null);
+                        return new ShardDrain(shard.shardId(), Status.PENDING_SOURCE, sourceTurn, null, null, null);
                     }
                 }
                 final TargetOwnerDrainCoordinator.Result drained = shard.drain(request, ownerClock);
                 return new ShardDrain(
-                        shard.shardId(), map(drained.status()), sourceTurn, drained.pendingGcTask(), null);
+                        shard.shardId(), map(drained.status()), sourceTurn, null, drained.pendingGcTask(), null);
             } catch (RuntimeException failure) {
-                return new ShardDrain(shard.shardId(), Status.FAILED, sourceTurn, null, failure);
+                return new ShardDrain(shard.shardId(), Status.FAILED, sourceTurn, null, null, failure);
             }
         }
     }
