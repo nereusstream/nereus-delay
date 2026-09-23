@@ -46,6 +46,7 @@ public final class TargetWorkerShardRuntime implements TargetWorkerShardFleetRun
     private final SharedRocksDbResources resources;
     private final WorkerSourceApplyLoop sourceLoop;
     private final TargetReservationGcRuntime maintenance;
+    private final TargetOwnerDrainCoordinator drainCoordinator;
     private boolean sourceAndMaintenancePaused;
 
     public TargetWorkerShardRuntime(
@@ -75,6 +76,8 @@ public final class TargetWorkerShardRuntime implements TargetWorkerShardFleetRun
                 inputs.expiryQuota(),
                 inputs.cursorQuota(),
                 inputs.ownerClock());
+        drainCoordinator =
+                new TargetOwnerDrainCoordinator(exactStore, this.resources, exactTarget, sourceLoop, maintenance);
     }
 
     public ShardId shardId() {
@@ -106,6 +109,9 @@ public final class TargetWorkerShardRuntime implements TargetWorkerShardFleetRun
 
     /** Stops new source polls and GC submissions before Owner drain begins. */
     public synchronized void pauseNewTurns() {
+        if (sourceLoop.pendingEntry().isPresent()) {
+            throw new IllegalStateException("Target Worker cannot pause a pending source acknowledgement");
+        }
         sourceAndMaintenancePaused = true;
     }
 
@@ -118,6 +124,16 @@ public final class TargetWorkerShardRuntime implements TargetWorkerShardFleetRun
 
     public synchronized Optional<SourceReplayEntry> pendingSourceEntry() {
         return sourceLoop.pendingEntry();
+    }
+
+    /** Runs or retries strict Target drain after the host has closed its maintenance loop. */
+    public synchronized TargetOwnerDrainCoordinator.Result drain(
+            final TargetOwnerDrainCoordinator.Request request, final LongSupplier clock) {
+        if (sourceLoop.pendingEntry().isPresent()) {
+            throw new IllegalStateException("Target Worker cannot drain a pending source acknowledgement");
+        }
+        pauseNewTurns();
+        return drainCoordinator.drain(request, clock);
     }
 
     /** Closes the native source when no ACK is pending; Owner drain remains the host's responsibility. */

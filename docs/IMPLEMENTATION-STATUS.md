@@ -18355,3 +18355,25 @@ the implementation receipt's complete certification source. The current
 checkout is equivalent only when its closed runtime-source digest matches;
 documentation-only commits no longer require the pointer to name their HEAD.
 Historical PASS is never rebound or carried forward by prose.
+
+## 2026-09-23 NDIP-3 Target Owner local drain increment
+
+`TargetWorkerShardRuntime` now composes a single-Shard local
+`TargetOwnerDrainCoordinator`. It rejects a pending source entry, pauses new
+source/GC turns, settles only a previously queued GC action under a bounded
+budget, then checks the exact Owner lease before the DRAINING CAS. The normal
+path fences local source, flushes and closes the Store, releases the exact
+lease, and closes the native source. A replacement Owner's lease is retained
+while the old Store closes. An uncertain native write takes a separate
+close-first path before exact lease release and reports a distinct result.
+Retryable GC, Store close and lease-release states stay on the coordinator.
+
+Four actual Target Store parameter cases passed in
+`TargetCommandStoreTest`: pending GC retry, normal release, replacement Owner
+preservation, and uncertain-write emergency close. The injected uncertain
+write may have reached RocksDB and corrupts fixed metadata; subsequent reopen
+correctly rejects it, so this is fail-closed evidence, not recovery proof.
+The host still has to stop the maintenance loop and resolve pending source
+ACKs, and final checkpoint, real Oxia/Broker response loss, new Owner recovery
+and production lifecycle remain open. No NDIP-3 slice or release status is
+promoted by this local increment.

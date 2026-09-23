@@ -17,6 +17,7 @@ import com.nereusstream.delay.ownership.SourceRecordConsumer;
 import com.nereusstream.delay.ownership.SourceReplayMutation;
 import com.nereusstream.delay.ownership.SourceReplayRecord;
 import com.nereusstream.delay.ownership.SourceReplaySuccessor;
+import com.nereusstream.delay.ownership.TargetOwnerDrainCoordinator;
 import com.nereusstream.delay.ownership.TargetReservationClosureWorkClassExecutor;
 import com.nereusstream.delay.ownership.TargetReservationExpiryWorkClassExecutor;
 import com.nereusstream.delay.ownership.TargetReservationGcRuntime;
@@ -2995,23 +2996,83 @@ class TargetCommandStoreTest {
             assertThrows(
                     IllegalStateException.class,
                     () -> reopenedFleet.runNextSourceTurn(new SchedulerBudget(1, 1, 60_000_000_000L), () -> 101));
-            assertEquals(
-                    pausedSubmission.task(),
-                    reopenedWorker
-                            .settlePendingMaintenance(new SchedulerBudget(1, 1, 60_000_000_000L))
-                            .orElseThrow()
-                            .task());
-            final var settled = reopenedWorker
-                    .settlePendingMaintenance(new SchedulerBudget(100, 2_000_000, 60_000_000_000L))
-                    .orElseThrow();
-            assertFalse(settled.pending());
-            assertEquals(pausedSubmission.task(), settled.task());
-            assertTrue(reopenedWorker
-                    .settlePendingMaintenance(new SchedulerBudget(100, 2_000_000, 60_000_000_000L))
-                    .isEmpty());
-            assertEquals(0, reopenedWorkClasses.registeredActions());
+            final var pendingDrain = reopenedWorker.drain(
+                    new TargetOwnerDrainCoordinator.Request(5_000, new SchedulerBudget(1, 1, 60_000_000_000L)),
+                    () -> 101);
+            assertEquals(TargetOwnerDrainCoordinator.Status.PENDING_GC, pendingDrain.status());
+            assertEquals(pausedSubmission.task(), pendingDrain.pendingGcTask());
+            assertFalse(reopened.isClosed());
             assertEquals(beforePausedGc, reopened.latestSequenceNumber());
-            reopenedWorker.closeSource();
+            assertEquals(
+                    ShardLifecycleState.ACTIVE_FOR_COMMANDS,
+                    priorOwner.leases().current(scope.shard()).orElseThrow().state());
+            final boolean uncertainStore = !claimed && rescheduled;
+            if (uncertainStore) {
+                assertThrows(
+                        ShardStore.RocksDbWriteFailure.class,
+                        () -> reopened.write(batch -> batch.put(
+                                ColumnFamily.META,
+                                com.nereusstream.delay.store.KeyCodec.metaFixed(4),
+                                Bytes.utf8("malformed-target-drain-fence"))));
+                assertTrue(reopened.isWriteOutcomeUncertain());
+            }
+            final com.nereusstream.delay.ownership.OwnerLease replacementOwner;
+            if (claimed && rescheduled) {
+                assertTrue(priorOwner.leases().release(activeReopened));
+                replacementOwner = priorOwner
+                        .leases()
+                        .transition(
+                                priorOwner
+                                        .leases()
+                                        .acquire(
+                                                priorOwner.assignment(),
+                                                "replacement-close-worker",
+                                                bytes(32, 0x47),
+                                                102,
+                                                10_000)
+                                        .orElseThrow(),
+                                ShardLifecycleState.ACTIVE_FOR_COMMANDS)
+                        .orElseThrow();
+            } else {
+                replacementOwner = null;
+            }
+            final var completedDrain = reopenedWorker.drain(
+                    new TargetOwnerDrainCoordinator.Request(
+                            5_000, new SchedulerBudget(100, 2_000_000, 60_000_000_000L)),
+                    () -> 101);
+            assertEquals(
+                    replacementOwner == null
+                            ? uncertainStore
+                                    ? TargetOwnerDrainCoordinator.Status.UNCERTAIN_RELEASED
+                                    : TargetOwnerDrainCoordinator.Status.RELEASED
+                            : TargetOwnerDrainCoordinator.Status.OWNER_LOST_CLOSED,
+                    completedDrain.status());
+            assertNull(completedDrain.pendingGcTask());
+            assertEquals(0, reopenedWorkClasses.registeredActions());
+            assertTrue(reopened.isClosed());
+            if (replacementOwner == null) {
+                assertTrue(priorOwner.leases().current(scope.shard()).isEmpty());
+            } else {
+                assertTrue(replacementOwner.sameIdentity(
+                        priorOwner.leases().current(scope.shard()).orElseThrow()));
+            }
+            assertEquals(
+                    completedDrain.status(),
+                    reopenedWorker
+                            .drain(
+                                    new TargetOwnerDrainCoordinator.Request(
+                                            5_000, new SchedulerBudget(1, 1, 60_000_000_000L)),
+                                    () -> 101)
+                            .status());
+            if (uncertainStore) {
+                assertThrows(
+                        IllegalArgumentException.class, () -> ShardStore.openTarget(config, scope.shard(), resources));
+            } else {
+                try (var afterDrain = ShardStore.openTarget(config, scope.shard(), resources)) {
+                    assertEquals(sourceSequenceBeforeReopenedGc, afterDrain.shardMutationSequence());
+                    assertEquals(sourceBeforeReopenedGc, afterDrain.appliedShardLogPosition());
+                }
+            }
         }
     }
 

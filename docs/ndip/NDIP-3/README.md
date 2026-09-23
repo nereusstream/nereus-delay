@@ -392,3 +392,10 @@ C4/C5 开始真实 Store 后端：显式 ShardStore.openTarget 创建/打开 for
 aggregate/source 写入同一 RocksDB batch，并提供完整结果 namespace 遍历。当前只做
 编译及两项最小 Store smoke；Worker/Claim/Admission/Producer 装配、完整业务 authority、
 跨账本恢复、checkpoint/restore/migration 与集中验证尚未贯通，不是生产入口完成。
+
+2026-09-23 的 Target Worker 增量已在实际 Store 场景中接入 source/Close/expiry GC、
+固定间隔维护组件与单 Shard 本地 Owner drain。drain 拒绝 pending source entry，
+小预算保留旧 GC task；正常路径经精确 Owner DRAINING CAS、Store flush/close 和
+lease release。替代 Owner 不被释放，写结果不确定时先关闭旧 Store。四组本地参数
+场景通过；宿主停维护循环、pending ACK 消解、checkpoint、真实 Oxia/Broker、
+恢复和生产关闭编排仍开放，C2/C5 与整份 NDIP-3 状态不提升。

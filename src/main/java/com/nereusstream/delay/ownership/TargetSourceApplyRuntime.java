@@ -354,6 +354,19 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         }
     }
 
+    synchronized OxiaOwnerLeaseStore drainAuthority() {
+        return authorities.leases();
+    }
+
+    synchronized OwnerLease requireActiveDrainLease(final LongSupplier clock) {
+        requireGcOwner(Objects.requireNonNull(clock, "clock"));
+        return lease;
+    }
+
+    synchronized OwnerLease snapshotDrainLease() {
+        return lease;
+    }
+
     private TargetStoreBackend.CommitGuard gcGuard(
             final TargetStoreBackend.CommitGuard external,
             final StoreMetadata actual,
