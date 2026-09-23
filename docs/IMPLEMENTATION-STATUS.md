@@ -38,7 +38,9 @@ Store/共享资源/WorkClass 图，两个入口受资源 admission gate 限制�
 参数场景由此入口执行。上层持续 tick、Owner drain 与真实 Broker/Oxia 尚未接入。
 `TargetWorkerShardFleetRuntime` 现为同 Worker 的 Target Shard 提供 source/GC 独立
 轮转，拒绝重复 Shard 或不同资源图；两 Shard 轮转和失败后继续的局部测试通过，
-实际 Store 重开 GC 经生产 fleet 构造的单 Shard 路径通过。它仍需持续 tick 和 Owner drain。
+实际 Store 重开 GC 经生产 fleet 构造的单 Shard 路径通过。fleet 自身不触发周期或 Owner drain。
+`TargetWorkerMaintenanceLoop` 已提供显式可启动的固定间隔有界 GC tick，失败后继续
+轮转且关闭等待在途 turn；宿主启动接线、Owner drain 和真实 Broker/Oxia 仍缺。
 带活跃 reservation 的恢复、生产事件循环持续触发、
 跨 Target 服务机会界限、expiry-first 混合顺序、关闭汇总转移、生产历史权限/配置/
 factory、format2 回填、完整迁移/恢复和集中验证仍未完成。原 29 切片不缩减。

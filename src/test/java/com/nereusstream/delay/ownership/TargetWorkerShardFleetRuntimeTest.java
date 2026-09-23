@@ -1,7 +1,9 @@
 package com.nereusstream.delay.ownership;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
@@ -13,10 +15,17 @@ import com.nereusstream.delay.scheduler.WorkClassTask;
 import com.nereusstream.delay.store.ShardStoreConfig;
 import com.nereusstream.delay.store.SharedRocksDbResources;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.LongSupplier;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -42,10 +51,15 @@ class TargetWorkerShardFleetRuntimeTest {
             assertEquals(first.shard, fleet.runNextSourceTurn(budget, () -> 101).shardId());
             assertEquals(second.shard, fleet.runNextMaintenanceTurn(budget).shardId());
             first.failNextMaintenance = true;
-            assertThrows(IllegalStateException.class, () -> fleet.runNextMaintenanceTurn(budget));
+            assertEquals(
+                    first.shard,
+                    assertThrows(
+                                    TargetWorkerShardFleetRuntime.MaintenanceDispatchFailure.class,
+                                    () -> fleet.runNextMaintenanceTurn(budget))
+                            .selectedShardId());
             assertEquals(second.shard, fleet.runNextMaintenanceTurn(budget).shardId());
-            assertEquals(2, first.maintenanceTurns);
-            assertEquals(2, second.maintenanceTurns);
+            assertEquals(2, first.maintenanceTurns.get());
+            assertEquals(2, second.maintenanceTurns.get());
 
             assertThrows(
                     IllegalArgumentException.class,
@@ -53,6 +67,66 @@ class TargetWorkerShardFleetRuntimeTest {
             assertThrows(
                     IllegalArgumentException.class,
                     () -> new TargetWorkerShardFleetRuntime(registry(), resources, first));
+        }
+    }
+
+    @Test
+    void scheduledMaintenanceContinuesAfterShardFailureAndCloseWaitsForActiveTurn() throws Exception {
+        final var registry = registry();
+        final var executor = Executors.newSingleThreadScheduledExecutor();
+        final var closer = Executors.newSingleThreadExecutor();
+        try (var resources = new SharedRocksDbResources(ShardStoreConfig.defaults(tempDir.resolve("scheduled")))) {
+            final var first = new StubShard(new ShardId(RouteIncarnation.random(), 1), registry, resources);
+            final var second = new StubShard(new ShardId(RouteIncarnation.random(), 2), registry, resources);
+            final var fleet = new TargetWorkerShardFleetRuntime(registry, resources, first, second);
+            final var observedSecond = new CountDownLatch(1);
+            second.enteredMaintenance = observedSecond;
+            first.failNextMaintenance = true;
+            final var observedFailure = new AtomicReference<Throwable>();
+            final var loop = new TargetWorkerMaintenanceLoop(
+                    fleet,
+                    new SchedulerBudget(1, 1000, 1_000_000),
+                    Duration.ofMillis(1),
+                    failure -> {
+                        observedFailure.set(failure);
+                        throw new IllegalStateException("failure observer failed");
+                    },
+                    executor);
+            final var releaseBlocked = new CountDownLatch(1);
+            try {
+                loop.start();
+                assertTrue(observedSecond.await(5, TimeUnit.SECONDS));
+                assertNotNull(observedFailure.get());
+                assertEquals(
+                        "shard maintenance failure",
+                        loop.firstFailure().getCause().getMessage());
+                assertEquals(
+                        "failure observer failed",
+                        loop.firstFailure().getSuppressed()[0].getMessage());
+
+                final var enteredBlocked = new CountDownLatch(1);
+                first.releaseMaintenance = releaseBlocked;
+                first.enteredMaintenance = enteredBlocked;
+                assertTrue(enteredBlocked.await(5, TimeUnit.SECONDS));
+                final var closeStarted = new CountDownLatch(1);
+                final var closing = closer.submit(() -> {
+                    closeStarted.countDown();
+                    loop.close();
+                });
+                assertTrue(closeStarted.await(5, TimeUnit.SECONDS));
+                assertThrows(TimeoutException.class, () -> closing.get(100, TimeUnit.MILLISECONDS));
+                releaseBlocked.countDown();
+                closing.get(5, TimeUnit.SECONDS);
+                final int completed = first.maintenanceTurns.get() + second.maintenanceTurns.get();
+                assertThrows(IllegalStateException.class, loop::pollNow);
+                assertEquals(completed, first.maintenanceTurns.get() + second.maintenanceTurns.get());
+            } finally {
+                releaseBlocked.countDown();
+                loop.close();
+            }
+        } finally {
+            executor.shutdownNow();
+            closer.shutdownNow();
         }
     }
 
@@ -85,8 +159,10 @@ class TargetWorkerShardFleetRuntimeTest {
         private final ShardId shard;
         private final WorkClassExecutionRegistry registry;
         private final SharedRocksDbResources resources;
-        private int maintenanceTurns;
-        private boolean failNextMaintenance;
+        private final AtomicInteger maintenanceTurns = new AtomicInteger();
+        private volatile boolean failNextMaintenance;
+        private volatile CountDownLatch enteredMaintenance;
+        private volatile CountDownLatch releaseMaintenance;
 
         private StubShard(
                 final ShardId shard,
@@ -119,7 +195,18 @@ class TargetWorkerShardFleetRuntimeTest {
 
         @Override
         public TargetReservationGcRuntime.Turn runMaintenanceTurn(final SchedulerBudget budget) {
-            maintenanceTurns++;
+            maintenanceTurns.incrementAndGet();
+            if (enteredMaintenance != null) {
+                enteredMaintenance.countDown();
+            }
+            if (releaseMaintenance != null) {
+                try {
+                    releaseMaintenance.await();
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("maintenance turn interrupted", interrupted);
+                }
+            }
             if (failNextMaintenance) {
                 failNextMaintenance = false;
                 throw new IllegalStateException("shard maintenance failure");

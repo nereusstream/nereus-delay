@@ -1,5 +1,6 @@
 package com.nereusstream.delay.ownership;
 
+import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
@@ -35,6 +36,24 @@ public final class TargetWorkerShardFleetRuntime {
         public MaintenanceTurn {
             Objects.requireNonNull(shardId, "shardId");
             Objects.requireNonNull(result, "result");
+        }
+    }
+
+    /** The selected shard is context, not proof that its action caused a shared dispatcher failure. */
+    public static final class MaintenanceDispatchFailure extends IllegalStateException {
+        private static final long serialVersionUID = 1L;
+        private final byte[] routeIncarnation;
+        private final int partition;
+
+        private MaintenanceDispatchFailure(final ShardId selectedShardId, final RuntimeException cause) {
+            super("Target maintenance dispatch failed while selecting shard " + selectedShardId, cause);
+            final var selected = Objects.requireNonNull(selectedShardId, "selectedShardId");
+            routeIncarnation = selected.routeIncarnation().bytes();
+            partition = selected.partition();
+        }
+
+        public ShardId selectedShardId() {
+            return new ShardId(new RouteIncarnation(routeIncarnation), partition);
         }
     }
 
@@ -95,6 +114,10 @@ public final class TargetWorkerShardFleetRuntime {
         Objects.requireNonNull(budget, "budget");
         final var selected = shards.get(maintenanceCursor);
         maintenanceCursor = maintenanceCursor == shards.size() - 1 ? 0 : maintenanceCursor + 1;
-        return new MaintenanceTurn(selected.shardId(), selected.runMaintenanceTurn(budget));
+        try {
+            return new MaintenanceTurn(selected.shardId(), selected.runMaintenanceTurn(budget));
+        } catch (RuntimeException failure) {
+            throw new MaintenanceDispatchFailure(selected.shardId(), failure);
+        }
     }
 }
