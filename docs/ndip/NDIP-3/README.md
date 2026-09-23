@@ -461,3 +461,8 @@ session-bound ACTIVE Owner lease、精确 pending upload intent、Store/ID/linea
 失效拒绝已通过局部测试。生产 checkpoint 调度与 source cut、完整 Owner 身份组装、
 认证控制/语义快照、Manifest/Catalog 发布和 restore/install 尚未贯通；C5 和 format 2
 发布/恢复门禁保持原状态。
+
+format 2 候选的完整账本扫描现逐项核对固定 META 1–9 的类型、身份与规范字节，
+并拒绝旧 compatible control/reader 键 10–14；旧控制快照的正式写入口也对
+format 2 写前拒绝。真实 Store 注入旧快照时审计失败，删除后恢复通过。
+Target 专用控制/语义快照及认证摘要仍未实现，发布与恢复门禁不变。

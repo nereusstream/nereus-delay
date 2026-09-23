@@ -18517,3 +18517,14 @@ scheduling and protected Broker source cut, complete Owner identity assembly,
 authenticated control/semantic state, Manifest/Catalog publication and
 restore/install remain open. C5 is IN_PROGRESS and format-2 publish/restore
 gates remain closed.
+
+The finite format-2 candidate ledger scan now validates fixed META keys 1–9
+instead of silently skipping them: format, Store/source identity and mutation
+sequence match the root; evidence cursors, checkpoint ID, opened Owner epoch
+and clean-close marker have their required encodings. Legacy compatible
+reader/control keys 10–14 are rejected until a Target-specific control
+contract exists, and the compatible snapshot writer rejects format-2 Stores
+before writing. A real Target Store with an intentionally injected valid
+legacy snapshot fails the full audit and passes again after removal. This
+closes a local format-confusion path; authenticated Target control/semantic
+state, publication and install authority remain incomplete.

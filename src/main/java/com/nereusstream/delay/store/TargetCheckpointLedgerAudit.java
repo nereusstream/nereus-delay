@@ -155,21 +155,32 @@ final class TargetCheckpointLedgerAudit {
         }
         final int tag = Byte.toUnsignedInt(key[0]);
         if (tag == 1) {
-            if (key.length != 3 || Byte.toUnsignedInt(key[2]) == 0 || Byte.toUnsignedInt(key[2]) > 14) {
+            if (key.length != 3 || Byte.toUnsignedInt(key[2]) == 0 || Byte.toUnsignedInt(key[2]) > 9) {
                 throw new IllegalArgumentException("unknown Target checkpoint fixed metadata key");
             }
-            final var value = TargetValueEnvelope.decodeAny(raw);
-            if (Byte.toUnsignedInt(key[2]) == 4) {
-                if (value.valueType() != 1) {
-                    throw new IllegalArgumentException("Target checkpoint ingress fence has another value type");
+            final byte[] payload = TargetValueEnvelope.decode(raw, 1).payload();
+            switch (Byte.toUnsignedInt(key[2])) {
+                case 1 -> requireFixedBytes(payload, Bytes.u32be(2), "Store format");
+                case 2 -> requireFixedBytes(payload, proof.metadata().encode(), "Store identity");
+                case 3 -> requireFixedBytes(payload, proof.source().canonicalBytes(), "source position");
+                case 4 -> {
+                    IngressFenceState.decode(payload);
+                    final var charge = TargetRecordAccounting.resources(proof.root()
+                            .accounting()
+                            .recordCharge(TargetQuotaAccounting.RecordClass.STATE, key.length, payload.length));
+                    merge(rebuilt, proof.root().identity(), charge);
+                    merge(rebuilt, proof.root().tenantIdentity(), charge);
                 }
-                final byte[] payload = value.payload();
-                IngressFenceState.decode(payload);
-                final var charge = TargetRecordAccounting.resources(proof.root()
-                        .accounting()
-                        .recordCharge(TargetQuotaAccounting.RecordClass.STATE, key.length, payload.length));
-                merge(rebuilt, proof.root().identity(), charge);
-                merge(rebuilt, proof.root().tenantIdentity(), charge);
+                case 5 -> requireFixedBytes(payload, Bytes.u64beBits(proof.mutationSequence()), "mutation sequence");
+                case 6 -> StoreRuntimeMetadata.decodeEvidenceCursors(payload);
+                case 7 -> requireNonZeroIdentity(payload, 16, "checkpoint identity");
+                case 8 -> Bytes.requireLength(payload, Long.BYTES, "opened Owner epoch");
+                case 9 -> {
+                    if (payload.length != 1 || Byte.toUnsignedInt(payload[0]) > 1) {
+                        throw new IllegalArgumentException("Target checkpoint has an invalid clean-close marker");
+                    }
+                }
+                default -> throw new IllegalArgumentException("unknown Target checkpoint fixed metadata key");
             }
             return true;
         }
@@ -213,6 +224,22 @@ final class TargetCheckpointLedgerAudit {
             return true;
         }
         return false;
+    }
+
+    private static void requireFixedBytes(final byte[] actual, final byte[] expected, final String description) {
+        if (!Bytes.constantTimeEquals(actual, expected)) {
+            throw new IllegalArgumentException("Target checkpoint fixed " + description + " differs from root");
+        }
+    }
+
+    private static void requireNonZeroIdentity(final byte[] value, final int length, final String description) {
+        Bytes.requireLength(value, length, description);
+        for (byte item : value) {
+            if (item != 0) {
+                return;
+            }
+        }
+        throw new IllegalArgumentException("Target checkpoint " + description + " is zero");
     }
 
     private static void merge(

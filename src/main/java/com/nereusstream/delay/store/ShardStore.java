@@ -3068,6 +3068,9 @@ public final class ShardStore implements AutoCloseable {
         /** Adds the complete compatible control snapshot to this atomic batch. */
         public void putControlSnapshot(final CompatibleControlSnapshot next) throws RocksDBException {
             Objects.requireNonNull(next, "next");
+            if (owner.metadata.storeFormatVersion() != 1) {
+                throw new IllegalStateException("compatible control snapshot requires a format-1 Store");
+            }
             if (!owner.shardId.equals(next.shard().shardId())) {
                 throw new IllegalArgumentException("control snapshot belongs to another shard");
             }

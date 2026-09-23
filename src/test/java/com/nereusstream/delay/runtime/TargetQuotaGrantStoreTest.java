@@ -24,6 +24,7 @@ import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CapacityVector;
 import com.nereusstream.delay.protocol.CheckpointUploadIntent;
 import com.nereusstream.delay.protocol.CheckpointUploadState;
+import com.nereusstream.delay.protocol.CompatibleControlSnapshot;
 import com.nereusstream.delay.protocol.ControlAuthor;
 import com.nereusstream.delay.protocol.ControlAuthorizationContext;
 import com.nereusstream.delay.protocol.ControlRef;
@@ -38,6 +39,9 @@ import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.PreparedControlOperation;
 import com.nereusstream.delay.protocol.ProfileKind;
 import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.ProtocolTuple;
+import com.nereusstream.delay.protocol.PublishAdmissionBody;
+import com.nereusstream.delay.protocol.QuotaGrantRef;
 import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.StableCode;
@@ -913,6 +917,34 @@ class TargetQuotaGrantStoreTest {
         try (var resources = new SharedRocksDbResources(config);
                 var restored = ShardStore.openTarget(config, scope.shard(), resources)) {
             restored.write(batch -> batch.delete(ColumnFamily.DEDUPE, foreignKey));
+        }
+        TargetCheckpointRootVerifier.auditIndependentLedger(
+                physicalDb, scope.shard(), imageLimits, quotaAuditLimits, ledgerAuditLimits);
+        final var legacyControl = new CompatibleControlSnapshot(
+                new ShardSubject(scope.shard()),
+                List.of(new ProtocolTuple(1, 1, ProtocolTuple.CLIENT_COMMAND, 1, 1)),
+                List.of(),
+                new QuotaGrantRef(
+                        bytes(32, 0x5a),
+                        1,
+                        new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)));
+        try (var resources = new SharedRocksDbResources(config);
+                var corrupt = ShardStore.openTarget(config, scope.shard(), resources)) {
+            final long beforeRejectedControl = corrupt.latestSequenceNumber();
+            assertThrows(IllegalStateException.class, () -> corrupt.recordControlSnapshot(legacyControl));
+            assertEquals(beforeRejectedControl, corrupt.latestSequenceNumber());
+            corrupt.write(batch -> batch.putValue(
+                    ColumnFamily.META, 1, KeyCodec.metaFixed(10), legacyControl.canonicalBytes()));
+        }
+        assertTrue(assertThrows(
+                        IllegalArgumentException.class,
+                        () -> TargetCheckpointRootVerifier.auditIndependentLedger(
+                                physicalDb, scope.shard(), imageLimits, quotaAuditLimits, ledgerAuditLimits))
+                .getMessage()
+                .contains("unknown Target checkpoint fixed metadata key"));
+        try (var resources = new SharedRocksDbResources(config);
+                var restored = ShardStore.openTarget(config, scope.shard(), resources)) {
+            restored.write(batch -> batch.delete(ColumnFamily.META, KeyCodec.metaFixed(10)));
         }
         TargetCheckpointRootVerifier.auditIndependentLedger(
                 physicalDb, scope.shard(), imageLimits, quotaAuditLimits, ledgerAuditLimits);
