@@ -161,12 +161,217 @@ class TargetWorkerOrdinaryDrrTest {
                         .claims());
     }
 
+    @Test
+    void recoveryFirstPassWaitsForTheLargeTargetBeforeRepeatingAClaimedTarget() {
+        final ShardId shard = shard(1);
+        final var physicalA = target(0);
+        final var physicalB = target(1);
+        final var first = head(physicalA, shard, 50);
+        final var second = head(physicalB, shard, 200);
+        final var reads = new FakeReads(first, second);
+        final var drr = recoverySchedule(
+                List.of(targetState(physicalA, first), targetState(physicalB, second)), reads, TWO_VISITS);
+        final var budget = new SchedulerBudget(2, 200, 1_000_000_000L);
+        final var commits = new java.util.concurrent.atomic.AtomicInteger();
+        final TargetWorkerOrdinaryDrr.Selector<TargetPartitionId> selector = (source, cost) -> Optional.of(() -> {
+            commits.incrementAndGet();
+            return cost.head().target();
+        });
+
+        assertThrows(IllegalStateException.class, () -> drr.runOrdinary(100, budget, selector));
+        assertEquals(
+                TargetWorkerOrdinaryDrr.FreezeStop.READY,
+                drr.freezeFirstPass(100, budget, selector).stop());
+        assertEquals(0, commits.get());
+        assertEquals(
+                List.of(physicalA.id()), drr.runOrdinary(100, budget, selector).claims());
+        final var creditWait = drr.runOrdinary(100, budget, selector);
+        assertTrue(creditWait.claims().isEmpty());
+        assertEquals(2, creditWait.targetVisits());
+        assertEquals(
+                List.of(physicalB.id()), drr.runOrdinary(100, budget, selector).claims());
+        assertEquals(
+                List.of(physicalA.id()), drr.runOrdinary(100, budget, selector).claims());
+        assertEquals(3, commits.get());
+    }
+
+    @Test
+    void recoveryFirstPassRemovesBlockedTargetAndYieldsOnIncompleteFreezeRead() {
+        final ShardId shard = shard(1);
+        final var physicalA = target(0);
+        final var physicalB = target(1);
+        final var first = head(physicalA, shard, 50);
+        final var second = head(physicalB, shard, 50);
+        final var reads = new FakeReads(first, second);
+        reads.incompleteOnce(shard, physicalA.id());
+        final var drr = recoverySchedule(
+                List.of(targetState(physicalA, first), targetState(physicalB, second)), reads, ONE_VISIT);
+        final var budget = new SchedulerBudget(1, 200, 1_000_000_000L);
+        final TargetWorkerOrdinaryDrr.Selector<TargetPartitionId> eligible =
+                (source, cost) -> Optional.of(() -> cost.head().target());
+
+        assertEquals(
+                TargetWorkerOrdinaryDrr.FreezeStop.READ_INCOMPLETE,
+                drr.freezeFirstPass(100, budget, eligible).stop());
+        assertEquals(
+                TargetWorkerOrdinaryDrr.FreezeStop.VISIT_BUDGET,
+                drr.freezeFirstPass(100, budget, eligible).stop());
+        assertEquals(
+                TargetWorkerOrdinaryDrr.FreezeStop.READY,
+                drr.freezeFirstPass(100, budget, eligible).stop());
+        assertEquals(
+                List.of(physicalA.id()), drr.runOrdinary(100, budget, eligible).claims());
+        final var blocked = drr.runOrdinary(
+                100,
+                budget,
+                (source, cost) -> cost.head().target().equals(physicalB.id())
+                        ? Optional.empty()
+                        : Optional.of(() -> cost.head().target()));
+        assertTrue(blocked.claims().isEmpty());
+        assertEquals(
+                List.of(physicalA.id()), drr.runOrdinary(100, budget, eligible).claims());
+    }
+
+    @Test
+    void recoveryFirstPassRejectsAStoreCutChangedDuringTheFreeze() {
+        final ShardId shard = shard(1);
+        final var physicalA = target(0);
+        final var physicalB = target(1);
+        final var first = head(physicalA, shard, 50);
+        final var second = head(physicalB, shard, 50);
+        final var reads = new FakeReads(first, second);
+        final var drr = recoverySchedule(
+                List.of(targetState(physicalA, first), targetState(physicalB, second)), reads, ONE_VISIT);
+        final var budget = new SchedulerBudget(1, 200, 1_000_000_000L);
+        final TargetWorkerOrdinaryDrr.Selector<TargetPartitionId> selector =
+                (source, cost) -> Optional.of(() -> cost.head().target());
+
+        assertEquals(
+                TargetWorkerOrdinaryDrr.FreezeStop.VISIT_BUDGET,
+                drr.freezeFirstPass(100, budget, selector).stop());
+        reads.advanceCut(shard);
+        assertThrows(IllegalStateException.class, () -> drr.freezeFirstPass(100, budget, selector));
+        assertThrows(IllegalStateException.class, () -> drr.runOrdinary(100, budget, selector));
+    }
+
+    @Test
+    void newlyAvailableTargetDoesNotReopenTheFrozenFirstPass() {
+        final ShardId shard = shard(1);
+        final var initiallyBlocked = target(0);
+        final var eligible = target(1);
+        final var blockedHead = head(initiallyBlocked, shard, 50);
+        final var eligibleHead = head(eligible, shard, 50);
+        final var reads = new FakeReads(blockedHead, eligibleHead);
+        final var drr = recoverySchedule(
+                List.of(targetState(initiallyBlocked, blockedHead), targetState(eligible, eligibleHead)),
+                reads,
+                TWO_VISITS);
+        final var budget = new SchedulerBudget(2, 100, 1_000_000_000L);
+        final var frozen = drr.freezeFirstPass(
+                100,
+                budget,
+                (source, cost) -> cost.head().target().equals(initiallyBlocked.id())
+                        ? Optional.empty()
+                        : Optional.of(() -> cost.head().target()));
+        assertEquals(TargetWorkerOrdinaryDrr.FreezeStop.READY, frozen.stop());
+        assertEquals(1, frozen.eligibleTargets());
+
+        final TargetWorkerOrdinaryDrr.Selector<TargetPartitionId> available =
+                (source, cost) -> Optional.of(() -> cost.head().target());
+        assertEquals(
+                List.of(eligible.id()), drr.runOrdinary(100, budget, available).claims());
+        assertEquals(
+                List.of(initiallyBlocked.id()),
+                drr.runOrdinary(100, budget, available).claims());
+    }
+
+    @Test
+    void blockedHeadIsRemovedEvenWhenThisTurnsBytesCannotFitIt() {
+        final ShardId shard = shard(1);
+        final var blocked = target(0);
+        final var available = target(1);
+        final var first = head(blocked, shard, 200);
+        final var second = head(available, shard, 50);
+        final var reads = new FakeReads(first, second);
+        final var drr = recoverySchedule(
+                List.of(targetState(blocked, first), targetState(available, second)), reads, TWO_VISITS);
+        final var freezeBudget = new SchedulerBudget(2, 200, 1_000_000_000L);
+        final TargetWorkerOrdinaryDrr.Selector<TargetPartitionId> all =
+                (source, cost) -> Optional.of(() -> cost.head().target());
+        assertEquals(
+                TargetWorkerOrdinaryDrr.FreezeStop.READY,
+                drr.freezeFirstPass(100, freezeBudget, all).stop());
+
+        final var smallBudget = new SchedulerBudget(2, 100, 1_000_000_000L);
+        final var firstTurn = drr.runOrdinary(
+                100,
+                smallBudget,
+                (source, cost) -> cost.head().target().equals(blocked.id())
+                        ? Optional.empty()
+                        : Optional.of(() -> cost.head().target()));
+        assertEquals(List.of(available.id()), firstTurn.claims());
+        assertEquals(
+                List.of(available.id()), drr.runOrdinary(100, smallBudget, all).claims());
+    }
+
+    @Test
+    void recoveryFreezeDoesNotPublishAfterItsElapsedBudget() {
+        final ShardId shard = shard(1);
+        final var physical = target(0);
+        final var head = head(physical, shard, 50);
+        final var reads = new FakeReads(head);
+        final var ticks = new java.util.concurrent.atomic.AtomicLong();
+        final var drr = new TargetWorkerOrdinaryDrr(
+                new TargetWorkerTargetInventory.Snapshot(List.of(targetState(physical, head)), reads.cuts()),
+                ONE_VISIT,
+                reads,
+                ticks::getAndIncrement,
+                true);
+        final var budget = new SchedulerBudget(1, 200, 3);
+        final TargetWorkerOrdinaryDrr.Selector<TargetPartitionId> selector =
+                (source, cost) -> Optional.of(() -> cost.head().target());
+
+        assertEquals(
+                TargetWorkerOrdinaryDrr.FreezeStop.VISIT_BUDGET,
+                drr.freezeFirstPass(100, budget, selector).stop());
+        assertEquals(
+                TargetWorkerOrdinaryDrr.FreezeStop.READY,
+                drr.freezeFirstPass(100, budget, selector).stop());
+    }
+
+    @Test
+    void futureTargetDoesNotHoldTheRecoveryFirstPassOpen() {
+        final ShardId shard = shard(1);
+        final var physical = target(0);
+        final var head = head(physical, shard, 50);
+        final var reads = new FakeReads(head);
+        final var drr = recoverySchedule(List.of(targetState(physical, head)), reads, ONE_VISIT);
+        final var budget = new SchedulerBudget(1, 100, 1_000_000_000L);
+        final TargetWorkerOrdinaryDrr.Selector<TargetPartitionId> selector =
+                (source, cost) -> Optional.of(() -> cost.head().target());
+
+        final var frozen = drr.freezeFirstPass(5, budget, selector);
+        assertEquals(TargetWorkerOrdinaryDrr.FreezeStop.READY, frozen.stop());
+        assertEquals(0, frozen.eligibleTargets());
+        assertTrue(drr.runOrdinary(5, budget, selector).claims().isEmpty());
+        assertEquals(
+                List.of(physical.id()), drr.runOrdinary(100, budget, selector).claims());
+    }
+
     private static TargetWorkerOrdinaryDrr schedule(
             final List<TargetWorkerTargetInventory.Target> targets,
             final FakeReads reads,
             final TargetWorkerOrdinaryDrr.Limits limits) {
         return new TargetWorkerOrdinaryDrr(
                 new TargetWorkerTargetInventory.Snapshot(targets, reads.cuts()), limits, reads, () -> 0);
+    }
+
+    private static TargetWorkerOrdinaryDrr recoverySchedule(
+            final List<TargetWorkerTargetInventory.Target> targets,
+            final FakeReads reads,
+            final TargetWorkerOrdinaryDrr.Limits limits) {
+        return new TargetWorkerOrdinaryDrr(
+                new TargetWorkerTargetInventory.Snapshot(targets, reads.cuts()), limits, reads, () -> 0, true);
     }
 
     private static TargetWorkerTargetInventory.Target targetState(
@@ -242,9 +447,19 @@ class TargetWorkerOrdinaryDrrTest {
             incompleteOnce.add(new Key(shard, target));
         }
 
+        private void advanceCut(final ShardId shard) {
+            final var prior = cuts.get(shard);
+            cuts.put(shard, new TargetQueueSnapshotReader.Cut(prior.storeIncarnation(), prior.nativeSequence() + 1));
+        }
+
         @Override
         public boolean membershipCurrent() {
             return true;
+        }
+
+        @Override
+        public boolean cutsCurrent(final Map<ShardId, TargetQueueSnapshotReader.Cut> expected) {
+            return cuts.equals(expected);
         }
 
         @Override

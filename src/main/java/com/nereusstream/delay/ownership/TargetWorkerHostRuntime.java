@@ -231,7 +231,7 @@ public final class TargetWorkerHostRuntime {
         return result;
     }
 
-    /** Starts ordinary byte DRR only from this Host's complete, still-current inventory. */
+    /** Creates ordinary byte DRR from this Host's complete inventory; freeze its recovery pass before Claim. */
     public TargetWorkerOrdinaryDrr newOrdinaryDrr(
             final TargetWorkerTargetInventory.Result inventory,
             final TargetWorkerOrdinaryDrr.Limits limits,

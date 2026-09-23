@@ -19,10 +19,12 @@ import com.nereusstream.delay.store.TargetStoreBackend;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.LongSupplier;
 
 /** One process-local byte-cost DRR share per physical Target, for ordinary due Claim work. */
@@ -102,8 +104,25 @@ public final class TargetWorkerOrdinaryDrr {
         }
     }
 
+    public enum FreezeStop {
+        READY,
+        VISIT_BUDGET,
+        READ_INCOMPLETE
+    }
+
+    public record FreezeTurn(FreezeStop stop, int targetVisits, int eligibleTargets) {
+        public FreezeTurn {
+            Objects.requireNonNull(stop, "stop");
+            if (targetVisits < 0 || eligibleTargets < 0) {
+                throw new IllegalArgumentException("invalid Target recovery first-pass turn");
+            }
+        }
+    }
+
     interface Reads {
         boolean membershipCurrent();
+
+        boolean cutsCurrent(Map<ShardId, TargetQueueSnapshotReader.Cut> expected);
 
         Optional<TargetQueueSnapshotReader.Entry> refresh(ShardId shard, TargetPartitionId target);
 
@@ -122,6 +141,19 @@ public final class TargetWorkerOrdinaryDrr {
 
     private record Claimed<T>(T value, long cost) {}
 
+    private record Candidate<T>(int sourceIndex, int domainIndex, int domainCount, long cost, ClaimAction<T> action) {}
+
+    private record Selection<T>(Optional<Candidate<T>> candidate, boolean due, boolean budgetBlocked) {}
+
+    private enum VisitKind {
+        CLAIMED,
+        CREDIT_WAIT,
+        BUDGET_WAIT,
+        UNAVAILABLE
+    }
+
+    private record Visit<T>(VisitKind kind, Claimed<T> claimed) {}
+
     private final TargetWorkerHostRuntime host;
     private final Map<ShardId, TargetWorkerShardRuntime> workers;
     private final Reads reads;
@@ -129,7 +161,13 @@ public final class TargetWorkerOrdinaryDrr {
     private final LongSupplier monotonicClock;
     private final LongSupplier ownerClock;
     private final List<TargetState> ring;
+    private final Map<ShardId, TargetQueueSnapshotReader.Cut> inventoryCuts;
+    private final Set<TargetPartitionId> firstPassPending = new HashSet<>();
+    private final boolean firstPassRequired;
     private int cursor;
+    private int freezeCursor;
+    private long freezeEpochMs = -1;
+    private boolean firstPassReady;
     private long lastClockNanos = -1;
 
     TargetWorkerOrdinaryDrr(
@@ -162,9 +200,21 @@ public final class TargetWorkerOrdinaryDrr {
             throw new IllegalStateException("Target DRR source membership changed before activation");
         }
         workers = Map.copyOf(exact);
+        inventoryCuts = inventory.cuts();
+        firstPassRequired = true;
         reads = new Reads() {
             @Override
             public boolean membershipCurrent() {
+                return host.currentTargetWorkers().equals(current);
+            }
+
+            @Override
+            public boolean cutsCurrent(final Map<ShardId, TargetQueueSnapshotReader.Cut> expected) {
+                for (TargetWorkerShardRuntime worker : current) {
+                    if (!expected.get(worker.shardId()).equals(host.readTargetQueueCut(worker, budget(), ownerClock))) {
+                        return false;
+                    }
+                }
                 return host.currentTargetWorkers().equals(current);
             }
 
@@ -188,21 +238,46 @@ public final class TargetWorkerOrdinaryDrr {
             final Limits limits,
             final Reads reads,
             final LongSupplier monotonicClock) {
+        this(inventory, limits, reads, monotonicClock, false);
+    }
+
+    /** Exercises the first-pass state machine without fabricating Host or Store authority. */
+    TargetWorkerOrdinaryDrr(
+            final TargetWorkerTargetInventory.Snapshot inventory,
+            final Limits limits,
+            final Reads reads,
+            final LongSupplier monotonicClock,
+            final boolean requireFirstPass) {
         host = null;
         workers = Map.of();
         ownerClock = null;
         this.limits = Objects.requireNonNull(limits, "limits");
         this.reads = Objects.requireNonNull(reads, "reads");
         this.monotonicClock = Objects.requireNonNull(monotonicClock, "monotonicClock");
-        ring = states(Objects.requireNonNull(inventory, "inventory"));
+        final var exactInventory = Objects.requireNonNull(inventory, "inventory");
+        inventoryCuts = exactInventory.cuts();
+        firstPassRequired = requireFirstPass;
+        firstPassReady = !requireFirstPass;
+        ring = states(exactInventory);
     }
 
     /** Returns after at most one durable Claim so its receipt is never lost to a later read failure. */
     public synchronized Turn<TargetClaimRecord> claimOrdinary(
             final long nowEpochMs, final SchedulerBudget budget, final Requests requests) {
         Objects.requireNonNull(host, "host");
+        return runOrdinary(nowEpochMs, budget, claimSelector(nowEpochMs, requests));
+    }
+
+    /** Builds one frozen, bounded recovery set before the first ordinary Claim is admitted. */
+    public synchronized FreezeTurn freezeRecoveryFirstPass(
+            final long nowEpochMs, final SchedulerBudget budget, final Requests requests) {
+        Objects.requireNonNull(host, "host");
+        return freezeFirstPass(nowEpochMs, budget, claimSelector(nowEpochMs, requests));
+    }
+
+    private Selector<TargetClaimRecord> claimSelector(final long nowEpochMs, final Requests requests) {
         Objects.requireNonNull(requests, "requests");
-        return runOrdinary(nowEpochMs, budget, (shard, cost) -> requests.resolve(worker(shard), cost)
+        return (shard, cost) -> requests.resolve(worker(shard), cost)
                 .map(request -> () -> host.claim(
                         worker(shard),
                         budget(),
@@ -214,7 +289,59 @@ public final class TargetWorkerOrdinaryDrr {
                         request.operationDigest(),
                         request.quota(),
                         request.physicalWrites(),
-                        ownerClock)));
+                        ownerClock));
+    }
+
+    synchronized <T> FreezeTurn freezeFirstPass(
+            final long nowEpochMs, final SchedulerBudget budget, final Selector<T> selector) {
+        if (!firstPassRequired || firstPassReady) {
+            throw new IllegalStateException("Target recovery first pass is absent or already frozen");
+        }
+        if (nowEpochMs < 0 || (freezeEpochMs >= 0 && freezeEpochMs != nowEpochMs)) {
+            throw new IllegalArgumentException("Target recovery first pass requires one trusted freeze time");
+        }
+        Objects.requireNonNull(budget, "budget");
+        Objects.requireNonNull(selector, "selector");
+        if (!reads.membershipCurrent()) {
+            throw new IllegalStateException("Target recovery first pass source membership changed");
+        }
+        freezeEpochMs = nowEpochMs;
+        final long started = clock();
+        int visits = 0;
+        while (freezeCursor < ring.size()
+                && visits < limits.maximumVisitsPerTurn()
+                && clock() - started < budget.maxElapsedNanos()) {
+            final TargetState target = ring.get(freezeCursor);
+            final Selection<T> selection;
+            try {
+                selection = selectCandidate(target, nowEpochMs, limits.sendEnvelopeBytes(), selector);
+            } catch (ReadIncompleteException incomplete) {
+                return new FreezeTurn(FreezeStop.READ_INCOMPLETE, visits, firstPassPending.size());
+            }
+            if (selection.candidate().isPresent()) {
+                firstPassPending.add(target.id);
+            }
+            freezeCursor++;
+            visits++;
+        }
+        if (freezeCursor == ring.size()) {
+            if (clock() - started >= budget.maxElapsedNanos()) {
+                return new FreezeTurn(FreezeStop.VISIT_BUDGET, visits, firstPassPending.size());
+            }
+            try {
+                if (!reads.cutsCurrent(inventoryCuts)) {
+                    throw new IllegalStateException("Target recovery first pass Store cut changed; rebuild inventory");
+                }
+            } catch (ReadIncompleteException incomplete) {
+                return new FreezeTurn(FreezeStop.READ_INCOMPLETE, visits, firstPassPending.size());
+            }
+            if (clock() - started >= budget.maxElapsedNanos()) {
+                return new FreezeTurn(FreezeStop.VISIT_BUDGET, visits, firstPassPending.size());
+            }
+            firstPassReady = true;
+            return new FreezeTurn(FreezeStop.READY, visits, firstPassPending.size());
+        }
+        return new FreezeTurn(FreezeStop.VISIT_BUDGET, visits, firstPassPending.size());
     }
 
     synchronized <T> Turn<T> runOrdinary(
@@ -224,6 +351,9 @@ public final class TargetWorkerOrdinaryDrr {
         }
         Objects.requireNonNull(budget, "budget");
         Objects.requireNonNull(selector, "selector");
+        if (firstPassRequired && !firstPassReady) {
+            throw new IllegalStateException("Target recovery first pass must be frozen before Claim");
+        }
         if (!reads.membershipCurrent()) {
             throw new IllegalStateException("Target DRR source membership changed");
         }
@@ -242,21 +372,49 @@ public final class TargetWorkerOrdinaryDrr {
             final TargetState target = ring.get(cursor);
             cursor = cursor == ring.size() - 1 ? 0 : cursor + 1;
             visits++;
-            final Optional<Claimed<T>> claimed;
+            if (!firstPassPending.isEmpty() && !firstPassPending.contains(target.id)) {
+                continue;
+            }
+            final Visit<T> visit;
             try {
-                claimed = visit(target, nowEpochMs, budget.maxBytes() - bytes, selector);
+                visit = visit(target, nowEpochMs, budget.maxBytes() - bytes, selector);
             } catch (ReadIncompleteException incomplete) {
                 return new Turn<>(claims, visits, bytes, Stop.READ_INCOMPLETE);
             }
-            if (claimed.isPresent()) {
-                claims.add(claimed.orElseThrow().value());
-                bytes = Math.addExact(bytes, claimed.orElseThrow().cost());
+            if (visit.kind() == VisitKind.UNAVAILABLE || visit.kind() == VisitKind.CLAIMED) {
+                firstPassPending.remove(target.id);
+            }
+            if (visit.kind() == VisitKind.CLAIMED) {
+                claims.add(visit.claimed().value());
+                bytes = Math.addExact(bytes, visit.claimed().cost());
             }
         }
         return new Turn<>(claims, visits, bytes);
     }
 
-    private <T> Optional<Claimed<T>> visit(
+    private <T> Visit<T> visit(
+            final TargetState target, final long nowEpochMs, final long remainingBytes, final Selector<T> selector) {
+        final Selection<T> selection = selectCandidate(target, nowEpochMs, remainingBytes, selector);
+        if (selection.candidate().isPresent()) {
+            final Candidate<T> candidate = selection.candidate().orElseThrow();
+            target.credit = addQuantum(target.credit);
+            if (candidate.cost() > target.credit) {
+                return new Visit<>(VisitKind.CREDIT_WAIT, null);
+            }
+            final T claimed = Objects.requireNonNull(candidate.action().commit(), "Claim result");
+            target.credit -= candidate.cost();
+            target.sourceCursor = (candidate.sourceIndex() + 1) % target.sources.size();
+            target.sources.get(candidate.sourceIndex()).domainCursor =
+                    (candidate.domainIndex() + 1) % candidate.domainCount();
+            return new Visit<>(VisitKind.CLAIMED, new Claimed<>(claimed, candidate.cost()));
+        }
+        if (!selection.due() || !selection.budgetBlocked()) {
+            target.credit = 0;
+        }
+        return new Visit<>(selection.budgetBlocked() ? VisitKind.BUDGET_WAIT : VisitKind.UNAVAILABLE, null);
+    }
+
+    private <T> Selection<T> selectCandidate(
             final TargetState target, final long nowEpochMs, final long remainingBytes, final Selector<T> selector) {
         boolean due = false;
         boolean budgetBlocked = false;
@@ -306,29 +464,22 @@ public final class TargetWorkerOrdinaryDrr {
                 if (cost.schedulingCost() > limits.maximumCostBytes()) {
                     throw new IllegalStateException("Target DRR accepted head exceeds activated maximum cost");
                 }
-                if (cost.schedulingCost() > remainingBytes) {
-                    budgetBlocked = true;
-                    continue;
-                }
                 final Optional<ClaimAction<T>> action = selector.select(source.shard, cost);
                 if (action.isEmpty()) {
                     continue;
                 }
-                target.credit = addQuantum(target.credit);
-                if (cost.schedulingCost() > target.credit) {
-                    return Optional.empty();
+                if (cost.schedulingCost() > remainingBytes) {
+                    budgetBlocked = true;
+                    continue;
                 }
-                final T claimed = Objects.requireNonNull(action.orElseThrow().commit(), "Claim result");
-                target.credit -= cost.schedulingCost();
-                target.sourceCursor = (sourceIndex + 1) % target.sources.size();
-                source.domainCursor = (domainIndex + 1) % domains.size();
-                return Optional.of(new Claimed<>(claimed, cost.schedulingCost()));
+                return new Selection<>(
+                        Optional.of(new Candidate<>(
+                                sourceIndex, domainIndex, domains.size(), cost.schedulingCost(), action.orElseThrow())),
+                        true,
+                        budgetBlocked);
             }
         }
-        if (!due || !budgetBlocked) {
-            target.credit = 0;
-        }
-        return Optional.empty();
+        return new Selection<>(Optional.empty(), due, budgetBlocked);
     }
 
     private long addQuantum(final long current) {
