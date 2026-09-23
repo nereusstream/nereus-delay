@@ -11,6 +11,7 @@ import com.nereusstream.delay.protocol.SystemMutationType;
 import com.nereusstream.delay.protocol.TargetCloseBody;
 import com.nereusstream.delay.protocol.TargetCloseRequest;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlBody;
+import com.nereusstream.delay.protocol.TargetQuotaIncarnation;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
 import com.nereusstream.delay.runtime.CommandResult;
 import com.nereusstream.delay.runtime.SystemMutationResult;
@@ -160,11 +161,52 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             final Authorities authorities,
             final Limits limits,
             final LongSupplier monotonicClock) {
+        this(
+                Objects.requireNonNull(initialized, "initialized").backend(),
+                initialized.root(),
+                store,
+                assignment,
+                lease,
+                authorities,
+                limits,
+                monotonicClock);
+    }
+
+    /** Recovery composition uses only the root reconstructed from the persisted fixed Shard anchor. */
+    public TargetSourceApplyRuntime(
+            final TargetStoreBootstrap.Reopened reopened,
+            final ShardStore store,
+            final SourceAssignment assignment,
+            final OwnerLease lease,
+            final Authorities authorities,
+            final Limits limits,
+            final LongSupplier monotonicClock) {
+        this(
+                Objects.requireNonNull(reopened, "reopened").backend(),
+                reopened.root(),
+                store,
+                assignment,
+                lease,
+                authorities,
+                limits,
+                monotonicClock);
+    }
+
+    private TargetSourceApplyRuntime(
+            final TargetStoreBackend openedBackend,
+            final TargetQuotaIncarnation root,
+            final ShardStore store,
+            final SourceAssignment assignment,
+            final OwnerLease lease,
+            final Authorities authorities,
+            final Limits limits,
+            final LongSupplier monotonicClock) {
         this.store = Objects.requireNonNull(store, "store");
-        backend = Objects.requireNonNull(initialized, "initialized").backend();
+        backend = Objects.requireNonNull(openedBackend, "backend");
         backend.requireStore(store);
         metadata = store.metadata();
-        scope = initialized.root().scope();
+        final var exactRoot = Objects.requireNonNull(root, "root");
+        scope = exactRoot.scope();
         this.assignment = Objects.requireNonNull(assignment, "assignment");
         this.lease = Objects.requireNonNull(lease, "lease");
         this.authorities = Objects.requireNonNull(authorities, "authorities");
@@ -180,7 +222,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 || !assignment.activationBarrier().reachedBy(store.appliedShardLogPosition())) {
             throw new IllegalArgumentException("Target source runtime lacks exact active Owner/assignment/Store state");
         }
-        final byte[] lineage = initialized.root().recoveryLineage();
+        final byte[] lineage = exactRoot.recoveryLineage();
         grants = new TargetQuotaGrantStore(backend, scope, lineage, limits.counters(), limits.domains());
         fences = new TargetTimeFenceStore(backend, scope, lineage, limits.counters(), limits.domains());
         closes = new TargetCloseStore(backend, scope, lineage, limits.counters(), limits.domains());

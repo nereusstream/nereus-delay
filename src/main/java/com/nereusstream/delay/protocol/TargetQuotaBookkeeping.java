@@ -201,9 +201,14 @@ public final class TargetQuotaBookkeeping {
     }
 
     public byte[] key() {
+        return keyFor(owner.shard());
+    }
+
+    /** Fixed Shard root anchor; recovery can locate it before knowing the accounting incarnation. */
+    public static byte[] keyFor(final ShardId shard) {
         return Bytes.concat(
                 new byte[] {TargetKeyCodec.QUOTA_BOOKKEEPING_TAG, TargetKeyCodec.KEY_FORMAT},
-                TargetQuotaIdentity.shardBytes(owner.shard()));
+                TargetQuotaIdentity.shardBytes(Objects.requireNonNull(shard, "shard")));
     }
 
     private byte[] fields() {

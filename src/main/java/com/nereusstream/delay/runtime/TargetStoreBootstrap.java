@@ -5,8 +5,11 @@ import com.nereusstream.delay.protocol.PreparedControlOperation;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutation;
+import com.nereusstream.delay.protocol.TargetQuotaAggregate;
+import com.nereusstream.delay.protocol.TargetQuotaBookkeeping;
 import com.nereusstream.delay.protocol.TargetQuotaGrantActivation;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlBody;
+import com.nereusstream.delay.protocol.TargetQuotaIdentity;
 import com.nereusstream.delay.protocol.TargetQuotaIncarnation;
 import com.nereusstream.delay.protocol.TargetQuotaMutation;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
@@ -16,7 +19,9 @@ import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.ColumnFamily;
 import com.nereusstream.delay.store.ShardStore;
 import com.nereusstream.delay.store.StoreMetadata;
+import com.nereusstream.delay.store.TargetKeyCodec;
 import com.nereusstream.delay.store.TargetStoreBackend;
+import com.nereusstream.delay.store.TargetValueEnvelope;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
@@ -74,6 +79,115 @@ public final class TargetStoreBootstrap {
 
         public SystemMutationResult result() {
             return committed.result;
+        }
+    }
+
+    /** Root reconstructed from the fixed bookkeeping anchor under a guarded, bounded Store view. */
+    public static final class Reopened {
+        private final TargetStoreBackend backend;
+        private final TargetQuotaIncarnation root;
+
+        private Reopened(final TargetStoreBackend backend, final TargetQuotaIncarnation root) {
+            this.backend = backend;
+            this.root = root;
+        }
+
+        public TargetStoreBackend backend() {
+            return backend;
+        }
+
+        public TargetQuotaIncarnation root() {
+            return root;
+        }
+    }
+
+    /** Rebuilds the exact Target root after Store reopen; external Owner/recovery authority must guard the read. */
+    public static Reopened reopen(
+            final ShardStore store,
+            final TargetQuotaScope scope,
+            final TargetStoreBackend.WriteLimits limits,
+            final BoundedReadBudget budget,
+            final TargetStoreBackend.ReadAuthority reads) {
+        Objects.requireNonNull(store, "store");
+        Objects.requireNonNull(scope, "scope");
+        Objects.requireNonNull(limits, "limits");
+        Objects.requireNonNull(budget, "budget");
+        Objects.requireNonNull(reads, "reads");
+        if (scope.target() != null
+                || !scope.shard().equals(store.shardId())
+                || store.metadata().storeFormatVersion() != 2) {
+            throw new IllegalArgumentException("Target reopen requires its exact format-2 Shard Store/scope");
+        }
+        try (var guard = Objects.requireNonNull(reads.acquire(store.metadata(), scope), "Target reopen read guard")) {
+            guard.requireCurrent();
+            final var plan = store.readWithBudget(budget, () -> {
+                final byte[] bookkeepingKey = TargetQuotaBookkeeping.keyFor(scope.shard());
+                final byte[] bookkeepingRaw = store.get(ColumnFamily.META, bookkeepingKey);
+                if (bookkeepingRaw == null) {
+                    throw new IllegalStateException("Target reopen has no fixed Shard bookkeeping root");
+                }
+                final var bookkeeping = TargetQuotaBookkeeping.decode(
+                        TargetValueEnvelope.decode(bookkeepingRaw, TargetQuotaBookkeeping.VALUE_TYPE)
+                                .payload());
+                if (!Arrays.equals(bookkeeping.key(), bookkeepingKey)
+                        || bookkeeping.owner().kind() != TargetQuotaIdentity.Kind.SHARD
+                        || !bookkeeping.owner().shard().equals(scope.shard())
+                        || !Arrays.equals(bookkeeping.tenantScope(), scope.tenantScope())) {
+                    throw new IllegalStateException("Target reopen bookkeeping belongs to another Shard/tenant");
+                }
+                final byte[] rootKey = bookkeeping.owner().key();
+                rootKey[0] = TargetKeyCodec.QUOTA_INCARNATION_TAG;
+                final byte[] rootRaw = store.get(ColumnFamily.META, rootKey);
+                if (rootRaw == null) {
+                    throw new IllegalStateException("Target reopen bookkeeping has no root incarnation");
+                }
+                final var persistedRoot = TargetQuotaIncarnation.decodeForStore(
+                        rootKey,
+                        TargetValueEnvelope.decode(rootRaw, TargetQuotaIncarnation.VALUE_TYPE)
+                                .payload(),
+                        scope.shard(),
+                        scope.tenantScope());
+                if (!bookkeeping.owner().equals(persistedRoot.identity())
+                        || !Arrays.equals(
+                                bookkeeping.accounting().canonicalBytes(),
+                                persistedRoot.accounting().canonicalBytes())) {
+                    throw new IllegalStateException("Target reopen root and bookkeeping disagree");
+                }
+                final byte[] aggregateKey = TargetQuotaAggregate.genesis(
+                                scope.shard(), persistedRoot.identity().accountingIncarnation())
+                        .key();
+                final byte[] aggregateRaw = store.get(ColumnFamily.META, aggregateKey);
+                if (aggregateRaw == null) {
+                    throw new IllegalStateException("Target reopen has no aggregate for its root");
+                }
+                final var aggregate = TargetQuotaAggregate.decodeForStore(
+                        aggregateKey,
+                        TargetValueEnvelope.decode(aggregateRaw, TargetQuotaAggregate.VALUE_TYPE)
+                                .payload(),
+                        scope.shard());
+                final SourcePosition source = store.appliedShardLogPosition();
+                final long sequence = store.shardMutationSequence();
+                if (!Arrays.equals(
+                                aggregate.accountingIncarnation(),
+                                persistedRoot.identity().accountingIncarnation())
+                        || aggregate.mutation() == null
+                        || aggregate.mutation().sequence() != sequence
+                        || source == null
+                        || !Arrays.equals(aggregate.mutation().source().canonicalBytes(), source.canonicalBytes())) {
+                    throw new IllegalStateException("Target reopen aggregate/source frontier disagrees with root");
+                }
+                persistedRoot.latestMutation().requireAtOrBefore(aggregate.mutation());
+                bookkeeping.mutation().requireAtOrBefore(aggregate.mutation());
+                return persistedRoot;
+            });
+            return store.withReadView(plan.view(), () -> {
+                guard.requireCurrent();
+                final var root = plan.value();
+                return new Reopened(
+                        new TargetStoreBackend(
+                                store, scope, root.identity().accountingIncarnation(), root.recoveryLineage(), limits),
+                        root);
+            });
         }
     }
 

@@ -153,7 +153,6 @@ class TargetCommandStoreTest {
         final var registrations = new InMemoryControlTargetRegistrationAuthority();
         registrations.register(signed.control());
         final var config = ShardStoreConfig.defaults(root);
-        final byte[][] reopenIdentity = new byte[2][];
         final com.nereusstream.delay.protocol.TargetPartitionId[] reopenedCloseTargets =
                 new com.nereusstream.delay.protocol.TargetPartitionId[3];
         try (var resources = new SharedRocksDbResources(config);
@@ -173,8 +172,6 @@ class TargetCommandStoreTest {
                     (a, b, c) -> guard());
             final var backend = initialized.backend();
             final var lineage = initialized.root().recoveryLineage();
-            reopenIdentity[0] = initialized.root().identity().accountingIncarnation();
-            reopenIdentity[1] = lineage;
             final var model =
                     TargetMessageRecord.decode(vector("target-identity-vectors.properties", "message.initial"));
             final var physical =
@@ -2784,17 +2781,23 @@ class TargetCommandStoreTest {
         }
         try (var resources = new SharedRocksDbResources(config);
                 var reopened = ShardStore.openTarget(config, scope.shard(), resources)) {
-            final var reopenedBackend = new TargetStoreBackend(
-                    reopened,
-                    scope,
-                    reopenIdentity[0],
-                    reopenIdentity[1],
-                    new TargetStoreBackend.WriteLimits(64, 2 << 20));
-            final var reopenedCloseStore = new TargetCloseStore(reopenedBackend, scope, reopenIdentity[1], 16, 1);
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> TargetStoreBootstrap.reopen(
+                            reopened,
+                            new TargetQuotaScope(scope.shard(), bytes(32, 0xef), null),
+                            new TargetStoreBackend.WriteLimits(64, 2 << 20),
+                            budget(),
+                            (a, b) -> guard()));
+            final var recovered = TargetStoreBootstrap.reopen(
+                    reopened, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(), (a, b) -> guard());
+            final var reopenedBackend = recovered.backend();
+            final var reopenedLineage = recovered.root().recoveryLineage();
+            final var reopenedCloseStore = new TargetCloseStore(reopenedBackend, scope, reopenedLineage, 16, 1);
             final var reopenedControls =
                     reopenedCloseStore.reservationControls((reader, binding) -> java.util.Optional.empty());
             final var reopenedClosures =
-                    new TargetReservationClosureStore(reopenedBackend, scope, reopenIdentity[1], 1, reopenedControls);
+                    new TargetReservationClosureStore(reopenedBackend, scope, reopenedLineage, 1, reopenedControls);
             final var observed = new java.util.HashMap<
                     com.nereusstream.delay.protocol.TargetPartitionId, TargetReservationClosureStore.Progress>();
             TargetReservationClosureStore.ScanCursor afterTarget = null;
@@ -2822,7 +2825,7 @@ class TargetCommandStoreTest {
                     reopenedWorkClasses,
                     reopenedBackend,
                     scope,
-                    reopenIdentity[1],
+                    reopenedLineage,
                     1,
                     reopenedControls,
                     new TargetReservationClosureWorkClassExecutor.Limits(4096, 250_000, 60_000_000_000L),
