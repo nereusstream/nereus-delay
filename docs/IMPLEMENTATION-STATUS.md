@@ -18528,3 +18528,14 @@ before writing. A real Target Store with an intentionally injected valid
 legacy snapshot fails the full audit and passes again after removal. This
 closes a local format-confusion path; authenticated Target control/semantic
 state, publication and install authority remain incomplete.
+
+The active Target source runtime can now submit a local checkpoint candidate
+through its bound WorkClass graph using its own Store and Owner Lease. The
+candidate executor rechecks the runtime's local Owner/fencing/monotonic-time
+guard alongside current lease and pending-intent authority at submission,
+execution and after the physical operation. A real Source ACKed Target Store
+passes queued creation and zero-write reuse; a different registry rejects
+before writing, and a queued action loses to Owner DRAINING with no new
+directory or native write. Host checkpoint triggering, pending ACK settlement,
+protected Broker source cut, full Owner/control identity, publication and
+restore remain open; C5 and format-2 gates are unchanged.

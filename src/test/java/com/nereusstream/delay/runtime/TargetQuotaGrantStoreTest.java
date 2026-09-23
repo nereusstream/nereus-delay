@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.ownership.InMemoryControlTargetRegistrationAuthority;
 import com.nereusstream.delay.ownership.InMemoryOwnerLeaseStore;
+import com.nereusstream.delay.ownership.OwnerLease;
 import com.nereusstream.delay.ownership.OxiaOwnerLeaseStore;
 import com.nereusstream.delay.ownership.ShardLifecycleState;
 import com.nereusstream.delay.ownership.SourceAcknowledgement;
@@ -42,6 +43,7 @@ import com.nereusstream.delay.protocol.ProfileRef;
 import com.nereusstream.delay.protocol.ProtocolTuple;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
 import com.nereusstream.delay.protocol.QuotaGrantRef;
+import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.StableCode;
@@ -334,7 +336,8 @@ class TargetQuotaGrantStoreTest {
                 polls.incrementAndGet();
                 return java.util.Optional.ofNullable(entries.poll());
             };
-            final var loop = new WorkerSourceApplyLoop(consumer, workClasses(), runtime);
+            final var sourceClasses = workClasses();
+            final var loop = new WorkerSourceApplyLoop(consumer, sourceClasses, runtime);
             assertEquals(
                     SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN,
                     loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100)
@@ -345,6 +348,55 @@ class TargetQuotaGrantStoreTest {
             assertEquals(writtenBeforeAckRetry, store.latestSequenceNumber());
             assertEquals(1, polls.get());
             assertEquals(1, resolutions.get());
+            final var activeCandidateLimits =
+                    new CheckpointManifestLimits(100, 64L << 20, 64L << 20, 1024, 1 << 20, 100, 1024);
+            final var activeQuotaLimits = new TargetCheckpointRootVerifier.QuotaAuditLimits(1_000, 8L << 20);
+            final var activeLedgerLimits =
+                    new TargetCheckpointRootVerifier.LedgerAuditLimits(10_000, 64L << 20, 100_000, 64L << 20);
+            final var activeCandidateId = bytes(16, 0x35);
+            final var activePending = pendingCandidate(
+                    scope.shard(), lineage, activeCandidateId, active, store.metadata().storeIncarnation());
+            final var activeIntents = new CheckpointUploadIntentStore();
+            activeIntents.create(activePending);
+            final Path activeCandidate = root.resolve("active-owner-candidate");
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> runtime.submitLocalCheckpointCandidate(
+                            workClasses(),
+                            activeIntents,
+                            () -> 100,
+                            activeCandidate,
+                            activePending,
+                            activeCandidateLimits,
+                            activeQuotaLimits,
+                            activeLedgerLimits));
+            final long beforeActiveQueue = store.operationStatistics().nativeWriteCalls();
+            final var activeQueued = runtime.submitLocalCheckpointCandidate(
+                    sourceClasses,
+                    activeIntents,
+                    () -> 100,
+                    activeCandidate,
+                    activePending,
+                    activeCandidateLimits,
+                    activeQuotaLimits,
+                    activeLedgerLimits);
+            assertTrue(Files.notExists(activeCandidate));
+            assertEquals(beforeActiveQueue, store.operationStatistics().nativeWriteCalls());
+            sourceClasses.runTurn(new SchedulerBudget(1, activeQueued.task().bytes(), 1_000));
+            assertEquals(activeCandidate, activeQueued.outcome().orElseThrow().checkpointPath());
+            final long beforeActiveReuse = store.operationStatistics().nativeWriteCalls();
+            final var activeRetry = runtime.submitLocalCheckpointCandidate(
+                    sourceClasses,
+                    activeIntents,
+                    () -> 100,
+                    activeCandidate,
+                    activePending,
+                    activeCandidateLimits,
+                    activeQuotaLimits,
+                    activeLedgerLimits);
+            sourceClasses.runTurn(new SchedulerBudget(1, activeRetry.task().bytes(), 1_000));
+            assertEquals(activeCandidate, activeRetry.outcome().orElseThrow().checkpointPath());
+            assertEquals(beforeActiveReuse, store.operationStatistics().nativeWriteCalls());
             final var result = completed.appliedOutcome().systemMutationResult();
             assertEquals(ApplyStatus.APPLIED, result.applyStatus());
             assertEquals(StableCode.OK, result.stableCode());
@@ -630,7 +682,23 @@ class TargetQuotaGrantStoreTest {
             assertEquals(1, resolutions.get());
             assertEquals(6, polls.get());
             final long beforeOwnerLossRetry = store.latestSequenceNumber();
+            final Path fencedCandidate = root.resolve("source-runtime-fenced-candidate");
+            final var queuedBeforeDrain = runtime.submitLocalCheckpointCandidate(
+                    sourceClasses,
+                    activeIntents,
+                    () -> 100,
+                    fencedCandidate,
+                    activePending,
+                    activeCandidateLimits,
+                    activeQuotaLimits,
+                    activeLedgerLimits);
+            assertTrue(Files.notExists(fencedCandidate));
+            assertEquals(beforeOwnerLossRetry, store.latestSequenceNumber());
             leaseAuthority.transition(active, ShardLifecycleState.DRAINING).orElseThrow();
+            sourceClasses.runTurn(new SchedulerBudget(1, queuedBeforeDrain.task().bytes(), 1_000));
+            assertTrue(queuedBeforeDrain.outcome().orElseThrow().failure() instanceof IllegalStateException);
+            assertTrue(Files.notExists(fencedCandidate));
+            assertEquals(beforeOwnerLossRetry, store.latestSequenceNumber());
             assertEquals(
                     SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN,
                     loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100)
@@ -699,33 +767,8 @@ class TargetQuotaGrantStoreTest {
                     .transition(candidateAcquiring, ShardLifecycleState.ACTIVE_FOR_COMMANDS)
                     .orElseThrow();
             assertEquals(openedOwnerEpoch, candidateOwner.ownerEpoch());
-            final var pending = new CheckpointUploadIntent(
-                    new ShardSubject(scope.shard()),
-                    lineage,
-                    checkpointId,
-                    new OwnerIdentity(bytes(8, 0x40), bytes(8, 0x41), openedOwnerEpoch, candidateOwner.leaseToken()),
-                    live.metadata().storeIncarnation(),
-                    bytes(32, 0x42),
-                    1,
-                    null,
-                    null,
-                    new ProfileRef(bytes(8, 0x43), 1, bytes(32, 0x44), ProfileKind.OBJECT_STORE),
-                    new TrustedUtcIntervalEvidence(
-                            1,
-                            2,
-                            TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
-                            bytes(32, 0x45),
-                            1,
-                            1,
-                            1,
-                            bytes(32, 0x46),
-                            0,
-                            null),
-                    5_000,
-                    CheckpointUploadState.PENDING_UPLOAD,
-                    1,
-                    null,
-                    null);
+            final var pending = pendingCandidate(
+                    scope.shard(), lineage, checkpointId, candidateOwner, live.metadata().storeIncarnation());
             final var candidateIntents = new CheckpointUploadIntentStore();
             candidateIntents.create(pending);
             final var candidateClasses = workClasses();
@@ -1190,6 +1233,41 @@ class TargetQuotaGrantStoreTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> TargetCheckpointRootVerifier.validate(physicalDb, scope.shard(), imageLimits));
+    }
+
+    private static CheckpointUploadIntent pendingCandidate(
+            final ShardId shard,
+            final byte[] lineage,
+            final byte[] checkpointId,
+            final OwnerLease owner,
+            final byte[] storeIncarnation) {
+        return new CheckpointUploadIntent(
+                new ShardSubject(shard),
+                lineage,
+                checkpointId,
+                new OwnerIdentity(bytes(8, 0x40), bytes(8, 0x41), owner.ownerEpoch(), owner.leaseToken()),
+                storeIncarnation,
+                bytes(32, 0x42),
+                1,
+                null,
+                null,
+                new ProfileRef(bytes(8, 0x43), 1, bytes(32, 0x44), ProfileKind.OBJECT_STORE),
+                new TrustedUtcIntervalEvidence(
+                        1,
+                        2,
+                        TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                        bytes(32, 0x45),
+                        1,
+                        1,
+                        1,
+                        bytes(32, 0x46),
+                        0,
+                        null),
+                5_000,
+                CheckpointUploadState.PENDING_UPLOAD,
+                1,
+                null,
+                null);
     }
 
     private static CheckpointManifest copyManifest(

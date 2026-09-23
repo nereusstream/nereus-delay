@@ -2,6 +2,7 @@ package com.nereusstream.delay.ownership;
 
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
+import com.nereusstream.delay.protocol.CheckpointUploadIntent;
 import com.nereusstream.delay.protocol.CommandCodec;
 import com.nereusstream.delay.protocol.PreparedControlOperation;
 import com.nereusstream.delay.protocol.PulsarActivationBarrier;
@@ -30,11 +31,16 @@ import com.nereusstream.delay.runtime.TargetTimeFenceStore;
 import com.nereusstream.delay.runtime.TargetTimeFenceVerifier;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import com.nereusstream.delay.store.BoundedReadBudget;
+import com.nereusstream.delay.store.CheckpointManifestLimits;
+import com.nereusstream.delay.store.CheckpointUploadIntentAuthority;
 import com.nereusstream.delay.store.ReadIncompleteException;
 import com.nereusstream.delay.store.ShardStore;
 import com.nereusstream.delay.store.SharedRocksDbResources;
 import com.nereusstream.delay.store.StoreMetadata;
+import com.nereusstream.delay.store.TargetCheckpointCandidateWorkClassExecutor;
+import com.nereusstream.delay.store.TargetCheckpointRootVerifier;
 import com.nereusstream.delay.store.TargetStoreBackend;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.function.LongSupplier;
@@ -352,6 +358,27 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 || store.sharedResources() != Objects.requireNonNull(resources, "resources")) {
             throw new IllegalArgumentException("Target Worker requires the exact source Store resource graph");
         }
+    }
+
+    /** Queues an unpublished candidate on this Owner's exact source/Store WorkClass graph. */
+    public synchronized TargetCheckpointCandidateWorkClassExecutor.Submission submitLocalCheckpointCandidate(
+            final WorkClassExecutionRegistry registry,
+            final CheckpointUploadIntentAuthority intents,
+            final LongSupplier ownerClock,
+            final Path checkpointPath,
+            final CheckpointUploadIntent pending,
+            final CheckpointManifestLimits physicalLimits,
+            final TargetCheckpointRootVerifier.QuotaAuditLimits quotaLimits,
+            final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits) {
+        if (workClasses == null || workClasses != Objects.requireNonNull(registry, "registry")) {
+            throw new IllegalStateException("Target checkpoint requires the bound source WorkClass graph");
+        }
+        final LongSupplier clock = Objects.requireNonNull(ownerClock, "ownerClock");
+        requireGcOwner(clock);
+        final var executor = new TargetCheckpointCandidateWorkClassExecutor(
+                registry, store, authorities.leases(), intents, clock, () -> requireGcOwner(clock));
+        return executor.submit(new TargetCheckpointCandidateWorkClassExecutor.Request(
+                checkpointPath, pending, lease, physicalLimits, quotaLimits, ledgerLimits));
     }
 
     synchronized OxiaOwnerLeaseStore drainAuthority() {

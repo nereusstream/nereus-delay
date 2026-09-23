@@ -466,3 +466,8 @@ format 2 候选的完整账本扫描现逐项核对固定 META 1–9 的类型�
 并拒绝旧 compatible control/reader 键 10–14；旧控制快照的正式写入口也对
 format 2 写前拒绝。真实 Store 注入旧快照时审计失败，删除后恢复通过。
 Target 专用控制/语义快照及认证摘要仍未实现，发布与恢复门禁不变。
+
+活动 Target Source runtime 现以实际 Owner Lease、Store 和已绑定的 WorkClass 图提交本地候选，
+候选动作前后复核该 runtime 的本地 fencing/时间守卫。真实 Source ACK 后的创建、
+零写复用及排队后 DRAINING 零写拒绝通过。生产宿主调度、pending ACK 处置、
+Broker cut、完整控制/语义认证及发布/安装仍待完成。

@@ -26,18 +26,32 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
     private final OxiaOwnerLeaseStore leases;
     private final CheckpointUploadIntentAuthority intents;
     private final LongSupplier ownerClock;
+    private final Runnable localOwnerGuard;
 
+    /** Local/test seam; an active Worker must supply its own fencing guard through the overload below. */
     public TargetCheckpointCandidateWorkClassExecutor(
             final WorkClassExecutionRegistry workClasses,
             final ShardStore store,
             final OxiaOwnerLeaseStore leases,
             final CheckpointUploadIntentAuthority intents,
             final LongSupplier ownerClock) {
+        this(workClasses, store, leases, intents, ownerClock, () -> {});
+    }
+
+    /** The Worker-bound form also rechecks the exact local Owner runtime on every authority read. */
+    public TargetCheckpointCandidateWorkClassExecutor(
+            final WorkClassExecutionRegistry workClasses,
+            final ShardStore store,
+            final OxiaOwnerLeaseStore leases,
+            final CheckpointUploadIntentAuthority intents,
+            final LongSupplier ownerClock,
+            final Runnable localOwnerGuard) {
         this.workClasses = Objects.requireNonNull(workClasses, "workClasses");
         this.store = Objects.requireNonNull(store, "store");
         this.leases = Objects.requireNonNull(leases, "leases");
         this.intents = Objects.requireNonNull(intents, "intents");
         this.ownerClock = Objects.requireNonNull(ownerClock, "ownerClock");
+        this.localOwnerGuard = Objects.requireNonNull(localOwnerGuard, "localOwnerGuard");
         if (store.metadata().storeFormatVersion() != 2) {
             throw new IllegalArgumentException("Target candidate requires a format-2 Store");
         }
@@ -87,6 +101,7 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
     }
 
     private void requireCurrent(final Request request) {
+        localOwnerGuard.run();
         final CheckpointUploadIntent pending = request.pending();
         final OwnerLease expected = request.expectedLease();
         if (!store.shardId().equals(pending.shard().shardId())
@@ -117,6 +132,7 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
         if (intents.current(pending).isEmpty()) {
             throw new IllegalStateException("Target candidate pending intent changed or is absent");
         }
+        localOwnerGuard.run();
     }
 
     private static byte[] canonicalIdentity(final Request request) {
