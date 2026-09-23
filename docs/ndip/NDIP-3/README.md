@@ -425,5 +425,7 @@ format 2 Manifest 现可规范编码/解码；上传、Catalog/Oxia 和下载/�
 
 format 2 的只读物理根核对现可在有限文件预算下检查真实 RocksDB 镜像中的
 bookkeeping、root、aggregate 与 source frontier；本地真实 Worker Store 镜像通过，
-持久 mutation sequence 被改写后拒绝。它尚未审核所有 Target 投影或认证控制快照，
-也未绑定 Manifest/发布/恢复，不能作为 checkpoint 成功证据。
+持久 mutation sequence 被改写后拒绝。第二只读入口把 format 2 Manifest 的文件清单、
+DB/Store 身份、lineage、checkpoint ID、Owner epoch、source/sequence 和 evidence cursors
+与镜像绑定，局部错配均拒绝。它尚未审核所有 Target 投影、认证控制/语义摘要或接入
+Catalog 发布与 restore/install，不能作为 checkpoint 成功证据。

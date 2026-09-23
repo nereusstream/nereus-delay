@@ -18452,6 +18452,10 @@ under finite file limits and checks its fixed bookkeeping anchor, root
 incarnation, aggregate mutation and applied source frontier. The actual Target
 Worker Store image passes; changing its persisted mutation sequence afterward
 is rejected. Empty Target, wrong-Shard and format-1 images are rejected. This
-is only a physical root check: Target projection audit, authenticated control
-snapshot, manifest binding, publish/catalog authority and restore/install are
-still absent, so every format-2 checkpoint gate remains closed.
+is only a physical root check. A second read-only entry now matches the format-2
+manifest's file inventory, DB/Store identity, recovery lineage, checkpoint ID,
+Owner epoch, source position, mutation sequence and evidence cursors against
+that image. Local mismatches for those fields are rejected. Target projection
+audit, authenticated control and semantic digests, publish/catalog authority
+and restore/install are still absent, so every format-2 checkpoint gate remains
+closed.

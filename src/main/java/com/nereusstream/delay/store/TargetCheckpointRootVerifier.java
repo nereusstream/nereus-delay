@@ -29,8 +29,9 @@ import org.rocksdb.RocksDBException;
 /**
  * Read-only physical check of the format-2 root, bookkeeping and source frontier.
  *
- * <p>This checks only the fixed accounting anchor. It does not audit Target projections,
- * authenticate external controls, or make an image publishable or recoverable.</p>
+ * <p>This checks only the fixed accounting anchor and, when requested, physical manifest identity.
+ * It does not audit Target projections, authenticate the manifest control digest, or make an image
+ * publishable or recoverable.</p>
  */
 public final class TargetCheckpointRootVerifier {
     private static final int FIXED_VALUE_TYPE = 1;
@@ -56,6 +57,28 @@ public final class TargetCheckpointRootVerifier {
     /** Reads an immutable RocksDB image under finite physical limits without changing its markers. */
     public static RootProof validate(
             final Path image, final ShardId expectedShard, final CheckpointManifestLimits limits) {
+        return validateImage(image, expectedShard, limits, null);
+    }
+
+    /**
+     * Binds the physical files and fixed image identity to a format-2 manifest. The manifest's
+     * control-state and semantic-version digests still require separate authenticated validation.
+     */
+    public static RootProof validateManifestImageIdentity(
+            final Path image, final CheckpointManifest manifest, final CheckpointManifestLimits limits) {
+        Objects.requireNonNull(manifest, "manifest");
+        if (manifest.storeFormatVersion() != 2) {
+            throw new IllegalArgumentException("Target image binding requires a format-2 manifest");
+        }
+        manifest.validateLimits(Objects.requireNonNull(limits, "limits"));
+        return validateImage(image, manifest.shardId(), limits, manifest);
+    }
+
+    private static RootProof validateImage(
+            final Path image,
+            final ShardId expectedShard,
+            final CheckpointManifestLimits limits,
+            final CheckpointManifest manifest) {
         Objects.requireNonNull(image, "image");
         Objects.requireNonNull(expectedShard, "expectedShard");
         Objects.requireNonNull(limits, "limits");
@@ -66,6 +89,20 @@ public final class TargetCheckpointRootVerifier {
             throw new IllegalArgumentException("Target checkpoint root validation requires finite physical limits");
         }
         final var files = CheckpointFileInventory.collect(image, limits);
+        if (manifest != null) {
+            if (files.size() != manifest.files().size()) {
+                throw new IllegalArgumentException("Target image file count does not match manifest");
+            }
+            for (int index = 0; index < files.size(); index++) {
+                final var actual = files.get(index);
+                final var declared = manifest.files().get(index);
+                if (!actual.name().equals(declared.name())
+                        || actual.length() != declared.length()
+                        || !Bytes.constantTimeEquals(actual.checksum(), declared.checksum())) {
+                    throw new IllegalArgumentException("Target image file inventory does not match manifest");
+                }
+            }
+        }
         if (!Files.isRegularFile(image.resolve("CURRENT"), LinkOption.NOFOLLOW_LINKS)
                 || files.stream()
                         .noneMatch(file -> file.name().startsWith("MANIFEST-")
@@ -105,7 +142,12 @@ public final class TargetCheckpointRootVerifier {
                         .map(name -> new String(name, StandardCharsets.UTF_8))
                         .toList()
                         .indexOf(ColumnFamily.META.rocksName());
-                return readRoot(db, handles.get(metaIndex), expectedShard);
+                final ColumnFamilyHandle meta = handles.get(metaIndex);
+                final RootProof proof = readRoot(db, meta, expectedShard);
+                if (manifest != null) {
+                    requireManifestImageIdentity(db, meta, proof, manifest);
+                }
+                return proof;
             } catch (RocksDBException failure) {
                 throw new IllegalArgumentException("cannot open Target checkpoint read-only", failure);
             }
@@ -180,6 +222,33 @@ public final class TargetCheckpointRootVerifier {
             return new RootProof(metadata, source, sequence, root, bookkeeping, aggregate);
         } catch (RocksDBException failure) {
             throw new IllegalArgumentException("cannot read Target checkpoint root", failure);
+        }
+    }
+
+    private static void requireManifestImageIdentity(
+            final RocksDB db, final ColumnFamilyHandle meta, final RootProof proof, final CheckpointManifest manifest)
+            throws RocksDBException {
+        if (!Bytes.constantTimeEquals(proof.metadata().dbIdentity(), manifest.dbIdentity())
+                || !proof.metadata().storeIncarnationUuid().equals(manifest.sourceStoreIncarnation())
+                || !Bytes.constantTimeEquals(proof.root().recoveryLineage(), manifest.recoveryLineageId())
+                || proof.mutationSequence() != manifest.shardMutationSequence()
+                || !Bytes.constantTimeEquals(
+                        proof.source().canonicalBytes(),
+                        manifest.appliedShardLogPosition().canonicalBytes())) {
+            throw new IllegalArgumentException("Target image Store/source identity does not match manifest");
+        }
+        final byte[] checkpointId = requiredFixed(db, meta, 7, "checkpoint identity");
+        if (!Bytes.constantTimeEquals(checkpointId, manifest.checkpointId())) {
+            throw new IllegalArgumentException("Target image checkpoint identity does not match manifest");
+        }
+        final byte[] ownerEpoch = requiredFixed(db, meta, 8, "opened Owner epoch");
+        if (ownerEpoch.length != Long.BYTES
+                || Bytes.readU64be(ownerEpoch, 0) != manifest.createdBy().ownerEpoch()) {
+            throw new IllegalArgumentException("Target image Owner epoch does not match manifest");
+        }
+        final byte[] cursorBytes = requiredFixed(db, meta, 6, "evidence cursors");
+        if (!StoreRuntimeMetadata.decodeEvidenceCursors(cursorBytes).equals(manifest.evidenceCursors())) {
+            throw new IllegalArgumentException("Target image evidence cursors do not match manifest");
         }
     }
 

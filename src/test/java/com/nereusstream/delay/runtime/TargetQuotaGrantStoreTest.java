@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.ownership.InMemoryControlTargetRegistrationAuthority;
 import com.nereusstream.delay.ownership.InMemoryOwnerLeaseStore;
 import com.nereusstream.delay.ownership.OxiaOwnerLeaseStore;
@@ -28,10 +29,12 @@ import com.nereusstream.delay.protocol.ControlRole;
 import com.nereusstream.delay.protocol.ControlRoleSet;
 import com.nereusstream.delay.protocol.ControlTargetKind;
 import com.nereusstream.delay.protocol.ControlTargetRef;
+import com.nereusstream.delay.protocol.EvidenceCursor;
 import com.nereusstream.delay.protocol.KafkaActivationBarrier;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.PreparedControlOperation;
 import com.nereusstream.delay.protocol.ShardSubject;
+import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
@@ -51,6 +54,8 @@ import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import com.nereusstream.delay.scheduler.WorkClassPolicy;
 import com.nereusstream.delay.scheduler.WorkClassRuntimeConfig;
 import com.nereusstream.delay.store.BoundedReadBudget;
+import com.nereusstream.delay.store.CheckpointFileInventory;
+import com.nereusstream.delay.store.CheckpointManifest;
 import com.nereusstream.delay.store.CheckpointManifestLimits;
 import com.nereusstream.delay.store.ColumnFamily;
 import com.nereusstream.delay.store.IngressFenceState;
@@ -69,6 +74,7 @@ import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Properties;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -622,6 +628,9 @@ class TargetQuotaGrantStoreTest {
             assertThrows(IllegalStateException.class, loop::close);
         }
         final Path physicalDb;
+        final byte[] checkpointId = bytes(16, 0x36);
+        final List<EvidenceCursor> cursors;
+        final long openedOwnerEpoch;
         try (var resources = new SharedRocksDbResources(config);
                 var reopened = ShardStore.openTarget(config, scope.shard(), resources)) {
             physicalDb = reopened.dbPath();
@@ -635,6 +644,9 @@ class TargetQuotaGrantStoreTest {
                     state.proofId());
             assertArrayEquals(state.proofId(), reopened.runtimeMetadata().lastIngressFenceProofId());
             assertEquals(source(origin, origin.offset() + 8, 507), reopened.appliedShardLogPosition());
+            cursors = reopened.runtimeMetadata().evidenceCursors();
+            openedOwnerEpoch = reopened.runtimeMetadata().lastOpenedOwnerEpoch();
+            reopened.recordLastCheckpointId(checkpointId);
         }
         final var imageLimits = new CheckpointManifestLimits(100, 64L << 20, 64L << 20, 1024, 1 << 20, 100, 1024);
         final var rootProof = TargetCheckpointRootVerifier.validate(physicalDb, scope.shard(), imageLimits);
@@ -643,6 +655,146 @@ class TargetQuotaGrantStoreTest {
         assertEquals(
                 rootProof.mutationSequence(), rootProof.aggregate().mutation().sequence());
         assertArrayEquals(lineage, rootProof.root().recoveryLineage());
+        final var files = CheckpointFileInventory.collect(physicalDb, imageLimits).stream()
+                .map(file -> new CheckpointManifest.FileEntry(
+                        file.name(),
+                        file.length(),
+                        file.checksum(),
+                        Bytes.utf8("object/" + file.name()),
+                        Bytes.utf8("version-1"),
+                        null))
+                .toList();
+        final var manifest = new CheckpointManifest(
+                checkpointId,
+                lineage,
+                0,
+                null,
+                null,
+                new CheckpointManifest.CreatedBy(bytes(8, 0x41), bytes(8, 0x42), openedOwnerEpoch),
+                new CheckpointManifest.CreatedAt(
+                        900, 1_000, "CERTIFIED_HOST_CLOCK", bytes(8, 0x43), 1, 2, 3, bytes(32, 0x44), 0, null),
+                scope.shard(),
+                rootProof.metadata().dbIdentity(),
+                rootProof.metadata().storeIncarnationUuid(),
+                2,
+                rootProof.mutationSequence(),
+                rootProof.source(),
+                bytes(32, 0x45),
+                bytes(32, 0x46),
+                cursors,
+                files);
+        final var bound = TargetCheckpointRootVerifier.validateManifestImageIdentity(physicalDb, manifest, imageLimits);
+        assertEquals(rootProof.mutationSequence(), bound.mutationSequence());
+        assertEquals(rootProof.source(), bound.source());
+        assertArrayEquals(rootProof.root().digest(), bound.root().digest());
+        assertManifestBindingFailure(
+                physicalDb,
+                copyManifest(
+                        manifest,
+                        bytes(16, 0x56),
+                        manifest.dbIdentity(),
+                        manifest.shardMutationSequence(),
+                        manifest.appliedShardLogPosition(),
+                        manifest.files()),
+                imageLimits,
+                "checkpoint identity");
+        assertManifestBindingFailure(
+                physicalDb,
+                copyManifest(
+                        manifest,
+                        manifest.checkpointId(),
+                        bytes(32, 0x57),
+                        manifest.shardMutationSequence(),
+                        manifest.appliedShardLogPosition(),
+                        manifest.files()),
+                imageLimits,
+                "Store/source identity");
+        assertManifestBindingFailure(
+                physicalDb,
+                copyManifest(
+                        manifest,
+                        manifest.checkpointId(),
+                        manifest.dbIdentity(),
+                        manifest.shardMutationSequence() + 1,
+                        manifest.appliedShardLogPosition(),
+                        manifest.files()),
+                imageLimits,
+                "Store/source identity");
+        assertManifestBindingFailure(
+                physicalDb,
+                copyManifest(
+                        manifest,
+                        manifest.checkpointId(),
+                        manifest.dbIdentity(),
+                        manifest.shardMutationSequence(),
+                        source(origin, origin.offset() + 9, 508),
+                        manifest.files()),
+                imageLimits,
+                "Store/source identity");
+        final var originalFile = manifest.files().getFirst();
+        final var alteredFile = new CheckpointManifest.FileEntry(
+                originalFile.name(),
+                originalFile.length(),
+                bytes(32, 0x58),
+                originalFile.objectKey(),
+                originalFile.objectVersion(),
+                originalFile.etag());
+        final var alteredFiles = new java.util.ArrayList<>(manifest.files());
+        alteredFiles.set(0, alteredFile);
+        assertManifestBindingFailure(
+                physicalDb,
+                copyManifest(
+                        manifest,
+                        manifest.checkpointId(),
+                        manifest.dbIdentity(),
+                        manifest.shardMutationSequence(),
+                        manifest.appliedShardLogPosition(),
+                        alteredFiles),
+                imageLimits,
+                "file inventory");
+        assertManifestBindingFailure(
+                physicalDb,
+                copyManifestAuthority(
+                        manifest,
+                        bytes(16, 0x59),
+                        manifest.sourceStoreIncarnation(),
+                        manifest.evidenceCursors(),
+                        manifest.createdBy()),
+                imageLimits,
+                "Store/source identity");
+        assertManifestBindingFailure(
+                physicalDb,
+                copyManifestAuthority(
+                        manifest,
+                        manifest.recoveryLineageId(),
+                        new UUID(7, 8),
+                        manifest.evidenceCursors(),
+                        manifest.createdBy()),
+                imageLimits,
+                "Store/source identity");
+        assertManifestBindingFailure(
+                physicalDb,
+                copyManifestAuthority(
+                        manifest,
+                        manifest.recoveryLineageId(),
+                        manifest.sourceStoreIncarnation(),
+                        List.of(EvidenceCursor.kafka(bytes(32, 0x60), bytes(16, 0x61), bytes(16, 0x62), 0, 1, 1, 1, 1)),
+                        manifest.createdBy()),
+                imageLimits,
+                "evidence cursors");
+        assertManifestBindingFailure(
+                physicalDb,
+                copyManifestAuthority(
+                        manifest,
+                        manifest.recoveryLineageId(),
+                        manifest.sourceStoreIncarnation(),
+                        manifest.evidenceCursors(),
+                        new CheckpointManifest.CreatedBy(
+                                manifest.createdBy().deploymentId(),
+                                manifest.createdBy().workerRunId(),
+                                openedOwnerEpoch + 1)),
+                imageLimits,
+                "Owner epoch");
         try (var resources = new SharedRocksDbResources(config);
                 var corrupt = ShardStore.openTarget(config, scope.shard(), resources)) {
             corrupt.write(batch -> batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(5), Bytes.u64beBits(999)));
@@ -664,6 +816,71 @@ class TargetQuotaGrantStoreTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> TargetCheckpointRootVerifier.validate(physicalDb, scope.shard(), imageLimits));
+    }
+
+    private static CheckpointManifest copyManifest(
+            final CheckpointManifest base,
+            final byte[] checkpointId,
+            final byte[] dbIdentity,
+            final long mutationSequence,
+            final SourcePosition source,
+            final List<CheckpointManifest.FileEntry> files) {
+        return new CheckpointManifest(
+                checkpointId,
+                base.recoveryLineageId(),
+                base.lineageGeneration(),
+                base.parentCheckpoint(),
+                base.restoredFromCheckpointId(),
+                base.createdBy(),
+                base.createdAt(),
+                base.shardId(),
+                dbIdentity,
+                base.sourceStoreIncarnation(),
+                base.storeFormatVersion(),
+                mutationSequence,
+                source,
+                base.controlStateDigest(),
+                base.referencedSemanticVersionsDigest(),
+                base.evidenceCursors(),
+                files);
+    }
+
+    private static CheckpointManifest copyManifestAuthority(
+            final CheckpointManifest base,
+            final byte[] lineage,
+            final UUID incarnation,
+            final List<EvidenceCursor> cursors,
+            final CheckpointManifest.CreatedBy createdBy) {
+        return new CheckpointManifest(
+                base.checkpointId(),
+                lineage,
+                base.lineageGeneration(),
+                base.parentCheckpoint(),
+                base.restoredFromCheckpointId(),
+                createdBy,
+                base.createdAt(),
+                base.shardId(),
+                base.dbIdentity(),
+                incarnation,
+                base.storeFormatVersion(),
+                base.shardMutationSequence(),
+                base.appliedShardLogPosition(),
+                base.controlStateDigest(),
+                base.referencedSemanticVersionsDigest(),
+                cursors,
+                base.files());
+    }
+
+    private static void assertManifestBindingFailure(
+            final Path image,
+            final CheckpointManifest manifest,
+            final CheckpointManifestLimits limits,
+            final String message) {
+        assertTrue(assertThrows(
+                        IllegalArgumentException.class,
+                        () -> TargetCheckpointRootVerifier.validateManifestImageIdentity(image, manifest, limits))
+                .getMessage()
+                .contains(message));
     }
 
     private static SystemMutation fence(com.nereusstream.delay.protocol.ShardId shard, long close, KeyPair keys) {
