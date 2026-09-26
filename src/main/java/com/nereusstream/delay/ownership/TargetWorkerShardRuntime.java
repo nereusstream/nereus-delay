@@ -157,6 +157,19 @@ public final class TargetWorkerShardRuntime
                 ownerClock);
     }
 
+    /** Revokes an exact unadmitted Claim while this Worker still admits business turns. */
+    public synchronized void revokeClaim(
+            final BoundedReadBudget budget,
+            final TargetClaimRecord expected,
+            final byte[] operationDigest,
+            final TargetQuotaDelta.LocalClaimAuthority quota,
+            final TargetStoreBackend.CommitAuthority physicalWrites,
+            final LongSupplier ownerClock) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        target.revokeClaim(budget, expected, operationDigest, quota, physicalWrites, ownerClock);
+    }
+
     /** Reads one bounded page only while this exact Shard admits new Worker turns. */
     public synchronized TargetQueueSnapshotReader.Page scanTargetQueues(
             final BoundedReadBudget budget,

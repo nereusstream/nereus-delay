@@ -187,6 +187,21 @@ public final class TargetWorkerHostRuntime {
                         ownerClock));
     }
 
+    /** Revokes one unadmitted Claim only through its currently admitted exact Shard instance. */
+    public void revokeClaim(
+            final TargetWorkerShardRuntime expectedShard,
+            final BoundedReadBudget budget,
+            final TargetClaimRecord expected,
+            final byte[] operationDigest,
+            final TargetQuotaDelta.LocalClaimAuthority quota,
+            final TargetStoreBackend.CommitAuthority physicalWrites,
+            final LongSupplier ownerClock) {
+        withShardAdmission(expectedShard, () -> {
+            expectedShard.revokeClaim(budget, expected, operationDigest, quota, physicalWrites, ownerClock);
+            return null;
+        });
+    }
+
     /** Rebuilds one source Shard's verified Target heads under exact host/Owner admission. */
     public TargetQueueSnapshotReader.Page scanTargetQueues(
             final TargetWorkerShardRuntime expectedShard,

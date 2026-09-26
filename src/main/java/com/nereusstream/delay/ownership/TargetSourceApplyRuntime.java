@@ -435,6 +435,37 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         return prepared.claim();
     }
 
+    /** Restores only an unadmitted, exact Claim under the same active Owner and Store guards. */
+    synchronized void revokeClaim(
+            final BoundedReadBudget budget,
+            final TargetClaimRecord expected,
+            final byte[] operationDigest,
+            final TargetQuotaDelta.LocalClaimAuthority quota,
+            final TargetStoreBackend.CommitAuthority physicalWrites,
+            final LongSupplier ownerClock) {
+        final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
+        requireGcOwner(clock);
+        final var exact = Objects.requireNonNull(expected, "expected");
+        if (exact.owner().ownerEpoch() != lease.ownerEpoch()
+                || !Bytes.constantTimeEquals(exact.owner().leaseFencingDigest(), lease.leaseToken())) {
+            throw new IllegalStateException("Target revoke Owner identity differs from the active lease");
+        }
+        final var claims =
+                new TargetClaimStore(backend, scope, lineage, limits.domains(), Objects.requireNonNull(quota, "quota"));
+        final var prepared = claims.prepareRevoke(budget, exact, exact.owner(), operationDigest);
+        claims.commit(prepared, (actual, actualScope, mutation) -> {
+            if (!mutation.quota().counters().mutation().isLocalClaim()) {
+                throw new IllegalStateException("Target revoke cannot commit another mutation kind");
+            }
+            requireGcOwner(clock);
+            return gcGuard(
+                    Objects.requireNonNull(physicalWrites, "physicalWrites").acquire(actual, actualScope, mutation),
+                    actual,
+                    actualScope,
+                    clock);
+        });
+    }
+
     /** Rebuilds bounded Target head summaries without granting Claim or Producer authority. */
     synchronized TargetQueueSnapshotReader.Page scanTargetQueues(
             final BoundedReadBudget budget,

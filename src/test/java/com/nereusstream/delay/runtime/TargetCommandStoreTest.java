@@ -1365,6 +1365,80 @@ class TargetCommandStoreTest {
                     assertEquals(otherOwner, otherClaim.owner());
                     assertEquals(firstAfterClaim, store.latestSequenceNumber());
                     assertTrue(otherStore.latestSequenceNumber() > otherBeforeClaim);
+                    final var originalClaim = claim;
+                    final long otherBeforeRevoke = otherStore.latestSequenceNumber();
+                    final long sourceSequenceBeforeRevoke = store.shardMutationSequence();
+                    final var sourceBeforeRevoke = store.appliedShardLogPosition();
+                    assertThrows(
+                            IllegalStateException.class,
+                            () -> claimHost.revokeClaim(
+                                    otherWorker,
+                                    budget(),
+                                    originalClaim,
+                                    bytes(32, 0xa0),
+                                    (kind, delta) -> {},
+                                    (a, b, c) -> guard(),
+                                    () -> 100));
+                    final long firstBeforeRevoke = store.latestSequenceNumber();
+                    assertThrows(
+                            IllegalStateException.class,
+                            () -> claimHost.revokeClaim(
+                                    claimWorker,
+                                    budget(),
+                                    originalClaim,
+                                    bytes(32, 0xa1),
+                                    (kind, delta) -> {},
+                                    (a, b, c) -> {
+                                        throw new IllegalStateException("revoke write authority unavailable");
+                                    },
+                                    () -> 100));
+                    assertEquals(firstBeforeRevoke, store.latestSequenceNumber());
+                    claimHost.revokeClaim(
+                            claimWorker,
+                            budget(),
+                            originalClaim,
+                            bytes(32, 0xa2),
+                            (kind, delta) -> {},
+                            (a, b, c) -> guard(),
+                            () -> 100);
+                    assertNull(store.get(ColumnFamily.INFLIGHT, originalClaim.key()));
+                    assertNull(store.get(ColumnFamily.META, originalClaim.chargeKey()));
+                    assertEquals(sourceSequenceBeforeRevoke, store.shardMutationSequence());
+                    assertEquals(sourceBeforeRevoke, store.appliedShardLogPosition());
+                    assertEquals(otherBeforeRevoke, otherStore.latestSequenceNumber());
+                    final long afterRevoke = store.latestSequenceNumber();
+                    assertThrows(
+                            IllegalStateException.class,
+                            () -> claimHost.revokeClaim(
+                                    claimWorker,
+                                    budget(),
+                                    originalClaim,
+                                    bytes(32, 0xa3),
+                                    (kind, delta) -> {},
+                                    (a, b, c) -> guard(),
+                                    () -> 100));
+                    assertEquals(afterRevoke, store.latestSequenceNumber());
+                    final var restoredHead = claimWorker
+                            .readTargetQueue(budget(), binding.target(), () -> 100)
+                            .orElseThrow()
+                            .queue()
+                            .domains()
+                            .getFirst()
+                            .ordinaryHead();
+                    claim = claimHost.claim(
+                            claimWorker,
+                            budget(),
+                            restoredHead,
+                            actualOwner,
+                            claimNow,
+                            claimNow + 1000,
+                            claimExecutionBytes,
+                            bytes(32, 0xa4),
+                            (kind, delta) -> {},
+                            (a, b, c) -> guard(),
+                            () -> 100);
+                    assertNotEquals(Bytes.hex(originalClaim.claimId()), Bytes.hex(claim.claimId()));
+                    assertEquals(otherBeforeRevoke, otherStore.latestSequenceNumber());
                     assertTrue(leases.release(otherActive));
                 }
                 final long afterClaim = store.latestSequenceNumber();
