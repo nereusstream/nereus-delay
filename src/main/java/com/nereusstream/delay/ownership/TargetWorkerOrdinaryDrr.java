@@ -397,12 +397,13 @@ public final class TargetWorkerOrdinaryDrr {
         final Selection<T> selection = selectCandidate(target, nowEpochMs, remainingBytes, selector);
         if (selection.candidate().isPresent()) {
             final Candidate<T> candidate = selection.candidate().orElseThrow();
-            target.credit = addQuantum(target.credit);
-            if (candidate.cost() > target.credit) {
+            final long credited = addQuantum(target.credit);
+            if (candidate.cost() > credited) {
+                target.credit = credited;
                 return new Visit<>(VisitKind.CREDIT_WAIT, null);
             }
             final T claimed = Objects.requireNonNull(candidate.action().commit(), "Claim result");
-            target.credit -= candidate.cost();
+            target.credit = credited - candidate.cost();
             target.sourceCursor = (candidate.sourceIndex() + 1) % target.sources.size();
             target.sources.get(candidate.sourceIndex()).domainCursor =
                     (candidate.domainIndex() + 1) % candidate.domainCount();

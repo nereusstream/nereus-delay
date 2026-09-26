@@ -162,6 +162,36 @@ class TargetWorkerOrdinaryDrrTest {
     }
 
     @Test
+    void failedClaimDoesNotRetainCreditFromItsVisit() {
+        final ShardId shard = shard(1);
+        final var physical = target(0);
+        final var first = head(physical, shard, 50);
+        final var later = head(physical, shard, 150);
+        final var reads = new FakeReads(first);
+        final var drr = schedule(List.of(targetState(physical, first)), reads, ONE_VISIT);
+        final var budget = new SchedulerBudget(1, 200, 1_000_000_000L);
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> drr.runOrdinary(
+                        100,
+                        budget,
+                        (source, cost) -> Optional.of(() -> {
+                            throw new IllegalStateException("Claim did not commit");
+                        })));
+        reads.entries.put(new Key(shard, physical.id()), later.entry());
+        reads.costs.put(later.ref(), later.cost());
+
+        assertTrue(drr.runOrdinary(100, budget, (source, cost) -> Optional.of(() -> source))
+                .claims()
+                .isEmpty());
+        assertEquals(
+                List.of(shard),
+                drr.runOrdinary(100, budget, (source, cost) -> Optional.of(() -> source))
+                        .claims());
+    }
+
+    @Test
     void staleHeadRefreshSkipsOnlyThatSourceAndStillServesAnother() {
         final ShardId firstShard = shard(1);
         final ShardId secondShard = shard(2);
