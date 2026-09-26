@@ -87,6 +87,56 @@ class TargetWorkerOrdinaryDrrTest {
     }
 
     @Test
+    void continuouslyEligibleTargetsAndSourceShardsMeetTheVisitBound() {
+        final ShardId firstShard = shard(1);
+        final ShardId secondShard = shard(2);
+        final var shared = target(0);
+        final var small = target(1);
+        final var medium = target(2);
+        final var sharedFirst = head(shared, firstShard, 200);
+        final var sharedSecond = head(shared, secondShard, 200);
+        final var smallHead = head(small, firstShard, 50);
+        final var mediumHead = head(medium, secondShard, 150);
+        final var drr = schedule(
+                List.of(
+                        targetState(shared, sharedFirst, sharedSecond),
+                        targetState(small, smallHead),
+                        targetState(medium, mediumHead)),
+                new FakeReads(sharedFirst, sharedSecond, smallHead, mediumHead),
+                ONE_VISIT);
+        final var budget = new SchedulerBudget(1, 200, 1_000_000_000L);
+        final Map<TargetPartitionId, Integer> lastTargetClaim = new HashMap<>();
+        final Map<ShardId, Integer> lastSharedSourceClaim = new HashMap<>();
+        final int targetBound = 3 * 2; // N * ceil(Cmax / Q)
+        final int sharedSourceBound = 2 * targetBound; // S * N * ceil(Cmax / Q)
+
+        for (int visit = 1; visit <= 48; visit++) {
+            final TargetWorkerOrdinaryDrr.Turn<Service> turn = drr.runOrdinary(
+                    100,
+                    budget,
+                    (source, cost) -> Optional.of(() -> new Service(cost.head().target(), source)));
+            assertEquals(1, turn.targetVisits());
+            for (Service service : turn.claims()) {
+                assertTrue(visit - lastTargetClaim.getOrDefault(service.target(), 0) <= targetBound);
+                lastTargetClaim.put(service.target(), visit);
+                if (service.target().equals(shared.id())) {
+                    assertTrue(visit - lastSharedSourceClaim.getOrDefault(service.source(), 0) <= sharedSourceBound);
+                    lastSharedSourceClaim.put(service.source(), visit);
+                }
+            }
+        }
+
+        assertEquals(Set.of(shared.id(), small.id(), medium.id()), lastTargetClaim.keySet());
+        assertEquals(Set.of(firstShard, secondShard), lastSharedSourceClaim.keySet());
+        for (int last : lastTargetClaim.values()) {
+            assertTrue(48 - last < targetBound);
+        }
+        for (int last : lastSharedSourceClaim.values()) {
+            assertTrue(48 - last < sharedSourceBound);
+        }
+    }
+
+    @Test
     void skipsOneBlockedSourceAndNeverAdvancesItsCursorOnFailedClaim() {
         final ShardId firstShard = shard(1);
         final ShardId secondShard = shard(2);
@@ -416,6 +466,8 @@ class TargetWorkerOrdinaryDrrTest {
     }
 
     private record Head(ShardId shard, TargetQueueSnapshotReader.Entry entry, TargetHeadRef ref, long cost) {}
+
+    private record Service(TargetPartitionId target, ShardId source) {}
 
     private record Key(ShardId shard, TargetPartitionId target) {}
 
