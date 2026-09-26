@@ -438,6 +438,75 @@ class TargetWorkerOrdinaryDrrTest {
                 List.of(physical.id()), drr.runOrdinary(100, budget, selector).claims());
     }
 
+    @Test
+    void refreshAdmitsNewTargetAfterFrozenMemberAndKeepsUnchangedCredit() {
+        final ShardId shard = shard(1);
+        final var original = target(0);
+        final var newcomer = target(1);
+        final var originalHead = head(original, shard, 200);
+        final var newHead = head(newcomer, shard, 50);
+        final var reads = new FakeReads(originalHead, newHead);
+        final var drr = recoverySchedule(List.of(targetState(original, originalHead)), reads, ONE_VISIT);
+        final var budget = new SchedulerBudget(1, 200, 1_000_000_000L);
+        final TargetWorkerOrdinaryDrr.Selector<TargetPartitionId> selector =
+                (source, cost) -> Optional.of(() -> cost.head().target());
+        final var refreshed = new TargetWorkerTargetInventory.Snapshot(
+                List.of(targetState(original, originalHead), targetState(newcomer, newHead)), reads.cuts());
+
+        assertThrows(IllegalStateException.class, () -> drr.refreshSnapshot(refreshed));
+        assertEquals(
+                TargetWorkerOrdinaryDrr.FreezeStop.READY,
+                drr.freezeFirstPass(100, budget, selector).stop());
+        assertTrue(drr.runOrdinary(100, budget, selector).claims().isEmpty());
+        drr.refreshSnapshot(refreshed);
+        assertEquals(
+                List.of(original.id()), drr.runOrdinary(100, budget, selector).claims());
+        assertEquals(
+                List.of(newcomer.id()), drr.runOrdinary(100, budget, selector).claims());
+    }
+
+    @Test
+    void refreshRejectsChangedStoreCutWithoutChangingExistingRing() {
+        final ShardId shard = shard(1);
+        final var original = target(0);
+        final var newcomer = target(1);
+        final var originalHead = head(original, shard, 50);
+        final var newHead = head(newcomer, shard, 50);
+        final var reads = new FakeReads(originalHead, newHead);
+        final var drr = schedule(List.of(targetState(original, originalHead)), reads, ONE_VISIT);
+        final var stale = new TargetWorkerTargetInventory.Snapshot(
+                List.of(targetState(original, originalHead), targetState(newcomer, newHead)), reads.cuts());
+        reads.advanceCut(shard);
+
+        assertThrows(IllegalStateException.class, () -> drr.refreshSnapshot(stale));
+        assertEquals(
+                List.of(original.id()),
+                drr.runOrdinary(
+                                100,
+                                new SchedulerBudget(1, 200, 1_000_000_000L),
+                                (source, cost) -> Optional.of(() -> cost.head().target()))
+                        .claims());
+    }
+
+    @Test
+    void refreshPreservesSourceRotationWithinAnUnchangedTarget() {
+        final ShardId firstShard = shard(1);
+        final ShardId secondShard = shard(2);
+        final var physical = target(0);
+        final var first = head(physical, firstShard, 50);
+        final var second = head(physical, secondShard, 50);
+        final var reads = new FakeReads(first, second);
+        final var target = targetState(physical, first, second);
+        final var drr = schedule(List.of(target), reads, ONE_VISIT);
+        final var budget = new SchedulerBudget(1, 200, 1_000_000_000L);
+        final TargetWorkerOrdinaryDrr.Selector<ShardId> selector = (source, cost) -> Optional.of(() -> source);
+
+        assertEquals(List.of(firstShard), drr.runOrdinary(100, budget, selector).claims());
+        drr.refreshSnapshot(new TargetWorkerTargetInventory.Snapshot(List.of(target), reads.cuts()));
+        assertEquals(
+                List.of(secondShard), drr.runOrdinary(100, budget, selector).claims());
+    }
+
     private static TargetWorkerOrdinaryDrr schedule(
             final List<TargetWorkerTargetInventory.Target> targets,
             final FakeReads reads,

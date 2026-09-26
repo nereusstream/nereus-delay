@@ -160,8 +160,8 @@ public final class TargetWorkerOrdinaryDrr {
     private final Limits limits;
     private final LongSupplier monotonicClock;
     private final LongSupplier ownerClock;
-    private final List<TargetState> ring;
-    private final Map<ShardId, TargetQueueSnapshotReader.Cut> inventoryCuts;
+    private List<TargetState> ring;
+    private Map<ShardId, TargetQueueSnapshotReader.Cut> inventoryCuts;
     private final Set<TargetPartitionId> firstPassPending = new HashSet<>();
     private final boolean firstPassRequired;
     private int cursor;
@@ -266,6 +266,77 @@ public final class TargetWorkerOrdinaryDrr {
             final long nowEpochMs, final SchedulerBudget budget, final Requests requests) {
         Objects.requireNonNull(host, "host");
         return runOrdinary(nowEpochMs, budget, claimSelector(nowEpochMs, requests));
+    }
+
+    /** Admits a new complete Host inventory after the recovery first pass, retaining unchanged Target shares. */
+    public synchronized void refreshInventory(final TargetWorkerTargetInventory.Result inventory) {
+        Objects.requireNonNull(host, "host");
+        final var complete = Objects.requireNonNull(inventory, "inventory");
+        if (complete.stop() != TargetWorkerTargetInventory.Stop.COMPLETE
+                || !workers.keySet().equals(complete.snapshot().cuts().keySet())) {
+            throw new IllegalArgumentException("Target DRR refresh requires the same complete source membership");
+        }
+        if (!firstPassReady) {
+            throw new IllegalStateException("Target recovery first pass must be frozen before inventory refresh");
+        }
+        refreshSnapshot(host.consumeTargetInventory(complete));
+    }
+
+    /** Process-state seam; production first consumes the exact inventory built by its Host. */
+    synchronized void refreshSnapshot(final TargetWorkerTargetInventory.Snapshot inventory) {
+        final var exact = Objects.requireNonNull(inventory, "inventory");
+        requireRefreshReady(exact);
+        final Map<TargetPartitionId, TargetState> previous = new HashMap<>();
+        for (TargetState target : ring) {
+            previous.put(target.id, target);
+        }
+        final TargetPartitionId next = ring.isEmpty() ? null : ring.get(cursor).id;
+        final List<TargetState> refreshed = new ArrayList<>();
+        final Set<TargetPartitionId> retained = new HashSet<>();
+        final Set<TargetPartitionId> seen = new HashSet<>();
+        for (TargetWorkerTargetInventory.Target incoming : exact.targets()) {
+            if (!seen.add(incoming.id())) {
+                throw new IllegalStateException("Target DRR refresh contains duplicate physical Target");
+            }
+            final TargetState old = previous.get(incoming.id());
+            if (old != null
+                    && !Arrays.equals(
+                            old.physical.canonicalBytes(), incoming.physical().canonicalBytes())) {
+                throw new IllegalStateException("Target DRR physical identity changed during refresh");
+            }
+            final TargetState current;
+            if (old != null && old.sameSources(incoming)) {
+                current = old;
+                retained.add(old.id);
+            } else {
+                current = new TargetState(incoming);
+            }
+            refreshed.add(current);
+        }
+        refreshed.sort((left, right) -> Arrays.compareUnsigned(left.id.bytes(), right.id.bytes()));
+        int nextCursor = 0;
+        if (next != null) {
+            while (nextCursor < refreshed.size()
+                    && Arrays.compareUnsigned(refreshed.get(nextCursor).id.bytes(), next.bytes()) < 0) {
+                nextCursor++;
+            }
+            if (nextCursor == refreshed.size()) {
+                nextCursor = 0;
+            }
+        }
+        firstPassPending.retainAll(retained);
+        ring = List.copyOf(refreshed);
+        inventoryCuts = exact.cuts();
+        cursor = nextCursor;
+    }
+
+    private void requireRefreshReady(final TargetWorkerTargetInventory.Snapshot inventory) {
+        if (!firstPassReady) {
+            throw new IllegalStateException("Target recovery first pass must be frozen before inventory refresh");
+        }
+        if (!reads.membershipCurrent() || !reads.cutsCurrent(inventory.cuts())) {
+            throw new IllegalStateException("Target DRR refresh membership or Store cut changed");
+        }
     }
 
     /** Builds one frozen, bounded recovery set before the first ordinary Claim is admitted. */
@@ -531,6 +602,20 @@ public final class TargetWorkerOrdinaryDrr {
             for (TargetWorkerTargetInventory.Source source : target.sources()) {
                 sources.add(new SourceState(source.shard()));
             }
+        }
+
+        private boolean sameSources(final TargetWorkerTargetInventory.Target incoming) {
+            if (sources.size() != incoming.sources().size()) {
+                return false;
+            }
+            for (int index = 0; index < sources.size(); index++) {
+                if (!sources.get(index)
+                        .shard
+                        .equals(incoming.sources().get(index).shard())) {
+                    return false;
+                }
+            }
+            return true;
         }
     }
 

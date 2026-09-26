@@ -1358,6 +1358,12 @@ class TargetCommandStoreTest {
                     assertEquals(actualOwner, claim.owner());
                     assertEquals(otherBeforeClaim, otherStore.latestSequenceNumber());
                     final long firstAfterClaim = store.latestSequenceNumber();
+                    final var afterClaimInventory = claimHost.rebuildTargetInventory(
+                            new TargetWorkerTargetInventory.Limits(2, 16, 4, 8, 4096, 32L << 20, 60_000_000_000L),
+                            () -> 100,
+                            System::nanoTime);
+                    assertEquals(TargetWorkerTargetInventory.Stop.COMPLETE, afterClaimInventory.stop());
+                    ordinary.refreshInventory(afterClaimInventory);
                     final var otherClaim = ordinary.claimOrdinary(claimNow, claimBudget, claimRequests)
                             .claims()
                             .getFirst();

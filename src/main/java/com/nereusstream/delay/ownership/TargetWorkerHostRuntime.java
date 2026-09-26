@@ -252,17 +252,20 @@ public final class TargetWorkerHostRuntime {
             final TargetWorkerOrdinaryDrr.Limits limits,
             final LongSupplier ownerClock,
             final LongSupplier monotonicClock) {
+        return new TargetWorkerOrdinaryDrr(this, consumeTargetInventory(inventory), limits, ownerClock, monotonicClock);
+    }
+
+    synchronized TargetWorkerTargetInventory.Snapshot consumeTargetInventory(
+            final TargetWorkerTargetInventory.Result inventory) {
         final var complete = Objects.requireNonNull(inventory, "inventory");
         if (complete.stop() != TargetWorkerTargetInventory.Stop.COMPLETE) {
             throw new IllegalArgumentException("Target DRR requires a complete inventory");
         }
-        synchronized (this) {
-            if (complete.snapshot() != pendingTargetInventory) {
-                throw new IllegalArgumentException("Target DRR inventory was not built by this Host");
-            }
-            pendingTargetInventory = null;
+        if (complete.snapshot() != pendingTargetInventory) {
+            throw new IllegalArgumentException("Target DRR inventory was not built by this Host");
         }
-        return new TargetWorkerOrdinaryDrr(this, complete.snapshot(), limits, ownerClock, monotonicClock);
+        pendingTargetInventory = null;
+        return complete.snapshot();
     }
 
     synchronized List<TargetWorkerShardRuntime> currentTargetWorkers() {
