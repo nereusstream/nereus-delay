@@ -5,7 +5,9 @@ import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.TargetHeadRef;
 import com.nereusstream.delay.protocol.TargetPartitionId;
+import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.runtime.TargetClaimRecord;
+import com.nereusstream.delay.runtime.TargetExpiryDiscoveryStore;
 import com.nereusstream.delay.runtime.TargetHeadCostProbe;
 import com.nereusstream.delay.runtime.TargetQueueSnapshotReader;
 import com.nereusstream.delay.runtime.TargetQuotaDelta;
@@ -195,6 +197,17 @@ public final class TargetWorkerShardRuntime
         requireNewTurnsAdmitted();
         resources.requireRuntimeBusinessAdmission();
         return target.readTargetQueueCut(budget, ownerClock);
+    }
+
+    /** Reads one guarded message-expiry candidate without applying or appending it. */
+    public synchronized TargetExpiryDiscoveryStore.Discovery discoverMessageExpiry(
+            final BoundedReadBudget budget,
+            final TargetExpiryDiscoveryStore.Cursor cursor,
+            final TrustedUtcIntervalEvidence evidence,
+            final LongSupplier ownerClock) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        return target.discoverMessageExpiry(budget, cursor, evidence, ownerClock);
     }
 
     /** Reads the frozen cost of one current head; Claim still rechecks Store and live authority. */

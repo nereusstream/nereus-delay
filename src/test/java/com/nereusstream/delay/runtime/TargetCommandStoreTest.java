@@ -1811,6 +1811,44 @@ class TargetCommandStoreTest {
                     .payload());
             final var expiry = expire(
                     fresh.delayMessageId(), beforeExpiry.expireAtEpochMs(), expiryAt, expiryOwner, keys, false);
+            final var expiryDiscovery = new TargetExpiryDiscoveryStore(backend, scope);
+            final var expiryProof = TargetExpireGenerationBody.decode(expiry.canonicalBody()).proof();
+            final var expectedExpiry = new TargetExpiryDiscoveryStore.Candidate(
+                    beforeExpiry.locator(), beforeExpiry.expireAtEpochMs());
+            assertTrue(expiryProof.earliestEpochMs() > 0);
+            final var beforeExpiryProof = new TrustedUtcIntervalEvidence(
+                    expiryProof.earliestEpochMs() - 1,
+                    expiryProof.latestEpochMs(),
+                    expiryProof.source(),
+                    expiryProof.sourceId(),
+                    expiryProof.sourceConfigGeneration(),
+                    expiryProof.sampleSequence(),
+                    expiryProof.monotonicAnchorNs(),
+                    expiryProof.sourceEvidenceSha256(),
+                    expiryProof.sourceKeyVersion(),
+                    expiryProof.sourceSignature());
+            final long beforeDiscoverySequence = store.latestSequenceNumber();
+            assertFalse(expiryDiscoveryFinds(expiryDiscovery, beforeExpiryProof, expectedExpiry));
+            assertTrue(expiryDiscoveryFinds(expiryDiscovery, expiryProof, expectedExpiry));
+            final var firstExpiryPage = expiryDiscovery.discover(budget(), null, expiryProof, (a, b) -> guard());
+            assertTrue(firstExpiryPage.candidate().isPresent());
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> expiryDiscovery.discover(
+                            budget(), firstExpiryPage.nextCursor(), beforeExpiryProof, (a, b) -> guard()));
+            assertThrows(
+                    com.nereusstream.delay.store.ReadIncompleteException.class,
+                    () -> expiryDiscovery.discover(
+                            new BoundedReadBudget(1, 1 << 20, 1_000_000_000L, System::nanoTime),
+                            null,
+                            expiryProof,
+                            (a, b) -> guard()));
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> expiryDiscovery.discover(budget(), null, expiryProof, (a, b) -> {
+                        throw new IllegalStateException("expiry discovery read authority unavailable");
+                    }));
+            assertEquals(beforeDiscoverySequence, store.latestSequenceNumber());
             final long beforeExpirySequence = store.latestSequenceNumber();
             final long beforeExpiryMutationSequence = store.shardMutationSequence();
             final var beforeExpirySource = store.appliedShardLogPosition();
@@ -4333,6 +4371,24 @@ class TargetCommandStoreTest {
         }
         assertEquals(SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED, turn.status());
         return turn.appliedOutcome().systemMutationResult();
+    }
+
+    private static boolean expiryDiscoveryFinds(
+            TargetExpiryDiscoveryStore discovery,
+            TrustedUtcIntervalEvidence evidence,
+            TargetExpiryDiscoveryStore.Candidate expected) {
+        TargetExpiryDiscoveryStore.Cursor cursor = null;
+        for (int attempts = 0; attempts < 256; attempts++) {
+            final var step = discovery.discover(budget(), cursor, evidence, (a, b) -> guard());
+            if (step.candidate().filter(expected::equals).isPresent()) {
+                return true;
+            }
+            if (step.sweepComplete()) {
+                return false;
+            }
+            cursor = step.nextCursor();
+        }
+        throw new AssertionError("Target expiry discovery did not finish its bounded test sweep");
     }
 
     private static SystemMutation expire(

@@ -75,6 +75,13 @@ class TargetKeyCodecTest {
         assertEquals(vectors.getProperty("due.kafka.key"), Bytes.hex(due));
         assertEquals(vectors.getProperty("native.pulsar.key"), Bytes.hex(nativeKey));
         assertEquals(vectors.getProperty("expiry.key"), Bytes.hex(TargetKeyCodec.expiry(200, target, message, 2)));
+        assertArrayEquals(
+                Bytes.concat(TargetKeyCodec.expiryPrefix(), Bytes.u64be(201)),
+                TargetKeyCodec.expiryUpperBound(200));
+        assertArrayEquals(
+                Bytes.concat(TargetKeyCodec.expiryPrefix(), new byte[] {(byte) 0x80}),
+                TargetKeyCodec.expiryUpperBound(Long.MAX_VALUE));
+        assertThrows(IllegalArgumentException.class, () -> TargetKeyCodec.expiryUpperBound(-1));
         assertEquals(vectors.getProperty("state.key"), Bytes.hex(TargetKeyCodec.state(target)));
         for (byte[] key : new byte[][] {due, nativeKey}) {
             final var decoded = TargetKeyCodec.decodeCandidate(key);

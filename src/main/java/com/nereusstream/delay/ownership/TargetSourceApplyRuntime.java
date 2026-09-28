@@ -20,6 +20,7 @@ import com.nereusstream.delay.protocol.TargetPartitionId;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlBody;
 import com.nereusstream.delay.protocol.TargetQuotaIncarnation;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
+import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.runtime.CommandResult;
 import com.nereusstream.delay.runtime.SystemMutationResult;
 import com.nereusstream.delay.runtime.TargetClaimRecord;
@@ -30,6 +31,7 @@ import com.nereusstream.delay.runtime.TargetCommandReplayStore;
 import com.nereusstream.delay.runtime.TargetCommandStore;
 import com.nereusstream.delay.runtime.TargetExpireGenerationStore;
 import com.nereusstream.delay.runtime.TargetExpireGenerationVerifier;
+import com.nereusstream.delay.runtime.TargetExpiryDiscoveryStore;
 import com.nereusstream.delay.runtime.TargetHeadCostProbe;
 import com.nereusstream.delay.runtime.TargetMembershipControlStore;
 import com.nereusstream.delay.runtime.TargetMembershipControlVerifier;
@@ -201,6 +203,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     private final byte[] lineage;
     private final TargetQuotaGrantStore grants;
     private final TargetTimeFenceStore fences;
+    private final TargetExpiryDiscoveryStore expiryDiscovery;
     private final TargetExpireGenerationStore expiries;
     private final TargetCloseStore closes;
     private final TargetMembershipControlStore membershipControls;
@@ -290,6 +293,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         lineage = exactRoot.recoveryLineage();
         grants = new TargetQuotaGrantStore(backend, scope, lineage, limits.counters(), limits.domains());
         fences = new TargetTimeFenceStore(backend, scope, lineage, limits.counters(), limits.domains());
+        expiryDiscovery = new TargetExpiryDiscoveryStore(backend, scope);
         expiries = new TargetExpireGenerationStore(backend, scope, lineage, limits.counters(), limits.domains());
         closes = new TargetCloseStore(backend, scope, lineage, limits.counters(), limits.domains());
         membershipControls = new TargetMembershipControlStore(
@@ -510,6 +514,16 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
         requireGcOwner(clock);
         return new TargetQueueSnapshotReader(backend, limits.domains()).readCut(budget, workerReads(clock));
+    }
+
+    synchronized TargetExpiryDiscoveryStore.Discovery discoverMessageExpiry(
+            final BoundedReadBudget budget,
+            final TargetExpiryDiscoveryStore.Cursor cursor,
+            final TrustedUtcIntervalEvidence evidence,
+            final LongSupplier ownerClock) {
+        final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
+        requireGcOwner(clock);
+        return expiryDiscovery.discover(budget, cursor, evidence, workerReads(clock));
     }
 
     /** Validates one current head and its frozen byte cost only when the Worker selects it. */

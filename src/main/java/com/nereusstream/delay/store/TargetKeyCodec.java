@@ -246,6 +246,20 @@ public final class TargetKeyCodec {
                 Bytes.u32beBits(generation));
     }
 
+    public static byte[] expiryPrefix() {
+        return new byte[] {EXPIRY_TAG, KEY_FORMAT};
+    }
+
+    /** Exclusive upper bound for all expiry keys whose inclusive timestamp is at most cutoff. */
+    public static byte[] expiryUpperBound(final long cutoffEpochMs) {
+        if (cutoffEpochMs < 0) {
+            throw new IllegalArgumentException("negative target expiry cutoff");
+        }
+        return Bytes.concat(
+                expiryPrefix(),
+                cutoffEpochMs == Long.MAX_VALUE ? new byte[] {(byte) 0x80} : Bytes.u64be(cutoffEpochMs + 1));
+    }
+
     public static byte[] state(final TargetPartitionId target) {
         return Bytes.concat(new byte[] {STATE_TAG, KEY_FORMAT}, target.bytes());
     }
