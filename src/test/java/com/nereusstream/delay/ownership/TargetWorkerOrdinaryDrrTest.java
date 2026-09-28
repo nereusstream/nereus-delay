@@ -569,6 +569,29 @@ class TargetWorkerOrdinaryDrrTest {
     }
 
     @Test
+    void targetDiscoveredAfterRecoveryFreezeJoinsTheOrdinaryRing() {
+        final ShardId shard = shard(1);
+        final var original = target(0);
+        final var newcomer = target(1);
+        final var originalHead = head(original, shard, 50);
+        final var newHead = head(newcomer, shard, 50);
+        final var reads = new FakeReads(originalHead, newHead);
+        final var drr = recoverySchedule(List.of(targetState(original, originalHead)), reads, ONE_VISIT);
+        final var budget = new SchedulerBudget(1, 200, 1_000_000_000L);
+        final TargetWorkerOrdinaryDrr.Selector<TargetPartitionId> selector =
+                (source, cost) -> Optional.of(() -> cost.head().target());
+
+        assertEquals(
+                TargetWorkerOrdinaryDrr.FreezeStop.READY,
+                drr.freezeFirstPass(100, budget, selector).stop());
+        drr.refreshSnapshot(new TargetWorkerTargetInventory.Snapshot(
+                List.of(targetState(original, originalHead), targetState(newcomer, newHead)), reads.cuts()));
+
+        assertEquals(List.of(original.id()), drr.runOrdinary(100, budget, selector).claims());
+        assertEquals(List.of(newcomer.id()), drr.runOrdinary(100, budget, selector).claims());
+    }
+
+    @Test
     void refreshRejectsChangedStoreCutWithoutChangingExistingRing() {
         final ShardId shard = shard(1);
         final var original = target(0);
