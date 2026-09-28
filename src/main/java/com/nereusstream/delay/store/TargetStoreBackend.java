@@ -17,10 +17,51 @@ import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 
 /** Real RocksDB adapter for Target plans; production composition must still supply business/lease authority. */
 public final class TargetStoreBackend {
+    /** Coalesced notification shared by the active Workers in one Target host. */
+    public static final class TargetQueueChangeSignal {
+        private final AtomicLong revision = new AtomicLong();
+        private final Object monitor = new Object();
+
+        public long revision() {
+            return revision.get();
+        }
+
+        /** Waits only while the caller's pre-scan revision is still current. */
+        public boolean awaitChange(final long observedRevision, final java.time.Duration timeout)
+                throws InterruptedException {
+            final var exactTimeout = Objects.requireNonNull(timeout, "timeout");
+            if (exactTimeout.isNegative()) {
+                throw new IllegalArgumentException("Target queue change timeout cannot be negative");
+            }
+            final long timeoutNanos = exactTimeout.toNanos();
+            final long deadline = System.nanoTime() + timeoutNanos;
+            synchronized (monitor) {
+                while (revision.get() == observedRevision) {
+                    final long remaining = deadline - System.nanoTime();
+                    if (remaining <= 0) {
+                        return false;
+                    }
+                    TimeUnit.NANOSECONDS.timedWait(monitor, remaining);
+                }
+                return true;
+            }
+        }
+
+        private void signal() {
+            revision.incrementAndGet();
+            synchronized (monitor) {
+                monitor.notifyAll();
+            }
+        }
+    }
+
     public record WriteLimits(int maximumRecords, long maximumEncodedBytes) {
         public WriteLimits {
             if (maximumRecords <= 0 || maximumEncodedBytes <= 0) {
@@ -320,6 +361,7 @@ public final class TargetStoreBackend {
     private final TargetQuotaAggregate genesis;
     private final byte[] lineage;
     private final WriteLimits limits;
+    private volatile TargetQueueChangeSignal targetQueueChangeSignal;
 
     public TargetStoreBackend(
             final ShardStore store,
@@ -346,6 +388,16 @@ public final class TargetStoreBackend {
         if (store != Objects.requireNonNull(actual, "store")) {
             throw new IllegalArgumentException("Target backend belongs to another Store instance");
         }
+    }
+
+    /** Binds one host signal and requests a refresh for already persisted queue state. */
+    public synchronized void bindTargetQueueChangeSignal(final TargetQueueChangeSignal signal) {
+        final var exactSignal = Objects.requireNonNull(signal, "signal");
+        if (targetQueueChangeSignal != null && targetQueueChangeSignal != exactSignal) {
+            throw new IllegalStateException("Target backend is already bound to another host signal");
+        }
+        targetQueueChangeSignal = exactSignal;
+        exactSignal.signal();
     }
 
     /** Authority for acknowledging an already durable source record without writing another batch. */
@@ -525,8 +577,11 @@ public final class TargetStoreBackend {
             }
             prepared.attempted = true;
         }
-        try (var guard =
-                Objects.requireNonNull(authority.acquire(store.metadata(), scope, prepared.mutation), "guard")) {
+        final boolean hasBusinessChanges = prepared.mutation.business().stream()
+                .anyMatch(edit -> !Arrays.equals(edit.before, edit.after));
+        final var writeCompleted = new AtomicBoolean();
+        try (var guard = Objects.requireNonNull(
+                authority.acquire(store.metadata(), scope, prepared.mutation), "guard")) {
             store.withReadView(prepared.view, () -> {
                 guard.requireCurrent();
                 store.write(batch -> {
@@ -575,8 +630,16 @@ public final class TargetStoreBackend {
                         batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(5), Bytes.u64beBits(stamp.sequence()));
                     }
                 });
+                writeCompleted.set(true);
                 return null;
             });
+        } finally {
+            if (writeCompleted.get() && hasBusinessChanges) {
+                final var signal = targetQueueChangeSignal;
+                if (signal != null) {
+                    signal.signal();
+                }
+            }
         }
     }
 

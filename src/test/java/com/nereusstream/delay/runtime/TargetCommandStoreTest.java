@@ -1299,6 +1299,7 @@ class TargetCommandStoreTest {
                                     () -> 100));
                     final var claimHost = TargetWorkerHostTestBridge.withoutMaintenanceTimer(
                             workerClasses, resources, List.of(claimWorker));
+                    assertTrue(claimHost.targetQueueChangeRevision() > 0);
                     final var inventory = claimHost.rebuildTargetInventory(
                             new TargetWorkerTargetInventory.Limits(2, 16, 4, 8, 4096, 32L << 20, 60_000_000_000L),
                             () -> 100,
@@ -1374,26 +1375,56 @@ class TargetCommandStoreTest {
                             .isEmpty());
                     assertEquals(firstBeforeUnavailable, store.latestSequenceNumber());
                     assertEquals(otherBeforeUnavailable, otherStore.latestSequenceNumber());
+                    final long queueRevisionBeforeRejectedClaim = claimHost.targetQueueChangeRevision();
+                    final long firstBeforeRejectedClaim = store.latestSequenceNumber();
+                    assertThrows(
+                            IllegalStateException.class,
+                            () -> claimHost.claim(
+                                    claimWorker,
+                                    budget(),
+                                    selectedHead,
+                                    actualOwner,
+                                    claimNow,
+                                    claimNow + 1000,
+                                    claimExecutionBytes,
+                                    bytes(32, 0x70),
+                                    (kind, delta) -> {},
+                                    (a, b, c) -> {
+                                        throw new IllegalStateException("Claim write authority unavailable");
+                                    },
+                                    () -> 100));
+                    assertEquals(firstBeforeRejectedClaim, store.latestSequenceNumber());
+                    assertEquals(queueRevisionBeforeRejectedClaim, claimHost.targetQueueChangeRevision());
+                    assertFalse(claimHost.awaitTargetQueueChange(
+                            queueRevisionBeforeRejectedClaim, java.time.Duration.ZERO));
                     final long otherBeforeClaim = otherStore.latestSequenceNumber();
+                    final long queueRevisionBeforeClaim = claimHost.targetQueueChangeRevision();
                     claim = ordinary.claimOrdinary(claimNow, claimBudget, claimRequests)
                             .claims()
                             .getFirst();
                     assertEquals(selectedHead, claim.selected());
                     assertEquals(actualOwner, claim.owner());
                     assertEquals(otherBeforeClaim, otherStore.latestSequenceNumber());
+                    assertEquals(queueRevisionBeforeClaim + 1, claimHost.targetQueueChangeRevision());
+                    assertTrue(claimHost.awaitTargetQueueChange(
+                            queueRevisionBeforeClaim, java.time.Duration.ZERO));
                     final long firstAfterClaim = store.latestSequenceNumber();
+                    final long queueRevisionBeforeAdmission = claimHost.targetQueueChangeRevision();
                     claimHost.admitShard(otherWorker);
+                    assertTrue(claimHost.targetQueueChangeRevision() > queueRevisionBeforeAdmission);
                     final var afterClaimInventory = claimHost.rebuildTargetInventory(
                             new TargetWorkerTargetInventory.Limits(2, 16, 4, 8, 4096, 32L << 20, 60_000_000_000L),
                             () -> 100,
                             System::nanoTime);
                     assertEquals(TargetWorkerTargetInventory.Stop.COMPLETE, afterClaimInventory.stop());
                     ordinary.refreshInventory(afterClaimInventory);
+                    final long queueRevisionBeforeOtherClaim = claimHost.targetQueueChangeRevision();
                     final var otherClaim = ordinary.claimOrdinary(claimNow, claimBudget, claimRequests)
                             .claims()
                             .getFirst();
                     assertEquals(otherHead, otherClaim.selected());
                     assertEquals(otherOwner, otherClaim.owner());
+                    assertEquals(queueRevisionBeforeOtherClaim + 1, claimHost.targetQueueChangeRevision());
                     assertEquals(firstAfterClaim, store.latestSequenceNumber());
                     assertTrue(otherStore.latestSequenceNumber() > otherBeforeClaim);
                     final long firstBeforeEmptyPoll = store.latestSequenceNumber();

@@ -100,6 +100,8 @@ public final class TargetWorkerHostRuntime {
     private final TargetWorkerShardFleetRuntime fleet;
     private final TargetWorkerMaintenanceLoop maintenanceLoop;
     private final List<Shard> shards;
+    private final TargetStoreBackend.TargetQueueChangeSignal targetQueueChangeSignal =
+            new TargetStoreBackend.TargetQueueChangeSignal();
     private final Set<ShardId> withdrawn = new HashSet<>();
     private final Set<ShardId> draining = new HashSet<>();
     private final Map<ShardId, ShardDrain> completed = new HashMap<>();
@@ -131,6 +133,29 @@ public final class TargetWorkerHostRuntime {
         this.shards = new ArrayList<>(Objects.requireNonNull(shards, "shards"));
         if (!fleet.shardIds().equals(this.shards.stream().map(Shard::shardId).toList())) {
             throw new IllegalArgumentException("Target host drain shards differ from maintenance fleet");
+        }
+        for (Shard shard : this.shards) {
+            bindTargetQueueChangeSignal(shard);
+        }
+    }
+
+    /** Revision to capture before a bounded queue scan so intervening commits cannot be missed. */
+    public long targetQueueChangeRevision() {
+        return targetQueueChangeSignal.revision();
+    }
+
+    /**
+     * Waits for a committed Target business change after a caller's pre-scan revision. A change
+     * during the scan returns immediately; timeout remains the periodic safety recheck.
+     */
+    public boolean awaitTargetQueueChange(final long observedRevision, final Duration timeout)
+            throws InterruptedException {
+        return targetQueueChangeSignal.awaitChange(observedRevision, timeout);
+    }
+
+    private void bindTargetQueueChangeSignal(final Shard shard) {
+        if (shard instanceof TargetWorkerShardRuntime worker) {
+            worker.bindTargetQueueChangeSignal(targetQueueChangeSignal);
         }
     }
 
@@ -390,6 +415,7 @@ public final class TargetWorkerHostRuntime {
                 && (!withdrawn.contains(shardId) || draining.contains(shardId) || !completed.containsKey(shardId))) {
             throw new IllegalStateException("Target host cannot replace a live or incompletely drained shard");
         }
+        bindTargetQueueChangeSignal(shard);
         synchronized (fleet) {
             fleet.admit(turns);
             if (previousIndex < 0) {

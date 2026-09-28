@@ -104,6 +104,10 @@ public final class TargetWorkerShardRuntime
                 new TargetOwnerDrainCoordinator(exactStore, this.resources, exactTarget, sourceLoop, maintenance);
     }
 
+    void bindTargetQueueChangeSignal(final TargetStoreBackend.TargetQueueChangeSignal signal) {
+        target.bindTargetQueueChangeSignal(signal);
+    }
+
     public ShardId shardId() {
         return shardId;
     }

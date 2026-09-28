@@ -584,10 +584,15 @@
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
       "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
-      "progress": "TargetQueueHeadUpdater now omits the Target queue state edit when an ordinary/native candidate mutation leaves every affected head unchanged. A real RocksDB TargetMessageStore regression inserts a later due candidate without advancing headRevision, then terminalizes both works and verifies the actual head change advances revision once. Head cache, post-commit notification, bounded wake registration, permit/backoff/policy invalidation, periodic safety recheck, and centralized validation remain pending.",
+      "progress": "TargetQueueHeadUpdater omits the Target queue state edit when ordinary/native candidate mutations leave every affected head unchanged; a real RocksDB TargetMessageStore regression verifies later-candidate insertion keeps headRevision stable and actual head removal advances it once. TargetStoreBackend now signals one coalesced Host revision after a successful batch with business edits; Host/Worker binding also requests a refresh for persisted queue state and new Shard admission. A real two-Store Worker Claim regression verifies rejected writes do not signal, successful Claims do, and a pre-scan revision observes intervening changes immediately after the scan; checkstyle and documentation checks pass. Per-Target bounded wake registration, head cache, permit/backoff/policy/control/channel invalidation, periodic safety recheck, and centralized validation remain pending.",
       "implementationFiles": [
+        "src/main/java/com/nereusstream/delay/store/TargetStoreBackend.java",
+        "src/main/java/com/nereusstream/delay/ownership/TargetSourceApplyRuntime.java",
+        "src/main/java/com/nereusstream/delay/ownership/TargetWorkerShardRuntime.java",
+        "src/main/java/com/nereusstream/delay/ownership/TargetWorkerHostRuntime.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetQueueHeadUpdater.java",
-        "src/test/java/com/nereusstream/delay/runtime/TargetMessageStoreTest.java"
+        "src/test/java/com/nereusstream/delay/runtime/TargetMessageStoreTest.java",
+        "src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java"
       ]
     },
     {

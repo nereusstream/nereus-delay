@@ -303,6 +303,10 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         commands = new TargetCommandStore(backend, scope, lineage, limits.counters(), limits.domains());
     }
 
+    synchronized void bindTargetQueueChangeSignal(final TargetStoreBackend.TargetQueueChangeSignal signal) {
+        backend.bindTargetQueueChangeSignal(signal);
+    }
+
     @Override
     synchronized void bind(final WorkClassExecutionRegistry registry) {
         if (workClasses != null && workClasses != registry) {
