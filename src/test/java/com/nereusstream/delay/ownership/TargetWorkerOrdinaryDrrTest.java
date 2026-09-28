@@ -112,6 +112,53 @@ class TargetWorkerOrdinaryDrrTest {
     }
 
     @Test
+    void activeDomainsRotateWithinOnePhysicalTarget() {
+        final ShardId shard = shard(1);
+        final var physical = target(0);
+        final var firstDomain = new TargetKeyCodec.Domain(0, 1);
+        final var secondDomain = new TargetKeyCodec.Domain(1, 1);
+        final var firstHead = dueHead(physical, shard, firstDomain);
+        final var secondHead = dueHead(physical, shard, secondDomain);
+        final var queue = new TargetQueueState(
+                physical.id(),
+                1,
+                1,
+                TargetQueueState.AdmissionState.OPEN,
+                bytes(16, 5),
+                0,
+                List.of(
+                        new TargetDomainState(
+                                firstDomain,
+                                TargetDomainState.Lifecycle.ACTIVE,
+                                bytes(32, 3),
+                                bytes(32, 4),
+                                null,
+                                firstHead,
+                                null),
+                        new TargetDomainState(
+                                secondDomain,
+                                TargetDomainState.Lifecycle.ACTIVE,
+                                bytes(32, 7),
+                                bytes(32, 8),
+                                null,
+                                secondHead,
+                                null)));
+        final var entry = new TargetQueueSnapshotReader.Entry(queue, physical);
+        final var first = new Head(shard, entry, firstHead, 50);
+        final var second = new Head(shard, entry, secondHead, 50);
+        final var inventoryTarget = new TargetWorkerTargetInventory.Target(
+                physical, List.of(new TargetWorkerTargetInventory.Source(shard, entry)));
+        final var drr = schedule(List.of(inventoryTarget), new FakeReads(first, second), ONE_VISIT);
+        final var budget = new SchedulerBudget(1, 200, 1_000_000_000L);
+
+        final var firstTurn = drr.runOrdinary(100, budget, (source, cost) -> Optional.of(() -> cost.head()));
+        final var secondTurn = drr.runOrdinary(100, budget, (source, cost) -> Optional.of(() -> cost.head()));
+
+        assertEquals(List.of(firstHead), firstTurn.claims());
+        assertEquals(List.of(secondHead), secondTurn.claims());
+    }
+
+    @Test
     void rotatesPhysicalTargetsAndSkipsAHeadThatCannotFitThisTurn() {
         final ShardId shard = shard(1);
         final var physicalA = target(0);

@@ -593,7 +593,7 @@
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
       "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
-      "progress": "A deterministic Target DRR test now verifies that a due head retained by a DRAINING domain does not block a due head in another ACTIVE domain on the same Target. K-bound validation, VACANT/generation reuse, independent compatibility-context integration, and centralized validation remain pending.",
+      "progress": "Deterministic Target DRR tests now verify that a due head retained by a DRAINING domain does not block an ACTIVE domain, and that two ACTIVE domains with distinct compatibility/control references rotate their ordinary Claim opportunity within one Target. K-bound validation, VACANT/generation reuse, production compatibility-context integration, and centralized validation remain pending.",
       "implementationFiles": [
         "src/test/java/com/nereusstream/delay/ownership/TargetWorkerOrdinaryDrrTest.java"
       ]
