@@ -2,11 +2,13 @@ package com.nereusstream.delay.store;
 
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.SourcePosition;
+import com.nereusstream.delay.protocol.TargetPartitionId;
 import com.nereusstream.delay.protocol.TargetQuotaAggregate;
 import com.nereusstream.delay.protocol.TargetQuotaCounter;
 import com.nereusstream.delay.protocol.TargetQuotaIdentity;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
 import com.nereusstream.delay.protocol.TargetQuotaTotal;
+import com.nereusstream.delay.runtime.TargetQueueHeadCache;
 import com.nereusstream.delay.runtime.TargetQuotaTotalsDelta;
 import com.nereusstream.delay.runtime.TargetRecordAccounting;
 import com.nereusstream.delay.runtime.TargetResultLedgerAudit;
@@ -363,6 +365,7 @@ public final class TargetStoreBackend {
     private final byte[] lineage;
     private final WriteLimits limits;
     private volatile TargetQueueChangeSignal targetQueueChangeSignal;
+    private volatile TargetQueueHeadCache targetQueueHeadCache;
 
     public TargetStoreBackend(
             final ShardStore store,
@@ -399,6 +402,11 @@ public final class TargetStoreBackend {
         }
         targetQueueChangeSignal = exactSignal;
         exactSignal.signal();
+    }
+
+    /** Binds the active source runtime's Owner/Store-scoped cache for post-commit invalidation. */
+    public void bindTargetQueueHeadCache(final TargetQueueHeadCache cache) {
+        targetQueueHeadCache = Objects.requireNonNull(cache, "cache");
     }
 
     /** Authority for acknowledging an already durable source record without writing another batch. */
@@ -631,6 +639,7 @@ public final class TargetStoreBackend {
                         batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(5), Bytes.u64beBits(stamp.sequence()));
                     }
                 });
+                invalidateChangedQueueHeads(prepared.mutation.business());
                 writeCompleted.set(true);
                 return null;
             });
@@ -640,6 +649,25 @@ public final class TargetStoreBackend {
                 if (signal != null) {
                     signal.signal();
                 }
+            }
+        }
+    }
+
+    private void invalidateChangedQueueHeads(final List<Edit> edits) {
+        final var cache = targetQueueHeadCache;
+        if (cache == null) {
+            return;
+        }
+        for (Edit edit : edits) {
+            if (edit.family != ColumnFamily.META || Arrays.equals(edit.before, edit.after)) {
+                continue;
+            }
+            final byte[] key = edit.key;
+            if (key.length == 2 + TargetPartitionId.LENGTH
+                    && key[1] == TargetKeyCodec.KEY_FORMAT
+                    && (Byte.toUnsignedInt(key[0]) == TargetKeyCodec.STATE_TAG
+                            || Byte.toUnsignedInt(key[0]) == TargetKeyCodec.IDENTITY_TAG)) {
+                cache.invalidate(new TargetPartitionId(Arrays.copyOfRange(key, 2, key.length)));
             }
         }
     }

@@ -35,6 +35,7 @@ import com.nereusstream.delay.runtime.TargetExpiryDiscoveryStore;
 import com.nereusstream.delay.runtime.TargetHeadCostProbe;
 import com.nereusstream.delay.runtime.TargetMembershipControlStore;
 import com.nereusstream.delay.runtime.TargetMembershipControlVerifier;
+import com.nereusstream.delay.runtime.TargetQueueHeadCache;
 import com.nereusstream.delay.runtime.TargetQueueSnapshotReader;
 import com.nereusstream.delay.runtime.TargetQuotaDelta;
 import com.nereusstream.delay.runtime.TargetQuotaGrantControlVerifier;
@@ -210,6 +211,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     private final TargetSystemReplayStore replay;
     private final TargetCommandReplayStore commandReplay;
     private final TargetCommandStore commands;
+    private final TargetQueueHeadCache targetQueueHeadCache = new TargetQueueHeadCache();
     private final SourceAssignment assignment;
     private final Authorities authorities;
     private final Limits limits;
@@ -301,10 +303,15 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         replay = new TargetSystemReplayStore(backend, scope, lineage, limits.counters(), limits.domains());
         commandReplay = new TargetCommandReplayStore(backend, scope, lineage, limits.counters(), limits.domains());
         commands = new TargetCommandStore(backend, scope, lineage, limits.counters(), limits.domains());
+        backend.bindTargetQueueHeadCache(targetQueueHeadCache);
     }
 
     synchronized void bindTargetQueueChangeSignal(final TargetStoreBackend.TargetQueueChangeSignal signal) {
         backend.bindTargetQueueChangeSignal(signal);
+    }
+
+    synchronized void configureTargetQueueHeadCache(final int maximumEntries) {
+        targetQueueHeadCache.configure(maximumEntries);
     }
 
     @Override
@@ -502,7 +509,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             final LongSupplier ownerClock) {
         final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
         requireGcOwner(clock);
-        return new TargetQueueSnapshotReader(backend, limits.domains())
+        return new TargetQueueSnapshotReader(backend, limits.domains(), targetQueueHeadCache)
                 .scan(budget, after, maximumTargets, workerReads(clock));
     }
 
@@ -510,7 +517,8 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             final BoundedReadBudget budget, final TargetPartitionId target, final LongSupplier ownerClock) {
         final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
         requireGcOwner(clock);
-        return new TargetQueueSnapshotReader(backend, limits.domains()).readTarget(budget, target, workerReads(clock));
+        return new TargetQueueSnapshotReader(backend, limits.domains(), targetQueueHeadCache)
+                .readTarget(budget, target, workerReads(clock));
     }
 
     synchronized TargetQueueSnapshotReader.Cut readTargetQueueCut(

@@ -108,6 +108,12 @@ public final class TargetWorkerShardRuntime
         target.bindTargetQueueChangeSignal(signal);
     }
 
+    synchronized void configureTargetQueueHeadCache(final int maximumEntries) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        target.configureTargetQueueHeadCache(maximumEntries);
+    }
+
     public ShardId shardId() {
         return shardId;
     }

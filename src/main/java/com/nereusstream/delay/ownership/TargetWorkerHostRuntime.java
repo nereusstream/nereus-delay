@@ -220,6 +220,13 @@ public final class TargetWorkerHostRuntime {
         if (ordinaryLoop != null) {
             throw new IllegalStateException("Target host ordinary scheduler is already started");
         }
+        for (Shard shard : shards) {
+            if (shard instanceof TargetWorkerShardRuntime worker
+                    && !withdrawn.contains(shard.shardId())
+                    && !completed.containsKey(shard.shardId())) {
+                worker.configureTargetQueueHeadCache(inventoryLimits.maximumTargets());
+            }
+        }
         ordinaryLoop = TargetWorkerOrdinaryLoop.start(
                 this,
                 inventoryLimits,

@@ -80,13 +80,20 @@ public final class TargetQueueSnapshotReader {
 
     private final TargetStoreBackend backend;
     private final int maximumDomains;
+    private final TargetQueueHeadCache headCache;
 
     public TargetQueueSnapshotReader(final TargetStoreBackend backend, final int maximumDomains) {
+        this(backend, maximumDomains, null);
+    }
+
+    public TargetQueueSnapshotReader(
+            final TargetStoreBackend backend, final int maximumDomains, final TargetQueueHeadCache headCache) {
         this.backend = Objects.requireNonNull(backend, "backend");
         if (maximumDomains < 1 || maximumDomains > TargetQueueState.MAX_DOMAIN_SLOTS) {
             throw new IllegalArgumentException("invalid activated Target domain limit");
         }
         this.maximumDomains = maximumDomains;
+        this.headCache = headCache;
     }
 
     /** Rechecks the same Store revision after a multi-page scan before publishing its ring. */
@@ -110,12 +117,22 @@ public final class TargetQueueSnapshotReader {
         return backend.guardedRead(
                 Objects.requireNonNull(budget, "budget"),
                 reader -> {
+                    if (headCache != null) {
+                        final var cached = headCache.lookup(target, maximumDomains);
+                        if (cached.hit()) {
+                            reader.requireWithinElapsedBudget();
+                            return cached.entry();
+                        }
+                    }
                     final byte[] queueKey = TargetKeyCodec.state(target);
                     final byte[] queueRaw = reader.get(ColumnFamily.META, queueKey);
                     final byte[] identityKey = TargetKeyCodec.identity(target);
                     final byte[] identityRaw = reader.get(ColumnFamily.META, identityKey);
                     if (queueRaw == null && identityRaw == null) {
                         reader.requireWithinElapsedBudget();
+                        if (headCache != null) {
+                            headCache.cache(target, maximumDomains, Optional.empty());
+                        }
                         return Optional.empty();
                     }
                     if (queueRaw == null || identityRaw == null) {
@@ -133,7 +150,11 @@ public final class TargetQueueSnapshotReader {
                             reader.shardId(),
                             maximumDomains);
                     reader.requireWithinElapsedBudget();
-                    return Optional.of(new Entry(queue, physical));
+                    final var result = Optional.of(new Entry(queue, physical));
+                    if (headCache != null) {
+                        headCache.cache(target, maximumDomains, result);
+                    }
+                    return result;
                 },
                 Objects.requireNonNull(authority, "authority"));
     }
@@ -182,7 +203,11 @@ public final class TargetQueueSnapshotReader {
                                     reader.shardId(),
                                     maximumDomains);
                             reader.requireWithinElapsedBudget();
-                            entries.add(new Entry(verified, physical));
+                            final var entry = new Entry(verified, physical);
+                            entries.add(entry);
+                            if (headCache != null) {
+                                headCache.cache(target, maximumDomains, Optional.of(entry));
+                            }
                             cursor = verified.targetId();
                             lower = afterKey(row.key());
                         } catch (ReadIncompleteException incomplete) {

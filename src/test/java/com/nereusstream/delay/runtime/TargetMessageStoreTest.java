@@ -2,9 +2,11 @@ package com.nereusstream.delay.runtime;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalTargetPartition;
 import com.nereusstream.delay.protocol.DelayMessageId;
@@ -68,6 +70,10 @@ class TargetMessageStoreTest {
                 var store = ShardStore.openTarget(config, shard, resources)) {
             final var backend = new TargetStoreBackend(
                     store, scope, bytes(16, 0x33), bytes(16, 0x44), new TargetStoreBackend.WriteLimits(64, 1 << 20));
+            final var queueCache = new TargetQueueHeadCache();
+            queueCache.configure(1);
+            backend.bindTargetQueueHeadCache(queueCache);
+            final var queueReader = new TargetQueueSnapshotReader(backend, 4, queueCache);
             final var messages = new TargetMessageStore(backend, 2, 4, 1);
             final TargetMessageStore.AccountingPlanner accounting = (reader, edits) -> {
                 final var base = (KafkaSourcePosition) message.scheduleSource();
@@ -109,6 +115,23 @@ class TargetMessageStoreTest {
                     accounting,
                     (a, b, c) -> guard());
             final var persisted = readQueue(store, queue);
+            final var initialReadBudget = budget();
+            final var readAuthority = (TargetStoreBackend.ReadAuthority) (a, b) -> guard();
+            assertEquals(
+                    persisted,
+                    queueReader
+                            .readTarget(initialReadBudget, queue.targetId(), readAuthority)
+                            .orElseThrow()
+                            .queue());
+            assertTrue(initialReadBudget.actualRecords() > 0);
+            final var cacheHitBudget = budget();
+            assertEquals(
+                    persisted,
+                    queueReader
+                            .readTarget(cacheHitBudget, queue.targetId(), readAuthority)
+                            .orElseThrow()
+                            .queue());
+            assertEquals(0, cacheHitBudget.actualRecords());
             assertArrayEquals(
                     message.runtime().timeline().ordinaryKey(),
                     persisted.domains().getFirst().ordinaryHead().key());
@@ -177,6 +200,14 @@ class TargetMessageStoreTest {
             final var withTail = readQueue(store, queue);
             assertEquals(persisted.headRevision(), withTail.headRevision());
             assertEquals(persisted.domains(), withTail.domains());
+            final var nonHeadMutationBudget = budget();
+            assertEquals(
+                    persisted,
+                    queueReader
+                            .readTarget(nonHeadMutationBudget, queue.targetId(), readAuthority)
+                            .orElseThrow()
+                            .queue());
+            assertEquals(0, nonHeadMutationBudget.actualRecords());
             assertNotNull(store.get(ColumnFamily.TIMELINE, tailWork.ordinaryKey()));
 
             final var terminal = terminal(message);
@@ -199,10 +230,31 @@ class TargetMessageStoreTest {
             assertNull(store.get(
                     ColumnFamily.TIMELINE,
                     new TargetExpiryRef(message.locator(), message.expireAtEpochMs()).encodedKey()));
-            final var empty = readQueue(store, queue);
+            final var refreshedHeadBudget = budget();
+            final var empty = queueReader
+                    .readTarget(refreshedHeadBudget, queue.targetId(), readAuthority)
+                    .orElseThrow()
+                    .queue();
+            assertTrue(refreshedHeadBudget.actualRecords() > 0);
             assertEquals(2, empty.headRevision());
             assertNull(empty.domains().getFirst().ordinaryHead());
             assertNull(empty.domains().getFirst().nativeHead());
+            final var otherPhysical = new CanonicalTargetPartition(
+                    physical.resource(), physical.physicalPartition() == 0 ? 1 : 0);
+            final var otherQueue = new TargetQueueState(
+                    otherPhysical.id(),
+                    empty.headRevision(),
+                    empty.controlVersion(),
+                    empty.admissionState(),
+                    empty.accountingIncarnation(),
+                    empty.nativeIndexLeadCapMs(),
+                    empty.domains());
+            queueCache.cache(
+                    otherPhysical.id(),
+                    4,
+                    java.util.Optional.of(new TargetQueueSnapshotReader.Entry(otherQueue, otherPhysical)));
+            assertFalse(queueCache.lookup(queue.targetId(), 4).hit());
+            assertTrue(queueCache.lookup(otherPhysical.id(), 4).hit());
             assertEquals(3, store.shardMutationSequence());
             assertArrayEquals(
                     terminal.canonicalBytes(),
