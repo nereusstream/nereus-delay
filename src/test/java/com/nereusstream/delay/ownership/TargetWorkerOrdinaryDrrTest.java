@@ -67,6 +67,51 @@ class TargetWorkerOrdinaryDrrTest {
     }
 
     @Test
+    void drainingDomainDoesNotBlockAnActiveDomainOnTheSameTarget() {
+        final ShardId shard = shard(1);
+        final var physical = target(0);
+        final var drainingDomain = new TargetKeyCodec.Domain(0, 1);
+        final var activeDomain = new TargetKeyCodec.Domain(1, 1);
+        final var drainingHead = dueHead(physical, shard, drainingDomain);
+        final var activeHead = dueHead(physical, shard, activeDomain);
+        final var queue = new TargetQueueState(
+                physical.id(),
+                1,
+                1,
+                TargetQueueState.AdmissionState.OPEN,
+                bytes(16, 5),
+                0,
+                List.of(
+                        new TargetDomainState(
+                                drainingDomain,
+                                TargetDomainState.Lifecycle.DRAINING,
+                                bytes(32, 3),
+                                bytes(32, 4),
+                                null,
+                                drainingHead,
+                                null),
+                        new TargetDomainState(
+                                activeDomain,
+                                TargetDomainState.Lifecycle.ACTIVE,
+                                bytes(32, 3),
+                                bytes(32, 4),
+                                null,
+                                activeHead,
+                                null)));
+        final var entry = new TargetQueueSnapshotReader.Entry(queue, physical);
+        final var head = new Head(shard, entry, activeHead, 50);
+        final var drr = schedule(List.of(targetState(physical, head)), new FakeReads(head), ONE_VISIT);
+
+        final var turn = drr.runOrdinary(
+                100,
+                new SchedulerBudget(1, 200, 1_000_000_000L),
+                (source, cost) -> Optional.of(() -> cost.head()));
+
+        assertEquals(List.of(activeHead), turn.claims());
+        assertEquals(50, turn.schedulingBytes());
+    }
+
+    @Test
     void rotatesPhysicalTargetsAndSkipsAHeadThatCannotFitThisTurn() {
         final ShardId shard = shard(1);
         final var physicalA = target(0);
@@ -565,19 +610,24 @@ class TargetWorkerOrdinaryDrrTest {
 
     private static Head head(final CanonicalTargetPartition physical, final ShardId shard, final long cost) {
         final var domain = new TargetKeyCodec.Domain(0, 1);
-        final var message = DelayMessageId.random(shard);
-        final byte[] token = Bytes.concat(new byte[] {1}, Bytes.u64be(1));
-        final var ref = new TargetHeadRef(
-                TargetKeyCodec.candidate(
-                        TargetKeyCodec.CandidateKind.DUE, physical.id(), domain, 10, token, message, 1),
-                message,
-                1,
-                10);
+        final var ref = dueHead(physical, shard, domain);
         final var summary = new TargetDomainState(
                 domain, TargetDomainState.Lifecycle.ACTIVE, bytes(32, 3), bytes(32, 4), null, ref, null);
         final var queue = new TargetQueueState(
                 physical.id(), 1, 1, TargetQueueState.AdmissionState.OPEN, bytes(16, 5), 0, List.of(summary));
         return new Head(shard, new TargetQueueSnapshotReader.Entry(queue, physical), ref, cost);
+    }
+
+    private static TargetHeadRef dueHead(
+            final CanonicalTargetPartition physical, final ShardId shard, final TargetKeyCodec.Domain domain) {
+        final var message = DelayMessageId.random(shard);
+        final byte[] token = Bytes.concat(new byte[] {1}, Bytes.u64be(1));
+        return new TargetHeadRef(
+                TargetKeyCodec.candidate(
+                        TargetKeyCodec.CandidateKind.DUE, physical.id(), domain, 10, token, message, 1),
+                message,
+                1,
+                10);
     }
 
     private static CanonicalTargetPartition target(final int partition) {
