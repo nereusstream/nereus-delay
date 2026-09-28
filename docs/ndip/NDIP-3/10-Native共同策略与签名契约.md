@@ -91,6 +91,14 @@ Publication 使用正的后端 revision，head ref 保留既有四字段结构
 引用；它不把旧 scope 或旧 snapshot 解释成新格式。CAS retry 冲突重新读当前完整头；
 不得重置 generation、复制另一个 scope 的 head 或降低已授权 lease 高水位。
 
+C2 当前头的 Oxia 实现将每个 scope 持久化到
+`{canonicalKeyPrefix}/target-native-policy/head/{lowercase-hex(scopeDigest)}`，值为完整
+canonical head；Oxia `versionId + 1` 映射为正 publication revision。首次写使用
+`IfRecordDoesNotExist`，替换使用 `IfVersionIdEquals`，并在返回前按精确 key、version 和
+head 重读。Worker 得到的 authority 只读；发布服务持有 source-trust 与 scope-proof provider，
+不会接受请求级 provider。该实现只补 current-head CAS：publisher/activation/member 的持久
+source authority 及 C1/C2 运行装配仍未完成。
+
 | 对象 | 保守 canonical 上限 bytes | 独立最大合法向量 bytes |
 | --- | --- | --- |
 | ArtifactSet | 121 | 121 |
