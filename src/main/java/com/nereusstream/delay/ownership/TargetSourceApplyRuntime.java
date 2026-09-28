@@ -13,6 +13,7 @@ import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.SystemMutationType;
 import com.nereusstream.delay.protocol.TargetCloseBody;
 import com.nereusstream.delay.protocol.TargetCloseRequest;
+import com.nereusstream.delay.protocol.TargetExpireGenerationBody;
 import com.nereusstream.delay.protocol.TargetHeadRef;
 import com.nereusstream.delay.protocol.TargetMembershipControlBody;
 import com.nereusstream.delay.protocol.TargetPartitionId;
@@ -27,6 +28,8 @@ import com.nereusstream.delay.runtime.TargetCloseStore;
 import com.nereusstream.delay.runtime.TargetCloseVerifier;
 import com.nereusstream.delay.runtime.TargetCommandReplayStore;
 import com.nereusstream.delay.runtime.TargetCommandStore;
+import com.nereusstream.delay.runtime.TargetExpireGenerationStore;
+import com.nereusstream.delay.runtime.TargetExpireGenerationVerifier;
 import com.nereusstream.delay.runtime.TargetHeadCostProbe;
 import com.nereusstream.delay.runtime.TargetMembershipControlStore;
 import com.nereusstream.delay.runtime.TargetMembershipControlVerifier;
@@ -96,6 +99,19 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         FenceControl resolve(SourceReplayMutation entry);
     }
 
+    public record ExpiryControl(
+            TargetExpireGenerationVerifier.Authority authority, TargetStoreBackend.CommitAuthority commit) {
+        public ExpiryControl {
+            Objects.requireNonNull(authority, "authority");
+            Objects.requireNonNull(commit, "commit");
+        }
+    }
+
+    @FunctionalInterface
+    public interface ExpiryControls {
+        ExpiryControl resolve(SourceReplayMutation entry);
+    }
+
     public record CloseControl(
             PreparedControlOperation prepared,
             TargetCloseVerifier.Authority authority,
@@ -158,6 +174,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             SourceReplaySuccessor successor,
             GrantControls grants,
             Fences fences,
+            ExpiryControls expiries,
             Closes closes,
             MembershipControls membershipControls,
             TargetStoreBackend.CommitAuthority duplicateWrites,
@@ -168,6 +185,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             Objects.requireNonNull(successor, "successor");
             Objects.requireNonNull(grants, "grants");
             Objects.requireNonNull(fences, "fences");
+            Objects.requireNonNull(expiries, "expiries");
             Objects.requireNonNull(closes, "closes");
             Objects.requireNonNull(membershipControls, "membershipControls");
             Objects.requireNonNull(duplicateWrites, "duplicateWrites");
@@ -183,6 +201,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     private final byte[] lineage;
     private final TargetQuotaGrantStore grants;
     private final TargetTimeFenceStore fences;
+    private final TargetExpireGenerationStore expiries;
     private final TargetCloseStore closes;
     private final TargetMembershipControlStore membershipControls;
     private final TargetSystemReplayStore replay;
@@ -271,6 +290,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         lineage = exactRoot.recoveryLineage();
         grants = new TargetQuotaGrantStore(backend, scope, lineage, limits.counters(), limits.domains());
         fences = new TargetTimeFenceStore(backend, scope, lineage, limits.counters(), limits.domains());
+        expiries = new TargetExpireGenerationStore(backend, scope, lineage, limits.counters(), limits.domains());
         closes = new TargetCloseStore(backend, scope, lineage, limits.counters(), limits.domains());
         membershipControls = new TargetMembershipControlStore(
                 backend, scope, lineage, limits.counters(), limits.domains());
@@ -635,6 +655,17 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                     throw new ReadYield(incomplete);
                 }
                 result = fences.commit(first, writes(control.commit(), entry, clock));
+            } else if (mutation.mutation().type() == SystemMutationType.EXPIRE_GENERATION) {
+                final var control =
+                        Objects.requireNonNull(authorities.expiries().resolve(mutation), "Target expiry control");
+                final TargetExpireGenerationStore.Prepared first;
+                try {
+                    first = expiries.prepareFirst(
+                            budget, mutation.mutation(), entry.position(), control.authority());
+                } catch (ReadIncompleteException incomplete) {
+                    throw new ReadYield(incomplete);
+                }
+                result = expiries.commit(first, writes(control.commit(), entry, clock));
             } else if (isTargetClose(mutation.mutation())) {
                 final var control =
                         Objects.requireNonNull(authorities.closes().resolve(mutation), "Target Close control");
@@ -852,6 +883,11 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             return;
         }
         if (entry instanceof SourceReplayMutation fence && fence.mutation().type() == SystemMutationType.TIME_FENCE) {
+            return;
+        }
+        if (entry instanceof SourceReplayMutation expiry
+                && expiry.mutation().type() == SystemMutationType.EXPIRE_GENERATION) {
+            TargetExpireGenerationBody.decode(expiry.mutation().canonicalBody());
             return;
         }
         if (!(entry instanceof SourceReplayMutation mutation)

@@ -91,6 +91,7 @@ import com.nereusstream.delay.protocol.TargetCloseRecord;
 import com.nereusstream.delay.protocol.TargetCloseRequest;
 import com.nereusstream.delay.protocol.TargetControlScope;
 import com.nereusstream.delay.protocol.TargetDispatchCompatibility;
+import com.nereusstream.delay.protocol.TargetExpireGenerationBody;
 import com.nereusstream.delay.protocol.TargetMembershipGrant;
 import com.nereusstream.delay.protocol.TargetMembershipPolicy;
 import com.nereusstream.delay.protocol.TargetNativePolicyScope;
@@ -825,6 +826,7 @@ class TargetCommandStoreTest {
                                 entry -> {
                                     throw new AssertionError("Claim resolved a fence");
                                 },
+                                entry -> { throw new AssertionError("unexpected Target expiry authority"); },
                                 entry -> {
                                     throw new AssertionError("Claim resolved a Close");
                                 },
@@ -1256,6 +1258,7 @@ class TargetCommandStoreTest {
                                     entry -> {
                                         throw new AssertionError("other Shard resolved a fence");
                                     },
+                                    entry -> { throw new AssertionError("unexpected Target expiry authority"); },
                                     entry -> {
                                         throw new AssertionError("other Shard resolved a Close");
                                     },
@@ -1510,6 +1513,7 @@ class TargetCommandStoreTest {
             final var reservationClosures = new java.util.HashMap<String, TargetReservationControls.Closure>();
             final var closeStore = new TargetCloseStore(backend, scope, lineage, 16, 1);
             final var closeResolutions = new java.util.concurrent.atomic.AtomicInteger();
+            final var expiryResolutions = new java.util.concurrent.atomic.AtomicInteger();
             final var closeAuthority = new TargetCloseVerifier.Authority(
                     registrations,
                     (version, source) -> keys.getPublic(),
@@ -1530,6 +1534,19 @@ class TargetCommandStoreTest {
                     java.security.KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
             final var wrongProofKeys =
                     java.security.KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+            final var expiryOwner = AuthorIdentity.owner(
+                    Bytes.utf8("target-expiry-test-deployment"),
+                    Bytes.utf8("target-expiry-test-worker"),
+                    active.ownerEpoch(),
+                    Bytes.sha256(active.leaseToken()));
+            final TargetExpireGenerationVerifier.Authority expiryAuthority =
+                    (actualScope, owner, mutation, position) -> {
+                assertEquals(scope, actualScope);
+                assertArrayEquals(expiryOwner.canonicalBytes(), owner.canonicalBytes());
+                assertEquals(scope.shard(), mutation.shardId());
+                assertEquals(position.shardId(), scope.shard());
+                return new TargetExpireGenerationVerifier.Authorization(keys.getPublic(), 5, (a, b, c, proof) -> true);
+            };
             final var trustSet = new PayloadProofTrustSetSemantic(
                     1, List.of(PayloadProofVerifierKey.fromPublicKey(1, proofKeys.getPublic(), 0, Long.MAX_VALUE)));
             final var proofControls = PayloadProofTrustSetControlState.empty().activate(trustSet.ref(), grantAt);
@@ -1550,6 +1567,12 @@ class TargetCommandStoreTest {
                                         (actualScope, author, mutation, position) ->
                                                 new TargetTimeFenceVerifier.Authorization(
                                                         keys.getPublic(), 10, 5, (a, b, c, proof) -> true),
+                                        (a, b, c) -> guard());
+                            },
+                            entry -> {
+                                expiryResolutions.incrementAndGet();
+                                return new TargetSourceApplyRuntime.ExpiryControl(
+                                        expiryAuthority,
                                         (a, b, c) -> guard());
                             },
                             entry -> {
@@ -1779,8 +1802,111 @@ class TargetCommandStoreTest {
             assertEquals(1, conflicted.stateVersion());
             assertEquals(MessageStatus.SCHEDULED, conflicted.messageStatus());
             assertEquals(2, scheduleResolutions.get());
-            final var prepareAt =
+            final var expiryAt =
                     source(conflictAt, conflictAt.offset() + 1, conflictAt.brokerLogAppendTimeEpochMs() + 1);
+            final var targetExpiryStore = new TargetExpireGenerationStore(backend, scope, lineage, 16, 1);
+            final var beforeExpiry = TargetMessageRecord.decode(TargetValueEnvelope.decode(
+                            store.get(ColumnFamily.ID, TargetKeyCodec.message(fresh.delayMessageId())),
+                            TargetMessageRecord.VALUE_TYPE)
+                    .payload());
+            final var expiry = expire(
+                    fresh.delayMessageId(), beforeExpiry.expireAtEpochMs(), expiryAt, expiryOwner, keys, false);
+            final long beforeExpirySequence = store.latestSequenceNumber();
+            final long beforeExpiryMutationSequence = store.shardMutationSequence();
+            final var beforeExpirySource = store.appliedShardLogPosition();
+            final var rejectedExpiry = targetExpiryStore.prepareFirst(budget(), expiry, expiryAt, expiryAuthority);
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> targetExpiryStore.commit(rejectedExpiry, (a, b, c) -> {
+                        throw new IllegalStateException("expiry physical capacity unavailable");
+                    }));
+            assertEquals(beforeExpirySequence, store.latestSequenceNumber());
+            assertEquals(beforeExpiryMutationSequence, store.shardMutationSequence());
+            assertEquals(beforeExpirySource, store.appliedShardLogPosition());
+            assertArrayEquals(
+                    beforeExpiry.canonicalBytes(),
+                    TargetValueEnvelope.decode(
+                                    store.get(ColumnFamily.ID, beforeExpiry.encodedKey()),
+                                    TargetMessageRecord.VALUE_TYPE)
+                            .payload());
+            assertNull(store.get(
+                    ColumnFamily.DEDUPE,
+                    Bytes.concat(
+                            new byte[] {TargetKeyCodec.RESULT_SYSTEM_TAG, TargetKeyCodec.KEY_FORMAT},
+                            expiry.systemMutationId())));
+            assertEquals(StableCode.OK, applyExpiry(loop, entries, expiry, expiryAt).stableCode());
+            final var expired = TargetMessageRecord.decode(TargetValueEnvelope.decode(
+                            store.get(ColumnFamily.ID, beforeExpiry.encodedKey()), TargetMessageRecord.VALUE_TYPE)
+                    .payload());
+            assertEquals(GenerationAggregateState.EXPIRED, expired.aggregateState());
+            assertEquals(CurrentSendWorkKind.NONE, expired.runtime().currentWorkKind());
+            assertEquals(beforeExpiry.stateVersion() + 1, expired.stateVersion());
+            assertNull(store.get(ColumnFamily.TIMELINE, beforeExpiry.runtime().timeline().ordinaryKey()));
+            assertNull(store.get(ColumnFamily.TIMELINE, beforeExpiry.runtime().timeline().nativeKey()));
+            assertNull(store.get(
+                    ColumnFamily.TIMELINE,
+                    new TargetExpiryRef(beforeExpiry.locator(), beforeExpiry.expireAtEpochMs()).encodedKey()));
+            final var expiryOwnerRecord = TargetQuotaPayloadOwner.decode(TargetValueEnvelope.decode(
+                            store.get(
+                                    ColumnFamily.META,
+                                    Bytes.concat(
+                                            new byte[] {
+                                                TargetKeyCodec.QUOTA_PAYLOAD_OWNER_TAG,
+                                                TargetKeyCodec.KEY_FORMAT
+                                            },
+                                            fresh.delayMessageId().bytes())),
+                            TargetQuotaPayloadOwner.VALUE_TYPE)
+                    .payload());
+            assertEquals(TargetQuotaPayloadOwner.Phase.RETAINED, expiryOwnerRecord.phase());
+            final var expiryTerminal = TargetTerminalGenerationRecord.decode(TargetValueEnvelope.decode(
+                            store.get(
+                                    ColumnFamily.TERMINAL,
+                                    TargetTerminalGenerationRecord.key(beforeExpiry.locator())),
+                            TargetTerminalGenerationRecord.VALUE_TYPE)
+                    .payload());
+            assertEquals(StableCode.ALREADY_EXPIRED, expiryTerminal.terminalCode());
+            expiryTerminal.requireOwner(expiryOwnerRecord);
+            assertEquals(beforeExpiryMutationSequence + 1, store.shardMutationSequence());
+            assertEquals(expiryAt, store.appliedShardLogPosition());
+            final long afterExpiry = store.latestSequenceNumber();
+            assertEquals(StableCode.OK, applyExpiry(loop, entries, expiry, expiryAt).stableCode());
+            assertEquals(afterExpiry, store.latestSequenceNumber());
+            assertEquals(1, expiryResolutions.get());
+            final var laterExpiryDuplicateAt =
+                    source(expiryAt, expiryAt.offset() + 1, expiryAt.brokerLogAppendTimeEpochMs() + 1);
+            assertEquals(
+                    StableCode.OK,
+                    applyExpiry(loop, entries, expiry, laterExpiryDuplicateAt).stableCode());
+            assertEquals(beforeExpiryMutationSequence + 2, store.shardMutationSequence());
+            assertEquals(1, expiryResolutions.get());
+            final var unauthorizedAt = source(
+                    laterExpiryDuplicateAt,
+                    laterExpiryDuplicateAt.offset() + 1,
+                    laterExpiryDuplicateAt.brokerLogAppendTimeEpochMs() + 1);
+            final var unauthorizedExpiry = expire(
+                    fresh.delayMessageId(),
+                    beforeExpiry.expireAtEpochMs(),
+                    unauthorizedAt,
+                    expiryOwner,
+                    keys,
+                    true);
+            final var unauthorizedResult = applyExpiry(loop, entries, unauthorizedExpiry, unauthorizedAt);
+            assertEquals(ApplyStatus.REJECTED, unauthorizedResult.applyStatus());
+            assertEquals(StableCode.UNAUTHORIZED_SYSTEM_MUTATION, unauthorizedResult.stableCode());
+            assertEquals(2, expiryResolutions.get());
+            final var replacementAt = source(
+                    unauthorizedAt, unauthorizedAt.offset() + 1, unauthorizedAt.brokerLogAppendTimeEpochMs() + 1);
+            final var replacementId = new DelayMessageId(
+                    cancel(fresh.delayMessageId(), replacementAt, 2020).commandId().bytes());
+            final var replacement = schedule(intent, replacementId, replacementAt, 2021);
+            assertEquals(
+                    StableCode.SCHEDULED,
+                    apply(loop, entries, replacement, replacementAt)
+                            .appliedOutcome()
+                            .commandResult()
+                            .stableCode());
+            final var prepareAt =
+                    source(replacementAt, replacementAt.offset() + 1, replacementAt.brokerLogAppendTimeEpochMs() + 1);
             final var modelPrepare = PrepareLargeScheduleBody.decode(
                     vector("target-binding-channel-vectors.properties", "body.prepare"));
             final var prepareIntent = CanonicalScheduleIntent.forPrepare(
@@ -2011,7 +2137,7 @@ class TargetCommandStoreTest {
                             .commandResult()
                             .stableCode());
             assertEquals(afterPrepare, store.latestSequenceNumber());
-            assertEquals(3, scheduleResolutions.get());
+            assertEquals(4, scheduleResolutions.get());
             final var quotaAt = source(prepareAt, prepareAt.offset() + 1, prepareAt.brokerLogAppendTimeEpochMs() + 1);
             final var quotaMessage = new DelayMessageId(
                     cancel(locator.messageId(), quotaAt, 1600).commandId().bytes());
@@ -3720,6 +3846,7 @@ class TargetCommandStoreTest {
                             entry -> {
                                 throw new AssertionError("reopened GC cannot resolve a fence");
                             },
+                            entry -> { throw new AssertionError("unexpected Target expiry authority"); },
                             entry -> {
                                 throw new AssertionError("reopened GC cannot resolve a Close control");
                             },
@@ -4190,6 +4317,57 @@ class TargetCommandStoreTest {
         }
         assertEquals(SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED, turn.status());
         assertEquals(StableCode.OK, turn.appliedOutcome().systemMutationResult().stableCode());
+    }
+
+    private static SystemMutationResult applyExpiry(
+            WorkerSourceApplyLoop loop,
+            java.util.ArrayDeque<SourceRecordConsumer.PolledSourceRecord> queue,
+            SystemMutation mutation,
+            KafkaSourcePosition position) {
+        queue.add(new SourceRecordConsumer.PolledSourceRecord(
+                new SourceReplayMutation(mutation, position, null, null),
+                (entry, outcome) -> SourceAcknowledgement.AcknowledgementResult.acked()));
+        final var turn = loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100);
+        if (turn.failure() != null) {
+            throw new AssertionError("Target expiry apply failed: " + turn.status(), turn.failure());
+        }
+        assertEquals(SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED, turn.status());
+        return turn.appliedOutcome().systemMutationResult();
+    }
+
+    private static SystemMutation expire(
+            DelayMessageId messageId,
+            long expireAt,
+            KafkaSourcePosition source,
+            AuthorIdentity owner,
+            KeyPair keys,
+            boolean wrongIdentity) {
+        final long retryUntil = Math.addExact(source.brokerLogAppendTimeEpochMs(), 10_000);
+        final var proof = new TrustedUtcIntervalEvidence(
+                expireAt,
+                Math.addExact(expireAt, 1),
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                Bytes.utf8("target-expiry-test-clock"),
+                1,
+                1,
+                1,
+                Bytes.sha256(Bytes.utf8("target-expiry-test-proof")),
+                0,
+                null);
+        final var body = new TargetExpireGenerationBody(
+                source.shardId(), retryUntil, messageId, 0, expireAt, proof);
+        final byte[] logicalId = wrongIdentity
+                ? Bytes.sha256(Bytes.utf8("wrong-target-expiry-logical-id"))
+                : body.logicalOperationIdentity();
+        return SystemMutation.signed(
+                source.shardId(),
+                SystemMutationType.EXPIRE_GENERATION,
+                retryUntil,
+                logicalId,
+                body.canonicalBytes(),
+                owner.canonicalBytes(),
+                1,
+                keys.getPrivate());
     }
 
     private static TargetCommandStore.PayloadProofControls noProofs() {

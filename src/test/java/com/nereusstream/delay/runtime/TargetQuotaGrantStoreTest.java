@@ -293,6 +293,7 @@ class TargetQuotaGrantStoreTest {
                                 leases, SourceReplaySuccessor.strictKafka(),
                                 entry -> { throw new AssertionError("GC cannot resolve a grant"); },
                                 entry -> { throw new AssertionError("GC cannot resolve a fence"); },
+                                entry -> { throw new AssertionError("unexpected Target expiry authority"); },
                                 entry -> { throw new AssertionError("GC cannot resolve a Close"); },
                                 entry -> { throw new AssertionError("GC cannot resolve membership issuance"); },
                                 (a, b, c) -> ownerGuard(leases, oldActive),
@@ -379,6 +380,7 @@ class TargetQuotaGrantStoreTest {
                             leases, SourceReplaySuccessor.strictKafka(),
                             entry -> { throw new AssertionError("GC cannot resolve a grant"); },
                             entry -> { throw new AssertionError("GC cannot resolve a fence"); },
+                            entry -> { throw new AssertionError("unexpected Target expiry authority"); },
                             entry -> { throw new AssertionError("GC cannot resolve a Close"); },
                             entry -> { throw new AssertionError("GC cannot resolve membership issuance"); },
                             (a, b, c) -> ownerGuard(leases, replacement), ownerReads,
@@ -633,6 +635,7 @@ class TargetQuotaGrantStoreTest {
                                 fenceResolutions.incrementAndGet();
                                 return new TargetSourceApplyRuntime.FenceControl(fenceAuthority, (a, b, c) -> guard());
                             },
+                            entry -> { throw new AssertionError("unexpected Target expiry authority"); },
                             entry -> {
                                 throw new AssertionError("unexpected first Target Close authority");
                             },
@@ -1777,6 +1780,7 @@ class TargetQuotaGrantStoreTest {
                             leases, SourceReplaySuccessor.strictKafka(),
                             entry -> { throw new AssertionError("membership issue resolved quota grant"); },
                             entry -> { throw new AssertionError("membership issue resolved fence"); },
+                            entry -> { throw new AssertionError("unexpected Target expiry authority"); },
                             entry -> { throw new AssertionError("membership issue resolved Target Close"); },
                             entry -> {
                                 resolutions.incrementAndGet();
