@@ -84,7 +84,9 @@ public final class TargetWorkerOrdinaryDrr {
 
     public enum Stop {
         NORMAL,
-        READ_INCOMPLETE
+        READ_INCOMPLETE,
+        CREDIT_WAIT,
+        BUDGET_WAIT
     }
 
     public record Turn<T>(List<T> claims, int targetVisits, long schedulingBytes, Stop stop) {
@@ -471,6 +473,8 @@ public final class TargetWorkerOrdinaryDrr {
         final List<T> claims = new ArrayList<>();
         long bytes = 0;
         int visits = 0;
+        boolean creditWait = false;
+        boolean budgetWait = false;
         while (!ring.isEmpty()
                 && visits < limits.maximumVisitsPerTurn()
                 && claims.isEmpty()
@@ -497,9 +501,14 @@ public final class TargetWorkerOrdinaryDrr {
             if (visit.kind() == VisitKind.CLAIMED) {
                 claims.add(visit.claimed().value());
                 bytes = Math.addExact(bytes, visit.claimed().cost());
+            } else if (visit.kind() == VisitKind.CREDIT_WAIT) {
+                creditWait = true;
+            } else if (visit.kind() == VisitKind.BUDGET_WAIT) {
+                budgetWait = true;
             }
         }
-        return new Turn<>(claims, visits, bytes);
+        final Stop stop = creditWait ? Stop.CREDIT_WAIT : budgetWait ? Stop.BUDGET_WAIT : Stop.NORMAL;
+        return new Turn<>(claims, visits, bytes, stop);
     }
 
     private <T> Visit<T> visit(

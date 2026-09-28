@@ -625,6 +625,49 @@ class TargetWorkerShardFleetRuntimeTest {
     }
 
     @Test
+    void wholeHostDrainStopsTheOrdinaryQueueWaiterBeforeOwnerDrain() throws Exception {
+        final var registry = registry();
+        final var executor = Executors.newSingleThreadScheduledExecutor();
+        try (var resources = new SharedRocksDbResources(
+                ShardStoreConfig.defaults(tempDir.resolve("ordinary-shutdown")))) {
+            final var shard = new StubShard(new ShardId(RouteIncarnation.random(), 1), registry, resources);
+            final var fleet = new TargetWorkerShardFleetRuntime(registry, resources, shard);
+            final var budget = new SchedulerBudget(1, 1000, 1_000_000);
+            final var request = new TargetOwnerDrainCoordinator.Request(5_000, budget);
+            final var maintenance = new TargetWorkerMaintenanceLoop(
+                    fleet, budget, Duration.ofSeconds(10), ignored -> {}, executor);
+            final var host = new TargetWorkerHostRuntime(fleet, maintenance, List.of(shard));
+            final var ordinary = host.startOrdinaryScheduling(
+                    new TargetWorkerTargetInventory.Limits(1, 1, 1, 1, 10, 1024, 1_000_000),
+                    new TargetWorkerOrdinaryDrr.Limits(100, 200, 200, 1, 10, 1024, 1_000_000),
+                    budget,
+                    Duration.ofSeconds(10),
+                    (source, cost) -> Optional.empty(),
+                    ignored -> {},
+                    () -> 101,
+                    () -> 101,
+                    System::nanoTime,
+                    ignored -> {});
+            try {
+                final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+                while (!ordinary.isWaitingForQueueChange() && System.nanoTime() < deadline) {
+                    Thread.sleep(1);
+                }
+                assertTrue(ordinary.isWaitingForQueueChange());
+                assertNotNull(ordinary.firstFailure());
+                assertTrue(host.drainAll(request, budget, () -> 101).complete());
+                assertTrue(ordinary.isClosed());
+                assertEquals(1, shard.drainCalls.get());
+            } finally {
+                ordinary.close();
+                maintenance.close();
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     void admissionWaitsForSelectedMaintenanceTurnBeforePublishingNewMember() throws Exception {
         final var registry = registry();
         final var executor = Executors.newSingleThreadScheduledExecutor();

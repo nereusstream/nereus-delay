@@ -35,6 +35,24 @@ import java.util.function.Supplier;
 
 /** Owns whole-fleet source admission, maintenance ticks and ordered local shutdown. */
 public final class TargetWorkerHostRuntime {
+    /** A concurrent Host turn owns this Shard; the attempted action has not started. */
+    public static final class ShardAdmissionBusyException extends IllegalStateException {
+        private static final long serialVersionUID = 1L;
+        private final byte[] routeIncarnation;
+        private final int partition;
+
+        private ShardAdmissionBusyException(final ShardId shardId) {
+            super("Target host Shard admission is already in progress");
+            final var selected = Objects.requireNonNull(shardId, "shardId");
+            routeIncarnation = selected.routeIncarnation().bytes();
+            partition = selected.partition();
+        }
+
+        public ShardId shardId() {
+            return new ShardId(new com.nereusstream.delay.protocol.RouteIncarnation(routeIncarnation), partition);
+        }
+    }
+
     interface Shard {
         ShardId shardId();
 
@@ -100,6 +118,7 @@ public final class TargetWorkerHostRuntime {
     private final TargetWorkerShardFleetRuntime fleet;
     private final TargetWorkerMaintenanceLoop maintenanceLoop;
     private final List<Shard> shards;
+    private TargetWorkerOrdinaryLoop ordinaryLoop;
     private final TargetStoreBackend.TargetQueueChangeSignal targetQueueChangeSignal =
             new TargetStoreBackend.TargetQueueChangeSignal();
     private final Set<ShardId> withdrawn = new HashSet<>();
@@ -107,6 +126,7 @@ public final class TargetWorkerHostRuntime {
     private final Map<ShardId, ShardDrain> completed = new HashMap<>();
     private TargetWorkerTargetInventory.Snapshot pendingTargetInventory;
     private boolean stopping;
+    private boolean drainAllActive;
 
     /** Starts bounded reservation GC ticks for one exact Worker graph. */
     public static TargetWorkerHostRuntime start(
@@ -151,6 +171,68 @@ public final class TargetWorkerHostRuntime {
     public boolean awaitTargetQueueChange(final long observedRevision, final Duration timeout)
             throws InterruptedException {
         return targetQueueChangeSignal.awaitChange(observedRevision, timeout);
+    }
+
+    /** Waits for one transiently busy Shard admission to release before retrying a bounded read. */
+    public synchronized boolean awaitShardAdmission(
+            final ShardId shardId, final Duration timeout) throws InterruptedException {
+        final var requested = Objects.requireNonNull(shardId, "shardId");
+        final var exactTimeout = Objects.requireNonNull(timeout, "timeout");
+        if (exactTimeout.isNegative()) {
+            throw new IllegalArgumentException("Target admission wait cannot be negative");
+        }
+        final long timeoutNanos;
+        try {
+            timeoutNanos = exactTimeout.toNanos();
+        } catch (ArithmeticException overflow) {
+            throw new IllegalArgumentException("Target admission wait exceeds nanoseconds", overflow);
+        }
+        final long started = System.nanoTime();
+        long remaining = timeoutNanos;
+        while (draining.contains(requested) && !stopping) {
+            if (remaining <= 0) {
+                return false;
+            }
+            final long millis = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(remaining);
+            final int nanos = (int) (remaining
+                    - java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(millis));
+            wait(millis, nanos);
+            remaining = timeoutNanos - (System.nanoTime() - started);
+        }
+        return !draining.contains(requested);
+    }
+
+    /** Starts the single bounded ordinary Claim loop for this Host. */
+    public synchronized TargetWorkerOrdinaryLoop startOrdinaryScheduling(
+            final TargetWorkerTargetInventory.Limits inventoryLimits,
+            final TargetWorkerOrdinaryDrr.Limits drrLimits,
+            final SchedulerBudget turnBudget,
+            final Duration recheckInterval,
+            final TargetWorkerOrdinaryDrr.Requests requests,
+            final TargetWorkerOrdinaryLoop.ClaimConsumer claimConsumer,
+            final LongSupplier ownerClock,
+            final LongSupplier schedulerClock,
+            final LongSupplier monotonicClock,
+            final Consumer<Throwable> failureConsumer) {
+        if (stopping) {
+            throw new IllegalStateException("Target host ordinary admission is stopping");
+        }
+        if (ordinaryLoop != null) {
+            throw new IllegalStateException("Target host ordinary scheduler is already started");
+        }
+        ordinaryLoop = TargetWorkerOrdinaryLoop.start(
+                this,
+                inventoryLimits,
+                drrLimits,
+                turnBudget,
+                recheckInterval,
+                requests,
+                claimConsumer,
+                ownerClock,
+                schedulerClock,
+                monotonicClock,
+                failureConsumer);
+        return ordinaryLoop;
     }
 
     private void bindTargetQueueChangeSignal(final Shard shard) {
@@ -333,8 +415,11 @@ public final class TargetWorkerHostRuntime {
             if (shard != expectedShard) {
                 throw new IllegalArgumentException("Target host Shard instance has been replaced");
             }
-            if (stopping || withdrawn.contains(shardId) || completed.containsKey(shardId) || !draining.add(shardId)) {
+            if (stopping || withdrawn.contains(shardId) || completed.containsKey(shardId)) {
                 throw new IllegalStateException("Target host Shard admission is stopping or already in progress");
+            }
+            if (!draining.add(shardId)) {
+                throw new ShardAdmissionBusyException(shardId);
             }
         }
         try {
@@ -432,33 +517,62 @@ public final class TargetWorkerHostRuntime {
      * Stops all maintenance ticks before whole-host Store drain. Each call retries incomplete
      * Shards; pending source/GC and ordinary failures remain visible for a same-host retry.
      */
-    public synchronized Result drainAll(
+    public Result drainAll(
             final TargetOwnerDrainCoordinator.Request request,
             final SchedulerBudget sourceBudget,
             final LongSupplier ownerClock) {
         Objects.requireNonNull(request, "request");
         Objects.requireNonNull(sourceBudget, "sourceBudget");
         Objects.requireNonNull(ownerClock, "ownerClock");
-        stopping = true;
-        maintenanceLoop.close();
-        while (!draining.isEmpty()) {
-            try {
-                wait();
-            } catch (InterruptedException interrupted) {
-                Thread.currentThread().interrupt();
-                throw new IllegalStateException("Target host drain interrupted while waiting for a shard", interrupted);
+        final TargetWorkerOrdinaryLoop currentOrdinaryLoop;
+        synchronized (this) {
+            if (drainAllActive) {
+                throw new IllegalStateException("Target host whole-fleet drain is already active");
+            }
+            drainAllActive = true;
+            stopping = true;
+            currentOrdinaryLoop = ordinaryLoop;
+        }
+
+        try {
+            if (currentOrdinaryLoop != null) {
+                currentOrdinaryLoop.close();
+            }
+            maintenanceLoop.close();
+            final List<Shard> drainShards;
+            synchronized (this) {
+                while (!draining.isEmpty()) {
+                    try {
+                        wait();
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException(
+                                "Target host drain interrupted while waiting for a shard", interrupted);
+                    }
+                }
+                drainShards = List.copyOf(shards);
+            }
+            final var results = new ArrayList<ShardDrain>(drainShards.size());
+            for (Shard shard : drainShards) {
+                final ShardDrain prior;
+                synchronized (this) {
+                    prior = completed.get(shard.shardId());
+                }
+                final ShardDrain result = prior != null ? prior : drainOne(shard, request, sourceBudget, ownerClock);
+                if (result.complete()) {
+                    synchronized (this) {
+                        completed.put(shard.shardId(), result);
+                    }
+                }
+                results.add(result);
+            }
+            return new Result(results);
+        } finally {
+            synchronized (this) {
+                drainAllActive = false;
+                notifyAll();
             }
         }
-        final var results = new ArrayList<ShardDrain>(shards.size());
-        for (Shard shard : shards) {
-            final ShardDrain prior = completed.get(shard.shardId());
-            final ShardDrain result = prior != null ? prior : drainOne(shard, request, sourceBudget, ownerClock);
-            if (result.complete()) {
-                completed.put(shard.shardId(), result);
-            }
-            results.add(result);
-        }
-        return new Result(results);
     }
 
     /**
@@ -504,6 +618,7 @@ public final class TargetWorkerHostRuntime {
                 try {
                     fleet.withdraw(shardId);
                     withdrawn.add(shardId);
+                    targetQueueChangeSignal.signal();
                 } catch (RuntimeException | Error failure) {
                     draining.remove(shardId);
                     notifyAll();

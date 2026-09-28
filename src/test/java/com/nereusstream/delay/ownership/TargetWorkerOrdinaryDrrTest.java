@@ -56,6 +56,7 @@ class TargetWorkerOrdinaryDrrTest {
         final var firstTurn = drr.runOrdinary(100, oneVisit, (shard, cost) -> Optional.of(() -> shard));
         assertTrue(firstTurn.claims().isEmpty());
         assertEquals(1, firstTurn.targetVisits());
+        assertEquals(TargetWorkerOrdinaryDrr.Stop.CREDIT_WAIT, firstTurn.stop());
 
         final var secondTurn = drr.runOrdinary(100, oneVisit, (shard, cost) -> Optional.of(() -> shard));
         assertEquals(List.of(firstShard), secondTurn.claims());

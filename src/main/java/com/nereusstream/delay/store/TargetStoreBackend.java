@@ -54,7 +54,8 @@ public final class TargetStoreBackend {
             }
         }
 
-        private void signal() {
+        /** Publishes a committed business or host-membership change to bounded schedulers. */
+        public void signal() {
             revision.incrementAndGet();
             synchronized (monitor) {
                 monitor.notifyAll();

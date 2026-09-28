@@ -1436,6 +1436,43 @@ class TargetCommandStoreTest {
                     final long otherBeforeRevoke = otherStore.latestSequenceNumber();
                     final long sourceSequenceBeforeRevoke = store.shardMutationSequence();
                     final var sourceBeforeRevoke = store.appliedShardLogPosition();
+                    final var schedulerClaim = new java.util.concurrent.atomic.AtomicReference<TargetClaimRecord>();
+                    final var schedulerClaimed = new java.util.concurrent.CountDownLatch(1);
+                    final TargetWorkerOrdinaryDrr.Requests retryClaimRequests = (shard, selected) -> claimRequests
+                            .resolve(shard, selected)
+                            .map(requestForClaim -> new TargetWorkerOrdinaryDrr.Request(
+                                    requestForClaim.owner(),
+                                    requestForClaim.deadlineEpochMs(),
+                                    bytes(32, 0xa4),
+                                    requestForClaim.quota(),
+                                    requestForClaim.physicalWrites()));
+                    final var ordinaryLoop = claimHost.startOrdinaryScheduling(
+                            new TargetWorkerTargetInventory.Limits(
+                                    2, 16, 4, 8, 4096, 32L << 20, 60_000_000_000L),
+                            new TargetWorkerOrdinaryDrr.Limits(
+                                    schedulingCost,
+                                    schedulingCost,
+                                    schedulingCost,
+                                    16,
+                                    4096,
+                                    32L << 20,
+                                    60_000_000_000L),
+                            claimBudget,
+                            java.time.Duration.ofSeconds(10),
+                            retryClaimRequests,
+                            scheduledClaim -> {
+                                schedulerClaim.set(scheduledClaim);
+                                schedulerClaimed.countDown();
+                            },
+                            () -> 100,
+                            () -> claimNow,
+                            System::nanoTime,
+                            ignored -> {});
+                    final long waitDeadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
+                    while (!ordinaryLoop.isWaitingForQueueChange() && System.nanoTime() < waitDeadline) {
+                        Thread.sleep(1);
+                    }
+                    assertTrue(ordinaryLoop.isWaitingForQueueChange());
                     assertThrows(
                             IllegalStateException.class,
                             () -> claimHost.revokeClaim(
@@ -1485,48 +1522,41 @@ class TargetCommandStoreTest {
                                     (a, b, c) -> guard(),
                                     () -> 100));
                     assertEquals(afterRevoke, store.latestSequenceNumber());
-                    final var restoredHead = claimWorker
-                            .readTargetQueue(budget(), binding.target(), () -> 100)
-                            .orElseThrow()
-                            .queue()
-                            .domains()
-                            .getFirst()
-                            .ordinaryHead();
-                    claim = claimHost.claim(
-                            claimWorker,
-                            budget(),
-                            restoredHead,
-                            actualOwner,
-                            claimNow,
-                            claimNow + 1000,
-                            claimExecutionBytes,
-                            bytes(32, 0xa4),
-                            (kind, delta) -> {},
-                            (a, b, c) -> guard(),
-                            () -> 100);
-                    assertNotEquals(Bytes.hex(originalClaim.claimId()), Bytes.hex(claim.claimId()));
-                    assertEquals(otherBeforeRevoke, otherStore.latestSequenceNumber());
-                    assertTrue(leases.release(otherActive));
+                    try {
+                        assertTrue(
+                                schedulerClaimed.await(5, java.util.concurrent.TimeUnit.SECONDS),
+                                () -> "ordinary scheduler failure: " + ordinaryLoop.firstFailure());
+                        claim = schedulerClaim.get();
+                        assertEquals(selectedHead, claim.selected());
+                        assertEquals(actualOwner, claim.owner());
+                        assertNotEquals(Bytes.hex(originalClaim.claimId()), Bytes.hex(claim.claimId()));
+                        assertEquals(otherBeforeRevoke, otherStore.latestSequenceNumber());
+                        assertTrue(leases.release(otherActive));
+
+                        final long afterClaim = store.latestSequenceNumber();
+                        assertNotEquals(scanCut, claimWorker.readTargetQueueCut(budget(), () -> 100));
+                        assertNotEquals(
+                                partialPage.cut(),
+                                claimWorker
+                                        .scanTargetQueues(budget(), partialPage.nextAfter(), 1, () -> 100)
+                                        .cut());
+                        final var refreshed = claimWorker
+                                .readTargetQueue(budget(), binding.target(), () -> 100)
+                                .orElseThrow()
+                                .queue();
+                        assertNotEquals(actualQueue.headRevision(), refreshed.headRevision());
+                        assertNotEquals(selectedHead, refreshed.domains().getFirst().ordinaryHead());
+                        assertEquals(afterClaim, store.latestSequenceNumber());
+                        assertThrows(
+                                IllegalStateException.class,
+                                () -> claimWorker.probeSelectedHead(budget(), selectedHead, () -> 100));
+                        assertEquals(afterClaim, store.latestSequenceNumber());
+                    } finally {
+                        ordinaryLoop.close();
+                    }
+                    assertTrue(ordinaryLoop.isClosed());
+                    claimWorker.closeSource();
                 }
-                final long afterClaim = store.latestSequenceNumber();
-                assertNotEquals(scanCut, claimWorker.readTargetQueueCut(budget(), () -> 100));
-                assertNotEquals(
-                        partialPage.cut(),
-                        claimWorker
-                                .scanTargetQueues(budget(), partialPage.nextAfter(), 1, () -> 100)
-                                .cut());
-                final var refreshed = claimWorker
-                        .readTargetQueue(budget(), binding.target(), () -> 100)
-                        .orElseThrow()
-                        .queue();
-                assertNotEquals(actualQueue.headRevision(), refreshed.headRevision());
-                assertNotEquals(selectedHead, refreshed.domains().getFirst().ordinaryHead());
-                assertEquals(afterClaim, store.latestSequenceNumber());
-                assertThrows(
-                        IllegalStateException.class,
-                        () -> claimWorker.probeSelectedHead(budget(), selectedHead, () -> 100));
-                assertEquals(afterClaim, store.latestSequenceNumber());
-                claimWorker.closeSource();
             }
             final var before = TargetMessageRecord.decode(TargetValueEnvelope.decode(
                             store.get(ColumnFamily.ID, message.encodedKey()), TargetMessageRecord.VALUE_TYPE)
