@@ -1356,6 +1356,24 @@ class TargetCommandStoreTest {
                     final var frozen = ordinary.freezeRecoveryFirstPass(claimNow, claimBudget, claimRequests);
                     assertEquals(TargetWorkerOrdinaryDrr.FreezeStop.READY, frozen.stop());
                     assertEquals(1, frozen.eligibleTargets());
+                    final long firstBeforeUnavailable = store.latestSequenceNumber();
+                    final long otherBeforeUnavailable = otherStore.latestSequenceNumber();
+                    final TargetWorkerOrdinaryDrr.Requests unavailableRequests = (shard, selected) ->
+                            java.util.Optional.empty();
+                    assertTrue(ordinary.claimOrdinary(claimNow, claimBudget, unavailableRequests)
+                            .claims()
+                            .isEmpty());
+                    assertEquals(firstBeforeUnavailable, store.latestSequenceNumber());
+                    assertEquals(otherBeforeUnavailable, otherStore.latestSequenceNumber());
+                    assertTrue(schedulingCost > 1);
+                    assertTrue(ordinary.claimOrdinary(
+                                            claimNow,
+                                            new SchedulerBudget(1, schedulingCost - 1, 60_000_000_000L),
+                                            claimRequests)
+                            .claims()
+                            .isEmpty());
+                    assertEquals(firstBeforeUnavailable, store.latestSequenceNumber());
+                    assertEquals(otherBeforeUnavailable, otherStore.latestSequenceNumber());
                     final long otherBeforeClaim = otherStore.latestSequenceNumber();
                     claim = ordinary.claimOrdinary(claimNow, claimBudget, claimRequests)
                             .claims()
