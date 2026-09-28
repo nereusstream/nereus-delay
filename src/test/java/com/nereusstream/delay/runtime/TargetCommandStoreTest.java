@@ -20,6 +20,7 @@ import com.nereusstream.delay.ownership.SourceRecordConsumer;
 import com.nereusstream.delay.ownership.SourceReplayMutation;
 import com.nereusstream.delay.ownership.SourceReplayRecord;
 import com.nereusstream.delay.ownership.SourceReplaySuccessor;
+import com.nereusstream.delay.ownership.TargetMessageExpiryWorkClassExecutor;
 import com.nereusstream.delay.ownership.TargetOwnerDrainCoordinator;
 import com.nereusstream.delay.ownership.TargetReservationClosureWorkClassExecutor;
 import com.nereusstream.delay.ownership.TargetReservationExpiryWorkClassExecutor;
@@ -1849,6 +1850,60 @@ class TargetCommandStoreTest {
                         throw new IllegalStateException("expiry discovery read authority unavailable");
                     }));
             assertEquals(beforeDiscoverySequence, store.latestSequenceNumber());
+            final var messageExpiryWorker = new TargetWorkerShardRuntime(
+                    () -> java.util.Optional.empty(),
+                    workerClasses,
+                    store,
+                    store.sharedResources(),
+                    runtime,
+                    new TargetWorkerShardRuntime.Maintenance(
+                            new TargetCloseStore(backend, scope, lineage, 16, 1)
+                                    .reservationControls((reader, bound) -> java.util.Optional.empty()),
+                            new TargetReservationClosureWorkClassExecutor.Limits(
+                                    4096, 250_000, 60_000_000_000L),
+                            new TargetReservationExpiryWorkClassExecutor.Limits(
+                                    2048, 100_000, 60_000_000_000L),
+                            (a, b, c) -> guard(),
+                            ignored -> {},
+                            ignored -> {},
+                            ignored -> {},
+                            () -> 100));
+            final var workerExpiryPage = messageExpiryWorker.discoverMessageExpiry(
+                    budget(), null, expiryProof, () -> 100);
+            assertEquals(expectedExpiry, workerExpiryPage.candidate().orElseThrow());
+            final var messageExpiryAppendOutcome = new java.util.concurrent.atomic.AtomicReference<>(
+                    com.nereusstream.delay.ownership.ShardLogMutationAppender.AppendOutcome.persisted(expiryAt));
+            final var messageExpiryHandoff = messageExpiryWorker.newMessageExpiryWorkClassExecutor(
+                    mutation -> {
+                        assertEquals(expiry, mutation);
+                        return messageExpiryAppendOutcome.get();
+                    });
+            final var messageExpirySubmission = messageExpiryHandoff.submit(
+                    expectedExpiry,
+                    expiryProof,
+                    expiry.retryUntilEpochMs(),
+                    expiryOwner.asOwnerIdentity(),
+                    expiry.signingKeyVersion(),
+                    keys.getPrivate(),
+                    () -> 100);
+            assertTrue(messageExpirySubmission.result().isEmpty());
+            workerClasses.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
+            final var messageExpiryResult = messageExpirySubmission.result().orElseThrow();
+            assertEquals(TargetMessageExpiryWorkClassExecutor.ResultKind.APPENDED, messageExpiryResult.kind());
+            assertEquals(expiryAt, messageExpiryResult.sourcePosition());
+            assertEquals(expiry, messageExpirySubmission.mutation());
+            assertEquals(beforeDiscoverySequence, store.latestSequenceNumber());
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> messageExpiryHandoff.submit(
+                            expectedExpiry,
+                            expiryProof,
+                            expiry.retryUntilEpochMs(),
+                            expiryOwner.asOwnerIdentity(),
+                            expiry.signingKeyVersion(),
+                            keys.getPrivate(),
+                            () -> 100));
+            assertEquals(beforeDiscoverySequence, store.latestSequenceNumber());
             final long beforeExpirySequence = store.latestSequenceNumber();
             final long beforeExpiryMutationSequence = store.shardMutationSequence();
             final var beforeExpirySource = store.appliedShardLogPosition();
@@ -1872,7 +1927,9 @@ class TargetCommandStoreTest {
                     Bytes.concat(
                             new byte[] {TargetKeyCodec.RESULT_SYSTEM_TAG, TargetKeyCodec.KEY_FORMAT},
                             expiry.systemMutationId())));
-            assertEquals(StableCode.OK, applyExpiry(loop, entries, expiry, expiryAt).stableCode());
+            assertEquals(
+                    StableCode.OK,
+                    applyExpiry(loop, entries, messageExpirySubmission.mutation(), expiryAt).stableCode());
             final var expired = TargetMessageRecord.decode(TargetValueEnvelope.decode(
                             store.get(ColumnFamily.ID, beforeExpiry.encodedKey()), TargetMessageRecord.VALUE_TYPE)
                     .payload());
@@ -1907,6 +1964,38 @@ class TargetCommandStoreTest {
             assertEquals(beforeExpiryMutationSequence + 1, store.shardMutationSequence());
             assertEquals(expiryAt, store.appliedShardLogPosition());
             final long afterExpiry = store.latestSequenceNumber();
+            messageExpiryAppendOutcome.set(
+                    com.nereusstream.delay.ownership.ShardLogMutationAppender.AppendOutcome.definitelyNotPersisted());
+            final var retryExpirySubmission = messageExpiryHandoff.submit(
+                    expectedExpiry,
+                    expiryProof,
+                    expiry.retryUntilEpochMs(),
+                    expiryOwner.asOwnerIdentity(),
+                    expiry.signingKeyVersion(),
+                    keys.getPrivate(),
+                    () -> 100);
+            workerClasses.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
+            assertEquals(
+                    TargetMessageExpiryWorkClassExecutor.ResultKind.DEFINITIVELY_NOT_APPENDED,
+                    retryExpirySubmission.result().orElseThrow().kind());
+            assertEquals(afterExpiry, store.latestSequenceNumber());
+            messageExpiryAppendOutcome.set(
+                    com.nereusstream.delay.ownership.ShardLogMutationAppender.AppendOutcome.unknown());
+            final var unknownExpirySubmission = messageExpiryHandoff.submit(
+                    expectedExpiry,
+                    expiryProof,
+                    expiry.retryUntilEpochMs(),
+                    expiryOwner.asOwnerIdentity(),
+                    expiry.signingKeyVersion(),
+                    keys.getPrivate(),
+                    () -> 100);
+            workerClasses.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
+            final var unknownExpiryResult = unknownExpirySubmission.result().orElseThrow();
+            assertEquals(TargetMessageExpiryWorkClassExecutor.ResultKind.UNKNOWN, unknownExpiryResult.kind());
+            assertNull(unknownExpiryResult.sourcePosition());
+            assertEquals(expiry, unknownExpiryResult.mutation());
+            assertFalse(runtime.fenced());
+            assertEquals(afterExpiry, store.latestSequenceNumber());
             assertEquals(StableCode.OK, applyExpiry(loop, entries, expiry, expiryAt).stableCode());
             assertEquals(afterExpiry, store.latestSequenceNumber());
             assertEquals(1, expiryResolutions.get());

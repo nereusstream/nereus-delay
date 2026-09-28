@@ -67,6 +67,7 @@ public final class TargetWorkerShardRuntime
     private final TargetReservationGcRuntime maintenance;
     private final TargetOwnerDrainCoordinator drainCoordinator;
     private boolean sourceAndMaintenancePaused;
+    private TargetMessageExpiryWorkClassExecutor messageExpiryHandoff;
     private TargetCheckpointCandidateWorkClassExecutor.Submission pendingCheckpoint;
     private SourceRecordConsumer.CheckpointCut preparedCheckpointCut;
 
@@ -208,6 +209,64 @@ public final class TargetWorkerShardRuntime
         requireNewTurnsAdmitted();
         resources.requireRuntimeBusinessAdmission();
         return target.discoverMessageExpiry(budget, cursor, evidence, ownerClock);
+    }
+
+    /** Creates this Shard's single source-preserving expiry handoff on the same Worker graph. */
+    public synchronized TargetMessageExpiryWorkClassExecutor newMessageExpiryWorkClassExecutor(
+            final ShardLogMutationAppender appender) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        if (messageExpiryHandoff != null) {
+            throw new IllegalStateException("Target Worker message expiry executor is already created");
+        }
+        messageExpiryHandoff = new TargetMessageExpiryWorkClassExecutor(this, appender);
+        return messageExpiryHandoff;
+    }
+
+    synchronized void submitMessageExpiryAction(
+            final WorkClassTask task,
+            final TargetExpiryDiscoveryStore.Candidate candidate,
+            final TrustedUtcIntervalEvidence evidence,
+            final OwnerIdentity owner,
+            final LongSupplier ownerClock,
+            final Runnable action) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        target.requireExpirySubmission(candidate, evidence, owner, ownerClock);
+        workClasses.submit(Objects.requireNonNull(task, "task"), Objects.requireNonNull(action, "action"));
+    }
+
+    synchronized ShardLogMutationAppender.AppendOutcome appendMessageExpiry(
+            final TargetExpiryDiscoveryStore.Candidate candidate,
+            final TrustedUtcIntervalEvidence evidence,
+            final OwnerIdentity owner,
+            final com.nereusstream.delay.protocol.SystemMutation mutation,
+            final ShardLogMutationAppender appender,
+            final LongSupplier ownerClock) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        target.requireExpiryAuthoritativelyStrict(candidate, evidence, owner, ownerClock);
+        final var appended = Objects.requireNonNull(
+                appender.append(Objects.requireNonNull(mutation, "mutation")), "Shard Log append outcome");
+        if (appended.disposition() == ShardLogMutationAppender.AppendDisposition.PERSISTED) {
+            target.requireCurrentExpiryLogPosition(
+                    appended.sourcePosition(),
+                    appended.sourceConnectionGeneration(),
+                    appended.guardAttestationDigest(),
+                    ownerClock);
+        }
+        return appended;
+    }
+
+    synchronized boolean messageExpiryAppendApplied(
+            final com.nereusstream.delay.protocol.SourcePosition position, final LongSupplier ownerClock) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        return target.expiryAppendApplied(position, ownerClock);
+    }
+
+    synchronized void fenceMessageExpiry() {
+        target.fence();
     }
 
     /** Reads the frozen cost of one current head; Claim still rechecks Store and live authority. */

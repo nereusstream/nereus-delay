@@ -526,6 +526,72 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         return expiryDiscovery.discover(budget, cursor, evidence, workerReads(clock));
     }
 
+    synchronized void requireExpirySubmission(
+            final TargetExpiryDiscoveryStore.Candidate candidate,
+            final TrustedUtcIntervalEvidence evidence,
+            final OwnerIdentity owner,
+            final LongSupplier ownerClock) {
+        final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
+        requireGcOwner(clock);
+        final var work = Objects.requireNonNull(candidate, "candidate");
+        final var proof = Objects.requireNonNull(evidence, "evidence");
+        final var exactOwner = Objects.requireNonNull(owner, "owner");
+        if (!scope.shard().equals(work.locator().messageId().routingId().shardId())
+                || exactOwner.ownerEpoch() != lease.ownerEpoch()) {
+            throw new IllegalArgumentException("Target expiry candidate or Owner differs from the active Shard");
+        }
+        proof.requireEarliestAtLeast(work.expireAtEpochMs());
+    }
+
+    synchronized void requireExpiryAuthoritativelyStrict(
+            final TargetExpiryDiscoveryStore.Candidate candidate,
+            final TrustedUtcIntervalEvidence evidence,
+            final OwnerIdentity owner,
+            final LongSupplier ownerClock) {
+        requireExpirySubmission(candidate, evidence, owner, ownerClock);
+    }
+
+    synchronized void requireCurrentExpiryLogPosition(
+            final SourcePosition position,
+            final Long sourceConnectionGeneration,
+            final byte[] guardAttestationDigest,
+            final LongSupplier ownerClock) {
+        final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
+        try {
+            requireGcOwner(clock);
+            final var persisted = Objects.requireNonNull(position, "persisted Source Position");
+            if (!scope.shard().equals(persisted.shardId())) {
+                throw new IllegalStateException("Target expiry appender returned a foreign Shard position");
+            }
+            assignment.activationBarrier().validatePosition(persisted);
+            if (persisted instanceof PulsarSourcePosition) {
+                if (!(assignment.activationBarrier() instanceof PulsarActivationBarrier barrier)
+                        || sourceConnectionGeneration == null
+                        || guardAttestationDigest == null) {
+                    throw new IllegalStateException("Target expiry append lacks a Pulsar source connection proof");
+                }
+                barrier.validateSourceConnection(sourceConnectionGeneration, guardAttestationDigest);
+            } else if (sourceConnectionGeneration != null || guardAttestationDigest != null) {
+                throw new IllegalStateException("Kafka Target expiry append cannot carry a Pulsar connection proof");
+            }
+            final var applied = Objects.requireNonNull(
+                    store.appliedShardLogPosition(), "initialized Target source position");
+            if (!applied.sameSourceIdentity(persisted)) {
+                throw new IllegalStateException("Target expiry position belongs to another assigned source");
+            }
+        } catch (RuntimeException | Error failure) {
+            fenced = true;
+            throw failure;
+        }
+    }
+
+    synchronized boolean expiryAppendApplied(final SourcePosition position, final LongSupplier ownerClock) {
+        final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
+        requireGcOwner(clock);
+        final var current = Objects.requireNonNull(store.appliedShardLogPosition(), "initialized Target source");
+        return current.compareTo(Objects.requireNonNull(position, "expiry source position")) >= 0;
+    }
+
     /** Validates one current head and its frozen byte cost only when the Worker selects it. */
     synchronized TargetHeadCostProbe.Cost probeSelectedHead(
             final BoundedReadBudget budget, final TargetHeadRef selected, final LongSupplier ownerClock) {
