@@ -300,6 +300,10 @@ public final class TargetWorkerOrdinaryDrr {
     /** Process-state seam; production first consumes the exact inventory built by its Host. */
     synchronized void refreshSnapshot(final TargetWorkerTargetInventory.Snapshot inventory) {
         final var exact = Objects.requireNonNull(inventory, "inventory");
+        if (!firstPassReady) {
+            restartRecoveryFirstPass(exact);
+            return;
+        }
         requireRefreshReady(exact);
         final Map<TargetPartitionId, TargetState> previous = new HashMap<>();
         for (TargetState target : ring) {

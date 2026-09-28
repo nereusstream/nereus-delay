@@ -439,30 +439,41 @@ class TargetWorkerOrdinaryDrrTest {
     }
 
     @Test
-    void refreshAdmitsNewTargetAfterFrozenMemberAndKeepsUnchangedCredit() {
+    void refreshDuringRecoveryPassRestartsFreezeForTheCurrentTargetSet() {
         final ShardId shard = shard(1);
         final var original = target(0);
-        final var newcomer = target(1);
-        final var originalHead = head(original, shard, 200);
+        final var second = target(1);
+        final var newcomer = target(2);
+        final var originalHead = head(original, shard, 50);
+        final var secondHead = head(second, shard, 50);
         final var newHead = head(newcomer, shard, 50);
-        final var reads = new FakeReads(originalHead, newHead);
-        final var drr = recoverySchedule(List.of(targetState(original, originalHead)), reads, ONE_VISIT);
+        final var reads = new FakeReads(originalHead, secondHead, newHead);
+        final var drr = recoverySchedule(
+                List.of(targetState(original, originalHead), targetState(second, secondHead)), reads, ONE_VISIT);
         final var budget = new SchedulerBudget(1, 200, 1_000_000_000L);
         final TargetWorkerOrdinaryDrr.Selector<TargetPartitionId> selector =
                 (source, cost) -> Optional.of(() -> cost.head().target());
         final var refreshed = new TargetWorkerTargetInventory.Snapshot(
-                List.of(targetState(original, originalHead), targetState(newcomer, newHead)), reads.cuts());
+                List.of(
+                        targetState(original, originalHead),
+                        targetState(second, secondHead),
+                        targetState(newcomer, newHead)),
+                reads.cuts());
 
-        assertThrows(IllegalStateException.class, () -> drr.refreshSnapshot(refreshed));
-        assertEquals(
-                TargetWorkerOrdinaryDrr.FreezeStop.READY,
-                drr.freezeFirstPass(100, budget, selector).stop());
-        assertTrue(drr.runOrdinary(100, budget, selector).claims().isEmpty());
+        final var interruptedPass = drr.freezeFirstPass(100, budget, selector);
+        assertEquals(TargetWorkerOrdinaryDrr.FreezeStop.VISIT_BUDGET, interruptedPass.stop());
+        assertEquals(1, interruptedPass.eligibleTargets());
         drr.refreshSnapshot(refreshed);
-        assertEquals(
-                List.of(original.id()), drr.runOrdinary(100, budget, selector).claims());
-        assertEquals(
-                List.of(newcomer.id()), drr.runOrdinary(100, budget, selector).claims());
+
+        assertEquals(1, drr.freezeFirstPass(100, budget, selector).eligibleTargets());
+        assertEquals(2, drr.freezeFirstPass(100, budget, selector).eligibleTargets());
+        final var completePass = drr.freezeFirstPass(100, budget, selector);
+        assertEquals(TargetWorkerOrdinaryDrr.FreezeStop.READY, completePass.stop());
+        assertEquals(3, completePass.eligibleTargets());
+
+        assertEquals(List.of(original.id()), drr.runOrdinary(100, budget, selector).claims());
+        assertEquals(List.of(second.id()), drr.runOrdinary(100, budget, selector).claims());
+        assertEquals(List.of(newcomer.id()), drr.runOrdinary(100, budget, selector).claims());
     }
 
     @Test
