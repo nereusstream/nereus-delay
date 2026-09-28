@@ -22,9 +22,12 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.NavigableMap;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.function.LongSupplier;
 
 /** One process-local byte-cost DRR share per physical Target, for ordinary due Claim work. */
@@ -163,6 +166,8 @@ public final class TargetWorkerOrdinaryDrr {
     private final LongSupplier monotonicClock;
     private final LongSupplier ownerClock;
     private List<TargetState> ring;
+    private final NavigableMap<Long, Set<TargetPartitionId>> ordinaryWakeTargets = new TreeMap<>();
+    private final Map<TargetPartitionId, Long> ordinaryWakeByTarget = new HashMap<>();
     private Map<ShardId, TargetQueueSnapshotReader.Cut> inventoryCuts;
     private final Set<TargetPartitionId> firstPassPending = new HashSet<>();
     private final boolean firstPassRequired;
@@ -235,6 +240,7 @@ public final class TargetWorkerOrdinaryDrr {
             }
         };
         ring = states(inventory, workers);
+        rebuildOrdinaryWakeIndex();
     }
 
     /** Pure selection seam; production always uses exact Host reads and Claim above. */
@@ -264,6 +270,7 @@ public final class TargetWorkerOrdinaryDrr {
         firstPassRequired = requireFirstPass;
         firstPassReady = !requireFirstPass;
         ring = states(exactInventory, workers);
+        rebuildOrdinaryWakeIndex();
     }
 
     /** Returns after at most one durable Claim so its receipt is never lost to a later read failure. */
@@ -328,6 +335,7 @@ public final class TargetWorkerOrdinaryDrr {
             final TargetState current;
             if (old != null && old.sameSources(incoming, exact.cuts(), workers)) {
                 current = old;
+                current.updateQueueSnapshots(incoming);
                 retained.add(old.id);
             } else {
                 current = new TargetState(incoming, exact.cuts(), workers);
@@ -349,6 +357,16 @@ public final class TargetWorkerOrdinaryDrr {
         ring = List.copyOf(refreshed);
         inventoryCuts = exact.cuts();
         cursor = nextCursor;
+        rebuildOrdinaryWakeIndex();
+    }
+
+    /** Returns the earliest indexed ordinary head strictly after the current trusted time. */
+    synchronized OptionalLong nextOrdinaryWakeEpochMs(final long nowEpochMs) {
+        if (nowEpochMs < 0) {
+            throw new IllegalArgumentException("Target next-wake requires trusted nonnegative time");
+        }
+        final Long next = ordinaryWakeTargets.higherKey(nowEpochMs);
+        return next == null ? OptionalLong.empty() : OptionalLong.of(next);
     }
 
     /** Refreshes one registered Target across the exact active Shard set without rebuilding the inventory. */
@@ -391,6 +409,7 @@ public final class TargetWorkerOrdinaryDrr {
             final var updated = new ArrayList<>(ring);
             updated.remove(targetIndex);
             ring = List.copyOf(updated);
+            removeOrdinaryWake(exactId);
             firstPassPending.remove(exactId);
             cursor = cursorFor(next, ring);
             host.unregisterTargetWakeup(exactId);
@@ -402,6 +421,10 @@ public final class TargetWorkerOrdinaryDrr {
             final var updated = new ArrayList<>(ring);
             updated.set(targetIndex, refreshed);
             ring = List.copyOf(updated);
+            replaceOrdinaryWake(refreshed);
+        } else {
+            previous.updateQueueSnapshots(incoming);
+            replaceOrdinaryWake(previous);
         }
         return true;
     }
@@ -440,6 +463,37 @@ public final class TargetWorkerOrdinaryDrr {
         return 0;
     }
 
+    private void rebuildOrdinaryWakeIndex() {
+        ordinaryWakeTargets.clear();
+        ordinaryWakeByTarget.clear();
+        for (TargetState target : ring) {
+            replaceOrdinaryWake(target);
+        }
+    }
+
+    private void replaceOrdinaryWake(final TargetState target) {
+        removeOrdinaryWake(target.id);
+        final Long nextWake = target.nextOrdinaryWakeEpochMs;
+        if (nextWake != null) {
+            ordinaryWakeByTarget.put(target.id, nextWake);
+            ordinaryWakeTargets.computeIfAbsent(nextWake, ignored -> new HashSet<>()).add(target.id);
+        }
+    }
+
+    private void removeOrdinaryWake(final TargetPartitionId targetId) {
+        final Long previousWake = ordinaryWakeByTarget.remove(targetId);
+        if (previousWake == null) {
+            return;
+        }
+        final Set<TargetPartitionId> targets = ordinaryWakeTargets.get(previousWake);
+        if (targets == null || !targets.remove(targetId)) {
+            throw new IllegalStateException("Target ordinary wake index lost its registered Target");
+        }
+        if (targets.isEmpty()) {
+            ordinaryWakeTargets.remove(previousWake);
+        }
+    }
+
     private void requireRefreshReady(final TargetWorkerTargetInventory.Snapshot inventory) {
         if (!firstPassReady) {
             throw new IllegalStateException("Target recovery first pass must be frozen before inventory refresh");
@@ -453,6 +507,7 @@ public final class TargetWorkerOrdinaryDrr {
         }
         requireCurrentInventory(inventory);
         ring = states(inventory, workers);
+        rebuildOrdinaryWakeIndex();
         inventoryCuts = inventory.cuts();
         firstPassPending.clear();
         cursor = 0;
@@ -749,6 +804,7 @@ public final class TargetWorkerOrdinaryDrr {
         private final List<SourceState> sources = new ArrayList<>();
         private int sourceCursor;
         private long credit;
+        private Long nextOrdinaryWakeEpochMs;
 
         private TargetState(
                 final TargetWorkerTargetInventory.Target target,
@@ -763,6 +819,31 @@ public final class TargetWorkerOrdinaryDrr {
                 }
                 sources.add(new SourceState(source.shard(), cut.storeIncarnation(), workers.get(source.shard())));
             }
+            nextOrdinaryWakeEpochMs = earliestOrdinaryWake(target);
+        }
+
+        private void updateQueueSnapshots(final TargetWorkerTargetInventory.Target incoming) {
+            if (!id.equals(incoming.id()) || sources.size() != incoming.sources().size()) {
+                throw new IllegalStateException("Target queue refresh changes its source membership");
+            }
+            nextOrdinaryWakeEpochMs = earliestOrdinaryWake(incoming);
+        }
+
+        private static Long earliestOrdinaryWake(final TargetWorkerTargetInventory.Target target) {
+            Long earliest = null;
+            for (TargetWorkerTargetInventory.Source source : target.sources()) {
+                final TargetQueueState queue = source.entry().queue();
+                if (queue.admissionState() != TargetQueueState.AdmissionState.OPEN) {
+                    continue;
+                }
+                for (TargetDomainState domain : queue.domains()) {
+                    final TargetHeadRef head = domain.ordinaryHead();
+                    if (domain.lifecycle() == TargetDomainState.Lifecycle.ACTIVE && head != null) {
+                        earliest = earliest == null ? head.timeEpochMs() : Math.min(earliest, head.timeEpochMs());
+                    }
+                }
+            }
+            return earliest;
         }
 
         private boolean sameSources(

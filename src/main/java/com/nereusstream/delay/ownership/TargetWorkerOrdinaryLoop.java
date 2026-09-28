@@ -7,6 +7,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.Objects;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -226,7 +227,7 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
                         if (result.stop() != TargetWorkerOrdinaryDrr.Stop.CREDIT_WAIT
                                 || turn + 1 == maximumCreditTurns
                                 || now - creditCycleStarted >= turnBudget.maxElapsedNanos()) {
-                            awaitChange(observedRevision);
+                            awaitSchedulerChange(observedRevision, scheduler);
                             break;
                         }
                     }
@@ -255,9 +256,41 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
     }
 
     private void awaitChange(final long observedRevision) throws InterruptedException {
+        awaitChange(observedRevision, Duration.ofNanos(recheckNanos));
+    }
+
+    private void awaitSchedulerChange(final long observedRevision, final TargetWorkerOrdinaryDrr scheduler)
+            throws InterruptedException {
+        final long nowEpochMs = schedulerClock.getAsLong();
+        if (nowEpochMs < 0) {
+            throw new IllegalStateException("Target ordinary next-wake requires trusted nonnegative time");
+        }
+        final long timeoutNanos = changeWaitNanos(
+                scheduler.nextOrdinaryWakeEpochMs(nowEpochMs), nowEpochMs, recheckNanos);
+        awaitChange(observedRevision, Duration.ofNanos(timeoutNanos));
+    }
+
+    static long changeWaitNanos(
+            final OptionalLong nextWakeEpochMs, final long nowEpochMs, final long safetyRecheckNanos) {
+        Objects.requireNonNull(nextWakeEpochMs, "nextWakeEpochMs");
+        if (nowEpochMs < 0 || safetyRecheckNanos <= 0) {
+            throw new IllegalArgumentException("Target wake wait requires trusted time and positive recheck");
+        }
+        long timeoutNanos = safetyRecheckNanos;
+        if (nextWakeEpochMs.isPresent() && nextWakeEpochMs.getAsLong() > nowEpochMs) {
+            final long delayMillis = nextWakeEpochMs.getAsLong() - nowEpochMs;
+            final long delayNanos = delayMillis > Long.MAX_VALUE / 1_000_000L
+                    ? Long.MAX_VALUE
+                    : delayMillis * 1_000_000L;
+            timeoutNanos = Math.min(timeoutNanos, delayNanos);
+        }
+        return timeoutNanos;
+    }
+
+    private void awaitChange(final long observedRevision, final Duration timeout) throws InterruptedException {
         waitingForQueueChange = true;
         try {
-            host.awaitTargetQueueChange(observedRevision, Duration.ofNanos(recheckNanos));
+            host.awaitTargetQueueChange(observedRevision, timeout);
         } finally {
             waitingForQueueChange = false;
         }

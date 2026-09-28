@@ -25,6 +25,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -40,6 +41,64 @@ class TargetWorkerOrdinaryDrrTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new TargetWorkerOrdinaryDrr.Limits(100, 200, 199, 1, 20, 1 << 20, 1_000_000_000L));
+    }
+
+    @Test
+    void indexesTheEarliestFutureOrdinaryHeadAndUpdatesItWithTheInventory() {
+        final ShardId shard = shard(1);
+        final var firstTarget = target(0);
+        final var secondTarget = target(1);
+        final var pausedTarget = target(2);
+        final var drainingTarget = target(3);
+        final var first = headAt(firstTarget, shard, 200, 50);
+        final var second = headAt(secondTarget, shard, 500, 50);
+        final var reads = new FakeReads(first, second);
+        final var drr = schedule(
+                List.of(
+                        targetState(firstTarget, first),
+                        targetState(secondTarget, second),
+                        targetWithHead(
+                                pausedTarget,
+                                shard,
+                                125,
+                                TargetQueueState.AdmissionState.PAUSED,
+                                TargetDomainState.Lifecycle.ACTIVE),
+                        targetWithHead(
+                                drainingTarget,
+                                shard,
+                                150,
+                                TargetQueueState.AdmissionState.OPEN,
+                                TargetDomainState.Lifecycle.DRAINING)),
+                reads,
+                ONE_VISIT);
+
+        assertEquals(OptionalLong.of(200), drr.nextOrdinaryWakeEpochMs(100));
+        assertEquals(OptionalLong.of(500), drr.nextOrdinaryWakeEpochMs(200));
+        assertEquals(OptionalLong.empty(), drr.nextOrdinaryWakeEpochMs(500));
+
+        final var refreshed = headAt(firstTarget, shard, 300, 50);
+        drr.refreshSnapshot(new TargetWorkerTargetInventory.Snapshot(
+                List.of(targetState(firstTarget, refreshed), targetState(secondTarget, second)), reads.cuts()));
+
+        assertEquals(OptionalLong.of(300), drr.nextOrdinaryWakeEpochMs(100));
+        assertEquals(OptionalLong.of(500), drr.nextOrdinaryWakeEpochMs(300));
+    }
+
+    @Test
+    void ordinaryWakeWaitIsCappedByTheSafetyRecheck() {
+        final long safetyRecheck = 250_000_000L;
+        assertEquals(
+                40_000_000L,
+                TargetWorkerOrdinaryLoop.changeWaitNanos(OptionalLong.of(140), 100, safetyRecheck));
+        assertEquals(
+                safetyRecheck,
+                TargetWorkerOrdinaryLoop.changeWaitNanos(OptionalLong.of(500), 100, safetyRecheck));
+        assertEquals(
+                safetyRecheck,
+                TargetWorkerOrdinaryLoop.changeWaitNanos(OptionalLong.empty(), 100, safetyRecheck));
+        assertEquals(
+                safetyRecheck,
+                TargetWorkerOrdinaryLoop.changeWaitNanos(OptionalLong.of(99), 100, safetyRecheck));
     }
 
     @Test
@@ -680,8 +739,13 @@ class TargetWorkerOrdinaryDrrTest {
     }
 
     private static Head head(final CanonicalTargetPartition physical, final ShardId shard, final long cost) {
+        return headAt(physical, shard, 10, cost);
+    }
+
+    private static Head headAt(
+            final CanonicalTargetPartition physical, final ShardId shard, final long timeEpochMs, final long cost) {
         final var domain = new TargetKeyCodec.Domain(0, 1);
-        final var ref = dueHead(physical, shard, domain);
+        final var ref = dueHead(physical, shard, domain, timeEpochMs);
         final var summary = new TargetDomainState(
                 domain, TargetDomainState.Lifecycle.ACTIVE, bytes(32, 3), bytes(32, 4), null, ref, null);
         final var queue = new TargetQueueState(
@@ -689,16 +753,41 @@ class TargetWorkerOrdinaryDrrTest {
         return new Head(shard, new TargetQueueSnapshotReader.Entry(queue, physical), ref, cost);
     }
 
+    private static TargetWorkerTargetInventory.Target targetWithHead(
+            final CanonicalTargetPartition physical,
+            final ShardId shard,
+            final long timeEpochMs,
+            final TargetQueueState.AdmissionState admissionState,
+            final TargetDomainState.Lifecycle lifecycle) {
+        final var domain = new TargetKeyCodec.Domain(0, 1);
+        final var ref = dueHead(physical, shard, domain, timeEpochMs);
+        final var summary = new TargetDomainState(
+                domain, lifecycle, bytes(32, 3), bytes(32, 4), null, ref, null);
+        final var queue = new TargetQueueState(
+                physical.id(), 1, 1, admissionState, bytes(16, 5), 0, List.of(summary));
+        final var entry = new TargetQueueSnapshotReader.Entry(queue, physical);
+        return new TargetWorkerTargetInventory.Target(
+                physical, List.of(new TargetWorkerTargetInventory.Source(shard, entry)));
+    }
+
     private static TargetHeadRef dueHead(
             final CanonicalTargetPartition physical, final ShardId shard, final TargetKeyCodec.Domain domain) {
+        return dueHead(physical, shard, domain, 10);
+    }
+
+    private static TargetHeadRef dueHead(
+            final CanonicalTargetPartition physical,
+            final ShardId shard,
+            final TargetKeyCodec.Domain domain,
+            final long timeEpochMs) {
         final var message = DelayMessageId.random(shard);
         final byte[] token = Bytes.concat(new byte[] {1}, Bytes.u64be(1));
         return new TargetHeadRef(
                 TargetKeyCodec.candidate(
-                        TargetKeyCodec.CandidateKind.DUE, physical.id(), domain, 10, token, message, 1),
+                        TargetKeyCodec.CandidateKind.DUE, physical.id(), domain, timeEpochMs, token, message, 1),
                 message,
                 1,
-                10);
+                timeEpochMs);
     }
 
     private static CanonicalTargetPartition target(final int partition) {
