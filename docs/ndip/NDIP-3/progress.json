@@ -579,11 +579,16 @@
     {
       "id": "E1",
       "title": "稳定 head 缓存和唤醒",
-      "status": "PLANNED",
+      "status": "IN_PROGRESS",
       "evidence": [],
-      "implementationStatus": "NOT_STARTED",
+      "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
-      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
+      "progress": "TargetQueueHeadUpdater now omits the Target queue state edit when an ordinary/native candidate mutation leaves every affected head unchanged. A real RocksDB TargetMessageStore regression inserts a later due candidate without advancing headRevision, then terminalizes both works and verifies the actual head change advances revision once. Head cache, post-commit notification, bounded wake registration, permit/backoff/policy invalidation, periodic safety recheck, and centralized validation remain pending.",
+      "implementationFiles": [
+        "src/main/java/com/nereusstream/delay/runtime/TargetQueueHeadUpdater.java",
+        "src/test/java/com/nereusstream/delay/runtime/TargetMessageStoreTest.java"
+      ]
     },
     {
       "id": "E2",

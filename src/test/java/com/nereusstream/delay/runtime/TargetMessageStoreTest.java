@@ -2,12 +2,17 @@ package com.nereusstream.delay.runtime;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalTargetPartition;
+import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
+import com.nereusstream.delay.protocol.NativeDeliveryPolicy;
+import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.TargetDomainState;
+import com.nereusstream.delay.protocol.TargetMessageLocator;
 import com.nereusstream.delay.protocol.TargetQueueState;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
 import com.nereusstream.delay.store.BoundedReadBudget;
@@ -32,7 +37,7 @@ class TargetMessageStoreTest {
     Path root;
 
     @Test
-    void initialNativeGraphAndTerminalRemovalCommitWithExactHeadsAndSource() throws Exception {
+    void nonHeadInsertionPreservesRevisionAndTerminalRemovalUpdatesExactHeads() throws Exception {
         final var vectors = new Properties();
         try (var stream = getClass().getResourceAsStream("/ndip3/target-identity-vectors.properties")) {
             vectors.load(stream);
@@ -110,33 +115,80 @@ class TargetMessageStoreTest {
             assertArrayEquals(
                     message.runtime().timeline().nativeKey(),
                     persisted.domains().getFirst().nativeHead().key());
-            final var runtime = new TargetGenerationRuntimeIndex(
+            final var scheduleSource = (KafkaSourcePosition) message.scheduleSource();
+            final var tailSource = new KafkaSourcePosition(
+                    scheduleSource.shardId(),
+                    scheduleSource.authenticatedClusterId(),
+                    scheduleSource.nativeTopicUuid(),
+                    scheduleSource.offset() + 1,
+                    scheduleSource.leaderEpoch(),
+                    scheduleSource.brokerLogAppendTimeEpochMs() + 1);
+            final long tailDeliverAt = message.deliverAtEpochMs() + 1_000;
+            final var tailLocator = new TargetMessageLocator(
+                    DelayMessageId.random(shard),
                     message.locator().generation(),
-                    GenerationAggregateState.CANCELED,
-                    CurrentSendWorkKind.NONE,
+                    message.locator().target(),
+                    message.locator().domain(),
+                    message.locator().accountingIncarnation(),
+                    OrderingMode.BEST_EFFORT,
                     null,
+                    bytes(32, 0x55));
+            final var tailWork = new TargetTimelineWorkRef(
+                    tailLocator,
+                    TimelineWorkKind.INITIAL_SCHEDULE,
+                    tailDeliverAt,
+                    tailDeliverAt,
+                    tailSource.sourceOrderToken(),
+                    1,
+                    1,
+                    UncertainRetryAuthority.NONE,
+                    null,
+                    null,
+                    false);
+            final var tailRuntime = new TargetGenerationRuntimeIndex(
+                    tailLocator.generation(),
+                    GenerationAggregateState.SCHEDULED,
+                    CurrentSendWorkKind.TIMELINE,
+                    tailWork,
                     null,
                     null,
                     List.of(),
                     0,
                     0,
                     false,
-                    message.runtime().runtimeRevision() + 1);
-            final var terminal = new TargetMessageRecord(
-                    message.locator(),
-                    message.stateVersion() + 1,
-                    message.deliverAtEpochMs(),
-                    message.expireAtEpochMs(),
-                    message.retryEligibilityAtEpochMs(),
-                    message.nativeDeliveryPolicy(),
-                    message.scheduleSource(),
+                    1);
+            final var tailMessage = new TargetMessageRecord(
+                    tailLocator,
+                    message.stateVersion(),
+                    tailDeliverAt,
+                    tailDeliverAt + (message.expireAtEpochMs() - message.deliverAtEpochMs()),
+                    tailDeliverAt,
+                    NativeDeliveryPolicy.FORBID,
+                    tailSource,
                     message.inlinePayload(),
                     message.payloadReference(),
-                    runtime);
+                    tailRuntime);
+            final var addTail = messages.prepare(
+                    budget(),
+                    reader -> new TargetMessageStore.Input(
+                            List.of(new TargetMessageStore.Transition(null, tailMessage)), List.of(), List.of()),
+                    accounting);
+            backend.commit(addTail, (a, b, c) -> guard());
+            final var withTail = readQueue(store, queue);
+            assertEquals(persisted.headRevision(), withTail.headRevision());
+            assertEquals(persisted.domains(), withTail.domains());
+            assertNotNull(store.get(ColumnFamily.TIMELINE, tailWork.ordinaryKey()));
+
+            final var terminal = terminal(message);
+            final var terminalTail = terminal(tailMessage);
             final var prepared = messages.prepare(
                     budget(),
                     reader -> new TargetMessageStore.Input(
-                            List.of(new TargetMessageStore.Transition(message, terminal)), List.of(), List.of()),
+                            List.of(
+                                    new TargetMessageStore.Transition(message, terminal),
+                                    new TargetMessageStore.Transition(tailMessage, terminalTail)),
+                            List.of(),
+                            List.of()),
                     accounting);
             backend.commit(prepared, (a, b, c) -> guard());
             assertThrows(IllegalStateException.class, () -> backend.commit(prepared, (a, b, c) -> guard()));
@@ -151,13 +203,45 @@ class TargetMessageStoreTest {
             assertEquals(2, empty.headRevision());
             assertNull(empty.domains().getFirst().ordinaryHead());
             assertNull(empty.domains().getFirst().nativeHead());
-            assertEquals(2, store.shardMutationSequence());
+            assertEquals(3, store.shardMutationSequence());
             assertArrayEquals(
                     terminal.canonicalBytes(),
                     TargetValueEnvelope.decode(
                                     store.get(ColumnFamily.ID, message.encodedKey()), TargetMessageRecord.VALUE_TYPE)
                             .payload());
+            assertArrayEquals(
+                    terminalTail.canonicalBytes(),
+                    TargetValueEnvelope.decode(
+                                    store.get(ColumnFamily.ID, tailMessage.encodedKey()),
+                                    TargetMessageRecord.VALUE_TYPE)
+                            .payload());
         }
+    }
+
+    private static TargetMessageRecord terminal(final TargetMessageRecord message) {
+        final var runtime = new TargetGenerationRuntimeIndex(
+                message.locator().generation(),
+                GenerationAggregateState.CANCELED,
+                CurrentSendWorkKind.NONE,
+                null,
+                null,
+                null,
+                List.of(),
+                0,
+                0,
+                false,
+                message.runtime().runtimeRevision() + 1);
+        return new TargetMessageRecord(
+                message.locator(),
+                message.stateVersion() + 1,
+                message.deliverAtEpochMs(),
+                message.expireAtEpochMs(),
+                message.retryEligibilityAtEpochMs(),
+                message.nativeDeliveryPolicy(),
+                message.scheduleSource(),
+                message.inlinePayload(),
+                message.payloadReference(),
+                runtime);
     }
 
     private static TargetQueueState readQueue(final ShardStore store, final TargetQueueState queue) {

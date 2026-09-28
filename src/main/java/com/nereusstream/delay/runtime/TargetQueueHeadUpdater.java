@@ -142,6 +142,10 @@ public final class TargetQueueHeadUpdater {
                                 ordinary,
                                 nativeHead));
             }
+            if (before != null && Arrays.equals(rawBefore, rawBase) && domains.equals(base.domains())) {
+                result.removeIf(edit -> edit.family() == ColumnFamily.META && Arrays.equals(edit.key(), key));
+                continue;
+            }
             final long revision = before == null ? 1 : TargetQueueState.nextRevision(before.headRevision());
             final var next = new TargetQueueState(
                     base.targetId(),
