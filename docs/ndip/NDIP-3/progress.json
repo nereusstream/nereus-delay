@@ -402,11 +402,15 @@
     {
       "id": "C3",
       "title": "移除高频公平性写",
-      "status": "PLANNED",
+      "status": "IN_PROGRESS",
       "evidence": [],
-      "implementationStatus": "NOT_STARTED",
+      "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
-      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
+      "progress": "A real RocksDB/Worker Claim integration now executes an empty Target DRR turn after both ordinary heads have been claimed and verifies that neither source Store sequence advances. Focused test passes. Explicit no-eligible and byte-budget-exhaustion write-count cases, the remaining C3 scope, and centralized validation remain pending.",
+      "implementationFiles": [
+        "src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java"
+      ]
     },
     {
       "id": "C4",

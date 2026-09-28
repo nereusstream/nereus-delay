@@ -1378,6 +1378,11 @@ class TargetCommandStoreTest {
                     assertEquals(otherOwner, otherClaim.owner());
                     assertEquals(firstAfterClaim, store.latestSequenceNumber());
                     assertTrue(otherStore.latestSequenceNumber() > otherBeforeClaim);
+                    final long firstBeforeEmptyPoll = store.latestSequenceNumber();
+                    final long otherBeforeEmptyPoll = otherStore.latestSequenceNumber();
+                    assertTrue(ordinary.claimOrdinary(claimNow, claimBudget, claimRequests).claims().isEmpty());
+                    assertEquals(firstBeforeEmptyPoll, store.latestSequenceNumber());
+                    assertEquals(otherBeforeEmptyPoll, otherStore.latestSequenceNumber());
                     final var originalClaim = claim;
                     final long otherBeforeRevoke = otherStore.latestSequenceNumber();
                     final long sourceSequenceBeforeRevoke = store.shardMutationSequence();
