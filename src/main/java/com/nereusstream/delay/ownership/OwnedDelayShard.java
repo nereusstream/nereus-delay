@@ -2023,6 +2023,9 @@ public final class OwnedDelayShard {
     private void activateForCommands(
             final OxiaOwnerLeaseStore authority, final long nowEpochMs, final boolean requireAuthoritativeCatchup) {
         Objects.requireNonNull(authority, "authority");
+        // Reject the compatibility constructor before writing activation metadata
+        // or transitioning the authoritative Owner lease.
+        delegate.requireExplicitFiniteHeadReadPolicy();
         ensureActivationPreconditions(nowEpochMs);
         if (requireAuthoritativeCatchup) {
             ensureAuthoritativeCatchup(authority, nowEpochMs);

@@ -202,7 +202,7 @@ class ExpiryDiscoveryWorkClassExecutorTest {
             final ShardStoreConfig config = ShardStoreConfig.defaults(root);
             resources = new SharedRocksDbResources(config);
             store = ShardStore.open(config, shardId, resources);
-            shard = new DelayShard(store, DelayShardConfig.defaults());
+            shard = BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults());
             final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("expiry-discovery-lane"));
             final PreparedCommand schedule = PreparedCommand.schedule(
                     shardId,

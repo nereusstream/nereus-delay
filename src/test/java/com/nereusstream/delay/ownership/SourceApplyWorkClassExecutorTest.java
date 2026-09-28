@@ -22,7 +22,6 @@ import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
-import com.nereusstream.delay.runtime.DelayShard;
 import com.nereusstream.delay.runtime.DelayShardConfig;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClass;
@@ -79,7 +78,7 @@ class SourceApplyWorkClassExecutorTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shard, resources)) {
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+                    new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
             owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
             owned.recordCatchup(commandPosition);
             owned.activateForCommands(authority, 101);

@@ -21,6 +21,10 @@ public record HeadReadPolicy(int maxRecords, long maxBytes, long maxElapsedNanos
         return new BoundedReadBudget(maxRecords, maxBytes, maxElapsedNanos, clockNanos);
     }
 
+    boolean hasFiniteLimits() {
+        return maxRecords < Integer.MAX_VALUE && maxBytes < Long.MAX_VALUE && maxElapsedNanos < Long.MAX_VALUE;
+    }
+
     /** Existing constructor compatibility only; this is not a certified activation envelope. */
     static HeadReadPolicy compatibility() {
         return new HeadReadPolicy(Integer.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE, () -> 0);

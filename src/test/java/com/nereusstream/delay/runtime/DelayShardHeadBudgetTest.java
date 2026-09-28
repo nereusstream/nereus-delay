@@ -1,6 +1,7 @@
 package com.nereusstream.delay.runtime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -31,6 +32,14 @@ import org.junit.jupiter.api.io.TempDir;
 class DelayShardHeadBudgetTest {
     @TempDir
     Path tempDir;
+
+    @Test
+    void finiteHeadReadPolicyRequiresEveryBudgetDimensionToBeBounded() {
+        assertTrue(new HeadReadPolicy(1, 1, 1, () -> 0).hasFiniteLimits());
+        assertFalse(new HeadReadPolicy(Integer.MAX_VALUE, 1, 1, () -> 0).hasFiniteLimits());
+        assertFalse(new HeadReadPolicy(1, Long.MAX_VALUE, 1, () -> 0).hasFiniteLimits());
+        assertFalse(new HeadReadPolicy(1, 1, Long.MAX_VALUE, () -> 0).hasFiniteLimits());
+    }
 
     @Test
     void deletingHeadCannotPartiallyCommitAtAnyRequiredReadBoundary() {

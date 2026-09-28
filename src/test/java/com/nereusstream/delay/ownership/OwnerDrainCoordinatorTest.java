@@ -14,7 +14,6 @@ import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ScheduleIntent;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.SourcePosition;
-import com.nereusstream.delay.runtime.DelayShard;
 import com.nereusstream.delay.runtime.DelayShardConfig;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClass;
@@ -88,7 +87,8 @@ class OwnerDrainCoordinatorTest {
                 ShardStore firstStore = ShardStore.open(firstConfig, shardId, firstResources);
                 ShardStore secondStore = ShardStore.open(secondConfig, shardId, secondResources)) {
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(firstStore, DelayShardConfig.defaults()), acquired);
+                    new OwnedDelayShard(
+                            BoundedHeadReadDelayShard.create(firstStore, DelayShardConfig.defaults()), acquired);
 
             assertThrows(
                     IllegalArgumentException.class,
@@ -694,7 +694,8 @@ class OwnerDrainCoordinatorTest {
             final OwnerLease lease,
             final OxiaOwnerLeaseStore authority,
             final ShardId shardId) {
-        final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+        final OwnedDelayShard owned = new OwnedDelayShard(
+                BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
         final UUID topic = UUID.randomUUID();
         final KafkaSourcePosition position = new KafkaSourcePosition(shardId, "drain-cluster", topic, 0, null, 1_000);
         owned.markCatchingUp(new SourceAssignment(

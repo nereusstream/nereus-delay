@@ -195,6 +195,13 @@ public final class DelayShard {
 
     public record HeadReadStatistics(long candidateKeysRead, long messageGets) {}
 
+    /** Rejects an unbounded head-read policy at an authoritative production activation boundary. */
+    public void requireExplicitFiniteHeadReadPolicy() {
+        if (!headReadPolicy.hasFiniteLimits()) {
+            throw new IllegalStateException("active Owner requires an explicit finite head-read policy");
+        }
+    }
+
     private long claimSequence;
     private ShardQuota quota;
     private LaneQuotaUsageProjection laneQuotaUsage;
@@ -204,6 +211,26 @@ public final class DelayShard {
 
     public DelayShard(final ShardStore store, final DelayShardConfig config) {
         this(store, config, null, null, null, null);
+    }
+
+    /** Opens a shard with an explicit shared head-read envelope. */
+    public DelayShard(
+            final ShardStore store, final DelayShardConfig config, final HeadReadPolicy headReadPolicy) {
+        this(
+                store,
+                config,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                Objects.requireNonNull(headReadPolicy, "headReadPolicy"));
     }
 
     public DelayShard(

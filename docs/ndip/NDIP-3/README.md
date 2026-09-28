@@ -209,8 +209,10 @@ README、执行状态、用户决策记录、测量和 receipt 不进入 normati
 ## 当前进展
 
 A0/A1 已验证，A2 正在实施；READY discovery、head mutation/control/Claim 的共享预算、
-提交前视图校验及 source/recovery 本地重试已通过专项与完整检查。最大合法 mutation 的
-资源上限证明和正式装配的强制有限配置仍未完成，兼容构造器不作为资源认证。
+提交前视图校验及 source/recovery 本地重试已通过专项与完整检查。strict Owner activation
+现会在 opened-epoch/recovery 写入及权威 lease 转换前拒绝任一 `MAX_VALUE` 预算哨兵；Owner
+回归覆盖拒绝路径无 Store sequence、opened-epoch 或 lease 状态变更。最大合法 mutation 的
+资源上限证明仍未完成；此门槛不认证有限值是正确的生产 envelope，兼容构造器不作为资源认证。
 B1 身份与存储契约已验证：物理身份、候选/严格顺序 key、TargetQueueState 与域/head
 摘要、generation 历史、完整可逆 work、消息定位、SourcePosition、Message/runtime/Expiry
 及 ORDER_STATE/barrier 编码均由独立向量验证。完整检查 1780 项 Java 测试，失败/错误 0，

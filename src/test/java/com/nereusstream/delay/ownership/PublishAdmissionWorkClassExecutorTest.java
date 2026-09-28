@@ -108,7 +108,7 @@ class PublishAdmissionWorkClassExecutorTest {
                     Bytes.utf8("publish-admission-worker"),
                     lease.ownerEpoch(),
                     Bytes.sha256(Bytes.utf8("publish-admission-fence")));
-            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            final DelayShard shard = BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults());
             shard.apply(schedule, schedulePosition);
             com.nereusstream.delay.runtime.DelayShardTestSupport.updateLaneReadiness(
                     shard, laneId, RuntimeReadiness.READY);

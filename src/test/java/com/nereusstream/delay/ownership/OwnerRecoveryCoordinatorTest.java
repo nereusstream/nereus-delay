@@ -83,7 +83,7 @@ class OwnerRecoveryCoordinatorTest {
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             store.recordControlSnapshot(snapshot);
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+                    new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
             final var keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
             final WorkClassExecutionRegistry workClasses = workClasses(1);
             final OwnerRecoveryCoordinator coordinator = new OwnerRecoveryCoordinator(
@@ -156,7 +156,7 @@ class OwnerRecoveryCoordinatorTest {
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             store.recordControlSnapshot(snapshot);
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+                    new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
             final var keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
             final WorkClassExecutionRegistry workClasses = workClasses(1);
             final OwnerRecoveryCoordinator coordinator = new OwnerRecoveryCoordinator(

@@ -89,6 +89,51 @@ class OwnerLeaseTest {
     }
 
     @Test
+    void authoritativeActivationRejectsCompatibilityHeadPolicyBeforeStoreOrLeaseMutation() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 27);
+        final UUID topic = UUID.randomUUID();
+        final InMemoryOwnerLeaseStore leaseStore = new InMemoryOwnerLeaseStore();
+        final SourceAssignment assignment = new SourceAssignment(
+                shardId,
+                Bytes.sha256(Bytes.utf8("finite-head-policy-assignment")),
+                1,
+                new KafkaActivationBarrier(shardId, "finite-head-policy-cluster", topic, 0));
+        final OwnerLease lease = leaseStore.acquire(
+                        assignment,
+                        "worker-finite-head-policy",
+                        Bytes.sha256(Bytes.utf8("finite-head-policy-session")),
+                        100,
+                        100)
+                .orElseThrow();
+        final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(leaseStore);
+        final KafkaSourcePosition position =
+                new KafkaSourcePosition(shardId, "finite-head-policy-cluster", topic, 0, null, 1_000);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("finite-head-policy-activation"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final var owned = new OwnedDelayShard(
+                    new DelayShard(store, DelayShardConfig.defaults()),
+                    lease,
+                    new OwnerIdentity(
+                            Bytes.utf8("finite-head-policy-deployment"),
+                            Bytes.utf8("finite-head-policy-worker"),
+                            lease.ownerEpoch(),
+                            Bytes.sha256(Bytes.utf8("finite-head-policy-fence"))));
+            owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
+            owned.recordCatchup(position);
+            final long sequenceBeforeActivation = store.latestSequenceNumber();
+            final long openedEpochBeforeActivation = store.runtimeMetadata().lastOpenedOwnerEpoch();
+
+            assertThrows(IllegalStateException.class, () -> owned.activateForCommands(authority, 101));
+
+            assertEquals(sequenceBeforeActivation, store.latestSequenceNumber());
+            assertEquals(openedEpochBeforeActivation, store.runtimeMetadata().lastOpenedOwnerEpoch());
+            assertEquals(ShardLifecycleState.CATCHING_UP, owned.state());
+            assertEquals(ShardLifecycleState.CATCHING_UP, leaseStore.current(shardId).orElseThrow().state());
+        }
+    }
+
+    @Test
     void publicOwnedShardBindingRequiresAnExactProtocolOwnerAndShard() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 26);
         final OwnerLease lease = new OwnerLease(
@@ -101,7 +146,7 @@ class OwnerLeaseTest {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("owner-binding"));
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shard, resources)) {
-            final DelayShard delayShard = new DelayShard(store, DelayShardConfig.defaults());
+            final DelayShard delayShard = BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults());
 
             assertThrows(NullPointerException.class, () -> new OwnedDelayShard(delayShard, lease, null));
             assertThrows(
@@ -283,7 +328,7 @@ class OwnerLeaseTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+                    new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
             owned.markCatchingUp(new SourceAssignment(
                     shardId,
                     Bytes.sha256(Bytes.utf8("authoritative-assignment")),
@@ -330,7 +375,7 @@ class OwnerLeaseTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+                    new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
             owned.markCatchingUp(new SourceAssignment(
                     shardId, Bytes.sha256(Bytes.utf8("strict-apply-legacy-assignment")), 1, barrier));
             owned.recordCatchup(position);
@@ -373,7 +418,7 @@ class OwnerLeaseTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+                    new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
             owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
             owned.recordCatchup(position);
             owned.activateForCommands(authority, 101);
@@ -408,7 +453,7 @@ class OwnerLeaseTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+                    new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
 
             owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
 
@@ -442,7 +487,7 @@ class OwnerLeaseTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+                    new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
 
             owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
 
@@ -497,7 +542,7 @@ class OwnerLeaseTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+                    new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
             owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
             final SourceReplayCursor<SourceReplayRecord> cursor = SourceReplayCursor.of(List.of(
                             new SourceReplayRecord(first, firstPosition, null, null),
@@ -544,7 +589,7 @@ class OwnerLeaseTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+                    new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
             owned.markCatchingUp(new SourceAssignment(
                     shardId,
                     Bytes.sha256(Bytes.utf8("authority-read-failure-assignment")),
@@ -576,7 +621,7 @@ class OwnerLeaseTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+                    new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
 
             assertThrows(
                     IllegalStateException.class,
@@ -608,7 +653,7 @@ class OwnerLeaseTest {
 
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
-            final DelayShard delegate = new DelayShard(store, DelayShardConfig.defaults());
+            final DelayShard delegate = BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults());
             assertEquals(
                     StableCode.SCHEDULED, delegate.apply(schedule, position).stableCode());
             com.nereusstream.delay.runtime.DelayShardTestSupport.updateLaneReadiness(
@@ -652,7 +697,7 @@ class OwnerLeaseTest {
             // not a reason to leave the local owner in CATCHING_UP.
             store.recordOpenedOwnerEpoch(2);
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+                    new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
             owned.markCatchingUp(new SourceAssignment(
                     shardId,
                     Bytes.sha256(Bytes.utf8("activation-metadata-assignment")),
@@ -684,7 +729,7 @@ class OwnerLeaseTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+                    new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
             owned.markCatchingUp(new SourceAssignment(
                     shardId,
                     Bytes.sha256(Bytes.utf8("fatal-activation-assignment")),
@@ -710,7 +755,7 @@ class OwnerLeaseTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+                    new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
             owned.markCatchingUp(new SourceAssignment(
                     shardId,
                     Bytes.sha256(Bytes.utf8("fatal-drain-assignment")),
@@ -748,7 +793,7 @@ class OwnerLeaseTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+                    new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
             owned.markCatchingUp(
                     authority,
                     new SourceAssignment(
@@ -784,7 +829,7 @@ class OwnerLeaseTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+                    new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
             owned.markCatchingUp(new SourceAssignment(
                     shardId, Bytes.sha256(Bytes.utf8("contextless-activation-assignment")), 1, barrier));
             store.recordControlSnapshot(snapshot);
@@ -822,7 +867,7 @@ class OwnerLeaseTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+                    new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
             owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
             store.recordControlSnapshot(snapshot);
 
@@ -847,7 +892,7 @@ class OwnerLeaseTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+                    new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
             final PreparedCommand command = PreparedCommand.schedule(
                     shardId,
                     new ScheduleIntent(
@@ -909,7 +954,7 @@ class OwnerLeaseTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+                    new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
             owned.markCatchingUp(new SourceAssignment(
                     shardId,
                     Bytes.sha256(Bytes.utf8("runtime-fence-assignment")),
@@ -935,7 +980,7 @@ class OwnerLeaseTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), acquired);
+                    new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), acquired);
             final UUID topic = UUID.randomUUID();
             final KafkaSourcePosition position = new KafkaSourcePosition(shardId, "cluster", topic, 0, null, 1_000);
             owned.markCatchingUp(new SourceAssignment(
@@ -970,7 +1015,7 @@ class OwnerLeaseTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+                    new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
             owned.markCatchingUp(new SourceAssignment(
                     shardId, Bytes.sha256(Bytes.utf8("strict-drain-legacy-assignment")), 1, barrier));
             owned.recordCatchup(position);
@@ -1004,7 +1049,7 @@ class OwnerLeaseTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+                    new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
             owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
             owned.recordCatchup(position);
             owned.activateForCommands(authority, 101);
@@ -1034,7 +1079,7 @@ class OwnerLeaseTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), acquired);
+                    new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), acquired);
             backend.observedShard.set(owned);
             owned.markCatchingUp(new SourceAssignment(
                     shardId,
@@ -1060,7 +1105,7 @@ class OwnerLeaseTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), acquired);
+                    new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), acquired);
             final UUID topic = UUID.randomUUID();
             final KafkaSourcePosition position = new KafkaSourcePosition(shardId, "cluster", topic, 0, null, 1_000);
             owned.markCatchingUp(new SourceAssignment(
@@ -1104,7 +1149,7 @@ class OwnerLeaseTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+                    new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
             owned.markCatchingUp(
                     new SourceAssignment(shardId, Bytes.sha256(Bytes.utf8("assignment-replay")), 1, barrier));
             final List<CommandResult> replayResults = owned.replayCatchup(
@@ -1173,7 +1218,7 @@ class OwnerLeaseTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+                    new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
             owned.markCatchingUp(
                     new SourceAssignment(shardId, Bytes.sha256(Bytes.utf8("bounded-assignment")), 1, barrier));
             final SourceReplayCursor<SourceReplayRecord> cursor = SourceReplayCursor.of(List.of(
@@ -1218,7 +1263,7 @@ class OwnerLeaseTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+                    new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
             owned.markCatchingUp(
                     new SourceAssignment(shardId, Bytes.sha256(Bytes.utf8("byte-budget-assignment")), 1, barrier));
             final SourceReplayCursor<SourceReplayRecord> cursor =
@@ -1265,7 +1310,7 @@ class OwnerLeaseTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+                    new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
             owned.markCatchingUp(
                     new SourceAssignment(shardId, Bytes.sha256(Bytes.utf8("live-clock-assignment")), 1, barrier));
 
@@ -1398,7 +1443,7 @@ class OwnerLeaseTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+                    new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
             owned.markCatchingUp(
                     new SourceAssignment(shardId, Bytes.sha256(Bytes.utf8(directoryName + "-assignment")), 1, barrier));
 
@@ -1438,7 +1483,7 @@ class OwnerLeaseTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+                    new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
             owned.markCatchingUp(
                     new SourceAssignment(shardId, Bytes.sha256(Bytes.utf8(directoryName + "-assignment")), 1, barrier));
 
@@ -1490,7 +1535,7 @@ class OwnerLeaseTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+                    new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
             owned.markCatchingUp(
                     new SourceAssignment(shardId, Bytes.sha256(Bytes.utf8("gap-assignment")), 1, barrier),
                     SourceReplaySuccessor.strictKafka());
@@ -1553,7 +1598,7 @@ class OwnerLeaseTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+                    new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
             owned.markCatchingUp(
                     new SourceAssignment(shardId, Bytes.sha256(Bytes.utf8("assignment-system-replay")), 1, barrier));
             final List<SystemMutationResult> replayResults = owned.replaySystemMutations(
@@ -1707,7 +1752,7 @@ class OwnerLeaseTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+                    new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
             owned.markCatchingUp(
                     new SourceAssignment(shardId, Bytes.sha256(Bytes.utf8("assignment-mixed-replay")), 1, barrier));
             final List<SourceReplayOutcome> outcomes = owned.replay(
@@ -1763,12 +1808,12 @@ class OwnerLeaseTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+                    new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
             assertThrows(IllegalArgumentException.class, () -> owned.markCatchingUp(assignment));
 
             final InMemoryOwnerLeaseStore matchingAuthority = new InMemoryOwnerLeaseStore();
             final OwnedDelayShard matching = new OwnedDelayShard(
-                    new DelayShard(store, DelayShardConfig.defaults()),
+                    BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()),
                     matchingAuthority
                             .acquire(assignment, "worker-b", Bytes.sha256(Bytes.utf8("session-8b")), 100, 100)
                             .orElseThrow());
@@ -1796,7 +1841,7 @@ class OwnerLeaseTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+                    new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
             assertThrows(IllegalArgumentException.class, () -> owned.markCatchingUp(replayedAssignment));
         }
     }
@@ -1820,7 +1865,8 @@ class OwnerLeaseTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), legacyContextLease);
+                    new OwnedDelayShard(
+                            BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), legacyContextLease);
             assertThrows(IllegalArgumentException.class, () -> owned.markCatchingUp(assignment));
             assertEquals(ShardLifecycleState.RESTORING, owned.state());
         }
@@ -1853,7 +1899,7 @@ class OwnerLeaseTest {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("renewal"));
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shard, resources)) {
-            owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+            owned = new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
             assertThrows(
                     IllegalArgumentException.class,
                     () -> owned.updateLease(new OwnerLease(shard, "worker-b", 7, new byte[32], 250)));
@@ -1880,7 +1926,7 @@ class OwnerLeaseTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+                    new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
             final UUID topic = UUID.randomUUID();
             final KafkaActivationBarrier barrier = new KafkaActivationBarrier(shardId, "cluster", topic, 0);
             owned.markCatchingUp(
@@ -1922,7 +1968,7 @@ class OwnerLeaseTest {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("empty-pulsar-barrier"));
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
-            final DelayShard delegate = new DelayShard(store, DelayShardConfig.defaults());
+            final DelayShard delegate = BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults());
             final PreparedCommand command = PreparedCommand.schedule(
                     shardId,
                     new ScheduleIntent(
@@ -1956,7 +2002,7 @@ class OwnerLeaseTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+                    new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
             owned.markCatchingUp(
                     new SourceAssignment(shardId, Bytes.sha256(Bytes.utf8("assignment-cursor-fence")), 1, barrier));
             owned.recordCatchup(first);
@@ -2017,7 +2063,7 @@ class OwnerLeaseTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+                    new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
             owned.markCatchingUp(
                     new SourceAssignment(shardId, Bytes.sha256(Bytes.utf8("assignment-pulsar")), 1, barrier));
             assertThrows(IllegalArgumentException.class, () -> owned.recordCatchup(catchup));

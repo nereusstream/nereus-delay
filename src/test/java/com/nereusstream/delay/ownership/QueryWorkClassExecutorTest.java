@@ -7,7 +7,6 @@ import com.nereusstream.delay.protocol.KafkaActivationBarrier;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.runtime.DelayShard;
 import com.nereusstream.delay.runtime.DelayShardConfig;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClass;
@@ -134,7 +133,8 @@ class QueryWorkClassExecutorTest {
                         assignment, "query-owner", Bytes.sha256(Bytes.utf8("query-session-" + name)), 100, 100)
                 .orElseThrow();
         final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
-        final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+        final OwnedDelayShard owned = new OwnedDelayShard(
+                BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
         owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
         owned.recordCatchup(new KafkaSourcePosition(shard, "query-cluster", topic, 0, null, 1_000));
         owned.activateForCommands(authority, 101);

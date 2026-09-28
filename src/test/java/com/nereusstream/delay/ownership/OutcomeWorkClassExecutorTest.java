@@ -14,7 +14,6 @@ import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
-import com.nereusstream.delay.runtime.DelayShard;
 import com.nereusstream.delay.runtime.DelayShardConfig;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClass;
@@ -147,7 +146,7 @@ class OutcomeWorkClassExecutorTest {
                 lease.ownerEpoch(),
                 Bytes.sha256(Bytes.utf8("outcome-fence")));
         final OwnedDelayShard owned =
-                new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease, owner);
+                new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease, owner);
         owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
         owned.recordCatchup(new KafkaSourcePosition(shard, "outcome-cluster", topic, 0, null, 1_000));
         owned.activateForCommands(authority, 101);

@@ -469,7 +469,7 @@ class SourceApplyCoordinatorTest {
             resources = new SharedRocksDbResources(config);
             store = ShardStore.open(config, shard, resources);
             final DelayShard delegate = headReadPolicy == null
-                    ? new DelayShard(store, DelayShardConfig.defaults())
+                    ? BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults())
                     : new DelayShard(
                             store,
                             DelayShardConfig.defaults(),

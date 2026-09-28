@@ -38,7 +38,7 @@
         "evidence/a2-head-integration-results.json",
         "evidence/a2-head-integration-check.log"
       ],
-      "progress": "Shared READY discovery and head mutation/control/Claim plans, pre-batch view guards, source/recovery zero-write retries and consecutive elapsed diagnostics verified. Maximum legal mutation envelope and mandatory finite production activation remain pending; compatibility constructors are not certified.",
+      "progress": "Shared READY discovery and head mutation/control/Claim plans, pre-batch view guards, source/recovery zero-write retries and consecutive elapsed diagnostics verified. Strict authoritative Owner activation now rejects any MAX_VALUE head-read budget sentinel before opened-epoch/recovery writes or lease transition; the RocksDB/lease regression verifies no mutation on rejection. Maximum legal mutation envelope and central validation remain pending; finite test fixtures do not certify production limits.",
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
       "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."

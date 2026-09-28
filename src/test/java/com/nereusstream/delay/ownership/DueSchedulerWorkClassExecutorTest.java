@@ -21,7 +21,6 @@ import com.nereusstream.delay.protocol.PublishAdmissionBodyTest;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
-import com.nereusstream.delay.runtime.DelayShard;
 import com.nereusstream.delay.runtime.DelayShardConfig;
 import com.nereusstream.delay.runtime.LaneRecord;
 import com.nereusstream.delay.runtime.MessageRecord;
@@ -135,7 +134,8 @@ class DueSchedulerWorkClassExecutorTest {
                     lease.ownerEpoch(),
                     Bytes.sha256(Bytes.utf8("due-work-owner-fence")));
             final OwnedDelayShard owned =
-                    new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease, owner);
+                    new OwnedDelayShard(
+                            BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease, owner);
             owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
             owned.recordCatchup(source);
             owned.activateForCommands(authority, 101);

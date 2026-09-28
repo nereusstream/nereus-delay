@@ -331,7 +331,7 @@ class LaneCloseWorkClassExecutorTest {
             final ShardStoreConfig config = ShardStoreConfig.defaults(root);
             resources = new SharedRocksDbResources(config);
             store = ShardStore.open(config, shardId, resources);
-            shard = new DelayShard(store, com.nereusstream.delay.runtime.DelayShardConfig.defaults());
+            shard = BoundedHeadReadDelayShard.create(store, com.nereusstream.delay.runtime.DelayShardConfig.defaults());
             message = PreparedCommand.schedule(
                     shardId,
                     new com.nereusstream.delay.protocol.ScheduleIntent(

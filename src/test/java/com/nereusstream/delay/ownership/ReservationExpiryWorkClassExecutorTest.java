@@ -209,7 +209,7 @@ class ReservationExpiryWorkClassExecutorTest {
             resources = new SharedRocksDbResources(config);
             store = ShardStore.open(config, shardId, resources);
             final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000, 10, 100, 4, 3, 100, 10_000);
-            shard = new DelayShard(store, shardConfig);
+            shard = BoundedHeadReadDelayShard.create(store, shardConfig);
             final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("reservation-expiry-lane"));
             final LargeScheduleIntent intent = new LargeScheduleIntent(
                     lane,
