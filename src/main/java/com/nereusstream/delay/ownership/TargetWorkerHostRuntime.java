@@ -214,7 +214,7 @@ public final class TargetWorkerHostRuntime {
         return !draining.contains(requested);
     }
 
-    /** Starts the single bounded ordinary Claim loop for this Host. */
+    /** Starts the single bounded ordinary-first Claim loop for this Host. */
     public synchronized TargetWorkerOrdinaryLoop startOrdinaryScheduling(
             final TargetWorkerTargetInventory.Limits inventoryLimits,
             final TargetWorkerOrdinaryDrr.Limits drrLimits,

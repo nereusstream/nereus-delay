@@ -266,13 +266,28 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
                                 awaitChange(observedRevision);
                                 break;
                             }
+                            if (host.targetQueueChangeRevision() != observedRevision) {
+                                awaitChange(observedRevision);
+                                break;
+                            }
                             final long now = monotonicClock.getAsLong();
                             if (now < 0 || now < lastMonotonic) {
                                 throw new IllegalStateException("Target ordinary monotonic clock moved backwards");
                             }
                             lastMonotonic = now;
-                            if (result.stop() != TargetWorkerOrdinaryDrr.Stop.CREDIT_WAIT
-                                    || turn + 1 == maximumCreditTurns
+                            if (scheduler.nativeWakeScanComplete(observedRevision)
+                                    && result.stop() != TargetWorkerOrdinaryDrr.Stop.CREDIT_WAIT) {
+                                if (result.stop() == TargetWorkerOrdinaryDrr.Stop.NORMAL
+                                        && scheduler.nativeWakeNeedsImmediateRescan(
+                                                schedulerClock.getAsLong(), observedRevision)
+                                        && turn + 1 < maximumCreditTurns
+                                        && now - creditCycleStarted < turnBudget.maxElapsedNanos()) {
+                                    continue;
+                                }
+                                awaitSchedulerChange(observedRevision, scheduler);
+                                break;
+                            }
+                            if (turn + 1 == maximumCreditTurns
                                     || now - creditCycleStarted >= turnBudget.maxElapsedNanos()) {
                                 awaitSchedulerChange(observedRevision, scheduler);
                                 break;
@@ -316,7 +331,7 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
             throw new IllegalStateException("Target ordinary next-wake requires trusted nonnegative time");
         }
         final long timeoutNanos = changeWaitNanos(
-                scheduler.nextOrdinaryWakeEpochMs(nowEpochMs), nowEpochMs, recheckNanos);
+                scheduler.nextWakeEpochMs(nowEpochMs, observedRevision), nowEpochMs, recheckNanos);
         awaitChange(observedRevision, Duration.ofNanos(timeoutNanos));
     }
 

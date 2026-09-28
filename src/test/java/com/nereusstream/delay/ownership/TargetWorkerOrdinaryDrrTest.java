@@ -1,6 +1,7 @@
 package com.nereusstream.delay.ownership;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.BrokerResourceIdentity;
@@ -19,6 +20,7 @@ import com.nereusstream.delay.protocol.TargetQuotaAccounting;
 import com.nereusstream.delay.runtime.TargetHeadCostProbe;
 import com.nereusstream.delay.runtime.TargetQueueSnapshotReader;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
+import com.nereusstream.delay.scheduler.TargetNativePolicyChecks;
 import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.TargetKeyCodec;
 import java.util.HashMap;
@@ -186,6 +188,84 @@ class TargetWorkerOrdinaryDrrTest {
         assertTrue(ordinary.claims().isEmpty());
         assertEquals(List.of(nativeHead.ref()), nativeTurn.claims());
         assertEquals(50, nativeTurn.schedulingBytes());
+    }
+
+    @Test
+    void nativeWakeUsesTheEarliestBoundaryOnlyAfterACompleteTargetPass() {
+        final ShardId shard = shard(1);
+        final var firstTarget = nativeTarget(0);
+        final var secondTarget = nativeTarget(1);
+        final var first = nativeHeadAt(firstTarget, shard, 1_000, 3_000, 50);
+        final var second = nativeHeadAt(secondTarget, shard, 1_000, 3_000, 50);
+        final var reads = new FakeReads(first, second);
+        final var drr = schedule(
+                List.of(targetState(firstTarget, first), targetState(secondTarget, second)), reads, ONE_VISIT);
+        final TargetWorkerOrdinaryDrr.NativeSelector<TargetHeadRef> selector = (source, cost) ->
+                new TargetWorkerOrdinaryDrr.NativeSelection<>(
+                        Optional.empty(),
+                        OptionalLong.of(cost.head().target().equals(firstTarget.id()) ? 1_450 : 1_250));
+        final var budget = new SchedulerBudget(1, 200, 1_000_000_000L);
+
+        final var partial = drr.runNative(900, budget, selector, 7);
+
+        assertEquals(1, partial.targetVisits());
+        assertFalse(drr.nativeWakeScanComplete(7));
+        assertEquals(OptionalLong.of(3_000), drr.nextWakeEpochMs(900, 7));
+
+        final var complete = drr.runNative(900, budget, selector, 7);
+
+        assertEquals(1, complete.targetVisits());
+        assertTrue(drr.nativeWakeScanComplete(7));
+        assertEquals(OptionalLong.of(1_250), drr.nextWakeEpochMs(900, 7));
+        assertTrue(drr.nativeWakeNeedsImmediateRescan(1_300, 7));
+        assertFalse(drr.nativeWakeNeedsImmediateRescan(1_249, 7));
+        assertEquals(OptionalLong.of(3_000), drr.nextWakeEpochMs(900, 8));
+        assertEquals(
+                350_000_000L,
+                TargetWorkerOrdinaryLoop.changeWaitNanos(drr.nextWakeEpochMs(900, 7), 900, 1_000_000_000L));
+
+        final var newRevision = drr.runNative(900, budget, selector, 8);
+
+        assertEquals(1, newRevision.targetVisits());
+        assertFalse(drr.nativeWakeScanComplete(8));
+        assertEquals(OptionalLong.of(3_000), drr.nextWakeEpochMs(900, 8));
+
+        drr.refreshSnapshot(new TargetWorkerTargetInventory.Snapshot(
+                List.of(targetState(firstTarget, first), targetState(secondTarget, second)), reads.cuts()));
+
+        assertFalse(drr.nativeWakeScanComplete(7));
+        assertEquals(OptionalLong.of(3_000), drr.nextWakeEpochMs(900, 7));
+    }
+
+    @Test
+    void nativePolicyWakeUsesFutureWaitAndTimeSampleBoundariesBeforeExpiry() {
+        final var boundaryWait = new TargetNativePolicyChecks.Decision(
+                TargetNativePolicyChecks.Action.WAIT_UNTIL,
+                TargetNativePolicyChecks.Reason.BEFORE_NATIVE_BOUNDARY,
+                1_250,
+                1_250L,
+                null,
+                false);
+        final var timeSample = new TargetNativePolicyChecks.Decision(
+                TargetNativePolicyChecks.Action.TIME_SAMPLE_REQUIRED,
+                TargetNativePolicyChecks.Reason.TIME_REQUIRED,
+                1_400,
+                1_250L,
+                null,
+                false);
+        final var noWait = new TargetNativePolicyChecks.Decision(
+                TargetNativePolicyChecks.Action.ORDINARY_DUE,
+                TargetNativePolicyChecks.Reason.POLICY_DISABLED,
+                2_000,
+                null,
+                null,
+                false);
+
+        assertEquals(OptionalLong.of(1_250), TargetWorkerOrdinaryDrr.nativePolicyWake(boundaryWait, 900, 3_000));
+        assertEquals(OptionalLong.of(1_400), TargetWorkerOrdinaryDrr.nativePolicyWake(timeSample, 900, 3_000));
+        assertEquals(OptionalLong.empty(), TargetWorkerOrdinaryDrr.nativePolicyWake(boundaryWait, 1_250, 3_000));
+        assertEquals(OptionalLong.empty(), TargetWorkerOrdinaryDrr.nativePolicyWake(boundaryWait, 900, 1_250));
+        assertEquals(OptionalLong.empty(), TargetWorkerOrdinaryDrr.nativePolicyWake(noWait, 900, 3_000));
     }
 
     @Test

@@ -173,11 +173,27 @@ public final class TargetWorkerOrdinaryDrr {
         Optional<ClaimAction<T>> select(ShardId shard, TargetHeadCostProbe.Cost cost);
     }
 
+    @FunctionalInterface
+    interface NativeSelector<T> {
+        NativeSelection<T> select(ShardId shard, TargetHeadCostProbe.Cost cost);
+    }
+
+    record NativeSelection<T>(Optional<ClaimAction<T>> action, OptionalLong nextWakeEpochMs) {
+        NativeSelection {
+            Objects.requireNonNull(action, "action");
+            Objects.requireNonNull(nextWakeEpochMs, "nextWakeEpochMs");
+            if (nextWakeEpochMs.isPresent() && nextWakeEpochMs.getAsLong() < 0) {
+                throw new IllegalArgumentException("Target Native next-wake time must be nonnegative");
+            }
+        }
+    }
+
     private record Claimed<T>(T value, long cost) {}
 
     private record Candidate<T>(int sourceIndex, int domainIndex, int domainCount, long cost, ClaimAction<T> action) {}
 
-    private record Selection<T>(Optional<Candidate<T>> candidate, boolean due, boolean budgetBlocked) {}
+    private record Selection<T>(
+            Optional<Candidate<T>> candidate, boolean due, boolean budgetBlocked, Long nextWakeEpochMs) {}
 
     private enum VisitKind {
         CLAIMED,
@@ -186,7 +202,7 @@ public final class TargetWorkerOrdinaryDrr {
         UNAVAILABLE
     }
 
-    private record Visit<T>(VisitKind kind, Claimed<T> claimed) {}
+    private record Visit<T>(VisitKind kind, Claimed<T> claimed, Long nextWakeEpochMs) {}
 
     private final TargetWorkerHostRuntime host;
     private Map<ShardId, TargetWorkerShardRuntime> workers;
@@ -197,6 +213,11 @@ public final class TargetWorkerOrdinaryDrr {
     private List<TargetState> ring;
     private final NavigableMap<Long, Set<TargetPartitionId>> ordinaryWakeTargets = new TreeMap<>();
     private final Map<TargetPartitionId, Long> ordinaryWakeByTarget = new HashMap<>();
+    private final Set<TargetPartitionId> nativeWakePassTargets = new HashSet<>();
+    private final Map<TargetPartitionId, Long> nativeWakePassByTarget = new HashMap<>();
+    private long nativeWakePassRevision = -1;
+    private long nativeWakeCompleteRevision = -1;
+    private Long nextNativeWakeEpochMs;
     private Map<ShardId, TargetQueueSnapshotReader.Cut> inventoryCuts;
     private final Set<TargetPartitionId> firstPassPending = new HashSet<>();
     private final boolean firstPassRequired;
@@ -321,15 +342,20 @@ public final class TargetWorkerOrdinaryDrr {
             throw new IllegalArgumentException("Target Native Claim requires a nonnegative queue revision");
         }
         if (host.targetQueueChangeRevision() != expectedQueueRevision) {
+            resetNativeWakeScan();
             return new Turn<>(List.of(), 0, 0, Stop.NORMAL);
         }
         return runNative(
-                nowEpochMs, budget, nativeClaimSelector(nowEpochMs, requests, expectedQueueRevision));
+                nowEpochMs,
+                budget,
+                nativeClaimSelector(nowEpochMs, requests, expectedQueueRevision),
+                expectedQueueRevision);
     }
 
     /** Admits a new complete Host inventory after the recovery first pass, retaining unchanged Target shares. */
     public synchronized void refreshInventory(final TargetWorkerTargetInventory.Result inventory) {
         Objects.requireNonNull(host, "host");
+        resetNativeWakeScan();
         final var complete = Objects.requireNonNull(inventory, "inventory");
         if (complete.stop() != TargetWorkerTargetInventory.Stop.COMPLETE) {
             throw new IllegalArgumentException("Target DRR refresh requires a complete Host inventory");
@@ -356,6 +382,7 @@ public final class TargetWorkerOrdinaryDrr {
     /** Process-state seam; production first consumes the exact inventory built by its Host. */
     synchronized void refreshSnapshot(final TargetWorkerTargetInventory.Snapshot inventory) {
         final var exact = Objects.requireNonNull(inventory, "inventory");
+        resetNativeWakeScan();
         if (!firstPassReady) {
             restartRecoveryFirstPass(exact);
             return;
@@ -416,6 +443,36 @@ public final class TargetWorkerOrdinaryDrr {
         return next == null ? OptionalLong.empty() : OptionalLong.of(next);
     }
 
+    synchronized OptionalLong nextWakeEpochMs(final long nowEpochMs, final long expectedQueueRevision) {
+        OptionalLong next = nextOrdinaryWakeEpochMs(nowEpochMs);
+        if (expectedQueueRevision < 0
+                || nativeWakeCompleteRevision != expectedQueueRevision
+                || host != null && host.targetQueueChangeRevision() != expectedQueueRevision) {
+            return next;
+        }
+        if (nextNativeWakeEpochMs != null && nextNativeWakeEpochMs > nowEpochMs
+                && (next.isEmpty() || nextNativeWakeEpochMs < next.getAsLong())) {
+            next = OptionalLong.of(nextNativeWakeEpochMs);
+        }
+        return next;
+    }
+
+    synchronized boolean nativeWakeScanComplete(final long expectedQueueRevision) {
+        return expectedQueueRevision >= 0
+                && nativeWakeCompleteRevision == expectedQueueRevision
+                && (host == null || host.targetQueueChangeRevision() == expectedQueueRevision);
+    }
+
+    synchronized boolean nativeWakeNeedsImmediateRescan(
+            final long nowEpochMs, final long expectedQueueRevision) {
+        if (nowEpochMs < 0) {
+            throw new IllegalArgumentException("Target Native wake check requires trusted nonnegative time");
+        }
+        return nativeWakeScanComplete(expectedQueueRevision)
+                && nextNativeWakeEpochMs != null
+                && nextNativeWakeEpochMs <= nowEpochMs;
+    }
+
     synchronized int targetCount() {
         return ring.size();
     }
@@ -429,6 +486,7 @@ public final class TargetWorkerOrdinaryDrr {
         if (!reads.membershipCurrent()) {
             throw new IllegalStateException("Target DRR source membership changed");
         }
+        resetNativeWakeScan();
         final int targetIndex = targetIndex(exactId);
         if (targetIndex < 0) {
             host.unregisterTargetWakeup(exactId);
@@ -545,6 +603,48 @@ public final class TargetWorkerOrdinaryDrr {
         }
     }
 
+    private void resetNativeWakeScan() {
+        nativeWakePassTargets.clear();
+        nativeWakePassByTarget.clear();
+        nativeWakePassRevision = -1;
+        nativeWakeCompleteRevision = -1;
+        nextNativeWakeEpochMs = null;
+    }
+
+    private void recordNativeWakeObservation(
+            final TargetPartitionId targetId,
+            final Long wakeEpochMs,
+            final long expectedQueueRevision,
+            final long nowEpochMs) {
+        if (nativeWakePassRevision != expectedQueueRevision) {
+            nativeWakePassTargets.clear();
+            nativeWakePassByTarget.clear();
+            nativeWakePassRevision = expectedQueueRevision;
+            nativeWakeCompleteRevision = -1;
+            nextNativeWakeEpochMs = null;
+        } else if (nativeWakePassTargets.isEmpty() && nativeWakeCompleteRevision == expectedQueueRevision) {
+            nativeWakeCompleteRevision = -1;
+            nextNativeWakeEpochMs = null;
+        }
+        nativeWakePassTargets.add(targetId);
+        if (wakeEpochMs != null && wakeEpochMs > nowEpochMs) {
+            nativeWakePassByTarget.put(targetId, wakeEpochMs);
+        } else {
+            nativeWakePassByTarget.remove(targetId);
+        }
+        if (nativeWakePassTargets.size() == ring.size()
+                && ring.stream().allMatch(target -> nativeWakePassTargets.contains(target.id))) {
+            Long earliest = null;
+            for (Long candidate : nativeWakePassByTarget.values()) {
+                earliest = earliest == null ? candidate : Math.min(earliest, candidate);
+            }
+            nativeWakeCompleteRevision = expectedQueueRevision;
+            nextNativeWakeEpochMs = earliest;
+            nativeWakePassTargets.clear();
+            nativeWakePassByTarget.clear();
+        }
+    }
+
     private void requireRefreshReady(final TargetWorkerTargetInventory.Snapshot inventory) {
         if (!firstPassReady) {
             throw new IllegalStateException("Target recovery first pass must be frozen before inventory refresh");
@@ -553,6 +653,7 @@ public final class TargetWorkerOrdinaryDrr {
     }
 
     private void restartRecoveryFirstPass(final TargetWorkerTargetInventory.Snapshot inventory) {
+        resetNativeWakeScan();
         if (!firstPassRequired) {
             throw new IllegalStateException("Target recovery first pass is not enabled");
         }
@@ -599,12 +700,12 @@ public final class TargetWorkerOrdinaryDrr {
                         ownerClock));
     }
 
-    private Selector<TargetClaimRecord> nativeClaimSelector(
+    private NativeSelector<TargetClaimRecord> nativeClaimSelector(
             final long nowEpochMs, final Requests requests, final long expectedQueueRevision) {
         Objects.requireNonNull(requests, "requests");
         return (shard, cost) -> {
             if (host.targetQueueChangeRevision() != expectedQueueRevision) {
-                return Optional.empty();
+                return new NativeSelection<>(Optional.empty(), OptionalLong.empty());
             }
             final var projection = cost.nativeProjection();
             if (projection == null) {
@@ -613,7 +714,7 @@ public final class TargetWorkerOrdinaryDrr {
             final Optional<NativePolicyContext> contextResult =
                     requests.resolveNativePolicyContext(worker(shard), cost);
             if (contextResult.isEmpty()) {
-                return Optional.empty();
+                return new NativeSelection<>(Optional.empty(), OptionalLong.empty());
             }
             final NativePolicyContext context = contextResult.orElseThrow();
             final var work = projection.work();
@@ -631,17 +732,18 @@ public final class TargetWorkerOrdinaryDrr {
                     context.trust(),
                     position,
                     time);
+            final OptionalLong nextWake = nativePolicyWake(decision, nowEpochMs, cost.expireAtEpochMs());
             if (decision.action() != TargetNativePolicyChecks.Action.NATIVE_CANDIDATE
                     || decision.nativeActionAtEpochMs() == null
                     || decision.policyHeadRef() == null
                     || nowEpochMs < decision.nativeActionAtEpochMs()
                     || nowEpochMs >= cost.deliverAtEpochMs()
                     || nowEpochMs >= cost.expireAtEpochMs()) {
-                return Optional.empty();
+                return new NativeSelection<>(Optional.empty(), nextWake);
             }
             final Optional<Request> requestResult = requests.resolve(worker(shard), cost);
             if (requestResult.isEmpty()) {
-                return Optional.empty();
+                return new NativeSelection<>(Optional.empty(), OptionalLong.empty());
             }
             final Request request = requestResult.orElseThrow();
             final var authority = nativeCommitAuthority(
@@ -660,19 +762,34 @@ public final class TargetWorkerOrdinaryDrr {
                     request.operationDigest(),
                     request.quota(),
                     authority);
-            return Optional.of(() -> host.claim(
-                    worker(shard),
-                    budget(),
-                    cost.head(),
-                    guarded.owner(),
-                    nowEpochMs,
-                    guarded.deadlineEpochMs(),
-                    cost.executionBytes(),
-                    guarded.operationDigest(),
-                    guarded.quota(),
-                    guarded.physicalWrites(),
-                    ownerClock));
+            return new NativeSelection<>(
+                    Optional.of(() -> host.claim(
+                            worker(shard),
+                            budget(),
+                            cost.head(),
+                            guarded.owner(),
+                            nowEpochMs,
+                            guarded.deadlineEpochMs(),
+                            cost.executionBytes(),
+                            guarded.operationDigest(),
+                            guarded.quota(),
+                            guarded.physicalWrites(),
+                            ownerClock)),
+                    OptionalLong.empty());
         };
+    }
+
+    static OptionalLong nativePolicyWake(
+            final TargetNativePolicyChecks.Decision decision,
+            final long nowEpochMs,
+            final long expireAtEpochMs) {
+        if ((decision.action() == TargetNativePolicyChecks.Action.WAIT_UNTIL
+                        || decision.action() == TargetNativePolicyChecks.Action.TIME_SAMPLE_REQUIRED)
+                && decision.wakeAtEpochMs() > nowEpochMs
+                && decision.wakeAtEpochMs() < expireAtEpochMs) {
+            return OptionalLong.of(decision.wakeAtEpochMs());
+        }
+        return OptionalLong.empty();
     }
 
     private TargetStoreBackend.CommitAuthority nativeCommitAuthority(
@@ -846,8 +963,25 @@ public final class TargetWorkerOrdinaryDrr {
 
     synchronized <T> Turn<T> runNative(
             final long nowEpochMs, final SchedulerBudget budget, final Selector<T> selector) {
+        Objects.requireNonNull(selector, "selector");
+        final long expectedQueueRevision = host == null ? 0 : host.targetQueueChangeRevision();
+        return runNative(
+                nowEpochMs,
+                budget,
+                (shard, cost) -> new NativeSelection<>(selector.select(shard, cost), OptionalLong.empty()),
+                expectedQueueRevision);
+    }
+
+    synchronized <T> Turn<T> runNative(
+            final long nowEpochMs,
+            final SchedulerBudget budget,
+            final NativeSelector<T> selector,
+            final long expectedQueueRevision) {
         if (nowEpochMs < 0) {
             throw new IllegalArgumentException("Target Native DRR requires trusted nonnegative time");
+        }
+        if (expectedQueueRevision < 0) {
+            throw new IllegalArgumentException("Target Native DRR requires a nonnegative queue revision");
         }
         Objects.requireNonNull(budget, "budget");
         Objects.requireNonNull(selector, "selector");
@@ -857,6 +991,23 @@ public final class TargetWorkerOrdinaryDrr {
         if (!reads.membershipCurrent()) {
             throw new IllegalStateException("Target Native DRR source membership changed");
         }
+        if (host != null && host.targetQueueChangeRevision() != expectedQueueRevision) {
+            resetNativeWakeScan();
+            return new Turn<>(List.of(), 0, 0, Stop.NORMAL);
+        }
+        if (nativeWakePassRevision != expectedQueueRevision
+                || nativeWakePassTargets.isEmpty() && nativeWakeCompleteRevision == expectedQueueRevision) {
+            nativeWakePassTargets.clear();
+            nativeWakePassByTarget.clear();
+            nativeWakePassRevision = expectedQueueRevision;
+            nativeWakeCompleteRevision = -1;
+            nextNativeWakeEpochMs = null;
+        }
+        if (ring.isEmpty()) {
+            nativeWakeCompleteRevision = expectedQueueRevision;
+            nextNativeWakeEpochMs = null;
+            return new Turn<>(List.of(), 0, 0, Stop.NORMAL);
+        }
         final long started = clock();
         final List<T> claims = new ArrayList<>();
         long bytes = 0;
@@ -864,6 +1015,8 @@ public final class TargetWorkerOrdinaryDrr {
         boolean creditWait = false;
         boolean budgetWait = false;
         while (!ring.isEmpty()
+                && nativeWakeCompleteRevision != expectedQueueRevision
+                && nativeWakePassTargets.size() < ring.size()
                 && visits < limits.maximumVisitsPerTurn()
                 && claims.isEmpty()
                 && bytes < budget.maxBytes()
@@ -871,10 +1024,18 @@ public final class TargetWorkerOrdinaryDrr {
             if (!reads.membershipCurrent()) {
                 throw new IllegalStateException("Target Native DRR source membership changed");
             }
+            if (host != null && host.targetQueueChangeRevision() != expectedQueueRevision) {
+                resetNativeWakeScan();
+                return new Turn<>(claims, visits, bytes, Stop.NORMAL);
+            }
             final TargetState target = ring.get(cursor);
             cursor = cursor == ring.size() - 1 ? 0 : cursor + 1;
+            if (nativeWakePassTargets.contains(target.id)) {
+                continue;
+            }
             visits++;
             if (!firstPassPending.isEmpty() && !firstPassPending.contains(target.id)) {
+                recordNativeWakeObservation(target.id, null, expectedQueueRevision, nowEpochMs);
                 continue;
             }
             final Visit<T> visit;
@@ -883,6 +1044,15 @@ public final class TargetWorkerOrdinaryDrr {
             } catch (ReadIncompleteException incomplete) {
                 return new Turn<>(claims, visits, bytes, Stop.READ_INCOMPLETE);
             }
+            if (host != null && host.targetQueueChangeRevision() != expectedQueueRevision) {
+                if (visit.kind() == VisitKind.CLAIMED) {
+                    claims.add(visit.claimed().value());
+                    bytes = Math.addExact(bytes, visit.claimed().cost());
+                }
+                resetNativeWakeScan();
+                return new Turn<>(claims, visits, bytes, Stop.NORMAL);
+            }
+            recordNativeWakeObservation(target.id, visit.nextWakeEpochMs(), expectedQueueRevision, nowEpochMs);
             if (visit.kind() == VisitKind.UNAVAILABLE || visit.kind() == VisitKind.CLAIMED) {
                 firstPassPending.remove(target.id);
             }
@@ -907,42 +1077,51 @@ public final class TargetWorkerOrdinaryDrr {
             final long credited = addQuantum(target.credit);
             if (candidate.cost() > credited) {
                 target.credit = credited;
-                return new Visit<>(VisitKind.CREDIT_WAIT, null);
+                return new Visit<>(VisitKind.CREDIT_WAIT, null, null);
             }
             final T claimed = Objects.requireNonNull(candidate.action().commit(), "Claim result");
             target.credit = credited - candidate.cost();
             target.sourceCursor = (candidate.sourceIndex() + 1) % target.sources.size();
             target.sources.get(candidate.sourceIndex()).domainCursor =
                     (candidate.domainIndex() + 1) % candidate.domainCount();
-            return new Visit<>(VisitKind.CLAIMED, new Claimed<>(claimed, candidate.cost()));
+            return new Visit<>(VisitKind.CLAIMED, new Claimed<>(claimed, candidate.cost()), null);
         }
         if (!selection.due() || !selection.budgetBlocked()) {
             target.credit = 0;
         }
-        return new Visit<>(selection.budgetBlocked() ? VisitKind.BUDGET_WAIT : VisitKind.UNAVAILABLE, null);
+        return new Visit<>(selection.budgetBlocked() ? VisitKind.BUDGET_WAIT : VisitKind.UNAVAILABLE, null, null);
     }
 
     private <T> Visit<T> visitNative(
-            final TargetState target, final long nowEpochMs, final long remainingBytes, final Selector<T> selector) {
+            final TargetState target,
+            final long nowEpochMs,
+            final long remainingBytes,
+            final NativeSelector<T> selector) {
         final Selection<T> selection = selectNativeCandidate(target, nowEpochMs, remainingBytes, selector);
         if (selection.candidate().isPresent()) {
             final Candidate<T> candidate = selection.candidate().orElseThrow();
             final long credited = addQuantum(target.credit);
             if (candidate.cost() > credited) {
                 target.credit = credited;
-                return new Visit<>(VisitKind.CREDIT_WAIT, null);
+                return new Visit<>(VisitKind.CREDIT_WAIT, null, selection.nextWakeEpochMs());
             }
             final T claimed = Objects.requireNonNull(candidate.action().commit(), "Native Claim result");
             target.credit = credited - candidate.cost();
             target.sourceCursor = (candidate.sourceIndex() + 1) % target.sources.size();
             target.sources.get(candidate.sourceIndex()).domainCursor =
                     (candidate.domainIndex() + 1) % candidate.domainCount();
-            return new Visit<>(VisitKind.CLAIMED, new Claimed<>(claimed, candidate.cost()));
+            return new Visit<>(
+                    VisitKind.CLAIMED,
+                    new Claimed<>(claimed, candidate.cost()),
+                    selection.nextWakeEpochMs());
         }
         if (!selection.due() || !selection.budgetBlocked()) {
             target.credit = 0;
         }
-        return new Visit<>(selection.budgetBlocked() ? VisitKind.BUDGET_WAIT : VisitKind.UNAVAILABLE, null);
+        return new Visit<>(
+                selection.budgetBlocked() ? VisitKind.BUDGET_WAIT : VisitKind.UNAVAILABLE,
+                null,
+                selection.nextWakeEpochMs());
     }
 
     private <T> Selection<T> selectCandidate(
@@ -1007,16 +1186,21 @@ public final class TargetWorkerOrdinaryDrr {
                         Optional.of(new Candidate<>(
                                 sourceIndex, domainIndex, domains.size(), cost.schedulingCost(), action.orElseThrow())),
                         true,
-                        budgetBlocked);
+                        budgetBlocked,
+                        null);
             }
         }
-        return new Selection<>(Optional.empty(), due, budgetBlocked);
+        return new Selection<>(Optional.empty(), due, budgetBlocked, null);
     }
 
     private <T> Selection<T> selectNativeCandidate(
-            final TargetState target, final long nowEpochMs, final long remainingBytes, final Selector<T> selector) {
+            final TargetState target,
+            final long nowEpochMs,
+            final long remainingBytes,
+            final NativeSelector<T> selector) {
         boolean due = false;
         boolean budgetBlocked = false;
+        Long nextWakeEpochMs = null;
         sources:
         for (int offset = 0; offset < target.sources.size(); offset++) {
             final int sourceIndex = (target.sourceCursor + offset) % target.sources.size();
@@ -1058,8 +1242,15 @@ public final class TargetWorkerOrdinaryDrr {
                 if (cost.schedulingCost() > limits.maximumCostBytes()) {
                     throw new IllegalStateException("Target Native head exceeds activated maximum cost");
                 }
-                final Optional<ClaimAction<T>> action = selector.select(source.shard, cost);
-                if (action.isEmpty()) {
+                final NativeSelection<T> selected = Objects.requireNonNull(
+                        selector.select(source.shard, cost), "Native selection");
+                if (selected.nextWakeEpochMs().isPresent()
+                        && selected.nextWakeEpochMs().getAsLong() > nowEpochMs) {
+                    nextWakeEpochMs = nextWakeEpochMs == null
+                            ? selected.nextWakeEpochMs().getAsLong()
+                            : Math.min(nextWakeEpochMs, selected.nextWakeEpochMs().getAsLong());
+                }
+                if (selected.action().isEmpty()) {
                     continue;
                 }
                 due = true;
@@ -1069,12 +1260,17 @@ public final class TargetWorkerOrdinaryDrr {
                 }
                 return new Selection<>(
                         Optional.of(new Candidate<>(
-                                sourceIndex, domainIndex, domains.size(), cost.schedulingCost(), action.orElseThrow())),
+                                sourceIndex,
+                                domainIndex,
+                                domains.size(),
+                                cost.schedulingCost(),
+                                selected.action().orElseThrow())),
                         true,
-                        budgetBlocked);
+                        budgetBlocked,
+                        nextWakeEpochMs);
             }
         }
-        return new Selection<>(Optional.empty(), due, budgetBlocked);
+        return new Selection<>(Optional.empty(), due, budgetBlocked, nextWakeEpochMs);
     }
 
     private long addQuantum(final long current) {
