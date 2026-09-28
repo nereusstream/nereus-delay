@@ -351,6 +351,95 @@ public final class TargetWorkerOrdinaryDrr {
         cursor = nextCursor;
     }
 
+    /** Refreshes one registered Target across the exact active Shard set without rebuilding the inventory. */
+    synchronized boolean refreshTarget(final TargetPartitionId targetId) {
+        final var exactId = Objects.requireNonNull(targetId, "targetId");
+        if (host == null || !firstPassReady) {
+            throw new IllegalStateException("Target wake refresh requires an active ordinary scheduler");
+        }
+        if (!reads.membershipCurrent()) {
+            throw new IllegalStateException("Target DRR source membership changed");
+        }
+        final int targetIndex = targetIndex(exactId);
+        if (targetIndex < 0) {
+            host.unregisterTargetWakeup(exactId);
+            return true;
+        }
+        final TargetState previous = ring.get(targetIndex);
+        final List<TargetWorkerTargetInventory.Source> sources = new ArrayList<>();
+        for (TargetWorkerShardRuntime worker : host.currentTargetWorkers()) {
+            final Optional<TargetQueueSnapshotReader.Entry> entry;
+            try {
+                entry = reads.refresh(worker.shardId(), exactId);
+            } catch (ReadIncompleteException incomplete) {
+                return false;
+            }
+            if (entry.isEmpty()) {
+                continue;
+            }
+            final var snapshot = entry.orElseThrow();
+            if (!Arrays.equals(previous.physical.canonicalBytes(), snapshot.physical().canonicalBytes())) {
+                throw new IllegalStateException("Target DRR physical identity changed during wake refresh");
+            }
+            sources.add(new TargetWorkerTargetInventory.Source(worker.shardId(), snapshot));
+        }
+        if (!reads.membershipCurrent()) {
+            throw new IllegalStateException("Target DRR source membership changed during wake refresh");
+        }
+        if (sources.isEmpty()) {
+            final TargetPartitionId next = nextTargetAfter(exactId);
+            final var updated = new ArrayList<>(ring);
+            updated.remove(targetIndex);
+            ring = List.copyOf(updated);
+            firstPassPending.remove(exactId);
+            cursor = cursorFor(next, ring);
+            host.unregisterTargetWakeup(exactId);
+            return true;
+        }
+        final var incoming = new TargetWorkerTargetInventory.Target(previous.physical, sources);
+        if (!previous.sameSources(incoming, inventoryCuts, workers)) {
+            final TargetState refreshed = new TargetState(incoming, inventoryCuts, workers);
+            final var updated = new ArrayList<>(ring);
+            updated.set(targetIndex, refreshed);
+            ring = List.copyOf(updated);
+        }
+        return true;
+    }
+
+    private int targetIndex(final TargetPartitionId targetId) {
+        for (int index = 0; index < ring.size(); index++) {
+            if (ring.get(index).id.equals(targetId)) {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    private TargetPartitionId nextTargetAfter(final TargetPartitionId targetId) {
+        if (ring.isEmpty()) {
+            return null;
+        }
+        for (int offset = 0; offset < ring.size(); offset++) {
+            final TargetPartitionId next = ring.get((cursor + offset) % ring.size()).id;
+            if (!next.equals(targetId)) {
+                return next;
+            }
+        }
+        return null;
+    }
+
+    private static int cursorFor(final TargetPartitionId nextTarget, final List<TargetState> targets) {
+        if (targets.isEmpty() || nextTarget == null) {
+            return 0;
+        }
+        for (int index = 0; index < targets.size(); index++) {
+            if (targets.get(index).id.equals(nextTarget)) {
+                return index;
+            }
+        }
+        return 0;
+    }
+
     private void requireRefreshReady(final TargetWorkerTargetInventory.Snapshot inventory) {
         if (!firstPassReady) {
             throw new IllegalStateException("Target recovery first pass must be frozen before inventory refresh");

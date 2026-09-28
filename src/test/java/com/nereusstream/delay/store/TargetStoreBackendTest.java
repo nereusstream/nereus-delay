@@ -2,17 +2,22 @@ package com.nereusstream.delay.store;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
+import com.nereusstream.delay.protocol.TargetPartitionId;
 import com.nereusstream.delay.protocol.TargetQuotaAggregate;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
 import com.nereusstream.delay.runtime.TargetQuotaDelta;
 import com.nereusstream.delay.runtime.TargetQuotaTotalsDelta;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -96,6 +101,43 @@ class TargetStoreBackendTest {
             backend.commit(next, (a, b, c) -> guard());
             assertEquals(2, store.shardMutationSequence());
         }
+    }
+
+    @Test
+    void targetWakeRegistrationsCoalesceAndFallBackToBoundedInventoryDiscovery() throws Exception {
+        final var signal = new TargetStoreBackend.TargetQueueChangeSignal();
+        signal.configureTargetLimit(2);
+        final var first = new TargetPartitionId(bytes(TargetPartitionId.LENGTH, 0x41));
+        final var second = new TargetPartitionId(bytes(TargetPartitionId.LENGTH, 0x42));
+        final var third = new TargetPartitionId(bytes(TargetPartitionId.LENGTH, 0x43));
+        signal.registerTargets(List.of(first));
+
+        final long beforeKnownTarget = signal.revision();
+        signal.signalChanges(Set.of(first), false);
+        signal.signalChanges(Set.of(first), false);
+        assertTrue(signal.awaitChange(beforeKnownTarget, Duration.ZERO));
+        final var knownChanges = signal.drainChanges();
+        assertFalse(knownChanges.inventoryDirty());
+        assertEquals(Set.of(first), knownChanges.dirtyTargets());
+
+        signal.registerTargets(List.of(first, second));
+        assertThrows(IllegalStateException.class, () -> signal.registerTargets(List.of(first, second, third)));
+        signal.signalChanges(Set.of(second), true);
+        final var joinedSourceChanges = signal.drainChanges();
+        assertFalse(joinedSourceChanges.inventoryDirty());
+        assertTrue(joinedSourceChanges.businessRecheck());
+        assertEquals(Set.of(second), joinedSourceChanges.dirtyTargets());
+
+        signal.signalChanges(Set.of(first), false);
+        signal.unregisterTarget(first);
+        final var concurrentRemoval = signal.drainChanges();
+        assertTrue(concurrentRemoval.inventoryDirty());
+        assertTrue(concurrentRemoval.dirtyTargets().isEmpty());
+
+        signal.signalChanges(Set.of(third), false);
+        final var unknownTarget = signal.drainChanges();
+        assertTrue(unknownTarget.inventoryDirty());
+        assertTrue(unknownTarget.dirtyTargets().isEmpty());
     }
 
     private TargetStoreBackend backend(final ShardStore store) {

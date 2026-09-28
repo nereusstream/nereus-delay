@@ -173,6 +173,18 @@ public final class TargetWorkerHostRuntime {
         return targetQueueChangeSignal.awaitChange(observedRevision, timeout);
     }
 
+    TargetStoreBackend.TargetQueueChangeSignal.Changes drainTargetQueueChanges() {
+        return targetQueueChangeSignal.drainChanges();
+    }
+
+    void registerTargetWakeups(final List<TargetPartitionId> targets) {
+        targetQueueChangeSignal.registerTargets(Objects.requireNonNull(targets, "targets"));
+    }
+
+    void unregisterTargetWakeup(final TargetPartitionId target) {
+        targetQueueChangeSignal.unregisterTarget(Objects.requireNonNull(target, "target"));
+    }
+
     /** Waits for one transiently busy Shard admission to release before retrying a bounded read. */
     public synchronized boolean awaitShardAdmission(
             final ShardId shardId, final Duration timeout) throws InterruptedException {
@@ -220,6 +232,7 @@ public final class TargetWorkerHostRuntime {
         if (ordinaryLoop != null) {
             throw new IllegalStateException("Target host ordinary scheduler is already started");
         }
+        targetQueueChangeSignal.configureTargetLimit(inventoryLimits.maximumTargets());
         for (Shard shard : shards) {
             if (shard instanceof TargetWorkerShardRuntime worker
                     && !withdrawn.contains(shard.shardId())

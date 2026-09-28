@@ -15,10 +15,12 @@ import com.nereusstream.delay.runtime.TargetResultLedgerAudit;
 import com.nereusstream.delay.runtime.TargetResultRecord;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -28,8 +30,20 @@ import java.util.function.Function;
 public final class TargetStoreBackend {
     /** Coalesced notification shared by the active Workers in one Target host. */
     public static final class TargetQueueChangeSignal {
+        public record Changes(
+                boolean inventoryDirty, boolean businessRecheck, Set<TargetPartitionId> dirtyTargets) {
+            public Changes {
+                dirtyTargets = Set.copyOf(Objects.requireNonNull(dirtyTargets, "dirtyTargets"));
+            }
+        }
+
         private final AtomicLong revision = new AtomicLong();
         private final Object monitor = new Object();
+        private final Set<TargetPartitionId> registeredTargets = new HashSet<>();
+        private final Set<TargetPartitionId> dirtyTargets = new HashSet<>();
+        private int maximumTargets;
+        private boolean inventoryDirty;
+        private boolean businessRecheck;
 
         public long revision() {
             return revision.get();
@@ -56,10 +70,79 @@ public final class TargetStoreBackend {
             }
         }
 
+        /** Applies the activated bound used by one Host's live Target registrations. */
+        public void configureTargetLimit(final int maximumTargets) {
+            if (maximumTargets <= 0) {
+                throw new IllegalArgumentException("Target wake registration requires a finite positive bound");
+            }
+            synchronized (monitor) {
+                if (this.maximumTargets != 0 && this.maximumTargets != maximumTargets) {
+                    throw new IllegalStateException("Target wake registration limit is already configured");
+                }
+                this.maximumTargets = maximumTargets;
+            }
+        }
+
+        /** Replaces the exact bounded set installed by a complete Host inventory. */
+        public void registerTargets(final Collection<TargetPartitionId> targets) {
+            final Set<TargetPartitionId> exact = Set.copyOf(Objects.requireNonNull(targets, "targets"));
+            synchronized (monitor) {
+                if (maximumTargets <= 0 || exact.size() > maximumTargets) {
+                    throw new IllegalStateException("Target wake registrations exceed the activated bound");
+                }
+                registeredTargets.clear();
+                registeredTargets.addAll(exact);
+                if (dirtyTargets.stream().anyMatch(target -> !registeredTargets.contains(target))) {
+                    inventoryDirty = true;
+                }
+                dirtyTargets.retainAll(registeredTargets);
+            }
+        }
+
+        /** Removes a target after a bounded refresh proves that no active source Store contains it. */
+        public void unregisterTarget(final TargetPartitionId target) {
+            final var exact = Objects.requireNonNull(target, "target");
+            synchronized (monitor) {
+                registeredTargets.remove(exact);
+                if (dirtyTargets.remove(exact)) {
+                    inventoryDirty = true;
+                }
+            }
+        }
+
+        /** Takes coalesced changes once; events arriving after this cut stay queued for the next turn. */
+        public Changes drainChanges() {
+            synchronized (monitor) {
+                final var result = new Changes(inventoryDirty, businessRecheck, dirtyTargets);
+                inventoryDirty = false;
+                businessRecheck = false;
+                dirtyTargets.clear();
+                return result;
+            }
+        }
+
         /** Publishes a committed business or host-membership change to bounded schedulers. */
         public void signal() {
-            revision.incrementAndGet();
             synchronized (monitor) {
+                revision.incrementAndGet();
+                inventoryDirty = true;
+                monitor.notifyAll();
+            }
+        }
+
+        /** Publishes changed queue keys without invalidating unrelated Target registrations. */
+        public void signalChanges(final Set<TargetPartitionId> targets, final boolean businessRecheck) {
+            final var exactTargets = Set.copyOf(Objects.requireNonNull(targets, "targets"));
+            synchronized (monitor) {
+                revision.incrementAndGet();
+                this.businessRecheck |= businessRecheck;
+                for (TargetPartitionId target : exactTargets) {
+                    if (registeredTargets.contains(target)) {
+                        dirtyTargets.add(target);
+                    } else {
+                        inventoryDirty = true;
+                    }
+                }
                 monitor.notifyAll();
             }
         }
@@ -588,6 +671,7 @@ public final class TargetStoreBackend {
         }
         final boolean hasBusinessChanges = prepared.mutation.business().stream()
                 .anyMatch(edit -> !Arrays.equals(edit.before, edit.after));
+        final var changedQueueTargets = changedQueueHeadTargets(prepared.mutation.business());
         final var writeCompleted = new AtomicBoolean();
         try (var guard = Objects.requireNonNull(
                 authority.acquire(store.metadata(), scope, prepared.mutation), "guard")) {
@@ -639,7 +723,7 @@ public final class TargetStoreBackend {
                         batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(5), Bytes.u64beBits(stamp.sequence()));
                     }
                 });
-                invalidateChangedQueueHeads(prepared.mutation.business());
+                invalidateChangedQueueHeads(changedQueueTargets);
                 writeCompleted.set(true);
                 return null;
             });
@@ -647,17 +731,14 @@ public final class TargetStoreBackend {
             if (writeCompleted.get() && hasBusinessChanges) {
                 final var signal = targetQueueChangeSignal;
                 if (signal != null) {
-                    signal.signal();
+                    signal.signalChanges(changedQueueTargets, true);
                 }
             }
         }
     }
 
-    private void invalidateChangedQueueHeads(final List<Edit> edits) {
-        final var cache = targetQueueHeadCache;
-        if (cache == null) {
-            return;
-        }
+    private static Set<TargetPartitionId> changedQueueHeadTargets(final List<Edit> edits) {
+        final Set<TargetPartitionId> targets = new HashSet<>();
         for (Edit edit : edits) {
             if (edit.family != ColumnFamily.META || Arrays.equals(edit.before, edit.after)) {
                 continue;
@@ -667,8 +748,19 @@ public final class TargetStoreBackend {
                     && key[1] == TargetKeyCodec.KEY_FORMAT
                     && (Byte.toUnsignedInt(key[0]) == TargetKeyCodec.STATE_TAG
                             || Byte.toUnsignedInt(key[0]) == TargetKeyCodec.IDENTITY_TAG)) {
-                cache.invalidate(new TargetPartitionId(Arrays.copyOfRange(key, 2, key.length)));
+                targets.add(new TargetPartitionId(Arrays.copyOfRange(key, 2, key.length)));
             }
+        }
+        return Set.copyOf(targets);
+    }
+
+    private void invalidateChangedQueueHeads(final Set<TargetPartitionId> targets) {
+        final var cache = targetQueueHeadCache;
+        if (cache == null) {
+            return;
+        }
+        for (TargetPartitionId target : targets) {
+            cache.invalidate(target);
         }
     }
 

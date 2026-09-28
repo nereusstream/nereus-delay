@@ -1,9 +1,13 @@
 package com.nereusstream.delay.ownership;
 
+import com.nereusstream.delay.protocol.TargetPartitionId;
 import com.nereusstream.delay.runtime.TargetClaimRecord;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
@@ -127,13 +131,22 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
     private void run() {
         TargetWorkerOrdinaryDrr scheduler = null;
         boolean recoveryReady = false;
+        boolean inventoryRefreshPending = true;
+        final Set<TargetPartitionId> pendingTargetRefresh = new LinkedHashSet<>();
         long lastMonotonic = -1;
         try {
             schedule:
             while (!closed) {
                 final long observedRevision = host.targetQueueChangeRevision();
+                final var changes = host.drainTargetQueueChanges();
+                inventoryRefreshPending |= changes.inventoryDirty() || (!recoveryReady && changes.businessRecheck());
+                pendingTargetRefresh.addAll(changes.dirtyTargets());
+                if (!recoveryReady && !pendingTargetRefresh.isEmpty()) {
+                    inventoryRefreshPending = true;
+                    pendingTargetRefresh.clear();
+                }
                 try {
-                    if (scheduler == null || recoveryReady) {
+                    if (scheduler == null || inventoryRefreshPending) {
                         final var inventory = host.rebuildTargetInventory(
                                 inventoryLimits, ownerClock, monotonicClock);
                         if (inventory.stop() != TargetWorkerTargetInventory.Stop.COMPLETE) {
@@ -145,6 +158,18 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
                             recoveryReady = false;
                         } else {
                             scheduler.refreshInventory(inventory);
+                        }
+                        host.registerTargetWakeups(
+                                inventory.snapshot().targets().stream()
+                                        .map(TargetWorkerTargetInventory.Target::id)
+                                        .toList());
+                        pendingTargetRefresh.clear();
+                        inventoryRefreshPending = false;
+                    } else if (scheduler != null && recoveryReady && !pendingTargetRefresh.isEmpty()) {
+                        for (var target : new ArrayList<>(pendingTargetRefresh)) {
+                            if (scheduler.refreshTarget(target)) {
+                                pendingTargetRefresh.remove(target);
+                            }
                         }
                     }
                     if (!recoveryReady) {
@@ -211,6 +236,8 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
                     reportFailure(failure);
                     scheduler = null;
                     recoveryReady = false;
+                    inventoryRefreshPending = true;
+                    pendingTargetRefresh.clear();
                     awaitChange(observedRevision);
                 }
             }
