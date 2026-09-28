@@ -2449,11 +2449,17 @@ public final class ShardStore implements AutoCloseable {
     }
 
     public synchronized void write(final BatchOperation operation) {
+        write(operation, RocksDB::write);
+    }
+
+    /** Package-local native boundary used to inject an ambiguous write response in Store tests. */
+    synchronized void write(final BatchOperation operation, final NativeWriteOperation nativeWrite) {
         ensureOpen();
         if (activeReadBudget != null) {
             throw new IllegalStateException("a read plan cannot commit a WriteBatch");
         }
         Objects.requireNonNull(operation, "operation");
+        Objects.requireNonNull(nativeWrite, "nativeWrite");
         boolean nativeWriteAttempted = false;
         try (WriteBatch batch = new WriteBatch();
                 WriteOptions writeOptions = new WriteOptions().setSync(true)) {
@@ -2463,7 +2469,7 @@ public final class ShardStore implements AutoCloseable {
             nativeWriteAttempted = true;
             nativeWriteCalls++;
             try {
-                db.write(writeOptions, batch);
+                nativeWrite.write(db, writeOptions, batch);
                 successfulWriteCalls++;
             } catch (RocksDBException exception) {
                 // RocksDB reports a native failure after the call boundary;
@@ -2969,6 +2975,11 @@ public final class ShardStore implements AutoCloseable {
     @FunctionalInterface
     public interface BatchOperation {
         void apply(Batch batch) throws RocksDBException;
+    }
+
+    @FunctionalInterface
+    interface NativeWriteOperation {
+        void write(RocksDB db, WriteOptions writeOptions, WriteBatch batch) throws RocksDBException;
     }
 
     @FunctionalInterface

@@ -47,11 +47,14 @@
       "id": "A3",
       "title": "审计及失败恢复",
       "status": "IN_PROGRESS",
-      "evidence": [],
+      "evidence": [
+        "evidence/a3-head-audit-write-recovery-results.json",
+        "evidence/a3-head-audit-write-recovery-check.log"
+      ],
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
       "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
-      "progress": "A real Lane Store regression now keeps a healthy READY head while corrupting a later DUE candidate; ordinary discovery still returns the head and fenced rebuild rejects the damaged tail. One focused test passed. Caller audit, failure injection, complete A2 budget proof and independent P0 acceptance remain pending."
+      "progress": "The current full-audit callers are READY activation and fenced READY-index rebuild; both audit candidate tails before publishing projections. A real RocksDB regression injects a later damaged DUE key and confirms rebuild rejection leaves the existing READY bytes and sequence unchanged. Store tests cover staged pre-write failure with zero commit and a real native batch commit followed by an injected lost response; the live Store fences, and reopen recovers the committed value. The A3 Lane/Store/KeyCodec/scheduler/Claim regression set passes 323 tests across 15 classes; Checkstyle and checkDocumentation pass. A2 maximum legal mutation envelope and central validation, independent P0 acceptance, and Broker/production evidence remain pending."
     },
     {
       "id": "B1",

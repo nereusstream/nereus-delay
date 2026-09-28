@@ -330,18 +330,63 @@ class ShardStoreTest {
     }
 
     @Test
-    void nativeWriteFailureHasATypeDistinctFromSemanticStaleness() {
+    void batchPreparationFailureDoesNotCommitOrFenceStore() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("write-failure-type"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 19);
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final byte[] key = Bytes.utf8("prewrite-failure-proof");
+            final byte[] value = Bytes.utf8("must-not-commit");
+            final long sequenceBefore = store.latestSequenceNumber();
+            final long writesBefore = store.operationStatistics().nativeWriteCalls();
             final ShardStore.RocksDbWriteFailure failure = assertThrows(
                     ShardStore.RocksDbWriteFailure.class,
                     () -> store.write(batch -> {
-                        throw new RocksDBException("synthetic native write failure");
+                        batch.put(ColumnFamily.META, key, value);
+                        throw new RocksDBException("synthetic batch preparation failure");
                     }));
             assertEquals("RocksDB write failed", failure.getMessage());
             assertTrue(failure.getCause() instanceof RocksDBException);
+            assertNull(store.get(ColumnFamily.META, key));
+            assertEquals(sequenceBefore, store.latestSequenceNumber());
+            assertEquals(writesBefore, store.operationStatistics().nativeWriteCalls());
+            assertFalse(store.isWriteOutcomeUncertain());
+
+            store.write(batch -> batch.put(ColumnFamily.META, key, Bytes.utf8("committed-after-failure")));
+            assertArrayEquals(Bytes.utf8("committed-after-failure"), store.get(ColumnFamily.META, key));
+        }
+    }
+
+    @Test
+    void unknownNativeWriteResultFencesUntilReopenAndRevealsCommittedBatch() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("unknown-write-result"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 38);
+        final byte[] key = Bytes.utf8("unknown-write-result-proof");
+        final byte[] value = Bytes.utf8("durably-committed-before-response-loss");
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final ShardStore.RocksDbWriteFailure failure = assertThrows(
+                    ShardStore.RocksDbWriteFailure.class,
+                    () -> store.write(
+                            batch -> batch.putValue(ColumnFamily.META, 1, key, value),
+                            (db, writeOptions, batch) -> {
+                                db.write(writeOptions, batch);
+                                throw new RocksDBException("synthetic lost native write response");
+                            }));
+            assertEquals("RocksDB write failed", failure.getMessage());
+            assertTrue(store.isWriteOutcomeUncertain());
+            assertThrows(IllegalStateException.class, () -> store.getValue(ColumnFamily.META, key, 1));
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> store.write(batch -> batch.put(ColumnFamily.META, Bytes.utf8("later"), value)));
+        }
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore reopened = ShardStore.open(config, shardId, resources)) {
+            final var recovered = reopened.getValue(ColumnFamily.META, key, 1);
+            assertNotNull(recovered);
+            assertArrayEquals(value, recovered.payload());
+            reopened.write(batch -> batch.put(ColumnFamily.META, Bytes.utf8("after-reopen"), value));
         }
     }
 

@@ -4134,7 +4134,7 @@ class DelayShardTest {
             final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
             assertEquals(StableCode.SCHEDULED, shard.apply(first, firstPosition).stableCode());
             assertEquals(StableCode.SCHEDULED, shard.apply(second, secondPosition).stableCode());
-            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            final LaneRecord readyLane = shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
 
             final byte[] correctTail = KeyCodec.timelineDue(
                     lane, 3_000, secondPosition.sourceOrderToken(), second.delayMessageId(), 0);
@@ -4150,7 +4150,15 @@ class DelayShardTest {
             });
 
             assertEquals(first.delayMessageId(), shard.discoverReady(10_000, 1).get(0).messageId());
+            final byte[] readyKey =
+                    KeyCodec.timelineReady(readyLane.nextEligibleAtEpochMs(), lane, readyLane.laneVersion());
+            final byte[] readyBeforeAudit = store.get(ColumnFamily.TIMELINE, readyKey);
+            assertNotNull(readyBeforeAudit);
+            final long sequenceBeforeAudit = store.latestSequenceNumber();
             assertThrows(IllegalStateException.class, shard::rebuildReadyIndexes);
+            assertEquals(sequenceBeforeAudit, store.latestSequenceNumber());
+            assertArrayEquals(readyBeforeAudit, store.get(ColumnFamily.TIMELINE, readyKey));
+            assertEquals(first.delayMessageId(), shard.discoverReady(10_000, 1).get(0).messageId());
         }
     }
 
