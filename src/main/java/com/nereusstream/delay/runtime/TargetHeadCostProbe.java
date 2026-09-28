@@ -3,9 +3,13 @@ package com.nereusstream.delay.runtime;
 import com.nereusstream.delay.protocol.AdapterKind;
 import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.CanonicalTargetPartition;
+import com.nereusstream.delay.protocol.NativeDeliveryPolicy;
 import com.nereusstream.delay.protocol.OrderingMode;
+import com.nereusstream.delay.protocol.TargetControlScope;
+import com.nereusstream.delay.protocol.TargetDispatchCompatibility;
 import com.nereusstream.delay.protocol.TargetDomainState;
 import com.nereusstream.delay.protocol.TargetHeadRef;
+import com.nereusstream.delay.protocol.TargetNativePolicyScope;
 import com.nereusstream.delay.protocol.TargetQueueState;
 import com.nereusstream.delay.protocol.TargetQuotaAccounting;
 import com.nereusstream.delay.protocol.TargetQuotaIdentity;
@@ -22,6 +26,25 @@ import java.util.Objects;
 
 /** Bounded lazy cost lookup for one verified current head; it grants no Claim or send permission. */
 public final class TargetHeadCostProbe {
+    /** Exact source-Store projection required before a persisted Native key can be considered. */
+    public record NativeProjection(
+            TargetMessageRecord message,
+            TargetTimelineWorkRef work,
+            TargetScheduleBinding binding,
+            TargetNativePolicyScope scope) {
+        public NativeProjection {
+            Objects.requireNonNull(message, "message");
+            Objects.requireNonNull(work, "work");
+            Objects.requireNonNull(binding, "binding");
+            Objects.requireNonNull(scope, "scope");
+            if (!work.nativeCandidate()
+                    || !work.equals(message.runtime().timeline())
+                    || message.nativeDeliveryPolicy() == NativeDeliveryPolicy.FORBID) {
+                throw new IllegalArgumentException("invalid Target Native message/work projection");
+            }
+        }
+    }
+
     public record Cost(
             TargetHeadRef head,
             TargetQueueState queue,
@@ -29,7 +52,8 @@ public final class TargetHeadCostProbe {
             long executionBytes,
             long schedulingCost,
             long deliverAtEpochMs,
-            long expireAtEpochMs) {
+            long expireAtEpochMs,
+            NativeProjection nativeProjection) {
         public Cost {
             Objects.requireNonNull(head, "head");
             Objects.requireNonNull(queue, "queue");
@@ -41,6 +65,20 @@ public final class TargetHeadCostProbe {
                     || expireAtEpochMs < deliverAtEpochMs) {
                 throw new IllegalArgumentException("invalid Target head cost projection");
             }
+            if (nativeProjection != null && !head.nativeCandidate()) {
+                throw new IllegalArgumentException("ordinary head cannot carry Target Native cost projection");
+            }
+        }
+
+        public Cost(
+                final TargetHeadRef head,
+                final TargetQueueState queue,
+                final TargetQuotaAccounting accounting,
+                final long executionBytes,
+                final long schedulingCost,
+                final long deliverAtEpochMs,
+                final long expireAtEpochMs) {
+            this(head, queue, accounting, executionBytes, schedulingCost, deliverAtEpochMs, expireAtEpochMs, null);
         }
     }
 
@@ -81,9 +119,10 @@ public final class TargetHeadCostProbe {
                     final byte[] selectedWork = TargetValueEnvelope.decode(
                                     selectedWorkValue, TargetTimelineWorkRef.VALUE_TYPE)
                             .payload();
-                    if (message.locator().orderingMode() != OrderingMode.DELIVERY_TIME_FIFO) {
-                        message.requireTimelineProjection(selected.key(), selectedWork);
-                    }
+                    final TargetTimelineWorkRef selectedTimelineWork = message.locator().orderingMode()
+                                    != OrderingMode.DELIVERY_TIME_FIFO
+                            ? message.requireTimelineProjection(selected.key(), selectedWork)
+                            : null;
                     final byte[] queueKey = TargetKeyCodec.state(selected.target());
                     final byte[] identityKey = TargetKeyCodec.identity(selected.target());
                     final var physical = CanonicalTargetPartition.decodeForStore(
@@ -119,9 +158,10 @@ public final class TargetHeadCostProbe {
                                 payload(reader, ColumnFamily.META, orderKey, TargetOrderState.VALUE_TYPE),
                                 reader.shardId(),
                                 queue);
-                        final var work =
+                        final var orderedWork =
                                 order.requireServiceableProjection(selected.key(), selectedWork, message);
-                        if (!Arrays.equals(reader.get(ColumnFamily.TIMELINE, work.ordinaryKey()), selectedWorkValue)) {
+                        if (!Arrays.equals(
+                                reader.get(ColumnFamily.TIMELINE, orderedWork.ordinaryKey()), selectedWorkValue)) {
                             throw new IllegalStateException("strict Target head lacks its exact ORDERED work");
                         }
                     }
@@ -168,6 +208,41 @@ public final class TargetHeadCostProbe {
                     final var accounting = descriptor.accounting();
                     final long executionBytes = accounting.accountedPublishBytes(adapter, payloadBytes, metadataBytes);
                     final long schedulingCost = accounting.schedulingCost(adapter, payloadBytes, metadataBytes);
+                    final NativeProjection nativeProjection;
+                    if (selected.nativeCandidate()) {
+                        if (selectedTimelineWork == null
+                                || !selectedTimelineWork.nativeCandidate()
+                                || !Arrays.equals(binding.nativePolicyScopeRef(), domain.nativePolicyScopeRef())) {
+                            throw new IllegalStateException("Target Native head lacks its exact schedule scope");
+                        }
+                        final byte[] scopeRef = domain.nativePolicyScopeRef();
+                        final byte[] scopeKey = TargetKeyCodec.nativePolicyScope(scopeRef);
+                        final var scope = TargetNativePolicyScope.decodeForStore(
+                                scopeKey,
+                                payload(reader, ColumnFamily.META, scopeKey, TargetNativePolicyScope.VALUE_TYPE),
+                                reader.shardId());
+                        final byte[] dispatchKey = TargetKeyCodec.dispatchCompatibility(scope.dispatchRef());
+                        final var dispatch = TargetDispatchCompatibility.decodeForStore(
+                                dispatchKey,
+                                payload(
+                                        reader,
+                                        ColumnFamily.META,
+                                        dispatchKey,
+                                        TargetDispatchCompatibility.VALUE_TYPE),
+                                physical);
+                        final byte[] controlKey = TargetKeyCodec.controlScope(scope.controlRef());
+                        final var controls = TargetControlScope.decodeForStore(
+                                controlKey,
+                                payload(reader, ColumnFamily.META, controlKey, TargetControlScope.VALUE_TYPE),
+                                selected.target(),
+                                reader.shardId());
+                        scope.requireReferences(physical, dispatch, controls);
+                        scope.requireQueue(queue);
+                        scope.requireBinding(binding);
+                        nativeProjection = new NativeProjection(message, selectedTimelineWork, binding, scope);
+                    } else {
+                        nativeProjection = null;
+                    }
                     reader.requireWithinElapsedBudget();
                     return new Cost(
                             selected,
@@ -176,7 +251,8 @@ public final class TargetHeadCostProbe {
                             executionBytes,
                             schedulingCost,
                             message.deliverAtEpochMs(),
-                            message.expireAtEpochMs());
+                            message.expireAtEpochMs(),
+                            nativeProjection);
                 },
                 Objects.requireNonNull(authority, "authority"));
     }

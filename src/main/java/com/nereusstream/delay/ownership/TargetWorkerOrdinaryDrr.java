@@ -2,17 +2,25 @@ package com.nereusstream.delay.ownership;
 
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalTargetPartition;
+import com.nereusstream.delay.protocol.HandoffPolicyHeadRef;
 import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.ShardId;
+import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.TargetDomainState;
 import com.nereusstream.delay.protocol.TargetHeadRef;
+import com.nereusstream.delay.protocol.TargetNativePolicyScope;
 import com.nereusstream.delay.protocol.TargetPartitionId;
 import com.nereusstream.delay.protocol.TargetQueueState;
+import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.runtime.TargetClaimRecord;
 import com.nereusstream.delay.runtime.TargetHeadCostProbe;
 import com.nereusstream.delay.runtime.TargetQueueSnapshotReader;
 import com.nereusstream.delay.runtime.TargetQuotaDelta;
+import com.nereusstream.delay.runtime.TimelineWorkKind;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
+import com.nereusstream.delay.scheduler.TargetNativePolicyChecks;
+import com.nereusstream.delay.semantic.TargetNativePolicyAuthority;
+import com.nereusstream.delay.semantic.TargetNativePolicyTrust;
 import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.ReadIncompleteException;
 import com.nereusstream.delay.store.TargetStoreBackend;
@@ -29,8 +37,9 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.function.LongSupplier;
+import java.util.function.Supplier;
 
-/** One process-local byte-cost DRR share per physical Target, for ordinary due Claim work. */
+/** One process-local byte-cost DRR share per physical Target; ordinary work precedes Native early Claims. */
 public final class TargetWorkerOrdinaryDrr {
     public record Limits(
             long quantumBytes,
@@ -83,6 +92,26 @@ public final class TargetWorkerOrdinaryDrr {
     public interface Requests {
         /** Checks current eligibility without consuming a permit; the Claim guard acquires it. */
         Optional<Request> resolve(TargetWorkerShardRuntime shard, TargetHeadCostProbe.Cost cost);
+
+        /** Supplies live Target Native policy/time authority for one exact persisted Native head. */
+        default Optional<NativePolicyContext> resolveNativePolicyContext(
+                final TargetWorkerShardRuntime shard, final TargetHeadCostProbe.Cost cost) {
+            return Optional.empty();
+        }
+    }
+
+    /** Providers are sampled again under the Claim commit guard; a cached decision cannot authorize a send. */
+    public record NativePolicyContext(
+            TargetNativePolicyAuthority policies,
+            TargetNativePolicyTrust trust,
+            Supplier<SourcePosition> sourcePosition,
+            Supplier<TrustedUtcIntervalEvidence> trustedTime) {
+        public NativePolicyContext {
+            Objects.requireNonNull(policies, "policies");
+            Objects.requireNonNull(trust, "trust");
+            Objects.requireNonNull(sourcePosition, "sourcePosition");
+            Objects.requireNonNull(trustedTime, "trustedTime");
+        }
     }
 
     public enum Stop {
@@ -280,6 +309,24 @@ public final class TargetWorkerOrdinaryDrr {
         return runOrdinary(nowEpochMs, budget, claimSelector(nowEpochMs, requests));
     }
 
+    /** Native early Claim is only called after the Host completed a full ordinary pass without a candidate. */
+    public synchronized Turn<TargetClaimRecord> claimNativeAfterOrdinaryPass(
+            final long nowEpochMs,
+            final SchedulerBudget budget,
+            final Requests requests,
+            final long expectedQueueRevision) {
+        Objects.requireNonNull(host, "host");
+        Objects.requireNonNull(requests, "requests");
+        if (expectedQueueRevision < 0) {
+            throw new IllegalArgumentException("Target Native Claim requires a nonnegative queue revision");
+        }
+        if (host.targetQueueChangeRevision() != expectedQueueRevision) {
+            return new Turn<>(List.of(), 0, 0, Stop.NORMAL);
+        }
+        return runNative(
+                nowEpochMs, budget, nativeClaimSelector(nowEpochMs, requests, expectedQueueRevision));
+    }
+
     /** Admits a new complete Host inventory after the recovery first pass, retaining unchanged Target shares. */
     public synchronized void refreshInventory(final TargetWorkerTargetInventory.Result inventory) {
         Objects.requireNonNull(host, "host");
@@ -367,6 +414,10 @@ public final class TargetWorkerOrdinaryDrr {
         }
         final Long next = ordinaryWakeTargets.higherKey(nowEpochMs);
         return next == null ? OptionalLong.empty() : OptionalLong.of(next);
+    }
+
+    synchronized int targetCount() {
+        return ring.size();
     }
 
     /** Refreshes one registered Target across the exact active Shard set without rebuilding the inventory. */
@@ -548,6 +599,144 @@ public final class TargetWorkerOrdinaryDrr {
                         ownerClock));
     }
 
+    private Selector<TargetClaimRecord> nativeClaimSelector(
+            final long nowEpochMs, final Requests requests, final long expectedQueueRevision) {
+        Objects.requireNonNull(requests, "requests");
+        return (shard, cost) -> {
+            if (host.targetQueueChangeRevision() != expectedQueueRevision) {
+                return Optional.empty();
+            }
+            final var projection = cost.nativeProjection();
+            if (projection == null) {
+                throw new IllegalStateException("Native Target head probe lacks its guarded message projection");
+            }
+            final Optional<NativePolicyContext> contextResult =
+                    requests.resolveNativePolicyContext(worker(shard), cost);
+            if (contextResult.isEmpty()) {
+                return Optional.empty();
+            }
+            final NativePolicyContext context = contextResult.orElseThrow();
+            final var work = projection.work();
+            final boolean initialAttempt = work.workKind() == TimelineWorkKind.INITIAL_SCHEDULE
+                    && work.candidateAttemptNo() == 1;
+            final SourcePosition position = context.sourcePosition().get();
+            final TrustedUtcIntervalEvidence time = context.trustedTime().get();
+            final var publication = context.policies().current(projection.scope().digest()).orElse(null);
+            final var decision = TargetNativePolicyChecks.resolve(
+                    projection.scope(),
+                    initialAttempt,
+                    cost.deliverAtEpochMs(),
+                    work.retryEligibilityAtEpochMs(),
+                    publication,
+                    context.trust(),
+                    position,
+                    time);
+            if (decision.action() != TargetNativePolicyChecks.Action.NATIVE_CANDIDATE
+                    || decision.nativeActionAtEpochMs() == null
+                    || decision.policyHeadRef() == null
+                    || nowEpochMs < decision.nativeActionAtEpochMs()
+                    || nowEpochMs >= cost.deliverAtEpochMs()
+                    || nowEpochMs >= cost.expireAtEpochMs()) {
+                return Optional.empty();
+            }
+            final Optional<Request> requestResult = requests.resolve(worker(shard), cost);
+            if (requestResult.isEmpty()) {
+                return Optional.empty();
+            }
+            final Request request = requestResult.orElseThrow();
+            final var authority = nativeCommitAuthority(
+                    request.physicalWrites(),
+                    requests,
+                    worker(shard),
+                    cost,
+                    projection.scope(),
+                    initialAttempt,
+                    decision.policyHeadRef(),
+                    decision.nativeActionAtEpochMs(),
+                    expectedQueueRevision);
+            final Request guarded = new Request(
+                    request.owner(),
+                    request.deadlineEpochMs(),
+                    request.operationDigest(),
+                    request.quota(),
+                    authority);
+            return Optional.of(() -> host.claim(
+                    worker(shard),
+                    budget(),
+                    cost.head(),
+                    guarded.owner(),
+                    nowEpochMs,
+                    guarded.deadlineEpochMs(),
+                    cost.executionBytes(),
+                    guarded.operationDigest(),
+                    guarded.quota(),
+                    guarded.physicalWrites(),
+                    ownerClock));
+        };
+    }
+
+    private TargetStoreBackend.CommitAuthority nativeCommitAuthority(
+            final TargetStoreBackend.CommitAuthority delegate,
+            final Requests requests,
+            final TargetWorkerShardRuntime shard,
+            final TargetHeadCostProbe.Cost cost,
+            final TargetNativePolicyScope scope,
+            final boolean initialAttempt,
+            final HandoffPolicyHeadRef expectedHead,
+            final long expectedActionAt,
+            final long expectedQueueRevision) {
+        return (store, quotaScope, mutation) -> {
+            final var guard = Objects.requireNonNull(delegate.acquire(store, quotaScope, mutation), "commit guard");
+            return new TargetStoreBackend.CommitGuard() {
+                @Override
+                public void requireCurrent() {
+                    if (host.targetQueueChangeRevision() != expectedQueueRevision) {
+                        throw new IllegalStateException("Target queue changed after the ordinary scheduling pass");
+                    }
+                    guard.requireCurrent();
+                    if (host.targetQueueChangeRevision() != expectedQueueRevision) {
+                        throw new IllegalStateException("Target queue changed during Native Claim guard acquisition");
+                    }
+                    final NativePolicyContext context = requests.resolveNativePolicyContext(shard, cost)
+                            .orElseThrow(() -> new IllegalStateException(
+                                    "Target Native policy context disappeared before Claim commit"));
+                    final SourcePosition position = context.sourcePosition().get();
+                    final TrustedUtcIntervalEvidence time = context.trustedTime().get();
+                    final var publication = context.policies().current(scope.digest()).orElse(null);
+                    final var work = cost.nativeProjection().work();
+                    final var current = TargetNativePolicyChecks.resolve(
+                            scope,
+                            initialAttempt,
+                            cost.deliverAtEpochMs(),
+                            work.retryEligibilityAtEpochMs(),
+                            publication,
+                            context.trust(),
+                            position,
+                            time);
+                    if (current.action() != TargetNativePolicyChecks.Action.NATIVE_CANDIDATE
+                            || !expectedHead.equals(current.policyHeadRef())
+                            || !Objects.equals(expectedActionAt, current.nativeActionAtEpochMs())) {
+                        throw new IllegalStateException("Target Native policy changed before Claim commit");
+                    }
+                    TargetNativePolicyChecks.freezeCurrent(
+                            scope,
+                            expectedHead,
+                            cost.deliverAtEpochMs(),
+                            expectedActionAt,
+                            context.policies(),
+                            context.trust(),
+                            position,
+                            time);
+                }
+
+                @Override
+                public void close() {
+                    guard.close();
+                }
+            };
+        };
+    }
+
     synchronized <T> FreezeTurn freezeFirstPass(
             final long nowEpochMs, final SchedulerBudget budget, final Selector<T> selector) {
         if (!firstPassRequired || firstPassReady) {
@@ -655,6 +844,61 @@ public final class TargetWorkerOrdinaryDrr {
         return new Turn<>(claims, visits, bytes, stop);
     }
 
+    synchronized <T> Turn<T> runNative(
+            final long nowEpochMs, final SchedulerBudget budget, final Selector<T> selector) {
+        if (nowEpochMs < 0) {
+            throw new IllegalArgumentException("Target Native DRR requires trusted nonnegative time");
+        }
+        Objects.requireNonNull(budget, "budget");
+        Objects.requireNonNull(selector, "selector");
+        if (firstPassRequired && !firstPassReady) {
+            throw new IllegalStateException("Target recovery first pass must be frozen before Native Claim");
+        }
+        if (!reads.membershipCurrent()) {
+            throw new IllegalStateException("Target Native DRR source membership changed");
+        }
+        final long started = clock();
+        final List<T> claims = new ArrayList<>();
+        long bytes = 0;
+        int visits = 0;
+        boolean creditWait = false;
+        boolean budgetWait = false;
+        while (!ring.isEmpty()
+                && visits < limits.maximumVisitsPerTurn()
+                && claims.isEmpty()
+                && bytes < budget.maxBytes()
+                && clock() - started < budget.maxElapsedNanos()) {
+            if (!reads.membershipCurrent()) {
+                throw new IllegalStateException("Target Native DRR source membership changed");
+            }
+            final TargetState target = ring.get(cursor);
+            cursor = cursor == ring.size() - 1 ? 0 : cursor + 1;
+            visits++;
+            if (!firstPassPending.isEmpty() && !firstPassPending.contains(target.id)) {
+                continue;
+            }
+            final Visit<T> visit;
+            try {
+                visit = visitNative(target, nowEpochMs, budget.maxBytes() - bytes, selector);
+            } catch (ReadIncompleteException incomplete) {
+                return new Turn<>(claims, visits, bytes, Stop.READ_INCOMPLETE);
+            }
+            if (visit.kind() == VisitKind.UNAVAILABLE || visit.kind() == VisitKind.CLAIMED) {
+                firstPassPending.remove(target.id);
+            }
+            if (visit.kind() == VisitKind.CLAIMED) {
+                claims.add(visit.claimed().value());
+                bytes = Math.addExact(bytes, visit.claimed().cost());
+            } else if (visit.kind() == VisitKind.CREDIT_WAIT) {
+                creditWait = true;
+            } else if (visit.kind() == VisitKind.BUDGET_WAIT) {
+                budgetWait = true;
+            }
+        }
+        final Stop stop = creditWait ? Stop.CREDIT_WAIT : budgetWait ? Stop.BUDGET_WAIT : Stop.NORMAL;
+        return new Turn<>(claims, visits, bytes, stop);
+    }
+
     private <T> Visit<T> visit(
             final TargetState target, final long nowEpochMs, final long remainingBytes, final Selector<T> selector) {
         final Selection<T> selection = selectCandidate(target, nowEpochMs, remainingBytes, selector);
@@ -666,6 +910,29 @@ public final class TargetWorkerOrdinaryDrr {
                 return new Visit<>(VisitKind.CREDIT_WAIT, null);
             }
             final T claimed = Objects.requireNonNull(candidate.action().commit(), "Claim result");
+            target.credit = credited - candidate.cost();
+            target.sourceCursor = (candidate.sourceIndex() + 1) % target.sources.size();
+            target.sources.get(candidate.sourceIndex()).domainCursor =
+                    (candidate.domainIndex() + 1) % candidate.domainCount();
+            return new Visit<>(VisitKind.CLAIMED, new Claimed<>(claimed, candidate.cost()));
+        }
+        if (!selection.due() || !selection.budgetBlocked()) {
+            target.credit = 0;
+        }
+        return new Visit<>(selection.budgetBlocked() ? VisitKind.BUDGET_WAIT : VisitKind.UNAVAILABLE, null);
+    }
+
+    private <T> Visit<T> visitNative(
+            final TargetState target, final long nowEpochMs, final long remainingBytes, final Selector<T> selector) {
+        final Selection<T> selection = selectNativeCandidate(target, nowEpochMs, remainingBytes, selector);
+        if (selection.candidate().isPresent()) {
+            final Candidate<T> candidate = selection.candidate().orElseThrow();
+            final long credited = addQuantum(target.credit);
+            if (candidate.cost() > credited) {
+                target.credit = credited;
+                return new Visit<>(VisitKind.CREDIT_WAIT, null);
+            }
+            final T claimed = Objects.requireNonNull(candidate.action().commit(), "Native Claim result");
             target.credit = credited - candidate.cost();
             target.sourceCursor = (candidate.sourceIndex() + 1) % target.sources.size();
             target.sources.get(candidate.sourceIndex()).domainCursor =
@@ -732,6 +999,70 @@ public final class TargetWorkerOrdinaryDrr {
                 if (action.isEmpty()) {
                     continue;
                 }
+                if (cost.schedulingCost() > remainingBytes) {
+                    budgetBlocked = true;
+                    continue;
+                }
+                return new Selection<>(
+                        Optional.of(new Candidate<>(
+                                sourceIndex, domainIndex, domains.size(), cost.schedulingCost(), action.orElseThrow())),
+                        true,
+                        budgetBlocked);
+            }
+        }
+        return new Selection<>(Optional.empty(), due, budgetBlocked);
+    }
+
+    private <T> Selection<T> selectNativeCandidate(
+            final TargetState target, final long nowEpochMs, final long remainingBytes, final Selector<T> selector) {
+        boolean due = false;
+        boolean budgetBlocked = false;
+        sources:
+        for (int offset = 0; offset < target.sources.size(); offset++) {
+            final int sourceIndex = (target.sourceCursor + offset) % target.sources.size();
+            final SourceState source = target.sources.get(sourceIndex);
+            final Optional<TargetQueueSnapshotReader.Entry> current = reads.refresh(source.shard, target.id);
+            if (current.isEmpty()) {
+                continue;
+            }
+            final var entry = current.orElseThrow();
+            if (!Arrays.equals(target.physical.canonicalBytes(), entry.physical().canonicalBytes())) {
+                throw new IllegalStateException("Target Native DRR physical identity changed");
+            }
+            final TargetQueueState queue = entry.queue();
+            if (queue.admissionState() != TargetQueueState.AdmissionState.OPEN) {
+                continue;
+            }
+            final List<TargetDomainState> domains = queue.domains();
+            for (int domainOffset = 0; domainOffset < domains.size(); domainOffset++) {
+                final int domainIndex = (source.domainCursor + domainOffset) % domains.size();
+                final TargetDomainState domain = domains.get(domainIndex);
+                final TargetHeadRef head = domain.nativeHead();
+                if (domain.lifecycle() != TargetDomainState.Lifecycle.ACTIVE || head == null) {
+                    continue;
+                }
+                final TargetHeadCostProbe.Cost cost;
+                try {
+                    cost = reads.probe(source.shard, head);
+                } catch (IllegalStateException staleOrInvalid) {
+                    final var latest = reads.refresh(source.shard, target.id);
+                    if (latest.isEmpty()
+                            || !Arrays.equals(queue.digest(), latest.orElseThrow().queue().digest())) {
+                        continue sources;
+                    }
+                    throw staleOrInvalid;
+                }
+                if (cost.deliverAtEpochMs() <= nowEpochMs || cost.expireAtEpochMs() <= nowEpochMs) {
+                    continue;
+                }
+                if (cost.schedulingCost() > limits.maximumCostBytes()) {
+                    throw new IllegalStateException("Target Native head exceeds activated maximum cost");
+                }
+                final Optional<ClaimAction<T>> action = selector.select(source.shard, cost);
+                if (action.isEmpty()) {
+                    continue;
+                }
+                due = true;
                 if (cost.schedulingCost() > remainingBytes) {
                     budgetBlocked = true;
                     continue;

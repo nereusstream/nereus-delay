@@ -8,6 +8,7 @@ import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalTargetPartition;
 import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.KafkaBrokerResourceIdentity;
+import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.TargetDomainState;
@@ -169,6 +170,22 @@ class TargetWorkerOrdinaryDrrTest {
 
         assertEquals(List.of(activeHead), turn.claims());
         assertEquals(50, turn.schedulingBytes());
+    }
+
+    @Test
+    void selectsOnlyAnEligibleNativeHeadAfterTheOrdinaryHeadIsNotDue() {
+        final ShardId shard = shard(1);
+        final var physical = nativeTarget(0);
+        final var nativeHead = nativeHeadAt(physical, shard, 1_000, 3_000, 50);
+        final var drr = schedule(List.of(targetState(physical, nativeHead)), new FakeReads(nativeHead), ONE_VISIT);
+        final var budget = new SchedulerBudget(1, 200, 1_000_000_000L);
+
+        final var ordinary = drr.runOrdinary(900, budget, (source, cost) -> Optional.of(() -> cost.head()));
+        final var nativeTurn = drr.runNative(900, budget, (source, cost) -> Optional.of(() -> cost.head()));
+
+        assertTrue(ordinary.claims().isEmpty());
+        assertEquals(List.of(nativeHead.ref()), nativeTurn.claims());
+        assertEquals(50, nativeTurn.schedulingBytes());
     }
 
     @Test
@@ -753,6 +770,47 @@ class TargetWorkerOrdinaryDrrTest {
         return new Head(shard, new TargetQueueSnapshotReader.Entry(queue, physical), ref, cost);
     }
 
+    private static Head nativeHeadAt(
+            final CanonicalTargetPartition physical,
+            final ShardId shard,
+            final long nativeAt,
+            final long ordinaryAt,
+            final long cost) {
+        final var domain = new TargetKeyCodec.Domain(0, 1);
+        final var ordinary = dueHead(physical, shard, domain, ordinaryAt);
+        final var message = DelayMessageId.random(shard);
+        final byte[] token = Bytes.concat(new byte[] {1}, Bytes.u64be(2));
+        final var nativeHead = new TargetHeadRef(
+                TargetKeyCodec.candidate(
+                        TargetKeyCodec.CandidateKind.NATIVE,
+                        physical.id(),
+                        domain,
+                        nativeAt,
+                        token,
+                        message,
+                        1),
+                message,
+                1,
+                nativeAt);
+        final var summary = new TargetDomainState(
+                domain,
+                TargetDomainState.Lifecycle.ACTIVE,
+                bytes(32, 3),
+                bytes(32, 4),
+                bytes(32, 5),
+                ordinary,
+                nativeHead);
+        final var queue = new TargetQueueState(
+                physical.id(),
+                1,
+                1,
+                TargetQueueState.AdmissionState.OPEN,
+                bytes(16, 5),
+                1_000,
+                List.of(summary));
+        return new Head(shard, new TargetQueueSnapshotReader.Entry(queue, physical), nativeHead, cost);
+    }
+
     private static TargetWorkerTargetInventory.Target targetWithHead(
             final CanonicalTargetPartition physical,
             final ShardId shard,
@@ -793,6 +851,13 @@ class TargetWorkerOrdinaryDrrTest {
     private static CanonicalTargetPartition target(final int partition) {
         return new CanonicalTargetPartition(
                 BrokerResourceIdentity.kafka(new KafkaBrokerResourceIdentity("cluster", new UUID(1, 2))), partition);
+    }
+
+    private static CanonicalTargetPartition nativeTarget(final int partition) {
+        return new CanonicalTargetPartition(
+                BrokerResourceIdentity.pulsar(new PulsarBrokerResourceIdentity(
+                        "cluster", bytes(32, 8), "persistent://tenant/namespace/target", 1)),
+                partition);
     }
 
     private static ShardId shard(final int partition) {
@@ -900,7 +965,14 @@ class TargetWorkerOrdinaryDrrTest {
                 throw new IllegalStateException("selected head changed");
             }
             final long cost = costs.get(head);
-            return new TargetHeadCostProbe.Cost(head, entry.queue(), ACCOUNTING, cost, cost, 10, 1_000);
+            return new TargetHeadCostProbe.Cost(
+                    head,
+                    entry.queue(),
+                    ACCOUNTING,
+                    cost,
+                    cost,
+                    head.timeEpochMs(),
+                    Math.max(5_000, head.timeEpochMs()));
         }
     }
 }

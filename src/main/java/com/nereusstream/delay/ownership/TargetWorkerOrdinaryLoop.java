@@ -13,7 +13,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 
-/** Drives bounded ordinary Target DRR turns from committed queue changes and a safety recheck. */
+/** Drives bounded ordinary-first Target DRR turns from committed queue changes and a safety recheck. */
 public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
     @FunctionalInterface
     public interface ClaimConsumer {
@@ -202,6 +202,10 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
                         throw new IllegalStateException("Target ordinary monotonic clock moved backwards");
                     }
                     lastMonotonic = creditCycleStarted;
+                    int ordinaryPassVisits = 0;
+                    boolean ordinaryPassSawCandidate = false;
+                    boolean ordinaryPassClear = false;
+                    boolean ordinaryReadIncomplete = false;
                     for (long turn = 0; turn < maximumCreditTurns; turn++) {
                         final var result = scheduler.claimOrdinary(
                                 schedulerClock.getAsLong(), turnBudget, requests);
@@ -215,21 +219,67 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
                             }
                             continue schedule;
                         }
+                        ordinaryPassVisits = Math.addExact(ordinaryPassVisits, result.targetVisits());
+                        ordinaryPassSawCandidate |= result.stop() == TargetWorkerOrdinaryDrr.Stop.CREDIT_WAIT
+                                || result.stop() == TargetWorkerOrdinaryDrr.Stop.BUDGET_WAIT;
                         if (result.stop() == TargetWorkerOrdinaryDrr.Stop.READ_INCOMPLETE) {
                             awaitChange(observedRevision);
+                            ordinaryReadIncomplete = true;
                             break;
+                        }
+                        if (ordinaryPassVisits >= scheduler.targetCount()) {
+                            if (!ordinaryPassSawCandidate) {
+                                ordinaryPassClear = host.targetQueueChangeRevision() == observedRevision;
+                                break;
+                            }
+                            ordinaryPassVisits = 0;
+                            ordinaryPassSawCandidate = false;
                         }
                         final long now = monotonicClock.getAsLong();
                         if (now < 0 || now < lastMonotonic) {
                             throw new IllegalStateException("Target ordinary monotonic clock moved backwards");
                         }
                         lastMonotonic = now;
-                        if (result.stop() != TargetWorkerOrdinaryDrr.Stop.CREDIT_WAIT
-                                || turn + 1 == maximumCreditTurns
+                        if (turn + 1 == maximumCreditTurns
                                 || now - creditCycleStarted >= turnBudget.maxElapsedNanos()) {
-                            awaitSchedulerChange(observedRevision, scheduler);
                             break;
                         }
+                    }
+                    if (ordinaryReadIncomplete) {
+                        continue schedule;
+                    }
+                    if (ordinaryPassClear) {
+                        for (long turn = 0; turn < maximumCreditTurns; turn++) {
+                            final var result = scheduler.claimNativeAfterOrdinaryPass(
+                                    schedulerClock.getAsLong(), turnBudget, requests, observedRevision);
+                            if (!result.claims().isEmpty()) {
+                                try {
+                                    claimConsumer.accept(result.claims().getFirst());
+                                } catch (RuntimeException handoffFailure) {
+                                    reportFailure(handoffFailure);
+                                    closed = true;
+                                    return;
+                                }
+                                continue schedule;
+                            }
+                            if (result.stop() == TargetWorkerOrdinaryDrr.Stop.READ_INCOMPLETE) {
+                                awaitChange(observedRevision);
+                                break;
+                            }
+                            final long now = monotonicClock.getAsLong();
+                            if (now < 0 || now < lastMonotonic) {
+                                throw new IllegalStateException("Target ordinary monotonic clock moved backwards");
+                            }
+                            lastMonotonic = now;
+                            if (result.stop() != TargetWorkerOrdinaryDrr.Stop.CREDIT_WAIT
+                                    || turn + 1 == maximumCreditTurns
+                                    || now - creditCycleStarted >= turnBudget.maxElapsedNanos()) {
+                                awaitSchedulerChange(observedRevision, scheduler);
+                                break;
+                            }
+                        }
+                    } else {
+                        awaitSchedulerChange(observedRevision, scheduler);
                     }
                 } catch (TargetWorkerHostRuntime.ShardAdmissionBusyException busy) {
                     host.awaitShardAdmission(busy.shardId(), Duration.ofNanos(recheckNanos));

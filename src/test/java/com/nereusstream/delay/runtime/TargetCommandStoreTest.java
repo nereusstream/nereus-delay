@@ -938,6 +938,20 @@ class TargetCommandStoreTest {
                                         message.payloadLength(),
                                         intent.adapterMetadata().canonicalBytes().length),
                         headCost.schedulingCost());
+                final var nativeHead = actualQueue.domains().getFirst().nativeHead();
+                if (!strictOrderExpiry && message.nativeDeliveryPolicy() != NativeDeliveryPolicy.FORBID) {
+                    assertTrue(nativeHead != null);
+                }
+                if (nativeHead != null) {
+                    final var nativeCost = claimWorker.probeSelectedHead(budget(), nativeHead, () -> 100);
+                    final var nativeProjection = nativeCost.nativeProjection();
+                    assertEquals(nativeHead, nativeCost.head());
+                    assertTrue(nativeProjection != null);
+                    assertEquals(nativeHead.messageId(), nativeProjection.message().locator().messageId());
+                    assertTrue(nativeProjection.work().nativeCandidate());
+                    assertEquals(binding, nativeProjection.binding());
+                    assertEquals(actualQueue, nativeCost.queue());
+                }
                 assertEquals(beforeScan, store.latestSequenceNumber());
                 final long beforeClaim = store.latestSequenceNumber();
                 assertThrows(
