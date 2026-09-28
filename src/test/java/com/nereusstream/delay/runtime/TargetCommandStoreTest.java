@@ -1298,17 +1298,17 @@ class TargetCommandStoreTest {
                                     ignored -> {},
                                     () -> 100));
                     final var claimHost = TargetWorkerHostTestBridge.withoutMaintenanceTimer(
-                            workerClasses, resources, List.of(claimWorker, otherWorker));
+                            workerClasses, resources, List.of(claimWorker));
                     final var inventory = claimHost.rebuildTargetInventory(
                             new TargetWorkerTargetInventory.Limits(2, 16, 4, 8, 4096, 32L << 20, 60_000_000_000L),
                             () -> 100,
                             System::nanoTime);
                     assertEquals(TargetWorkerTargetInventory.Stop.COMPLETE, inventory.stop());
                     assertEquals(
-                            java.util.Set.of(scope.shard(), otherShard),
+                            java.util.Set.of(scope.shard()),
                             inventory.snapshot().cuts().keySet());
                     assertEquals(
-                            List.of(scope.shard(), otherShard),
+                            List.of(scope.shard()),
                             inventory.snapshot().targets().stream()
                                     .filter(target -> target.id().equals(physical.id()))
                                     .findFirst()
@@ -1364,6 +1364,7 @@ class TargetCommandStoreTest {
                     assertEquals(actualOwner, claim.owner());
                     assertEquals(otherBeforeClaim, otherStore.latestSequenceNumber());
                     final long firstAfterClaim = store.latestSequenceNumber();
+                    claimHost.admitShard(otherWorker);
                     final var afterClaimInventory = claimHost.rebuildTargetInventory(
                             new TargetWorkerTargetInventory.Limits(2, 16, 4, 8, 4096, 32L << 20, 60_000_000_000L),
                             () -> 100,

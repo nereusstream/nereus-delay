@@ -507,6 +507,26 @@ class TargetWorkerOrdinaryDrrTest {
                 List.of(secondShard), drr.runOrdinary(100, budget, selector).claims());
     }
 
+    @Test
+    void refreshResetsTargetCreditWhenItsStoreIncarnationChanges() {
+        final ShardId shard = shard(1);
+        final var physical = target(0);
+        final var head = head(physical, shard, 150);
+        final var reads = new FakeReads(head);
+        final var drr = schedule(List.of(targetState(physical, head)), reads, ONE_VISIT);
+        final var budget = new SchedulerBudget(1, 200, 1_000_000_000L);
+        final TargetWorkerOrdinaryDrr.Selector<TargetPartitionId> selector =
+                (source, cost) -> Optional.of(() -> cost.head().target());
+
+        assertTrue(drr.runOrdinary(100, budget, selector).claims().isEmpty());
+        reads.replaceStoreIncarnation(shard);
+        drr.refreshSnapshot(new TargetWorkerTargetInventory.Snapshot(
+                List.of(targetState(physical, head)), reads.cuts()));
+
+        assertTrue(drr.runOrdinary(100, budget, selector).claims().isEmpty());
+        assertEquals(List.of(physical.id()), drr.runOrdinary(100, budget, selector).claims());
+    }
+
     private static TargetWorkerOrdinaryDrr schedule(
             final List<TargetWorkerTargetInventory.Target> targets,
             final FakeReads reads,
@@ -601,6 +621,10 @@ class TargetWorkerOrdinaryDrrTest {
         private void advanceCut(final ShardId shard) {
             final var prior = cuts.get(shard);
             cuts.put(shard, new TargetQueueSnapshotReader.Cut(prior.storeIncarnation(), prior.nativeSequence() + 1));
+        }
+
+        private void replaceStoreIncarnation(final ShardId shard) {
+            cuts.put(shard, new TargetQueueSnapshotReader.Cut(bytes(16, 9), 0));
         }
 
         @Override

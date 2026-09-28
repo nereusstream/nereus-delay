@@ -155,7 +155,7 @@ public final class TargetWorkerOrdinaryDrr {
     private record Visit<T>(VisitKind kind, Claimed<T> claimed) {}
 
     private final TargetWorkerHostRuntime host;
-    private final Map<ShardId, TargetWorkerShardRuntime> workers;
+    private Map<ShardId, TargetWorkerShardRuntime> workers;
     private final Reads reads;
     private final Limits limits;
     private final LongSupplier monotonicClock;
@@ -205,17 +205,20 @@ public final class TargetWorkerOrdinaryDrr {
         reads = new Reads() {
             @Override
             public boolean membershipCurrent() {
-                return host.currentTargetWorkers().equals(current);
+                return currentWorkersMatch();
             }
 
             @Override
             public boolean cutsCurrent(final Map<ShardId, TargetQueueSnapshotReader.Cut> expected) {
-                for (TargetWorkerShardRuntime worker : current) {
+                if (!expected.keySet().equals(workers.keySet()) || !currentWorkersMatch()) {
+                    return false;
+                }
+                for (TargetWorkerShardRuntime worker : workers.values()) {
                     if (!expected.get(worker.shardId()).equals(host.readTargetQueueCut(worker, budget(), ownerClock))) {
                         return false;
                     }
                 }
-                return host.currentTargetWorkers().equals(current);
+                return currentWorkersMatch();
             }
 
             @Override
@@ -229,7 +232,7 @@ public final class TargetWorkerOrdinaryDrr {
                 return host.probeSelectedHead(worker(shard), budget(), head, ownerClock);
             }
         };
-        ring = states(inventory);
+        ring = states(inventory, workers);
     }
 
     /** Pure selection seam; production always uses exact Host reads and Claim above. */
@@ -258,7 +261,7 @@ public final class TargetWorkerOrdinaryDrr {
         inventoryCuts = exactInventory.cuts();
         firstPassRequired = requireFirstPass;
         firstPassReady = !requireFirstPass;
-        ring = states(exactInventory);
+        ring = states(exactInventory, workers);
     }
 
     /** Returns after at most one durable Claim so its receipt is never lost to a later read failure. */
@@ -272,14 +275,26 @@ public final class TargetWorkerOrdinaryDrr {
     public synchronized void refreshInventory(final TargetWorkerTargetInventory.Result inventory) {
         Objects.requireNonNull(host, "host");
         final var complete = Objects.requireNonNull(inventory, "inventory");
-        if (complete.stop() != TargetWorkerTargetInventory.Stop.COMPLETE
-                || !workers.keySet().equals(complete.snapshot().cuts().keySet())) {
-            throw new IllegalArgumentException("Target DRR refresh requires the same complete source membership");
+        if (complete.stop() != TargetWorkerTargetInventory.Stop.COMPLETE) {
+            throw new IllegalArgumentException("Target DRR refresh requires a complete Host inventory");
         }
-        if (!firstPassReady) {
-            throw new IllegalStateException("Target recovery first pass must be frozen before inventory refresh");
+        final var snapshot = host.consumeTargetInventory(complete);
+        final Map<ShardId, TargetWorkerShardRuntime> current = workersById(host.currentTargetWorkers());
+        if (!current.keySet().equals(snapshot.cuts().keySet())) {
+            throw new IllegalStateException("Target DRR refresh inventory differs from current source membership");
         }
-        refreshSnapshot(host.consumeTargetInventory(complete));
+        final Map<ShardId, TargetWorkerShardRuntime> previous = workers;
+        workers = current;
+        try {
+            if (firstPassReady) {
+                refreshSnapshot(snapshot);
+            } else {
+                restartRecoveryFirstPass(snapshot);
+            }
+        } catch (RuntimeException | Error failure) {
+            workers = previous;
+            throw failure;
+        }
     }
 
     /** Process-state seam; production first consumes the exact inventory built by its Host. */
@@ -305,11 +320,11 @@ public final class TargetWorkerOrdinaryDrr {
                 throw new IllegalStateException("Target DRR physical identity changed during refresh");
             }
             final TargetState current;
-            if (old != null && old.sameSources(incoming)) {
+            if (old != null && old.sameSources(incoming, exact.cuts(), workers)) {
                 current = old;
                 retained.add(old.id);
             } else {
-                current = new TargetState(incoming);
+                current = new TargetState(incoming, exact.cuts(), workers);
             }
             refreshed.add(current);
         }
@@ -334,8 +349,28 @@ public final class TargetWorkerOrdinaryDrr {
         if (!firstPassReady) {
             throw new IllegalStateException("Target recovery first pass must be frozen before inventory refresh");
         }
-        if (!reads.membershipCurrent() || !reads.cutsCurrent(inventory.cuts())) {
-            throw new IllegalStateException("Target DRR refresh membership or Store cut changed");
+        requireCurrentInventory(inventory);
+    }
+
+    private void restartRecoveryFirstPass(final TargetWorkerTargetInventory.Snapshot inventory) {
+        if (!firstPassRequired) {
+            throw new IllegalStateException("Target recovery first pass is not enabled");
+        }
+        requireCurrentInventory(inventory);
+        ring = states(inventory, workers);
+        inventoryCuts = inventory.cuts();
+        firstPassPending.clear();
+        cursor = 0;
+        freezeCursor = 0;
+        freezeEpochMs = -1;
+        firstPassReady = false;
+    }
+
+    private void requireCurrentInventory(final TargetWorkerTargetInventory.Snapshot inventory) {
+        if ((host != null && !inventory.cuts().keySet().equals(workers.keySet()))
+                || !reads.membershipCurrent()
+                || !reads.cutsCurrent(inventory.cuts())) {
+            throw new IllegalStateException("Target DRR inventory membership or Store cut changed");
         }
     }
 
@@ -581,10 +616,27 @@ public final class TargetWorkerOrdinaryDrr {
         return now;
     }
 
-    private static List<TargetState> states(final TargetWorkerTargetInventory.Snapshot inventory) {
+    private boolean currentWorkersMatch() {
+        return workersById(host.currentTargetWorkers()).equals(workers);
+    }
+
+    private static Map<ShardId, TargetWorkerShardRuntime> workersById(
+            final List<TargetWorkerShardRuntime> values) {
+        final Map<ShardId, TargetWorkerShardRuntime> result = new HashMap<>();
+        for (TargetWorkerShardRuntime worker : values) {
+            if (result.put(worker.shardId(), worker) != null) {
+                throw new IllegalStateException("Target DRR has a duplicate source Shard");
+            }
+        }
+        return Map.copyOf(result);
+    }
+
+    private static List<TargetState> states(
+            final TargetWorkerTargetInventory.Snapshot inventory,
+            final Map<ShardId, TargetWorkerShardRuntime> workers) {
         final List<TargetState> states = new ArrayList<>();
         for (TargetWorkerTargetInventory.Target target : inventory.targets()) {
-            states.add(new TargetState(target));
+            states.add(new TargetState(target, inventory.cuts(), workers));
         }
         return List.copyOf(states);
     }
@@ -596,22 +648,36 @@ public final class TargetWorkerOrdinaryDrr {
         private int sourceCursor;
         private long credit;
 
-        private TargetState(final TargetWorkerTargetInventory.Target target) {
+        private TargetState(
+                final TargetWorkerTargetInventory.Target target,
+                final Map<ShardId, TargetQueueSnapshotReader.Cut> cuts,
+                final Map<ShardId, TargetWorkerShardRuntime> workers) {
             id = target.id();
             physical = target.physical();
             for (TargetWorkerTargetInventory.Source source : target.sources()) {
-                sources.add(new SourceState(source.shard()));
+                final var cut = cuts.get(source.shard());
+                if (cut == null) {
+                    throw new IllegalStateException("Target inventory source has no Store cut");
+                }
+                sources.add(new SourceState(source.shard(), cut.storeIncarnation(), workers.get(source.shard())));
             }
         }
 
-        private boolean sameSources(final TargetWorkerTargetInventory.Target incoming) {
+        private boolean sameSources(
+                final TargetWorkerTargetInventory.Target incoming,
+                final Map<ShardId, TargetQueueSnapshotReader.Cut> cuts,
+                final Map<ShardId, TargetWorkerShardRuntime> workers) {
             if (sources.size() != incoming.sources().size()) {
                 return false;
             }
             for (int index = 0; index < sources.size(); index++) {
-                if (!sources.get(index)
-                        .shard
-                        .equals(incoming.sources().get(index).shard())) {
+                final var prior = sources.get(index);
+                final var source = incoming.sources().get(index);
+                final var cut = cuts.get(source.shard());
+                if (!prior.shard.equals(source.shard())
+                        || cut == null
+                        || !Arrays.equals(prior.storeIncarnation, cut.storeIncarnation())
+                        || prior.worker != workers.get(source.shard())) {
                     return false;
                 }
             }
@@ -621,10 +687,15 @@ public final class TargetWorkerOrdinaryDrr {
 
     private static final class SourceState {
         private final ShardId shard;
+        private final byte[] storeIncarnation;
+        private final TargetWorkerShardRuntime worker;
         private int domainCursor;
 
-        private SourceState(final ShardId shard) {
+        private SourceState(
+                final ShardId shard, final byte[] storeIncarnation, final TargetWorkerShardRuntime worker) {
             this.shard = shard;
+            this.storeIncarnation = storeIncarnation;
+            this.worker = worker;
         }
     }
 }
