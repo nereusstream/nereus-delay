@@ -138,6 +138,10 @@ class TargetStoreBackendTest {
         final var unknownTarget = signal.drainChanges();
         assertTrue(unknownTarget.inventoryDirty());
         assertTrue(unknownTarget.dirtyTargets().isEmpty());
+
+        final long quietRevision = signal.revision();
+        assertFalse(signal.awaitChange(quietRevision, Duration.ofMillis(1)));
+        assertEquals(quietRevision, signal.revision());
     }
 
     private TargetStoreBackend backend(final ShardStore store) {
