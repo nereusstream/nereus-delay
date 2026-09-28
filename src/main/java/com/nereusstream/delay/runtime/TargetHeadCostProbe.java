@@ -3,6 +3,7 @@ package com.nereusstream.delay.runtime;
 import com.nereusstream.delay.protocol.AdapterKind;
 import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.CanonicalTargetPartition;
+import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.TargetDomainState;
 import com.nereusstream.delay.protocol.TargetHeadRef;
 import com.nereusstream.delay.protocol.TargetQueueState;
@@ -16,6 +17,7 @@ import com.nereusstream.delay.store.ColumnFamily;
 import com.nereusstream.delay.store.TargetKeyCodec;
 import com.nereusstream.delay.store.TargetStoreBackend;
 import com.nereusstream.delay.store.TargetValueEnvelope;
+import java.util.Arrays;
 import java.util.Objects;
 
 /** Bounded lazy cost lookup for one verified current head; it grants no Claim or send permission. */
@@ -72,9 +74,16 @@ public final class TargetHeadCostProbe {
                     if (message.runtime().currentWorkKind() != CurrentSendWorkKind.TIMELINE) {
                         throw new IllegalStateException("Target cost probe selected non-timeline work");
                     }
-                    message.requireTimelineProjection(
-                            selected.key(),
-                            payload(reader, ColumnFamily.TIMELINE, selected.key(), TargetTimelineWorkRef.VALUE_TYPE));
+                    final byte[] selectedWorkValue = reader.get(ColumnFamily.TIMELINE, selected.key());
+                    if (selectedWorkValue == null) {
+                        throw new IllegalStateException("Target cost probe selected a missing timeline row");
+                    }
+                    final byte[] selectedWork = TargetValueEnvelope.decode(
+                                    selectedWorkValue, TargetTimelineWorkRef.VALUE_TYPE)
+                            .payload();
+                    if (message.locator().orderingMode() != OrderingMode.DELIVERY_TIME_FIFO) {
+                        message.requireTimelineProjection(selected.key(), selectedWork);
+                    }
                     final byte[] queueKey = TargetKeyCodec.state(selected.target());
                     final byte[] identityKey = TargetKeyCodec.identity(selected.target());
                     final var physical = CanonicalTargetPartition.decodeForStore(
@@ -92,6 +101,30 @@ public final class TargetHeadCostProbe {
                     }
                     final TargetDomainState domain =
                             queue.domains().get(selected.domain().slot());
+                    if (message.locator().orderingMode() == OrderingMode.DELIVERY_TIME_FIFO) {
+                        if (selected.nativeCandidate()) {
+                            throw new IllegalStateException("strict Target head cannot select Native work");
+                        }
+                        final var orderedHead = TargetKeyCodec.decodeOrderedHead(selected.key());
+                        if (!orderedHead.target().equals(selected.target())
+                                || !orderedHead.domain().equals(selected.domain())
+                                || orderedHead.eligibleAtEpochMs() != selected.timeEpochMs()) {
+                            throw new IllegalStateException(
+                                    "Target strict head identity differs from its selected key");
+                        }
+                        final byte[] orderKey =
+                                TargetKeyCodec.orderState(selected.target(), orderedHead.orderingDomain());
+                        final var order = TargetOrderState.decodeForStore(
+                                orderKey,
+                                payload(reader, ColumnFamily.META, orderKey, TargetOrderState.VALUE_TYPE),
+                                reader.shardId(),
+                                queue);
+                        final var work =
+                                order.requireServiceableProjection(selected.key(), selectedWork, message);
+                        if (!Arrays.equals(reader.get(ColumnFamily.TIMELINE, work.ordinaryKey()), selectedWorkValue)) {
+                            throw new IllegalStateException("strict Target head lacks its exact ORDERED work");
+                        }
+                    }
                     if (queue.admissionState() != TargetQueueState.AdmissionState.OPEN
                             || domain.lifecycle() != TargetDomainState.Lifecycle.ACTIVE
                             || !selected.equals(

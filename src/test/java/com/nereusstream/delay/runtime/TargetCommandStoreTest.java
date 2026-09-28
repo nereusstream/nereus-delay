@@ -66,6 +66,7 @@ import com.nereusstream.delay.protocol.KafkaActivationBarrier;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.MessagePrecondition;
 import com.nereusstream.delay.protocol.NativeDeliveryPolicy;
+import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.PayloadProofTrustSetControlState;
 import com.nereusstream.delay.protocol.PayloadProofTrustSetSemantic;
@@ -145,8 +146,9 @@ class TargetCommandStoreTest {
     Path root;
 
     @ParameterizedTest
-    @CsvSource({"false,false", "true,false", "false,true", "true,true"})
-    void modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean claimed, boolean rescheduled)
+    @CsvSource({"false,false,false", "true,false,false", "false,true,false", "true,true,false", "true,false,true"})
+    void modifiesActualTimelineOrClaimWithHistoryAndFirstResults(
+            boolean claimed, boolean rescheduled, boolean strictOrderExpiry)
             throws Exception {
         final var initial =
                 TargetScheduleBinding.decode(vector("target-binding-channel-vectors.properties", "binding.best"));
@@ -349,14 +351,14 @@ class TargetCommandStoreTest {
                     scheduleAt.brokerLogAppendTimeEpochMs() + 100,
                     scheduleAt.brokerLogAppendTimeEpochMs() + 2000,
                     priorIntent.deliveryMode(),
-                    priorIntent.orderingMode(),
-                    priorIntent.orderingKey(),
+                    strictOrderExpiry ? OrderingMode.DELIVERY_TIME_FIFO : priorIntent.orderingMode(),
+                    strictOrderExpiry ? Bytes.utf8("target-expiry-order-key") : priorIntent.orderingKey(),
                     model.inlinePayload(),
                     null,
                     priorIntent.adapterMetadata(),
                     priorIntent.businessKey(),
                     priorIntent.eventTimeEpochMs(),
-                    model.nativeDeliveryPolicy());
+                    strictOrderExpiry ? NativeDeliveryPolicy.FORBID : model.nativeDeliveryPolicy());
             final var messageId = new DelayMessageId(
                     cancel(initial.messageId(), scheduleAt, 9).commandId().bytes());
             final var scheduleBody =
@@ -389,8 +391,8 @@ class TargetCommandStoreTest {
                     dispatch.digest(),
                     controls.digest(),
                     membership.digest(),
-                    nativeScope.digest(),
-                    null);
+                    strictOrderExpiry ? null : nativeScope.digest(),
+                    strictOrderExpiry ? bytes(32, 0x67) : null);
             final var profiles = ProfileBindingControlState.empty()
                     .activate(destination.ref(), origin)
                     .activate(capability.ref(), grantAt);
@@ -1619,6 +1621,65 @@ class TargetCommandStoreTest {
             final var entries = new java.util.ArrayDeque<SourceRecordConsumer.PolledSourceRecord>();
             final SourceRecordConsumer consumer = () -> java.util.Optional.ofNullable(entries.poll());
             final var loop = new WorkerSourceApplyLoop(consumer, workerClasses, runtime);
+            if (strictOrderExpiry) {
+                assertTrue(claimed);
+                final var claimedMessage = TargetMessageRecord.decode(TargetValueEnvelope.decode(
+                                store.get(ColumnFamily.ID, TargetKeyCodec.message(messageId)),
+                                TargetMessageRecord.VALUE_TYPE)
+                        .payload());
+                assertEquals(CurrentSendWorkKind.CLAIMED, claimedMessage.runtime().currentWorkKind());
+                assertTrue(claim != null);
+                final var orderKey = TargetKeyCodec.orderState(
+                        claimedMessage.locator().target(), claimedMessage.locator().orderingDomain());
+                final var orderBeforeExpiry = TargetOrderState.decode(TargetValueEnvelope.decode(
+                                store.get(ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE)
+                        .payload());
+                assertTrue(orderBeforeExpiry.barrier() != null);
+                assertEquals(messageId, orderBeforeExpiry.barrier().locator().messageId());
+                assertFalse(store.get(ColumnFamily.INFLIGHT, claim.key()) == null);
+                assertFalse(store.get(ColumnFamily.META, claim.chargeKey()) == null);
+                final var claimedExpiryIndexKey =
+                        new TargetExpiryRef(claimedMessage.locator(), claimedMessage.expireAtEpochMs()).encodedKey();
+                assertNull(store.get(ColumnFamily.TIMELINE, work.ordinaryKey()));
+                assertFalse(store.get(ColumnFamily.TIMELINE, claimedExpiryIndexKey) == null);
+
+                final var currentSource = (KafkaSourcePosition) store.appliedShardLogPosition();
+                final var claimedExpiryAt = source(
+                        currentSource,
+                        currentSource.offset() + 1,
+                        currentSource.brokerLogAppendTimeEpochMs() + 1);
+                final var claimedExpiry = expire(
+                        messageId,
+                        claimedMessage.expireAtEpochMs(),
+                        claimedExpiryAt,
+                        expiryOwner,
+                        keys,
+                        false);
+                final long beforeClaimedExpiryMutationSequence = store.shardMutationSequence();
+                final var claimedExpiryResult = applyExpiry(loop, entries, claimedExpiry, claimedExpiryAt);
+                assertEquals(StableCode.OK, claimedExpiryResult.stableCode());
+                assertEquals(beforeClaimedExpiryMutationSequence + 1, store.shardMutationSequence());
+
+                final var expiredClaimedMessage = TargetMessageRecord.decode(TargetValueEnvelope.decode(
+                                store.get(ColumnFamily.ID, TargetKeyCodec.message(messageId)),
+                                TargetMessageRecord.VALUE_TYPE)
+                        .payload());
+                assertEquals(GenerationAggregateState.EXPIRED, expiredClaimedMessage.aggregateState());
+                assertEquals(CurrentSendWorkKind.NONE, expiredClaimedMessage.runtime().currentWorkKind());
+                assertNull(store.get(ColumnFamily.INFLIGHT, claim.key()));
+                assertNull(store.get(ColumnFamily.META, claim.chargeKey()));
+                final var orderAfterExpiry = TargetOrderState.decode(TargetValueEnvelope.decode(
+                                store.get(ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE)
+                        .payload());
+                assertNull(orderAfterExpiry.barrier());
+                assertNull(store.get(ColumnFamily.TIMELINE, work.ordinaryKey()));
+                if (work.nativeCandidate()) {
+                    assertNull(store.get(ColumnFamily.TIMELINE, work.nativeKey()));
+                }
+                assertNull(store.get(ColumnFamily.TIMELINE, claimedExpiryIndexKey));
+                assertEquals(claimedExpiryAt, store.appliedShardLogPosition());
+                return;
+            }
             final var completed = apply(loop, entries, command, at);
             assertEquals(SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED, completed.status());
             assertEquals(
