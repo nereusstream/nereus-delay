@@ -139,7 +139,7 @@ public final class WorkClassScheduler {
             // A bounded poll is one scheduler mutation boundary. If a later
             // clock sample or arithmetic/selection check fails after an item
             // was removed, the caller receives no result list; restore the
-            // exact queue, credit, cursor and fairness projection instead of
+            // exact queue, credit, cursor and fairness state instead of
             // silently dropping that item.
             restore(before);
             throw failure;

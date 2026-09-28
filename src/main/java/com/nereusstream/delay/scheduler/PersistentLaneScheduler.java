@@ -38,12 +38,12 @@ import java.util.Set;
 import java.util.function.LongSupplier;
 
 /**
- * Durable fairness wrapper for a shard-local {@link LaneScheduler}.
+ * Process-local fairness wrapper for a shard-local {@link LaneScheduler}.
  *
- * <p>The five closed Registry scheduler projections are written together. Lane
- * records and timeline work remain authoritative in their own keys; these
- * values only retain the bounded successor order and fairness counters needed
- * to resume without resetting a Lane's service gap.</p>
+ * <p>The five closed Registry scheduler projections are read only to validate
+ * legacy state. Lane records and timeline work remain authoritative in their
+ * own keys; fairness counters, the active ring, and the discovery cursor are
+ * rebuilt as process state.</p>
  */
 public final class PersistentLaneScheduler {
     private static final int VALUE_TYPE = 5;
@@ -59,16 +59,14 @@ public final class PersistentLaneScheduler {
     private long lastClockNanos;
     private boolean clockInitialized;
     private final Map<DestinationLaneId, LaneRecord> registered = new HashMap<>();
-    private final PersistedState persisted;
     private final Set<DestinationLaneId> recoveryServed = new HashSet<>();
     /** Exact READY head last admitted to this process, including a polled head awaiting Claim. */
     private final Map<DestinationLaneId, DiscoveredHead> discoveredHeads = new HashMap<>();
 
-    private long ringGeneration;
     private byte[] lastScannedReadyKey;
     private long wrapGeneration;
     private boolean recoveryFirstPass = true;
-    private boolean persistedRestored;
+    private boolean processStateInitialized;
     private DiscoveryReadStatistics lastDiscoveryRead = new DiscoveryReadStatistics(0, 0, 0, 0, null);
 
     PersistentLaneScheduler(final ShardStore store, final LaneScheduler delegate) {
@@ -106,11 +104,12 @@ public final class PersistentLaneScheduler {
         this.owner = Objects.requireNonNull(owner, "owner");
         this.clockNanos = Objects.requireNonNull(clockNanos, "clockNanos");
         this.nativeEligibilityAuthority = nativeEligibilityAuthority;
-        this.persisted = load(store);
-        this.ringGeneration = persisted == null ? 0 : persisted.activeRing().ringGeneration();
-        this.lastScannedReadyKey =
-                persisted == null ? null : persisted.discovery().lastScannedReadyKey();
-        this.wrapGeneration = persisted == null ? 0 : persisted.discovery().wrapGeneration();
+        // Decode legacy projections only to fail closed on malformed or
+        // partially migrated state. Fairness and discovery cursors belong to
+        // this process and always start from a fresh recovery pass.
+        validateLegacyProjections(store);
+        this.lastScannedReadyKey = null;
+        this.wrapGeneration = 0;
     }
 
     static PersistentLaneScheduler defaults(final ShardStore store) {
@@ -121,9 +120,10 @@ public final class PersistentLaneScheduler {
      * Creates the scheduler projection for an accepted active-owner
      * composition. The supplied Lane records must come from the same
      * source-ordered Route/Registry projection that activated the shard; this
-     * method only registers those records and restores the persisted fairness
-     * state. The owning Worker must still perform the strict Owner/Store
-     * check before calling the recovery-bound rebuild entrypoint.
+     * method only registers those records and validates legacy scheduler
+     * projections. Fairness restarts as process state. The owning Worker must
+     * still perform the strict Owner/Store check before calling the
+     * recovery-bound rebuild entrypoint.
      */
     public static PersistentLaneScheduler forActiveOwner(
             final ShardStore store, final OwnerIdentity owner, final List<LaneRecord> activeLanes) {
@@ -144,7 +144,7 @@ public final class PersistentLaneScheduler {
         for (LaneRecord lane : List.copyOf(Objects.requireNonNull(activeLanes, "activeLanes"))) {
             scheduler.register(Objects.requireNonNull(lane, "active lane"));
         }
-        scheduler.restorePersistedState();
+        scheduler.initializeProcessState();
         return scheduler;
     }
 
@@ -158,17 +158,17 @@ public final class PersistentLaneScheduler {
         return rebuildFromAuthoritativeReady(maxReadyEntries);
     }
 
-    /** Returns the physical shard whose READY and fairness projections this scheduler owns. */
+    /** Returns the physical shard whose READY projections this scheduler reads. */
     public ShardId shardId() {
         return store.shardId();
     }
 
-    /** Returns the immutable Owner identity persisted in SchedulerRound. */
+    /** Returns the immutable Owner identity for this process-local scheduler interval. */
     public OwnerIdentity ownerIdentity() {
         return owner;
     }
 
-    /** Returns the immutable physical Store Incarnation that owns this scheduler projection. */
+    /** Returns the immutable physical Store Incarnation that owns the READY projection. */
     public byte[] storeIncarnation() {
         return store.metadata().storeIncarnation();
     }
@@ -177,74 +177,41 @@ public final class PersistentLaneScheduler {
         Objects.requireNonNull(lane, "lane");
         delegate.register(lane);
         // Keep the registry update after the delegate's identity fence. A
-        // rejected incarnation must not replace the state used to persist
-        // scheduler projections.
+        // rejected incarnation must not replace the active Lane identity.
         registered.put(lane.laneId(), lane);
     }
 
-    /** Applies the saved projections after all currently active lanes are registered. */
-    synchronized void restorePersistedState() {
-        if (persisted == null) {
-            discoveredHeads.clear();
-            persistedRestored = true;
-            return;
-        }
+    /** Starts fair service from fresh process state after legacy rows were validated. */
+    synchronized void initializeProcessState() {
         final RuntimeSnapshot before = runtimeSnapshot();
         try {
-            final List<DestinationLaneId> order = persisted.activeRing().entries().stream()
-                    .filter(this::matchesRegisteredLane)
-                    .map(SchedulerProjections.RingEntry::laneId)
-                    .toList();
-            final Map<LaneKey, SchedulerProjections.DeficitEntry> deficits = new HashMap<>();
-            for (SchedulerProjections.DeficitEntry entry :
-                    persisted.deficitMap().entries()) {
-                // Deficit is a physical Lane-version projection. A same-key
-                // Lane that has advanced its runtime version must not inherit
-                // the old cap/credit state after a restart.
-                if (matchesRegisteredLane(entry.laneId(), entry.laneIncarnation(), entry.observedLaneVersion())) {
-                    deficits.put(new LaneKey(entry.laneId(), entry.laneIncarnation()), entry);
-                }
-            }
-            final Map<LaneKey, SchedulerProjections.LastServedEntry> lastServed = new HashMap<>();
-            for (SchedulerProjections.LastServedEntry entry :
-                    persisted.lastServedMap().entries()) {
-                lastServed.put(new LaneKey(entry.laneId(), entry.laneIncarnation()), entry);
-            }
-            // Fairness counters are persisted for every registered Lane, not
-            // only the currently active ring. A blocked/paused Lane may be
-            // absent from the ring but must retain its service-gap state when it
-            // becomes READY again after restart.
-            final List<LaneScheduler.LaneSnapshot> snapshots = delegate.snapshot().lanes().stream()
-                    .map(snapshot -> {
-                        final LaneRecord lane = registered.get(snapshot.laneId());
-                        final byte[] incarnation = lane == null ? new byte[16] : lane.laneIncarnation();
-                        final LaneKey key = new LaneKey(snapshot.laneId(), incarnation);
-                        final SchedulerProjections.DeficitEntry deficit = deficits.get(key);
-                        final SchedulerProjections.LastServedEntry served = lastServed.get(key);
-                        return new LaneScheduler.LaneSnapshot(
-                                snapshot.laneId(),
-                                snapshot.weight(),
-                                deficit == null ? 0 : deficit.deficitBytes(),
-                                served == null ? 0 : served.lastServedRound(),
-                                snapshot.pendingItems(),
-                                snapshot.schedulable());
-                    })
-                    .toList();
-            // Validate and apply the complete counter projection before changing
-            // the active ring. A malformed persisted generation must not leave a
-            // newly registered scheduler with a partially restored ring.
-            delegate.restore(new LaneScheduler.SchedulerSnapshot(
-                    persisted.activeRing().nextIndex(), persisted.round().roundGeneration(), snapshots));
-            delegate.rebuildActiveRing(order);
-            final boolean ownerChanged = !persisted.round().owner().equals(owner);
-            recoveryFirstPass = ownerChanged || persisted.round().recoveryFirstPass();
-            recoveryServed.clear();
+            resetFairnessForRecovery();
+            // Only live Lane registration/readiness and the authoritative
+            // READY index rebuild the ring. Old ring order, credit and served
+            // counters are intentionally not restored.
             discoveredHeads.clear();
-            persistedRestored = true;
+            processStateInitialized = true;
         } catch (RuntimeException | Error failure) {
             rollbackRuntime(before, List.of(), List.of(), null, failure, null);
             throw failure;
         }
+    }
+
+    private void resetFairnessForRecovery() {
+        final List<LaneScheduler.LaneSnapshot> reset = delegate.snapshot().lanes().stream()
+                .map(snapshot -> new LaneScheduler.LaneSnapshot(
+                        snapshot.laneId(),
+                        snapshot.weight(),
+                        0,
+                        0,
+                        snapshot.pendingItems(),
+                        snapshot.schedulable()))
+                .toList();
+        delegate.restore(new LaneScheduler.SchedulerSnapshot(0, 0, reset));
+        lastScannedReadyKey = null;
+        wrapGeneration = 0;
+        recoveryFirstPass = true;
+        recoveryServed.clear();
     }
 
     /**
@@ -260,8 +227,8 @@ public final class PersistentLaneScheduler {
         if (maxReadyEntries <= 0) {
             throw new IllegalArgumentException("maxReadyEntries must be positive");
         }
-        if (!persistedRestored) {
-            restorePersistedState();
+        if (!processStateInitialized) {
+            initializeProcessState();
         }
         final RuntimeSnapshot before = runtimeSnapshot();
         final Map<DestinationLaneId, List<ScheduleWorkItem>> queuesBefore = delegate.queueSnapshot();
@@ -303,7 +270,6 @@ public final class PersistentLaneScheduler {
             } else {
                 lastScannedReadyKey = entries.get(entries.size() - 1).key();
             }
-            persist();
             return byLane.size();
         } catch (RuntimeException | Error failure) {
             rollbackRuntime(before, List.of(), List.of(), null, failure, queuesBefore);
@@ -357,8 +323,8 @@ public final class PersistentLaneScheduler {
             final long dueThroughEpochMs, final TrustedUtcIntervalEvidence evidence, final SchedulerBudget budget) {
         requireDueThrough(dueThroughEpochMs);
         Objects.requireNonNull(budget, "budget");
-        if (!persistedRestored) {
-            restorePersistedState();
+        if (!processStateInitialized) {
+            initializeProcessState();
         }
         final RuntimeSnapshot before = runtimeSnapshot();
         final List<ScheduleWorkItem> offered = new ArrayList<>();
@@ -383,7 +349,7 @@ public final class PersistentLaneScheduler {
                 final ReadyScan completed = new ReadyScan(
                         resolved, Math.min(resolved.size(), plan.value().firstWrappedProjection()));
                 return store.withReadView(
-                        plan.view(), () -> publishReadyProjections(dueThroughEpochMs, completed, plan.view(), offered));
+                        plan.view(), () -> publishReadyProjections(dueThroughEpochMs, completed, offered));
             } finally {
                 lastDiscoveryRead = new DiscoveryReadStatistics(
                         readBudget.actualRecords(),
@@ -401,7 +367,6 @@ public final class PersistentLaneScheduler {
     private List<ScheduleWorkItem> publishReadyProjections(
             final long dueThroughEpochMs,
             final ReadyScan readyScan,
-            final ShardStore.ReadView view,
             final List<ScheduleWorkItem> offered) {
         final List<ReadyProjection> projections = readyScan.projections();
         byte[] lastEligibleReadyKey = null;
@@ -461,7 +426,7 @@ public final class PersistentLaneScheduler {
             delegate.offer(item);
             offered.add(item);
         }
-        // Do not consume a future READY key in the durable cursor. The
+        // Do not consume a future READY key in the process-local cursor. The
         // future item may be retained in this process-local queue, but a
         // restart must be able to rediscover it before its due turn. READY
         // keys are ordered by eligibility, so the last eligible key is the
@@ -471,9 +436,7 @@ public final class PersistentLaneScheduler {
         }
         discoveredHeads.putAll(nextHeads);
         if (lastEligibleReadyKey != null) {
-            final long nextWrapGeneration =
-                    eligibleCursorWrapped ? incrementWrapGeneration(wrapGeneration) : wrapGeneration;
-            persist(nextWrapGeneration, view);
+            wrapGeneration = eligibleCursorWrapped ? incrementWrapGeneration(wrapGeneration) : wrapGeneration;
         }
         return List.copyOf(toOffer);
     }
@@ -490,10 +453,9 @@ public final class PersistentLaneScheduler {
             long deniedReads,
             BoundedReadBudget.Exhaustion exhaustion) {}
 
-    /** Returns the current durable discovery cursor projection. */
+    /** Returns a snapshot of the process-local cursor using the legacy shape. */
     public synchronized SchedulerProjections.ReadyDiscoveryCursor discoveryCursor() {
-        return new SchedulerProjections.ReadyDiscoveryCursor(
-                lastScannedReadyKey, wrapGeneration, Math.max(1, ringGeneration));
+        return new SchedulerProjections.ReadyDiscoveryCursor(lastScannedReadyKey, wrapGeneration, 1);
     }
 
     synchronized void offer(final ScheduleWorkItem item) {
@@ -526,7 +488,6 @@ public final class PersistentLaneScheduler {
             } else {
                 result = delegate.poll(dueThroughEpochMs, budget);
             }
-            persist();
             return result;
         } catch (RuntimeException | Error failure) {
             rollbackRuntime(before, result, List.of(), null, failure, null);
@@ -542,9 +503,8 @@ public final class PersistentLaneScheduler {
      * authoritative READY identity in {@code discoveredHeads} while the
      * process hands the selected item to the Claim executor. A pre-commit
      * materialization, permit or Claim validation failure must use this method
-     * instead of a bare {@link #requeueFirst(ScheduleWorkItem)}: the queue and
-     * fairness projection are persisted together, and a duplicate/mismatched
-     * handoff fails closed.</p>
+     * instead of a bare {@link #requeueFirst(ScheduleWorkItem)}; a
+     * duplicate/mismatched handoff fails closed.</p>
      */
     public synchronized void requeueFailedClaim(final ScheduleWorkItem item) {
         final ScheduleWorkItem selected = requirePolledClaimCandidate(item);
@@ -556,7 +516,6 @@ public final class PersistentLaneScheduler {
         final Map<DestinationLaneId, List<ScheduleWorkItem>> queuesBefore = delegate.queueSnapshot();
         try {
             delegate.requeueFirst(selected);
-            persist();
         } catch (RuntimeException | Error failure) {
             rollbackRuntime(before, List.of(), List.of(), null, failure, queuesBefore);
             throw failure;
@@ -668,7 +627,6 @@ public final class PersistentLaneScheduler {
                 delegate.ringOrder(),
                 new HashMap<>(discoveredHeads),
                 lastScannedReadyKey == null ? null : Bytes.copy(lastScannedReadyKey),
-                ringGeneration,
                 wrapGeneration,
                 recoveryFirstPass,
                 new HashSet<>(recoveryServed),
@@ -676,7 +634,7 @@ public final class PersistentLaneScheduler {
     }
 
     /**
-     * Restores process state after a durable scheduler projection failed. The
+     * Restores process state after a local scheduler operation failed. The
      * original failure remains the primary error; an inability to roll back is
      * attached so the caller never mistakes a partially restored registry for
      * a successful scheduler turn.
@@ -704,7 +662,6 @@ public final class PersistentLaneScheduler {
             discoveredHeads.putAll(snapshot.discoveredHeads());
             lastScannedReadyKey =
                     snapshot.lastScannedReadyKey() == null ? null : Bytes.copy(snapshot.lastScannedReadyKey());
-            ringGeneration = snapshot.ringGeneration();
             wrapGeneration = snapshot.wrapGeneration();
             recoveryFirstPass = snapshot.recoveryFirstPass();
             recoveryServed.clear();
@@ -739,7 +696,6 @@ public final class PersistentLaneScheduler {
             delegate.deactivateLane(laneId);
             recoveryFirstPass = true;
             recoveryServed.clear();
-            persist();
         } catch (RuntimeException | Error failure) {
             rollbackRuntime(before, List.of(), List.of(), laneId, failure, null);
             throw failure;
@@ -754,7 +710,6 @@ public final class PersistentLaneScheduler {
             delegate.markRecoveringEvidence(laneId);
             recoveryFirstPass = true;
             recoveryServed.clear();
-            persist();
         } catch (RuntimeException | Error failure) {
             rollbackRuntime(before, List.of(), List.of(), laneId, failure, null);
             throw failure;
@@ -769,7 +724,6 @@ public final class PersistentLaneScheduler {
             delegate.activateLane(laneId);
             recoveryFirstPass = true;
             recoveryServed.clear();
-            persist();
         } catch (RuntimeException | Error failure) {
             rollbackRuntime(before, List.of(), List.of(), laneId, failure, null);
             throw failure;
@@ -777,8 +731,8 @@ public final class PersistentLaneScheduler {
     }
 
     /**
-     * Removes a source-ordered terminal Lane from memory and its persisted
-     * fairness projections. The exact-incarnation and terminal/empty-queue
+     * Removes a source-ordered terminal Lane from process memory. The
+     * exact-incarnation and terminal/empty-queue
      * checks are owned by the shard-local scheduler; this wrapper only
      * removes the corresponding registry and discovery entries after that
      * check succeeds.
@@ -793,40 +747,10 @@ public final class PersistentLaneScheduler {
         if (!Arrays.equals(lane.laneIncarnation(), laneIncarnation)) {
             throw new IllegalArgumentException("lane incarnation mismatch");
         }
-        final LaneScheduler.SchedulerSnapshot before = delegate.snapshot();
-        final List<DestinationLaneId> beforeRing = delegate.ringOrder();
-        final Set<DestinationLaneId> beforeRecoveryServed = new HashSet<>(recoveryServed);
-        final DiscoveredHead beforeHead = discoveredHeads.get(laneId);
-        try {
-            delegate.unregister(laneId, laneIncarnation);
-            registered.remove(laneId);
-            recoveryServed.remove(laneId);
-            discoveredHeads.remove(laneId);
-            persist();
-        } catch (RuntimeException | Error failure) {
-            // A failed WriteBatch must not leave this in-memory registry
-            // ahead of the durable scheduler projection. The terminal Lane
-            // has no pending queue by contract, so its registration and
-            // fairness snapshot can be restored without losing work.
-            registered.put(laneId, lane);
-            delegate.register(lane);
-            delegate.restore(before);
-            // The failed unregister may have re-registered a Lane that was
-            // intentionally outside the active ring (for example a blocked
-            // terminal Lane). restoreRing() merges any currently registered
-            // Lane not present in the saved order, which would silently
-            // reactivate that Lane after a failed WriteBatch. Rebuild the
-            // exact prior active projection instead.
-            delegate.rebuildActiveRing(beforeRing);
-            recoveryServed.clear();
-            recoveryServed.addAll(beforeRecoveryServed);
-            if (beforeHead == null) {
-                discoveredHeads.remove(laneId);
-            } else {
-                discoveredHeads.put(laneId, beforeHead);
-            }
-            throw failure;
-        }
+        delegate.unregister(laneId, laneIncarnation);
+        registered.remove(laneId);
+        recoveryServed.remove(laneId);
+        discoveredHeads.remove(laneId);
     }
 
     synchronized void requeueFirst(final ScheduleWorkItem item) {
@@ -835,77 +759,6 @@ public final class PersistentLaneScheduler {
 
     public synchronized LaneScheduler.SchedulerSnapshot snapshot() {
         return delegate.snapshot();
-    }
-
-    synchronized void persist() {
-        persist(wrapGeneration);
-    }
-
-    private void persist(final long persistedWrapGeneration) {
-        persist(persistedWrapGeneration, null);
-    }
-
-    private void persist(final long persistedWrapGeneration, final ShardStore.ReadView view) {
-        final LaneScheduler.SchedulerSnapshot snapshot = delegate.snapshot();
-        final long nextRingGeneration = ringGeneration == Long.MAX_VALUE ? Long.MAX_VALUE : ringGeneration + 1;
-        final long persistedRingGeneration = Math.max(1, nextRingGeneration);
-        final List<SchedulerProjections.RingEntry> ringEntries = delegate.orderedSnapshot().stream()
-                .map(state -> {
-                    final LaneRecord lane = registered.get(state.laneId());
-                    if (lane == null) {
-                        throw new IllegalStateException("scheduler lane is not registered: " + state.laneId());
-                    }
-                    return new SchedulerProjections.RingEntry(
-                            state.laneId(), lane.laneIncarnation(), observedVersion(lane));
-                })
-                .toList();
-        final List<SchedulerProjections.DeficitEntry> deficits = snapshot.lanes().stream()
-                .map(state -> {
-                    final LaneRecord lane = registered.get(state.laneId());
-                    if (lane == null) {
-                        throw new IllegalStateException("scheduler lane is not registered: " + state.laneId());
-                    }
-                    return new SchedulerProjections.DeficitEntry(
-                            state.laneId(), lane.laneIncarnation(), state.deficit(), observedVersion(lane));
-                })
-                .toList();
-        final List<SchedulerProjections.LastServedEntry> lastServed = snapshot.lanes().stream()
-                .map(state -> {
-                    final LaneRecord lane = registered.get(state.laneId());
-                    if (lane == null) {
-                        throw new IllegalStateException("scheduler lane is not registered: " + state.laneId());
-                    }
-                    final long gap = snapshot.roundGeneration() >= state.lastServedRound()
-                            ? snapshot.roundGeneration() - state.lastServedRound()
-                            : 0;
-                    return new SchedulerProjections.LastServedEntry(
-                            state.laneId(), lane.laneIncarnation(), state.lastServedRound(), gap);
-                })
-                .toList();
-        final int nextIndex = ringEntries.isEmpty() ? 0 : snapshot.cursor() % ringEntries.size();
-        final SchedulerProjections.ActiveRing activeRing = new SchedulerProjections.ActiveRing(
-                persistedRingGeneration, snapshot.roundGeneration(), nextIndex, ringEntries);
-        final SchedulerProjections.ReadyDiscoveryCursor discovery = new SchedulerProjections.ReadyDiscoveryCursor(
-                lastScannedReadyKey, persistedWrapGeneration, persistedRingGeneration);
-        final SchedulerProjections.DeficitMap deficitMap = new SchedulerProjections.DeficitMap(deficits);
-        final SchedulerProjections.Round round =
-                new SchedulerProjections.Round(snapshot.roundGeneration(), owner, recoveryFirstPass);
-        final SchedulerProjections.LastServedMap lastServedMap = new SchedulerProjections.LastServedMap(lastServed);
-        store.write(batch -> {
-            if (view != null) {
-                batch.requireReadView(view);
-            }
-            batch.putValue(ColumnFamily.META, VALUE_TYPE, KeyCodec.metaScheduler(1), discovery.canonicalBytes());
-            batch.putValue(ColumnFamily.META, VALUE_TYPE, KeyCodec.metaScheduler(2), activeRing.canonicalBytes());
-            batch.putValue(ColumnFamily.META, VALUE_TYPE, KeyCodec.metaScheduler(3), deficitMap.canonicalBytes());
-            batch.putValue(ColumnFamily.META, VALUE_TYPE, KeyCodec.metaScheduler(4), round.canonicalBytes());
-            batch.putValue(ColumnFamily.META, VALUE_TYPE, KeyCodec.metaScheduler(5), lastServedMap.canonicalBytes());
-        });
-        // Keep the in-memory generation projection behind the same successful
-        // WriteBatch boundary as its durable counterpart. A failed write must
-        // not make a retry describe a generation that never reached RocksDB.
-        ringGeneration = persistedRingGeneration;
-        wrapGeneration = persistedWrapGeneration;
     }
 
     private ReadyScan readReadyProjections(
@@ -1442,23 +1295,7 @@ public final class PersistentLaneScheduler {
         return true;
     }
 
-    private boolean matchesRegisteredLane(final SchedulerProjections.RingEntry entry) {
-        return matchesRegisteredLane(entry.laneId(), entry.laneIncarnation(), entry.observedLaneVersion());
-    }
-
-    private boolean matchesRegisteredLane(
-            final DestinationLaneId laneId, final byte[] laneIncarnation, final long observedLaneVersion) {
-        final LaneRecord lane = registered.get(laneId);
-        return lane != null
-                && Arrays.equals(lane.laneIncarnation(), laneIncarnation)
-                && observedVersion(lane) == observedLaneVersion;
-    }
-
-    private static long observedVersion(final LaneRecord lane) {
-        return Math.max(1, lane.laneVersion());
-    }
-
-    private static PersistedState load(final ShardStore store) {
+    private static void validateLegacyProjections(final ShardStore store) {
         final var discovery = store.getValue(ColumnFamily.META, KeyCodec.metaScheduler(1), VALUE_TYPE);
         final var activeRing = store.getValue(ColumnFamily.META, KeyCodec.metaScheduler(2), VALUE_TYPE);
         final var deficits = store.getValue(ColumnFamily.META, KeyCodec.metaScheduler(3), VALUE_TYPE);
@@ -1467,7 +1304,7 @@ public final class PersistentLaneScheduler {
         final boolean any =
                 discovery != null || activeRing != null || deficits != null || round != null || lastServed != null;
         if (!any) {
-            return null;
+            return;
         }
         if (discovery == null || activeRing == null || deficits == null || round == null || lastServed == null) {
             throw new IllegalStateException("scheduler projections are incomplete");
@@ -1481,12 +1318,24 @@ public final class PersistentLaneScheduler {
                 || decodedActiveRing.roundGeneration() != decodedRound.roundGeneration()) {
             throw new IllegalStateException("scheduler projection generations disagree");
         }
-        return new PersistedState(
-                decodedDiscovery,
-                decodedActiveRing,
-                SchedulerProjections.DeficitMap.decode(deficits.payload()),
-                decodedRound,
-                SchedulerProjections.LastServedMap.decode(lastServed.payload()));
+        if (decodedDiscovery.wrapGeneration() < 0
+                || decodedDiscovery.activeRingGeneration() < 0
+                || decodedActiveRing.ringGeneration() < 0
+                || decodedRound.roundGeneration() < 0) {
+            throw new IllegalArgumentException("scheduler generations cannot be negative");
+        }
+        final SchedulerProjections.DeficitMap decodedDeficits = SchedulerProjections.DeficitMap.decode(deficits.payload());
+        if (decodedDeficits.entries().stream().anyMatch(entry -> entry.deficitBytes() < 0)) {
+            throw new IllegalArgumentException("scheduler deficit cannot be negative");
+        }
+        final SchedulerProjections.LastServedMap decodedLastServed =
+                SchedulerProjections.LastServedMap.decode(lastServed.payload());
+        if (decodedLastServed.entries().stream().anyMatch(entry ->
+                entry.lastServedRound() < 0
+                        || entry.lastServedRound() > decodedRound.roundGeneration()
+                        || entry.serviceGapGeneration() < 0)) {
+            throw new IllegalArgumentException("scheduler service counters are invalid");
+        }
     }
 
     private static OwnerIdentity defaultOwner(final ShardStore store) {
@@ -1501,42 +1350,11 @@ public final class PersistentLaneScheduler {
                 Bytes.sha256(Bytes.utf8("nereus-delay-embedded-scheduler-owner\0"), worker));
     }
 
-    private record LaneKey(DestinationLaneId laneId, byte[] incarnation) {
-        private LaneKey {
-            incarnation = Bytes.copy(incarnation);
-        }
-
-        @Override
-        public byte[] incarnation() {
-            return Bytes.copy(incarnation);
-        }
-
-        @Override
-        public boolean equals(final Object other) {
-            return other instanceof LaneKey that
-                    && laneId.equals(that.laneId)
-                    && Arrays.equals(incarnation, that.incarnation);
-        }
-
-        @Override
-        public int hashCode() {
-            return 31 * laneId.hashCode() + Arrays.hashCode(incarnation);
-        }
-    }
-
-    private record PersistedState(
-            SchedulerProjections.ReadyDiscoveryCursor discovery,
-            SchedulerProjections.ActiveRing activeRing,
-            SchedulerProjections.DeficitMap deficitMap,
-            SchedulerProjections.Round round,
-            SchedulerProjections.LastServedMap lastServedMap) {}
-
     private record RuntimeSnapshot(
             LaneScheduler.SchedulerSnapshot schedulerSnapshot,
             List<DestinationLaneId> ringOrder,
             Map<DestinationLaneId, DiscoveredHead> discoveredHeads,
             byte[] lastScannedReadyKey,
-            long ringGeneration,
             long wrapGeneration,
             boolean recoveryFirstPass,
             Set<DestinationLaneId> recoveryServed,

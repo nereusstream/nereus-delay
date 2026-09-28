@@ -156,8 +156,8 @@ public final class WorkerScheduler {
             // A bounded outer poll is one process-state mutation boundary. If
             // a later clock, arithmetic, or Lane poll check fails after a
             // shard head was removed, restore every inner queue and both
-            // fairness projections before rethrowing. The caller receives no
-            // partially consumed result list.
+            // layers of process-local fairness state before rethrowing. The
+            // caller receives no partially consumed result list.
             try {
                 restorePollSnapshot(before, result);
             } catch (RuntimeException | Error restoreFailure) {

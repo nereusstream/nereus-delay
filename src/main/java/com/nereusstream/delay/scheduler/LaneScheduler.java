@@ -69,8 +69,8 @@ public final class LaneScheduler {
             // A Lane control update can lower its scheduler weight. Rebuild
             // the process-wide cap so historical credit cannot remain above
             // the largest currently configured Lane increment. This mirrors
-            // the outer Worker scheduler and publishes the bounded projection
-            // before the next poll, even when the Lane is idle.
+            // the outer Worker scheduler and updates the bounded process-local
+            // credit state before the next poll, even when the Lane is idle.
             recomputeDeficitCap();
             if (lane.schedulable()) {
                 activateLane(lane.laneId());
@@ -172,7 +172,7 @@ public final class LaneScheduler {
                 }
                 // Read the service timestamp before removing the queue head.
                 // A clock regression or invalid sample must fail closed before
-                // any fairness projection can make the head look served.
+                // process-local fairness state can make the head look served.
                 readClock();
                 if (!lane.queue.removeFirstOccurrence(head)) {
                     throw new IllegalStateException("scheduler due item disappeared before removal");
@@ -279,9 +279,9 @@ public final class LaneScheduler {
     }
 
     /**
-     * Removes work items that were appended by a discovery turn whose durable
-     * projection write failed. Discovery appends at the tail, so reversing
-     * the successful append order restores each Lane's prior queue exactly.
+     * Removes work items appended by a discovery turn that failed before it
+     * could publish its process state. Discovery appends at the tail, so
+     * reversing the successful append order restores each Lane's prior queue.
      */
     synchronized void rollbackOffers(final List<ScheduleWorkItem> offered) {
         Objects.requireNonNull(offered, "offered");
@@ -431,29 +431,6 @@ public final class LaneScheduler {
                         state.queue.size(),
                         state.schedulable()))
                 .toList();
-    }
-
-    /** Rebuilds the in-memory ring from a validated persisted successor order. */
-    synchronized void restoreRing(final List<DestinationLaneId> persistedOrder) {
-        Objects.requireNonNull(persistedOrder, "persistedOrder");
-        final Set<DestinationLaneId> seen = new HashSet<>();
-        final List<DestinationLaneId> rebuilt = new ArrayList<>();
-        for (DestinationLaneId laneId : persistedOrder) {
-            final LaneQueue lane = lanes.get(laneId);
-            if (!seen.add(laneId) || lane == null || !lane.schedulable()) {
-                continue;
-            }
-            rebuilt.add(laneId);
-        }
-        for (DestinationLaneId laneId : ring) {
-            final LaneQueue lane = lanes.get(laneId);
-            if (seen.add(laneId) && lane != null && lane.schedulable()) {
-                rebuilt.add(laneId);
-            }
-        }
-        ring.clear();
-        ring.addAll(rebuilt);
-        cursor = ring.isEmpty() ? 0 : cursor % ring.size();
     }
 
     /** Replaces the active ring with an authority-validated successor order. */

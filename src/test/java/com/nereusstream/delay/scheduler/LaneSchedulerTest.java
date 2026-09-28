@@ -65,7 +65,7 @@ class LaneSchedulerTest {
                 .getDeclaredMethod("register", LaneRecord.class)
                 .getModifiers()));
         assertFalse(java.lang.reflect.Modifier.isPublic(PersistentLaneScheduler.class
-                .getDeclaredMethod("restorePersistedState")
+                .getDeclaredMethod("initializeProcessState")
                 .getModifiers()));
         assertFalse(java.lang.reflect.Modifier.isPublic(PersistentLaneScheduler.class
                 .getDeclaredMethod("rebuildFromAuthoritativeReady", int.class)
@@ -85,8 +85,6 @@ class LaneSchedulerTest {
         assertFalse(java.lang.reflect.Modifier.isPublic(PersistentLaneScheduler.class
                 .getDeclaredMethod("requeueFirst", ScheduleWorkItem.class)
                 .getModifiers()));
-        assertFalse(java.lang.reflect.Modifier.isPublic(
-                PersistentLaneScheduler.class.getDeclaredMethod("persist").getModifiers()));
         assertFalse(java.lang.reflect.Modifier.isPublic(PersistentLaneScheduler.class
                 .getDeclaredConstructor(com.nereusstream.delay.store.ShardStore.class, LaneScheduler.class)
                 .getModifiers()));
@@ -108,8 +106,6 @@ class LaneSchedulerTest {
         assertFalse(java.lang.reflect.Modifier.isPublic(LaneScheduler.class
                 .getDeclaredMethod("requeueFirst", ScheduleWorkItem.class)
                 .getModifiers()));
-        assertFalse(java.lang.reflect.Modifier.isPublic(
-                LaneScheduler.class.getDeclaredMethod("restoreRing", List.class).getModifiers()));
         assertFalse(java.lang.reflect.Modifier.isPublic(LaneScheduler.class
                 .getDeclaredMethod("rebuildActiveRing", List.class)
                 .getModifiers()));
@@ -426,7 +422,7 @@ class LaneSchedulerTest {
     }
 
     @Test
-    void fairnessCountersSurviveOwnerRestart() {
+    void fairnessCountersRestartFromZeroForANewProcess() {
         final DestinationLaneId lane = lane(5);
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 5);
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir);
@@ -438,57 +434,20 @@ class LaneSchedulerTest {
             scheduler.offer(item(lane, 1));
             scheduler.poll(new SchedulerBudget(1, 1024, 1_000_000_000));
             saved = scheduler.snapshot();
+            assertEquals(1, saved.roundGeneration());
         }
 
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final PersistentLaneScheduler scheduler = PersistentLaneScheduler.defaults(store);
             scheduler.register(record(lane, 2));
-            scheduler.restorePersistedState();
+            scheduler.initializeProcessState();
             final LaneScheduler.LaneSnapshot restored =
                     scheduler.snapshot().lanes().get(0);
-            final LaneScheduler.LaneSnapshot expected = saved.lanes().get(0);
-            assertEquals(expected.deficit(), restored.deficit());
-            assertEquals(expected.lastServedRound(), restored.lastServedRound());
-            assertEquals(expected.weight(), restored.weight());
-        }
-    }
-
-    @Test
-    void fairnessCountersSurviveRestartForLaneOutsideActiveRing() {
-        final DestinationLaneId first = lane(26);
-        final DestinationLaneId blocked = lane(27);
-        final ShardId shardId = new ShardId(RouteIncarnation.random(), 26);
-        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("blocked-lane-counters"));
-        LaneScheduler.LaneSnapshot expected;
-
-        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
-                ShardStore store = ShardStore.open(config, shardId, resources)) {
-            final PersistentLaneScheduler scheduler = PersistentLaneScheduler.defaults(store);
-            scheduler.register(record(first, 1));
-            scheduler.register(record(blocked, 1));
-            scheduler.offer(item(first, 1));
-            scheduler.offer(item(blocked, 1));
-            scheduler.poll(new SchedulerBudget(2, 1024, 1_000_000_000));
-            scheduler.markBlocked(blocked);
-            expected = scheduler.snapshot().lanes().stream()
-                    .filter(state -> state.laneId().equals(blocked))
-                    .findFirst()
-                    .orElseThrow();
-        }
-
-        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
-                ShardStore store = ShardStore.open(config, shardId, resources)) {
-            final PersistentLaneScheduler scheduler = PersistentLaneScheduler.defaults(store);
-            scheduler.register(record(first, 1));
-            scheduler.register(record(blocked, 1));
-            scheduler.restorePersistedState();
-            final LaneScheduler.LaneSnapshot restored = scheduler.snapshot().lanes().stream()
-                    .filter(state -> state.laneId().equals(blocked))
-                    .findFirst()
-                    .orElseThrow();
-            assertEquals(expected.deficit(), restored.deficit());
-            assertEquals(expected.lastServedRound(), restored.lastServedRound());
+            assertEquals(0, scheduler.snapshot().roundGeneration());
+            assertEquals(0, restored.deficit());
+            assertEquals(0, restored.lastServedRound());
+            assertEquals(saved.lanes().get(0).weight(), restored.weight());
         }
     }
 
@@ -525,7 +484,7 @@ class LaneSchedulerTest {
                     new PersistentLaneScheduler(store, LaneScheduler.defaults(), secondOwner);
             scheduler.register(record(first, 1));
             scheduler.register(record(second, 1));
-            scheduler.restorePersistedState();
+            scheduler.initializeProcessState();
             scheduler.offer(item(first, 3));
             scheduler.offer(item(first, 4));
             scheduler.offer(item(second, 3));
@@ -544,7 +503,7 @@ class LaneSchedulerTest {
     }
 
     @Test
-    void persistsAllFiveClosedSchedulerProjectionsTogether() {
+    void ordinaryFairSchedulingDoesNotWriteLegacySchedulerProjections() {
         final DestinationLaneId lane = lane(6);
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 6);
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir);
@@ -553,27 +512,23 @@ class LaneSchedulerTest {
             final PersistentLaneScheduler scheduler = PersistentLaneScheduler.defaults(store);
             scheduler.register(record(lane, 1));
             scheduler.offer(item(lane, 1));
-            scheduler.poll(new SchedulerBudget(1, 1024, 1_000_000_000));
+            final long beforePoll = store.latestSequenceNumber();
+            assertEquals(1, scheduler.poll(new SchedulerBudget(1, 1024, 1_000_000_000)).size());
+            assertEquals(beforePoll, store.latestSequenceNumber());
+            assertEquals(1, scheduler.snapshot().roundGeneration());
 
-            org.junit.jupiter.api.Assertions.assertNotNull(
-                    store.getValue(ColumnFamily.META, KeyCodec.metaScheduler(1), 5));
-            org.junit.jupiter.api.Assertions.assertNotNull(
-                    store.getValue(ColumnFamily.META, KeyCodec.metaScheduler(2), 5));
-            org.junit.jupiter.api.Assertions.assertNotNull(
-                    store.getValue(ColumnFamily.META, KeyCodec.metaScheduler(3), 5));
-            org.junit.jupiter.api.Assertions.assertNotNull(
-                    store.getValue(ColumnFamily.META, KeyCodec.metaScheduler(4), 5));
-            org.junit.jupiter.api.Assertions.assertNotNull(
-                    store.getValue(ColumnFamily.META, KeyCodec.metaScheduler(5), 5));
-            SchedulerProjections.ActiveRing.decode(store.getValue(ColumnFamily.META, KeyCodec.metaScheduler(2), 5)
-                    .payload());
-            SchedulerProjections.Round.decode(store.getValue(ColumnFamily.META, KeyCodec.metaScheduler(4), 5)
-                    .payload());
+            final long beforeEmptyPoll = store.latestSequenceNumber();
+            assertEquals(0, scheduler.poll(new SchedulerBudget(1, 1024, 1_000_000_000)).size());
+            assertEquals(beforeEmptyPoll, store.latestSequenceNumber());
+            for (int kind = 1; kind <= 5; kind++) {
+                org.junit.jupiter.api.Assertions.assertNull(
+                        store.getValue(ColumnFamily.META, KeyCodec.metaScheduler(kind), 5));
+            }
         }
     }
 
     @Test
-    void persistentTerminalLaneUnregisterRemovesFairnessProjection() {
+    void terminalLaneUnregisterIsProcessLocal() {
         final DestinationLaneId lane = lane(35);
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 35);
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("scheduler-lane-unregister"));
@@ -582,39 +537,27 @@ class LaneSchedulerTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final PersistentLaneScheduler scheduler = PersistentLaneScheduler.defaults(store);
+            final long before = store.latestSequenceNumber();
             scheduler.register(retired);
             scheduler.unregister(lane, retired.laneIncarnation());
             assertEquals(List.of(), scheduler.snapshot().lanes());
-            assertEquals(
-                    List.of(),
-                    SchedulerProjections.ActiveRing.decode(
-                                    store.getValue(ColumnFamily.META, KeyCodec.metaScheduler(2), 5)
-                                            .payload())
-                            .entries());
-            assertEquals(
-                    List.of(),
-                    SchedulerProjections.DeficitMap.decode(
-                                    store.getValue(ColumnFamily.META, KeyCodec.metaScheduler(3), 5)
-                                            .payload())
-                            .entries());
-            assertEquals(
-                    List.of(),
-                    SchedulerProjections.LastServedMap.decode(
-                                    store.getValue(ColumnFamily.META, KeyCodec.metaScheduler(5), 5)
-                                            .payload())
-                            .entries());
+            assertEquals(before, store.latestSequenceNumber());
+            for (int kind = 1; kind <= 5; kind++) {
+                org.junit.jupiter.api.Assertions.assertNull(
+                        store.getValue(ColumnFamily.META, KeyCodec.metaScheduler(kind), 5));
+            }
         }
 
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final PersistentLaneScheduler recovered = PersistentLaneScheduler.defaults(store);
-            recovered.restorePersistedState();
+            recovered.initializeProcessState();
             assertEquals(List.of(), recovered.snapshot().lanes());
         }
     }
 
     @Test
-    void failedPersistentLaneUnregisterRestoresInMemoryRegistration() {
+    void terminalLaneUnregisterDoesNotDependOnStoreAvailability() {
         final DestinationLaneId lane = lane(36);
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 36);
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("scheduler-lane-unregister-failure"));
@@ -625,11 +568,9 @@ class LaneSchedulerTest {
                 final LaneRecord retired =
                         recordWithIncarnation(lane, 1).closeForNewAdmission().retire();
                 scheduler.register(retired);
-                final LaneScheduler.SchedulerSnapshot before = scheduler.snapshot();
-
                 store.close();
-                assertThrows(IllegalStateException.class, () -> scheduler.unregister(lane, retired.laneIncarnation()));
-                assertEquals(before, scheduler.snapshot());
+                scheduler.unregister(lane, retired.laneIncarnation());
+                assertEquals(List.of(), scheduler.snapshot().lanes());
             } finally {
                 store.close();
             }
@@ -637,7 +578,7 @@ class LaneSchedulerTest {
     }
 
     @Test
-    void failedPersistentUnregisterDoesNotReactivatePreviouslyInactiveLane() {
+    void processLocalUnregisterKeepsPreviouslyInactiveLaneInactive() {
         final DestinationLaneId lane = lane(37);
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 37);
         final ShardStoreConfig config =
@@ -652,11 +593,9 @@ class LaneSchedulerTest {
                 scheduler.register(retired);
                 scheduler.markBlocked(lane);
                 assertEquals(List.of(), delegate.ringOrder());
-                final LaneScheduler.SchedulerSnapshot before = scheduler.snapshot();
-
                 store.close();
-                assertThrows(IllegalStateException.class, () -> scheduler.unregister(lane, retired.laneIncarnation()));
-                assertEquals(before, scheduler.snapshot());
+                scheduler.unregister(lane, retired.laneIncarnation());
+                assertEquals(List.of(), scheduler.snapshot().lanes());
                 assertEquals(List.of(), delegate.ringOrder());
             } finally {
                 store.close();
@@ -665,76 +604,23 @@ class LaneSchedulerTest {
     }
 
     @Test
-    void failedSchedulerProjectionWriteDoesNotAdvanceGenerationInMemory() {
-        final DestinationLaneId lane = lane(30);
-        final ShardId shardId = new ShardId(RouteIncarnation.random(), 30);
-        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("scheduler-write-failure"));
-        final long persistedGeneration;
-        try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {
-            final ShardStore store = ShardStore.open(config, shardId, resources);
-            try {
-                final PersistentLaneScheduler scheduler = PersistentLaneScheduler.defaults(store);
-                scheduler.register(record(lane, 1));
-                scheduler.persist();
-                persistedGeneration = scheduler.discoveryCursor().activeRingGeneration();
-
-                store.close();
-                assertThrows(IllegalStateException.class, scheduler::persist);
-                assertEquals(persistedGeneration, scheduler.discoveryCursor().activeRingGeneration());
-            } finally {
-                store.close();
-            }
-        }
-
-        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
-                ShardStore store = ShardStore.open(config, shardId, resources)) {
-            final SchedulerProjections.ActiveRing activeRing = SchedulerProjections.ActiveRing.decode(
-                    store.getValue(ColumnFamily.META, KeyCodec.metaScheduler(2), 5)
-                            .payload());
-            assertEquals(persistedGeneration, activeRing.ringGeneration());
-        }
-    }
-
-    @Test
-    void failedPollProjectionWriteRestoresThePolledHeadInMemory() {
-        final DestinationLaneId lane = lane(37);
-        final ShardId shardId = new ShardId(RouteIncarnation.random(), 37);
-        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("scheduler-poll-write-failure"));
-        try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {
-            final ShardStore store = ShardStore.open(config, shardId, resources);
-            try {
-                final PersistentLaneScheduler scheduler = PersistentLaneScheduler.defaults(store);
-                scheduler.register(record(lane, 1));
-                scheduler.offer(item(lane, 1));
-                scheduler.persist();
-                final LaneScheduler.SchedulerSnapshot before = scheduler.snapshot();
-
-                store.close();
-                assertThrows(
-                        IllegalStateException.class, () -> scheduler.poll(new SchedulerBudget(1, 1024, 1_000_000_000)));
-                assertEquals(before, scheduler.snapshot());
-            } finally {
-                store.close();
-            }
-        }
-    }
-
-    @Test
-    void failedReadinessProjectionWriteRestoresThePreviousGateProjection() {
+    void processReadinessTransitionsDoNotDependOnStoreAvailability() {
         final DestinationLaneId lane = lane(38);
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 38);
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("scheduler-ready-write-failure"));
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {
             final ShardStore store = ShardStore.open(config, shardId, resources);
             try {
-                final PersistentLaneScheduler scheduler = PersistentLaneScheduler.defaults(store);
-                scheduler.register(record(lane, 1));
-                scheduler.markBlocked(lane);
-                final LaneScheduler.SchedulerSnapshot before = scheduler.snapshot();
-
+                final LaneScheduler delegate = LaneScheduler.defaults();
+                // Use an explicit delegate to observe the process-local ring
+                // while exercising a Store that is no longer available.
+                final PersistentLaneScheduler observed = new PersistentLaneScheduler(store, delegate);
+                observed.register(record(lane, 1));
+                observed.markBlocked(lane);
+                observed.markRecoveringEvidence(lane);
                 store.close();
-                assertThrows(IllegalStateException.class, () -> scheduler.markReady(lane));
-                assertEquals(before, scheduler.snapshot());
+                observed.markReady(lane);
+                assertEquals(List.of(lane), delegate.ringOrder());
             } finally {
                 store.close();
             }
@@ -742,7 +628,7 @@ class LaneSchedulerTest {
     }
 
     @Test
-    void failedReadyProjectionRestoresEvidenceRecoveryStateExactly() {
+    void evidenceRecoveryReadinessIsProcessLocal() {
         final DestinationLaneId lane = lane(39);
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 39);
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("scheduler-ready-recovery-failure"));
@@ -755,11 +641,8 @@ class LaneSchedulerTest {
                         lane, new byte[16], 1, 0, AdmissionGate.OPEN, RuntimeReadiness.RECOVERING_EVIDENCE, 1, 0));
 
                 store.close();
-                assertThrows(IllegalStateException.class, () -> scheduler.markReady(lane));
-                // A retry after reopening the Store must still require the
-                // same evidence phase; the failed projection write cannot
-                // silently leave the in-memory state BLOCKED or READY.
-                delegate.markReady(lane);
+                scheduler.markReady(lane);
+                assertEquals(List.of(lane), delegate.ringOrder());
             } finally {
                 store.close();
             }
@@ -767,7 +650,7 @@ class LaneSchedulerTest {
     }
 
     @Test
-    void failedReadyProjectionDecodeDoesNotAdvanceWrapGenerationInMemory() {
+    void failedReadyProjectionDecodeDoesNotAdvanceProcessCursor() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 31);
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("scheduler-wrap-failure"));
         final LaneRecord firstLane = record(lane(31), 1);
@@ -806,50 +689,43 @@ class LaneSchedulerTest {
                         lastSource.canonicalBytes()));
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final LaneRecord registeredOnly = record(lane(33), 1);
             store.write(batch -> {
                 putReady(batch, first);
                 putReady(batch, last);
+                putLegacySchedulerProjections(
+                        batch,
+                        new SchedulerProjections.ReadyDiscoveryCursor(last.readyKey(), 0, 1),
+                        new SchedulerProjections.ActiveRing(1, 0, 0, List.of()),
+                        new SchedulerProjections.DeficitMap(List.of()),
+                        new SchedulerProjections.Round(0, owner(1), false),
+                        new SchedulerProjections.LastServedMap(List.of()));
             });
-            final PersistentLaneScheduler initial = PersistentLaneScheduler.defaults(store);
-            final LaneRecord registeredOnly = record(lane(33), 1);
-            initial.register(registeredOnly);
-            initial.persist();
-            final long ringGeneration = SchedulerProjections.ActiveRing.decode(
-                            store.getValue(ColumnFamily.META, KeyCodec.metaScheduler(2), 5)
-                                    .payload())
-                    .ringGeneration();
-            store.write(batch -> batch.putValue(
-                    ColumnFamily.META,
-                    5,
-                    KeyCodec.metaScheduler(1),
-                    new SchedulerProjections.ReadyDiscoveryCursor(last.readyKey(), 0, ringGeneration)
-                            .canonicalBytes()));
 
             final PersistentLaneScheduler recovered = PersistentLaneScheduler.defaults(store);
             recovered.register(registeredOnly);
             assertThrows(
                     IllegalStateException.class,
                     () -> recovered.discoverReady(new SchedulerBudget(1, 1024, 1_000_000_000)));
+            org.junit.jupiter.api.Assertions.assertNull(recovered.discoveryCursor().lastScannedReadyKey());
             assertEquals(0, recovered.discoveryCursor().wrapGeneration());
         }
     }
 
     @Test
-    void schedulerRestoreRejectsCrossProjectionGenerationDrift() {
-        final DestinationLaneId lane = lane(28);
+    void legacySchedulerProjectionGenerationDriftFailsClosed() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 28);
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("scheduler-generation-drift"));
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
-            final PersistentLaneScheduler scheduler = PersistentLaneScheduler.defaults(store);
-            scheduler.register(record(lane, 1));
-            scheduler.offer(item(lane, 1));
-            scheduler.poll(new SchedulerBudget(1, 1024, 1_000_000_000));
-
             final SchedulerProjections.ReadyDiscoveryCursor discovery =
-                    SchedulerProjections.ReadyDiscoveryCursor.decode(
-                            store.getValue(ColumnFamily.META, KeyCodec.metaScheduler(1), 5)
-                                    .payload());
+                    new SchedulerProjections.ReadyDiscoveryCursor(null, 0, 1);
+            final SchedulerProjections.ActiveRing activeRing = new SchedulerProjections.ActiveRing(1, 0, 0, List.of());
+            final SchedulerProjections.DeficitMap deficits = new SchedulerProjections.DeficitMap(List.of());
+            final SchedulerProjections.Round round = new SchedulerProjections.Round(0, owner(1), false);
+            final SchedulerProjections.LastServedMap lastServed = new SchedulerProjections.LastServedMap(List.of());
+            store.write(batch -> putLegacySchedulerProjections(
+                    batch, discovery, activeRing, deficits, round, lastServed));
             final SchedulerProjections.ReadyDiscoveryCursor drifted = new SchedulerProjections.ReadyDiscoveryCursor(
                     discovery.lastScannedReadyKey(), discovery.wrapGeneration(), discovery.activeRingGeneration() + 1);
             store.write(
@@ -861,8 +737,7 @@ class LaneSchedulerTest {
     }
 
     @Test
-    void malformedPersistedSchedulerGenerationDoesNotPartiallyApplyTheActiveRing() {
-        final DestinationLaneId lane = lane(48);
+    void malformedLegacySchedulerGenerationFailsClosed() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 48);
         final ShardStoreConfig config =
                 ShardStoreConfig.defaults(tempDir.resolve("scheduler-restore-partial-generation"));
@@ -882,20 +757,14 @@ class LaneSchedulerTest {
                 batch.putValue(ColumnFamily.META, 5, KeyCodec.metaScheduler(5), lastServed.canonicalBytes());
             });
 
-            final LaneScheduler delegate = LaneScheduler.defaults();
-            final PersistentLaneScheduler recovered = new PersistentLaneScheduler(store, delegate);
-            recovered.register(record(lane, 1));
-            final LaneScheduler.SchedulerSnapshot before = delegate.snapshot();
-            final List<DestinationLaneId> beforeRing = delegate.ringOrder();
-
-            assertThrows(IllegalArgumentException.class, recovered::restorePersistedState);
-            assertEquals(before, delegate.snapshot());
-            assertEquals(beforeRing, delegate.ringOrder());
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> new PersistentLaneScheduler(store, LaneScheduler.defaults()));
         }
     }
 
     @Test
-    void stalePersistedDeficitVersionDoesNotRestoreCreditsToARevisedLane() {
+    void legacyFairnessCountersAreIgnoredAfterLaneRegistration() {
         final DestinationLaneId lane = lane(49);
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 49);
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("scheduler-stale-deficit-version"));
@@ -921,18 +790,18 @@ class LaneSchedulerTest {
 
             final LaneScheduler delegate = LaneScheduler.defaults();
             final PersistentLaneScheduler recovered = new PersistentLaneScheduler(store, delegate);
-            // The same Lane incarnation has advanced its runtime version. The
-            // old active ring and deficit entry are stale, while last-served
-            // history remains useful for the incarnation-level service gap.
+            // This old ring and fairness state are decoded for compatibility,
+            // then ignored in favor of the current registered Lane state.
             recovered.register(
                     new LaneRecord(lane, incarnation, 1, 2, AdmissionGate.OPEN, RuntimeReadiness.READY, 1, 0));
-            recovered.restorePersistedState();
+            recovered.initializeProcessState();
 
             final LaneScheduler.LaneSnapshot restored =
                     delegate.snapshot().lanes().get(0);
             assertEquals(0, restored.deficit());
-            assertEquals(4, restored.lastServedRound());
-            assertEquals(List.of(), delegate.ringOrder());
+            assertEquals(0, restored.lastServedRound());
+            assertEquals(0, delegate.snapshot().roundGeneration());
+            assertEquals(List.of(lane), delegate.ringOrder());
         }
     }
 
@@ -1531,7 +1400,7 @@ class LaneSchedulerTest {
                             .toList());
             assertEquals(5, scheduler.discoveryReadStatistics().actualRecords());
             assertEquals(null, scheduler.discoveryReadStatistics().exhaustion());
-            assertEquals(writes + 1, store.operationStatistics().nativeWriteCalls());
+            assertEquals(writes, store.operationStatistics().nativeWriteCalls());
         }
     }
 
@@ -1594,7 +1463,7 @@ class LaneSchedulerTest {
             org.junit.jupiter.api.Assertions.assertArrayEquals(
                     last.readyKey(), scheduler.discoveryCursor().lastScannedReadyKey());
             assertEquals(0, scheduler.discoveryCursor().wrapGeneration());
-            assertEquals(writes + 1, store.operationStatistics().nativeWriteCalls());
+            assertEquals(writes, store.operationStatistics().nativeWriteCalls());
             assertEquals(List.of(), scheduler.discoverReady(new SchedulerBudget(1, 10_000, 1_000)));
             org.junit.jupiter.api.Assertions.assertArrayEquals(
                     first.readyKey(), scheduler.discoveryCursor().lastScannedReadyKey());
@@ -1800,6 +1669,21 @@ class LaneSchedulerTest {
                 new TimelineEntry(fixture.messageId(), fixture.message().generation()).encode());
         batch.putValue(
                 ColumnFamily.TIMELINE, 3, fixture.readyKey(), fixture.ready().encode());
+    }
+
+    private static void putLegacySchedulerProjections(
+            final ShardStore.Batch batch,
+            final SchedulerProjections.ReadyDiscoveryCursor discovery,
+            final SchedulerProjections.ActiveRing activeRing,
+            final SchedulerProjections.DeficitMap deficits,
+            final SchedulerProjections.Round round,
+            final SchedulerProjections.LastServedMap lastServed)
+            throws org.rocksdb.RocksDBException {
+        batch.putValue(ColumnFamily.META, 5, KeyCodec.metaScheduler(1), discovery.canonicalBytes());
+        batch.putValue(ColumnFamily.META, 5, KeyCodec.metaScheduler(2), activeRing.canonicalBytes());
+        batch.putValue(ColumnFamily.META, 5, KeyCodec.metaScheduler(3), deficits.canonicalBytes());
+        batch.putValue(ColumnFamily.META, 5, KeyCodec.metaScheduler(4), round.canonicalBytes());
+        batch.putValue(ColumnFamily.META, 5, KeyCodec.metaScheduler(5), lastServed.canonicalBytes());
     }
 
     private record ReadyFixture(
