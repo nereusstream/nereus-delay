@@ -2173,6 +2173,16 @@ class TargetCommandStoreTest {
             assertEquals(expiry, unknownExpiryResult.mutation());
             assertFalse(runtime.fenced());
             assertEquals(afterExpiry, store.latestSequenceNumber());
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> messageExpiryHandoff.submit(
+                            expectedExpiry,
+                            expiryProof,
+                            expiry.retryUntilEpochMs(),
+                            expiryOwner.asOwnerIdentity(),
+                            expiry.signingKeyVersion(),
+                            keys.getPrivate(),
+                            () -> 100));
             assertEquals(StableCode.OK, applyExpiry(loop, entries, expiry, expiryAt).stableCode());
             assertEquals(afterExpiry, store.latestSequenceNumber());
             assertEquals(1, expiryResolutions.get());

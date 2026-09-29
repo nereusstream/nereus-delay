@@ -41,8 +41,13 @@ public final class TargetMessageExpiryWorkClassExecutor {
             final PrivateKey signingKey,
             final LongSupplier ownerClock) {
         final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
-        if (pending != null && pending.result == null) {
-            throw new IllegalStateException("Target message expiry already has an outstanding WorkClass action");
+        if (pending != null) {
+            if (pending.result == null) {
+                throw new IllegalStateException("Target message expiry already has an outstanding WorkClass action");
+            }
+            if (pending.result.kind() == ResultKind.UNKNOWN) {
+                throw new IllegalStateException("previous Target expiry append outcome remains unknown");
+            }
         }
         pending = null;
         if (awaitingApply != null) {
