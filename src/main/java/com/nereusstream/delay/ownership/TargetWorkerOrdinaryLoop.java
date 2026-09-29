@@ -1,12 +1,22 @@
 package com.nereusstream.delay.ownership;
 
+import com.nereusstream.delay.protocol.ShardId;
+import com.nereusstream.delay.protocol.TargetNativePolicyScope;
 import com.nereusstream.delay.protocol.TargetPartitionId;
+import com.nereusstream.delay.protocol.TargetQueueState;
 import com.nereusstream.delay.runtime.TargetClaimRecord;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
+import com.nereusstream.delay.semantic.TargetNativePolicyAuthority;
+import com.nereusstream.delay.store.TargetKeyCodec;
 import java.io.Closeable;
+import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashSet;
+import java.util.Map;
 import java.util.Objects;
 import java.util.OptionalLong;
 import java.util.Set;
@@ -29,6 +39,7 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
     private final SchedulerBudget turnBudget;
     private final long recheckNanos;
     private final TargetWorkerOrdinaryDrr.Requests requests;
+    private final NativePolicySubscriptions nativePolicySubscriptions;
     private final Closeable nativePolicyChangeSubscription;
     private final ClaimConsumer claimConsumer;
     private final LongSupplier ownerClock;
@@ -92,7 +103,7 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
         this.inventoryLimits = Objects.requireNonNull(inventoryLimits, "inventoryLimits");
         this.drrLimits = Objects.requireNonNull(drrLimits, "drrLimits");
         this.turnBudget = Objects.requireNonNull(turnBudget, "turnBudget");
-        this.requests = Objects.requireNonNull(requests, "requests");
+        final var requestProvider = Objects.requireNonNull(requests, "requests");
         this.claimConsumer = Objects.requireNonNull(claimConsumer, "claimConsumer");
         this.ownerClock = Objects.requireNonNull(ownerClock, "ownerClock");
         this.schedulerClock = Objects.requireNonNull(schedulerClock, "schedulerClock");
@@ -115,9 +126,173 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
         maximumRecoveryTurns = Math.addExact(targets, 1);
         final long creditRounds = 1 + (drrLimits.maximumCostBytes() - 1) / drrLimits.quantumBytes();
         maximumCreditTurns = Math.multiplyExact(targets, creditRounds);
+        final long maximumNativeScopes = saturatedProduct(
+                inventoryLimits.maximumShards(), inventoryLimits.maximumTargets(), TargetQueueState.MAX_DOMAIN_SLOTS);
+        nativePolicySubscriptions = new NativePolicySubscriptions(maximumNativeScopes, host::signalNativePolicyChange);
+        this.requests = requestsWithNativePolicyWakeups(requestProvider, nativePolicySubscriptions);
         nativePolicyChangeSubscription = Objects.requireNonNull(
-                requests.subscribeNativePolicyChanges(host::signalNativePolicyChange),
+                requestProvider.subscribeNativePolicyChanges(host::signalNativePolicyChange),
                 "nativePolicyChangeSubscription");
+    }
+
+    private static long saturatedProduct(final int shards, final int targets, final int domains) {
+        final long first = (long) shards * targets;
+        return first > Long.MAX_VALUE / domains ? Long.MAX_VALUE : first * domains;
+    }
+
+    private static TargetWorkerOrdinaryDrr.Requests requestsWithNativePolicyWakeups(
+            final TargetWorkerOrdinaryDrr.Requests delegate,
+            final NativePolicySubscriptions subscriptions) {
+        return new TargetWorkerOrdinaryDrr.Requests() {
+            @Override
+            public java.util.Optional<TargetWorkerOrdinaryDrr.Request> resolve(
+                    final TargetWorkerShardRuntime shard,
+                    final com.nereusstream.delay.runtime.TargetHeadCostProbe.Cost cost) {
+                return delegate.resolve(shard, cost);
+            }
+
+            @Override
+            public Closeable subscribeNativePolicyChanges(final Runnable wakeup) {
+                return delegate.subscribeNativePolicyChanges(wakeup);
+            }
+
+            @Override
+            public java.util.Optional<TargetWorkerOrdinaryDrr.NativePolicyContext> resolveNativePolicyContext(
+                    final TargetWorkerShardRuntime shard,
+                    final com.nereusstream.delay.runtime.TargetHeadCostProbe.Cost cost) {
+                final var context = delegate.resolveNativePolicyContext(shard, cost);
+                if (context.isPresent()) {
+                    final var projection = cost.nativeProjection();
+                    if (projection == null) {
+                        throw new IllegalStateException("Native policy context resolved for an ordinary Target head");
+                    }
+                    final TargetNativePolicyScope scope = projection.scope();
+                    if (!scope.sourceShard().equals(shard.shardId())
+                            || !scope.target().equals(cost.head().target())) {
+                        throw new IllegalStateException("Native policy scope differs from its selected source/Target");
+                    }
+                    subscriptions.observe(scope, context.orElseThrow().policies());
+                }
+                return context;
+            }
+        };
+    }
+
+    /** One watcher per live source/Target/domain slot, released when a complete Native pass no longer sees it. */
+    static final class NativePolicySubscriptions implements Closeable {
+        private record Slot(ShardId shard, TargetPartitionId target, TargetKeyCodec.Domain domain) {}
+
+        private static final class AuthoritySubscription {
+            private final Closeable handle;
+            private int slots;
+
+            private AuthoritySubscription(final Closeable handle) {
+                this.handle = handle;
+            }
+        }
+
+        private final long maximumSlots;
+        private final Runnable wakeup;
+        private final Map<Slot, TargetNativePolicyAuthority> authorityBySlot = new HashMap<>();
+        private final IdentityHashMap<TargetNativePolicyAuthority, AuthoritySubscription> byAuthority =
+                new IdentityHashMap<>();
+        private final Set<Slot> observedThisPass = new HashSet<>();
+
+        NativePolicySubscriptions(final long maximumSlots, final Runnable wakeup) {
+            if (maximumSlots <= 0) {
+                throw new IllegalArgumentException("Native policy wake subscriptions require a positive scope bound");
+            }
+            this.maximumSlots = maximumSlots;
+            this.wakeup = Objects.requireNonNull(wakeup, "wakeup");
+        }
+
+        synchronized void observe(
+                final TargetNativePolicyScope scope, final TargetNativePolicyAuthority authority) {
+            Objects.requireNonNull(scope, "scope");
+            Objects.requireNonNull(authority, "authority");
+            final Slot slot = new Slot(scope.sourceShard(), scope.target(), scope.domain());
+            final TargetNativePolicyAuthority prior = authorityBySlot.get(slot);
+            if (prior == authority) {
+                observedThisPass.add(slot);
+                return;
+            }
+            if (prior == null && authorityBySlot.size() >= maximumSlots) {
+                throw new IllegalStateException("Native policy wake subscriptions exceed the activated scope bound");
+            }
+            AuthoritySubscription next = byAuthority.get(authority);
+            if (next == null) {
+                final Closeable handle = Objects.requireNonNull(
+                        authority.subscribeCurrentHeadChanges(wakeup), "native policy authority subscription");
+                next = new AuthoritySubscription(handle);
+                byAuthority.put(authority, next);
+            }
+            next.slots++;
+            authorityBySlot.put(slot, authority);
+            observedThisPass.add(slot);
+            if (prior != null) {
+                releaseSlot(prior);
+            }
+        }
+
+        synchronized void completePass() {
+            for (var entry : new HashMap<>(authorityBySlot).entrySet()) {
+                if (!observedThisPass.contains(entry.getKey())) {
+                    authorityBySlot.remove(entry.getKey());
+                    releaseSlot(entry.getValue());
+                }
+            }
+            observedThisPass.clear();
+        }
+
+        synchronized void reset() {
+            closeAll();
+        }
+
+        private void releaseSlot(final TargetNativePolicyAuthority authority) {
+            final AuthoritySubscription subscription = byAuthority.get(authority);
+            if (subscription == null || subscription.slots <= 0) {
+                throw new IllegalStateException("Native policy authority subscription lost its slot owner");
+            }
+            subscription.slots--;
+            if (subscription.slots == 0) {
+                byAuthority.remove(authority);
+                closeHandle(subscription.handle);
+            }
+        }
+
+        private void closeAll() {
+            IOException failure = null;
+            for (AuthoritySubscription subscription : byAuthority.values()) {
+                try {
+                    subscription.handle.close();
+                } catch (IOException closeFailure) {
+                    if (failure == null) {
+                        failure = closeFailure;
+                    } else {
+                        failure.addSuppressed(closeFailure);
+                    }
+                }
+            }
+            authorityBySlot.clear();
+            byAuthority.clear();
+            observedThisPass.clear();
+            if (failure != null) {
+                throw new IllegalStateException("cannot close Native policy authority wake subscriptions", failure);
+            }
+        }
+
+        private static void closeHandle(final Closeable handle) {
+            try {
+                handle.close();
+            } catch (IOException closeFailure) {
+                throw new IllegalStateException("cannot close Native policy authority wake subscription", closeFailure);
+            }
+        }
+
+        @Override
+        public synchronized void close() {
+            closeAll();
+        }
     }
 
     private synchronized void start() {
@@ -166,6 +341,7 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
                             awaitChange(observedRevision);
                             continue;
                         }
+                        nativePolicySubscriptions.reset();
                         if (scheduler == null) {
                             scheduler = host.newOrdinaryDrr(inventory, drrLimits, ownerClock, monotonicClock);
                             recoveryReady = false;
@@ -287,6 +463,9 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
                                 throw new IllegalStateException("Target ordinary monotonic clock moved backwards");
                             }
                             lastMonotonic = now;
+                            if (scheduler.nativeWakeScanComplete(observedRevision)) {
+                                nativePolicySubscriptions.completePass();
+                            }
                             if (scheduler.nativeWakeScanComplete(observedRevision)
                                     && result.stop() != TargetWorkerOrdinaryDrr.Stop.CREDIT_WAIT) {
                                 if (result.stop() == TargetWorkerOrdinaryDrr.Stop.NORMAL
@@ -312,6 +491,7 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
                     host.awaitShardAdmission(busy.shardId(), Duration.ofNanos(recheckNanos));
                 } catch (RuntimeException failure) {
                     reportFailure(failure);
+                    nativePolicySubscriptions.reset();
                     scheduler = null;
                     recoveryReady = false;
                     inventoryRefreshPending = true;
@@ -389,9 +569,22 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
         if (!nativePolicyChangeSubscriptionClosed.compareAndSet(false, true)) {
             return;
         }
+        Throwable closeFailure = null;
+        try {
+            nativePolicySubscriptions.close();
+        } catch (RuntimeException failure) {
+            closeFailure = failure;
+        }
         try {
             nativePolicyChangeSubscription.close();
-        } catch (Exception closeFailure) {
+        } catch (Exception externalCloseFailure) {
+            if (closeFailure == null) {
+                closeFailure = externalCloseFailure;
+            } else {
+                closeFailure.addSuppressed(externalCloseFailure);
+            }
+        }
+        if (closeFailure != null) {
             if (primaryFailure != null) {
                 primaryFailure.addSuppressed(closeFailure);
             } else {

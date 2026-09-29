@@ -49,11 +49,12 @@ Target Worker 另可停止新的 source/GC turn，只处理已提交的 GC task�
 factory、format2 回填、完整迁移/恢复和集中验证仍未完成。原 29 切片不缩减。
 
 E1 的 ordinary future-head timer 已增加真实 Target Store/Worker/Host-loop 回归：到期前不产生 Claim，
-仅推进 scheduler clock、不发队列通知后由 Host timer 触发新的持久 Claim。该证据只覆盖 ordinary head；
-Oxia 0.9.0 current-head 通知现可通过 Native authority 订阅接入 `Requests`，由 Host loop 发布合并 revision，
-且 loop 结束时解除本地回调；策略仍须重新读取，安全重查继续兜底。此处只有通知筛选和 Host 回调生命周期
-的定向测试，没有生产 `Requests` provider 或真实 Oxia 服务验证。Native Host timer/Claim、外部 policy/control/
-channel generation 的完整装配与失效矩阵、Owner/recovery 和集中验证仍待完成。
+仅推进 scheduler clock、不发队列通知后由 Host timer 触发新的持久 Claim。该证据只覆盖 ordinary head。
+Host loop 现在从实际解析出的 Native policy context 自动订阅 current-head authority，并按 source/Target/domain
+slot 去重；活动 slot 数有 `maximumShards × maximumTargets × 64` 上限，完整 Native pass 会释放不再出现的 slot，
+重建、失败与关闭路径会解除全部本地订阅。策略仍须重新读取，安全重查继续覆盖通知延迟或丢失。定向测试覆盖
+authority 去重、唤醒、slot 替换与回收；真实 Oxia 服务、Native Host timer/Claim、外部 policy/control/channel
+generation 与 permit/backoff 装配、完整失效矩阵、Owner/recovery 和集中验证仍待完成。
 切片状态保持 IN_PROGRESS / PENDING_CENTRAL_VALIDATION，详见 NDIP-3 执行记录与交接清单。
 
 以下为前序认证入口实施记录；持久 writer 的当前进展以上述说明为准。

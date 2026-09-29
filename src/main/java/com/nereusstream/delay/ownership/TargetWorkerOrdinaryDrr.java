@@ -94,8 +94,9 @@ public final class TargetWorkerOrdinaryDrr {
         Optional<Request> resolve(TargetWorkerShardRuntime shard, TargetHeadCostProbe.Cost cost);
 
         /**
-         * Registers best-effort external policy wakeups; Oxia-backed providers should delegate to the policy
-         * authority, while the Host loop retains a bounded safety recheck.
+         * Registers best-effort external wakeups not owned by a resolved Native policy authority. The Host loop
+         * subscribes directly to each authority returned by resolveNativePolicyContext and retains a bounded safety
+         * recheck for delayed or lost notifications.
          */
         default Closeable subscribeNativePolicyChanges(final Runnable wakeup) {
             Objects.requireNonNull(wakeup, "wakeup");

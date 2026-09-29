@@ -5,21 +5,29 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import com.nereusstream.delay.protocol.PulsarSourceLock;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
+import com.nereusstream.delay.protocol.TargetNativeArtifactSet;
+import com.nereusstream.delay.protocol.TargetNativePolicyHead;
+import com.nereusstream.delay.protocol.TargetNativePolicyScope;
+import com.nereusstream.delay.protocol.TargetPartitionId;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClass;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import com.nereusstream.delay.scheduler.WorkClassPolicy;
 import com.nereusstream.delay.scheduler.WorkClassRuntimeConfig;
 import com.nereusstream.delay.scheduler.WorkClassTask;
+import com.nereusstream.delay.semantic.TargetNativePolicyAuthority;
 import com.nereusstream.delay.store.CheckpointScheduler;
 import com.nereusstream.delay.store.ShardStoreConfig;
 import com.nereusstream.delay.store.SharedRocksDbResources;
 import com.nereusstream.delay.store.TargetCheckpointCandidateWorkClassExecutor;
+import com.nereusstream.delay.store.TargetKeyCodec;
 import java.io.Closeable;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Optional;
@@ -37,6 +45,82 @@ import org.junit.jupiter.api.io.TempDir;
 class TargetWorkerShardFleetRuntimeTest {
     @TempDir
     Path tempDir;
+
+    @Test
+    void nativePolicyAuthorityWakeSubscriptionsFollowActiveDomainSlots() {
+        final var shard = new ShardId(RouteIncarnation.random(), 1);
+        final var target = new TargetPartitionId(repeatedBytes(32, 0x20));
+        final var firstScope = nativeScope(shard, target, 0);
+        final var secondScope = nativeScope(shard, target, 1);
+        final var firstAuthority = new NotifyingNativePolicyAuthority();
+        final var replacementAuthority = new NotifyingNativePolicyAuthority();
+        final var wakeups = new AtomicInteger();
+        final var subscriptions = new TargetWorkerOrdinaryLoop.NativePolicySubscriptions(2, wakeups::incrementAndGet);
+
+        subscriptions.observe(firstScope, firstAuthority);
+        subscriptions.observe(secondScope, firstAuthority);
+        assertEquals(1, firstAuthority.subscribeCount);
+        firstAuthority.listener.run();
+        assertEquals(1, wakeups.get());
+        subscriptions.completePass();
+
+        subscriptions.observe(secondScope, replacementAuthority);
+        subscriptions.completePass();
+        assertEquals(1, firstAuthority.closeCount);
+        replacementAuthority.listener.run();
+        assertEquals(2, wakeups.get());
+
+        subscriptions.completePass();
+        assertEquals(1, replacementAuthority.closeCount);
+        subscriptions.close();
+        assertEquals(1, replacementAuthority.closeCount);
+    }
+
+    private static TargetNativePolicyScope nativeScope(
+            final ShardId shard, final TargetPartitionId target, final int domainSlot) {
+        return new TargetNativePolicyScope(
+                repeatedBytes(32, 0x31),
+                repeatedBytes(32, 0x32),
+                shard,
+                target,
+                repeatedBytes(16, 0x33),
+                new TargetKeyCodec.Domain(domainSlot, domainSlot + 1L),
+                repeatedBytes(32, 0x34),
+                repeatedBytes(32, 0x35),
+                60_000,
+                new TargetNativeArtifactSet(
+                        repeatedBytes(32, 0x36), PulsarSourceLock.digest(), 1));
+    }
+
+    private static byte[] repeatedBytes(final int length, final int value) {
+        final byte[] bytes = new byte[length];
+        Arrays.fill(bytes, (byte) value);
+        return bytes;
+    }
+
+    private static final class NotifyingNativePolicyAuthority implements TargetNativePolicyAuthority {
+        private int subscribeCount;
+        private int closeCount;
+        private Runnable listener;
+
+        @Override
+        public java.util.Optional<Publication> current(final byte[] scopeDigest) {
+            return java.util.Optional.empty();
+        }
+
+        @Override
+        public Publication compareAndSet(
+                final byte[] scopeDigest, final long expectedRevision, final TargetNativePolicyHead next) {
+            throw new UnsupportedOperationException("test authority is read-only");
+        }
+
+        @Override
+        public Closeable subscribeCurrentHeadChanges(final Runnable wakeup) {
+            subscribeCount++;
+            listener = wakeup;
+            return () -> closeCount++;
+        }
+    }
 
     @Test
     void sourceAndGcRotateIndependentlyAndFailureDoesNotPinAnotherShard() {
