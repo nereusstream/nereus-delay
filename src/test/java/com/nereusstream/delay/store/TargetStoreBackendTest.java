@@ -3,15 +3,19 @@ package com.nereusstream.delay.store;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.TargetPartitionId;
 import com.nereusstream.delay.protocol.TargetQuotaAggregate;
+import com.nereusstream.delay.protocol.TargetQuotaCounter;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
+import com.nereusstream.delay.protocol.TargetQuotaTotal;
 import com.nereusstream.delay.runtime.TargetQuotaDelta;
 import com.nereusstream.delay.runtime.TargetQuotaTotalsDelta;
 import java.nio.file.Path;
@@ -20,6 +24,9 @@ import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.rocksdb.RocksDBException;
 
 /** Minimal development smoke only; full business/authority/recovery validation remains in the handoff list. */
 class TargetStoreBackendTest {
@@ -100,6 +107,93 @@ class TargetStoreBackendTest {
             final var next = plan(backend, 2);
             backend.commit(next, (a, b, c) -> guard());
             assertEquals(2, store.shardMutationSequence());
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void quotaBusinessAndSourceRemainOneBatchAcrossNativeWriteFailure(final boolean writeBeforeFailure) {
+        final var config = ShardStoreConfig.defaults(root.resolve("target-write-failure-" + writeBeforeFailure));
+        final byte[] businessKey = TargetKeyCodec.message(DelayMessageId.random(shard));
+        final byte[] businessValue = Bytes.utf8("target-atomic-value");
+        final TargetStoreBackend.Mutation mutation;
+        try (var resources = new SharedRocksDbResources(config);
+                var store = ShardStore.openTarget(config, shard, resources)) {
+            final var backend = backend(store);
+            final var prepared = backend.prepare(
+                    new BoundedReadBudget(100, 1 << 20, 10_000_000_000L, System::nanoTime),
+                    reader -> {
+                        final var counters = TargetQuotaDelta.prepare(
+                                reader.aggregate(),
+                                reader.sourceSequence(),
+                                reader.source(),
+                                source(1),
+                                bytes(32, 1),
+                                List.of(),
+                                4,
+                                reader::counter);
+                        final var totals = TargetQuotaTotalsDelta.prepare(counters, scope, 1, reader::total);
+                        final var business = reader.replace(ColumnFamily.ID, businessKey, 15, businessValue);
+                        return new TargetStoreBackend.Mutation(totals, List.of(business));
+                    });
+            mutation = prepared.mutation();
+            final var failure = assertThrows(
+                    ShardStore.RocksDbWriteFailure.class,
+                    () -> backend.commit(
+                            prepared,
+                            (metadata, targetScope, actual) -> guard(),
+                            (db, writeOptions, batch) -> {
+                                if (writeBeforeFailure) {
+                                    db.write(writeOptions, batch);
+                                }
+                                throw new RocksDBException("synthetic Target batch write response failure");
+                            }));
+            assertEquals("RocksDB write failed", failure.getMessage());
+            assertTrue(store.isWriteOutcomeUncertain());
+            assertThrows(IllegalStateException.class, () -> store.get(ColumnFamily.ID, businessKey));
+        }
+
+        try (var resources = new SharedRocksDbResources(config);
+                var reopened = ShardStore.openTarget(config, shard, resources)) {
+            if (writeBeforeFailure) {
+                assertArrayEquals(
+                        TargetValueEnvelope.encode(15, businessValue), reopened.get(ColumnFamily.ID, businessKey));
+                assertEquals(1, reopened.shardMutationSequence());
+                assertArrayEquals(source(1).canonicalBytes(), reopened.appliedShardLogPosition().canonicalBytes());
+            } else {
+                assertNull(reopened.get(ColumnFamily.ID, businessKey));
+                assertEquals(0, reopened.shardMutationSequence());
+                assertNull(reopened.appliedShardLogPosition());
+            }
+            for (var change : mutation.quota().counters().changes()) {
+                final byte[] stored = reopened.get(ColumnFamily.META, change.next().identity().key());
+                if (writeBeforeFailure) {
+                    assertArrayEquals(
+                            TargetValueEnvelope.encode(TargetQuotaCounter.VALUE_TYPE, change.next().canonicalBytes()),
+                            stored);
+                } else {
+                    assertNull(stored);
+                }
+            }
+            for (var change : mutation.quota().changes()) {
+                final byte[] stored = reopened.get(ColumnFamily.META, change.next().key());
+                if (writeBeforeFailure) {
+                    assertArrayEquals(
+                            TargetValueEnvelope.encode(TargetQuotaTotal.VALUE_TYPE, change.next().canonicalBytes()),
+                            stored);
+                } else {
+                    assertNull(stored);
+                }
+            }
+            final var aggregate = mutation.quota().counters().nextAggregate();
+            final byte[] storedAggregate = reopened.get(ColumnFamily.META, aggregate.key());
+            if (writeBeforeFailure) {
+                assertArrayEquals(
+                        TargetValueEnvelope.encode(TargetQuotaAggregate.VALUE_TYPE, aggregate.canonicalBytes()),
+                        storedAggregate);
+            } else {
+                assertNull(storedAggregate);
+            }
         }
     }
 

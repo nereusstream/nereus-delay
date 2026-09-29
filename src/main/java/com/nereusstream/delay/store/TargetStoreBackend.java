@@ -25,6 +25,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
+import org.rocksdb.RocksDB;
 
 /** Real RocksDB adapter for Target plans; production composition must still supply business/lease authority. */
 public final class TargetStoreBackend {
@@ -660,8 +661,17 @@ public final class TargetStoreBackend {
 
     /** Consumes the plan once. Failed/unknown attempts are reconciled by a fresh read/recovery, never blind retry. */
     public void commit(final Prepared prepared, final CommitAuthority authority) {
+        commit(prepared, authority, RocksDB::write);
+    }
+
+    /** Package-local native boundary for verifying whole-batch failure and ambiguous-response recovery. */
+    void commit(
+            final Prepared prepared,
+            final CommitAuthority authority,
+            final ShardStore.NativeWriteOperation nativeWrite) {
         Objects.requireNonNull(prepared, "prepared");
         Objects.requireNonNull(authority, "authority");
+        Objects.requireNonNull(nativeWrite, "nativeWrite");
         synchronized (prepared) {
             if (prepared.backend != this || prepared.attempted) {
                 throw new IllegalStateException("foreign or already attempted Target plan");
@@ -721,7 +731,7 @@ public final class TargetStoreBackend {
                                 stamp.source().canonicalBytes());
                         batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(5), Bytes.u64beBits(stamp.sequence()));
                     }
-                });
+                }, nativeWrite);
                 invalidateChangedQueueHeads(changedQueueTargets);
                 writeCompleted.set(true);
                 return null;
