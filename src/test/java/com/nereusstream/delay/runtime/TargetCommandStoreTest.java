@@ -1626,6 +1626,7 @@ class TargetCommandStoreTest {
             final var closeStore = new TargetCloseStore(backend, scope, lineage, 16, 1);
             final var closeResolutions = new java.util.concurrent.atomic.AtomicInteger();
             final var expiryResolutions = new java.util.concurrent.atomic.AtomicInteger();
+            final var failWorkerReads = new java.util.concurrent.atomic.AtomicBoolean();
             final var closeAuthority = new TargetCloseVerifier.Authority(
                     registrations,
                     (version, source) -> keys.getPublic(),
@@ -1702,7 +1703,12 @@ class TargetCommandStoreTest {
                                 throw new AssertionError("unexpected membership control authority");
                             },
                             (a, b, c) -> guard(),
-                            (a, b) -> guard(),
+                            (a, b) -> {
+                                if (failWorkerReads.get()) {
+                                    throw new IllegalStateException("Target Worker read authority unavailable");
+                                }
+                                return guard();
+                            },
                             entry -> {
                                 resolutions.incrementAndGet();
                                 return new TargetSourceApplyRuntime.CommandControl(
@@ -2215,6 +2221,20 @@ class TargetCommandStoreTest {
             assertNull(replacementExpirySubmission.result().orElseThrow().sourcePosition());
             assertEquals(replacementExpiry, replacementExpirySubmission.result().orElseThrow().mutation());
             assertFalse(runtime.fenced());
+            assertEquals(beforeReplacementExpirySubmit, store.latestSequenceNumber());
+            failWorkerReads.set(true);
+            final var readAuthorityFailure = assertThrows(
+                    IllegalStateException.class,
+                    () -> messageExpiryHandoff.submit(
+                            replacementExpiryCandidate,
+                            expiryProof,
+                            replacementExpiry.retryUntilEpochMs(),
+                            expiryOwner.asOwnerIdentity(),
+                            expiry.signingKeyVersion(),
+                            keys.getPrivate(),
+                            () -> 100));
+            assertEquals("Target Worker read authority unavailable", readAuthorityFailure.getMessage());
+            failWorkerReads.set(false);
             assertEquals(beforeReplacementExpirySubmit, store.latestSequenceNumber());
             assertThrows(
                     IllegalStateException.class,
