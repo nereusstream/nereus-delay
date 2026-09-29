@@ -1959,6 +1959,9 @@ class TargetQuotaGrantStoreTest {
             assertEquals(
                     ApplyStatus.APPLIED,
                     SystemMutationResult.decode(first.typedPayload()).applyStatus());
+            final var queueChanges = new TargetStoreBackend.TargetQueueChangeSignal();
+            backend.bindTargetQueueChangeSignal(queueChanges);
+            queueChanges.drainChanges();
             final var targetActivationKey = Bytes.concat(
                     new byte[] {TargetKeyCodec.QUOTA_GRANT_ACTIVATION_TAG, TargetKeyCodec.KEY_FORMAT},
                     scope.forTarget(physical.id()).keySuffix());
@@ -2000,16 +2003,23 @@ class TargetQuotaGrantStoreTest {
                                 ? SourceAcknowledgement.AcknowledgementResult.unknown(null)
                                 : SourceAcknowledgement.AcknowledgementResult.acked();
                     }));
+            final long beforeNativeInstallRevision = queueChanges.revision();
             assertEquals(
                     SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN,
                     loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100)
                             .status());
+            assertEquals(beforeNativeInstallRevision + 1, queueChanges.revision());
+            final var installChanges = queueChanges.drainChanges();
+            assertFalse(installChanges.inventoryDirty());
+            assertTrue(installChanges.businessRecheck());
+            assertTrue(installChanges.dirtyTargets().isEmpty());
             final long afterNativeInstall = store.latestSequenceNumber();
             assertEquals(
                     SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
                     loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100)
                             .status());
             assertEquals(afterNativeInstall, store.latestSequenceNumber());
+            assertEquals(beforeNativeInstallRevision + 1, queueChanges.revision());
             final var snapshot = TargetNativePolicySnapshot.create(
                     nativeScope,
                     1,
@@ -2052,6 +2062,11 @@ class TargetQuotaGrantStoreTest {
                     SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
                     activationTurn.status(),
                     () -> "activation source apply failed: " + activationTurn.failure());
+            assertEquals(beforeNativeInstallRevision + 2, queueChanges.revision());
+            final var activationChanges = queueChanges.drainChanges();
+            assertFalse(activationChanges.inventoryDirty());
+            assertTrue(activationChanges.businessRecheck());
+            assertTrue(activationChanges.dirtyTargets().isEmpty());
             final var nativeApproval = signedNative(
                     TargetNativePolicyControlRequest.approveMember(nativeScope, grant.digest()),
                     bytes(32, 0x7d),
@@ -2074,6 +2089,11 @@ class TargetQuotaGrantStoreTest {
                     SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
                     loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100)
                             .status());
+            assertEquals(beforeNativeInstallRevision + 3, queueChanges.revision());
+            final var approvalChanges = queueChanges.drainChanges();
+            assertFalse(approvalChanges.inventoryDirty());
+            assertTrue(approvalChanges.businessRecheck());
+            assertTrue(approvalChanges.dirtyTargets().isEmpty());
             assertEquals(3, nativeResolutions.get());
             final var nativeRecordKey = TargetKeyCodec.nativeMember(nativeScope.digest(), grant.digest());
             final var nativeRecordBytes = TargetValueEnvelope.decode(
