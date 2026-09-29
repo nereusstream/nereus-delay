@@ -48,6 +48,11 @@ Target Worker 另可停止新的 source/GC turn，只处理已提交的 GC task�
 跨 Target 服务机会界限、expiry-first 混合顺序、关闭汇总转移、生产历史权限/配置/
 factory、format2 回填、完整迁移/恢复和集中验证仍未完成。原 29 切片不缩减。
 
+E1 的 ordinary future-head timer 已增加真实 Target Store/Worker/Host-loop 回归：到期前不产生 Claim，
+仅推进 scheduler clock、不发队列通知后由 Host timer 触发新的持久 Claim。该证据只覆盖 ordinary head；
+Native Host timer/Claim、外部 policy/control/channel generation 唤醒和生产 provider 装配仍待完成。
+切片状态保持 IN_PROGRESS / PENDING_CENTRAL_VALIDATION，详见 NDIP-3 执行记录与交接清单。
+
 以下为前序认证入口实施记录；持久 writer 的当前进展以上述说明为准。
 
 Target TIME_FENCE 的有界 body/ProofId 解码及首次认证校验器已实现：强制历史 Fence
