@@ -2633,6 +2633,61 @@ Reservation controls combine the persisted marker with mandatory remaining histo
 Closure materialization, aggregate phase transfer, production coverage providers/activation,
 full recovery audits/Floor/migration and centralized validation remain incomplete.
 
+### Source-ordered Target Native policy authority controls
+
+The closed Control operation values are `INSTALL_TARGET_NATIVE_PUBLISHER_PERMISSION=20`,
+`CLOSE_TARGET_NATIVE_PUBLISHER_PERMISSION=21`, `ACTIVATE_TARGET_NATIVE_POLICY=22`,
+`APPROVE_TARGET_NATIVE_MEMBER=23`, and `CLOSE_TARGET_NATIVE_MEMBER=24`; each uses the matching
+ControlOperationRequest oneof tag. Their source mutation is `APPLY_SHARD_CONTROL` on one exact
+source Shard at target index zero. ApplyShardControl kinds are respectively 19 through 23.
+Every operation requires `TENANT_POLICY_ADMINISTRATOR` and `PLATFORM_OPERATOR`, plus the
+authenticated complete resource-scope proof. This keeps the existing B2 membership grant and
+closure semantics separate from the additional common-Native approval.
+
+`TargetNativePolicyControlRequest` has field 1 full canonical TargetNativePolicyScope.
+The operation payloads are:
+
+| Control operation | Remaining fields |
+| --- | --- |
+| install publisher permission | 2 raw uint32 key generation (nonzero), 3 canonical 44-byte Ed25519 X.509 public key, 4 positive maximumLeaseMs <= Long.MAX_VALUE |
+| close publisher permission | 2 raw uint32 key generation (nonzero), 3 ControlReason |
+| activate policy | 2 full signed TargetNativePolicySnapshot |
+| approve member | 2 assigned B2 membership grant digest[32] |
+| close member | 2 assigned B2 membership grant digest[32], 3 ControlReason |
+
+The request maximum is `TargetNativePolicyScope.MAX_CANONICAL_BYTES +
+TargetNativePolicySnapshot.MAX_CANONICAL_BYTES + 44 + 192` bytes. The source body has fields
+1 ShardSubject, 2 APPLY_SHARD_CONTROL, 3 retryUntil, 10 ControlRef, 11 ApplyShardControl kind,
+12 semanticVersion=1, 13 semantic hash, 14 expected record state (1 for immutable install/
+activation/approval, 0 for close), and 15 ControlPayload oneof the selected kind. The semantic
+hash is SHA-256(`nereus-delay-target-native-policy-control\0` || u16be(kind) || canonical request).
+Body ceiling is request ceiling+192; nested ControlPayload is request ceiling+5. ControlRef,
+prepared request hash, operation registration, signatures, retry deadline and logical identity
+remain bound to the exact source mutation.
+
+Publisher permission generations, activations, member approvals, and their first closure records
+are immutable source history. Closing future publication retains the original Ed25519 key so
+snapshots activated before closure remain verifiable. A member close only prevents later first
+binding; it does not switch off an already admitted Native prefix. These operations add no new
+SystemMutationType and do not activate the legacy DelayShard decoder or Store format 1.
+
+The active Target source applier persists these records at META tags 31..35 using NV42. First
+publisher installation or member approval may register the immutable Native scope in the same
+source transaction. The batch carries the authority record, source/accounting stamps, SYSTEM and
+POSITION results, quota updates, and source advance. Replaying an already applied Control source
+does not add another record. `TargetNativePolicyTrustStore` reads bounded historical projections
+from the exact active SourceApply Store; each read holds the current Owner/read-authority guard
+and rechecks Store identity and the unchanged applied source frontier. Queries beyond that local
+frontier fail closed. Worker Native Claim selection constructs this trust from its own Shard
+runtime, so a request provider cannot inject historical trust. First Schedule binding resolves
+the same MemberApproval projection in its existing Store view and omits the durable Native scope
+reference when no active approval exists.
+
+These changes connect source Control application, Store history, accounting, and first-binding
+eligibility. Producer-side current-head publication providers, complete production authority/time/
+permit assembly, Native Admission/ownership/Journal execution, format-2 recovery/migration and
+real Broker/Oxia validation are still required before the Native policy authority is production-usable.
+
 ### Target reservation local Close materialization
 
 TargetQuotaMutation adds optional raw uint64 field6 `reservationClosure` ordinal, mutually

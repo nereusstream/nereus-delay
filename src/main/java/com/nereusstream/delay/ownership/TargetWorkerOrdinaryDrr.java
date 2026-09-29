@@ -20,7 +20,6 @@ import com.nereusstream.delay.runtime.TimelineWorkKind;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.TargetNativePolicyChecks;
 import com.nereusstream.delay.semantic.TargetNativePolicyAuthority;
-import com.nereusstream.delay.semantic.TargetNativePolicyTrust;
 import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.ReadIncompleteException;
 import com.nereusstream.delay.store.TargetStoreBackend;
@@ -103,12 +102,10 @@ public final class TargetWorkerOrdinaryDrr {
     /** Providers are sampled again under the Claim commit guard; a cached decision cannot authorize a send. */
     public record NativePolicyContext(
             TargetNativePolicyAuthority policies,
-            TargetNativePolicyTrust trust,
             Supplier<SourcePosition> sourcePosition,
             Supplier<TrustedUtcIntervalEvidence> trustedTime) {
         public NativePolicyContext {
             Objects.requireNonNull(policies, "policies");
-            Objects.requireNonNull(trust, "trust");
             Objects.requireNonNull(sourcePosition, "sourcePosition");
             Objects.requireNonNull(trustedTime, "trustedTime");
         }
@@ -450,7 +447,8 @@ public final class TargetWorkerOrdinaryDrr {
                 || host != null && host.targetQueueChangeRevision() != expectedQueueRevision) {
             return next;
         }
-        if (nextNativeWakeEpochMs != null && nextNativeWakeEpochMs > nowEpochMs
+        if (nextNativeWakeEpochMs != null
+                && nextNativeWakeEpochMs > nowEpochMs
                 && (next.isEmpty() || nextNativeWakeEpochMs < next.getAsLong())) {
             next = OptionalLong.of(nextNativeWakeEpochMs);
         }
@@ -463,8 +461,7 @@ public final class TargetWorkerOrdinaryDrr {
                 && (host == null || host.targetQueueChangeRevision() == expectedQueueRevision);
     }
 
-    synchronized boolean nativeWakeNeedsImmediateRescan(
-            final long nowEpochMs, final long expectedQueueRevision) {
+    synchronized boolean nativeWakeNeedsImmediateRescan(final long nowEpochMs, final long expectedQueueRevision) {
         if (nowEpochMs < 0) {
             throw new IllegalArgumentException("Target Native wake check requires trusted nonnegative time");
         }
@@ -505,7 +502,8 @@ public final class TargetWorkerOrdinaryDrr {
                 continue;
             }
             final var snapshot = entry.orElseThrow();
-            if (!Arrays.equals(previous.physical.canonicalBytes(), snapshot.physical().canonicalBytes())) {
+            if (!Arrays.equals(
+                    previous.physical.canonicalBytes(), snapshot.physical().canonicalBytes())) {
                 throw new IllegalStateException("Target DRR physical identity changed during wake refresh");
             }
             sources.add(new TargetWorkerTargetInventory.Source(worker.shardId(), snapshot));
@@ -585,7 +583,9 @@ public final class TargetWorkerOrdinaryDrr {
         final Long nextWake = target.nextOrdinaryWakeEpochMs;
         if (nextWake != null) {
             ordinaryWakeByTarget.put(target.id, nextWake);
-            ordinaryWakeTargets.computeIfAbsent(nextWake, ignored -> new HashSet<>()).add(target.id);
+            ordinaryWakeTargets
+                    .computeIfAbsent(nextWake, ignored -> new HashSet<>())
+                    .add(target.id);
         }
     }
 
@@ -718,18 +718,20 @@ public final class TargetWorkerOrdinaryDrr {
             }
             final NativePolicyContext context = contextResult.orElseThrow();
             final var work = projection.work();
-            final boolean initialAttempt = work.workKind() == TimelineWorkKind.INITIAL_SCHEDULE
-                    && work.candidateAttemptNo() == 1;
+            final boolean initialAttempt =
+                    work.workKind() == TimelineWorkKind.INITIAL_SCHEDULE && work.candidateAttemptNo() == 1;
             final SourcePosition position = context.sourcePosition().get();
             final TrustedUtcIntervalEvidence time = context.trustedTime().get();
-            final var publication = context.policies().current(projection.scope().digest()).orElse(null);
+            final var publication =
+                    context.policies().current(projection.scope().digest()).orElse(null);
+            final var trust = worker(shard).nativePolicyTrustStore(ownerClock);
             final var decision = TargetNativePolicyChecks.resolve(
                     projection.scope(),
                     initialAttempt,
                     cost.deliverAtEpochMs(),
                     work.retryEligibilityAtEpochMs(),
                     publication,
-                    context.trust(),
+                    trust,
                     position,
                     time);
             final OptionalLong nextWake = nativePolicyWake(decision, nowEpochMs, cost.expireAtEpochMs());
@@ -757,11 +759,7 @@ public final class TargetWorkerOrdinaryDrr {
                     decision.nativeActionAtEpochMs(),
                     expectedQueueRevision);
             final Request guarded = new Request(
-                    request.owner(),
-                    request.deadlineEpochMs(),
-                    request.operationDigest(),
-                    request.quota(),
-                    authority);
+                    request.owner(), request.deadlineEpochMs(), request.operationDigest(), request.quota(), authority);
             return new NativeSelection<>(
                     Optional.of(() -> host.claim(
                             worker(shard),
@@ -780,9 +778,7 @@ public final class TargetWorkerOrdinaryDrr {
     }
 
     static OptionalLong nativePolicyWake(
-            final TargetNativePolicyChecks.Decision decision,
-            final long nowEpochMs,
-            final long expireAtEpochMs) {
+            final TargetNativePolicyChecks.Decision decision, final long nowEpochMs, final long expireAtEpochMs) {
         if ((decision.action() == TargetNativePolicyChecks.Action.WAIT_UNTIL
                         || decision.action() == TargetNativePolicyChecks.Action.TIME_SAMPLE_REQUIRED)
                 && decision.wakeAtEpochMs() > nowEpochMs
@@ -818,8 +814,11 @@ public final class TargetWorkerOrdinaryDrr {
                             .orElseThrow(() -> new IllegalStateException(
                                     "Target Native policy context disappeared before Claim commit"));
                     final SourcePosition position = context.sourcePosition().get();
-                    final TrustedUtcIntervalEvidence time = context.trustedTime().get();
-                    final var publication = context.policies().current(scope.digest()).orElse(null);
+                    final TrustedUtcIntervalEvidence time =
+                            context.trustedTime().get();
+                    final var publication =
+                            context.policies().current(scope.digest()).orElse(null);
+                    final var trust = shard.nativePolicyTrustStore(ownerClock);
                     final var work = cost.nativeProjection().work();
                     final var current = TargetNativePolicyChecks.resolve(
                             scope,
@@ -827,7 +826,7 @@ public final class TargetWorkerOrdinaryDrr {
                             cost.deliverAtEpochMs(),
                             work.retryEligibilityAtEpochMs(),
                             publication,
-                            context.trust(),
+                            trust,
                             position,
                             time);
                     if (current.action() != TargetNativePolicyChecks.Action.NATIVE_CANDIDATE
@@ -841,7 +840,7 @@ public final class TargetWorkerOrdinaryDrr {
                             cost.deliverAtEpochMs(),
                             expectedActionAt,
                             context.policies(),
-                            context.trust(),
+                            trust,
                             position,
                             time);
                 }
@@ -1111,9 +1110,7 @@ public final class TargetWorkerOrdinaryDrr {
             target.sources.get(candidate.sourceIndex()).domainCursor =
                     (candidate.domainIndex() + 1) % candidate.domainCount();
             return new Visit<>(
-                    VisitKind.CLAIMED,
-                    new Claimed<>(claimed, candidate.cost()),
-                    selection.nextWakeEpochMs());
+                    VisitKind.CLAIMED, new Claimed<>(claimed, candidate.cost()), selection.nextWakeEpochMs());
         }
         if (!selection.due() || !selection.budgetBlocked()) {
             target.credit = 0;
@@ -1210,7 +1207,8 @@ public final class TargetWorkerOrdinaryDrr {
                 continue;
             }
             final var entry = current.orElseThrow();
-            if (!Arrays.equals(target.physical.canonicalBytes(), entry.physical().canonicalBytes())) {
+            if (!Arrays.equals(
+                    target.physical.canonicalBytes(), entry.physical().canonicalBytes())) {
                 throw new IllegalStateException("Target Native DRR physical identity changed");
             }
             final TargetQueueState queue = entry.queue();
@@ -1231,7 +1229,8 @@ public final class TargetWorkerOrdinaryDrr {
                 } catch (IllegalStateException staleOrInvalid) {
                     final var latest = reads.refresh(source.shard, target.id);
                     if (latest.isEmpty()
-                            || !Arrays.equals(queue.digest(), latest.orElseThrow().queue().digest())) {
+                            || !Arrays.equals(
+                                    queue.digest(), latest.orElseThrow().queue().digest())) {
                         continue sources;
                     }
                     throw staleOrInvalid;
@@ -1242,13 +1241,14 @@ public final class TargetWorkerOrdinaryDrr {
                 if (cost.schedulingCost() > limits.maximumCostBytes()) {
                     throw new IllegalStateException("Target Native head exceeds activated maximum cost");
                 }
-                final NativeSelection<T> selected = Objects.requireNonNull(
-                        selector.select(source.shard, cost), "Native selection");
+                final NativeSelection<T> selected =
+                        Objects.requireNonNull(selector.select(source.shard, cost), "Native selection");
                 if (selected.nextWakeEpochMs().isPresent()
                         && selected.nextWakeEpochMs().getAsLong() > nowEpochMs) {
                     nextWakeEpochMs = nextWakeEpochMs == null
                             ? selected.nextWakeEpochMs().getAsLong()
-                            : Math.min(nextWakeEpochMs, selected.nextWakeEpochMs().getAsLong());
+                            : Math.min(
+                                    nextWakeEpochMs, selected.nextWakeEpochMs().getAsLong());
                 }
                 if (selected.action().isEmpty()) {
                     continue;
@@ -1304,8 +1304,7 @@ public final class TargetWorkerOrdinaryDrr {
         return workersById(host.currentTargetWorkers()).equals(workers);
     }
 
-    private static Map<ShardId, TargetWorkerShardRuntime> workersById(
-            final List<TargetWorkerShardRuntime> values) {
+    private static Map<ShardId, TargetWorkerShardRuntime> workersById(final List<TargetWorkerShardRuntime> values) {
         final Map<ShardId, TargetWorkerShardRuntime> result = new HashMap<>();
         for (TargetWorkerShardRuntime worker : values) {
             if (result.put(worker.shardId(), worker) != null) {
@@ -1350,7 +1349,8 @@ public final class TargetWorkerOrdinaryDrr {
         }
 
         private void updateQueueSnapshots(final TargetWorkerTargetInventory.Target incoming) {
-            if (!id.equals(incoming.id()) || sources.size() != incoming.sources().size()) {
+            if (!id.equals(incoming.id())
+                    || sources.size() != incoming.sources().size()) {
                 throw new IllegalStateException("Target queue refresh changes its source membership");
             }
             nextOrdinaryWakeEpochMs = earliestOrdinaryWake(incoming);
@@ -1401,8 +1401,7 @@ public final class TargetWorkerOrdinaryDrr {
         private final TargetWorkerShardRuntime worker;
         private int domainCursor;
 
-        private SourceState(
-                final ShardId shard, final byte[] storeIncarnation, final TargetWorkerShardRuntime worker) {
+        private SourceState(final ShardId shard, final byte[] storeIncarnation, final TargetWorkerShardRuntime worker) {
             this.shard = shard;
             this.storeIncarnation = storeIncarnation;
             this.worker = worker;

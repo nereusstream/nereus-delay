@@ -80,6 +80,16 @@ public final class ControlTargetMutationBinding {
                     expectedLogicalIdentity = body.logicalIdentity();
                     break;
                 }
+                if (prepared.request().branch() instanceof TargetNativePolicyControlRequest expected) {
+                    final var body = TargetNativePolicyControlBody.decode(mutation.canonicalBody());
+                    requireControlRef(expectedControlRef, body.controlRef());
+                    if (!expected.equals(body.request())) {
+                        throw new IllegalArgumentException(
+                                "Target Native policy Control payload differs from the registered request");
+                    }
+                    expectedLogicalIdentity = body.logicalIdentity();
+                    break;
+                }
                 final ApplyShardControlBody body = ApplyShardControlBody.decode(mutation.canonicalBody());
                 requireControlRef(expectedControlRef, body.controlRef());
                 validateApplyTarget(prepared.kind(), target, body);
@@ -107,7 +117,15 @@ public final class ControlTargetMutationBinding {
     static SystemMutationType expectedMutationType(
             final ControlOperationKind operationKind, final ControlTargetKind targetKind) {
         return switch (operationKind) {
-            case GRANT_TARGET_MEMBERSHIP, CLOSE_TARGET_MEMBERSHIP, PUBLISH_TARGET_QUOTA_GRANT, CLOSE_TARGET ->
+            case GRANT_TARGET_MEMBERSHIP,
+                    CLOSE_TARGET_MEMBERSHIP,
+                    PUBLISH_TARGET_QUOTA_GRANT,
+                    CLOSE_TARGET,
+                    INSTALL_TARGET_NATIVE_PUBLISHER_PERMISSION,
+                    CLOSE_TARGET_NATIVE_PUBLISHER_PERMISSION,
+                    ACTIVATE_TARGET_NATIVE_POLICY,
+                    APPROVE_TARGET_NATIVE_MEMBER,
+                    CLOSE_TARGET_NATIVE_MEMBER ->
                 requireTargetKind(targetKind, ControlTargetKind.SHARD, SystemMutationType.APPLY_SHARD_CONTROL);
             case REPLAY_DEAD_LETTER ->
                 requireTargetKind(targetKind, ControlTargetKind.MESSAGE, SystemMutationType.REPLAY_DEAD_LETTER);

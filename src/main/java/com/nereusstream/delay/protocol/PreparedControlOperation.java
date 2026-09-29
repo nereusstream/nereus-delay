@@ -324,6 +324,24 @@ public final class PreparedControlOperation {
                             "membership Control target must be its exact source Shard at index 0");
                 }
             }
+            case INSTALL_TARGET_NATIVE_PUBLISHER_PERMISSION,
+                    CLOSE_TARGET_NATIVE_PUBLISHER_PERMISSION,
+                    ACTIVATE_TARGET_NATIVE_POLICY,
+                    APPROVE_TARGET_NATIVE_MEMBER,
+                    CLOSE_TARGET_NATIVE_MEMBER -> {
+                requireOnlyKinds(values, ControlTargetKind.SHARD);
+                requireCount(values, ControlTargetKind.SHARD, 1, 1);
+                requireMutationPresence(values, ControlTargetKind.SHARD, true);
+                final var nativePolicy = branch(request, TargetNativePolicyControlRequest.class);
+                if (values.getFirst().targetIndex() != 0
+                        || !values.getFirst()
+                                .shard()
+                                .shardId()
+                                .equals(nativePolicy.scope().sourceShard())) {
+                    throw new IllegalArgumentException(
+                            "Target Native policy Control target must be its exact source Shard at index zero");
+                }
+            }
             case STOP_NEW_SCHEDULES -> {
                 requireOnlyKinds(values, ControlTargetKind.ROUTE, ControlTargetKind.SHARD);
                 requireCount(values, ControlTargetKind.ROUTE, 1, 1);

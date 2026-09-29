@@ -78,6 +78,82 @@ class TargetNativePolicyContractTest {
     }
 
     @Test
+    void nativePolicyControlRequestsAndSourceBodiesRoundTripWithClosedKinds() {
+        final var incident = new ControlReason(ControlReasonKind.INCIDENT, repeat(32, 7), null);
+        final List<TargetNativePolicyControlRequest> requests = List.of(
+                TargetNativePolicyControlRequest.installPublisher(scope, 9, keys.getPublic(), 30_000),
+                TargetNativePolicyControlRequest.closePublisher(scope, 9, incident),
+                TargetNativePolicyControlRequest.activate(
+                        scope, snapshot(1, HandoffPolicyMode.ENABLED, 30_000, 120_000)),
+                TargetNativePolicyControlRequest.approveMember(scope, repeat(32, 8)),
+                TargetNativePolicyControlRequest.closeMember(scope, repeat(32, 8), incident));
+        final int[] operationKinds = {20, 21, 22, 23, 24};
+        final int[] controlKinds = {19, 20, 21, 22, 23};
+        for (int index = 0; index < requests.size(); index++) {
+            final var request = requests.get(index);
+            final var operation = request.operationRequest();
+            assertEquals(operationKinds[index], operation.kind().wireValue());
+            assertEquals(
+                    request,
+                    ControlOperationRequest.decode(operation.canonicalBytes()).branch());
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> new ControlOperationRequest(ControlOperationKind.CLOSE_TARGET, request));
+
+            final var ref = new ControlRef(
+                    repeat(32, index + 20), PreparedControlOperation.requestHash(operation.kind(), operation), 0);
+            final var body = new TargetNativePolicyControlBody(
+                    scope.sourceShard(), 200_000, ref, request, request.createsImmutableRecord() ? 1 : 0);
+            final var decodedBody = TargetNativePolicyControlBody.decode(body.canonicalBytes());
+            assertEquals(controlKinds[index], decodedBody.request().controlKind());
+            assertEquals(body.expectedRecordState(), decodedBody.expectedRecordState());
+            assertArrayEquals(body.logicalIdentity(), decodedBody.logicalIdentity());
+            assertEquals(request, decodedBody.request());
+
+            final byte[] operationId = repeat(32, index + 40);
+            final var signedRef =
+                    new ControlRef(operationId, PreparedControlOperation.requestHash(operation.kind(), operation), 0);
+            final var signedBody = new TargetNativePolicyControlBody(
+                    scope.sourceShard(), 200_000, signedRef, request, request.createsImmutableRecord() ? 1 : 0);
+            final byte[] canonicalBody = signedBody.canonicalBytes();
+            final byte[] mutationHash = SystemMutation.computeMutationHash(
+                    scope.sourceShard(), SystemMutationType.APPLY_SHARD_CONTROL, 200_000, canonicalBody);
+            final byte[] mutationId = SystemMutation.computeSystemMutationId(
+                    scope.sourceShard(),
+                    SystemMutationType.APPLY_SHARD_CONTROL,
+                    signedBody.logicalIdentity(),
+                    mutationHash);
+            final var target = new ControlTargetRef(
+                    0, ControlTargetKind.SHARD, new ShardSubject(scope.sourceShard()), mutationId, mutationHash);
+            final var author =
+                    new ControlAuthor(actor.actorIdHash(), actor.roleSet().digest(), actor.tenantResourceScopeHash());
+            final var prepared = PreparedControlOperation.prepare(
+                    operationId,
+                    operation.kind(),
+                    author,
+                    operation,
+                    List.of(target),
+                    1,
+                    200_000,
+                    9,
+                    keys.getPrivate());
+            ControlOperationAuthorization.authorize(prepared, actor, ignored -> true);
+            final var signed = ControlSystemMutationFactory.sign(
+                    prepared,
+                    target,
+                    scope.sourceShard(),
+                    200_000,
+                    canonicalBody,
+                    AuthorIdentity.control(
+                                    actor.actorIdHash(), actor.roleSet().digest(), actor.tenantResourceScopeHash())
+                            .canonicalBytes(),
+                    9,
+                    keys.getPrivate());
+            assertEquals(SystemMutationType.APPLY_SHARD_CONTROL, signed.type());
+        }
+    }
+
+    @Test
     void allModesMatchIndependentEd25519SnapshotHeadAndReferenceVectors() {
         for (HandoffPolicyMode mode : HandoffPolicyMode.values()) {
             final String name = mode.name().toLowerCase(Locale.ROOT);

@@ -44,6 +44,10 @@ public final class ControlSystemMutationFactory {
                             yield TargetMembershipControlBody.decode(canonicalBody)
                                     .logicalIdentity();
                         }
+                        if (prepared.request().branch() instanceof TargetNativePolicyControlRequest) {
+                            yield TargetNativePolicyControlBody.decode(canonicalBody)
+                                    .logicalIdentity();
+                        }
                         yield controlRef.logicalOperationIdentity(
                                 ApplyShardControlBody.decode(canonicalBody).controlKind());
                     }

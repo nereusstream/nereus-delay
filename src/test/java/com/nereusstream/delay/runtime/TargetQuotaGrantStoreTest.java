@@ -42,6 +42,7 @@ import com.nereusstream.delay.protocol.CommandType;
 import com.nereusstream.delay.protocol.CompatibleControlSnapshot;
 import com.nereusstream.delay.protocol.ControlAuthor;
 import com.nereusstream.delay.protocol.ControlAuthorizationContext;
+import com.nereusstream.delay.protocol.ControlOperationKind;
 import com.nereusstream.delay.protocol.ControlReason;
 import com.nereusstream.delay.protocol.ControlReasonKind;
 import com.nereusstream.delay.protocol.ControlRef;
@@ -54,6 +55,7 @@ import com.nereusstream.delay.protocol.CredentialBindingHead;
 import com.nereusstream.delay.protocol.CredentialBindingProtection;
 import com.nereusstream.delay.protocol.DestinationProfileSemantic;
 import com.nereusstream.delay.protocol.EvidenceCursor;
+import com.nereusstream.delay.protocol.HandoffPolicyMode;
 import com.nereusstream.delay.protocol.KafkaActivationBarrier;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.NativeDeliveryPolicy;
@@ -67,6 +69,7 @@ import com.nereusstream.delay.protocol.ProfileRef;
 import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
 import com.nereusstream.delay.protocol.ProtocolTuple;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
+import com.nereusstream.delay.protocol.PulsarSourceLock;
 import com.nereusstream.delay.protocol.QuotaGrantRef;
 import com.nereusstream.delay.protocol.RecoveryCandidateKind;
 import com.nereusstream.delay.protocol.RecoveryCandidateRef;
@@ -85,6 +88,12 @@ import com.nereusstream.delay.protocol.TargetMembershipControlBody;
 import com.nereusstream.delay.protocol.TargetMembershipControlRequest;
 import com.nereusstream.delay.protocol.TargetMembershipGrant;
 import com.nereusstream.delay.protocol.TargetMembershipPolicy;
+import com.nereusstream.delay.protocol.TargetNativeArtifactSet;
+import com.nereusstream.delay.protocol.TargetNativePolicyControlBody;
+import com.nereusstream.delay.protocol.TargetNativePolicyControlRecord;
+import com.nereusstream.delay.protocol.TargetNativePolicyControlRequest;
+import com.nereusstream.delay.protocol.TargetNativePolicyScope;
+import com.nereusstream.delay.protocol.TargetNativePolicySnapshot;
 import com.nereusstream.delay.protocol.TargetPartitionHashInput;
 import com.nereusstream.delay.protocol.TargetPartitionPolicy;
 import com.nereusstream.delay.protocol.TargetQueueState;
@@ -1642,33 +1651,60 @@ class TargetQuotaGrantStoreTest {
         final var issueAt = source(base, base.offset() + 1, base.brokerLogAppendTimeEpochMs() + 1);
         final var scope = template.request().next().scope().shardScope();
         final byte[] lineage = bytes(16, 0xcc);
-        final var physical = CanonicalTargetPartition.decode(
-                vector("target-compatibility-vectors.properties", "pulsar.target"));
+        final var physical =
+                CanonicalTargetPartition.decode(vector("target-compatibility-vectors.properties", "pulsar.target"));
         final var dispatch = TargetDispatchCompatibility.decode(
                 vector("target-compatibility-vectors.properties", "pulsar.journal.dispatch"));
         final var controlScope = new TargetControlScope(physical.id(), scope.shard(), List.of(), List.of());
         final var capability = new ProfileSemanticEnvelope(
                 ProfileKind.DELIVERY_CAPABILITY, Bytes.utf8("cap"), 1, dispatch.capability());
         final var destination = new ProfileSemanticEnvelope(
-                ProfileKind.DESTINATION, Bytes.utf8("member"), 1,
+                ProfileKind.DESTINATION,
+                Bytes.utf8("member"),
+                1,
                 new DestinationProfileSemantic(
-                        AdapterKind.PULSAR, physical.resource(), 8, TargetPartitionPolicy.EXPLICIT_ONLY,
-                        TargetPartitionHashInput.DELAY_MESSAGE_ID, List.of(5), capability.ref(), 3, 60000,
-                        bytes(32, 0xaa), 20000, 10000, 10000, 1, Bytes.utf8("member"),
-                        86400000, 172800000, 2, bytes(32, 0xbb)));
+                        AdapterKind.PULSAR,
+                        physical.resource(),
+                        8,
+                        TargetPartitionPolicy.EXPLICIT_ONLY,
+                        TargetPartitionHashInput.DELAY_MESSAGE_ID,
+                        List.of(5),
+                        capability.ref(),
+                        3,
+                        60000,
+                        bytes(32, 0xaa),
+                        20000,
+                        10000,
+                        10000,
+                        1,
+                        Bytes.utf8("member"),
+                        86400000,
+                        172800000,
+                        2,
+                        bytes(32, 0xbb)));
         assertEquals(dispatch, TargetDispatchCompatibility.fromProfiles(physical, destination, capability));
         final var actor = new ControlAuthorizationContext(
                 bytes(32, 0xa1),
                 ControlRoleSet.of(ControlRole.TENANT_POLICY_ADMINISTRATOR, ControlRole.PLATFORM_OPERATOR),
                 bytes(32, 0xa2));
         final var policy = new TargetMembershipPolicy(
-                scope.tenantScope(), destination.ref(), dispatch.digest(), dispatch, controlScope,
+                scope.tenantScope(),
+                destination.ref(),
+                dispatch.digest(),
+                dispatch,
+                controlScope,
                 actor.tenantResourceScopeHash());
         final byte[] operationId = bytes(32, 0x72);
-        final var request = TargetMembershipControlRequest.issue(policy,
+        final var request = TargetMembershipControlRequest.issue(
+                policy,
                 TargetMembershipGrant.prepareRegistration(
-                        policy.tenantScope(), policy.memberProfile(), dispatch, policy.offered(),
-                        policy.controls(), policy.digest(), operationId));
+                        policy.tenantScope(),
+                        policy.memberProfile(),
+                        dispatch,
+                        policy.offered(),
+                        policy.controls(),
+                        policy.digest(),
+                        operationId));
         final var keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         final var member = signedMembership(request, operationId, actor, keys, scope.shard());
         final var registrations = new InMemoryControlTargetRegistrationAuthority();
@@ -1677,10 +1713,16 @@ class TargetQuotaGrantStoreTest {
         Arrays.fill(rootAmounts, 0, 15, 1L << 30);
         Arrays.fill(rootAmounts, 50, 55, 1L << 30);
         final var rootGrant = new TargetQuotaGrantControlRequest(
-                new TargetQuotaGrant(scope, bytes(32, 0x71), 1, template.request().next().accounting(),
+                new TargetQuotaGrant(
+                        scope,
+                        bytes(32, 0x71),
+                        1,
+                        template.request().next().accounting(),
                         new TargetQuotaUsage(new CapacityVector(rootAmounts), 64, 64, 64, 64),
                         template.request().next().tenantPolicyVersion(),
-                        template.request().next().tenantPolicyHash()), null, null);
+                        template.request().next().tenantPolicyHash()),
+                null,
+                null);
         final var signedRoot = signed(rootGrant, bytes(32, 0x70), actor, keys);
         registrations.register(signedRoot.control());
         final long[] targetAmounts = rootAmounts.clone();
@@ -1688,11 +1730,16 @@ class TargetQuotaGrantStoreTest {
         targetAmounts[CapacityDimension.ACTIVE_MESSAGES.wireValue() - 1] = 1;
         targetAmounts[CapacityDimension.RESERVATION_MESSAGES.wireValue() - 1] = 1;
         final var targetGrant = new TargetQuotaGrantControlRequest(
-                new TargetQuotaGrant(scope.forTarget(physical.id()), bytes(32, 0x73), 1,
+                new TargetQuotaGrant(
+                        scope.forTarget(physical.id()),
+                        bytes(32, 0x73),
+                        1,
                         template.request().next().accounting(),
                         new TargetQuotaUsage(new CapacityVector(targetAmounts), 1, 64, 64, 64),
                         template.request().next().tenantPolicyVersion(),
-                        template.request().next().tenantPolicyHash()), null, null);
+                        template.request().next().tenantPolicyHash()),
+                null,
+                null);
         final var signedTarget = signed(targetGrant, bytes(32, 0x74), actor, keys);
         registrations.register(signedTarget.control());
         final var authority = new TargetMembershipControlVerifier.Authority(
@@ -1702,7 +1749,8 @@ class TargetQuotaGrantStoreTest {
                 new ProfileCatalog() {
                     @Override
                     public ProfileSemanticEnvelope resolve(ProfileRef ref) {
-                        return ref.equals(destination.ref()) ? destination
+                        return ref.equals(destination.ref())
+                                ? destination
                                 : ref.equals(capability.ref()) ? capability : null;
                     }
 
@@ -1717,8 +1765,7 @@ class TargetQuotaGrantStoreTest {
                     }
 
                     @Override
-                    public CredentialBindingProtection resolveProtection(
-                            ProfileRef ref, long generation) {
+                    public CredentialBindingProtection resolveProtection(ProfileRef ref, long generation) {
                         throw new AssertionError("membership issue cannot resolve a private credential");
                     }
                 },
@@ -1736,251 +1783,681 @@ class TargetQuotaGrantStoreTest {
             physicalDb = store.dbPath();
             final var initialized = TargetStoreBootstrap.commit(
                     TargetStoreBootstrap.prepare(
-                            store, scope, lineage, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(),
-                            signedRoot.control(), signedRoot.mutation(), earlier,
+                            store,
+                            scope,
+                            lineage,
+                            new TargetStoreBackend.WriteLimits(64, 2 << 20),
+                            budget(),
+                            signedRoot.control(),
+                            signedRoot.mutation(),
+                            earlier,
                             authority(registrations, keys, actor, earlier, rootGrant, (a, b, c, d) -> {}),
                             (a, b, c) -> {}),
                     (a, b, c) -> guard());
             final var backend = initialized.backend();
             final var quota = new TargetQuotaGrantStore(backend, scope, lineage, 16, 1);
-            assertEquals(StableCode.OK, quota.commit(
-                    quota.prepareFirst(budget(), signedTarget.control(), signedTarget.mutation(), base,
-                            authority(registrations, keys, actor, base, targetGrant, (a, b, c, d) -> {})),
-                    (a, b, c) -> guard()).stableCode());
+            assertEquals(
+                    StableCode.OK,
+                    quota.commit(
+                                    quota.prepareFirst(
+                                            budget(),
+                                            signedTarget.control(),
+                                            signedTarget.mutation(),
+                                            base,
+                                            authority(
+                                                    registrations, keys, actor, base, targetGrant, (a, b, c, d) -> {})),
+                                    (a, b, c) -> guard())
+                            .stableCode());
             assertNull(store.get(ColumnFamily.META, TargetKeyCodec.identity(physical.id())));
             final var issues = new TargetMembershipControlStore(backend, scope, lineage, 16, 1);
             final long before = store.latestSequenceNumber();
             final var unavailable = new TargetMembershipControlVerifier.Authority(
                     registrations,
-                    (ref, position, kind) -> { throw new IllegalStateException("policy authority unavailable"); },
-                    authority.keys(), authority.profiles(), actor, prepared -> true);
-            assertThrows(IllegalStateException.class, () -> issues.prepareFirst(
-                    budget(), member.control(), member.mutation(), issueAt, physical, unavailable));
+                    (ref, position, kind) -> {
+                        throw new IllegalStateException("policy authority unavailable");
+                    },
+                    authority.keys(),
+                    authority.profiles(),
+                    actor,
+                    prepared -> true);
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> issues.prepareFirst(
+                            budget(), member.control(), member.mutation(), issueAt, physical, unavailable));
             assertEquals(before, store.latestSequenceNumber());
-            assertArrayEquals(base.canonicalBytes(), store.appliedShardLogPosition().canonicalBytes());
-            final var prepared = issues.prepareFirst(
-                    budget(), member.control(), member.mutation(), issueAt, physical, authority);
-            assertThrows(IllegalStateException.class, () -> issues.commit(prepared, (a, b, c) -> {
-                throw new IllegalStateException("Owner lost before native commit");
-            }));
+            assertArrayEquals(
+                    base.canonicalBytes(), store.appliedShardLogPosition().canonicalBytes());
+            final var prepared =
+                    issues.prepareFirst(budget(), member.control(), member.mutation(), issueAt, physical, authority);
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> issues.commit(prepared, (a, b, c) -> {
+                        throw new IllegalStateException("Owner lost before native commit");
+                    }));
             assertEquals(before, store.latestSequenceNumber());
             final var assignment = new SourceAssignment(
-                    scope.shard(), bytes(32, 0x61), 1,
-                    new KafkaActivationBarrier(scope.shard(), issueAt.authenticatedClusterId(),
-                            issueAt.nativeTopicUuid(), issueAt.offset()));
+                    scope.shard(),
+                    bytes(32, 0x61),
+                    1,
+                    new KafkaActivationBarrier(
+                            scope.shard(),
+                            issueAt.authenticatedClusterId(),
+                            issueAt.nativeTopicUuid(),
+                            issueAt.offset()));
             final var leases = new OxiaOwnerLeaseStore(new InMemoryOwnerLeaseStore());
             final var active = leases.transition(
-                    leases.acquire(assignment, "membership-worker", bytes(32, 0x62), 1, 10000).orElseThrow(),
-                    ShardLifecycleState.ACTIVE_FOR_COMMANDS).orElseThrow();
+                            leases.acquire(assignment, "membership-worker", bytes(32, 0x62), 1, 10000)
+                                    .orElseThrow(),
+                            ShardLifecycleState.ACTIVE_FOR_COMMANDS)
+                    .orElseThrow();
             store.recordOpenedOwnerEpoch(active.ownerEpoch());
             final var resolutions = new java.util.concurrent.atomic.AtomicInteger();
+            final var nativeResolutions = new java.util.concurrent.atomic.AtomicInteger();
+            final var nativeAuthority = new TargetNativePolicyControlVerifier.Authority(
+                    registrations,
+                    (version, position) -> version == 1 ? keys.getPublic() : null,
+                    actor,
+                    preparedControl -> true);
             final var runtime = new TargetSourceApplyRuntime(
-                    initialized, store, assignment, active,
+                    initialized,
+                    store,
+                    assignment,
+                    active,
                     new TargetSourceApplyRuntime.Authorities(
-                            leases, SourceReplaySuccessor.strictKafka(),
-                            entry -> { throw new AssertionError("membership issue resolved quota grant"); },
-                            entry -> { throw new AssertionError("membership issue resolved fence"); },
-                            entry -> { throw new AssertionError("unexpected Target expiry authority"); },
-                            entry -> { throw new AssertionError("membership issue resolved Target Close"); },
+                            leases,
+                            SourceReplaySuccessor.strictKafka(),
+                            entry -> {
+                                throw new AssertionError("membership issue resolved quota grant");
+                            },
+                            entry -> {
+                                throw new AssertionError("membership issue resolved fence");
+                            },
+                            entry -> {
+                                throw new AssertionError("unexpected Target expiry authority");
+                            },
+                            entry -> {
+                                throw new AssertionError("membership issue resolved Target Close");
+                            },
                             entry -> {
                                 resolutions.incrementAndGet();
                                 final var selected = TargetMembershipControlBody.decode(
                                         entry.mutation().canonicalBody());
                                 return new TargetSourceApplyRuntime.MembershipControl(
-                                        registrations.find(selected.controlRef().operationId()).orElseThrow(),
-                                        physical, authority, (a, b, c) -> guard());
+                                        registrations
+                                                .find(selected.controlRef().operationId())
+                                                .orElseThrow(),
+                                        physical,
+                                        authority,
+                                        (a, b, c) -> guard());
                             },
-                            (a, b, c) -> guard(), (a, b) -> guard(),
-                            entry -> { throw new AssertionError("membership issue resolved Command"); }),
+                            (a, b, c) -> guard(),
+                            (a, b) -> guard(),
+                            entry -> {
+                                throw new AssertionError("membership issue resolved Command");
+                            },
+                            entry -> {
+                                nativeResolutions.incrementAndGet();
+                                final var selected = TargetNativePolicyControlBody.decode(
+                                        entry.mutation().canonicalBody());
+                                return new TargetSourceApplyRuntime.NativePolicyControl(
+                                        registrations
+                                                .find(selected.controlRef().operationId())
+                                                .orElseThrow(),
+                                        nativeAuthority,
+                                        (a, b, c) -> guard());
+                            }),
                     new TargetSourceApplyRuntime.Limits(2048, 32L << 20, 60_000_000_000L, 16, 1),
                     System::nanoTime);
             final var acks = new java.util.concurrent.atomic.AtomicInteger();
             final var queue = new java.util.ArrayDeque<SourceRecordConsumer.PolledSourceRecord>();
             queue.add(new SourceRecordConsumer.PolledSourceRecord(
-                    new SourceReplayMutation(member.mutation(), issueAt, null, null),
-                    (entry, outcome) -> {
-                        assertEquals(StableCode.OK, outcome.systemMutationResult().stableCode());
+                    new SourceReplayMutation(member.mutation(), issueAt, null, null), (entry, outcome) -> {
+                        assertEquals(
+                                StableCode.OK, outcome.systemMutationResult().stableCode());
                         return acks.incrementAndGet() == 1
                                 ? SourceAcknowledgement.AcknowledgementResult.unknown(null)
                                 : SourceAcknowledgement.AcknowledgementResult.acked();
                     }));
             final var loop = new WorkerSourceApplyLoop(
                     () -> java.util.Optional.ofNullable(queue.poll()), workClasses(), runtime);
-            assertEquals(SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN,
-                    loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100).status());
+            final var closeTurn = loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100);
+            assertEquals(
+                    SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN,
+                    closeTurn.status(),
+                    () -> String.valueOf(closeTurn.failure()));
             final long afterIssue = store.latestSequenceNumber();
-            assertEquals(SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
-                    loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100).status());
+            assertEquals(
+                    SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                    loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100)
+                            .status());
             assertEquals(afterIssue, store.latestSequenceNumber());
             assertEquals(1, resolutions.get());
-            assertArrayEquals(issueAt.canonicalBytes(), store.appliedShardLogPosition().canonicalBytes());
-            assertArrayEquals(physical.canonicalBytes(), TargetValueEnvelope.decode(
-                    store.get(ColumnFamily.META, TargetKeyCodec.identity(physical.id())),
-                    CanonicalTargetPartition.VALUE_TYPE).payload());
-            assertArrayEquals(policy.canonicalBytes(), TargetValueEnvelope.decode(
-                    store.get(ColumnFamily.META, policy.encodedKey()), TargetMembershipPolicy.VALUE_TYPE).payload());
+            assertArrayEquals(
+                    issueAt.canonicalBytes(), store.appliedShardLogPosition().canonicalBytes());
+            assertArrayEquals(
+                    physical.canonicalBytes(),
+                    TargetValueEnvelope.decode(
+                                    store.get(ColumnFamily.META, TargetKeyCodec.identity(physical.id())),
+                                    CanonicalTargetPartition.VALUE_TYPE)
+                            .payload());
+            assertArrayEquals(
+                    policy.canonicalBytes(),
+                    TargetValueEnvelope.decode(
+                                    store.get(ColumnFamily.META, policy.encodedKey()),
+                                    TargetMembershipPolicy.VALUE_TYPE)
+                            .payload());
             final var grant = TargetMembershipGrant.fromRegistration(
                     request.value(), member.mutation().mutationHash(), issueAt);
             grantKey = grant.encodedKey();
             grantRef = grant.digest();
             grantBytes = grant.canonicalBytes();
-            assertArrayEquals(grantBytes, TargetValueEnvelope.decode(
-                    store.get(ColumnFamily.META, grantKey), TargetMembershipGrant.VALUE_TYPE).payload());
+            assertArrayEquals(
+                    grantBytes,
+                    TargetValueEnvelope.decode(store.get(ColumnFamily.META, grantKey), TargetMembershipGrant.VALUE_TYPE)
+                            .payload());
             final var first = resultRecord(store, systemKey(member.mutation()));
-            assertEquals(ApplyStatus.APPLIED, SystemMutationResult.decode(first.typedPayload()).applyStatus());
-            final var replay = new TargetSystemReplayStore(backend, scope, lineage, 16, 1);
-            final var duplicateAt = source(issueAt, issueAt.offset() + 1, issueAt.brokerLogAppendTimeEpochMs() + 1);
-            final var sampleBinding = TargetScheduleBinding.decode(
-                    vector("target-binding-channel-vectors.properties", "binding.best"));
-            final var sampleIntent = sampleBinding.intent();
-            final var scheduleIntent = CanonicalScheduleIntent.create(
-                    destination.ref(), sampleIntent.retryPolicy(),
-                    duplicateAt.brokerLogAppendTimeEpochMs() + 100,
-                    duplicateAt.brokerLogAppendTimeEpochMs() + 2000,
-                    sampleIntent.deliveryMode(), OrderingMode.BEST_EFFORT,
-                    sampleIntent.orderingKey(), bytes(4, 0x31), null,
-                    sampleIntent.adapterMetadata(), null, null, NativeDeliveryPolicy.FORBID);
-            final long commandTime = duplicateAt.brokerLogAppendTimeEpochMs();
-            final var schedule = PreparedCommand.schedule(
-                    scope.shard(),
-                    new UUID((commandTime << 16) | 0x7001L, 0x8000000000000001L),
-                    new UUID((commandTime << 16) | 0x7002L, 0x8000000000000002L),
-                    scheduleIntent, commandTime + 1000);
+            assertEquals(
+                    ApplyStatus.APPLIED,
+                    SystemMutationResult.decode(first.typedPayload()).applyStatus());
             final var targetActivationKey = Bytes.concat(
                     new byte[] {TargetKeyCodec.QUOTA_GRANT_ACTIVATION_TAG, TargetKeyCodec.KEY_FORMAT},
                     scope.forTarget(physical.id()).keySuffix());
             final var targetActivation = TargetQuotaGrantActivation.decodeForStore(
                     targetActivationKey,
-                    TargetValueEnvelope.decode(store.get(ColumnFamily.META, targetActivationKey),
-                            TargetQuotaGrantActivation.VALUE_TYPE).payload(),
-                    scope.shard(), scope.tenantScope());
+                    TargetValueEnvelope.decode(
+                                    store.get(ColumnFamily.META, targetActivationKey),
+                                    TargetQuotaGrantActivation.VALUE_TYPE)
+                            .payload(),
+                    scope.shard(),
+                    scope.tenantScope());
+            final var nativeScope = new TargetNativePolicyScope(
+                    bytes(32, 0x78),
+                    actor.tenantResourceScopeHash(),
+                    scope.shard(),
+                    physical.id(),
+                    targetActivation.allocation().identity().accountingIncarnation(),
+                    new TargetKeyCodec.Domain(0, 1),
+                    dispatch.digest(),
+                    controlScope.digest(),
+                    60_000,
+                    new TargetNativeArtifactSet(bytes(32, 0x79), PulsarSourceLock.digest(), 1));
+            final var issuerKeys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+            final var nativeInstall = signedNative(
+                    TargetNativePolicyControlRequest.installPublisher(nativeScope, 9, issuerKeys.getPublic(), 30_000),
+                    bytes(32, 0x7a),
+                    actor,
+                    keys,
+                    scope.shard());
+            registrations.register(nativeInstall.control());
+            final var nativeInstallAt = source(issueAt, issueAt.offset() + 1, issueAt.brokerLogAppendTimeEpochMs() + 1);
+            final var nativeInstallAcks = new java.util.concurrent.atomic.AtomicInteger();
+            queue.add(new SourceRecordConsumer.PolledSourceRecord(
+                    new SourceReplayMutation(nativeInstall.mutation(), nativeInstallAt, null, null),
+                    (entry, outcome) -> {
+                        assertEquals(
+                                StableCode.OK, outcome.systemMutationResult().stableCode());
+                        return nativeInstallAcks.incrementAndGet() == 1
+                                ? SourceAcknowledgement.AcknowledgementResult.unknown(null)
+                                : SourceAcknowledgement.AcknowledgementResult.acked();
+                    }));
+            assertEquals(
+                    SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN,
+                    loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100)
+                            .status());
+            final long afterNativeInstall = store.latestSequenceNumber();
+            assertEquals(
+                    SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                    loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100)
+                            .status());
+            assertEquals(afterNativeInstall, store.latestSequenceNumber());
+            final var snapshot = TargetNativePolicySnapshot.create(
+                    nativeScope,
+                    1,
+                    HandoffPolicyMode.ENABLED,
+                    30_000,
+                    1_000,
+                    30_000,
+                    1,
+                    new TrustedUtcIntervalEvidence(
+                            100,
+                            101,
+                            TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                            Bytes.utf8("native-policy-test-clock"),
+                            1,
+                            2,
+                            3,
+                            bytes(32, 0x7b),
+                            0,
+                            null),
+                    9,
+                    issuerKeys.getPrivate());
+            final var nativeActivation = signedNative(
+                    TargetNativePolicyControlRequest.activate(nativeScope, snapshot),
+                    bytes(32, 0x7c),
+                    actor,
+                    keys,
+                    scope.shard());
+            registrations.register(nativeActivation.control());
+            final var nativeActivationAt = source(
+                    nativeInstallAt, nativeInstallAt.offset() + 1, nativeInstallAt.brokerLogAppendTimeEpochMs() + 1);
+            queue.add(new SourceRecordConsumer.PolledSourceRecord(
+                    new SourceReplayMutation(nativeActivation.mutation(), nativeActivationAt, null, null),
+                    (entry, outcome) -> {
+                        assertEquals(
+                                StableCode.OK, outcome.systemMutationResult().stableCode());
+                        return SourceAcknowledgement.AcknowledgementResult.acked();
+                    }));
+            final var activationTurn = loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100);
+            assertEquals(
+                    SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                    activationTurn.status(),
+                    () -> "activation source apply failed: " + activationTurn.failure());
+            final var nativeApproval = signedNative(
+                    TargetNativePolicyControlRequest.approveMember(nativeScope, grant.digest()),
+                    bytes(32, 0x7d),
+                    actor,
+                    keys,
+                    scope.shard());
+            registrations.register(nativeApproval.control());
+            final var nativeApprovalAt = source(
+                    nativeActivationAt,
+                    nativeActivationAt.offset() + 1,
+                    nativeActivationAt.brokerLogAppendTimeEpochMs() + 1);
+            queue.add(new SourceRecordConsumer.PolledSourceRecord(
+                    new SourceReplayMutation(nativeApproval.mutation(), nativeApprovalAt, null, null),
+                    (entry, outcome) -> {
+                        assertEquals(
+                                StableCode.OK, outcome.systemMutationResult().stableCode());
+                        return SourceAcknowledgement.AcknowledgementResult.acked();
+                    }));
+            assertEquals(
+                    SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                    loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100)
+                            .status());
+            assertEquals(3, nativeResolutions.get());
+            final var nativeRecordKey = TargetKeyCodec.nativeMember(nativeScope.digest(), grant.digest());
+            final var nativeRecordBytes = TargetValueEnvelope.decode(
+                            store.get(ColumnFamily.META, nativeRecordKey), TargetNativePolicyControlRecord.VALUE_TYPE)
+                    .payload();
+            assertEquals(
+                    ControlOperationKind.APPROVE_TARGET_NATIVE_MEMBER,
+                    TargetNativePolicyControlRecord.decode(nativeRecordBytes)
+                            .body()
+                            .request()
+                            .operationKind());
+            final var sourceTrust = runtime.nativePolicyTrustStore(() -> 100);
+            assertTrue(sourceTrust
+                    .publisher(nativeScope.digest(), 9, nativeActivationAt)
+                    .isPresent());
+            assertEquals(
+                    snapshot,
+                    sourceTrust
+                            .activation(nativeScope.digest(), snapshot.generation())
+                            .orElseThrow()
+                            .snapshot());
+            assertTrue(sourceTrust
+                    .member(grant.digest(), nativeScope.digest(), nativeApprovalAt)
+                    .orElseThrow()
+                    .allowsFirstBinding(source(
+                            nativeApprovalAt,
+                            nativeApprovalAt.offset() + 1,
+                            nativeApprovalAt.brokerLogAppendTimeEpochMs() + 1)));
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> sourceTrust.member(
+                            grant.digest(),
+                            nativeScope.digest(),
+                            source(
+                                    nativeApprovalAt,
+                                    nativeApprovalAt.offset() + 1,
+                                    nativeApprovalAt.brokerLogAppendTimeEpochMs() + 1)));
+            final var replay = new TargetSystemReplayStore(backend, scope, lineage, 16, 1);
+            final var duplicateAt = source(
+                    nativeApprovalAt, nativeApprovalAt.offset() + 1, nativeApprovalAt.brokerLogAppendTimeEpochMs() + 1);
+            final var sampleBinding =
+                    TargetScheduleBinding.decode(vector("target-binding-channel-vectors.properties", "binding.best"));
+            final var sampleIntent = sampleBinding.intent();
+            final var scheduleIntent = CanonicalScheduleIntent.create(
+                    destination.ref(),
+                    sampleIntent.retryPolicy(),
+                    duplicateAt.brokerLogAppendTimeEpochMs() + 100,
+                    duplicateAt.brokerLogAppendTimeEpochMs() + 2000,
+                    sampleIntent.deliveryMode(),
+                    OrderingMode.BEST_EFFORT,
+                    sampleIntent.orderingKey(),
+                    bytes(4, 0x31),
+                    null,
+                    sampleIntent.adapterMetadata(),
+                    null,
+                    null,
+                    NativeDeliveryPolicy.FORBID);
+            final long commandTime = duplicateAt.brokerLogAppendTimeEpochMs();
+            final var schedule = PreparedCommand.schedule(
+                    scope.shard(),
+                    new UUID((commandTime << 16) | 0x7001L, 0x8000000000000001L),
+                    new UUID((commandTime << 16) | 0x7002L, 0x8000000000000002L),
+                    scheduleIntent,
+                    commandTime + 1000);
             final var profiles = ProfileBindingControlState.empty()
                     .activate(destination.ref(), earlier)
                     .activate(capability.ref(), base);
-            final java.util.function.Function<SourcePosition, TargetScheduleBinding> bindingAt = position ->
-                    new TargetScheduleBinding(
-                            schedule.delayMessageId(), CommandType.SCHEDULE, schedule.canonicalBody(),
-                            position, physical.id(), new TargetKeyCodec.Domain(0, 1),
+            final java.util.function.Function<SourcePosition, TargetScheduleBinding> bindingAt =
+                    position -> new TargetScheduleBinding(
+                            schedule.delayMessageId(),
+                            CommandType.SCHEDULE,
+                            schedule.canonicalBody(),
+                            position,
+                            physical.id(),
+                            new TargetKeyCodec.Domain(0, 1),
                             targetActivation.allocation().identity().accountingIncarnation(),
-                            dispatch.digest(), dispatch.digest(), controlScope.digest(), grant.digest(), null, null);
-            final var beforeClose = backend.guardedRead(budget(), reader -> TargetScheduleRegistration.prepare(
-                    reader, schedule, duplicateAt, scope, lineage,
-                    new TargetScheduleRegistration.Authority(
-                            bindingAt.apply(duplicateAt), physical, destination, capability, profiles, 60_000),
-                    1), (a, b) -> guard());
+                            dispatch.digest(),
+                            dispatch.digest(),
+                            controlScope.digest(),
+                            grant.digest(),
+                            null,
+                            null);
+            final var nativeIntent = CanonicalScheduleIntent.create(
+                    destination.ref(),
+                    sampleIntent.retryPolicy(),
+                    duplicateAt.brokerLogAppendTimeEpochMs() + 120_000,
+                    duplicateAt.brokerLogAppendTimeEpochMs() + 240_000,
+                    sampleIntent.deliveryMode(),
+                    OrderingMode.BEST_EFFORT,
+                    sampleIntent.orderingKey(),
+                    bytes(4, 0x32),
+                    null,
+                    sampleIntent.adapterMetadata(),
+                    null,
+                    null,
+                    NativeDeliveryPolicy.ALLOW_MANAGED_HANDOFF);
+            final var nativeSchedule = PreparedCommand.schedule(
+                    scope.shard(),
+                    new UUID((commandTime << 16) | 0x7003L, 0x8000000000000003L),
+                    new UUID((commandTime << 16) | 0x7004L, 0x8000000000000004L),
+                    nativeIntent,
+                    commandTime + 1000);
+            final java.util.function.Function<SourcePosition, TargetScheduleBinding> nativeBindingAt =
+                    position -> new TargetScheduleBinding(
+                            nativeSchedule.delayMessageId(),
+                            CommandType.SCHEDULE,
+                            nativeSchedule.canonicalBody(),
+                            position,
+                            physical.id(),
+                            nativeScope.domain(),
+                            targetActivation.allocation().identity().accountingIncarnation(),
+                            dispatch.digest(),
+                            dispatch.digest(),
+                            controlScope.digest(),
+                            grant.digest(),
+                            nativeScope.digest(),
+                            null);
+            final var nativeBindingPlan = backend.guardedRead(
+                    budget(),
+                    reader -> TargetScheduleRegistration.prepare(
+                            reader,
+                            nativeSchedule,
+                            duplicateAt,
+                            scope,
+                            lineage,
+                            new TargetScheduleRegistration.Authority(
+                                    nativeBindingAt.apply(duplicateAt),
+                                    physical,
+                                    destination,
+                                    capability,
+                                    profiles,
+                                    60_000),
+                            1),
+                    (a, b) -> guard());
+            assertEquals(StableCode.OK, nativeBindingPlan.code());
+            assertArrayEquals(nativeScope.digest(), nativeBindingPlan.binding().nativePolicyScopeRef());
+            final var beforeClose = backend.guardedRead(
+                    budget(),
+                    reader -> TargetScheduleRegistration.prepare(
+                            reader,
+                            schedule,
+                            duplicateAt,
+                            scope,
+                            lineage,
+                            new TargetScheduleRegistration.Authority(
+                                    bindingAt.apply(duplicateAt), physical, destination, capability, profiles, 60_000),
+                            1),
+                    (a, b) -> guard());
             assertEquals(StableCode.OK, beforeClose.code());
             assertFalse(beforeClose.edits().isEmpty());
-            final var duplicate = replay.prepareIfPresent(budget(), member.mutation(), duplicateAt).orElseThrow();
-            assertEquals(StableCode.OK, replay.commit(duplicate, (a, b, c) -> guard(), (a, b) -> guard())
-                    .stableCode());
-            assertArrayEquals(grantBytes, TargetValueEnvelope.decode(
-                    store.get(ColumnFamily.META, grantKey), TargetMembershipGrant.VALUE_TYPE).payload());
+            final var duplicate = replay.prepareIfPresent(budget(), member.mutation(), duplicateAt)
+                    .orElseThrow();
+            assertEquals(
+                    StableCode.OK,
+                    replay.commit(duplicate, (a, b, c) -> guard(), (a, b) -> guard())
+                            .stableCode());
+            assertArrayEquals(
+                    grantBytes,
+                    TargetValueEnvelope.decode(store.get(ColumnFamily.META, grantKey), TargetMembershipGrant.VALUE_TYPE)
+                            .payload());
+            final var nativeClose = signedNative(
+                    TargetNativePolicyControlRequest.closeMember(
+                            nativeScope,
+                            grant.digest(),
+                            new ControlReason(ControlReasonKind.POLICY_CHANGE, null, null)),
+                    bytes(32, 0x7e),
+                    actor,
+                    keys,
+                    scope.shard());
+            registrations.register(nativeClose.control());
+            final var nativeCloseAt =
+                    source(duplicateAt, duplicateAt.offset() + 1, duplicateAt.brokerLogAppendTimeEpochMs() + 1);
+            queue.add(new SourceRecordConsumer.PolledSourceRecord(
+                    new SourceReplayMutation(nativeClose.mutation(), nativeCloseAt, null, null), (entry, outcome) -> {
+                        assertEquals(
+                                StableCode.OK, outcome.systemMutationResult().stableCode());
+                        return SourceAcknowledgement.AcknowledgementResult.acked();
+                    }));
+            assertEquals(
+                    SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                    loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100)
+                            .status());
+            assertEquals(4, nativeResolutions.get());
+            assertFalse(sourceTrust
+                    .member(grant.digest(), nativeScope.digest(), nativeCloseAt)
+                    .orElseThrow()
+                    .allowsFirstBinding(nativeCloseAt));
+            final var nativeClosureKey = TargetKeyCodec.nativeMemberClosure(nativeScope.digest(), grant.digest());
+            final var nativeClosureBytes = TargetValueEnvelope.decode(
+                            store.get(ColumnFamily.META, nativeClosureKey), TargetNativePolicyControlRecord.VALUE_TYPE)
+                    .payload();
+            final var nativeClosureRecord = TargetNativePolicyControlRecord.decode(nativeClosureBytes);
+            assertArrayEquals(
+                    nativeCloseAt.canonicalBytes(), nativeClosureRecord.source().canonicalBytes());
+            final var nativeDeniedAt =
+                    source(nativeCloseAt, nativeCloseAt.offset() + 1, nativeCloseAt.brokerLogAppendTimeEpochMs() + 1);
+            final var nativeAfterClosure = backend.guardedRead(
+                    budget(),
+                    reader -> TargetNativePolicyStoreAuthority.inView(reader, scope, lineage)
+                            .member(grant.digest(), nativeScope.digest(), nativeDeniedAt)
+                            .orElseThrow()
+                            .allowsFirstBinding(nativeDeniedAt),
+                    (a, b) -> guard());
+            assertFalse(nativeAfterClosure);
+            final var nativeOrdinaryPlan = backend.guardedRead(
+                    budget(),
+                    reader -> TargetScheduleRegistration.prepare(
+                            reader,
+                            nativeSchedule,
+                            nativeDeniedAt,
+                            scope,
+                            lineage,
+                            new TargetScheduleRegistration.Authority(
+                                    nativeBindingAt.apply(nativeDeniedAt),
+                                    physical,
+                                    destination,
+                                    capability,
+                                    profiles,
+                                    60_000),
+                            1),
+                    (a, b) -> guard());
+            assertEquals(StableCode.OK, nativeOrdinaryPlan.code());
+            assertNull(nativeOrdinaryPlan.binding().nativePolicyScopeRef());
             final var close = signedMembership(
                     TargetMembershipControlRequest.close(
-                            policy, grant.digest(),
-                            new ControlReason(ControlReasonKind.POLICY_CHANGE, null, null)),
-                    bytes(32, 0x75), actor, keys, scope.shard());
+                            policy, grant.digest(), new ControlReason(ControlReasonKind.POLICY_CHANGE, null, null)),
+                    bytes(32, 0x75),
+                    actor,
+                    keys,
+                    scope.shard());
             registrations.register(close.control());
-            final var closeAt = source(duplicateAt, duplicateAt.offset() + 1,
-                    duplicateAt.brokerLogAppendTimeEpochMs() + 1);
+            final var closeAt =
+                    source(nativeCloseAt, nativeCloseAt.offset() + 1, nativeCloseAt.brokerLogAppendTimeEpochMs() + 1);
             final var closeAcks = new java.util.concurrent.atomic.AtomicInteger();
             queue.add(new SourceRecordConsumer.PolledSourceRecord(
-                    new SourceReplayMutation(close.mutation(), closeAt, null, null),
-                    (entry, outcome) -> {
-                        assertEquals(StableCode.OK, outcome.systemMutationResult().stableCode());
+                    new SourceReplayMutation(close.mutation(), closeAt, null, null), (entry, outcome) -> {
+                        assertEquals(
+                                StableCode.OK, outcome.systemMutationResult().stableCode());
                         return closeAcks.incrementAndGet() == 1
                                 ? SourceAcknowledgement.AcknowledgementResult.unknown(null)
                                 : SourceAcknowledgement.AcknowledgementResult.acked();
                     }));
-            assertEquals(SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN,
-                    loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100).status());
+            final var nativeB2CloseTurn = loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100);
+            assertEquals(
+                    SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN,
+                    nativeB2CloseTurn.status(),
+                    () -> String.valueOf(nativeB2CloseTurn.failure()));
             final long afterClose = store.latestSequenceNumber();
-            assertEquals(SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
-                    loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100).status());
+            assertEquals(
+                    SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                    loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100)
+                            .status());
             assertEquals(afterClose, store.latestSequenceNumber());
             assertEquals(2, resolutions.get());
             closureKey = TargetKeyCodec.membershipClosure(grant.digest());
             closureBytes = TargetValueEnvelope.decode(
-                    store.get(ColumnFamily.META, closureKey), TargetMembershipClosureRecord.VALUE_TYPE).payload();
-            final var marker = TargetMembershipClosureRecord.decodeForStore(
-                    closureKey, closureBytes, scope.shard(), lineage);
+                            store.get(ColumnFamily.META, closureKey), TargetMembershipClosureRecord.VALUE_TYPE)
+                    .payload();
+            final var marker =
+                    TargetMembershipClosureRecord.decodeForStore(closureKey, closureBytes, scope.shard(), lineage);
             assertArrayEquals(closeAt.canonicalBytes(), marker.closedAt().canonicalBytes());
             marker.requireGrant(grant);
-            assertThrows(IllegalStateException.class, () -> TargetMembershipClosureRecord.decodeForStore(
-                    TargetKeyCodec.membershipClosure(bytes(32, 0x7e)), closureBytes, scope.shard(), lineage));
-            assertThrows(IllegalStateException.class, () -> TargetMembershipClosureRecord.decodeForStore(
-                    closureKey, closureBytes, scope.shard(), bytes(16, 0x7e)));
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> TargetMembershipClosureRecord.decodeForStore(
+                            TargetKeyCodec.membershipClosure(bytes(32, 0x7e)), closureBytes, scope.shard(), lineage));
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> TargetMembershipClosureRecord.decodeForStore(
+                            closureKey, closureBytes, scope.shard(), bytes(16, 0x7e)));
             final var second = signedMembership(
                     TargetMembershipControlRequest.close(
-                            policy, grant.digest(),
-                            new ControlReason(ControlReasonKind.POLICY_CHANGE, null, null)),
-                    bytes(32, 0x76), actor, keys, scope.shard());
+                            policy, grant.digest(), new ControlReason(ControlReasonKind.POLICY_CHANGE, null, null)),
+                    bytes(32, 0x76),
+                    actor,
+                    keys,
+                    scope.shard());
             registrations.register(second.control());
-            final var secondAt = source(closeAt, closeAt.offset() + 1,
-                    closeAt.brokerLogAppendTimeEpochMs() + 1);
+            final var secondAt = source(closeAt, closeAt.offset() + 1, closeAt.brokerLogAppendTimeEpochMs() + 1);
             queue.add(new SourceRecordConsumer.PolledSourceRecord(
-                    new SourceReplayMutation(second.mutation(), secondAt, null, null),
-                    (entry, outcome) -> {
-                        assertEquals(StableCode.OK, outcome.systemMutationResult().stableCode());
+                    new SourceReplayMutation(second.mutation(), secondAt, null, null), (entry, outcome) -> {
+                        assertEquals(
+                                StableCode.OK, outcome.systemMutationResult().stableCode());
                         return SourceAcknowledgement.AcknowledgementResult.acked();
                     }));
-            assertEquals(SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
-                    loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100).status());
+            assertEquals(
+                    SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                    loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100)
+                            .status());
             assertEquals(3, resolutions.get());
-            assertArrayEquals(closureBytes, TargetValueEnvelope.decode(
-                    store.get(ColumnFamily.META, closureKey), TargetMembershipClosureRecord.VALUE_TYPE).payload());
+            assertArrayEquals(
+                    closureBytes,
+                    TargetValueEnvelope.decode(
+                                    store.get(ColumnFamily.META, closureKey), TargetMembershipClosureRecord.VALUE_TYPE)
+                            .payload());
             final var applied = backend.guardedRead(
-                    budget(), reader -> TargetMembershipStoreAuthority.resolve(reader, scope, lineage, grant.digest()),
+                    budget(),
+                    reader -> TargetMembershipStoreAuthority.resolve(reader, scope, lineage, grant.digest()),
                     (a, b) -> guard());
             assertArrayEquals(closeAt.canonicalBytes(), applied.closedAt().canonicalBytes());
             assertTrue(applied.allowsFirstBinding(duplicateAt));
             assertFalse(applied.allowsFirstBinding(secondAt));
-            final var deniedAt = source(secondAt, secondAt.offset() + 1,
-                    secondAt.brokerLogAppendTimeEpochMs() + 1);
+            final var deniedAt = source(secondAt, secondAt.offset() + 1, secondAt.brokerLogAppendTimeEpochMs() + 1);
             final long beforeDenied = store.latestSequenceNumber();
-            final var denied = backend.guardedRead(budget(), reader -> TargetScheduleRegistration.prepare(
-                    reader, schedule, deniedAt, scope, lineage,
-                    new TargetScheduleRegistration.Authority(
-                            bindingAt.apply(deniedAt), physical, destination, capability, profiles, 60_000),
-                    1), (a, b) -> guard());
+            final var denied = backend.guardedRead(
+                    budget(),
+                    reader -> TargetScheduleRegistration.prepare(
+                            reader,
+                            schedule,
+                            deniedAt,
+                            scope,
+                            lineage,
+                            new TargetScheduleRegistration.Authority(
+                                    bindingAt.apply(deniedAt), physical, destination, capability, profiles, 60_000),
+                            1),
+                    (a, b) -> guard());
             assertEquals(StableCode.UNAUTHORIZED, denied.code());
             assertTrue(denied.edits().isEmpty());
             assertEquals(beforeDenied, store.latestSequenceNumber());
             assertNull(store.get(ColumnFamily.ID, TargetKeyCodec.message(schedule.delayMessageId())));
             final var commands = new TargetCommandStore(backend, scope, lineage, 16, 1);
             final var commandPolicy = new TargetCommandStore.Policy(
-                    scope, 1000, 1000, 10, java.util.Set.of(schedule.protocolTuple()),
+                    scope,
+                    1000,
+                    1000,
+                    10,
+                    java.util.Set.of(schedule.protocolTuple()),
                     new TargetCommandStore.DeliveryWindow(10_000, 1, 100_000));
-            final var rejected = commands.commit(commands.prepareFirst(
-                    budget(), schedule, deniedAt, commandPolicy,
-                    (reader, bound, position) -> false,
-                    (reader, bound) -> { throw new AssertionError("unexpected reservation closure lookup"); },
-                    (incoming, position) -> new TargetCommandStore.ScheduleAdmission(
-                            StableCode.OK,
-                            new TargetScheduleRegistration.Authority(
-                                    bindingAt.apply(position), physical, destination, capability, profiles, 60_000),
-                            TargetOrderState.OrderingContract.ADMISSION_WATERMARK),
-                    (bound, position) -> { throw new AssertionError("unexpected payload proof lookup"); }),
+            final var rejected = commands.commit(
+                    commands.prepareFirst(
+                            budget(),
+                            schedule,
+                            deniedAt,
+                            commandPolicy,
+                            (reader, bound, position) -> false,
+                            (reader, bound) -> {
+                                throw new AssertionError("unexpected reservation closure lookup");
+                            },
+                            (incoming, position) -> new TargetCommandStore.ScheduleAdmission(
+                                    StableCode.OK,
+                                    new TargetScheduleRegistration.Authority(
+                                            bindingAt.apply(position),
+                                            physical,
+                                            destination,
+                                            capability,
+                                            profiles,
+                                            60_000),
+                                    TargetOrderState.OrderingContract.ADMISSION_WATERMARK),
+                            (bound, position) -> {
+                                throw new AssertionError("unexpected payload proof lookup");
+                            }),
                     (a, b, c) -> guard());
             assertEquals(ApplyStatus.REJECTED, rejected.applyStatus());
             assertEquals(StableCode.UNAUTHORIZED, rejected.stableCode());
-            assertArrayEquals(deniedAt.canonicalBytes(), store.appliedShardLogPosition().canonicalBytes());
+            assertArrayEquals(
+                    deniedAt.canonicalBytes(), store.appliedShardLogPosition().canonicalBytes());
             assertNull(store.get(ColumnFamily.ID, TargetKeyCodec.message(schedule.delayMessageId())));
             assertNull(store.get(ColumnFamily.ID, bindingAt.apply(deniedAt).encodedKey()));
         }
         try (var resources = new SharedRocksDbResources(config);
                 var reopened = ShardStore.openTarget(config, scope.shard(), resources)) {
-            assertArrayEquals(grantBytes, TargetValueEnvelope.decode(
-                    reopened.get(ColumnFamily.META, grantKey), TargetMembershipGrant.VALUE_TYPE).payload());
-            assertArrayEquals(closureBytes, TargetValueEnvelope.decode(
-                    reopened.get(ColumnFamily.META, closureKey), TargetMembershipClosureRecord.VALUE_TYPE).payload());
+            assertArrayEquals(
+                    grantBytes,
+                    TargetValueEnvelope.decode(
+                                    reopened.get(ColumnFamily.META, grantKey), TargetMembershipGrant.VALUE_TYPE)
+                            .payload());
+            assertArrayEquals(
+                    closureBytes,
+                    TargetValueEnvelope.decode(
+                                    reopened.get(ColumnFamily.META, closureKey),
+                                    TargetMembershipClosureRecord.VALUE_TYPE)
+                            .payload());
             final var recovered = TargetStoreBootstrap.reopen(
-                    reopened, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(),
-                    (a, b) -> guard());
-            final var historical = recovered.backend().guardedRead(
-                    budget(), reader -> TargetMembershipStoreAuthority.resolve(reader, scope, lineage, grantRef),
-                    (a, b) -> guard());
-            assertArrayEquals(TargetMembershipClosureRecord.decode(closureBytes).closedAt().canonicalBytes(),
+                    reopened, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(), (a, b) -> guard());
+            final var historical = recovered
+                    .backend()
+                    .guardedRead(
+                            budget(),
+                            reader -> TargetMembershipStoreAuthority.resolve(reader, scope, lineage, grantRef),
+                            (a, b) -> guard());
+            assertArrayEquals(
+                    TargetMembershipClosureRecord.decode(closureBytes)
+                            .closedAt()
+                            .canonicalBytes(),
                     historical.closedAt().canonicalBytes());
         }
         final var imageLimits = new CheckpointManifestLimits(100, 64L << 20, 64L << 20, 1024, 1 << 20, 100, 1024);
@@ -1996,19 +2473,22 @@ class TargetQuotaGrantStoreTest {
         try (var resources = new SharedRocksDbResources(config);
                 var missingPolicy = ShardStore.openTarget(config, scope.shard(), resources)) {
             final var recovered = TargetStoreBootstrap.reopen(
-                    missingPolicy, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(),
-                    (a, b) -> guard());
-            assertTrue(assertThrows(IllegalStateException.class,
-                    () -> recovered.backend().guardedRead(
-                            budget(), reader -> TargetMembershipStoreAuthority.resolve(
-                                    reader, scope, lineage, grantRef),
-                            (a, b) -> guard()))
-                    .getMessage().contains("lacks its durable policy"));
+                    missingPolicy, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(), (a, b) -> guard());
+            assertTrue(assertThrows(IllegalStateException.class, () -> recovered
+                            .backend()
+                            .guardedRead(
+                                    budget(),
+                                    reader -> TargetMembershipStoreAuthority.resolve(reader, scope, lineage, grantRef),
+                                    (a, b) -> guard()))
+                    .getMessage()
+                    .contains("lacks its durable policy"));
         }
-        assertTrue(assertThrows(IllegalStateException.class,
-                () -> TargetCheckpointRootVerifier.auditIndependentLedger(
-                        physicalDb, scope.shard(), imageLimits, quotaLimits, ledgerLimits))
-                .getMessage().contains("missing frozen accounting dependency"));
+        assertTrue(assertThrows(
+                        IllegalStateException.class,
+                        () -> TargetCheckpointRootVerifier.auditIndependentLedger(
+                                physicalDb, scope.shard(), imageLimits, quotaLimits, ledgerLimits))
+                .getMessage()
+                .contains("missing frozen accounting dependency"));
     }
 
     private static CheckpointUploadIntent pendingCandidate(
@@ -2218,6 +2698,50 @@ class TargetQuotaGrantStoreTest {
                 operation, request.operationKind(),
                 new ControlAuthor(actor.actorIdHash(), actor.roleSet().digest(), actor.tenantResourceScopeHash()),
                 request.operationRequest(), List.of(target), 1, 400, 1, keys.getPrivate());
+        return new Signed(control, mutation);
+    }
+
+    private static Signed signedNative(
+            TargetNativePolicyControlRequest request,
+            byte[] operation,
+            ControlAuthorizationContext actor,
+            KeyPair keys,
+            ShardId shard) {
+        final var body = new TargetNativePolicyControlBody(
+                shard,
+                500,
+                new ControlRef(
+                        operation,
+                        PreparedControlOperation.requestHash(request.operationKind(), request.operationRequest()),
+                        0),
+                request,
+                request.createsImmutableRecord() ? 1 : 0);
+        final var mutation = SystemMutation.signed(
+                shard,
+                SystemMutationType.APPLY_SHARD_CONTROL,
+                body.retryUntil(),
+                body.logicalIdentity(),
+                body.canonicalBytes(),
+                AuthorIdentity.control(actor.actorIdHash(), actor.roleSet().digest(), actor.tenantResourceScopeHash())
+                        .canonicalBytes(),
+                1,
+                keys.getPrivate());
+        final var target = new ControlTargetRef(
+                0,
+                ControlTargetKind.SHARD,
+                new ShardSubject(shard),
+                mutation.systemMutationId(),
+                mutation.mutationHash());
+        final var control = PreparedControlOperation.prepare(
+                operation,
+                request.operationKind(),
+                new ControlAuthor(actor.actorIdHash(), actor.roleSet().digest(), actor.tenantResourceScopeHash()),
+                request.operationRequest(),
+                List.of(target),
+                1,
+                400,
+                1,
+                keys.getPrivate());
         return new Signed(control, mutation);
     }
 

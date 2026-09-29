@@ -113,6 +113,11 @@ public final class ControlOperationRequest {
         return new ControlOperationRequest(ControlOperationKind.ROTATE_EQUIVALENT_SECRET_REFERENCE, branch);
     }
 
+    public static ControlOperationRequest targetNativePolicy(final TargetNativePolicyControlRequest branch) {
+        return new ControlOperationRequest(
+                Objects.requireNonNull(branch, "branch").operationKind(), branch);
+    }
+
     private static ControlOperationRequestBranch decodeBranch(final ControlOperationKind kind, final byte[] encoded) {
         return switch (kind) {
             case STOP_NEW_SCHEDULES -> StopNewSchedulesRequest.decode(encoded);
@@ -133,6 +138,11 @@ public final class ControlOperationRequest {
             case ROTATE_EQUIVALENT_SECRET_REFERENCE -> RotateEquivalentSecretRequest.decode(encoded);
             case GRANT_TARGET_MEMBERSHIP, CLOSE_TARGET_MEMBERSHIP ->
                 TargetMembershipControlRequest.decode(kind, encoded);
+            case INSTALL_TARGET_NATIVE_PUBLISHER_PERMISSION,
+                    CLOSE_TARGET_NATIVE_PUBLISHER_PERMISSION,
+                    ACTIVATE_TARGET_NATIVE_POLICY,
+                    APPROVE_TARGET_NATIVE_MEMBER,
+                    CLOSE_TARGET_NATIVE_MEMBER -> TargetNativePolicyControlRequest.decode(kind, encoded);
         };
     }
 
@@ -158,6 +168,13 @@ public final class ControlOperationRequest {
                     case GRANT_TARGET_MEMBERSHIP, CLOSE_TARGET_MEMBERSHIP ->
                         branch instanceof TargetMembershipControlRequest membership
                                 && membership.operationKind() == kind;
+                    case INSTALL_TARGET_NATIVE_PUBLISHER_PERMISSION,
+                            CLOSE_TARGET_NATIVE_PUBLISHER_PERMISSION,
+                            ACTIVATE_TARGET_NATIVE_POLICY,
+                            APPROVE_TARGET_NATIVE_MEMBER,
+                            CLOSE_TARGET_NATIVE_MEMBER ->
+                        branch instanceof TargetNativePolicyControlRequest nativePolicy
+                                && nativePolicy.operationKind() == kind;
                 };
         if (!valid) {
             throw new IllegalArgumentException("Control Operation kind does not match request branch");

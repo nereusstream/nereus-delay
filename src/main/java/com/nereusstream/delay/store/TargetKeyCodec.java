@@ -39,6 +39,11 @@ public final class TargetKeyCodec {
     public static final int CLOSE_TAG = 28;
     public static final int CLOSE_CURSOR_TAG = 29;
     public static final int MEMBERSHIP_CLOSURE_TAG = 30;
+    public static final int NATIVE_PUBLISHER_TAG = 31;
+    public static final int NATIVE_PUBLISHER_CLOSURE_TAG = 32;
+    public static final int NATIVE_ACTIVATION_TAG = 33;
+    public static final int NATIVE_MEMBER_TAG = 34;
+    public static final int NATIVE_MEMBER_CLOSURE_TAG = 35;
     // Target result tags belong to DEDUPE, independently of META and ID tags.
     public static final int RESULT_COMMAND_TAG = 6;
     public static final int RESULT_QUERY_TAG = 7;
@@ -70,6 +75,48 @@ public final class TargetKeyCodec {
     public static byte[] membershipClosure(final byte[] grantRef) {
         requireAssignedDigest(grantRef, "membershipGrantRef");
         return Bytes.concat(new byte[] {MEMBERSHIP_CLOSURE_TAG, KEY_FORMAT}, grantRef);
+    }
+
+    public static byte[] nativePublisher(final byte[] scopeDigest, final int keyGeneration) {
+        requireAssignedDigest(scopeDigest, "nativePolicyScopeDigest");
+        if (keyGeneration == 0) {
+            throw new IllegalArgumentException("native publisher key generation is unassigned");
+        }
+        return Bytes.concat(new byte[] {NATIVE_PUBLISHER_TAG, KEY_FORMAT}, scopeDigest, Bytes.u32beBits(keyGeneration));
+    }
+
+    public static byte[] nativePublisherClosure(final byte[] scopeDigest, final int keyGeneration) {
+        return withNativePublisherTag(NATIVE_PUBLISHER_CLOSURE_TAG, scopeDigest, keyGeneration);
+    }
+
+    public static byte[] nativeActivation(final byte[] scopeDigest, final long generation) {
+        requireAssignedDigest(scopeDigest, "nativePolicyScopeDigest");
+        if (generation == 0) {
+            throw new IllegalArgumentException("native policy generation is unassigned");
+        }
+        return Bytes.concat(new byte[] {NATIVE_ACTIVATION_TAG, KEY_FORMAT}, scopeDigest, Bytes.u64beBits(generation));
+    }
+
+    public static byte[] nativeMember(final byte[] scopeDigest, final byte[] grantDigest) {
+        return withNativeMemberTag(NATIVE_MEMBER_TAG, scopeDigest, grantDigest);
+    }
+
+    public static byte[] nativeMemberClosure(final byte[] scopeDigest, final byte[] grantDigest) {
+        return withNativeMemberTag(NATIVE_MEMBER_CLOSURE_TAG, scopeDigest, grantDigest);
+    }
+
+    private static byte[] withNativePublisherTag(final int tag, final byte[] scopeDigest, final int keyGeneration) {
+        requireAssignedDigest(scopeDigest, "nativePolicyScopeDigest");
+        if (keyGeneration == 0) {
+            throw new IllegalArgumentException("native publisher key generation is unassigned");
+        }
+        return Bytes.concat(new byte[] {(byte) tag, KEY_FORMAT}, scopeDigest, Bytes.u32beBits(keyGeneration));
+    }
+
+    private static byte[] withNativeMemberTag(final int tag, final byte[] scopeDigest, final byte[] grantDigest) {
+        requireAssignedDigest(scopeDigest, "nativePolicyScopeDigest");
+        requireAssignedDigest(grantDigest, "membershipGrantDigest");
+        return Bytes.concat(new byte[] {(byte) tag, KEY_FORMAT}, scopeDigest, grantDigest);
     }
 
     public static byte[] targetReservationPrefix(TargetPartitionId target) {

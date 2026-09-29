@@ -16,6 +16,7 @@ import com.nereusstream.delay.protocol.TargetCloseRequest;
 import com.nereusstream.delay.protocol.TargetExpireGenerationBody;
 import com.nereusstream.delay.protocol.TargetHeadRef;
 import com.nereusstream.delay.protocol.TargetMembershipControlBody;
+import com.nereusstream.delay.protocol.TargetNativePolicyControlBody;
 import com.nereusstream.delay.protocol.TargetPartitionId;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlBody;
 import com.nereusstream.delay.protocol.TargetQuotaIncarnation;
@@ -35,6 +36,9 @@ import com.nereusstream.delay.runtime.TargetExpiryDiscoveryStore;
 import com.nereusstream.delay.runtime.TargetHeadCostProbe;
 import com.nereusstream.delay.runtime.TargetMembershipControlStore;
 import com.nereusstream.delay.runtime.TargetMembershipControlVerifier;
+import com.nereusstream.delay.runtime.TargetNativePolicyControlStore;
+import com.nereusstream.delay.runtime.TargetNativePolicyControlVerifier;
+import com.nereusstream.delay.runtime.TargetNativePolicyTrustStore;
 import com.nereusstream.delay.runtime.TargetQueueHeadCache;
 import com.nereusstream.delay.runtime.TargetQueueSnapshotReader;
 import com.nereusstream.delay.runtime.TargetQuotaDelta;
@@ -149,6 +153,22 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         MembershipControl resolve(SourceReplayMutation entry);
     }
 
+    public record NativePolicyControl(
+            PreparedControlOperation prepared,
+            TargetNativePolicyControlVerifier.Authority authority,
+            TargetStoreBackend.CommitAuthority commit) {
+        public NativePolicyControl {
+            Objects.requireNonNull(prepared, "prepared");
+            Objects.requireNonNull(authority, "authority");
+            Objects.requireNonNull(commit, "commit");
+        }
+    }
+
+    @FunctionalInterface
+    public interface NativePolicyControls {
+        NativePolicyControl resolve(SourceReplayMutation entry);
+    }
+
     public record CommandControl(
             TargetCommandStore.Policy policy,
             TargetCommandStore.CancellationControls cancellations,
@@ -182,7 +202,35 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             MembershipControls membershipControls,
             TargetStoreBackend.CommitAuthority duplicateWrites,
             TargetStoreBackend.ReadAuthority reads,
-            Commands commands) {
+            Commands commands,
+            NativePolicyControls nativePolicyControls) {
+        public Authorities(
+                final OxiaOwnerLeaseStore leases,
+                final SourceReplaySuccessor successor,
+                final GrantControls grants,
+                final Fences fences,
+                final ExpiryControls expiries,
+                final Closes closes,
+                final MembershipControls membershipControls,
+                final TargetStoreBackend.CommitAuthority duplicateWrites,
+                final TargetStoreBackend.ReadAuthority reads,
+                final Commands commands) {
+            this(
+                    leases,
+                    successor,
+                    grants,
+                    fences,
+                    expiries,
+                    closes,
+                    membershipControls,
+                    duplicateWrites,
+                    reads,
+                    commands,
+                    entry -> {
+                        throw new IllegalStateException("Target Native policy Control authorities are not configured");
+                    });
+        }
+
         public Authorities {
             Objects.requireNonNull(leases, "leases");
             Objects.requireNonNull(successor, "successor");
@@ -194,6 +242,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             Objects.requireNonNull(duplicateWrites, "duplicateWrites");
             Objects.requireNonNull(reads, "reads");
             Objects.requireNonNull(commands, "commands");
+            Objects.requireNonNull(nativePolicyControls, "nativePolicyControls");
         }
     }
 
@@ -208,6 +257,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     private final TargetExpireGenerationStore expiries;
     private final TargetCloseStore closes;
     private final TargetMembershipControlStore membershipControls;
+    private final TargetNativePolicyControlStore nativePolicyControls;
     private final TargetSystemReplayStore replay;
     private final TargetCommandReplayStore commandReplay;
     private final TargetCommandStore commands;
@@ -298,8 +348,10 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         expiryDiscovery = new TargetExpiryDiscoveryStore(backend, scope);
         expiries = new TargetExpireGenerationStore(backend, scope, lineage, limits.counters(), limits.domains());
         closes = new TargetCloseStore(backend, scope, lineage, limits.counters(), limits.domains());
-        membershipControls = new TargetMembershipControlStore(
-                backend, scope, lineage, limits.counters(), limits.domains());
+        membershipControls =
+                new TargetMembershipControlStore(backend, scope, lineage, limits.counters(), limits.domains());
+        nativePolicyControls =
+                new TargetNativePolicyControlStore(backend, scope, lineage, limits.counters(), limits.domains());
         replay = new TargetSystemReplayStore(backend, scope, lineage, limits.counters(), limits.domains());
         commandReplay = new TargetCommandReplayStore(backend, scope, lineage, limits.counters(), limits.domains());
         commands = new TargetCommandStore(backend, scope, lineage, limits.counters(), limits.domains());
@@ -586,8 +638,8 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             } else if (sourceConnectionGeneration != null || guardAttestationDigest != null) {
                 throw new IllegalStateException("Kafka Target expiry append cannot carry a Pulsar connection proof");
             }
-            final var applied = Objects.requireNonNull(
-                    store.appliedShardLogPosition(), "initialized Target source position");
+            final var applied =
+                    Objects.requireNonNull(store.appliedShardLogPosition(), "initialized Target source position");
             if (!applied.sameSourceIdentity(persisted)) {
                 throw new IllegalStateException("Target expiry position belongs to another assigned source");
             }
@@ -612,10 +664,60 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         return new TargetHeadCostProbe(backend, scope, limits.domains()).probe(budget, selected, workerReads(clock));
     }
 
+    /** Builds historical Native trust from this Owner's exact source-applied Store view. */
+    public synchronized TargetNativePolicyTrustStore nativePolicyTrustStore(final LongSupplier ownerClock) {
+        final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
+        requireGcOwner(clock);
+        return new TargetNativePolicyTrustStore(
+                backend,
+                scope,
+                lineage,
+                limits.records(),
+                limits.bytes(),
+                limits.elapsedNanos(),
+                monotonicClock,
+                nativePolicyReads(clock));
+    }
+
     private TargetStoreBackend.ReadAuthority workerReads(final LongSupplier clock) {
         return (actual, actualScope) -> {
             requireGcOwner(clock);
             return gcGuard(authorities.reads().acquire(actual, actualScope), actual, actualScope, clock);
+        };
+    }
+
+    private TargetStoreBackend.ReadAuthority nativePolicyReads(final LongSupplier clock) {
+        return (actual, actualScope) -> {
+            requireGcOwner(clock);
+            if (!scope.equals(actualScope) || !Arrays.equals(metadata.encode(), actual.encode())) {
+                throw new IllegalStateException("Target Native trust belongs to another Store/scope");
+            }
+            final byte[] sourceFrontier = Objects.requireNonNull(
+                            store.appliedShardLogPosition(), "initialized Target source")
+                    .canonicalBytes();
+            final var external = Objects.requireNonNull(
+                    authorities.reads().acquire(actual, actualScope), "Target Native read guard");
+            return new TargetStoreBackend.CommitGuard() {
+                @Override
+                public void requireCurrent() {
+                    if (!scope.equals(actualScope) || !Arrays.equals(metadata.encode(), actual.encode())) {
+                        throw new IllegalStateException("Target Native trust guard belongs to another Store/scope");
+                    }
+                    requireGcOwner(clock);
+                    external.requireCurrent();
+                    requireGcOwner(clock);
+                    final var current =
+                            Objects.requireNonNull(store.appliedShardLogPosition(), "initialized Target source");
+                    if (!Arrays.equals(sourceFrontier, current.canonicalBytes())) {
+                        throw new IllegalStateException("Target Native trust source frontier changed during read");
+                    }
+                }
+
+                @Override
+                public void close() {
+                    external.close();
+                }
+            };
         };
     }
 
@@ -630,7 +732,14 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             final TargetCheckpointRootVerifier.QuotaAuditLimits quotaLimits,
             final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits) {
         return submitLocalCheckpointCandidate(
-                registry, intents, ownerClock, checkpointPath, pending, physicalLimits, quotaLimits, ledgerLimits,
+                registry,
+                intents,
+                ownerClock,
+                checkpointPath,
+                pending,
+                physicalLimits,
+                quotaLimits,
+                ledgerLimits,
                 () -> {});
     }
 
@@ -752,8 +861,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                         Objects.requireNonNull(authorities.expiries().resolve(mutation), "Target expiry control");
                 final TargetExpireGenerationStore.Prepared first;
                 try {
-                    first = expiries.prepareFirst(
-                            budget, mutation.mutation(), entry.position(), control.authority());
+                    first = expiries.prepareFirst(budget, mutation.mutation(), entry.position(), control.authority());
                 } catch (ReadIncompleteException incomplete) {
                     throw new ReadYield(incomplete);
                 }
@@ -775,12 +883,27 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 final TargetMembershipControlStore.Prepared first;
                 try {
                     first = membershipControls.prepareFirst(
-                            budget, control.prepared(), mutation.mutation(), entry.position(),
-                            control.physical(), control.authority());
+                            budget,
+                            control.prepared(),
+                            mutation.mutation(),
+                            entry.position(),
+                            control.physical(),
+                            control.authority());
                 } catch (ReadIncompleteException incomplete) {
                     throw new ReadYield(incomplete);
                 }
                 result = membershipControls.commit(first, writes(control.commit(), entry, clock));
+            } else if (isNativePolicyControl(mutation.mutation())) {
+                final var control = Objects.requireNonNull(
+                        authorities.nativePolicyControls().resolve(mutation), "Target Native policy control");
+                final TargetNativePolicyControlStore.Prepared first;
+                try {
+                    first = nativePolicyControls.prepareFirst(
+                            budget, control.prepared(), mutation.mutation(), entry.position(), control.authority());
+                } catch (ReadIncompleteException incomplete) {
+                    throw new ReadYield(incomplete);
+                }
+                result = nativePolicyControls.commit(first, writes(control.commit(), entry, clock));
             } else {
                 final var control = Objects.requireNonNull(authorities.grants().resolve(mutation), "grant control");
                 final TargetQuotaGrantStore.Prepared first;
@@ -991,6 +1114,8 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             TargetCloseBody.decode(mutation.mutation().canonicalBody());
         } else if (isMembershipControl(mutation.mutation())) {
             TargetMembershipControlBody.decode(mutation.mutation().canonicalBody());
+        } else if (isNativePolicyControl(mutation.mutation())) {
+            TargetNativePolicyControlBody.decode(mutation.mutation().canonicalBody());
         } else {
             TargetQuotaGrantControlBody.decode(mutation.mutation().canonicalBody());
         }
@@ -1006,10 +1131,21 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         return kind == 15 || kind == 16;
     }
 
+    private static boolean isNativePolicyControl(com.nereusstream.delay.protocol.SystemMutation mutation) {
+        final int kind = targetControlKind(mutation);
+        return kind >= 19 && kind <= 23;
+    }
+
     private static int targetControlKind(com.nereusstream.delay.protocol.SystemMutation mutation) {
         final byte[] body = mutation.canonicalBody();
-        if (body.length > Math.max(TargetMembershipControlBody.MAX_CANONICAL_BYTES,
-                Math.max(TargetCloseBody.MAX_CANONICAL_BYTES, TargetQuotaGrantControlBody.MAX_CANONICAL_BYTES))) {
+        if (body.length
+                > Math.max(
+                        TargetNativePolicyControlBody.MAX_CANONICAL_BYTES,
+                        Math.max(
+                                TargetMembershipControlBody.MAX_CANONICAL_BYTES,
+                                Math.max(
+                                        TargetCloseBody.MAX_CANONICAL_BYTES,
+                                        TargetQuotaGrantControlBody.MAX_CANONICAL_BYTES)))) {
             throw new IllegalArgumentException("Target control body exceeds activated codec bounds");
         }
         final var reader = new CanonicalProtobuf.Reader(body);

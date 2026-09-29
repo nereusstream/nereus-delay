@@ -312,7 +312,7 @@ class TargetCommandStoreTest {
                     controls.digest(),
                     60000,
                     nativeModel.artifacts());
-            // This Schedule fixture seeds membership and Native records independently of their source handlers.
+            // The Native scope is seeded without source-applied approval, so first binding must fall back to ordinary.
             new TargetMessageStore(backend, 1, 1, 1)
                     .applyAccounted(
                             budget(),
@@ -393,6 +393,20 @@ class TargetCommandStoreTest {
                     membership.digest(),
                     strictOrderExpiry ? null : nativeScope.digest(),
                     strictOrderExpiry ? bytes(32, 0x67) : null);
+            final var expectedBinding = new TargetScheduleBinding(
+                    binding.messageId(),
+                    binding.commandType(),
+                    binding.canonicalBody(),
+                    binding.bindingSource(),
+                    binding.target(),
+                    binding.domain(),
+                    binding.accountingIncarnation(),
+                    binding.requiredDispatchRef(),
+                    binding.offeredDispatchRef(),
+                    binding.controlScopeRef(),
+                    binding.membershipGrantRef(),
+                    null,
+                    binding.orderingDomain());
             final var profiles = ProfileBindingControlState.empty()
                     .activate(destination.ref(), origin)
                     .activate(capability.ref(), grantAt);
@@ -490,6 +504,7 @@ class TargetCommandStoreTest {
                             binding.intent().adapterMetadata().canonicalBytes().length);
             final var locator = message.locator();
             final var work = message.runtime().timeline();
+            assertFalse(work.nativeCandidate());
             final var payload = TargetQuotaPayloadOwner.decode(TargetValueEnvelope.decode(
                             store.get(
                                     ColumnFamily.META,
@@ -939,19 +954,9 @@ class TargetCommandStoreTest {
                                         intent.adapterMetadata().canonicalBytes().length),
                         headCost.schedulingCost());
                 final var nativeHead = actualQueue.domains().getFirst().nativeHead();
-                if (!strictOrderExpiry && message.nativeDeliveryPolicy() != NativeDeliveryPolicy.FORBID) {
-                    assertTrue(nativeHead != null);
-                }
-                if (nativeHead != null) {
-                    final var nativeCost = claimWorker.probeSelectedHead(budget(), nativeHead, () -> 100);
-                    final var nativeProjection = nativeCost.nativeProjection();
-                    assertEquals(nativeHead, nativeCost.head());
-                    assertTrue(nativeProjection != null);
-                    assertEquals(nativeHead.messageId(), nativeProjection.message().locator().messageId());
-                    assertTrue(nativeProjection.work().nativeCandidate());
-                    assertEquals(binding, nativeProjection.binding());
-                    assertEquals(actualQueue, nativeCost.queue());
-                }
+                assertNull(
+                        nativeHead,
+                        "a seeded Native scope without source-applied approval must use ordinary delivery");
                 assertEquals(beforeScan, store.latestSequenceNumber());
                 final long beforeClaim = store.latestSequenceNumber();
                 assertThrows(
@@ -1699,7 +1704,8 @@ class TargetCommandStoreTest {
                                         policy,
                                         (reader, bound, source) -> {
                                             if (bound.commandType() == CommandType.SCHEDULE) {
-                                                assertArrayEquals(binding.canonicalBytes(), bound.canonicalBytes());
+                                                assertArrayEquals(
+                                                        expectedBinding.canonicalBytes(), bound.canonicalBytes());
                                             } else {
                                                 assertEquals(CommandType.PREPARE_LARGE_SCHEDULE, bound.commandType());
                                                 assertArrayEquals(membership.digest(), bound.membershipGrantRef());
@@ -1811,14 +1817,18 @@ class TargetCommandStoreTest {
                                 .payload());
                 org.junit.jupiter.api.Assertions.assertNotNull(store.get(
                         ColumnFamily.TIMELINE, after.runtime().timeline().ordinaryKey()));
-                org.junit.jupiter.api.Assertions.assertNotNull(store.get(
-                        ColumnFamily.TIMELINE, after.runtime().timeline().nativeKey()));
+                if (after.runtime().timeline().nativeCandidate()) {
+                    org.junit.jupiter.api.Assertions.assertNotNull(store.get(
+                            ColumnFamily.TIMELINE, after.runtime().timeline().nativeKey()));
+                }
                 org.junit.jupiter.api.Assertions.assertNotNull(store.get(
                         ColumnFamily.TIMELINE,
                         new TargetExpiryRef(after.locator(), after.expireAtEpochMs()).encodedKey()));
             }
             assertNull(store.get(ColumnFamily.TIMELINE, work.ordinaryKey()));
-            assertNull(store.get(ColumnFamily.TIMELINE, work.nativeKey()));
+            if (work.nativeCandidate()) {
+                assertNull(store.get(ColumnFamily.TIMELINE, work.nativeKey()));
+            }
             assertNull(store.get(
                     ColumnFamily.TIMELINE, new TargetExpiryRef(locator, message.expireAtEpochMs()).encodedKey()));
             if (claim != null) {
@@ -2097,7 +2107,9 @@ class TargetCommandStoreTest {
             assertEquals(CurrentSendWorkKind.NONE, expired.runtime().currentWorkKind());
             assertEquals(beforeExpiry.stateVersion() + 1, expired.stateVersion());
             assertNull(store.get(ColumnFamily.TIMELINE, beforeExpiry.runtime().timeline().ordinaryKey()));
-            assertNull(store.get(ColumnFamily.TIMELINE, beforeExpiry.runtime().timeline().nativeKey()));
+            if (beforeExpiry.runtime().timeline().nativeCandidate()) {
+                assertNull(store.get(ColumnFamily.TIMELINE, beforeExpiry.runtime().timeline().nativeKey()));
+            }
             assertNull(store.get(
                     ColumnFamily.TIMELINE,
                     new TargetExpiryRef(beforeExpiry.locator(), beforeExpiry.expireAtEpochMs()).encodedKey()));

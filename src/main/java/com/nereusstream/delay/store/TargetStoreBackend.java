@@ -30,8 +30,7 @@ import java.util.function.Function;
 public final class TargetStoreBackend {
     /** Coalesced notification shared by the active Workers in one Target host. */
     public static final class TargetQueueChangeSignal {
-        public record Changes(
-                boolean inventoryDirty, boolean businessRecheck, Set<TargetPartitionId> dirtyTargets) {
+        public record Changes(boolean inventoryDirty, boolean businessRecheck, Set<TargetPartitionId> dirtyTargets) {
             public Changes {
                 dirtyTargets = Set.copyOf(Objects.requireNonNull(dirtyTargets, "dirtyTargets"));
             }
@@ -669,12 +668,12 @@ public final class TargetStoreBackend {
             }
             prepared.attempted = true;
         }
-        final boolean hasBusinessChanges = prepared.mutation.business().stream()
-                .anyMatch(edit -> !Arrays.equals(edit.before, edit.after));
+        final boolean hasBusinessChanges =
+                prepared.mutation.business().stream().anyMatch(edit -> !Arrays.equals(edit.before, edit.after));
         final var changedQueueTargets = changedQueueHeadTargets(prepared.mutation.business());
         final var writeCompleted = new AtomicBoolean();
-        try (var guard = Objects.requireNonNull(
-                authority.acquire(store.metadata(), scope, prepared.mutation), "guard")) {
+        try (var guard =
+                Objects.requireNonNull(authority.acquire(store.metadata(), scope, prepared.mutation), "guard")) {
             store.withReadView(prepared.view, () -> {
                 guard.requireCurrent();
                 store.write(batch -> {
@@ -947,6 +946,7 @@ public final class TargetStoreBackend {
                             case 28 -> 39;
                             case 29 -> 40;
                             case 30 -> 41;
+                            case 31, 32, 33, 34, 35 -> 42;
                             default -> 0;
                         };
                     default -> 0;

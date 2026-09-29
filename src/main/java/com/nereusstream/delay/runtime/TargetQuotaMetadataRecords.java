@@ -9,6 +9,7 @@ import com.nereusstream.delay.protocol.TargetDispatchCompatibility;
 import com.nereusstream.delay.protocol.TargetMembershipClosureRecord;
 import com.nereusstream.delay.protocol.TargetMembershipGrant;
 import com.nereusstream.delay.protocol.TargetMembershipPolicy;
+import com.nereusstream.delay.protocol.TargetNativePolicyControlRecord;
 import com.nereusstream.delay.protocol.TargetNativePolicyScope;
 import com.nereusstream.delay.protocol.TargetNativePolicySnapshot;
 import com.nereusstream.delay.protocol.TargetPartitionId;
@@ -256,6 +257,26 @@ public final class TargetQuotaMetadataRecords {
                 key, payload, owner.identity().shard());
         requireIncarnation(owner, scope.target(), scope.accountingIncarnation());
         return new Record(TargetNativePolicyScope.VALUE_TYPE, key, payload, owner, stateCharge(owner, key, payload));
+    }
+
+    public static Record nativeControl(
+            final TargetQuotaIncarnation owner,
+            final TargetNativePolicyScope scope,
+            final byte[] key,
+            final byte[] payload) {
+        requireIncarnation(owner, scope.target(), scope.accountingIncarnation());
+        final var record = TargetNativePolicyControlRecord.decodeForStore(
+                key, payload, owner.identity().shard(), owner.recoveryLineage());
+        if (!scope.equals(record.body().request().scope())) {
+            throw new IllegalStateException("Target Native control record belongs to another scope");
+        }
+        return new Record(
+                TargetNativePolicyControlRecord.VALUE_TYPE,
+                key,
+                payload,
+                owner,
+                stateCharge(owner, key, payload),
+                point(TargetNativePolicyScope.VALUE_TYPE, scope.encodedKey(), scope.canonicalBytes()));
     }
 
     public static Record nativeSnapshot(

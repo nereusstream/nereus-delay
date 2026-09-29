@@ -17,6 +17,7 @@ import com.nereusstream.delay.protocol.TargetQuotaGrantActivation;
 import com.nereusstream.delay.protocol.TargetQuotaIncarnation;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
 import com.nereusstream.delay.protocol.TargetScheduleBinding;
+import com.nereusstream.delay.scheduler.TargetNativePolicyChecks;
 import com.nereusstream.delay.store.ColumnFamily;
 import com.nereusstream.delay.store.TargetKeyCodec;
 import com.nereusstream.delay.store.TargetStoreBackend;
@@ -91,7 +92,8 @@ public final class TargetScheduleRegistration {
                 || activatedMaxSlots > TargetQueueState.MAX_DOMAIN_SLOTS) {
             throw new IllegalArgumentException("first binding requires assigned lineage and bounded domains");
         }
-        final var binding = authority.proposed();
+        final var proposedBinding = authority.proposed();
+        var binding = proposedBinding;
         if (shardScope.target() != null
                 || !shardScope.shard().equals(reader.shardId())
                 || !source.shardId().equals(shardScope.shard())
@@ -114,7 +116,7 @@ public final class TargetScheduleRegistration {
         final var grant = applied.grant();
         final var authorization = TargetMembershipAuthorization.firstBinding(
                 ref -> {
-                    if (!Arrays.equals(ref, binding.membershipGrantRef())) {
+                    if (!Arrays.equals(ref, proposedBinding.membershipGrantRef())) {
                         throw new IllegalStateException("first binding resolved another membership grant");
                     }
                     return applied;
@@ -257,6 +259,19 @@ public final class TargetScheduleRegistration {
             nativeScope.requireReferences(authority.physical(), grant.offered(), grant.controls());
             nativeScope.requireQueue(after);
             nativeScope.requireBinding(binding);
+            final var eligibility = TargetNativePolicyChecks.firstBinding(
+                    binding,
+                    shardScope.tenantScope(),
+                    grant,
+                    authority.physical(),
+                    authority.destination(),
+                    authority.capability(),
+                    after,
+                    nativeScope,
+                    TargetNativePolicyStoreAuthority.inView(reader, shardScope, lineage));
+            if (eligibility != TargetNativePolicyChecks.Reason.ELIGIBLE) {
+                binding = withoutNativePolicy(binding);
+            }
         }
         if (reader.get(ColumnFamily.ID, binding.encodedKey()) != null) {
             throw new IllegalStateException("first binding cannot replace an existing accepted binding");
@@ -299,6 +314,23 @@ public final class TargetScheduleRegistration {
         final byte[] key = TargetKeyCodec.nativePolicyScope(digest);
         return TargetNativePolicyScope.decodeForStore(
                 key, required(reader, key, TargetNativePolicyScope.VALUE_TYPE), scope.shard());
+    }
+
+    private static TargetScheduleBinding withoutNativePolicy(final TargetScheduleBinding binding) {
+        return new TargetScheduleBinding(
+                binding.messageId(),
+                binding.commandType(),
+                binding.canonicalBody(),
+                binding.bindingSource(),
+                binding.target(),
+                binding.domain(),
+                binding.accountingIncarnation(),
+                binding.requiredDispatchRef(),
+                binding.offeredDispatchRef(),
+                binding.controlScopeRef(),
+                binding.membershipGrantRef(),
+                null,
+                binding.orderingDomain());
     }
 
     private static void addImmutable(

@@ -58,7 +58,14 @@ class ControlRequestSupportCodecTest {
         assertEquals(ControlOperationKind.GRANT_TARGET_MEMBERSHIP, ControlOperationKind.fromWire(16));
         assertEquals(ControlOperationKind.CLOSE_TARGET_MEMBERSHIP, ControlOperationKind.fromWire(17));
         assertEquals(ControlOperationKind.PUBLISH_TARGET_QUOTA_GRANT, ControlOperationKind.fromWire(18));
-        assertThrows(IllegalArgumentException.class, () -> ControlOperationKind.fromWire(19));
+        assertEquals(ControlOperationKind.CLOSE_TARGET, ControlOperationKind.fromWire(19));
+        assertEquals(
+                ControlOperationKind.INSTALL_TARGET_NATIVE_PUBLISHER_PERMISSION, ControlOperationKind.fromWire(20));
+        assertEquals(ControlOperationKind.CLOSE_TARGET_NATIVE_PUBLISHER_PERMISSION, ControlOperationKind.fromWire(21));
+        assertEquals(ControlOperationKind.ACTIVATE_TARGET_NATIVE_POLICY, ControlOperationKind.fromWire(22));
+        assertEquals(ControlOperationKind.APPROVE_TARGET_NATIVE_MEMBER, ControlOperationKind.fromWire(23));
+        assertEquals(ControlOperationKind.CLOSE_TARGET_NATIVE_MEMBER, ControlOperationKind.fromWire(24));
+        assertThrows(IllegalArgumentException.class, () -> ControlOperationKind.fromWire(25));
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new QuotaTransferPlanRef(new byte[32], bytes(32, 1), 1, bytes(32, 2)));

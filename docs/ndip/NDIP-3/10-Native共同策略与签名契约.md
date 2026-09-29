@@ -96,8 +96,11 @@ C2 当前头的 Oxia 实现将每个 scope 持久化到
 canonical head；Oxia `versionId + 1` 映射为正 publication revision。首次写使用
 `IfRecordDoesNotExist`，替换使用 `IfVersionIdEquals`，并在返回前按精确 key、version 和
 head 重读。Worker 得到的 authority 只读；发布服务持有 source-trust 与 scope-proof provider，
-不会接受请求级 provider。该实现只补 current-head CAS：publisher/activation/member 的持久
-source authority 及 C1/C2 运行装配仍未完成。
+不会接受请求级 provider。Target Source Apply 现已把 publisher/activation/member 记录和首次
+scope 注册原子持久化到 Source Shard Store，并提供受 Owner、ReadAuthority 与本地 applied-frontier
+保护的 bounded trust 读取；首次 Schedule binding 使用同一 Store view 读取成员批准。Oxia
+current-head 服务尚未与生产 Source Control/provider 装配，完整 Native Claim/Admission/Producer
+链路仍未完成。
 
 | 对象 | 保守 canonical 上限 bytes | 独立最大合法向量 bytes |
 | --- | --- | --- |
@@ -127,6 +130,21 @@ publisher 查找使用 exact scope digest、key generation、as-of source；acti
 使用 exact grant digest/scope digest/as-of source。后端必须保存不可变授权与关闭历史，
 按物理 source 身份读取，不能用当前 key、当前 Profile policy 或最后一个审批值替代。
 同 offset 不同 canonical SourcePosition 为冲突，其他 cluster/resource/Shard 不可比较。
+
+Source Control 操作固定为 `INSTALL_TARGET_NATIVE_PUBLISHER_PERMISSION=20`、
+`CLOSE_TARGET_NATIVE_PUBLISHER_PERMISSION=21`、`ACTIVATE_TARGET_NATIVE_POLICY=22`、
+`APPROVE_TARGET_NATIVE_MEMBER=23`、`CLOSE_TARGET_NATIVE_MEMBER=24`，对应
+ApplyShardControl kind 19..23。全部绑定完整 scope 和单一 source Shard，使用
+TENANT_POLICY_ADMINISTRATOR + PLATFORM_OPERATOR 与认证资源范围证明。Publisher 安装记录
+捕获完整 ControlAuthor 和 source；关闭只追加 first closedAt 记录，不删除公钥或历史许可。
+Activation 保存完整已签名 snapshot。Member approval 从同一受保护 Store view 解析完整 B2
+grant，再保存完整 grant/scope/source；独立关闭保留首次 closedAt。编码字段、哈希和上限见
+仓库的 [Protocol Registry](../../PROTOCOL-REGISTRY.md#source-ordered-target-native-policy-authority-controls)。
+实际 Source Apply 将记录保存为 META tag 31..35 / NV42，并在一个 Target Store batch 中提交
+authority、结果记录、Source advance 和精确 quota accounting。重复应用依赖既有 source replay
+记录保持幂等；Native Trust 由 Worker Shard 从本地 applied history 构造，读请求不得超过 Store
+frontier，且读取前后校验活动 Owner、外部 ReadAuthority 和 source frontier。这个接线只证明本地
+Target Source Apply 与 first-binding 判定，不等于 Oxia Producer、Admission 或 Broker 生产装配。
 
 发布要求 TENANT_POLICY_ADMINISTRATOR + PLATFORM_OPERATOR，认证 actor、role-set、
 resource scope 与已安装 PublisherPermission 完全一致，还须服务端证明涵盖整个

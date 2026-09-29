@@ -9,6 +9,7 @@ import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.runtime.TargetClaimRecord;
 import com.nereusstream.delay.runtime.TargetExpiryDiscoveryStore;
 import com.nereusstream.delay.runtime.TargetHeadCostProbe;
+import com.nereusstream.delay.runtime.TargetNativePolicyTrustStore;
 import com.nereusstream.delay.runtime.TargetQueueSnapshotReader;
 import com.nereusstream.delay.runtime.TargetQuotaDelta;
 import com.nereusstream.delay.runtime.TargetReservationControls;
@@ -287,6 +288,13 @@ public final class TargetWorkerShardRuntime
         return target.probeSelectedHead(budget, selected, ownerClock);
     }
 
+    /** Supplies Claim-time Native trust from this Worker's source-applied Shard Store. */
+    public synchronized TargetNativePolicyTrustStore nativePolicyTrustStore(final LongSupplier ownerClock) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        return target.nativePolicyTrustStore(ownerClock);
+    }
+
     /** Admits only an ACK-settled active Shard to the bound, unpublished CHECKPOINT work class. */
     public synchronized TargetCheckpointCandidateWorkClassExecutor.Submission submitLocalCheckpointCandidate(
             final CheckpointUploadIntentAuthority intents,
@@ -321,7 +329,13 @@ public final class TargetWorkerShardRuntime
             final TargetCheckpointRootVerifier.QuotaAuditLimits quotaLimits,
             final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits) {
         return submitProtectedCheckpointCandidate(
-                intents, ownerClock, checkpointPath, pending, physicalLimits, quotaLimits, ledgerLimits,
+                intents,
+                ownerClock,
+                checkpointPath,
+                pending,
+                physicalLimits,
+                quotaLimits,
+                ledgerLimits,
                 protectCheckpointCut());
     }
 
@@ -353,7 +367,14 @@ public final class TargetWorkerShardRuntime
         }
         cut.requireCurrent();
         final var submitted = target.submitLocalCheckpointCandidate(
-                workClasses, intents, ownerClock, checkpointPath, pending, physicalLimits, quotaLimits, ledgerLimits,
+                workClasses,
+                intents,
+                ownerClock,
+                checkpointPath,
+                pending,
+                physicalLimits,
+                quotaLimits,
+                ledgerLimits,
                 cut::requireCurrent);
         pendingCheckpoint = submitted;
         preparedCheckpointCut = null;

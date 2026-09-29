@@ -11,6 +11,7 @@ import com.nereusstream.delay.protocol.TargetDispatchCompatibility;
 import com.nereusstream.delay.protocol.TargetMembershipClosureRecord;
 import com.nereusstream.delay.protocol.TargetMembershipGrant;
 import com.nereusstream.delay.protocol.TargetMembershipPolicy;
+import com.nereusstream.delay.protocol.TargetNativePolicyControlRecord;
 import com.nereusstream.delay.protocol.TargetNativePolicyScope;
 import com.nereusstream.delay.protocol.TargetNativePolicySnapshot;
 import com.nereusstream.delay.protocol.TargetPartitionId;
@@ -365,7 +366,8 @@ public final class TargetRecordAccounting {
                 final var member = TargetMembershipGrant.decodeForStore(key, payload, scope.shard());
                 final byte[] policyKey = TargetKeyCodec.membershipPolicy(member.authorityPolicyRef());
                 final var policy = TargetMembershipPolicy.decodeForStore(
-                        policyKey, payload(ColumnFamily.META, policyKey, TargetMembershipPolicy.VALUE_TYPE),
+                        policyKey,
+                        payload(ColumnFamily.META, policyKey, TargetMembershipPolicy.VALUE_TYPE),
                         scope.shard());
                 policy.requireGrant(member);
                 result = shared(
@@ -388,7 +390,8 @@ public final class TargetRecordAccounting {
                 requireFamily(family, ColumnFamily.META);
                 final var closure = TargetMembershipClosureRecord.decodeForStore(key, payload, scope.shard(), lineage);
                 closure.mutation().requireAtOrBefore(operation);
-                final byte[] memberKey = TargetKeyCodec.membershipGrant(closure.body().request().value());
+                final byte[] memberKey =
+                        TargetKeyCodec.membershipGrant(closure.body().request().value());
                 final var member = TargetMembershipGrant.decodeForStore(
                         memberKey,
                         payload(ColumnFamily.META, memberKey, TargetMembershipGrant.VALUE_TYPE),
@@ -411,6 +414,54 @@ public final class TargetRecordAccounting {
                         descriptor(allocation.allocation().identity()),
                         physical(target),
                         member,
+                        key,
+                        payload));
+            }
+            case TargetNativePolicyControlRecord.VALUE_TYPE -> {
+                requireFamily(family, ColumnFamily.META);
+                final var record = TargetNativePolicyControlRecord.decodeForStore(key, payload, scope.shard(), lineage);
+                record.mutation().requireAtOrBefore(operation);
+                final var nativeScope = record.body().request().scope();
+                final byte[] scopeKey = TargetKeyCodec.nativePolicyScope(nativeScope.digest());
+                final var retainedScope = TargetNativePolicyScope.decodeForStore(
+                        scopeKey,
+                        payload(ColumnFamily.META, scopeKey, TargetNativePolicyScope.VALUE_TYPE),
+                        scope.shard());
+                if (!nativeScope.equals(retainedScope)) {
+                    throw new IllegalStateException("Target Native authority differs from its retained scope");
+                }
+                if (record.grant() != null) {
+                    final byte[] grantKey =
+                            TargetKeyCodec.membershipGrant(record.grant().digest());
+                    final var storedGrant = TargetMembershipGrant.decodeForStore(
+                            grantKey,
+                            payload(ColumnFamily.META, grantKey, TargetMembershipGrant.VALUE_TYPE),
+                            scope.shard());
+                    final byte[] policyKey = TargetKeyCodec.membershipPolicy(storedGrant.authorityPolicyRef());
+                    final var policy = TargetMembershipPolicy.decodeForStore(
+                            policyKey,
+                            payload(ColumnFamily.META, policyKey, TargetMembershipPolicy.VALUE_TYPE),
+                            scope.shard());
+                    policy.requireGrant(storedGrant);
+                    if (!record.grant().equals(storedGrant)) {
+                        throw new IllegalStateException("Target Native authority differs from its retained B2 grant");
+                    }
+                    final byte[] closureKey = TargetKeyCodec.membershipClosure(storedGrant.digest());
+                    final byte[] rawClosure = reader.projected(ColumnFamily.META, closureKey, overlay);
+                    if (rawClosure != null) {
+                        final var closure = TargetMembershipClosureRecord.decodeForStore(
+                                closureKey,
+                                TargetValueEnvelope.decode(rawClosure, TargetMembershipClosureRecord.VALUE_TYPE)
+                                        .payload(),
+                                scope.shard(),
+                                lineage);
+                        closure.requireGrant(storedGrant);
+                        closure.mutation().requireAtOrBefore(operation);
+                    }
+                }
+                result = metadata(TargetQuotaMetadataRecords.nativeControl(
+                        targetOwner(retainedScope.target(), retainedScope.accountingIncarnation()),
+                        retainedScope,
                         key,
                         payload));
             }
