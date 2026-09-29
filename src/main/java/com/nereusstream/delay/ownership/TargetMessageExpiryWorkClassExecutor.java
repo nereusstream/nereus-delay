@@ -4,10 +4,13 @@ import com.nereusstream.delay.protocol.AuthorIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.SourcePosition;
+import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
 import com.nereusstream.delay.protocol.TargetExpireGenerationBody;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
+import com.nereusstream.delay.runtime.ApplyStatus;
+import com.nereusstream.delay.runtime.SystemMutationResult;
 import com.nereusstream.delay.runtime.TargetExpiryDiscoveryStore;
 import com.nereusstream.delay.scheduler.WorkClass;
 import com.nereusstream.delay.scheduler.WorkClassTask;
@@ -46,7 +49,15 @@ public final class TargetMessageExpiryWorkClassExecutor {
                 throw new IllegalStateException("Target message expiry already has an outstanding WorkClass action");
             }
             if (pending.result.kind() == ResultKind.UNKNOWN) {
-                throw new IllegalStateException("previous Target expiry append outcome remains unknown");
+                final SystemMutationResult applied = worker
+                        .messageExpiryMutationResult(pending.mutation, clock)
+                        .orElse(null);
+                if (applied == null) {
+                    throw new IllegalStateException("previous Target expiry append outcome remains unknown");
+                }
+                if (applied.applyStatus() != ApplyStatus.APPLIED || applied.stableCode() != StableCode.OK) {
+                    throw new IllegalStateException("previous Target expiry mutation did not apply successfully");
+                }
             }
         }
         pending = null;

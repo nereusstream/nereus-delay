@@ -3,9 +3,11 @@ package com.nereusstream.delay.ownership;
 import com.nereusstream.delay.protocol.CheckpointUploadIntent;
 import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.ShardId;
+import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.TargetHeadRef;
 import com.nereusstream.delay.protocol.TargetPartitionId;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
+import com.nereusstream.delay.runtime.SystemMutationResult;
 import com.nereusstream.delay.runtime.TargetClaimRecord;
 import com.nereusstream.delay.runtime.TargetExpiryDiscoveryStore;
 import com.nereusstream.delay.runtime.TargetHeadCostProbe;
@@ -274,6 +276,13 @@ public final class TargetWorkerShardRuntime
         requireNewTurnsAdmitted();
         resources.requireRuntimeBusinessAdmission();
         return target.expiryAppendApplied(position, ownerClock);
+    }
+
+    synchronized Optional<SystemMutationResult> messageExpiryMutationResult(
+            final SystemMutation mutation, final LongSupplier ownerClock) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        return target.expiryMutationResult(mutation, ownerClock);
     }
 
     synchronized void fenceMessageExpiry() {

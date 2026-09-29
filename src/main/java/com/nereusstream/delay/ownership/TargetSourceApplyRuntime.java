@@ -656,6 +656,20 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         return current.compareTo(Objects.requireNonNull(position, "expiry source position")) >= 0;
     }
 
+    synchronized Optional<SystemMutationResult> expiryMutationResult(
+            final com.nereusstream.delay.protocol.SystemMutation mutation, final LongSupplier ownerClock) {
+        final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
+        requireGcOwner(clock);
+        final var exact = Objects.requireNonNull(mutation, "mutation");
+        if (exact.type() != SystemMutationType.EXPIRE_GENERATION) {
+            throw new IllegalArgumentException("Target expiry reconciliation requires EXPIRE_GENERATION");
+        }
+        return replay.appliedResult(
+                new BoundedReadBudget(limits.records(), limits.bytes(), limits.elapsedNanos(), monotonicClock),
+                exact,
+                workerReads(clock));
+    }
+
     /** Validates one current head and its frozen byte cost only when the Worker selects it. */
     synchronized TargetHeadCostProbe.Cost probeSelectedHead(
             final BoundedReadBudget budget, final TargetHeadRef selected, final LongSupplier ownerClock) {

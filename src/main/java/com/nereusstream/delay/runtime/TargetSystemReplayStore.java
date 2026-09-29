@@ -2,6 +2,7 @@ package com.nereusstream.delay.runtime;
 
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.SourcePosition;
+import com.nereusstream.delay.protocol.SourcePositionCodec;
 import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.TargetQuotaIdentity;
@@ -66,6 +67,48 @@ public final class TargetSystemReplayStore {
         this.lineage = Bytes.copy(lineage);
         this.maximumCounters = maximumCounters;
         this.maximumDomains = maximumDomains;
+    }
+
+    /** Reads the exact first-apply result for an uncertain append under a current Store guard. */
+    public Optional<SystemMutationResult> appliedResult(
+            final BoundedReadBudget budget,
+            final SystemMutation mutation,
+            final TargetStoreBackend.ReadAuthority reads) {
+        final var exact = Objects.requireNonNull(mutation, "mutation");
+        if (!scope.shard().equals(exact.shardId())) {
+            throw new IllegalArgumentException("System result lookup belongs to another Shard");
+        }
+        return backend.guardedRead(
+                Objects.requireNonNull(budget, "budget"),
+                reader -> {
+                    final byte[] key = Bytes.concat(
+                            new byte[] {TargetKeyCodec.RESULT_SYSTEM_TAG, TargetKeyCodec.KEY_FORMAT},
+                            exact.systemMutationId());
+                    final var first = result(reader, key);
+                    if (first == null) {
+                        return Optional.empty();
+                    }
+                    if (first.kind() != TargetResultRecord.Kind.SYSTEM) {
+                        throw new IllegalStateException("System key has another result kind");
+                    }
+                    final var applied = SystemMutationResult.decode(first.typedPayload());
+                    if (!Arrays.equals(applied.mutationId(), exact.systemMutationId())
+                            || !Arrays.equals(applied.mutationHash(), exact.mutationHash())
+                            || applied.mutationType() != exact.type()
+                            || applied.retryUntilEpochMs() != exact.retryUntilEpochMs()
+                            || !Arrays.equals(applied.authorIdentity(), exact.authorIdentity())) {
+                        throw new IllegalStateException("System logical identity was reused with different bytes");
+                    }
+                    final SourcePosition appliedAt = SourcePositionCodec.decode(applied.appliedSourcePosition());
+                    final SourcePosition frontier = reader.source();
+                    if (frontier == null
+                            || !frontier.sameSourceIdentity(appliedAt)
+                            || frontier.compareTo(appliedAt) < 0) {
+                        throw new IllegalStateException("System result is beyond the applied source frontier");
+                    }
+                    return Optional.of(applied);
+                },
+                Objects.requireNonNull(reads, "readAuthority"));
     }
 
     /** An empty result selects first application, which must independently recheck absence in its own view. */
