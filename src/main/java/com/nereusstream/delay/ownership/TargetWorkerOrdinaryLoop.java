@@ -3,12 +3,14 @@ package com.nereusstream.delay.ownership;
 import com.nereusstream.delay.protocol.TargetPartitionId;
 import com.nereusstream.delay.runtime.TargetClaimRecord;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
+import java.io.Closeable;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.Objects;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
@@ -27,6 +29,7 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
     private final SchedulerBudget turnBudget;
     private final long recheckNanos;
     private final TargetWorkerOrdinaryDrr.Requests requests;
+    private final Closeable nativePolicyChangeSubscription;
     private final ClaimConsumer claimConsumer;
     private final LongSupplier ownerClock;
     private final LongSupplier schedulerClock;
@@ -35,6 +38,7 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
     private final long maximumRecoveryTurns;
     private final long maximumCreditTurns;
     private final AtomicReference<Throwable> firstFailure = new AtomicReference<>();
+    private final AtomicBoolean nativePolicyChangeSubscriptionClosed = new AtomicBoolean();
     private volatile boolean closed;
     private volatile boolean waitingForQueueChange;
     private Thread thread;
@@ -63,7 +67,12 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
                 schedulerClock,
                 monotonicClock,
                 failureConsumer);
-        loop.start();
+        try {
+            loop.start();
+        } catch (RuntimeException | Error failure) {
+            loop.closeNativePolicyChangeSubscription(failure);
+            throw failure;
+        }
         return loop;
     }
 
@@ -106,6 +115,9 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
         maximumRecoveryTurns = Math.addExact(targets, 1);
         final long creditRounds = 1 + (drrLimits.maximumCostBytes() - 1) / drrLimits.quantumBytes();
         maximumCreditTurns = Math.multiplyExact(targets, creditRounds);
+        nativePolicyChangeSubscription = Objects.requireNonNull(
+                requests.subscribeNativePolicyChanges(host::signalNativePolicyChange),
+                "nativePolicyChangeSubscription");
     }
 
     private synchronized void start() {
@@ -317,6 +329,7 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
             throw fatal;
         } finally {
             closed = true;
+            closeNativePolicyChangeSubscription(null);
         }
     }
 
@@ -368,6 +381,21 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
         } catch (RuntimeException callbackFailure) {
             if (callbackFailure != failure) {
                 failure.addSuppressed(callbackFailure);
+            }
+        }
+    }
+
+    private void closeNativePolicyChangeSubscription(final Throwable primaryFailure) {
+        if (!nativePolicyChangeSubscriptionClosed.compareAndSet(false, true)) {
+            return;
+        }
+        try {
+            nativePolicyChangeSubscription.close();
+        } catch (Exception closeFailure) {
+            if (primaryFailure != null) {
+                primaryFailure.addSuppressed(closeFailure);
+            } else {
+                reportFailure(new IllegalStateException("cannot close Native policy wake subscription", closeFailure));
             }
         }
     }

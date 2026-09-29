@@ -50,7 +50,10 @@ factory、format2 回填、完整迁移/恢复和集中验证仍未完成。原 
 
 E1 的 ordinary future-head timer 已增加真实 Target Store/Worker/Host-loop 回归：到期前不产生 Claim，
 仅推进 scheduler clock、不发队列通知后由 Host timer 触发新的持久 Claim。该证据只覆盖 ordinary head；
-Native Host timer/Claim、外部 policy/control/channel generation 唤醒和生产 provider 装配仍待完成。
+Oxia 0.9.0 current-head 通知现可通过 Native authority 订阅接入 `Requests`，由 Host loop 发布合并 revision，
+且 loop 结束时解除本地回调；策略仍须重新读取，安全重查继续兜底。此处只有通知筛选和 Host 回调生命周期
+的定向测试，没有生产 `Requests` provider 或真实 Oxia 服务验证。Native Host timer/Claim、外部 policy/control/
+channel generation 的完整装配与失效矩阵、Owner/recovery 和集中验证仍待完成。
 切片状态保持 IN_PROGRESS / PENDING_CENTRAL_VALIDATION，详见 NDIP-3 执行记录与交接清单。
 
 以下为前序认证入口实施记录；持久 writer 的当前进展以上述说明为准。

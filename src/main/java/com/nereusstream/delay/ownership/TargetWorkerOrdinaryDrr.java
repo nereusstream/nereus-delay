@@ -23,6 +23,7 @@ import com.nereusstream.delay.semantic.TargetNativePolicyAuthority;
 import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.ReadIncompleteException;
 import com.nereusstream.delay.store.TargetStoreBackend;
+import java.io.Closeable;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -91,6 +92,15 @@ public final class TargetWorkerOrdinaryDrr {
     public interface Requests {
         /** Checks current eligibility without consuming a permit; the Claim guard acquires it. */
         Optional<Request> resolve(TargetWorkerShardRuntime shard, TargetHeadCostProbe.Cost cost);
+
+        /**
+         * Registers best-effort external policy wakeups; Oxia-backed providers should delegate to the policy
+         * authority, while the Host loop retains a bounded safety recheck.
+         */
+        default Closeable subscribeNativePolicyChanges(final Runnable wakeup) {
+            Objects.requireNonNull(wakeup, "wakeup");
+            return () -> {};
+        }
 
         /** Supplies live Target Native policy/time authority for one exact persisted Native head. */
         default Optional<NativePolicyContext> resolveNativePolicyContext(

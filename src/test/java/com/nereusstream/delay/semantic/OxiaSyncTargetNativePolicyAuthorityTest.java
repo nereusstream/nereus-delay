@@ -1,6 +1,7 @@
 package com.nereusstream.delay.semantic;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.ControlAuthor;
@@ -17,12 +18,16 @@ import com.nereusstream.delay.protocol.TargetNativePolicySnapshot;
 import com.nereusstream.delay.protocol.TargetSourcePosition;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.oxia.client.api.GetResult;
+import io.oxia.client.api.Notification;
 import io.oxia.client.api.PutResult;
+import io.oxia.client.api.SyncOxiaClient;
 import io.oxia.client.api.Version;
 import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
 import io.oxia.client.api.exceptions.UnexpectedVersionIdException;
 import io.oxia.client.api.options.PutOption;
 import io.oxia.client.api.options.defs.OptionVersionId;
+import java.io.Closeable;
+import java.lang.reflect.Proxy;
 import java.security.KeyFactory;
 import java.security.KeyPair;
 import java.security.spec.PKCS8EncodedKeySpec;
@@ -33,6 +38,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
 
 class OxiaSyncTargetNativePolicyAuthorityTest {
@@ -117,8 +125,71 @@ class OxiaSyncTargetNativePolicyAuthorityTest {
         assertEquals(2, authority.current(scope.digest()).orElseThrow().revision());
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void currentHeadNotificationsWakeOnlyForMatchingKeysAndCanDetach() throws Exception {
+        final AtomicReference<Consumer<Notification>> notificationConsumer = new AtomicReference<>();
+        final AtomicInteger registrations = new AtomicInteger();
+        final SyncOxiaClient client = (SyncOxiaClient) Proxy.newProxyInstance(
+                SyncOxiaClient.class.getClassLoader(),
+                new Class<?>[] {SyncOxiaClient.class},
+                (proxy, method, arguments) -> {
+                    if (method.getName().equals("notifications")) {
+                        registrations.incrementAndGet();
+                        notificationConsumer.set((Consumer<Notification>) arguments[0]);
+                        return null;
+                    }
+                    if (method.getName().equals("close")) {
+                        return null;
+                    }
+                    throw new UnsupportedOperationException(method.getName());
+                });
+        final var authority = authority(client);
+        final String headPrefix = "/delay/policy/target-native-policy/head/";
+        final String exactHeadKey = headPrefix + "a".repeat(64);
+        final String upperBound = headPrefix.substring(0, headPrefix.length() - 1) + '0';
+        final AtomicInteger wakeups = new AtomicInteger();
+        final Closeable subscription = authority.readAuthority().subscribeCurrentHeadChanges(wakeups::incrementAndGet);
+        assertThrows(
+                IllegalStateException.class,
+                () -> authority.readAuthority().subscribeCurrentHeadChanges(() -> {}));
+
+        final Consumer<Notification> emit = notificationConsumer.get();
+        assertNotNull(emit);
+        emit.accept(new Notification.KeyCreated(exactHeadKey, 1));
+        emit.accept(new Notification.KeyModified(exactHeadKey, 2));
+        emit.accept(new Notification.KeyDeleted(exactHeadKey));
+        emit.accept(new Notification.KeyCreated(headPrefix + "A".repeat(64), 3));
+        emit.accept(new Notification.KeyCreated(headPrefix + "a".repeat(63), 4));
+        emit.accept(new Notification.KeyCreated("/delay/policy/other/" + "a".repeat(64), 5));
+        emit.accept(new Notification.KeyRangeDelete("/delay/policy/", upperBound));
+        emit.accept(new Notification.KeyRangeDelete("/delay/policy/", headPrefix));
+        emit.accept(new Notification.KeyRangeDelete(upperBound, upperBound + "z"));
+        assertEquals(4, wakeups.get());
+
+        subscription.close();
+        emit.accept(new Notification.KeyModified(exactHeadKey, 6));
+        assertEquals(4, wakeups.get());
+
+        final AtomicInteger resumedWakeups = new AtomicInteger();
+        final Closeable resumed = authority.readAuthority()
+                .subscribeCurrentHeadChanges(resumedWakeups::incrementAndGet);
+        emit.accept(new Notification.KeyModified(exactHeadKey, 7));
+        assertEquals(1, resumedWakeups.get());
+        assertEquals(1, registrations.get());
+        resumed.close();
+    }
+
     private OxiaSyncTargetNativePolicyAuthority authority(final FakeRecords records) {
-        final TargetNativePolicyTrust trust = new TargetNativePolicyTrust() {
+        return new OxiaSyncTargetNativePolicyAuthority(records, "delay/policy", trust(), (p, a, at) -> true);
+    }
+
+    private OxiaSyncTargetNativePolicyAuthority authority(final SyncOxiaClient client) {
+        return new OxiaSyncTargetNativePolicyAuthority(client, "delay/policy", trust(), (p, a, at) -> true);
+    }
+
+    private TargetNativePolicyTrust trust() {
+        return new TargetNativePolicyTrust() {
             @Override
             public Optional<PublisherPermission> publisher(byte[] digest, int keyGeneration, SourcePosition at) {
                 return java.util.Arrays.equals(scope.digest(), digest) && keyGeneration == permission.keyGeneration()
@@ -136,7 +207,6 @@ class OxiaSyncTargetNativePolicyAuthorityTest {
                 return Optional.empty();
             }
         };
-        return new OxiaSyncTargetNativePolicyAuthority(records, "delay/policy", trust, (p, a, at) -> true);
     }
 
     private TargetNativePolicySnapshot snapshot(final long generation, final HandoffPolicyMode mode) {

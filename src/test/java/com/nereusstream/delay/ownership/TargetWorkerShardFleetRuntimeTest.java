@@ -17,6 +17,7 @@ import com.nereusstream.delay.store.CheckpointScheduler;
 import com.nereusstream.delay.store.ShardStoreConfig;
 import com.nereusstream.delay.store.SharedRocksDbResources;
 import com.nereusstream.delay.store.TargetCheckpointCandidateWorkClassExecutor;
+import java.io.Closeable;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.EnumMap;
@@ -634,6 +635,8 @@ class TargetWorkerShardFleetRuntimeTest {
             final var fleet = new TargetWorkerShardFleetRuntime(registry, resources, shard);
             final var budget = new SchedulerBudget(1, 1000, 1_000_000);
             final var request = new TargetOwnerDrainCoordinator.Request(5_000, budget);
+            final var policyWakeup = new AtomicReference<Runnable>();
+            final var policyWakeupClosed = new CountDownLatch(1);
             final var maintenance = new TargetWorkerMaintenanceLoop(
                     fleet, budget, Duration.ofSeconds(10), ignored -> {}, executor);
             final var host = new TargetWorkerHostRuntime(fleet, maintenance, List.of(shard));
@@ -642,7 +645,20 @@ class TargetWorkerShardFleetRuntimeTest {
                     new TargetWorkerOrdinaryDrr.Limits(100, 200, 200, 1, 10, 1024, 1_000_000),
                     budget,
                     Duration.ofSeconds(10),
-                    (source, cost) -> Optional.empty(),
+                    new TargetWorkerOrdinaryDrr.Requests() {
+                        @Override
+                        public Optional<TargetWorkerOrdinaryDrr.Request> resolve(
+                                final TargetWorkerShardRuntime source,
+                                final com.nereusstream.delay.runtime.TargetHeadCostProbe.Cost cost) {
+                            return Optional.empty();
+                        }
+
+                        @Override
+                        public Closeable subscribeNativePolicyChanges(final Runnable wakeup) {
+                            policyWakeup.set(wakeup);
+                            return policyWakeupClosed::countDown;
+                        }
+                    },
                     ignored -> {},
                     () -> 101,
                     () -> 101,
@@ -655,8 +671,13 @@ class TargetWorkerShardFleetRuntimeTest {
                 }
                 assertTrue(ordinary.isWaitingForQueueChange());
                 assertNotNull(ordinary.firstFailure());
+                final long observedRevision = host.targetQueueChangeRevision();
+                assertNotNull(policyWakeup.get());
+                policyWakeup.get().run();
+                assertTrue(host.awaitTargetQueueChange(observedRevision, Duration.ZERO));
                 assertTrue(host.drainAll(request, budget, () -> 101).complete());
                 assertTrue(ordinary.isClosed());
+                assertTrue(policyWakeupClosed.await(5, TimeUnit.SECONDS));
                 assertEquals(1, shard.drainCalls.get());
             } finally {
                 ordinary.close();

@@ -5,6 +5,7 @@ import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.TargetNativePolicyHead;
 import com.nereusstream.delay.protocol.TargetNativePolicyScope;
 import com.nereusstream.delay.protocol.TargetNativePolicySnapshot;
+import java.io.Closeable;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.Optional;
@@ -15,6 +16,15 @@ public interface TargetNativePolicyAuthority {
 
     /** Atomic CAS of the exact prior revision/head. Backend must validate next() in the same transaction. */
     Publication compareAndSet(byte[] scopeDigest, long expectedRevision, TargetNativePolicyHead next);
+
+    /**
+     * Registers a best-effort wakeup for changes to current Native policy heads. Callers must reread the authority
+     * after a wakeup and retain their bounded safety recheck because notifications can be delayed or lost.
+     */
+    default Closeable subscribeCurrentHeadChanges(final Runnable listener) {
+        Objects.requireNonNull(listener, "listener");
+        return () -> {};
+    }
 
     default Publication requireCurrent(final byte[] scopeDigest) {
         return current(scopeDigest)

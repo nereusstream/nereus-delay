@@ -164,6 +164,11 @@ public final class TargetWorkerHostRuntime {
         return targetQueueChangeSignal.revision();
     }
 
+    /** Publishes an external Native-policy wakeup without fabricating a changed Target head. */
+    void signalNativePolicyChange() {
+        targetQueueChangeSignal.signalChanges(Set.of(), true);
+    }
+
     /**
      * Waits for a committed Target business change after a caller's pre-scan revision. A change
      * during the scan returns immediately; timeout remains the periodic safety recheck.

@@ -6,6 +6,7 @@ import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.TargetNativePolicyHead;
 import com.nereusstream.delay.protocol.TargetNativePolicySnapshot;
 import io.oxia.client.api.GetResult;
+import io.oxia.client.api.Notification;
 import io.oxia.client.api.OxiaClientBuilder;
 import io.oxia.client.api.PutResult;
 import io.oxia.client.api.SyncOxiaClient;
@@ -20,6 +21,7 @@ import java.util.Arrays;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** Persistent current-head service; only the authenticated publish API can reach its low-level Oxia CAS. */
 public final class OxiaSyncTargetNativePolicyAuthority {
@@ -28,6 +30,11 @@ public final class OxiaSyncTargetNativePolicyAuthority {
     private final TargetNativePolicyTrust trust;
     private final TargetNativePolicyTrust.PublisherScopeProof scopeProof;
     private final HeadStore store;
+    private final SyncOxiaClient notificationClient;
+    private final String headKeyPrefix;
+    private final AtomicReference<Runnable> currentHeadChangeListener = new AtomicReference<>();
+    private final Object notificationRegistrationLock = new Object();
+    private boolean notificationRegistrationStarted;
     private final TargetNativePolicyAuthority readAuthority = new ReadAuthority();
 
     public OxiaSyncTargetNativePolicyAuthority(
@@ -35,7 +42,7 @@ public final class OxiaSyncTargetNativePolicyAuthority {
             final String keyPrefix,
             final TargetNativePolicyTrust trust,
             final TargetNativePolicyTrust.PublisherScopeProof scopeProof) {
-        this(new SyncRecordClient(client), keyPrefix, trust, scopeProof);
+        this(new SyncRecordClient(client), keyPrefix, trust, scopeProof, client);
     }
 
     OxiaSyncTargetNativePolicyAuthority(
@@ -43,9 +50,20 @@ public final class OxiaSyncTargetNativePolicyAuthority {
             final String keyPrefix,
             final TargetNativePolicyTrust trust,
             final TargetNativePolicyTrust.PublisherScopeProof scopeProof) {
+        this(client, keyPrefix, trust, scopeProof, null);
+    }
+
+    private OxiaSyncTargetNativePolicyAuthority(
+            final RecordClient client,
+            final String keyPrefix,
+            final TargetNativePolicyTrust trust,
+            final TargetNativePolicyTrust.PublisherScopeProof scopeProof,
+            final SyncOxiaClient notificationClient) {
         store = new HeadStore(client, keyPrefix);
         this.trust = Objects.requireNonNull(trust, "trust");
         this.scopeProof = Objects.requireNonNull(scopeProof, "scopeProof");
+        this.notificationClient = notificationClient;
+        headKeyPrefix = canonicalKeyPrefix(keyPrefix) + HEAD_SEGMENT;
     }
 
     /** Opens an owned bounded Oxia client for source-authorized policy reads and publication. */
@@ -87,6 +105,61 @@ public final class OxiaSyncTargetNativePolicyAuthority {
     }
 
     /**
+     * Subscribes one active Worker loop to this client's current-head notifications. The Oxia notification stream is
+     * client-scoped and cannot be individually detached; closing the returned handle clears the Worker callback.
+     */
+    public Closeable subscribeCurrentHeadChanges(final Runnable listener) {
+        final Runnable exactListener = Objects.requireNonNull(listener, "listener");
+        if (notificationClient == null) {
+            throw new IllegalStateException("Oxia current-head notifications require the owned Oxia client");
+        }
+        if (!currentHeadChangeListener.compareAndSet(null, exactListener)) {
+            throw new IllegalStateException("Oxia current-head notifications already have an active Worker listener");
+        }
+        try {
+            synchronized (notificationRegistrationLock) {
+                if (!notificationRegistrationStarted) {
+                    notificationClient.notifications(this::onNotification);
+                    notificationRegistrationStarted = true;
+                }
+            }
+        } catch (RuntimeException failure) {
+            currentHeadChangeListener.compareAndSet(exactListener, null);
+            throw failure;
+        }
+        return () -> currentHeadChangeListener.compareAndSet(exactListener, null);
+    }
+
+    private void onNotification(final Notification notification) {
+        if (affectsCurrentHeadNamespace(Objects.requireNonNull(notification, "notification"), headKeyPrefix)) {
+            final Runnable listener = currentHeadChangeListener.get();
+            if (listener != null) {
+                listener.run();
+            }
+        }
+    }
+
+    static boolean affectsCurrentHeadNamespace(final Notification notification, final String headKeyPrefix) {
+        final String exactPrefix = Objects.requireNonNull(headKeyPrefix, "headKeyPrefix");
+        if (notification instanceof Notification.KeyRangeDelete rangeDelete) {
+            final String upperBound = exactPrefix.substring(0, exactPrefix.length() - 1) + '0';
+            return rangeDelete.startKeyInclusive().compareTo(upperBound) < 0
+                    && rangeDelete.endKeyExclusive().compareTo(exactPrefix) > 0;
+        }
+        final String key = notification.key();
+        if (key == null || !key.startsWith(exactPrefix) || key.length() != exactPrefix.length() + 64) {
+            return false;
+        }
+        for (int index = exactPrefix.length(); index < key.length(); index++) {
+            final char value = key.charAt(index);
+            if (!(value >= '0' && value <= '9') && !(value >= 'a' && value <= 'f')) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
      * Publishes through the source-backed trust and scope-proof providers retained by this service. Callers cannot
      * supply request-local trust lambdas or invoke the underlying CAS directly.
      */
@@ -103,6 +176,11 @@ public final class OxiaSyncTargetNativePolicyAuthority {
         @Override
         public Optional<Publication> current(final byte[] scopeDigest) {
             return store.current(scopeDigest);
+        }
+
+        @Override
+        public Closeable subscribeCurrentHeadChanges(final Runnable listener) {
+            return OxiaSyncTargetNativePolicyAuthority.this.subscribeCurrentHeadChanges(listener);
         }
 
         @Override
