@@ -1457,6 +1457,9 @@ class TargetCommandStoreTest {
                     final var sourceBeforeRevoke = store.appliedShardLogPosition();
                     final var schedulerClaim = new java.util.concurrent.atomic.AtomicReference<TargetClaimRecord>();
                     final var schedulerClaimed = new java.util.concurrent.CountDownLatch(1);
+                    final long schedulerDeadline = message.deliverAtEpochMs();
+                    final var schedulerEpoch = new java.util.concurrent.atomic.AtomicLong(
+                            Math.max(0, schedulerDeadline - 100));
                     final TargetWorkerOrdinaryDrr.Requests retryClaimRequests = (shard, selected) -> claimRequests
                             .resolve(shard, selected)
                             .map(requestForClaim -> new TargetWorkerOrdinaryDrr.Request(
@@ -1484,7 +1487,7 @@ class TargetCommandStoreTest {
                                 schedulerClaimed.countDown();
                             },
                             () -> 100,
-                            () -> claimNow,
+                            schedulerEpoch::get,
                             System::nanoTime,
                             ignored -> {});
                     final long waitDeadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
@@ -1541,6 +1544,8 @@ class TargetCommandStoreTest {
                                     (a, b, c) -> guard(),
                                     () -> 100));
                     assertEquals(afterRevoke, store.latestSequenceNumber());
+                    assertFalse(schedulerClaimed.await(150, java.util.concurrent.TimeUnit.MILLISECONDS));
+                    schedulerEpoch.set(schedulerDeadline);
                     try {
                         assertTrue(
                                 schedulerClaimed.await(5, java.util.concurrent.TimeUnit.SECONDS),
