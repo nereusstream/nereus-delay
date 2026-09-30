@@ -15,6 +15,11 @@ import java.util.List;
  */
 public final class AttemptObligationRef {
     public static final int HASH_LENGTH = 32;
+    private static final int INFLIGHT_KEY_LENGTH = 2 + 8 + 4 + HASH_LENGTH;
+    static final int MAX_CANONICAL_BYTES = 3 * (1 + 1 + HASH_LENGTH)
+            + (1 + 5)
+            + (1 + 1)
+            + (1 + 1 + INFLIGHT_KEY_LENGTH);
 
     private final byte[] publishAttemptId;
     private final int generation;
@@ -36,7 +41,7 @@ public final class AttemptObligationRef {
             throw new IllegalArgumentException("encodedInflightKey must not be empty");
         }
         this.encodedInflightKey = Bytes.copy(encodedInflightKey);
-        if (this.encodedInflightKey.length != 2 + 8 + 4 + HASH_LENGTH
+        if (this.encodedInflightKey.length != INFLIGHT_KEY_LENGTH
                 || this.encodedInflightKey[1] != 1
                 || this.encodedInflightKey[0] != (byte) (ledgerState == AttemptLedgerState.PUBLISHING ? 2 : 3)) {
             throw new IllegalArgumentException("inflight key tag does not match attempt ledger state");
@@ -96,6 +101,9 @@ public final class AttemptObligationRef {
     }
 
     public static AttemptObligationRef decode(final byte[] encoded) {
+        if (encoded.length > MAX_CANONICAL_BYTES) {
+            throw new IllegalArgumentException("attempt obligation exceeds canonical encoding bound");
+        }
         final List<CanonicalProtobuf.Reader.Field> fields = readAll(new CanonicalProtobuf.Reader(encoded));
         if (fields.size() != 6) {
             throw new IllegalArgumentException("attempt obligation fields are incomplete or unknown");

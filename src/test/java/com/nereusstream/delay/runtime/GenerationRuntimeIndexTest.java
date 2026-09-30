@@ -243,8 +243,13 @@ class GenerationRuntimeIndexTest {
         final byte[] attemptId = Bytes.sha256(Bytes.utf8("attempt-high-bit-generation"));
         final AttemptObligationRef reference = new AttemptObligationRef(
                 attemptId, Integer.MIN_VALUE, AttemptLedgerState.PUBLISHING, KeyCodec.inflight((byte) 2, 1, attemptId));
+        final byte[] canonical = reference.canonicalBytes();
 
-        assertEquals(reference, AttemptObligationRef.decode(reference.canonicalBytes()));
+        assertEquals(AttemptObligationRef.MAX_CANONICAL_BYTES, canonical.length);
+        assertEquals(reference, AttemptObligationRef.decode(canonical));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> AttemptObligationRef.decode(new byte[AttemptObligationRef.MAX_CANONICAL_BYTES + 1]));
     }
 
     @Test

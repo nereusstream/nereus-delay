@@ -1,12 +1,15 @@
 NDIP-3 A2 open-obligation admission bound
 Date: 2026-10-01
-Base commit: 40c70babf9b2b2aba48054e9915c69c6cc03245f
+Base commit: 290323f2
 
 Implementation:
   GenerationRuntimeIndex rejects attemptObligations.size() > admissionsUsed.
   DelayShard.applyPublishAdmission adds/replaces one obligation and increments admissionsUsed once;
   outcome resolution retains or removes obligations. This bounds the valid count by the configured
-  maxPublishAdmissions or pinned RetryPolicySemantic.maxPublishAdmissions.
+  maxPublishAdmissions or pinned RetryPolicySemantic.maxPublishAdmissions. AttemptObligationRef has
+  a 158-byte canonical maximum: three 32-byte fields (34 bytes each), a 46-byte inflight key (48 bytes),
+  a maximum five-byte uint32 generation (6 bytes), and a one-byte enum (2 bytes). Decode rejects
+  larger inputs before protobuf field parsing.
 
 Focused command:
   ./gradlew test --tests 'com.nereusstream.delay.runtime.GenerationRuntimeIndexTest' \
@@ -24,13 +27,14 @@ Result: FAIL only at the existing, unmodified PersistentLaneScheduler.java:1327 
 (123 characters; limit 120). No violation was reported in GenerationRuntimeIndex.java.
 
 Source SHA-256:
+  src/main/java/com/nereusstream/delay/runtime/AttemptObligationRef.java d0e889b588c4f6860aa18dfad6dd27985de427aa067ad4a26e36f7386fdab4ce
   src/main/java/com/nereusstream/delay/runtime/GenerationRuntimeIndex.java d01cb94359d57a311040b33f31b30d141c58e8bb85aa0c53d0d8e1ca172971c7
-  src/test/java/com/nereusstream/delay/runtime/GenerationRuntimeIndexTest.java 65810ef1123d3b010dd0bf0f56a91ae72646793b895956b935f1102be800d70b
+  src/test/java/com/nereusstream/delay/runtime/GenerationRuntimeIndexTest.java 6880a8149753bf09f6eaea4b862275e22f1c0d115d94338d2ada0e8c2bd1e9f0
   src/test/java/com/nereusstream/delay/runtime/DelayShardTest.java 664f5b0d20b54431f178ed34615e60721f21c668af7ef3818ae18dbf036ee1bd
 JUnit XML SHA-256:
-  GenerationRuntimeIndexTest.xml 3c86c6a48015df61f65d17e05d53d08cbbf869265837faac49b684753f1d280c
-  MessageRecordTest.xml 9415cef7252ed68f839589b0034ddfa751e8b7f720f5f3b0f856b459832dc5ae
-  DelayShardHeadBudgetTest.xml 1826456b4c7204903aae06a89dcba1a32a85d9e6f0b0d7fa53436a07cb808939
-  DelayShardTest.xml d66f43b271ad49b208c569bcf06631bc5c941b604d7677faacb39e69a435d1f4
+  GenerationRuntimeIndexTest.xml 855dafb10dc69b0bee646ac42fff4925595c9b45ef4818d35680a904b036c518
+  MessageRecordTest.xml e57331fab95b91dabadedd8a34897ac4770826f122bc7031131b85f241e2c6c4
+  DelayShardHeadBudgetTest.xml f909ebb84c8c44160fe171766ebabcc783c0539e3c0442ce85f0c00e9caf8e20
+  DelayShardTest.xml 019fa9a5c9432d34007b20b83bfec4bb6ec7cfeda5f9f9f73b5c6ee6e8333659
 
 Evidence boundary: verifies the persisted model invariant and selected real RocksDB obligation-retention/settlement paths. It does not prove a complete Message/head-plan byte or allocation envelope, a production finite HeadReadPolicy, elapsed capacity for the maximum legal plan, Broker/Oxia behavior, or centralized validation. A2 remains IN_PROGRESS.
