@@ -220,6 +220,25 @@ class GenerationRuntimeIndexTest {
     }
 
     @Test
+    void runtimeIndexCannotRetainMoreOpenObligationsThanPublishAdmissions() {
+        final byte[] firstId = Bytes.sha256(Bytes.utf8("uncertain-attempt-1"));
+        final byte[] secondId = Bytes.sha256(Bytes.utf8("uncertain-attempt-2"));
+        final AttemptObligationRef first = new AttemptObligationRef(
+                firstId, 0, AttemptLedgerState.UNCERTAIN, KeyCodec.inflight((byte) 3, 1, firstId));
+        final AttemptObligationRef second = new AttemptObligationRef(
+                secondId, 0, AttemptLedgerState.UNCERTAIN, KeyCodec.inflight((byte) 3, 2, secondId));
+        final List<AttemptObligationRef> obligations =
+                ((first.publishAttemptId()[0] & 0xff) < (second.publishAttemptId()[0] & 0xff))
+                        ? List.of(first, second)
+                        : List.of(second, first);
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> GenerationRuntimeIndex.none(
+                        GenerationAggregateState.UNCERTAIN, obligations, 1, 1, false, 9));
+    }
+
+    @Test
     void attemptObligationPreservesUnsignedGenerationBits() {
         final byte[] attemptId = Bytes.sha256(Bytes.utf8("attempt-high-bit-generation"));
         final AttemptObligationRef reference = new AttemptObligationRef(
