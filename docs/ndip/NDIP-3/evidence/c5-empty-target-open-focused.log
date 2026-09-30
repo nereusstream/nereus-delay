@@ -1,0 +1,5 @@
+Base revision: f0e68f9b6b1f834d4b01550c523766c728921982
+Test source SHA-256: 35d7b2725f4568dcaec7198a6c2b64116aece73f62f283e5f595b425fd41c3a9
+Command: ./gradlew test --tests com.nereusstream.delay.store.TargetStoreBackendTest.openingAnEmptyTargetStoreDoesNotReconstructOrActivateItsWorkerRoot checkstyleTest --no-daemon --console=plain
+Result: BUILD SUCCESSFUL; 14 actionable tasks (5 executed, 9 up-to-date); checkstyleTest passed.
+JUnit XML: build/test-results/test/TEST-com.nereusstream.delay.store.TargetStoreBackendTest.xml reports 1 test, 0 failures, 0 errors, 0 skipped.

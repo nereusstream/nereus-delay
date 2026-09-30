@@ -18,6 +18,7 @@ import com.nereusstream.delay.protocol.TargetQuotaScope;
 import com.nereusstream.delay.protocol.TargetQuotaTotal;
 import com.nereusstream.delay.runtime.TargetQuotaDelta;
 import com.nereusstream.delay.runtime.TargetQuotaTotalsDelta;
+import com.nereusstream.delay.runtime.TargetStoreBootstrap;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
@@ -64,6 +65,33 @@ class TargetStoreBackendTest {
         try (var resources = new SharedRocksDbResources(laneConfig);
                 var store = ShardStore.open(laneConfig, shard, resources)) {
             assertArrayEquals(identity, store.metadata().encode());
+        }
+    }
+
+    @Test
+    void openingAnEmptyTargetStoreDoesNotReconstructOrActivateItsWorkerRoot() {
+        final var config = ShardStoreConfig.defaults(root.resolve("target-open-is-not-activation"));
+        try (var resources = new SharedRocksDbResources(config);
+                var store = ShardStore.openTarget(config, shard, resources)) {
+            assertEquals(2, store.metadata().storeFormatVersion());
+            assertNull(store.appliedShardLogPosition());
+            assertEquals(0, store.shardMutationSequence());
+            assertEquals(0, store.runtimeMetadata().lastOpenedOwnerEpoch());
+
+            final long beforeReopen = store.latestSequenceNumber();
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> TargetStoreBootstrap.reopen(
+                            store,
+                            scope,
+                            new TargetStoreBackend.WriteLimits(64, 2 << 20),
+                            new BoundedReadBudget(100, 1 << 20, 10_000_000_000L, System::nanoTime),
+                            (metadata, targetScope) -> guard()));
+
+            assertEquals(beforeReopen, store.latestSequenceNumber());
+            assertNull(store.appliedShardLogPosition());
+            assertEquals(0, store.shardMutationSequence());
+            assertEquals(0, store.runtimeMetadata().lastOpenedOwnerEpoch());
         }
     }
 
