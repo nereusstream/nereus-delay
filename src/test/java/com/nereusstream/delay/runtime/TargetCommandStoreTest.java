@@ -1533,6 +1533,8 @@ class TargetCommandStoreTest {
                     assertEquals(sourceBeforeRevoke, store.appliedShardLogPosition());
                     assertEquals(otherBeforeRevoke, otherStore.latestSequenceNumber());
                     final long afterRevoke = store.latestSequenceNumber();
+                    final long writesAfterRevoke = store.operationStatistics().nativeWriteCalls();
+                    final long otherWritesAfterRevoke = otherStore.operationStatistics().nativeWriteCalls();
                     assertThrows(
                             IllegalStateException.class,
                             () -> claimHost.revokeClaim(
@@ -1545,6 +1547,10 @@ class TargetCommandStoreTest {
                                     () -> 100));
                     assertEquals(afterRevoke, store.latestSequenceNumber());
                     assertFalse(schedulerClaimed.await(150, java.util.concurrent.TimeUnit.MILLISECONDS));
+                    assertEquals(afterRevoke, store.latestSequenceNumber());
+                    assertEquals(otherBeforeRevoke, otherStore.latestSequenceNumber());
+                    assertEquals(writesAfterRevoke, store.operationStatistics().nativeWriteCalls());
+                    assertEquals(otherWritesAfterRevoke, otherStore.operationStatistics().nativeWriteCalls());
                     schedulerEpoch.set(schedulerDeadline);
                     try {
                         assertTrue(
