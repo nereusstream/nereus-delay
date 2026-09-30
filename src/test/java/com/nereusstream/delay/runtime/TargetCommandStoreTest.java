@@ -2266,6 +2266,19 @@ class TargetCommandStoreTest {
             assertEquals(
                     StableCode.OK,
                     applyExpiry(loop, entries, replacementExpiry, replacementExpiryAt).stableCode());
+            final var reconciledReplacement = messageExpiryHandoff.submit(
+                    replacementExpiryCandidate,
+                    expiryProof,
+                    replacementExpiry.retryUntilEpochMs(),
+                    expiryOwner.asOwnerIdentity(),
+                    expiry.signingKeyVersion(),
+                    keys.getPrivate(),
+                    () -> 100);
+            assertEquals(replacementExpirySubmission, reconciledReplacement);
+            assertEquals(
+                    TargetMessageExpiryWorkClassExecutor.ResultKind.APPLIED,
+                    reconciledReplacement.result().orElseThrow().kind());
+            assertNull(reconciledReplacement.result().orElseThrow().sourcePosition());
             final var nextScheduleAt = source(
                     replacementExpiryAt,
                     replacementExpiryAt.offset() + 1,

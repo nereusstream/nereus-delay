@@ -34,7 +34,11 @@ public final class TargetMessageExpiryWorkClassExecutor {
         this.appender = Objects.requireNonNull(appender, "appender");
     }
 
-    /** Prepares one exact source mutation before queue admission; it never applies locally. */
+    /**
+     * Prepares one exact source mutation before queue admission; it never applies locally. When a
+     * previous UNKNOWN append is confirmed applied, this call only settles that submission so the
+     * caller can rediscover a fresh candidate before queueing another mutation.
+     */
     public synchronized Submission submit(
             final TargetExpiryDiscoveryStore.Candidate candidate,
             final TrustedUtcIntervalEvidence evidence,
@@ -58,6 +62,10 @@ public final class TargetMessageExpiryWorkClassExecutor {
                 if (applied.applyStatus() != ApplyStatus.APPLIED || applied.stableCode() != StableCode.OK) {
                     throw new IllegalStateException("previous Target expiry mutation did not apply successfully");
                 }
+                final Submission settled = pending;
+                settled.confirmApplied();
+                pending = null;
+                return settled;
             }
         }
         pending = null;
@@ -179,6 +187,7 @@ public final class TargetMessageExpiryWorkClassExecutor {
 
     public enum ResultKind {
         APPENDED,
+        APPLIED,
         DEFINITIVELY_NOT_APPENDED,
         UNKNOWN
     }
@@ -198,6 +207,10 @@ public final class TargetMessageExpiryWorkClassExecutor {
 
         private static HandoffResult appended(final SystemMutation mutation, final SourcePosition position) {
             return new HandoffResult(ResultKind.APPENDED, mutation, Objects.requireNonNull(position, "position"), null);
+        }
+
+        private static HandoffResult applied(final SystemMutation mutation) {
+            return new HandoffResult(ResultKind.APPLIED, Objects.requireNonNull(mutation, "mutation"), null, null);
         }
 
         private static HandoffResult notAppended(final SystemMutation mutation) {
@@ -236,6 +249,13 @@ public final class TargetMessageExpiryWorkClassExecutor {
                 throw new IllegalStateException("Target expiry handoff already completed");
             }
             result = Objects.requireNonNull(completed, "completed");
+        }
+
+        private synchronized void confirmApplied() {
+            if (result == null || result.kind() != ResultKind.UNKNOWN) {
+                throw new IllegalStateException("only an unknown Target expiry append can be reconciled");
+            }
+            result = HandoffResult.applied(mutation);
         }
     }
 }
