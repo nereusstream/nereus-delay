@@ -286,6 +286,13 @@ public final class TargetWorkerShardRuntime
         return handoff;
     }
 
+    synchronized void requireMessageExpiryMaintenanceConfigured() {
+        if (messageExpiryMaintenance == null) {
+            throw new IllegalStateException(
+                    "Target Worker message expiry maintenance must be configured before Host start");
+        }
+    }
+
     synchronized void submitMessageExpiryAction(
             final WorkClassTask task,
             final TargetExpiryDiscoveryStore.Candidate candidate,

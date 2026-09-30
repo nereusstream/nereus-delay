@@ -148,7 +148,7 @@ public final class TargetWorkerHostRuntime {
     private boolean stopping;
     private boolean drainAllActive;
 
-    /** Starts bounded reservation GC ticks for one exact Worker graph. */
+    /** Starts bounded reservation and message-expiry ticks for one exact Worker graph. */
     public static TargetWorkerHostRuntime start(
             final WorkClassExecutionRegistry workClasses,
             final SharedRocksDbResources resources,
@@ -157,6 +157,7 @@ public final class TargetWorkerHostRuntime {
             final Duration maintenanceInterval,
             final Consumer<Throwable> failureConsumer) {
         final var exactShards = List.copyOf(Objects.requireNonNull(shards, "shards"));
+        exactShards.forEach(TargetWorkerShardRuntime::requireMessageExpiryMaintenanceConfigured);
         final var fleet = new TargetWorkerShardFleetRuntime(workClasses, resources, exactShards);
         final var loop =
                 TargetWorkerMaintenanceLoop.start(fleet, maintenanceBudget, maintenanceInterval, failureConsumer);

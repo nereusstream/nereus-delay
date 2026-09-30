@@ -2058,6 +2058,18 @@ class TargetCommandStoreTest {
             final var workerExpiryPage = messageExpiryWorker.discoverMessageExpiry(
                     budget(), null, expiryProof, () -> 100);
             assertEquals(expectedExpiry, workerExpiryPage.candidate().orElseThrow());
+            final var missingExpiryMaintenance = assertThrows(
+                    IllegalStateException.class,
+                    () -> com.nereusstream.delay.ownership.TargetWorkerHostRuntime.start(
+                            workerClasses,
+                            store.sharedResources(),
+                            List.of(messageExpiryWorker),
+                            new SchedulerBudget(1, 1024, 1_000_000),
+                            java.time.Duration.ofHours(1),
+                            ignored -> {}));
+            assertEquals(
+                    "Target Worker message expiry maintenance must be configured before Host start",
+                    missingExpiryMaintenance.getMessage());
             final var messageExpiryAppendOutcome = new java.util.concurrent.atomic.AtomicReference<>(
                     com.nereusstream.delay.ownership.ShardLogMutationAppender.AppendOutcome.persisted(expiryAt));
             final var messageExpiryAppendMutation = new java.util.concurrent.atomic.AtomicReference<>(expiry);
