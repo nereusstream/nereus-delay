@@ -4,6 +4,7 @@ import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
+import com.nereusstream.delay.scheduler.WorkClassTask;
 import com.nereusstream.delay.store.SharedRocksDbResources;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -14,7 +15,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.LongSupplier;
 
-/** Gives every admitted Target shard a bounded source and reservation GC turn in rotation. */
+/** Rotates bounded source, reservation GC, and optional message-expiry turns across admitted shards. */
 public final class TargetWorkerShardFleetRuntime {
     interface ShardTurns {
         ShardId shardId();
@@ -24,6 +25,10 @@ public final class TargetWorkerShardFleetRuntime {
         SourceApplyCoordinator.TurnResult runSourceTurn(SchedulerBudget budget, LongSupplier ownerClock);
 
         TargetReservationGcRuntime.Turn runMaintenanceTurn(SchedulerBudget budget);
+
+        default Optional<WorkClassTask> runMessageExpiryMaintenanceTurn() {
+            return Optional.empty();
+        }
     }
 
     public record SourceTurn(ShardId shardId, SourceApplyCoordinator.TurnResult result) {
@@ -37,6 +42,13 @@ public final class TargetWorkerShardFleetRuntime {
         public MaintenanceTurn {
             Objects.requireNonNull(shardId, "shardId");
             Objects.requireNonNull(result, "result");
+        }
+    }
+
+    public record MessageExpiryTurn(ShardId shardId, Optional<WorkClassTask> pendingTask) {
+        public MessageExpiryTurn {
+            Objects.requireNonNull(shardId, "shardId");
+            Objects.requireNonNull(pendingTask, "pendingTask");
         }
     }
 
@@ -63,6 +75,7 @@ public final class TargetWorkerShardFleetRuntime {
     private final SharedRocksDbResources resources;
     private int sourceCursor;
     private int maintenanceCursor;
+    private int messageExpiryCursor;
     private Thread activeTurnThread;
 
     public TargetWorkerShardFleetRuntime(
@@ -108,7 +121,7 @@ public final class TargetWorkerShardFleetRuntime {
         return shards.stream().map(ShardTurns::shardId).toList();
     }
 
-    /** Admits one exact Worker-graph instance under the same lock as both dispatch cursors. */
+    /** Admits one exact Worker-graph instance under the same lock as all dispatch cursors. */
     synchronized void admit(final ShardTurns runtime) {
         requireNotInSelectedTurn();
         final var candidate = Objects.requireNonNull(runtime, "shard runtime");
@@ -120,7 +133,7 @@ public final class TargetWorkerShardFleetRuntime {
     }
 
     /**
-     * Removes one Shard under the same lock as source and GC dispatch. The return boundary proves
+     * Removes one Shard under the same lock as source, GC, and expiry dispatch. The return boundary proves
      * its previously selected turn has exited; later turns cannot select it again.
      */
     synchronized void withdraw(final ShardId shardId) {
@@ -133,6 +146,7 @@ public final class TargetWorkerShardFleetRuntime {
                 shards.remove(index);
                 sourceCursor = afterRemoval(sourceCursor, index, shards.size());
                 maintenanceCursor = afterRemoval(maintenanceCursor, index, shards.size());
+                messageExpiryCursor = afterRemoval(messageExpiryCursor, index, shards.size());
                 return;
             }
         }
@@ -181,6 +195,24 @@ public final class TargetWorkerShardFleetRuntime {
         activeTurnThread = Thread.currentThread();
         try {
             return Optional.of(new MaintenanceTurn(selected.shardId(), selected.runMaintenanceTurn(budget)));
+        } catch (RuntimeException failure) {
+            throw new MaintenanceDispatchFailure(selected.shardId(), failure);
+        } finally {
+            activeTurnThread = null;
+        }
+    }
+
+    /** Runs one selected Shard's bounded message-expiry producer turn on an independent cursor. */
+    synchronized Optional<MessageExpiryTurn> runNextMessageExpiryTurnIfPresent() {
+        requireNotInSelectedTurn();
+        if (shards.isEmpty()) {
+            return Optional.empty();
+        }
+        final var selected = shards.get(messageExpiryCursor);
+        messageExpiryCursor = messageExpiryCursor == shards.size() - 1 ? 0 : messageExpiryCursor + 1;
+        activeTurnThread = Thread.currentThread();
+        try {
+            return Optional.of(new MessageExpiryTurn(selected.shardId(), selected.runMessageExpiryMaintenanceTurn()));
         } catch (RuntimeException failure) {
             throw new MaintenanceDispatchFailure(selected.shardId(), failure);
         } finally {

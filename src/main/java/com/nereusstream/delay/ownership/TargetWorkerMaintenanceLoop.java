@@ -10,7 +10,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
-/** Periodically gives the Target fleet one bounded reservation GC turn. */
+/** Periodically gives the Target fleet bounded reservation and message-expiry turns. */
 public final class TargetWorkerMaintenanceLoop implements AutoCloseable {
     private final TargetWorkerShardFleetRuntime fleet;
     private final SchedulerBudget budget;
@@ -34,7 +34,7 @@ public final class TargetWorkerMaintenanceLoop implements AutoCloseable {
             final Duration interval,
             final Consumer<Throwable> failureConsumer) {
         final var executor = Executors.newSingleThreadScheduledExecutor(runnable -> {
-            final var thread = new Thread(runnable, "nereus-delay-target-reservation-gc");
+            final var thread = new Thread(runnable, "nereus-delay-target-maintenance");
             thread.setDaemon(true);
             return thread;
         });
@@ -118,10 +118,20 @@ public final class TargetWorkerMaintenanceLoop implements AutoCloseable {
             }
             activeTurnThread = Thread.currentThread();
             try {
-                fleet.runNextMaintenanceTurnIfPresent(budget);
-            } catch (RuntimeException | Error caught) {
-                failure = caught;
-                firstFailure.compareAndSet(null, caught);
+                try {
+                    fleet.runNextMaintenanceTurnIfPresent(budget);
+                } catch (RuntimeException | Error caught) {
+                    failure = caught;
+                    firstFailure.compareAndSet(null, caught);
+                }
+                if (!(failure instanceof Error)) {
+                    try {
+                        fleet.runNextMessageExpiryTurnIfPresent();
+                    } catch (RuntimeException | Error caught) {
+                        firstFailure.compareAndSet(null, caught);
+                        failure = combineFailures(failure, caught);
+                    }
+                }
             } finally {
                 activeTurnThread = null;
             }
@@ -148,11 +158,25 @@ public final class TargetWorkerMaintenanceLoop implements AutoCloseable {
         }
     }
 
-    /** Cancels future ticks and waits until any in-flight GC turn has left the Worker graph. */
+    private static Throwable combineFailures(final Throwable current, final Throwable next) {
+        if (current == null) {
+            return next;
+        }
+        if (next instanceof Error && !(current instanceof Error)) {
+            next.addSuppressed(current);
+            return next;
+        }
+        if (current != next) {
+            current.addSuppressed(next);
+        }
+        return current;
+    }
+
+    /** Cancels future ticks and waits until both selected maintenance turns have left the Worker graph. */
     @Override
     public void close() {
         if (activeTurnThread == Thread.currentThread()) {
-            throw new IllegalStateException("cannot close Target maintenance loop from its GC turn");
+            throw new IllegalStateException("cannot close Target maintenance loop from its maintenance turn");
         }
         Throwable closeFailure = null;
         synchronized (this) {

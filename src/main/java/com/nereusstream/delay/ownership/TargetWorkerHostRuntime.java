@@ -621,7 +621,7 @@ public final class TargetWorkerHostRuntime {
     }
 
     /**
-     * Withdraws one Shard from future source/GC selection, waits for its selected turn to exit,
+     * Withdraws one Shard from future source/maintenance selection, waits for its selected turn to exit,
      * then drains it while other Shards remain live. Pending source, GC, or expiry work is retried
      * with the same withdrawn Shard identity; the maintenance loop keeps serving the rest.
      */

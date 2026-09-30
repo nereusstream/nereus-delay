@@ -27,6 +27,7 @@ import com.nereusstream.delay.store.TargetKeyCodec;
 import java.io.Closeable;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.List;
@@ -123,7 +124,7 @@ class TargetWorkerShardFleetRuntimeTest {
     }
 
     @Test
-    void sourceAndGcRotateIndependentlyAndFailureDoesNotPinAnotherShard() {
+    void sourceGcAndExpiryRotateIndependentlyAndFailureDoesNotPinAnotherShard() {
         final var registry = registry();
         try (var resources = new SharedRocksDbResources(ShardStoreConfig.defaults(tempDir))) {
             final var first = new StubShard(new ShardId(RouteIncarnation.random(), 1), registry, resources);
@@ -138,6 +139,12 @@ class TargetWorkerShardFleetRuntimeTest {
             assertEquals(first.shard, fleet.runNextMaintenanceTurn(budget).shardId());
             assertEquals(first.shard, fleet.runNextSourceTurn(budget, () -> 101).shardId());
             assertEquals(second.shard, fleet.runNextMaintenanceTurn(budget).shardId());
+            assertEquals(
+                    first.shard,
+                    fleet.runNextMessageExpiryTurnIfPresent().orElseThrow().shardId());
+            assertEquals(
+                    second.shard,
+                    fleet.runNextMessageExpiryTurnIfPresent().orElseThrow().shardId());
             first.failNextMaintenance = true;
             assertEquals(
                     first.shard,
@@ -161,6 +168,7 @@ class TargetWorkerShardFleetRuntimeTest {
             assertEquals(second.shard, fleet.runNextMaintenanceTurn(budget).shardId());
             fleet.withdraw(second.shard);
             assertTrue(fleet.runNextMaintenanceTurnIfPresent(budget).isEmpty());
+            assertTrue(fleet.runNextMessageExpiryTurnIfPresent().isEmpty());
             assertThrows(IllegalStateException.class, () -> fleet.runNextSourceTurn(budget, () -> 101));
 
             assertThrows(
@@ -283,6 +291,39 @@ class TargetWorkerShardFleetRuntimeTest {
         } finally {
             executor.shutdownNow();
             closer.shutdownNow();
+        }
+    }
+
+    @Test
+    void maintenanceLoopKeepsExpiryProgressWhenReservationGcTurnFails() {
+        final var registry = registry();
+        final var executor = Executors.newSingleThreadScheduledExecutor();
+        try (var resources = new SharedRocksDbResources(
+                ShardStoreConfig.defaults(tempDir.resolve("maintenance-turn-isolation")))) {
+            final var shard = new StubShard(new ShardId(RouteIncarnation.random(), 1), registry, resources);
+            final var fleet = new TargetWorkerShardFleetRuntime(registry, resources, shard);
+            final var budget = new SchedulerBudget(1, 1_000, 1_000_000);
+            final var failures = new ArrayList<Throwable>();
+            final var loop = new TargetWorkerMaintenanceLoop(
+                    fleet, budget, Duration.ofSeconds(10), failures::add, executor);
+            try {
+                shard.failNextMaintenance = true;
+                loop.pollNow();
+                assertEquals(1, shard.maintenanceTurns.get());
+                assertEquals(1, shard.expiryMaintenanceTurns.get());
+                assertEquals(1, failures.size());
+
+                shard.failNextExpiryMaintenance = true;
+                loop.pollNow();
+                assertEquals(2, shard.maintenanceTurns.get());
+                assertEquals(2, shard.expiryMaintenanceTurns.get());
+                assertEquals(2, failures.size());
+                assertTrue(loop.firstFailure() instanceof TargetWorkerShardFleetRuntime.MaintenanceDispatchFailure);
+            } finally {
+                loop.close();
+            }
+        } finally {
+            executor.shutdownNow();
         }
     }
 
@@ -893,7 +934,9 @@ class TargetWorkerShardFleetRuntimeTest {
         private volatile Runnable duringMaintenance;
         private volatile WorkClassTask pendingCheckpoint;
         private volatile WorkClassTask pendingMessageExpiry;
+        private volatile boolean failNextExpiryMaintenance;
         private volatile int expiryDrainSteps;
+        private final AtomicInteger expiryMaintenanceTurns = new AtomicInteger();
         private final AtomicInteger expiryDrainTurns = new AtomicInteger();
 
         private StubShard(
@@ -952,6 +995,16 @@ class TargetWorkerShardFleetRuntimeTest {
                     List.of(),
                     Optional.empty(),
                     Optional.empty());
+        }
+
+        @Override
+        public Optional<WorkClassTask> runMessageExpiryMaintenanceTurn() {
+            expiryMaintenanceTurns.incrementAndGet();
+            if (failNextExpiryMaintenance) {
+                failNextExpiryMaintenance = false;
+                throw new IllegalStateException("message expiry maintenance failure");
+            }
+            return Optional.empty();
         }
 
         @Override

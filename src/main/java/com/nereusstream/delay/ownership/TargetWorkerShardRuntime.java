@@ -27,12 +27,14 @@ import com.nereusstream.delay.store.TargetCheckpointCandidateWorkClassExecutor;
 import com.nereusstream.delay.store.TargetCheckpointRootVerifier;
 import com.nereusstream.delay.store.TargetStoreBackend;
 import java.nio.file.Path;
+import java.security.PrivateKey;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.LongSupplier;
+import java.util.function.Supplier;
 
 /**
- * Active-owner Target source and reservation maintenance on one Worker resource graph.
+ * Active-owner Target source and maintenance on one Worker resource graph.
  *
  * <p>The host drives bounded turns and owns Owner drain and native source teardown. The shared
  * resource envelope gates both turns before source poll or GC task submission.
@@ -61,6 +63,22 @@ public final class TargetWorkerShardRuntime
         }
     }
 
+    /** Per-turn proof and signing inputs for scheduled message-expiry discovery. */
+    public record MessageExpiryRequest(
+            BoundedReadBudget discoveryBudget,
+            TrustedUtcIntervalEvidence evidence,
+            long retryUntilEpochMs,
+            OwnerIdentity owner,
+            int signingKeyVersion,
+            PrivateKey signingKey) {
+        public MessageExpiryRequest {
+            Objects.requireNonNull(discoveryBudget, "discoveryBudget");
+            Objects.requireNonNull(evidence, "evidence");
+            Objects.requireNonNull(owner, "owner");
+            Objects.requireNonNull(signingKey, "signingKey");
+        }
+    }
+
     private final ShardId shardId;
     private final WorkClassExecutionRegistry workClasses;
     private final SharedRocksDbResources resources;
@@ -69,8 +87,10 @@ public final class TargetWorkerShardRuntime
     private final TargetSourceApplyRuntime target;
     private final TargetReservationGcRuntime maintenance;
     private final TargetOwnerDrainCoordinator drainCoordinator;
+    private final LongSupplier ownerClock;
     private boolean sourceAndMaintenancePaused;
     private volatile TargetMessageExpiryWorkClassExecutor messageExpiryHandoff;
+    private volatile TargetMessageExpiryMaintenance messageExpiryMaintenance;
     private TargetCheckpointCandidateWorkClassExecutor.Submission pendingCheckpoint;
     private SourceRecordConsumer.CheckpointCut preparedCheckpointCut;
 
@@ -89,6 +109,7 @@ public final class TargetWorkerShardRuntime
         final var exactTarget = Objects.requireNonNull(target, "target");
         this.target = exactTarget;
         final var inputs = Objects.requireNonNull(maintenanceInputs, "maintenanceInputs");
+        ownerClock = inputs.ownerClock();
         exactTarget.requireWorkerStore(exactStore, this.resources);
         this.resources.bindWorkClassExecutionRegistry(exactClasses);
         shardId = exactStore.shardId();
@@ -144,6 +165,13 @@ public final class TargetWorkerShardRuntime
         preparedCheckpointCut = null;
         resources.requireRuntimeBusinessAdmission();
         return maintenance.runTurn(Objects.requireNonNull(budget, "budget"));
+    }
+
+    /** One caller-driven producer turn; the Host maintenance loop selects Shards in rotation. */
+    @Override
+    public Optional<WorkClassTask> runMessageExpiryMaintenanceTurn() {
+        final var configured = messageExpiryMaintenance;
+        return configured == null ? Optional.empty() : configured.runTurn();
     }
 
     /** Claims one previously selected head only while this exact Worker admits new business turns. */
@@ -234,6 +262,28 @@ public final class TargetWorkerShardRuntime
         }
         messageExpiryHandoff = new TargetMessageExpiryWorkClassExecutor(this, appender);
         return messageExpiryHandoff;
+    }
+
+    /**
+     * Configures periodic discovery and append using per-turn trusted proof and signing inputs.
+     * Call before Host maintenance starts; the provider must return a fresh bounded read budget.
+     */
+    public synchronized TargetMessageExpiryWorkClassExecutor configureMessageExpiryMaintenance(
+            final ShardLogMutationAppender appender,
+            final Supplier<MessageExpiryRequest> requestProvider) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        if (messageExpiryHandoff != null || messageExpiryMaintenance != null) {
+            throw new IllegalStateException("Target Worker message expiry maintenance is already configured");
+        }
+        final var exactAppender = Objects.requireNonNull(appender, "appender");
+        final var exactRequestProvider = Objects.requireNonNull(requestProvider, "requestProvider");
+        final var handoff = new TargetMessageExpiryWorkClassExecutor(
+                this, exactAppender);
+        final var configured = new TargetMessageExpiryMaintenance(this, handoff, exactRequestProvider, ownerClock);
+        messageExpiryHandoff = handoff;
+        messageExpiryMaintenance = configured;
+        return handoff;
     }
 
     synchronized void submitMessageExpiryAction(
@@ -394,7 +444,7 @@ public final class TargetWorkerShardRuntime
         return submitted;
     }
 
-    /** Runs one shared bounded turn and releases the local source/GC cut only after this action settles. */
+    /** Runs one shared bounded turn and releases the local source/maintenance cut only after settlement. */
     public synchronized Optional<TargetCheckpointCandidateWorkClassExecutor.Outcome> runCheckpointTurn(
             final SchedulerBudget budget) {
         if (pendingCheckpoint == null) {
@@ -484,7 +534,7 @@ public final class TargetWorkerShardRuntime
     public synchronized Optional<SourceApplyCoordinator.TurnResult> settlePendingSourceTurn(
             final SchedulerBudget budget, final LongSupplier ownerClock) {
         if (sourceAndMaintenancePaused) {
-            throw new IllegalStateException("Target Worker source and GC admission is paused");
+            throw new IllegalStateException("Target Worker source and maintenance admission is paused");
         }
         if (sourceLoop.pendingEntry().isEmpty()) {
             return Optional.empty();
@@ -513,7 +563,7 @@ public final class TargetWorkerShardRuntime
 
     private void requireNewTurnsAdmitted() {
         if (sourceAndMaintenancePaused) {
-            throw new IllegalStateException("Target Worker source and GC admission is paused");
+            throw new IllegalStateException("Target Worker source and maintenance admission is paused");
         }
         requireCheckpointSettled();
     }

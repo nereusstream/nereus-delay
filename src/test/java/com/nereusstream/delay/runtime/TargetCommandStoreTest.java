@@ -2061,11 +2061,23 @@ class TargetCommandStoreTest {
             final var messageExpiryAppendOutcome = new java.util.concurrent.atomic.AtomicReference<>(
                     com.nereusstream.delay.ownership.ShardLogMutationAppender.AppendOutcome.persisted(expiryAt));
             final var messageExpiryAppendMutation = new java.util.concurrent.atomic.AtomicReference<>(expiry);
-            final var messageExpiryHandoff = messageExpiryWorker.newMessageExpiryWorkClassExecutor(
+            final var messageExpiryHandoff = messageExpiryWorker.configureMessageExpiryMaintenance(
                     mutation -> {
-                        assertEquals(messageExpiryAppendMutation.get(), mutation);
+                        final var expected = messageExpiryAppendMutation.get();
+                        if (expected == null) {
+                            messageExpiryAppendMutation.set(mutation);
+                        } else {
+                            assertEquals(expected, mutation);
+                        }
                         return messageExpiryAppendOutcome.get();
-                    });
+                    },
+                    () -> new TargetWorkerShardRuntime.MessageExpiryRequest(
+                            budget(),
+                            expiryProof,
+                            expiry.retryUntilEpochMs(),
+                            expiryOwner.asOwnerIdentity(),
+                            expiry.signingKeyVersion(),
+                            keys.getPrivate()));
             final var staleExpiryOwner = AuthorIdentity.owner(
                     Bytes.utf8("target-expiry-test-deployment"),
                     Bytes.utf8("target-expiry-test-worker"),
@@ -2316,13 +2328,59 @@ class TargetCommandStoreTest {
                     TargetMessageExpiryWorkClassExecutor.ResultKind.APPLIED,
                     replacementExpirySubmission.result().orElseThrow().kind());
             assertNull(replacementExpirySubmission.result().orElseThrow().sourcePosition());
-            final var nextScheduleAt = source(
+            final var producerScheduleAt = source(
                     replacementExpiryAt,
                     replacementExpiryAt.offset() + 1,
                     replacementExpiryAt.brokerLogAppendTimeEpochMs() + 1);
+            final var producerMessageId = new DelayMessageId(
+                    cancel(replacement.delayMessageId(), producerScheduleAt, 2022).commandId().bytes());
+            final var producerSchedule = schedule(intent, producerMessageId, producerScheduleAt, 2023);
+            assertEquals(
+                    StableCode.SCHEDULED,
+                    apply(loop, entries, producerSchedule, producerScheduleAt)
+                            .appliedOutcome()
+                            .commandResult()
+                            .stableCode());
+            final var producerMessage = TargetMessageRecord.decode(TargetValueEnvelope.decode(
+                            store.get(ColumnFamily.ID, TargetKeyCodec.message(producerSchedule.delayMessageId())),
+                            TargetMessageRecord.VALUE_TYPE)
+                    .payload());
+            final var producerCandidate = new TargetExpiryDiscoveryStore.Candidate(
+                    producerMessage.locator(), producerMessage.expireAtEpochMs());
+            final var producerExpiryAt = source(
+                    producerScheduleAt,
+                    producerScheduleAt.offset() + 1,
+                    producerScheduleAt.brokerLogAppendTimeEpochMs() + 1);
+            messageExpiryAppendMutation.set(null);
+            messageExpiryAppendOutcome.set(
+                    com.nereusstream.delay.ownership.ShardLogMutationAppender.AppendOutcome.persisted(
+                            producerExpiryAt));
+            final long beforeScheduledExpiry = store.latestSequenceNumber();
+            final var scheduledExpiryTask = messageExpiryWorker.runMessageExpiryMaintenanceTurn().orElseThrow();
+            assertEquals(WorkClass.EXPIRY, scheduledExpiryTask.workClass());
+            assertEquals(beforeScheduledExpiry, store.latestSequenceNumber());
+            workerClasses.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
+            final var scheduledExpiryMutation = messageExpiryAppendMutation.get();
+            assertTrue(scheduledExpiryMutation != null);
+            final var scheduledExpiryBody = TargetExpireGenerationBody.decode(scheduledExpiryMutation.canonicalBody());
+            assertEquals(producerCandidate.locator().messageId(), scheduledExpiryBody.messageId());
+            assertEquals(
+                    scheduledExpiryTask,
+                    messageExpiryWorker.runMessageExpiryMaintenanceTurn().orElseThrow());
+            assertEquals(beforeScheduledExpiry, store.latestSequenceNumber());
+            assertEquals(
+                    StableCode.OK,
+                    applyExpiry(loop, entries, scheduledExpiryMutation, producerExpiryAt).stableCode());
+            assertTrue(messageExpiryWorker.runMessageExpiryMaintenanceTurn().isEmpty());
+            assertTrue(messageExpiryHandoff.settlePending(() -> 100).isEmpty());
+
+            final var nextScheduleAt = source(
+                    producerExpiryAt,
+                    producerExpiryAt.offset() + 1,
+                    producerExpiryAt.brokerLogAppendTimeEpochMs() + 1);
             final var nextMessageId = new DelayMessageId(
-                    cancel(replacement.delayMessageId(), nextScheduleAt, 2022).commandId().bytes());
-            final var nextSchedule = schedule(intent, nextMessageId, nextScheduleAt, 2023);
+                    cancel(producerSchedule.delayMessageId(), nextScheduleAt, 2024).commandId().bytes());
+            final var nextSchedule = schedule(intent, nextMessageId, nextScheduleAt, 2025);
             assertEquals(
                     StableCode.SCHEDULED,
                     apply(loop, entries, nextSchedule, nextScheduleAt)
@@ -2645,7 +2703,7 @@ class TargetCommandStoreTest {
                             .commandResult()
                             .stableCode());
             assertEquals(afterPrepare, store.latestSequenceNumber());
-            assertEquals(5, scheduleResolutions.get());
+            assertEquals(6, scheduleResolutions.get());
             final var quotaAt = source(prepareAt, prepareAt.offset() + 1, prepareAt.brokerLogAppendTimeEpochMs() + 1);
             final var quotaMessage = new DelayMessageId(
                     cancel(locator.messageId(), quotaAt, 1600).commandId().bytes());
