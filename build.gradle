@@ -210,6 +210,24 @@ tasks.register('runRealKafkaSourceSmoke', JavaExec) {
             project.ext.optionalRealTaskArgument.call(findProperty('kafkaSourceTopic'))
 }
 
+tasks.register('runRealKafkaTargetWorkerSourceSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs a real K1 source-factory to Target Store apply/ACK turn against Kafka.'
+    dependsOn tasks.named('compileRealKafka')
+    if (realKafkaClientJar == null || findProperty('kafkaBootstrap') == null
+            || findProperty('kafkaTargetSourceTopic') == null) {
+        doFirst {
+            throw new GradleException(
+                    'runRealKafkaTargetWorkerSourceSmoke requires -PkafkaClientJar=... '
+                            + '-PkafkaBootstrap=host:port -PkafkaTargetSourceTopic=name')
+        }
+    }
+    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientFiles)
+    mainClass = 'com.nereusstream.delay.transport.KafkaClientArtifactTargetWorkerSourceSmoke'
+    args project.ext.optionalRealTaskArgument.call(findProperty('kafkaBootstrap')),
+            project.ext.optionalRealTaskArgument.call(findProperty('kafkaTargetSourceTopic'))
+}
+
 tasks.register('runRealKafkaFetchResponseLossSmoke', JavaExec) {
     group = 'verification'
     description = 'Runs the Kafka read-committed Fetch response-loss and exact source replay smoke.'

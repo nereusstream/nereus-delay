@@ -39,6 +39,7 @@ worker_destination_response_loss="${NEREUS_DELAY_KAFKA_WORKER_DESTINATION_RESPON
 worker_destination_response_loss_only="${NEREUS_DELAY_KAFKA_WORKER_DESTINATION_RESPONSE_LOSS_ONLY:-0}"
 source_ack_response_loss="${NEREUS_DELAY_KAFKA_SOURCE_ACK_RESPONSE_LOSS:-0}"
 source_ack_response_loss_only="${NEREUS_DELAY_KAFKA_SOURCE_ACK_RESPONSE_LOSS_ONLY:-0}"
+target_worker_source_only="${NEREUS_DELAY_KAFKA_TARGET_WORKER_SOURCE_ONLY:-0}"
 fetch_response_loss_only="${NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_ONLY:-0}"
 fetch_response_loss_process_crash_only="${NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_PROCESS_CRASH_ONLY:-0}"
 retention_floor_only="${NEREUS_DELAY_KAFKA_RETENTION_FLOOR_ONLY:-0}"
@@ -116,6 +117,10 @@ if [[ "${source_ack_response_loss}" != "0" && "${source_ack_response_loss}" != "
 fi
 if [[ "${source_ack_response_loss_only}" != "0" && "${source_ack_response_loss_only}" != "1" ]]; then
   echo "NEREUS_DELAY_KAFKA_SOURCE_ACK_RESPONSE_LOSS_ONLY must be 0 or 1" >&2
+  exit 1
+fi
+if [[ "${target_worker_source_only}" != "0" && "${target_worker_source_only}" != "1" ]]; then
+  echo "NEREUS_DELAY_KAFKA_TARGET_WORKER_SOURCE_ONLY must be 0 or 1" >&2
   exit 1
 fi
 if [[ "${fetch_response_loss_only}" != "0" && "${fetch_response_loss_only}" != "1" ]]; then
@@ -880,6 +885,17 @@ fi
 wait_for_broker kafka-1
 wait_for_broker kafka-2
 wait_for_broker kafka-3
+
+if [[ "${target_worker_source_only}" == "1" ]]; then
+  target_worker_source_topic="${KAFKA_DELAY_TARGET_WORKER_SOURCE_TOPIC:-${source_topic}-target-worker}"
+  GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaTargetWorkerSourceSmoke \
+    "-PkafkaClientJar=${client_jar}" \
+    "-PkafkaBootstrap=${bootstrap_all}" \
+    "-PkafkaTargetSourceTopic=${target_worker_source_topic}" \
+    --no-daemon --console=plain
+  echo "Kafka Target Worker source E2E passed against the locked K1 Broker/client fixture."
+  exit 0
+fi
 
 if [[ "${route_failover_only}" == "1" ]]; then
   start_oxia

@@ -1,0 +1,21 @@
+Date: 2026-10-01
+Base revision: a81088bf7e28ea9b05243f122341a045d4cd5bb3
+
+Locked Kafka source:
+Checkout: /Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1
+HEAD: 05849884ca81fad767fda058444d1e17c7f9cbf9
+Client JAR SHA-256: 1853eceecc76db8070a7c07c7897fc0eda45ad0bf15a95ae8100470ff43e5146
+Disposable three-broker KRaft image ID: sha256:62f1206203535f39ab09b723d8adcc6a3bb96fd79d10859aafc4c751a58f74d0
+
+Command:
+NEREUS_DELAY_KAFKA_TARGET_WORKER_SOURCE_ONLY=1 NEREUS_DELAY_KAFKA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1 ./e2e/run-kafka-real-client-e2e.sh
+
+Result: BUILD SUCCESSFUL; runRealKafkaTargetWorkerSourceSmoke passed against three disposable K1 KRaft Brokers. The smoke produced the first signed SHARD grant at partition 0/offset 0, bootstrapped and activated a format-2 RocksDB Target with explicit test-only authorities, then used the exact K1 guarded consumer and Target Worker source factory to apply a Cancel at offset 1. It verified APPLIED_AND_ACKED with NOT_FOUND, the durable Store source frontier at offset 1 and mutation sequence 2, and the Kafka group committed offset 2. The Broker cluster ID, native TopicId and partition guard were checked.
+
+This is one real Kafka Target source apply/ACK turn, not the D1 Broker capability matrix or centralized validation. Start/Commit/grant authority and Owner lease are explicit test fixtures; this does not certify production control-plane providers, live Oxia Owner loss fencing, Target restart/recovery, Pulsar, or application Host/bootstrap assembly. C5 remains IN_PROGRESS and D1 remains IN_PROGRESS / PENDING_CENTRAL_VALIDATION.
+
+Source SHA-256: src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetWorkerSourceSmoke.java a7dd96cfa21173e821bb8f5dfc228dc9cb297e4e5209d6819ebd400cb96ba229
+Gradle task SHA-256: build.gradle 99986a8d26e855c9a5075a5f01bb452b859821560d7ed3e7396c5e46bf8e518c
+E2E script SHA-256: e2e/run-kafka-real-client-e2e.sh 4c9ce0a3739662bda84f8910c63badd0ac4aad55663a2d25d5e16a637673b8bd
+
+The successful real Broker run was repeated against this exact source after import/line-wrap formatting. checkstyleRealKafka was also run; the new smoke source has no violations. The task remains blocked by the existing unused java.util.List import at KafkaClientArtifactTargetWorkerSourceFactory.java:12.
