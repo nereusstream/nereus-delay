@@ -2060,6 +2060,22 @@ class TargetCommandStoreTest {
                         assertEquals(messageExpiryAppendMutation.get(), mutation);
                         return messageExpiryAppendOutcome.get();
                     });
+            final var staleExpiryOwner = AuthorIdentity.owner(
+                    Bytes.utf8("target-expiry-test-deployment"),
+                    Bytes.utf8("target-expiry-test-worker"),
+                    active.ownerEpoch(),
+                    Bytes.sha256(Bytes.utf8("stale-target-expiry-lease-token")));
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> messageExpiryHandoff.submit(
+                            expectedExpiry,
+                            expiryProof,
+                            expiry.retryUntilEpochMs(),
+                            staleExpiryOwner.asOwnerIdentity(),
+                            expiry.signingKeyVersion(),
+                            keys.getPrivate(),
+                            () -> 100));
+            assertEquals(beforeDiscoverySequence, store.latestSequenceNumber());
             final var messageExpirySubmission = messageExpiryHandoff.submit(
                     expectedExpiry,
                     expiryProof,

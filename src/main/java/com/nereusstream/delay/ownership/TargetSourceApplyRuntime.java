@@ -601,7 +601,9 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         final var proof = Objects.requireNonNull(evidence, "evidence");
         final var exactOwner = Objects.requireNonNull(owner, "owner");
         if (!scope.shard().equals(work.locator().messageId().routingId().shardId())
-                || exactOwner.ownerEpoch() != lease.ownerEpoch()) {
+                || exactOwner.ownerEpoch() != lease.ownerEpoch()
+                || !Bytes.constantTimeEquals(
+                        exactOwner.leaseFencingDigest(), Bytes.sha256(lease.leaseToken()))) {
             throw new IllegalArgumentException("Target expiry candidate or Owner differs from the active Shard");
         }
         proof.requireEarliestAtLeast(work.expireAtEpochMs());
