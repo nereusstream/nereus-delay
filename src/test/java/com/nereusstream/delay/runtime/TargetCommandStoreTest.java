@@ -2327,8 +2327,9 @@ class TargetCommandStoreTest {
                                         assertEquals(siblingReplayEntry, entry);
                                         assertEquals(siblingReplayAt, outcome.position());
                                         assertNotNull(outcome.commandResult());
-                                        siblingAcknowledgements.incrementAndGet();
-                                        return SourceAcknowledgement.AcknowledgementResult.acked();
+                                        return siblingAcknowledgements.incrementAndGet() == 1
+                                                ? SourceAcknowledgement.AcknowledgementResult.unknown(null)
+                                                : SourceAcknowledgement.AcknowledgementResult.acked();
                                     }));
                             final long mainMutationsBeforeSibling = store.shardMutationSequence();
                             final var actualFleet = new TargetWorkerShardFleetRuntime(
@@ -2337,12 +2338,13 @@ class TargetCommandStoreTest {
                                     new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 101);
                             assertEquals(scope.shard(), siblingApplyTurn.shardId());
                             assertEquals(
-                                    SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                                    SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN,
                                     siblingApplyTurn.result().status());
                             assertEquals(siblingReplayEntry, siblingApplyTurn.result().entry());
                             assertEquals(1, siblingAcknowledgements.get());
-                            assertTrue(claimWorker.pendingSourceEntry().isEmpty());
+                            assertEquals(siblingReplayEntry, claimWorker.pendingSourceEntry().orElseThrow());
                             assertFalse(claimRuntime.fenced());
+                            assertFalse(replacementRuntime.fenced());
                             assertEquals(siblingReplayAt, store.appliedShardLogPosition());
                             assertTrue(store.latestSequenceNumber() > mainSequenceBeforeUnknown);
                             assertEquals(mainMutationsBeforeSibling + 1, store.shardMutationSequence());
@@ -2366,6 +2368,22 @@ class TargetCommandStoreTest {
                                     replacementStore.shardMutationSequence());
                             assertEquals(replacementSequenceAfterUnknown, replacementStore.latestSequenceNumber());
                             assertEquals(mainSequenceAfterSibling, store.latestSequenceNumber());
+                            assertEquals(siblingReplayEntry, claimWorker.pendingSourceEntry().orElseThrow());
+
+                            final var acknowledgedSiblingTurn = actualFleet.runNextSourceTurn(
+                                    new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 101);
+                            assertEquals(scope.shard(), acknowledgedSiblingTurn.shardId());
+                            assertEquals(
+                                    SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                                    acknowledgedSiblingTurn.result().status());
+                            assertEquals(siblingReplayEntry, acknowledgedSiblingTurn.result().entry());
+                            assertEquals(2, siblingAcknowledgements.get());
+                            assertTrue(claimWorker.pendingSourceEntry().isEmpty());
+                            assertFalse(claimRuntime.fenced());
+                            assertEquals(siblingReplayAt, store.appliedShardLogPosition());
+                            assertEquals(mainSequenceAfterSibling, store.latestSequenceNumber());
+                            assertEquals(mainMutationsBeforeSibling + 1, store.shardMutationSequence());
+                            assertEquals(replacementSequenceAfterUnknown, replacementStore.latestSequenceNumber());
 
                             final var replacementWorkerDrain = claimHost.drainShard(
                                     replacementWorker,

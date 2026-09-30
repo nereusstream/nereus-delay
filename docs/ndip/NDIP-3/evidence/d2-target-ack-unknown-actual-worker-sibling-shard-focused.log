@@ -1,18 +1,18 @@
 Date: 2026-10-01
-Base revision: 9c76c8fe6a1ac37c9b42f863795c0a3b28f230d5
+Base revision: 3dacadd69ffe2a544189b36e9e1e26cbb39634ef
 
-Behavior command:
+Command:
 ./gradlew test --tests 'com.nereusstream.delay.runtime.TargetCommandStoreTest.modifiesActualTimelineOrClaimWithHistoryAndFirstResults' checkstyleTest --console=plain
 
-Result: JUnit reports 5 parameterized cases, 0 failures, 0 errors, and 0 skipped. The new two-Shard source scenario runs in the three `claimed=true` cases. The combined Gradle invocation reached Checkstyle after the test task passed, then failed on one new line-length violation. After wrapping that line, `./gradlew checkstyleTest --console=plain` passed.
+Result: BUILD SUCCESSFUL in 29s. JUnit reports 5 parameterized cases, 0 failures, 0 errors, and 0 skipped. The new two-Shard source scenario runs in the three `claimed=true` cases.
 
-The test uses actual Target Worker runtimes and two RocksDB Shard Stores for the same Target ID. The replacement Shard replays a previously committed Command at its next source position. Its Shard mutation sequence advances once, the injected ACK callback returns UNKNOWN, and the exact source entry remains pending. The next fleet turn applies a duplicate previously committed Command on the sibling Shard and returns APPLIED_AND_ACKED while the original entry remains pending; neither runtime fences. The following turn retries only the replacement Shard ACK, clears its pending entry, and does not advance either Store sequence again. Both source operations are duplicate replays and do not send new business work.
+The test uses actual Target Worker runtimes and two RocksDB Shard Stores for the same Target ID. The replacement Shard replays a previously committed Command at its next source position. Its Shard mutation sequence advances once, the injected ACK callback returns UNKNOWN, and the exact entry remains pending. The next fleet turn applies a duplicate previously committed Command on the sibling Shard; its source mutation sequence advances once and its ACK callback also returns UNKNOWN. Both runtimes remain unfenced with independent pending entries. The following two fleet turns retry only the replacement and sibling ACKs, respectively, return APPLIED_AND_ACKED, clear both pending entries, and do not advance either Store sequence again. Both source operations are duplicate replays and do not send new business work.
 
-Evidence boundary: source, ACK, and Owner lease are test fixtures. This verifies local Worker/Store source-apply interleaving and fleet dispatch, not real Broker ACK response loss, live Owner fencing, Claim/Admission/Producer ownership failures, uncertain Store writes, new sibling business work, process termination, shared-channel teardown, or centralized validation. D2 remains IN_PROGRESS / PENDING_CENTRAL_VALIDATION.
+Evidence boundary: source, ACK, and Owner lease are test fixtures. This verifies local Worker/Store source-apply interleaving, independent pending entries, and fleet ACK retries, not real Broker ACK response loss, live Owner fencing, Claim/Admission/Producer ownership failures, uncertain Store writes, new sibling business work, process termination, shared-channel teardown, or centralized validation. D2 remains IN_PROGRESS / PENDING_CENTRAL_VALIDATION.
 
-Source SHA-256: src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java 55540784d253b601310c26af69d9aaf3ebe3795168ffea37a60c3c989f45a2cf
+Source SHA-256: src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java 47f5d94f214dfc2a42a810564119eff8895295d80a39ebfabcdb1c442ee1441f
 
 Documentation command:
 ./gradlew checkDocumentation --console=plain
 
-Result: BUILD SUCCESSFUL in 1m 14s. `python3 -m json.tool docs/ndip/NDIP-3/progress.json` and `git diff --check` also passed.
+Result: BUILD SUCCESSFUL in 1m 13s. `python3 -m json.tool docs/ndip/NDIP-3/progress.json` and `git diff --check` passed.
