@@ -36,6 +36,7 @@ import com.nereusstream.delay.runtime.ClaimRecord;
 import com.nereusstream.delay.runtime.CommandResult;
 import com.nereusstream.delay.runtime.DelayShard;
 import com.nereusstream.delay.runtime.DelayShardConfig;
+import com.nereusstream.delay.runtime.HeadReadPolicy;
 import com.nereusstream.delay.runtime.MessageStatus;
 import com.nereusstream.delay.runtime.SystemMutationResult;
 import com.nereusstream.delay.store.ShardStore;
@@ -89,47 +90,58 @@ class OwnerLeaseTest {
     }
 
     @Test
-    void authoritativeActivationRejectsCompatibilityHeadPolicyBeforeStoreOrLeaseMutation() {
-        final ShardId shardId = new ShardId(RouteIncarnation.random(), 27);
-        final UUID topic = UUID.randomUUID();
-        final InMemoryOwnerLeaseStore leaseStore = new InMemoryOwnerLeaseStore();
-        final SourceAssignment assignment = new SourceAssignment(
-                shardId,
-                Bytes.sha256(Bytes.utf8("finite-head-policy-assignment")),
-                1,
-                new KafkaActivationBarrier(shardId, "finite-head-policy-cluster", topic, 0));
-        final OwnerLease lease = leaseStore.acquire(
-                        assignment,
-                        "worker-finite-head-policy",
-                        Bytes.sha256(Bytes.utf8("finite-head-policy-session")),
-                        100,
-                        100)
-                .orElseThrow();
-        final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(leaseStore);
-        final KafkaSourcePosition position =
-                new KafkaSourcePosition(shardId, "finite-head-policy-cluster", topic, 0, null, 1_000);
-        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("finite-head-policy-activation"));
-        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
-                ShardStore store = ShardStore.open(config, shardId, resources)) {
-            final var owned = new OwnedDelayShard(
-                    new DelayShard(store, DelayShardConfig.defaults()),
-                    lease,
-                    new OwnerIdentity(
-                            Bytes.utf8("finite-head-policy-deployment"),
-                            Bytes.utf8("finite-head-policy-worker"),
-                            lease.ownerEpoch(),
-                            Bytes.sha256(Bytes.utf8("finite-head-policy-fence"))));
-            owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
-            owned.recordCatchup(position);
-            final long sequenceBeforeActivation = store.latestSequenceNumber();
-            final long openedEpochBeforeActivation = store.runtimeMetadata().lastOpenedOwnerEpoch();
+    void authoritativeActivationRejectsAnyUnboundedHeadPolicyBeforeStoreOrLeaseMutation() {
+        final List<HeadReadPolicy> policies = List.of(
+                new HeadReadPolicy(Integer.MAX_VALUE, 1, 1, () -> 0),
+                new HeadReadPolicy(1, Long.MAX_VALUE, 1, () -> 0),
+                new HeadReadPolicy(1, 1, Long.MAX_VALUE, () -> 0));
+        for (int dimension = 0; dimension < policies.size(); dimension++) {
+            final ShardId shardId = new ShardId(RouteIncarnation.random(), 27);
+            final UUID topic = UUID.randomUUID();
+            final InMemoryOwnerLeaseStore leaseStore = new InMemoryOwnerLeaseStore();
+            final SourceAssignment assignment = new SourceAssignment(
+                    shardId,
+                    Bytes.sha256(Bytes.utf8("finite-head-policy-assignment")),
+                    1,
+                    new KafkaActivationBarrier(shardId, "finite-head-policy-cluster", topic, 0));
+            final OwnerLease lease = leaseStore.acquire(
+                            assignment,
+                            "worker-finite-head-policy",
+                            Bytes.sha256(Bytes.utf8("finite-head-policy-session")),
+                            100,
+                            100)
+                    .orElseThrow();
+            final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(leaseStore);
+            final KafkaSourcePosition position =
+                    new KafkaSourcePosition(shardId, "finite-head-policy-cluster", topic, 0, null, 1_000);
+            final ShardStoreConfig config =
+                    ShardStoreConfig.defaults(tempDir.resolve("finite-head-policy-activation-" + dimension));
+            try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                    ShardStore store = ShardStore.open(config, shardId, resources)) {
+                final var owned = new OwnedDelayShard(
+                        new DelayShard(store, DelayShardConfig.defaults(), policies.get(dimension)),
+                        lease,
+                        new OwnerIdentity(
+                                Bytes.utf8("finite-head-policy-deployment"),
+                                Bytes.utf8("finite-head-policy-worker"),
+                                lease.ownerEpoch(),
+                                Bytes.sha256(Bytes.utf8("finite-head-policy-fence"))));
+                owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
+                owned.recordCatchup(position);
+                final long sequenceBeforeActivation = store.latestSequenceNumber();
+                final long writesBeforeActivation = store.operationStatistics().nativeWriteCalls();
+                final long openedEpochBeforeActivation = store.runtimeMetadata().lastOpenedOwnerEpoch();
 
-            assertThrows(IllegalStateException.class, () -> owned.activateForCommands(authority, 101));
+                assertThrows(IllegalStateException.class, () -> owned.activateForCommands(authority, 101));
 
-            assertEquals(sequenceBeforeActivation, store.latestSequenceNumber());
-            assertEquals(openedEpochBeforeActivation, store.runtimeMetadata().lastOpenedOwnerEpoch());
-            assertEquals(ShardLifecycleState.CATCHING_UP, owned.state());
-            assertEquals(ShardLifecycleState.CATCHING_UP, leaseStore.current(shardId).orElseThrow().state());
+                assertEquals(sequenceBeforeActivation, store.latestSequenceNumber());
+                assertEquals(writesBeforeActivation, store.operationStatistics().nativeWriteCalls());
+                assertEquals(openedEpochBeforeActivation, store.runtimeMetadata().lastOpenedOwnerEpoch());
+                assertEquals(ShardLifecycleState.CATCHING_UP, owned.state());
+                final OwnerLease currentLease = leaseStore.current(shardId).orElseThrow();
+                assertTrue(lease.sameIdentity(currentLease));
+                assertEquals(ShardLifecycleState.CATCHING_UP, currentLease.state());
+            }
         }
     }
 
