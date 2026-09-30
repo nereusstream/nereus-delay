@@ -816,6 +816,34 @@ tasks.register('runRealPulsarMutationWorkerSmoke', JavaExec) {
             project.ext.optionalRealTaskArgument.call(findProperty('pulsarMutationWorkerTopic'))
 }
 
+tasks.register('runRealPulsarTargetWorkerSourceSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs a real P1 Target source-factory apply/ACK turn against Pulsar.'
+    dependsOn tasks.named('compileRealPulsar')
+    if (realPulsarClientClasspath == null || realPulsarRuntimeDir == null
+            || findProperty('pulsarServiceUrl') == null
+            || findProperty('pulsarAdminUrl') == null || findProperty('pulsarTargetSourceTopic') == null) {
+        doFirst {
+            throw new GradleException(
+                    'runRealPulsarTargetWorkerSourceSmoke requires -PpulsarClientClasspath=... '
+                            + '-PpulsarRuntimeDir=/path/to/pulsar-distribution/lib '
+                            + '-PpulsarServiceUrl=pulsar://host:6650 -PpulsarAdminUrl=http://host:8080 '
+                            + '-PpulsarTargetSourceTopic=topic')
+        }
+    }
+    doFirst {
+        if (!file(realPulsarRuntimeDir).isDirectory()) {
+            throw new GradleException('pulsarRuntimeDir must be an extracted P1 distribution lib directory')
+        }
+    }
+    classpath = files(sourceSets.main.output, sourceSets.realPulsar.output,
+            realPulsarClientFiles, realPulsarRuntimeFiles)
+    mainClass = 'com.nereusstream.delay.transport.PulsarClientArtifactTargetWorkerSourceSmoke'
+    args project.ext.optionalRealTaskArgument.call(findProperty('pulsarServiceUrl')),
+            project.ext.optionalRealTaskArgument.call(findProperty('pulsarAdminUrl')),
+            project.ext.optionalRealTaskArgument.call(findProperty('pulsarTargetSourceTopic'))
+}
+
 tasks.register('runRealPulsarRouteWorkerSmoke', JavaExec) {
     group = 'verification'
     description = 'Runs guarded SUBSCRIBE barrier, signed Route publication and Oxia Worker assignment against Pulsar.'
