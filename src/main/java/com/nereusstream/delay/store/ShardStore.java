@@ -2135,6 +2135,13 @@ public final class ShardStore implements AutoCloseable {
         }
     }
 
+    synchronized void requireActiveReadBudget(final BoundedReadBudget budget) {
+        ensureOpen();
+        if (activeReadBudget == null || activeReadBudget != Objects.requireNonNull(budget, "budget")) {
+            throw new IllegalStateException("operation requires the active Store read-plan budget");
+        }
+    }
+
     public record ReadPlan<T>(T value, ReadView view) {}
 
     /** Only exact identity and empty open markers may precede bootstrap. No legacy or recovery history. */

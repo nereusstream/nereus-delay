@@ -109,6 +109,7 @@ import com.nereusstream.delay.protocol.TargetQuotaGrantActivation;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlBody;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlRequest;
 import com.nereusstream.delay.protocol.TargetQuotaIncarnation;
+import com.nereusstream.delay.protocol.TargetQuotaTotal;
 import com.nereusstream.delay.protocol.TargetQuotaUsage;
 import com.nereusstream.delay.protocol.TargetScheduleBinding;
 import com.nereusstream.delay.protocol.TargetTimeFenceBody;
@@ -1571,6 +1572,17 @@ class TargetQuotaGrantStoreTest {
                     ColumnFamily.META,
                     mirrorKey,
                     TargetValueEnvelope.encode(TargetQuotaCounter.VALUE_TYPE, inflated.canonicalBytes())));
+            final long beforeRejectedReopen = corrupt.latestSequenceNumber();
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> TargetStoreBootstrap.reopen(
+                            corrupt,
+                            scope,
+                            new TargetStoreBackend.WriteLimits(64, 2 << 20),
+                            budget(),
+                            (metadata, actualScope) -> guard(),
+                            ledgerAuditLimits));
+            assertEquals(beforeRejectedReopen, corrupt.latestSequenceNumber());
         }
         TargetCheckpointRootVerifier.validate(physicalDb, scope.shard(), imageLimits);
         assertTrue(assertThrows(
@@ -2871,12 +2883,59 @@ class TargetQuotaGrantStoreTest {
                 physicalDb, scope.shard(), imageLimits, quotaLimits, ledgerLimits);
         try (var resources = new SharedRocksDbResources(config);
                 var missingPolicy = ShardStore.openTarget(config, scope.shard(), resources)) {
-            missingPolicy.write(batch -> batch.delete(ColumnFamily.META, policy.encodedKey()));
-        }
-        try (var resources = new SharedRocksDbResources(config);
-                var missingPolicy = ShardStore.openTarget(config, scope.shard(), resources)) {
+            final long beforeLimitedReopen = missingPolicy.latestSequenceNumber();
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> TargetStoreBootstrap.reopen(
+                            missingPolicy,
+                            scope,
+                            new TargetStoreBackend.WriteLimits(64, 2 << 20),
+                            budget(),
+                            (a, b) -> guard(),
+                            new TargetCheckpointRootVerifier.LedgerAuditLimits(1, 128, 4, 128)));
+            assertEquals(beforeLimitedReopen, missingPolicy.latestSequenceNumber());
             final var recovered = TargetStoreBootstrap.reopen(
                     missingPolicy, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(), (a, b) -> guard());
+            final byte[] totalKey = missingPolicy
+                    .scan(
+                            ColumnFamily.META,
+                            new byte[] {(byte) TargetKeyCodec.QUOTA_TOTAL_TAG, TargetKeyCodec.KEY_FORMAT},
+                            new byte[] {(byte) (TargetKeyCodec.QUOTA_TOTAL_TAG + 1), TargetKeyCodec.KEY_FORMAT},
+                            1)
+                    .getFirst()
+                    .key();
+            final byte[] originalTotal = missingPolicy.get(ColumnFamily.META, totalKey);
+            final var total = TargetQuotaTotal.decodeForStore(
+                    totalKey,
+                    TargetValueEnvelope.decode(originalTotal, TargetQuotaTotal.VALUE_TYPE).payload(),
+                    scope.shard(),
+                    scope.tenantScope());
+            final var inflatedTotal = new TargetQuotaTotal(
+                    total.scope(),
+                    new TargetQuotaUsage(
+                            total.usage().resources().add(total.usage().resources()),
+                            total.usage().targets(),
+                            total.usage().executionDomains(),
+                            total.usage().strictOrderDomains(),
+                            total.usage().accountingIncarnations()),
+                    total.revision(),
+                    total.mutation());
+            missingPolicy.write(batch -> batch.put(
+                    ColumnFamily.META,
+                    totalKey,
+                    TargetValueEnvelope.encode(TargetQuotaTotal.VALUE_TYPE, inflatedTotal.canonicalBytes())));
+            final long beforeRejectedTotalReopen = missingPolicy.latestSequenceNumber();
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> TargetStoreBootstrap.reopen(
+                            missingPolicy,
+                            scope,
+                            new TargetStoreBackend.WriteLimits(64, 2 << 20),
+                            budget(),
+                            (a, b) -> guard()));
+            assertEquals(beforeRejectedTotalReopen, missingPolicy.latestSequenceNumber());
+            missingPolicy.write(batch -> batch.put(ColumnFamily.META, totalKey, originalTotal));
+            missingPolicy.write(batch -> batch.delete(ColumnFamily.META, policy.encodedKey()));
             assertTrue(assertThrows(IllegalStateException.class, () -> recovered
                             .backend()
                             .guardedRead(
@@ -2885,6 +2944,19 @@ class TargetQuotaGrantStoreTest {
                                     (a, b) -> guard()))
                     .getMessage()
                     .contains("lacks its durable policy"));
+        }
+        try (var resources = new SharedRocksDbResources(config);
+                var missingPolicy = ShardStore.openTarget(config, scope.shard(), resources)) {
+            final long beforeMissingPolicyReopen = missingPolicy.latestSequenceNumber();
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> TargetStoreBootstrap.reopen(
+                            missingPolicy,
+                            scope,
+                            new TargetStoreBackend.WriteLimits(64, 2 << 20),
+                            budget(),
+                            (a, b) -> guard()));
+            assertEquals(beforeMissingPolicyReopen, missingPolicy.latestSequenceNumber());
         }
         assertTrue(assertThrows(
                         IllegalStateException.class,

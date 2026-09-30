@@ -124,6 +124,33 @@ public final class TargetCheckpointRootVerifier {
                 null);
     }
 
+    /** Folds the live Store ledger inside the exact bounded read plan used to reconstruct its root. */
+    public static void auditLiveStoreLedger(
+            final ShardStore store,
+            final RootProof proof,
+            final LedgerAuditLimits limits,
+            final BoundedReadBudget budget) {
+        Objects.requireNonNull(store, "store");
+        Objects.requireNonNull(proof, "proof");
+        Objects.requireNonNull(limits, "limits");
+        Objects.requireNonNull(budget, "budget");
+        if (!Thread.holdsLock(store)) {
+            throw new IllegalStateException("Target live ledger audit requires the exact Store read plan");
+        }
+        store.requireActiveReadBudget(budget);
+        final SourcePosition storeSource = store.appliedShardLogPosition();
+        if (proof.metadata().storeFormatVersion() != store.metadata().storeFormatVersion()
+                || !proof.metadata().shardId().equals(store.shardId())
+                || !Bytes.constantTimeEquals(
+                        proof.metadata().storeIncarnation(), store.metadata().storeIncarnation())
+                || storeSource == null
+                || !Arrays.equals(proof.source().canonicalBytes(), storeSource.canonicalBytes())
+                || proof.mutationSequence() != store.shardMutationSequence()) {
+            throw new IllegalArgumentException("Target live ledger proof does not match the active Store frontier");
+        }
+        TargetCheckpointLedgerAudit.auditLive(store, budget, proof, limits);
+    }
+
     /** Binds a complete local candidate image to the exact live Store cut without granting publication authority. */
     static RootProof auditLocalCandidate(
             final Path image,
@@ -332,6 +359,16 @@ public final class TargetCheckpointRootVerifier {
                 TargetQuotaGrantActivation.VALUE_TYPE,
                 budget,
                 (key, payload) -> TargetQuotaGrantActivation.decodeForStore(key, payload, shard, tenant));
+        auditQuotaRecords(proof, counters, totals, grants);
+    }
+
+    static void auditQuotaRecords(
+            final RootProof proof,
+            final List<TargetQuotaCounter> counters,
+            final List<TargetQuotaTotal> totals,
+            final List<TargetQuotaGrantActivation> grants) {
+        final ShardId shard = proof.metadata().shardId();
+        final byte[] tenant = proof.bookkeeping().tenantScope();
         proof.bookkeeping().auditInventory(proof.aggregate(), counters, totals, grants);
         final Map<TargetQuotaIdentity, TargetQuotaCounter> byIdentity = new HashMap<>();
         final Map<TargetPartitionId, TargetQuotaUsage> targetUsage = new HashMap<>();

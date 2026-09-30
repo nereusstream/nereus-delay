@@ -19,6 +19,7 @@ import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.ColumnFamily;
 import com.nereusstream.delay.store.ShardStore;
 import com.nereusstream.delay.store.StoreMetadata;
+import com.nereusstream.delay.store.TargetCheckpointRootVerifier;
 import com.nereusstream.delay.store.TargetKeyCodec;
 import com.nereusstream.delay.store.TargetStoreBackend;
 import com.nereusstream.delay.store.TargetValueEnvelope;
@@ -28,6 +29,9 @@ import java.util.Objects;
 
 /** First signed Shard grant creates the entire root/result/source batch in a provably uninitialized Target Store. */
 public final class TargetStoreBootstrap {
+    private static final TargetCheckpointRootVerifier.LedgerAuditLimits DEFAULT_REOPEN_LEDGER_AUDIT_LIMITS =
+            new TargetCheckpointRootVerifier.LedgerAuditLimits(100_000, 256L << 20, 500_000, 256L << 20);
+
     private TargetStoreBootstrap() {}
 
     /**
@@ -108,11 +112,23 @@ public final class TargetStoreBootstrap {
             final TargetStoreBackend.WriteLimits limits,
             final BoundedReadBudget budget,
             final TargetStoreBackend.ReadAuthority reads) {
+        return reopen(store, scope, limits, budget, reads, DEFAULT_REOPEN_LEDGER_AUDIT_LIMITS);
+    }
+
+    /** Reopen with caller-selected finite limits for the independent live business-ledger fold. */
+    public static Reopened reopen(
+            final ShardStore store,
+            final TargetQuotaScope scope,
+            final TargetStoreBackend.WriteLimits limits,
+            final BoundedReadBudget budget,
+            final TargetStoreBackend.ReadAuthority reads,
+            final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits) {
         Objects.requireNonNull(store, "store");
         Objects.requireNonNull(scope, "scope");
         Objects.requireNonNull(limits, "limits");
         Objects.requireNonNull(budget, "budget");
         Objects.requireNonNull(reads, "reads");
+        Objects.requireNonNull(ledgerLimits, "ledgerLimits");
         if (scope.target() != null
                 || !scope.shard().equals(store.shardId())
                 || store.metadata().storeFormatVersion() != 2) {
@@ -178,11 +194,14 @@ public final class TargetStoreBootstrap {
                 }
                 persistedRoot.latestMutation().requireAtOrBefore(aggregate.mutation());
                 bookkeeping.mutation().requireAtOrBefore(aggregate.mutation());
-                return persistedRoot;
+                final var proof = new TargetCheckpointRootVerifier.RootProof(
+                        store.metadata(), source, sequence, persistedRoot, bookkeeping, aggregate);
+                TargetCheckpointRootVerifier.auditLiveStoreLedger(store, proof, ledgerLimits, budget);
+                return proof;
             });
             return store.withReadView(plan.view(), () -> {
                 guard.requireCurrent();
-                final var root = plan.value();
+                final var root = plan.value().root();
                 return new Reopened(
                         new TargetStoreBackend(
                                 store, scope, root.identity().accountingIncarnation(), root.recoveryLineage(), limits),

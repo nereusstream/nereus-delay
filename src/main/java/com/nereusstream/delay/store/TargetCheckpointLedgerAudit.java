@@ -51,16 +51,24 @@ final class TargetCheckpointLedgerAudit {
             final ColumnFamilyHandle defaultHandle,
             final TargetCheckpointRootVerifier.RootProof proof,
             final TargetCheckpointRootVerifier.LedgerAuditLimits limits) {
+        audit(new ImageSource(db, handles, defaultHandle), proof, limits, false);
+    }
+
+    static void auditLive(
+            final ShardStore store,
+            final BoundedReadBudget readBudget,
+            final TargetCheckpointRootVerifier.RootProof proof,
+            final TargetCheckpointRootVerifier.LedgerAuditLimits limits) {
+        audit(new StoreSource(store, readBudget, limits.maxRecords()), proof, limits, true);
+    }
+
+    private static void audit(
+            final LedgerSource source,
+            final TargetCheckpointRootVerifier.RootProof proof,
+            final TargetCheckpointRootVerifier.LedgerAuditLimits limits,
+            final boolean auditQuotaRecords) {
         final var budget = new Budget(limits);
-        try (RocksIterator empty = db.newIterator(defaultHandle)) {
-            empty.seekToFirst();
-            if (empty.isValid()) {
-                throw new IllegalArgumentException("Target checkpoint default column family is not empty");
-            }
-            empty.status();
-        } catch (RocksDBException failure) {
-            throw new IllegalArgumentException("cannot scan Target checkpoint default column family", failure);
-        }
+        source.requireDefaultEmpty();
         final TargetRecordAccounting.View view = new TargetRecordAccounting.View() {
             @Override
             public ShardId shardId() {
@@ -73,13 +81,9 @@ final class TargetCheckpointLedgerAudit {
                 if (!overlay.isEmpty()) {
                     throw new IllegalArgumentException("recovery ledger audit cannot use a write overlay");
                 }
-                try {
-                    final byte[] raw = db.get(handles.get(family), key);
-                    budget.point(key.length, raw == null ? 0 : raw.length);
-                    return raw;
-                } catch (RocksDBException failure) {
-                    throw new IllegalArgumentException("cannot read Target checkpoint accounting dependency", failure);
-                }
+                final byte[] raw = source.get(family, key);
+                budget.point(key.length, raw == null ? 0 : raw.length);
+                return raw;
             }
         };
         final var accounting = new TargetRecordAccounting(
@@ -95,57 +99,48 @@ final class TargetCheckpointLedgerAudit {
         final List<TargetResultLedgerAudit.Stored> resultRows = new ArrayList<>();
         final List<TargetQuotaGrantActivation> grantActivations = new ArrayList<>();
         final List<TargetQuotaCounter> counters = new ArrayList<>();
+        final List<TargetQuotaTotal> totals = new ArrayList<>();
         final var recovery = new RecoveryMetadata();
         final var rootCharge =
                 TargetRecordAccounting.resources(proof.bookkeeping().charge());
         merge(rebuilt, proof.root().identity(), rootCharge);
         merge(rebuilt, proof.root().tenantIdentity(), TargetRecordAccounting.resources(rootCharge.resources()));
         for (ColumnFamily family : ColumnFamily.values()) {
-            try (RocksIterator iterator = db.newIterator(handles.get(family))) {
-                iterator.seekToFirst();
-                while (iterator.isValid()) {
-                    final byte[] key = iterator.key();
-                    final byte[] raw = iterator.value();
-                    budget.scan(key.length, raw.length);
-                    if (!skipInfrastructure(family, key, raw, proof, counters, rebuilt, recovery)) {
-                        final int type = TargetStoreBackend.businessType(family, key);
-                        final byte[] payload =
-                                TargetValueEnvelope.decode(raw, type).payload();
+            source.scan(family, budget, (key, raw) -> {
+                if (!skipInfrastructure(family, key, raw, proof, counters, totals, rebuilt, recovery)) {
+                    final int type = TargetStoreBackend.businessType(family, key);
+                    final byte[] payload = TargetValueEnvelope.decode(raw, type).payload();
+                    if (family == ColumnFamily.DEDUPE) {
+                        resultRows.add(new TargetResultLedgerAudit.Stored(key, type, payload));
+                    } else if (family == ColumnFamily.ID && type == TargetMessageRecord.VALUE_TYPE) {
+                        auditMessageDependencies(
+                                TargetMessageRecord.decodeForStore(key, payload, proof.metadata().shardId()), view);
+                    } else if (family == ColumnFamily.META && type == TargetOrderState.VALUE_TYPE) {
+                        auditOrderStateDependencies(TargetOrderState.decode(payload), view);
+                    } else if (family == ColumnFamily.META && type == TargetQuotaGrantActivation.VALUE_TYPE) {
+                        grantActivations.add(TargetQuotaGrantActivation.decodeForStore(
+                                key, payload, proof.metadata().shardId(), proof.bookkeeping().tenantScope()));
+                    }
+                    final var charge = accounting.charge(family, key, raw);
+                    if (charge != null) {
+                        merge(rebuilt, charge.owner().identity(), charge.primary());
+                        merge(rebuilt, charge.owner().tenantIdentity(), charge.mirror());
                         if (family == ColumnFamily.DEDUPE) {
-                            resultRows.add(new TargetResultLedgerAudit.Stored(key, type, payload));
-                        } else if (family == ColumnFamily.ID && type == TargetMessageRecord.VALUE_TYPE) {
-                            auditMessageDependencies(
-                                    TargetMessageRecord.decodeForStore(key, payload, proof.metadata().shardId()),
-                                    view);
-                        } else if (family == ColumnFamily.META && type == TargetOrderState.VALUE_TYPE) {
-                            auditOrderStateDependencies(TargetOrderState.decode(payload), view);
-                        } else if (family == ColumnFamily.META
-                                && type == TargetQuotaGrantActivation.VALUE_TYPE) {
-                            grantActivations.add(TargetQuotaGrantActivation.decodeForStore(
-                                    key, payload, proof.metadata().shardId(), proof.bookkeeping().tenantScope()));
-                        }
-                        final var charge = accounting.charge(family, key, raw);
-                        if (charge != null) {
-                            merge(rebuilt, charge.owner().identity(), charge.primary());
-                            merge(rebuilt, charge.owner().tenantIdentity(), charge.mirror());
-                            if (family == ColumnFamily.DEDUPE) {
-                                resultContributions.merge(
-                                        charge.owner().identity(),
-                                        charge.primary().resources(),
-                                        CapacityVector::add);
-                                resultContributions.merge(
-                                        charge.owner().tenantIdentity(),
-                                        charge.mirror().resources(),
-                                        CapacityVector::add);
-                            }
+                            resultContributions.merge(
+                                    charge.owner().identity(),
+                                    charge.primary().resources(),
+                                    CapacityVector::add);
+                            resultContributions.merge(
+                                    charge.owner().tenantIdentity(),
+                                    charge.mirror().resources(),
+                                    CapacityVector::add);
                         }
                     }
-                    iterator.next();
                 }
-                iterator.status();
-            } catch (RocksDBException failure) {
-                throw new IllegalArgumentException("cannot scan Target checkpoint business ledger", failure);
-            }
+            });
+        }
+        if (auditQuotaRecords) {
+            TargetCheckpointRootVerifier.auditQuotaRecords(proof, counters, totals, grantActivations);
         }
         recovery.verify(proof);
         final long resultBytes = limits.maxKeyValueBytes() > Long.MAX_VALUE - limits.maxPointReadBytes()
@@ -172,6 +167,110 @@ final class TargetCheckpointLedgerAudit {
         }
         auditGrantResults(grantActivations, resultRows, proof.root().identity());
         TargetQuotaDelta.audit(proof.aggregate(), counters, rebuilt);
+    }
+
+    @FunctionalInterface
+    private interface EntryVisitor {
+        void visit(byte[] key, byte[] raw);
+    }
+
+    private interface LedgerSource {
+        byte[] get(ColumnFamily family, byte[] key);
+
+        void requireDefaultEmpty();
+
+        void scan(ColumnFamily family, Budget budget, EntryVisitor visitor);
+    }
+
+    private static final class ImageSource implements LedgerSource {
+        private final RocksDB db;
+        private final Map<ColumnFamily, ColumnFamilyHandle> handles;
+        private final ColumnFamilyHandle defaultHandle;
+
+        private ImageSource(
+                final RocksDB db,
+                final Map<ColumnFamily, ColumnFamilyHandle> handles,
+                final ColumnFamilyHandle defaultHandle) {
+            this.db = db;
+            this.handles = handles;
+            this.defaultHandle = defaultHandle;
+        }
+
+        @Override
+        public byte[] get(final ColumnFamily family, final byte[] key) {
+            try {
+                return db.get(handles.get(family), key);
+            } catch (RocksDBException failure) {
+                throw new IllegalArgumentException("cannot read Target checkpoint accounting dependency", failure);
+            }
+        }
+
+        @Override
+        public void requireDefaultEmpty() {
+            try (RocksIterator empty = db.newIterator(defaultHandle)) {
+                empty.seekToFirst();
+                if (empty.isValid()) {
+                    throw new IllegalArgumentException("Target checkpoint default column family is not empty");
+                }
+                empty.status();
+            } catch (RocksDBException failure) {
+                throw new IllegalArgumentException("cannot scan Target checkpoint default column family", failure);
+            }
+        }
+
+        @Override
+        public void scan(final ColumnFamily family, final Budget budget, final EntryVisitor visitor) {
+            try (RocksIterator iterator = db.newIterator(handles.get(family))) {
+                iterator.seekToFirst();
+                while (iterator.isValid()) {
+                    final byte[] key = iterator.key();
+                    final byte[] raw = iterator.value();
+                    budget.scan(key.length, raw.length);
+                    visitor.visit(key, raw);
+                    iterator.next();
+                }
+                iterator.status();
+            } catch (RocksDBException failure) {
+                throw new IllegalArgumentException("cannot scan Target checkpoint business ledger", failure);
+            }
+        }
+    }
+
+    private static final class StoreSource implements LedgerSource {
+        private final ShardStore store;
+        private final BoundedReadBudget readBudget;
+        private final int scanLimit;
+
+        private StoreSource(final ShardStore store, final BoundedReadBudget readBudget, final int maxRecords) {
+            this.store = store;
+            this.readBudget = readBudget;
+            this.scanLimit = Math.addExact(maxRecords, 1);
+        }
+
+        @Override
+        public byte[] get(final ColumnFamily family, final byte[] key) {
+            return store.get(family, key);
+        }
+
+        @Override
+        public void requireDefaultEmpty() {
+            // ShardStore validates that the default column family is empty when it opens.
+        }
+
+        @Override
+        public void scan(final ColumnFamily family, final Budget budget, final EntryVisitor visitor) {
+            final var result = store.visitResult(family, null, null, scanLimit, readBudget, (entry, shared) -> {
+                budget.scan(entry.key().length, entry.value().length);
+                visitor.visit(entry.key(), entry.value());
+                return true;
+            });
+            if (result.stop() == ShardStore.VisitStop.INCOMPLETE) {
+                throw readBudget.incomplete();
+            }
+            if (result.stop() != ShardStore.VisitStop.RANGE_END) {
+                throw new IllegalArgumentException("Target live ledger scan exceeded its per-family safety bound");
+            }
+        }
     }
 
     private static void auditMessageDependencies(
@@ -285,6 +384,7 @@ final class TargetCheckpointLedgerAudit {
             final byte[] raw,
             final TargetCheckpointRootVerifier.RootProof proof,
             final List<TargetQuotaCounter> counters,
+            final List<TargetQuotaTotal> totals,
             final Map<TargetQuotaIdentity, TargetQuotaUsage> rebuilt,
             final RecoveryMetadata recovery) {
         if (family != ColumnFamily.META || key.length < 2 || key[1] != TargetKeyCodec.KEY_FORMAT) {
@@ -337,7 +437,12 @@ final class TargetCheckpointLedgerAudit {
             return true;
         }
         if (tag == TargetKeyCodec.QUOTA_TOTAL_TAG) {
-            TargetValueEnvelope.decode(raw, TargetQuotaTotal.VALUE_TYPE);
+            totals.add(TargetQuotaTotal.decodeForStore(
+                    key,
+                    TargetValueEnvelope.decode(raw, TargetQuotaTotal.VALUE_TYPE)
+                            .payload(),
+                    proof.metadata().shardId(),
+                    proof.bookkeeping().tenantScope()));
             return true;
         }
         if (tag == TargetKeyCodec.QUOTA_AGGREGATE_TAG) {
