@@ -23,6 +23,7 @@ import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.TargetNativePolicyChecks;
 import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.TargetKeyCodec;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -313,6 +314,42 @@ class TargetWorkerOrdinaryDrrTest {
 
         assertEquals(List.of(firstHead), firstTurn.claims());
         assertEquals(List.of(secondHead), secondTurn.claims());
+    }
+
+    @Test
+    void rotatesEveryDomainAtTheMaximumSlotBoundWithoutLosingOpportunity() {
+        final ShardId shard = shard(1);
+        final var physical = target(0);
+        final var domains = new ArrayList<TargetDomainState>(TargetQueueState.MAX_DOMAIN_SLOTS);
+        final var expectedHeads = new ArrayList<TargetHeadRef>(TargetQueueState.MAX_DOMAIN_SLOTS);
+        for (int slot = 0; slot < TargetQueueState.MAX_DOMAIN_SLOTS; slot++) {
+            final var domain = new TargetKeyCodec.Domain(slot, 1);
+            final var head = dueHead(physical, shard, domain);
+            domains.add(new TargetDomainState(
+                    domain,
+                    TargetDomainState.Lifecycle.ACTIVE,
+                    bytes(32, slot + 1),
+                    bytes(32, slot + 65),
+                    null,
+                    head,
+                    null));
+            expectedHeads.add(head);
+        }
+        final var queue = new TargetQueueState(
+                physical.id(), 1, 1, TargetQueueState.AdmissionState.OPEN, bytes(16, 5), 0, domains);
+        final var entry = new TargetQueueSnapshotReader.Entry(queue, physical);
+        final var inventoryTarget = new TargetWorkerTargetInventory.Target(
+                physical, List.of(new TargetWorkerTargetInventory.Source(shard, entry)));
+        final var heads = expectedHeads.stream().map(head -> new Head(shard, entry, head, 50)).toArray(Head[]::new);
+        final var drr = schedule(List.of(inventoryTarget), new FakeReads(heads), ONE_VISIT);
+
+        for (TargetHeadRef expected : expectedHeads) {
+            final var turn = drr.runOrdinary(
+                    100,
+                    new SchedulerBudget(1, 200, 1_000_000_000L),
+                    (source, cost) -> Optional.of(() -> cost.head()));
+            assertEquals(List.of(expected), turn.claims());
+        }
     }
 
     @Test
