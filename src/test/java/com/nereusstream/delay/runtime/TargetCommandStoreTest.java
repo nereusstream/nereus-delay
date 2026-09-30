@@ -955,8 +955,10 @@ class TargetCommandStoreTest {
                                     maintenance));
                     assertTrue(wrongSourceClosed.get());
                 }
+                final var claimNextSourceRecord = new java.util.concurrent.atomic.AtomicReference<
+                        SourceRecordConsumer.PolledSourceRecord>();
                 final var claimWorker = TargetWorkerShardFactory.create(
-                        () -> java.util.Optional.empty(),
+                        () -> java.util.Optional.ofNullable(claimNextSourceRecord.getAndSet(null)),
                         claimRuntime.acceptedAssignment(),
                         workerClasses,
                         store,
@@ -2311,17 +2313,41 @@ class TargetCommandStoreTest {
                                     replacementStore.shardMutationSequence());
 
                             final long replacementSequenceAfterUnknown = replacementStore.latestSequenceNumber();
+                            final var siblingBeforeReplay = (KafkaSourcePosition) store.appliedShardLogPosition();
+                            final var siblingReplayAt = source(
+                                    siblingBeforeReplay,
+                                    siblingBeforeReplay.offset() + 1,
+                                    siblingBeforeReplay.brokerLogAppendTimeEpochMs() + 1);
+                            final var siblingReplayEntry =
+                                    new SourceReplayRecord(schedule, siblingReplayAt, null, null);
+                            final var siblingAcknowledgements = new java.util.concurrent.atomic.AtomicInteger();
+                            claimNextSourceRecord.set(new SourceRecordConsumer.PolledSourceRecord(
+                                    siblingReplayEntry,
+                                    (entry, outcome) -> {
+                                        assertEquals(siblingReplayEntry, entry);
+                                        assertEquals(siblingReplayAt, outcome.position());
+                                        assertNotNull(outcome.commandResult());
+                                        siblingAcknowledgements.incrementAndGet();
+                                        return SourceAcknowledgement.AcknowledgementResult.acked();
+                                    }));
+                            final long mainMutationsBeforeSibling = store.shardMutationSequence();
                             final var actualFleet = new TargetWorkerShardFleetRuntime(
                                     workerClasses, resources, List.of(claimWorker, replacementWorker));
-                            final var healthySiblingTurn = actualFleet.runNextSourceTurn(
+                            final var siblingApplyTurn = actualFleet.runNextSourceTurn(
                                     new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 101);
-                            assertEquals(scope.shard(), healthySiblingTurn.shardId());
+                            assertEquals(scope.shard(), siblingApplyTurn.shardId());
                             assertEquals(
-                                    SourceApplyCoordinator.TurnStatus.WAITING_FOR_SOURCE,
-                                    healthySiblingTurn.result().status());
+                                    SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                                    siblingApplyTurn.result().status());
+                            assertEquals(siblingReplayEntry, siblingApplyTurn.result().entry());
+                            assertEquals(1, siblingAcknowledgements.get());
+                            assertTrue(claimWorker.pendingSourceEntry().isEmpty());
                             assertFalse(claimRuntime.fenced());
+                            assertEquals(siblingReplayAt, store.appliedShardLogPosition());
+                            assertTrue(store.latestSequenceNumber() > mainSequenceBeforeUnknown);
+                            assertEquals(mainMutationsBeforeSibling + 1, store.shardMutationSequence());
+                            final long mainSequenceAfterSibling = store.latestSequenceNumber();
                             assertEquals(replayEntry, replacementWorker.pendingSourceEntry().orElseThrow());
-                            assertEquals(mainSequenceBeforeUnknown, store.latestSequenceNumber());
                             assertEquals(replacementSequenceAfterUnknown, replacementStore.latestSequenceNumber());
 
                             final var acknowledgedTurn = actualFleet.runNextSourceTurn(
@@ -2339,7 +2365,7 @@ class TargetCommandStoreTest {
                                     replacementMutationsBeforeUnknown + 1,
                                     replacementStore.shardMutationSequence());
                             assertEquals(replacementSequenceAfterUnknown, replacementStore.latestSequenceNumber());
-                            assertEquals(mainSequenceBeforeUnknown, store.latestSequenceNumber());
+                            assertEquals(mainSequenceAfterSibling, store.latestSequenceNumber());
 
                             final var replacementWorkerDrain = claimHost.drainShard(
                                     replacementWorker,
@@ -2384,8 +2410,11 @@ class TargetCommandStoreTest {
             final var before = TargetMessageRecord.decode(TargetValueEnvelope.decode(
                             store.get(ColumnFamily.ID, message.encodedKey()), TargetMessageRecord.VALUE_TYPE)
                     .payload());
-            final var at =
-                    source(emptyCloseAt, emptyCloseAt.offset() + 1, emptyCloseAt.brokerLogAppendTimeEpochMs() + 1);
+            final var sourceBeforeFirstCommand = (KafkaSourcePosition) store.appliedShardLogPosition();
+            final var at = source(
+                    sourceBeforeFirstCommand,
+                    sourceBeforeFirstCommand.offset() + 1,
+                    sourceBeforeFirstCommand.brokerLogAppendTimeEpochMs() + 1);
             final var command = rescheduled
                     ? reschedule(message.locator().messageId(), at, 1)
                     : cancel(message.locator().messageId(), at, 1);
