@@ -54,7 +54,7 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
     private volatile boolean waitingForQueueChange;
     private Thread thread;
 
-    static TargetWorkerOrdinaryLoop start(
+    static TargetWorkerOrdinaryLoop prepare(
             final TargetWorkerHostRuntime host,
             final TargetWorkerTargetInventory.Limits inventoryLimits,
             final TargetWorkerOrdinaryDrr.Limits drrLimits,
@@ -66,7 +66,18 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
             final LongSupplier schedulerClock,
             final LongSupplier monotonicClock,
             final Consumer<Throwable> failureConsumer) {
-        final var loop = new TargetWorkerOrdinaryLoop(
+        validateStartConfiguration(
+                inventoryLimits,
+                drrLimits,
+                turnBudget,
+                recheckInterval,
+                requests,
+                claimConsumer,
+                ownerClock,
+                schedulerClock,
+                monotonicClock,
+                failureConsumer);
+        return new TargetWorkerOrdinaryLoop(
                 host,
                 inventoryLimits,
                 drrLimits,
@@ -78,23 +89,45 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
                 schedulerClock,
                 monotonicClock,
                 failureConsumer);
-        try {
-            loop.start();
-        } catch (RuntimeException | Error failure) {
-            loop.closeNativePolicyChangeSubscription(failure);
-            throw failure;
-        }
-        return loop;
     }
 
-    static void requireCompatibleTurnBudget(
-            final TargetWorkerOrdinaryDrr.Limits drrLimits, final SchedulerBudget turnBudget) {
+    static void validateStartConfiguration(
+            final TargetWorkerTargetInventory.Limits inventoryLimits,
+            final TargetWorkerOrdinaryDrr.Limits drrLimits,
+            final SchedulerBudget turnBudget,
+            final Duration recheckInterval,
+            final TargetWorkerOrdinaryDrr.Requests requests,
+            final ClaimConsumer claimConsumer,
+            final LongSupplier ownerClock,
+            final LongSupplier schedulerClock,
+            final LongSupplier monotonicClock,
+            final Consumer<Throwable> failureConsumer) {
+        final var inventory = Objects.requireNonNull(inventoryLimits, "inventoryLimits");
         final var limits = Objects.requireNonNull(drrLimits, "drrLimits");
         final var budget = Objects.requireNonNull(turnBudget, "turnBudget");
+        final var interval = Objects.requireNonNull(recheckInterval, "recheckInterval");
+        Objects.requireNonNull(requests, "requests");
+        Objects.requireNonNull(claimConsumer, "claimConsumer");
+        Objects.requireNonNull(ownerClock, "ownerClock");
+        Objects.requireNonNull(schedulerClock, "schedulerClock");
+        Objects.requireNonNull(monotonicClock, "monotonicClock");
+        Objects.requireNonNull(failureConsumer, "failureConsumer");
+        if (interval.isZero() || interval.isNegative()) {
+            throw new IllegalArgumentException("Target ordinary recheck interval must be positive");
+        }
+        try {
+            interval.toNanos();
+        } catch (ArithmeticException overflow) {
+            throw new IllegalArgumentException("Target ordinary recheck interval exceeds nanoseconds", overflow);
+        }
         if (budget.maxBytes() < limits.sendEnvelopeBytes()
                 || budget.maxElapsedNanos() < limits.readElapsedNanos()) {
             throw new IllegalArgumentException("ordinary turn budget cannot serve the activated Target envelope");
         }
+        final long targets = inventory.maximumTargets();
+        Math.addExact(targets, 1);
+        final long creditRounds = 1 + (limits.maximumCostBytes() - 1) / limits.quantumBytes();
+        Math.multiplyExact(targets, creditRounds);
     }
 
     private TargetWorkerOrdinaryLoop(
@@ -120,15 +153,7 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
         this.monotonicClock = Objects.requireNonNull(monotonicClock, "monotonicClock");
         this.failureConsumer = Objects.requireNonNull(failureConsumer, "failureConsumer");
         final var exactRecheckInterval = Objects.requireNonNull(recheckInterval, "recheckInterval");
-        if (exactRecheckInterval.isZero() || exactRecheckInterval.isNegative()) {
-            throw new IllegalArgumentException("Target ordinary recheck interval must be positive");
-        }
-        try {
-            recheckNanos = exactRecheckInterval.toNanos();
-        } catch (ArithmeticException overflow) {
-            throw new IllegalArgumentException("Target ordinary recheck interval exceeds nanoseconds", overflow);
-        }
-        requireCompatibleTurnBudget(drrLimits, turnBudget);
+        recheckNanos = exactRecheckInterval.toNanos();
         final long targets = inventoryLimits.maximumTargets();
         maximumRecoveryTurns = Math.addExact(targets, 1);
         final long creditRounds = 1 + (drrLimits.maximumCostBytes() - 1) / drrLimits.quantumBytes();
@@ -302,7 +327,7 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
         }
     }
 
-    private synchronized void start() {
+    synchronized void start() {
         if (thread != null || closed) {
             throw new IllegalStateException("Target ordinary loop cannot be started twice");
         }
@@ -619,5 +644,6 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
                 throw new IllegalStateException("interrupted while stopping Target ordinary loop", interrupted);
             }
         }
+        closeNativePolicyChangeSubscription(null);
     }
 }

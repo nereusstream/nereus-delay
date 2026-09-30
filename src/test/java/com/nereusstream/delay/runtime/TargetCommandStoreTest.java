@@ -1492,6 +1492,62 @@ class TargetCommandStoreTest {
                                     schedulerEpoch::get,
                                     System::nanoTime,
                                     ignored -> {}));
+                    assertThrows(
+                            IllegalArgumentException.class,
+                            () -> claimHost.startOrdinaryScheduling(
+                                    new TargetWorkerTargetInventory.Limits(
+                                            2, 12, 4, 8, 4096, 32L << 20, 60_000_000_000L),
+                                    ordinaryDrrLimits,
+                                    claimBudget,
+                                    java.time.Duration.ZERO,
+                                    retryClaimRequests,
+                                    ignored -> {},
+                                    () -> 100,
+                                    schedulerEpoch::get,
+                                    System::nanoTime,
+                                    ignored -> {}));
+                    assertThrows(
+                            NullPointerException.class,
+                            () -> claimHost.startOrdinaryScheduling(
+                                    new TargetWorkerTargetInventory.Limits(
+                                            2, 14, 4, 8, 4096, 32L << 20, 60_000_000_000L),
+                                    ordinaryDrrLimits,
+                                    claimBudget,
+                                    java.time.Duration.ofSeconds(10),
+                                    null,
+                                    ignored -> {},
+                                    () -> 100,
+                                    schedulerEpoch::get,
+                                    System::nanoTime,
+                                    ignored -> {}));
+                    final TargetWorkerOrdinaryDrr.Requests failingSubscription =
+                            new TargetWorkerOrdinaryDrr.Requests() {
+                                @Override
+                                public java.util.Optional<TargetWorkerOrdinaryDrr.Request> resolve(
+                                        TargetWorkerShardRuntime shard,
+                                        com.nereusstream.delay.runtime.TargetHeadCostProbe.Cost cost) {
+                                    return java.util.Optional.empty();
+                                }
+
+                                @Override
+                                public java.io.Closeable subscribeNativePolicyChanges(final Runnable wakeup) {
+                                    throw new IllegalStateException("Native policy subscription unavailable");
+                                }
+                            };
+                    assertThrows(
+                            IllegalStateException.class,
+                            () -> claimHost.startOrdinaryScheduling(
+                                    new TargetWorkerTargetInventory.Limits(
+                                            2, 15, 4, 8, 4096, 32L << 20, 60_000_000_000L),
+                                    ordinaryDrrLimits,
+                                    claimBudget,
+                                    java.time.Duration.ofSeconds(10),
+                                    failingSubscription,
+                                    ignored -> {},
+                                    () -> 100,
+                                    schedulerEpoch::get,
+                                    System::nanoTime,
+                                    ignored -> {}));
                     final var ordinaryLoop = claimHost.startOrdinaryScheduling(
                             ordinaryInventoryLimits,
                             ordinaryDrrLimits,

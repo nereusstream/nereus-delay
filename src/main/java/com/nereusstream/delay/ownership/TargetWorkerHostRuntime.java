@@ -258,16 +258,18 @@ public final class TargetWorkerHostRuntime {
         if (ordinaryLoop != null) {
             throw new IllegalStateException("Target host ordinary scheduler is already started");
         }
-        TargetWorkerOrdinaryLoop.requireCompatibleTurnBudget(drrLimits, turnBudget);
-        targetQueueChangeSignal.configureTargetLimit(inventoryLimits.maximumTargets());
-        for (Shard shard : shards) {
-            if (shard instanceof TargetWorkerShardRuntime worker
-                    && !withdrawn.contains(shard.shardId())
-                    && !completed.containsKey(shard.shardId())) {
-                worker.configureTargetQueueHeadCache(inventoryLimits.maximumTargets());
-            }
-        }
-        ordinaryLoop = TargetWorkerOrdinaryLoop.start(
+        TargetWorkerOrdinaryLoop.validateStartConfiguration(
+                inventoryLimits,
+                drrLimits,
+                turnBudget,
+                recheckInterval,
+                requests,
+                claimConsumer,
+                ownerClock,
+                schedulerClock,
+                monotonicClock,
+                failureConsumer);
+        final var loop = TargetWorkerOrdinaryLoop.prepare(
                 this,
                 inventoryLimits,
                 drrLimits,
@@ -279,6 +281,27 @@ public final class TargetWorkerHostRuntime {
                 schedulerClock,
                 monotonicClock,
                 failureConsumer);
+        try {
+            targetQueueChangeSignal.configureTargetLimit(inventoryLimits.maximumTargets());
+            for (Shard shard : shards) {
+                if (shard instanceof TargetWorkerShardRuntime worker
+                        && !withdrawn.contains(shard.shardId())
+                        && !completed.containsKey(shard.shardId())) {
+                    worker.configureTargetQueueHeadCache(inventoryLimits.maximumTargets());
+                }
+            }
+            loop.start();
+        } catch (RuntimeException | Error failure) {
+            try {
+                loop.close();
+            } catch (RuntimeException | Error closeFailure) {
+                if (closeFailure != failure) {
+                    failure.addSuppressed(closeFailure);
+                }
+            }
+            throw failure;
+        }
+        ordinaryLoop = loop;
         return ordinaryLoop;
     }
 
