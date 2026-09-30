@@ -4311,6 +4311,81 @@ class TargetCommandStoreTest {
                                     pendingCloseStore.reservationControls(
                                             (reader, bound) -> java.util.Optional.empty()))
                             .progress(budget(), pendingTarget, (a, b) -> guard()));
+            if (!claimed) {
+                final var cleanupRuntime = new TargetSourceApplyRuntime(
+                        initialized,
+                        store,
+                        assignment,
+                        active,
+                        new TargetSourceApplyRuntime.Authorities(
+                            leases,
+                            SourceReplaySuccessor.strictKafka(),
+                            entry -> { throw new AssertionError("cleanup Worker resolved a grant"); },
+                            entry -> { throw new AssertionError("cleanup Worker resolved a fence"); },
+                            entry -> { throw new AssertionError("cleanup Worker resolved expiry"); },
+                            entry -> { throw new AssertionError("cleanup Worker resolved Close"); },
+                            entry -> { throw new AssertionError("cleanup Worker resolved membership"); },
+                            (a, b, c) -> guard(),
+                            (a, b) -> guard(),
+                            entry -> { throw new AssertionError("cleanup Worker resolved a command"); }),
+                        new TargetSourceApplyRuntime.Limits(4096, 32L << 20, 60_000_000_000L, 16, 1),
+                        System::nanoTime);
+                final var pausedWorker = new TargetWorkerShardRuntime(
+                        () -> java.util.Optional.empty(),
+                        workerClasses,
+                        store,
+                        resources,
+                        cleanupRuntime,
+                        new TargetWorkerShardRuntime.Maintenance(
+                                new TargetCloseStore(backend, scope, lineage, 16, 1)
+                                        .reservationControls((reader, bound) -> java.util.Optional.empty()),
+                                new TargetReservationClosureWorkClassExecutor.Limits(
+                                        4096, 250_000, 60_000_000_000L),
+                                new TargetReservationExpiryWorkClassExecutor.Limits(
+                                        2048, 100_000, 60_000_000_000L),
+                                (a, b, c) -> guard(),
+                                ignored -> {},
+                                ignored -> {},
+                                ignored -> {},
+                                () -> 100));
+                pausedWorker.pauseNewTurns();
+                final var cleanupHost = TargetWorkerHostTestBridge.withoutMaintenanceTimer(
+                        workerClasses, resources, List.of(pausedWorker));
+                final var subscriptionClosed = new java.util.concurrent.atomic.AtomicBoolean();
+                final TargetWorkerOrdinaryDrr.Requests subscribedRequests = new TargetWorkerOrdinaryDrr.Requests() {
+                    @Override
+                    public java.util.Optional<TargetWorkerOrdinaryDrr.Request> resolve(
+                            final TargetWorkerShardRuntime shard,
+                            final com.nereusstream.delay.runtime.TargetHeadCostProbe.Cost cost) {
+                        return java.util.Optional.empty();
+                    }
+
+                    @Override
+                    public java.io.Closeable subscribeNativePolicyChanges(final Runnable wakeup) {
+                        return () -> subscriptionClosed.set(true);
+                    }
+                };
+                final var cacheConfigurationFailure = assertThrows(
+                        IllegalStateException.class,
+                        () -> cleanupHost.startOrdinaryScheduling(
+                                new TargetWorkerTargetInventory.Limits(
+                                        1, 16, 4, 8, 4096, 32L << 20, 60_000_000_000L),
+                                new TargetWorkerOrdinaryDrr.Limits(
+                                        100, 200, 200, 16, 4096, 32L << 20, 60_000_000_000L),
+                                new SchedulerBudget(100, 2_000_000, 60_000_000_000L),
+                                java.time.Duration.ofSeconds(10),
+                                subscribedRequests,
+                                ignored -> {},
+                                () -> 100,
+                                () -> 100,
+                                System::nanoTime,
+                                ignored -> {}));
+                assertEquals(
+                        "Target Worker source and maintenance admission is paused",
+                        cacheConfigurationFailure.getMessage());
+                assertTrue(subscriptionClosed.get());
+            }
+
             final var oldGc = runtime.newCloseGcExecutor(
                     workerClasses,
                     pendingCloseStore.reservationControls((reader, bound) -> java.util.Optional.empty()),
