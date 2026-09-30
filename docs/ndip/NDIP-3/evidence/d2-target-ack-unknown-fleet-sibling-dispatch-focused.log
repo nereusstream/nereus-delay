@@ -1,0 +1,14 @@
+Date: 2026-10-01
+Base revision: ed8491a41351a79da6b56dc2e9b4caa5d32b6e6b
+
+Command:
+./gradlew test --tests '*TargetWorkerShardFleetRuntimeTest.sourceAckUnknownOnOneShardDoesNotFenceTheNextFleetShard' checkstyleTest --console=plain
+
+Result: BUILD SUCCESSFUL in 21s. JUnit XML `build/test-results/test/TEST-com.nereusstream.delay.ownership.TargetWorkerShardFleetRuntimeTest.xml` reports 1 test, 0 failures, 0 errors, and 0 skips. `checkstyleTest` passed. `git diff --check` passed.
+
+The first fleet member returned `ACK_UNKNOWN` for a pending source entry. The test observed that the exact pending entry remained present and that the next fleet source turn invoked the second Shard, which returned `WAITING_FOR_SOURCE`. The first entry remained pending after the sibling turn.
+
+Evidence boundary: this is a focused `TargetWorkerShardFleetRuntimeTest` using the `ShardTurns` test double. It verifies fleet dispatch/cursor behavior only. It does not exercise an actual Target Worker, separate RocksDB Stores, a common physical Target across source Shards, Owner lease fencing, source apply/recovery, Broker behavior, Producer ownership, or shared-channel teardown. It is not D2 completion or centralized validation.
+
+Source SHA-256: src/test/java/com/nereusstream/delay/ownership/TargetWorkerShardFleetRuntimeTest.java 2307836a53d47635e58163f77c30633181bab6ca72ed28a810daaf4feb8df751
+Runtime SHA-256: src/main/java/com/nereusstream/delay/ownership/TargetWorkerShardFleetRuntime.java 262a3614e171535936e635e615949cef22f90d4973789b32b0aadb61168ca358

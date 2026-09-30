@@ -128,6 +128,40 @@ class TargetWorkerShardFleetRuntimeTest {
     }
 
     @Test
+    void sourceAckUnknownOnOneShardDoesNotFenceTheNextFleetShard() {
+        final var registry = registry();
+        try (var resources = new SharedRocksDbResources(
+                ShardStoreConfig.defaults(tempDir.resolve("source-ack-unknown")))) {
+            final var first = new StubShard(new ShardId(RouteIncarnation.random(), 1), registry, resources);
+            final var second = new StubShard(new ShardId(RouteIncarnation.random(), 2), registry, resources);
+            final var pending = new SourceReplayRecord(
+                    PreparedCommand.cancel(first.shard, DelayMessageId.random(first.shard), 0, 0),
+                    new KafkaSourcePosition(first.shard, "source-ack-unknown", UUID.randomUUID(), 1, null, 101),
+                    null,
+                    null);
+            first.pendingSource = pending;
+            first.nextSourceResult = new SourceApplyCoordinator.TurnResult(
+                    SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN,
+                    pending,
+                    null,
+                    null,
+                    new IllegalStateException("source acknowledgement response is uncertain"));
+            final var fleet = new TargetWorkerShardFleetRuntime(registry, resources, first, second);
+            final var budget = new SchedulerBudget(1, 1000, 1_000_000);
+
+            final var uncertain = fleet.runNextSourceTurn(budget, () -> 101);
+            assertEquals(first.shard, uncertain.shardId());
+            assertEquals(SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN, uncertain.result().status());
+            assertEquals(pending, first.pendingSourceEntry().orElseThrow());
+
+            final var sibling = fleet.runNextSourceTurn(budget, () -> 101);
+            assertEquals(second.shard, sibling.shardId());
+            assertEquals(SourceApplyCoordinator.TurnStatus.WAITING_FOR_SOURCE, sibling.result().status());
+            assertEquals(pending, first.pendingSourceEntry().orElseThrow());
+        }
+    }
+
+    @Test
     void sourceGcAndExpiryRotateIndependentlyAndFailureDoesNotPinAnotherShard() {
         final var registry = registry();
         try (var resources = new SharedRocksDbResources(ShardStoreConfig.defaults(tempDir))) {
@@ -990,6 +1024,8 @@ class TargetWorkerShardFleetRuntimeTest {
         private final AtomicInteger expiryMaintenanceTurns = new AtomicInteger();
         private final AtomicInteger expiryDrainTurns = new AtomicInteger();
         private final AtomicInteger sourceSettlementTurns = new AtomicInteger();
+        private volatile SourceApplyCoordinator.TurnResult nextSourceResult = new SourceApplyCoordinator.TurnResult(
+                SourceApplyCoordinator.TurnStatus.WAITING_FOR_SOURCE, null, null, null, null);
 
         private StubShard(
                 final ShardId shard,
@@ -1016,8 +1052,10 @@ class TargetWorkerShardFleetRuntimeTest {
         @Override
         public SourceApplyCoordinator.TurnResult runSourceTurn(
                 final SchedulerBudget budget, final LongSupplier ownerClock) {
-            return new SourceApplyCoordinator.TurnResult(
+            final SourceApplyCoordinator.TurnResult result = nextSourceResult;
+            nextSourceResult = new SourceApplyCoordinator.TurnResult(
                     SourceApplyCoordinator.TurnStatus.WAITING_FOR_SOURCE, null, null, null, null);
+            return result;
         }
 
         @Override
