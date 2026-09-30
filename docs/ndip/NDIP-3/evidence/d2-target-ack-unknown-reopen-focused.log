@@ -1,0 +1,18 @@
+Date: 2026-10-01
+Base revision: c61d9b3cdfea287d63deab698a8dc9c9c2752119
+
+Command:
+./gradlew test --tests 'com.nereusstream.delay.runtime.TargetCommandStoreTest.modifiesActualTimelineOrClaimWithHistoryAndFirstResults'
+
+Result: BUILD SUCCESSFUL; 5 parameterized cases passed, 0 failures, 0 errors, 0 skipped.
+
+The regression applies one new TIME_FENCE source entry to a real format-2 RocksDB Target Store, then injects an ACK UNKNOWN result. It verifies the source entry remains pending in the original Worker, the Store mutation sequence advances once, and the Store frontier matches that entry. The test then loses the old Owner/Worker state, reopens the same RocksDB Store under a replacement test Owner, and redelivers that exact source entry. The reopened Worker reads the persisted first result, confirms ACK, and leaves both native and shard mutation sequences unchanged.
+
+This is local single-Shard Store/Owner recovery evidence. Source redelivery/ACK and Owner lease are test fixtures; it does not exercise a real Broker ACK response loss, process-kill proxy, Claim/Admission/Producer ownership failure, uncertain Store write, multi-Shard interleaving/fencing, sibling-work deduplication, shared-channel teardown, or centralized validation. D2 remains IN_PROGRESS / PENDING_CENTRAL_VALIDATION.
+
+Source SHA-256: src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java 846dd57af30800822f607168504e4125d8ae7b9dd0e210fae984d9499d1848e3
+
+Checks:
+./gradlew checkstyleTest checkDocumentation --console=plain — BUILD SUCCESSFUL.
+python3 -m json.tool docs/ndip/NDIP-3/progress.json — PASS.
+git diff --check — PASS.

@@ -193,6 +193,7 @@ class TargetCommandStoreTest {
                 java.util.concurrent.atomic.AtomicBoolean throwTransitionAfterCommit,
                 java.util.concurrent.atomic.AtomicBoolean throwReleaseAfterCommit) {}
         final ReopenOwner[] reopenOwner = new ReopenOwner[1];
+        final SourceReplayMutation[] uncertainEntryForRecovery = new SourceReplayMutation[1];
         final Path physicalDb;
         try (var resources = new SharedRocksDbResources(config);
                 var store = ShardStore.openTarget(config, scope.shard(), resources)) {
@@ -5056,6 +5057,49 @@ class TargetCommandStoreTest {
                         throw new AssertionError("old Owner cannot complete Close");
                     },
                     () -> 100);
+            final var priorSource = (KafkaSourcePosition) store.appliedShardLogPosition();
+            final var uncertainAt = source(
+                    priorSource, priorSource.offset() + 1, priorSource.brokerLogAppendTimeEpochMs() + 1);
+            final long closeThrough = fifthReservation.expiryEpochMs() + 1;
+            final var uncertainProof = new TrustedUtcIntervalEvidence(
+                    closeThrough + 10,
+                    closeThrough + 15,
+                    TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                    bytes(32, 0x91),
+                    1,
+                    1,
+                    1,
+                    bytes(32, 0x92),
+                    0,
+                    new byte[0]);
+            final var uncertainBody = new TargetTimeFenceBody(
+                    scope.shard(), closeThrough + 1000, closeThrough, 1, uncertainProof);
+            final var uncertainMutation = SystemMutation.signed(
+                    scope.shard(),
+                    SystemMutationType.TIME_FENCE,
+                    uncertainBody.retryUntil(),
+                    uncertainBody.proofId(),
+                    uncertainBody.canonicalBytes(),
+                    AuthorIdentity.fence(bytes(32, 0x93), 1).canonicalBytes(),
+                    1,
+                    keys.getPrivate());
+            final var uncertainEntry = new SourceReplayMutation(uncertainMutation, uncertainAt, null, null);
+            uncertainEntryForRecovery[0] = uncertainEntry;
+            final var unknownAcknowledgements = new java.util.concurrent.atomic.AtomicInteger();
+            entries.add(new SourceRecordConsumer.PolledSourceRecord(uncertainEntry, (entry, outcome) -> {
+                assertEquals(uncertainEntry, entry);
+                assertEquals(StableCode.OK, outcome.systemMutationResult().stableCode());
+                unknownAcknowledgements.incrementAndGet();
+                return SourceAcknowledgement.AcknowledgementResult.unknown(null);
+            }));
+            final long beforeUncertainApply = store.shardMutationSequence();
+            final var uncertainTurn = loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100);
+            assertEquals(SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN, uncertainTurn.status());
+            assertEquals(uncertainEntry, loop.pendingEntry().orElseThrow());
+            assertEquals(1, unknownAcknowledgements.get());
+            assertEquals(beforeUncertainApply + 1, store.shardMutationSequence());
+            assertEquals(uncertainAt, store.appliedShardLogPosition());
+
             final long beforeOldOwnerLoss = store.latestSequenceNumber();
             final var oldQueued = oldGc.submit(
                     new TargetReservationClosureWorkClassExecutor.SweepRequest(scope.shard(), bytes(16, 0xe7)));
@@ -5066,7 +5110,7 @@ class TargetCommandStoreTest {
                     oldQueued.result().orElseThrow().kind());
             assertTrue(runtime.fenced());
             assertEquals(beforeOldOwnerLoss, store.latestSequenceNumber());
-            loop.close();
+            // Simulate process loss; the source fixture replays this unacknowledged entry after reopen.
         }
         TargetCheckpointRootVerifier.auditIndependentLedger(
                 physicalDb,
@@ -5242,10 +5286,22 @@ class TargetCommandStoreTest {
                     System::nanoTime);
             final var reopenedCursorDelta = new java.util.concurrent.atomic.AtomicReference<TargetQuotaDelta>();
             final var cutCurrent = new java.util.concurrent.atomic.AtomicBoolean(true);
+            final var replayPolls = new java.util.concurrent.atomic.AtomicInteger();
+            final var replayAcknowledgements = new java.util.concurrent.atomic.AtomicInteger();
+            final SourceReplayMutation replayedEntry = java.util.Objects.requireNonNull(
+                    uncertainEntryForRecovery[0], "uncertain source entry");
             final SourceRecordConsumer simulatedDurableSource = new SourceRecordConsumer() {
                 @Override
                 public java.util.Optional<PolledSourceRecord> poll() {
-                    return java.util.Optional.empty();
+                    if (replayPolls.getAndIncrement() != 0) {
+                        return java.util.Optional.empty();
+                    }
+                    return java.util.Optional.of(new PolledSourceRecord(replayedEntry, (entry, outcome) -> {
+                        assertEquals(replayedEntry, entry);
+                        assertEquals(StableCode.OK, outcome.systemMutationResult().stableCode());
+                        replayAcknowledgements.incrementAndGet();
+                        return SourceAcknowledgement.AcknowledgementResult.acked();
+                    }));
                 }
 
                 @Override
@@ -5292,12 +5348,22 @@ class TargetCommandStoreTest {
             final var reopenedFleet = new TargetWorkerShardFleetRuntime(
                     reopenedWorkClasses, reopened.sharedResources(), java.util.List.of(reopenedWorker));
             assertEquals(java.util.List.of(scope.shard()), reopenedFleet.shardIds());
+            final long beforeRecoverySequence = reopened.latestSequenceNumber();
+            final long beforeRecoveryMutation = reopened.shardMutationSequence();
+            final var recoveredSourceTurn = reopenedFleet.runNextSourceTurn(
+                    new SchedulerBudget(1, 1_000_000, 60_000_000_000L), () -> 101);
             assertEquals(
-                    SourceApplyCoordinator.TurnStatus.WAITING_FOR_SOURCE,
-                    reopenedFleet
-                            .runNextSourceTurn(new SchedulerBudget(1, 1, 60_000_000_000L), () -> 101)
-                            .result()
-                            .status());
+                    SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                    recoveredSourceTurn.result().status());
+            assertEquals(replayedEntry, recoveredSourceTurn.result().entry());
+            assertEquals(
+                    StableCode.OK,
+                    recoveredSourceTurn.result().appliedOutcome().systemMutationResult().stableCode());
+            assertEquals(1, replayPolls.get());
+            assertEquals(1, replayAcknowledgements.get());
+            assertEquals(beforeRecoverySequence, reopened.latestSequenceNumber());
+            assertEquals(beforeRecoveryMutation, reopened.shardMutationSequence());
+            assertEquals(replayedEntry.position(), reopened.appliedShardLogPosition());
             assertTrue(reopenedWorker.pendingSourceEntry().isEmpty());
             assertTrue(reopenedWorker
                     .settlePendingSourceTurn(new SchedulerBudget(1, 1, 60_000_000_000L), () -> 101)
