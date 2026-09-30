@@ -1,0 +1,23 @@
+Base revision: ab66423903f842b682a4e06661b97cf655f442ad
+TargetWorkerShardFactory.java SHA-256: 3197009994b2c9519a5582cda5acfcd8d994aafeed2181c2a94c13c6c973aea6
+TargetCommandStoreTest.java SHA-256: 1068b9f53601d2754e740ef8da1f9cab44161e6b553b42e9eb70ac7546ef7734
+KafkaClientArtifactTargetWorkerSourceFactory.java SHA-256: 2af4a95ee8108556a5a3cf8d8937e8c2f4b87231dfe54e3e5fc8444095a19f80
+PulsarClientArtifactTargetWorkerSourceFactory.java SHA-256: 42adfd9235e4055c9b1f9bde05a359edb2c1652e291a80c37eadf197c78c8141
+
+Core command:
+./gradlew test --tests '*TargetCommandStoreTest' --tests '*TargetQuotaGrantStoreTest' checkstyleTest --no-daemon --console=plain
+Result: BUILD SUCCESSFUL; TargetCommandStoreTest 5 tests, 0 failures/errors/skips; TargetQuotaGrantStoreTest 3 tests, 0 failures/errors, 1 skipped because real Oxia was not configured; checkstyleTest passed.
+
+Kafka source lock: nereus-delay-k1 HEAD 05849884ca81fad767fda058444d1e17c7f9cbf9; worktree clean.
+Kafka client JAR SHA-256: 1853eceecc76db8070a7c07c7897fc0eda45ad0bf15a95ae8100470ff43e5146
+GRADLE_USER_HOME=/tmp/nereus-delay-real-kafka-worker-factory-gradle ./gradlew compileRealKafka -PkafkaClientJar=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1/clients/build/libs/kafka-clients-4.4.0-SNAPSHOT.jar --no-daemon --console=plain
+Result: BUILD SUCCESSFUL.
+
+Pulsar source lock: nereus-delay-p1 HEAD 0a2536484cd3932801a98dc88ff112b2df88a1c7; worktree clean.
+Pulsar client JAR SHA-256: 57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c
+Pulsar API JAR SHA-256: f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394
+Pulsar common JAR SHA-256: 94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8
+GRADLE_USER_HOME=/tmp/nereus-delay-real-pulsar-worker-factory-gradle ./gradlew compileRealPulsar -PpulsarClientClasspath=/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-client/build/libs/pulsar-client-original-5.0.0-M1.jar:/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-client-api/build/libs/pulsar-client-api-5.0.0-M1.jar:/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-common/build/libs/pulsar-common-5.0.0-M1.jar --no-daemon --console=plain
+Result: BUILD SUCCESSFUL.
+
+No Target source factory was run against a real Kafka or Pulsar Broker. These factories require a caller-provided, already bootstrapped/reopened Target runtime with an active Owner; application-level bootstrap/Owner/host assembly, production Start/Commit authorities, Broker/recovery execution and migration remain pending. C5 remains IN_PROGRESS / PENDING_CENTRAL_VALIDATION.

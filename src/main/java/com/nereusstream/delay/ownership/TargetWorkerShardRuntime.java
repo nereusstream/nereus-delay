@@ -94,7 +94,7 @@ public final class TargetWorkerShardRuntime
     private TargetCheckpointCandidateWorkClassExecutor.Submission pendingCheckpoint;
     private SourceRecordConsumer.CheckpointCut preparedCheckpointCut;
 
-    public TargetWorkerShardRuntime(
+    TargetWorkerShardRuntime(
             final SourceRecordConsumer consumer,
             final WorkClassExecutionRegistry workClasses,
             final ShardStore store,

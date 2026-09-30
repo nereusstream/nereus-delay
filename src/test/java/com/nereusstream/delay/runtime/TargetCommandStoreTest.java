@@ -30,6 +30,7 @@ import com.nereusstream.delay.ownership.TargetReservationQueryWorkClassExecutor;
 import com.nereusstream.delay.ownership.TargetSourceApplyRuntime;
 import com.nereusstream.delay.ownership.TargetWorkerHostTestBridge;
 import com.nereusstream.delay.ownership.TargetWorkerOrdinaryDrr;
+import com.nereusstream.delay.ownership.TargetWorkerShardFactory;
 import com.nereusstream.delay.ownership.TargetWorkerShardFleetRuntime;
 import com.nereusstream.delay.ownership.TargetWorkerShardRuntime;
 import com.nereusstream.delay.ownership.TargetWorkerTargetInventory;
@@ -859,22 +860,65 @@ class TargetCommandStoreTest {
                                 }),
                         new TargetSourceApplyRuntime.Limits(4096, 32L << 20, 60_000_000_000L, 16, 1),
                         System::nanoTime);
-                final var claimWorker = new TargetWorkerShardRuntime(
+                final var wrongAssignment = new SourceAssignment(
+                        assignment.shardId(),
+                        bytes(32, 0x7d),
+                        assignment.assignmentEpoch() + 1,
+                        assignment.activationBarrier());
+                final var wrongSourceClosed = new java.util.concurrent.atomic.AtomicBoolean();
+                final SourceRecordConsumer wrongSource = new SourceRecordConsumer() {
+                    @Override
+                    public java.util.Optional<PolledSourceRecord> poll() {
+                        return java.util.Optional.empty();
+                    }
+
+                    @Override
+                    public void close() {
+                        wrongSourceClosed.set(true);
+                    }
+                };
+                final var maintenance = new TargetWorkerShardRuntime.Maintenance(
+                        new TargetCloseStore(backend, scope, lineage, 16, 1)
+                                .reservationControls((reader, bound) -> java.util.Optional.empty()),
+                        new TargetReservationClosureWorkClassExecutor.Limits(4096, 250_000, 60_000_000_000L),
+                        new TargetReservationExpiryWorkClassExecutor.Limits(2048, 100_000, 60_000_000_000L),
+                        (a, b, c) -> guard(),
+                        ignored -> {},
+                        ignored -> {},
+                        ignored -> {},
+                        () -> 100);
+                assertThrows(
+                        IllegalArgumentException.class,
+                        () -> TargetWorkerShardFactory.create(
+                                wrongSource,
+                                wrongAssignment,
+                                workerClasses,
+                                store,
+                                store.sharedResources(),
+                                claimRuntime,
+                                maintenance));
+                assertFalse(wrongSourceClosed.get());
+                try (var wrongResources = new SharedRocksDbResources(config)) {
+                    assertThrows(
+                            IllegalArgumentException.class,
+                            () -> TargetWorkerShardFactory.create(
+                                    wrongSource,
+                                    assignment,
+                                    workerClasses,
+                                    store,
+                                    wrongResources,
+                                    claimRuntime,
+                                    maintenance));
+                    assertTrue(wrongSourceClosed.get());
+                }
+                final var claimWorker = TargetWorkerShardFactory.create(
                         () -> java.util.Optional.empty(),
+                        claimRuntime.acceptedAssignment(),
                         workerClasses,
                         store,
                         store.sharedResources(),
                         claimRuntime,
-                        new TargetWorkerShardRuntime.Maintenance(
-                                new TargetCloseStore(backend, scope, lineage, 16, 1)
-                                        .reservationControls((reader, bound) -> java.util.Optional.empty()),
-                                new TargetReservationClosureWorkClassExecutor.Limits(4096, 250_000, 60_000_000_000L),
-                                new TargetReservationExpiryWorkClassExecutor.Limits(2048, 100_000, 60_000_000_000L),
-                                (a, b, c) -> guard(),
-                                ignored -> {},
-                                ignored -> {},
-                                ignored -> {},
-                                () -> 100));
+                        maintenance);
                 final var actualOwner =
                         new OwnerIdentity(bytes(16, 0x72), bytes(16, 0x73), active.ownerEpoch(), active.leaseToken());
                 final long beforeScan = store.latestSequenceNumber();
@@ -1478,8 +1522,9 @@ class TargetCommandStoreTest {
                                     }),
                             new TargetSourceApplyRuntime.Limits(4096, 32L << 20, 60_000_000_000L, 16, 1),
                             System::nanoTime);
-                    final var otherWorker = new TargetWorkerShardRuntime(
+                    final var otherWorker = TargetWorkerShardFactory.create(
                             () -> java.util.Optional.empty(),
+                            otherRuntime.acceptedAssignment(),
                             workerClasses,
                             otherStore,
                             resources,
@@ -2101,8 +2146,9 @@ class TargetCommandStoreTest {
                                     new TargetSourceApplyRuntime.Limits(
                                             4096, 32L << 20, 60_000_000_000L, 16, 1),
                                     System::nanoTime);
-                            final var replacementWorker = new TargetWorkerShardRuntime(
+                            final var replacementWorker = TargetWorkerShardFactory.create(
                                     () -> java.util.Optional.empty(),
+                                    replacementRuntime.acceptedAssignment(),
                                     workerClasses,
                                     replacementStore,
                                     resources,
@@ -2673,8 +2719,9 @@ class TargetCommandStoreTest {
                         throw new IllegalStateException("expiry discovery read authority unavailable");
                     }));
             assertEquals(beforeDiscoverySequence, store.latestSequenceNumber());
-            final var messageExpiryWorker = new TargetWorkerShardRuntime(
+            final var messageExpiryWorker = TargetWorkerShardFactory.create(
                     () -> java.util.Optional.empty(),
+                    runtime.acceptedAssignment(),
                     workerClasses,
                     store,
                     store.sharedResources(),
@@ -4894,8 +4941,9 @@ class TargetCommandStoreTest {
                             entry -> { throw new AssertionError("cleanup Worker resolved a command"); }),
                         new TargetSourceApplyRuntime.Limits(4096, 32L << 20, 60_000_000_000L, 16, 1),
                         System::nanoTime);
-                final var pausedWorker = new TargetWorkerShardRuntime(
+                final var pausedWorker = TargetWorkerShardFactory.create(
                         () -> java.util.Optional.empty(),
+                        cleanupRuntime.acceptedAssignment(),
                         workerClasses,
                         store,
                         resources,
@@ -5178,8 +5226,9 @@ class TargetCommandStoreTest {
                     };
                 }
             };
-            final var reopenedWorker = new TargetWorkerShardRuntime(
+            final var reopenedWorker = TargetWorkerShardFactory.create(
                     simulatedDurableSource,
+                    reopenedRuntime.acceptedAssignment(),
                     reopenedWorkClasses,
                     reopened,
                     reopened.sharedResources(),

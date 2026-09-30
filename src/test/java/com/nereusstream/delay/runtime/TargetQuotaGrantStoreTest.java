@@ -27,6 +27,7 @@ import com.nereusstream.delay.ownership.TargetReservationGcRuntime;
 import com.nereusstream.delay.ownership.TargetSourceApplyRuntime;
 import com.nereusstream.delay.ownership.TargetWorkerHostTestBridge;
 import com.nereusstream.delay.ownership.TargetWorkerOrdinaryDrr;
+import com.nereusstream.delay.ownership.TargetWorkerShardFactory;
 import com.nereusstream.delay.ownership.TargetWorkerShardRuntime;
 import com.nereusstream.delay.ownership.TargetWorkerTargetInventory;
 import com.nereusstream.delay.ownership.WorkerSourceApplyLoop;
@@ -323,8 +324,13 @@ class TargetQuotaGrantStoreTest {
                                 entry -> { throw new AssertionError("GC cannot resolve a command"); }),
                         new TargetSourceApplyRuntime.Limits(4096, 32L << 20, 60_000_000_000L, 16, 1),
                         System::nanoTime);
-                final var oldWorker = new TargetWorkerShardRuntime(
-                        () -> java.util.Optional.empty(), oldClasses, store, resources, oldRuntime,
+                final var oldWorker = TargetWorkerShardFactory.create(
+                        () -> java.util.Optional.empty(),
+                        oldRuntime.acceptedAssignment(),
+                        oldClasses,
+                        store,
+                        resources,
+                        oldRuntime,
                         new TargetWorkerShardRuntime.Maintenance(
                                 controls,
                                 new TargetReservationClosureWorkClassExecutor.Limits(
@@ -410,8 +416,13 @@ class TargetQuotaGrantStoreTest {
                     new TargetSourceApplyRuntime.Limits(4096, 32L << 20, 60_000_000_000L, 16, 1),
                     System::nanoTime);
             final var cursorDelta = new java.util.concurrent.atomic.AtomicReference<TargetQuotaDelta>();
-            final var worker = new TargetWorkerShardRuntime(
-                    () -> java.util.Optional.empty(), classes, reopened, resources, sourceRuntime,
+            final var worker = TargetWorkerShardFactory.create(
+                    () -> java.util.Optional.empty(),
+                    sourceRuntime.acceptedAssignment(),
+                    classes,
+                    reopened,
+                    resources,
+                    sourceRuntime,
                     new TargetWorkerShardRuntime.Maintenance(
                             controls,
                             new TargetReservationClosureWorkClassExecutor.Limits(4096, 250_000, 60_000_000_000L),
@@ -2056,8 +2067,9 @@ class TargetQuotaGrantStoreTest {
             assertEquals(
                     ApplyStatus.APPLIED,
                     SystemMutationResult.decode(first.typedPayload()).applyStatus());
-            final var sourceHostWorker = new TargetWorkerShardRuntime(
+            final var sourceHostWorker = TargetWorkerShardFactory.create(
                     () -> java.util.Optional.empty(),
+                    runtime.acceptedAssignment(),
                     workerClasses,
                     store,
                     store.sharedResources(),

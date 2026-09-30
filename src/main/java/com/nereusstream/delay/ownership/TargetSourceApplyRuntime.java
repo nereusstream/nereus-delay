@@ -364,6 +364,18 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         backend.bindTargetQueueHeadCache(targetQueueHeadCache);
     }
 
+    /** Requires a broker factory's accepted assignment to match this activated Target runtime exactly. */
+    public void requireAcceptedAssignment(final SourceAssignment acceptedAssignment) {
+        if (!assignment.sameIdentity(Objects.requireNonNull(acceptedAssignment, "acceptedAssignment"))) {
+            throw new IllegalArgumentException("Target source runtime uses a different accepted assignment");
+        }
+    }
+
+    /** Exact assignment whose activation barrier this runtime has validated against its Store frontier. */
+    public SourceAssignment acceptedAssignment() {
+        return assignment;
+    }
+
     synchronized void bindTargetQueueChangeSignal(final TargetStoreBackend.TargetQueueChangeSignal signal) {
         backend.bindTargetQueueChangeSignal(signal);
     }
