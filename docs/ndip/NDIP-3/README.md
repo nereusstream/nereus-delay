@@ -254,10 +254,11 @@ IN_PROGRESS。B7 已开始接入精确十文件包的 Draft/candidate 门禁；�
 实现/部署 authority，B1–B6 未闭合和实际接受决定前不得改为 Accepted。A2/A3、B4–B6、
 C–F 的未完成义务均保留，全部 29 项目标继续进行。
 
-B5 的真实双 RocksDB Worker/Host 回归现使同一物理 Target 的两个 Source Shard 持续有普通
-head 时连续取得五次 Claim，且成功机会在两个 Owner 间交替；`Q=Cmax` 时每次 Claim 只
-增加所属 Store 的 native sequence。该测试覆盖单 Target、双 Source Shard 的本地 Host/Store
-路径，不代表多 Target 公平性、生产 wakeup、Owner 换代或 Broker/恢复验证；B5 仍未闭合。
+B5 的真实 RocksDB Worker/Host 回归现让两个物理 Target 同时进入 ordinary loop，其中一个
+Target 跨两个 Source Shard；`Q=Cmax` 时连续五次 Claim 按 Target A/B/A/B/A 服务，Target A
+的后续机会也在两个 Shard 间轮转，每次 Claim 只增加所属 Store 的 native sequence。该结果
+覆盖两 Target、双 Source Shard 的本地机会顺序；生产 wakeup、墙钟公平界、Owner/Store 换代、
+Native/Producer 选择和 Broker/恢复仍未验证，B5 仍未闭合。
 
 B4 counter 基础批次完整 check 通过：1887 项 Java 测试、失败/错误 0、外部 skip 41；
 新增 21 项专项零 skip。24 条独立编码项与最大样本摘要、源码和全部 297 份 JUnit XML

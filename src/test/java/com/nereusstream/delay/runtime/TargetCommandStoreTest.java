@@ -272,7 +272,7 @@ class TargetCommandStoreTest {
                             8,
                             TargetPartitionPolicy.EXPLICIT_ONLY,
                             TargetPartitionHashInput.DELAY_MESSAGE_ID,
-                            List.of(5),
+                            List.of(5, 6),
                             capability.ref(),
                             3,
                             60000,
@@ -1252,6 +1252,189 @@ class TargetCommandStoreTest {
                                             ColumnFamily.ID, TargetKeyCodec.message(otherSchedule.delayMessageId())),
                                     TargetMessageRecord.VALUE_TYPE)
                             .payload());
+                    final long ordinaryClaimNow = Math.max(message.deliverAtEpochMs(), otherMessage.deliverAtEpochMs());
+                    final long otherTargetDeliverAt = Math.addExact(ordinaryClaimNow, 1000);
+                    final var otherPhysical = new CanonicalTargetPartition(
+                            physical.resource(), Math.addExact(physical.physicalPartition(), 1));
+                    final var otherPhysicalGrantRequest = new TargetQuotaGrantControlRequest(
+                            new TargetQuotaGrant(
+                                    otherScope.forTarget(otherPhysical.id()),
+                                    bytes(32, 0x9a),
+                                    1,
+                                    originalGrant.accounting(),
+                                    new TargetQuotaUsage(new CapacityVector(targetAmounts), 1, 64, 64, 64),
+                                    originalGrant.tenantPolicyVersion(),
+                                    originalGrant.tenantPolicyHash()),
+                            null,
+                            null);
+                    final var otherTargetGrantSigned = signed(otherPhysicalGrantRequest, bytes(32, 0x9b), actor, keys);
+                    registrations.register(otherTargetGrantSigned.control());
+                    final var otherTargetGrantAt = source(
+                            otherScheduleAt,
+                            otherScheduleAt.offset() + 1,
+                            otherScheduleAt.brokerLogAppendTimeEpochMs() + 1);
+                    final var otherPhysicalGrants = new TargetQuotaGrantStore(
+                            otherBackend, otherScope, otherLineage, 16, 1);
+                    assertEquals(
+                            StableCode.OK,
+                            otherPhysicalGrants
+                                    .commit(
+                                            otherPhysicalGrants.prepareFirst(
+                                                    budget(),
+                                                    otherTargetGrantSigned.control(),
+                                                    otherTargetGrantSigned.mutation(),
+                                                    otherTargetGrantAt,
+                                                    authority(
+                                                            registrations,
+                                                            keys,
+                                                            actor,
+                                                            otherTargetGrantAt,
+                                                            otherPhysicalGrantRequest,
+                                                            (a, b, c, d) -> {})),
+                                            (a, b, c) -> guard())
+                                    .stableCode());
+                    final var otherPhysicalGrantActivation = TargetQuotaGrantActivation.decode(
+                            TargetValueEnvelope.decode(
+                                    otherStore.get(
+                                            ColumnFamily.META,
+                                            Bytes.concat(
+                                                    new byte[] {TargetKeyCodec.QUOTA_GRANT_ACTIVATION_TAG, 1},
+                                                    otherPhysicalGrantRequest.next().scope().keySuffix())),
+                                    TargetQuotaGrantActivation.VALUE_TYPE)
+                            .payload());
+                    final var otherPhysicalControls = new TargetControlScope(
+                            otherPhysical.id(), otherShard, controls.controls(), controls.permits());
+                    final var otherDispatch = TargetDispatchCompatibility.fromProfiles(
+                            otherPhysical, destination, capability);
+                    final var otherTargetMembershipPolicy = new TargetMembershipPolicy(
+                            otherScope.tenantScope(),
+                            destination.ref(),
+                            otherDispatch.digest(),
+                            otherDispatch,
+                            otherPhysicalControls,
+                            bytes(32, 0x9c));
+                    final var otherTargetMembershipAt = source(
+                            otherTargetGrantAt,
+                            otherTargetGrantAt.offset() + 1,
+                            otherTargetGrantAt.brokerLogAppendTimeEpochMs() + 1);
+                    final var otherTargetMembership = new TargetMembershipGrant(
+                            otherScope.tenantScope(),
+                            destination.ref(),
+                            otherDispatch,
+                            otherDispatch,
+                            otherPhysicalControls,
+                            otherTargetMembershipPolicy.digest(),
+                            bytes(32, 0x9d),
+                            bytes(32, 0x9e),
+                            otherTargetMembershipAt);
+                    final var otherTargetQueue = new TargetQueueState(
+                            otherPhysical.id(),
+                            1,
+                            1,
+                            TargetQueueState.AdmissionState.OPEN,
+                            otherPhysicalGrantActivation.allocation().identity().accountingIncarnation(),
+                            0,
+                            List.of());
+                    new TargetMessageStore(otherBackend, 1, 1, 1)
+                            .applyAccounted(
+                                    budget(),
+                                    reader -> new TargetMessageStore.Input(
+                                            List.of(),
+                                            List.of(),
+                                            List.of(
+                                                    reader.replace(
+                                                            ColumnFamily.META,
+                                                            TargetKeyCodec.identity(otherPhysical.id()),
+                                                            CanonicalTargetPartition.VALUE_TYPE,
+                                                            otherPhysical.canonicalBytes()),
+                                                    reader.replace(
+                                                            ColumnFamily.META,
+                                                            TargetKeyCodec.state(otherPhysical.id()),
+                                                            TargetQueueState.VALUE_TYPE,
+                                                            otherTargetQueue.canonicalBytes()),
+                                                    reader.replace(
+                                                            ColumnFamily.META,
+                                                            otherDispatch.encodedKey(),
+                                                            TargetDispatchCompatibility.VALUE_TYPE,
+                                                            otherDispatch.canonicalBytes()),
+                                                    reader.replace(
+                                                            ColumnFamily.META,
+                                                            otherPhysicalControls.encodedKey(),
+                                                            TargetControlScope.VALUE_TYPE,
+                                                            otherPhysicalControls.canonicalBytes()),
+                                                    reader.replace(
+                                                            ColumnFamily.META,
+                                                            otherTargetMembershipPolicy.encodedKey(),
+                                                            TargetMembershipPolicy.VALUE_TYPE,
+                                                            otherTargetMembershipPolicy.canonicalBytes()),
+                                                    reader.replace(
+                                                            ColumnFamily.META,
+                                                            otherTargetMembership.encodedKey(),
+                                                            TargetMembershipGrant.VALUE_TYPE,
+                                                            otherTargetMembership.canonicalBytes()))),
+                                    new TargetSourceAccounting(
+                                            otherScope,
+                                            otherLineage,
+                                            otherTargetMembershipAt,
+                                            otherTargetMembership.sourceMutationDigest(),
+                                            16,
+                                            1,
+                                            1),
+                                    (a, b, c) -> guard());
+                    final var otherTargetScheduleAt = source(
+                            otherTargetMembershipAt,
+                            otherTargetMembershipAt.offset() + 1,
+                            otherTargetMembershipAt.brokerLogAppendTimeEpochMs() + 1);
+                    final var otherTargetIntent = CanonicalScheduleIntent.create(
+                            destination.ref(),
+                            priorIntent.retryPolicy(),
+                            otherTargetDeliverAt,
+                            otherTargetDeliverAt + 2000,
+                            priorIntent.deliveryMode(),
+                            priorIntent.orderingMode(),
+                            priorIntent.orderingKey(),
+                            model.inlinePayload(),
+                            null,
+                            priorIntent.adapterMetadata(),
+                            priorIntent.businessKey(),
+                            priorIntent.eventTimeEpochMs(),
+                            NativeDeliveryPolicy.FORBID);
+                    final var otherTargetSchedule = schedule(
+                            otherTargetIntent, otherSchedule.delayMessageId(), otherTargetScheduleAt, 43);
+                    final var otherTargetBinding = new TargetScheduleBinding(
+                            otherTargetSchedule.delayMessageId(),
+                            CommandType.SCHEDULE,
+                            otherTargetSchedule.canonicalBody(),
+                            otherTargetScheduleAt,
+                            otherPhysical.id(),
+                            initial.domain(),
+                            otherPhysicalGrantActivation.allocation().identity().accountingIncarnation(),
+                            otherDispatch.digest(),
+                            otherDispatch.digest(),
+                            otherPhysicalControls.digest(),
+                            otherTargetMembership.digest(),
+                            null,
+                            null);
+                    final var otherTargetAuthority = new TargetScheduleRegistration.Authority(
+                            otherTargetBinding, otherPhysical, destination, capability, otherProfiles, 60000);
+                    assertEquals(
+                            StableCode.SCHEDULED,
+                            otherCommands
+                                    .commit(
+                                            otherCommands.prepareFirst(
+                                                    budget(),
+                                                    otherTargetSchedule,
+                                                    otherTargetScheduleAt,
+                                                    otherPolicy,
+                                                    (reader, bound, source) -> false,
+                                                    (reader, bound) -> java.util.Optional.empty(),
+                                                    (incoming, source) -> new TargetCommandStore.ScheduleAdmission(
+                                                            StableCode.OK,
+                                                            otherTargetAuthority,
+                                                            TargetOrderState.OrderingContract.ADMISSION_WATERMARK),
+                                                    noProofs()),
+                                            (a, b, c) -> guard())
+                                    .stableCode());
                     final var otherAssignment = new SourceAssignment(
                             otherShard,
                             bytes(32, 0x83),
@@ -1345,8 +1528,18 @@ class TargetCommandStoreTest {
                             .domains()
                             .getFirst()
                             .ordinaryHead();
+                    final var otherTargetHead = otherWorker
+                            .readTargetQueue(budget(), otherPhysical.id(), () -> 100)
+                            .orElseThrow()
+                            .queue()
+                            .domains()
+                            .getFirst()
+                            .ordinaryHead();
                     final var otherHeadCost = otherWorker.probeSelectedHead(budget(), otherHead, () -> 100);
-                    final long schedulingCost = Math.max(headCost.schedulingCost(), otherHeadCost.schedulingCost());
+                    final var otherTargetHeadCost = otherWorker.probeSelectedHead(budget(), otherTargetHead, () -> 100);
+                    final long schedulingCost = Math.max(
+                            headCost.schedulingCost(),
+                            Math.max(otherHeadCost.schedulingCost(), otherTargetHeadCost.schedulingCost()));
                     final var ordinary = claimHost.newOrdinaryDrr(
                             inventory,
                             new TargetWorkerOrdinaryDrr.Limits(
@@ -1360,16 +1553,20 @@ class TargetCommandStoreTest {
                             () -> 100,
                             System::nanoTime);
                     final var claimBudget = new SchedulerBudget(1, schedulingCost, 60_000_000_000L);
-                    final long claimNow = Math.max(message.deliverAtEpochMs(), otherMessage.deliverAtEpochMs());
+                    final long claimNow = ordinaryClaimNow;
                     final var otherOwner = new OwnerIdentity(
                             bytes(16, 0x92), bytes(16, 0x93), otherActive.ownerEpoch(), otherActive.leaseToken());
                     final TargetWorkerOrdinaryDrr.Requests claimRequests = (shard, selected) -> {
                         final boolean first = shard == claimWorker;
                         assertTrue(first || shard == otherWorker);
-                        assertEquals(first ? selectedHead : otherHead, selected.head());
+                        if (first) {
+                            assertEquals(selectedHead, selected.head());
+                        } else {
+                            assertTrue(selected.head().equals(otherHead) || selected.head().equals(otherTargetHead));
+                        }
                         return java.util.Optional.of(new TargetWorkerOrdinaryDrr.Request(
                                 first ? actualOwner : otherOwner,
-                                claimNow + 1000,
+                                Math.max(claimNow, selected.head().timeEpochMs()) + 1000,
                                 bytes(32, first ? 0x71 : 0x91),
                                 (kind, delta) -> {},
                                 (a, b, c) -> guard()));
@@ -1465,7 +1662,7 @@ class TargetCommandStoreTest {
                             .resolve(shard, selected)
                             .map(requestForClaim -> new TargetWorkerOrdinaryDrr.Request(
                                     requestForClaim.owner(),
-                                    requestForClaim.deadlineEpochMs(),
+                                    Math.max(schedulerEpoch.get(), selected.head().timeEpochMs()) + 1000,
                                     bytes(32, 0xa4),
                                     requestForClaim.quota(),
                                     requestForClaim.physicalWrites()));
@@ -1640,9 +1837,9 @@ class TargetCommandStoreTest {
                         assertTrue(store.latestSequenceNumber() > afterRevoke);
                         assertEquals(otherBeforeRevoke, otherStore.latestSequenceNumber());
 
-                        // Keep both real RocksDB source Shards continuously eligible while the
-                        // Host loop is paused at each post-commit Claim handoff. With one physical
-                        // Target, two source Shards, and Q=Cmax, successful Claims must alternate.
+                        // Keep both physical Targets and both of Target A's source Shards eligible
+                        // while the Host loop is paused at each post-commit Claim handoff. With
+                        // Q=Cmax, physical Targets alternate and Target A rotates its source Shards.
                         claimHost.revokeClaim(
                                 otherWorker,
                                 budget(),
@@ -1661,13 +1858,18 @@ class TargetCommandStoreTest {
                                 () -> 100);
                         long firstBeforeNextClaim = store.latestSequenceNumber();
                         long otherBeforeNextClaim = otherStore.latestSequenceNumber();
+                        schedulerEpoch.set(otherTargetDeliverAt);
                         schedulerClaimGate.release();
                         for (int turn = 1; turn < 5; turn++) {
                             final var nextClaim = schedulerClaims.poll(5, java.util.concurrent.TimeUnit.SECONDS);
                             assertNotNull(
                                     nextClaim,
                                     () -> "ordinary scheduler failure: " + ordinaryLoop.firstFailure());
-                            final boolean firstClaimWorker = turn % 2 == 0;
+                            final boolean targetBClaim = turn % 2 == 1;
+                            assertEquals(
+                                    targetBClaim ? otherPhysical.id() : physical.id(),
+                                    nextClaim.selected().target());
+                            final boolean firstClaimWorker = turn == 4;
                             assertEquals(firstClaimWorker ? actualOwner : otherOwner, nextClaim.owner());
                             if (firstClaimWorker) {
                                 assertTrue(store.latestSequenceNumber() > firstBeforeNextClaim);
