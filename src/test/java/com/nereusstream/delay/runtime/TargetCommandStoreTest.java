@@ -876,6 +876,8 @@ class TargetCommandStoreTest {
                                 store.get(ColumnFamily.META, TargetKeyCodec.state(binding.target())),
                                 TargetQueueState.VALUE_TYPE)
                         .payload());
+                final var expectedSiblingCommand =
+                        new java.util.concurrent.atomic.AtomicReference<PreparedCommand>();
                 final var claimRuntime = new TargetSourceApplyRuntime(
                         initialized,
                         store,
@@ -900,7 +902,17 @@ class TargetCommandStoreTest {
                                 (a, b, c) -> guard(),
                                 (a, b) -> guard(),
                                 entry -> {
-                                    throw new AssertionError("Claim resolved a command");
+                                    final var expected = expectedSiblingCommand.get();
+                                    if (expected == null || !expected.equals(entry.command())) {
+                                        throw new AssertionError("Claim resolved an unexpected command");
+                                    }
+                                    return new TargetSourceApplyRuntime.CommandControl(
+                                            initialPolicy,
+                                            (reader, bound, source) -> false,
+                                            (reader, bound) -> java.util.Optional.empty(),
+                                            scheduleProvider,
+                                            noProofs(),
+                                            (a, b, c) -> guard());
                                 }),
                         new TargetSourceApplyRuntime.Limits(4096, 32L << 20, 60_000_000_000L, 16, 1),
                         System::nanoTime);
@@ -2391,6 +2403,55 @@ class TargetCommandStoreTest {
                             assertEquals(replacementSequenceAfterUnknown, replacementStore.latestSequenceNumber());
                             assertEquals(replayEntry, replacementWorker.pendingSourceEntry().orElseThrow());
                             assertTrue(replacementRuntime.fenced());
+
+                            if (!rescheduled && !strictOrderExpiry) {
+                                final var currentPosition = (KafkaSourcePosition) store.appliedShardLogPosition();
+                                final var siblingBusinessAt = source(
+                                        currentPosition,
+                                        currentPosition.offset() + 1,
+                                        currentPosition.brokerLogAppendTimeEpochMs() + 1);
+                                final var overQuotaSchedule =
+                                        schedule(intent, messageId, siblingBusinessAt, 7000);
+                                expectedSiblingCommand.set(overQuotaSchedule);
+                                final var overQuotaEntry = new SourceReplayRecord(
+                                        overQuotaSchedule, siblingBusinessAt, null, null);
+                                final var queueBeforeQuotaRejection =
+                                        store.get(ColumnFamily.META, TargetKeyCodec.state(binding.target()));
+                                final long sequenceBeforeQuotaRejection = store.latestSequenceNumber();
+                                final var siblingBusinessAcks = new java.util.concurrent.atomic.AtomicInteger();
+                                claimNextSourceRecord.set(new SourceRecordConsumer.PolledSourceRecord(
+                                        overQuotaEntry,
+                                        (entry, outcome) -> {
+                                            assertEquals(overQuotaEntry, entry);
+                                            assertEquals(siblingBusinessAt, outcome.position());
+                                            assertEquals(
+                                                    StableCode.HARD_QUOTA_EXCEEDED,
+                                                    outcome.commandResult().stableCode());
+                                            siblingBusinessAcks.incrementAndGet();
+                                            return SourceAcknowledgement.AcknowledgementResult.acked();
+                                        }));
+                                final var siblingBusinessTurn = claimWorker.runSourceTurn(
+                                        new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 101);
+                                assertEquals(
+                                        SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                                        siblingBusinessTurn.status());
+                                assertEquals(overQuotaEntry, siblingBusinessTurn.entry());
+                                assertEquals(
+                                        StableCode.HARD_QUOTA_EXCEEDED,
+                                        siblingBusinessTurn.appliedOutcome().commandResult().stableCode());
+                                assertEquals(1, siblingBusinessAcks.get());
+                                assertTrue(claimWorker.pendingSourceEntry().isEmpty());
+                                assertFalse(claimRuntime.fenced());
+                                assertTrue(replacementRuntime.fenced());
+                                assertEquals(siblingBusinessAt, store.appliedShardLogPosition());
+                                assertTrue(store.latestSequenceNumber() > sequenceBeforeQuotaRejection);
+                                assertNull(store.get(
+                                        ColumnFamily.ID,
+                                        TargetKeyCodec.message(overQuotaSchedule.delayMessageId())));
+                                assertArrayEquals(
+                                        queueBeforeQuotaRejection,
+                                        store.get(ColumnFamily.META, TargetKeyCodec.state(binding.target())));
+                            }
                         }
 
                         final long afterClaim = store.latestSequenceNumber();
@@ -2783,7 +2844,7 @@ class TargetCommandStoreTest {
                             .stableCode());
             assertEquals(afterQuota, store.latestSequenceNumber());
             assertEquals(5, resolutions.get());
-            assertEquals(2, scheduleResolutions.get());
+            assertEquals(2 + (claimed && !rescheduled && !strictOrderExpiry ? 1 : 0), scheduleResolutions.get());
             final var rejectedBinding = new TargetScheduleBinding(
                     overQuota.delayMessageId(),
                     CommandType.SCHEDULE,
@@ -2827,7 +2888,7 @@ class TargetCommandStoreTest {
             assertEquals(0, conflicted.generation());
             assertEquals(1, conflicted.stateVersion());
             assertEquals(MessageStatus.SCHEDULED, conflicted.messageStatus());
-            assertEquals(2, scheduleResolutions.get());
+            assertEquals(2 + (claimed && !rescheduled && !strictOrderExpiry ? 1 : 0), scheduleResolutions.get());
             final var expiryAt =
                     source(conflictAt, conflictAt.offset() + 1, conflictAt.brokerLogAppendTimeEpochMs() + 1);
             final var targetExpiryStore = new TargetExpireGenerationStore(backend, scope, lineage, 16, 1);
@@ -3554,7 +3615,7 @@ class TargetCommandStoreTest {
                             .commandResult()
                             .stableCode());
             assertEquals(afterPrepare, store.latestSequenceNumber());
-            assertEquals(6, scheduleResolutions.get());
+            assertEquals(6 + (claimed && !rescheduled && !strictOrderExpiry ? 1 : 0), scheduleResolutions.get());
             final var quotaAt = source(prepareAt, prepareAt.offset() + 1, prepareAt.brokerLogAppendTimeEpochMs() + 1);
             final var quotaMessage = new DelayMessageId(
                     cancel(locator.messageId(), quotaAt, 1600).commandId().bytes());

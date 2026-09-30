@@ -1,0 +1,14 @@
+Date: 2026-10-01
+Base revision: aa4389d03cfa0ab693853bbf977e1552e1921d5f
+Branch: main
+
+Command:
+./gradlew test --tests 'com.nereusstream.delay.runtime.TargetCommandStoreTest.modifiesActualTimelineOrClaimWithHistoryAndFirstResults' checkstyleTest --console=plain
+
+Result: BUILD SUCCESSFUL in 28s. The JUnit XML reports 5 parameterized cases, 0 failures, 0 errors, and 0 skips. checkstyleTest passed. The new source-apply path runs in the claimed=true, non-rescheduled, non-strict-order case.
+
+The test uses actual Target Worker runtimes and two RocksDB Shard Stores for the same Target ID. After the replacement Shard loses its in-memory test Owner lease and fences while retaining its pending ACK obligation, the still-active sibling applies a new source-ordered Schedule. The Target active-message quota is already full, so Source Apply returns HARD_QUOTA_EXCEEDED, advances the sibling source position, persists the command result, and leaves the new Message absent and the Target queue bytes unchanged. The sibling ACK succeeds and the replacement runtime remains fenced. The test resolver admits only this exact new command; unexpected command resolution remains a failure.
+
+Evidence boundary: this verifies a new source command and deterministic quota rejection through a local RocksDB/Worker path. Owner, source and ACK authorities are test fixtures; it does not produce a new Message or Producer send. It does not verify live Oxia Owner fencing, network-level Broker ACK loss, process termination, Claim/Admission/Producer ownership failures, shared-channel teardown, Broker recovery, or centralized validation. D2 remains IN_PROGRESS / PENDING_CENTRAL_VALIDATION.
+
+Test source SHA-256: src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java 703c52de61c32a284d6c77018f2a8402dc3eb233302634192c99744fcc2ea41b
