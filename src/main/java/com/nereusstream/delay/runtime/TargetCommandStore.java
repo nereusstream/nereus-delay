@@ -177,7 +177,7 @@ public final class TargetCommandStore {
         if (scope.target() != null
                 || maximumCounters < 2
                 || maximumDomains < 1
-                || maximumDomains > 64
+                || maximumDomains > TargetQueueState.MAX_DOMAIN_SLOTS
                 || Arrays.equals(lineage, new byte[16])) {
             throw new IllegalArgumentException("first Command needs bounded Shard accounting");
         }

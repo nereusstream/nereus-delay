@@ -18,6 +18,7 @@ import com.nereusstream.delay.protocol.TargetHeadRef;
 import com.nereusstream.delay.protocol.TargetMembershipControlBody;
 import com.nereusstream.delay.protocol.TargetNativePolicyControlBody;
 import com.nereusstream.delay.protocol.TargetPartitionId;
+import com.nereusstream.delay.protocol.TargetQueueState;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlBody;
 import com.nereusstream.delay.protocol.TargetQuotaIncarnation;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
@@ -71,7 +72,12 @@ import java.util.function.LongSupplier;
 public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     public record Limits(int records, long bytes, long elapsedNanos, int counters, int domains) {
         public Limits {
-            if (records <= 0 || bytes <= 0 || elapsedNanos <= 0 || counters < 2 || domains < 1 || domains > 64) {
+            if (records <= 0
+                    || bytes <= 0
+                    || elapsedNanos <= 0
+                    || counters < 2
+                    || domains < 1
+                    || domains > TargetQueueState.MAX_DOMAIN_SLOTS) {
                 throw new IllegalArgumentException("Target source runtime requires finite positive limits");
             }
         }
