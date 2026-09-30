@@ -85,6 +85,7 @@ import com.nereusstream.delay.protocol.SystemMutationType;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.runtime.DelayShard;
 import com.nereusstream.delay.runtime.DelayShardConfig;
+import com.nereusstream.delay.runtime.HeadReadPolicy;
 import com.nereusstream.delay.runtime.LaneRecord;
 import com.nereusstream.delay.runtime.MessageStatus;
 import com.nereusstream.delay.runtime.ScheduleResolver;
@@ -266,7 +267,16 @@ public final class KafkaClientArtifactWorkerSmoke {
                                 DelayShardConfig.defaults(),
                                 null,
                                 null,
-                                scheduleResolver(clusterId, destinationTopicId, destinationPhysicalTopic));
+                                scheduleResolver(clusterId, destinationTopicId, destinationPhysicalTopic),
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                new HeadReadPolicy(4096, 64L << 20, TimeUnit.SECONDS.toNanos(60)));
                         final OwnerIdentity ownerIdentity = new OwnerIdentity(
                                 bytes(16, 70),
                                 bytes(16, 71),

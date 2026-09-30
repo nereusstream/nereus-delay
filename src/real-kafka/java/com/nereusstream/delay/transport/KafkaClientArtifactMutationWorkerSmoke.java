@@ -45,6 +45,7 @@ import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.runtime.ApplyStatus;
 import com.nereusstream.delay.runtime.DelayShard;
 import com.nereusstream.delay.runtime.DelayShardConfig;
+import com.nereusstream.delay.runtime.HeadReadPolicy;
 import com.nereusstream.delay.runtime.SystemMutationResult;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClass;
@@ -170,8 +171,10 @@ public final class KafkaClientArtifactMutationWorkerSmoke {
                             ShardStore store = ShardStore.open(storeConfig, shard, resources)) {
                         resources.bindWorkClassExecutionRegistry(workClasses);
                         store.recordControlSnapshot(controlSnapshot);
-                        final DelayShard delayShard =
-                                new DelayShard(store, DelayShardConfig.defaults(), null, null, scheduleResolver());
+                        final DelayShard delayShard = new DelayShard(
+                                store,
+                                DelayShardConfig.defaults(),
+                                new HeadReadPolicy(4096, 64L << 20, TimeUnit.SECONDS.toNanos(60)));
                         final OwnedDelayShard ownedShard = new OwnedDelayShard(
                                 delayShard,
                                 lease,
@@ -607,31 +610,6 @@ public final class KafkaClientArtifactMutationWorkerSmoke {
         configuration.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class);
         configuration.put(ProducerConfig.CLIENT_ID_CONFIG, "nereus-delay-mutation-worker-smoke");
         return new KafkaProducer<>(configuration, new ByteArraySerializer(), new ByteArraySerializer());
-    }
-
-    private static com.nereusstream.delay.runtime.ScheduleResolver scheduleResolver() {
-        final byte[] tuple = Bytes.utf8("kafka-mutation-worker-canonical-lane-tuple");
-        final com.nereusstream.delay.protocol.DestinationLaneId lane =
-                com.nereusstream.delay.protocol.DestinationLaneId.derive(tuple);
-        return new com.nereusstream.delay.runtime.ScheduleResolver() {
-            @Override
-            public ResolvedSchedule resolveSchedule(
-                    final ShardId shard,
-                    final com.nereusstream.delay.protocol.DelayMessageId message,
-                    final com.nereusstream.delay.protocol.CanonicalScheduleIntent intent,
-                    final com.nereusstream.delay.protocol.SourcePosition source) {
-                return new ResolvedSchedule(lane, tuple, intent.inlinePayload(), null);
-            }
-
-            @Override
-            public ResolvedPrepare resolvePrepare(
-                    final ShardId shard,
-                    final com.nereusstream.delay.protocol.DelayMessageId message,
-                    final com.nereusstream.delay.protocol.PrepareLargeScheduleBody body,
-                    final com.nereusstream.delay.protocol.SourcePosition source) {
-                return new ResolvedPrepare(lane, tuple);
-            }
-        };
     }
 
     private static CompatibleControlSnapshot controlSnapshot(final ShardId shard) {
