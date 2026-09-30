@@ -27,6 +27,7 @@ import com.nereusstream.delay.ownership.TargetReservationGcRuntime;
 import com.nereusstream.delay.ownership.TargetSourceApplyRuntime;
 import com.nereusstream.delay.ownership.TargetWorkerHostTestBridge;
 import com.nereusstream.delay.ownership.TargetWorkerOrdinaryDrr;
+import com.nereusstream.delay.ownership.TargetWorkerOwnerActivation;
 import com.nereusstream.delay.ownership.TargetWorkerShardFactory;
 import com.nereusstream.delay.ownership.TargetWorkerShardRuntime;
 import com.nereusstream.delay.ownership.TargetWorkerTargetInventory;
@@ -368,12 +369,10 @@ class TargetQuotaGrantStoreTest {
             assertTrue(leases.current(scope.shard()).isEmpty());
             assertEquals(oldActive.ownerEpoch(), reopened.runtimeMetadata().lastOpenedOwnerEpoch());
             final long now = System.currentTimeMillis();
-            final var replacement = leases.transition(
-                            leases.acquire(secondAssignment, "target-root-b", second.sessionIdentity(), now, 60_000)
-                                    .orElseThrow(),
-                            ShardLifecycleState.ACTIVE_FOR_COMMANDS)
+            final var acquiring = leases.acquire(
+                            secondAssignment, "target-root-b", second.sessionIdentity(), now, 60_000)
                     .orElseThrow();
-            assertTrue(Long.compareUnsigned(replacement.ownerEpoch(), oldActive.ownerEpoch()) > 0);
+            assertTrue(Long.compareUnsigned(acquiring.ownerEpoch(), oldActive.ownerEpoch()) > 0);
             final long beforeRejectedRead = reopened.latestSequenceNumber();
             assertThrows(
                     IllegalStateException.class,
@@ -381,19 +380,25 @@ class TargetQuotaGrantStoreTest {
                             reopened, scope, limits, budget(),
                             (metadata, actualScope) -> ownerGuard(leases, oldActive)));
             assertEquals(beforeRejectedRead, reopened.latestSequenceNumber());
-            reopened.recordOpenedOwnerEpoch(replacement.ownerEpoch());
             final var recovered = TargetStoreBootstrap.reopen(
                     reopened, scope, limits, budget(), (metadata, actualScope) -> {
-                        if (!scope.equals(actualScope)
-                                || reopened.runtimeMetadata().lastOpenedOwnerEpoch() != replacement.ownerEpoch()) {
-                            throw new IllegalStateException("Target reopen has another scope or Owner epoch");
+                        if (!scope.equals(actualScope)) {
+                            throw new IllegalStateException("Target reopen has another scope");
                         }
-                        return ownerGuard(leases, replacement);
+                        return ownerGuard(leases, acquiring, ShardLifecycleState.ACQUIRING);
                     });
             assertArrayEquals(lineage, recovered.root().recoveryLineage());
             assertArrayEquals(originalRoot, recovered.root().canonicalBytes());
             assertArrayEquals(closeAt.canonicalBytes(), reopened.appliedShardLogPosition().canonicalBytes());
             assertEquals(4, reopened.shardMutationSequence());
+            assertEquals(oldActive.ownerEpoch(), reopened.runtimeMetadata().lastOpenedOwnerEpoch());
+            final var replacement = TargetWorkerOwnerActivation.activate(
+                    recovered, reopened, secondAssignment, acquiring, leases, System::currentTimeMillis);
+            assertEquals(ShardLifecycleState.ACTIVE_FOR_COMMANDS, replacement.state());
+            assertEquals(replacement.ownerEpoch(), reopened.runtimeMetadata().lastOpenedOwnerEpoch());
+            assertTrue(TargetWorkerOwnerActivation.activate(
+                            recovered, reopened, secondAssignment, acquiring, leases, System::currentTimeMillis)
+                    .sameIdentity(replacement));
             final var closeStore = new TargetCloseStore(recovered.backend(), scope, lineage, 16, 1);
             final var controls = closeStore.reservationControls((reader, binding) -> java.util.Optional.empty());
             final var closures = new TargetReservationClosureStore(recovered.backend(), scope, lineage, 1, controls);
@@ -3502,12 +3507,19 @@ class TargetQuotaGrantStoreTest {
 
     private static TargetStoreBackend.CommitGuard ownerGuard(
             final OxiaOwnerLeaseStore leases, final OwnerLease expected) {
+        return ownerGuard(leases, expected, ShardLifecycleState.ACTIVE_FOR_COMMANDS);
+    }
+
+    private static TargetStoreBackend.CommitGuard ownerGuard(
+            final OxiaOwnerLeaseStore leases,
+            final OwnerLease expected,
+            final ShardLifecycleState requiredState) {
         return new TargetStoreBackend.CommitGuard() {
             @Override
             public void requireCurrent() {
                 final OwnerLease current = leases.current(expected.shardId()).orElseThrow();
                 if (!expected.sameIdentity(current)
-                        || current.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS
+                        || current.state() != requiredState
                         || !current.validAt(System.currentTimeMillis())) {
                     throw new IllegalStateException("Target Owner lease changed before Store access");
                 }
