@@ -1468,17 +1468,33 @@ class TargetCommandStoreTest {
                                     bytes(32, 0xa4),
                                     requestForClaim.quota(),
                                     requestForClaim.physicalWrites()));
+                    final var ordinaryInventoryLimits = new TargetWorkerTargetInventory.Limits(
+                            2, 16, 4, 8, 4096, 32L << 20, 60_000_000_000L);
+                    final var ordinaryDrrLimits = new TargetWorkerOrdinaryDrr.Limits(
+                            schedulingCost,
+                            schedulingCost,
+                            schedulingCost,
+                            16,
+                            4096,
+                            32L << 20,
+                            60_000_000_000L);
+                    assertThrows(
+                            IllegalArgumentException.class,
+                            () -> claimHost.startOrdinaryScheduling(
+                                    new TargetWorkerTargetInventory.Limits(
+                                            2, 8, 4, 8, 4096, 32L << 20, 60_000_000_000L),
+                                    ordinaryDrrLimits,
+                                    new SchedulerBudget(1, schedulingCost - 1, 60_000_000_000L),
+                                    java.time.Duration.ofSeconds(10),
+                                    retryClaimRequests,
+                                    ignored -> {},
+                                    () -> 100,
+                                    schedulerEpoch::get,
+                                    System::nanoTime,
+                                    ignored -> {}));
                     final var ordinaryLoop = claimHost.startOrdinaryScheduling(
-                            new TargetWorkerTargetInventory.Limits(
-                                    2, 16, 4, 8, 4096, 32L << 20, 60_000_000_000L),
-                            new TargetWorkerOrdinaryDrr.Limits(
-                                    schedulingCost,
-                                    schedulingCost,
-                                    schedulingCost,
-                                    16,
-                                    4096,
-                                    32L << 20,
-                                    60_000_000_000L),
+                            ordinaryInventoryLimits,
+                            ordinaryDrrLimits,
                             claimBudget,
                             java.time.Duration.ofSeconds(10),
                             retryClaimRequests,

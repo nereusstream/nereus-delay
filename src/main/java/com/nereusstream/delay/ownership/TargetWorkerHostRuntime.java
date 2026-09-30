@@ -258,6 +258,7 @@ public final class TargetWorkerHostRuntime {
         if (ordinaryLoop != null) {
             throw new IllegalStateException("Target host ordinary scheduler is already started");
         }
+        TargetWorkerOrdinaryLoop.requireCompatibleTurnBudget(drrLimits, turnBudget);
         targetQueueChangeSignal.configureTargetLimit(inventoryLimits.maximumTargets());
         for (Shard shard : shards) {
             if (shard instanceof TargetWorkerShardRuntime worker

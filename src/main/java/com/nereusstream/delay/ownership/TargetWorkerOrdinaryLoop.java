@@ -87,6 +87,16 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
         return loop;
     }
 
+    static void requireCompatibleTurnBudget(
+            final TargetWorkerOrdinaryDrr.Limits drrLimits, final SchedulerBudget turnBudget) {
+        final var limits = Objects.requireNonNull(drrLimits, "drrLimits");
+        final var budget = Objects.requireNonNull(turnBudget, "turnBudget");
+        if (budget.maxBytes() < limits.sendEnvelopeBytes()
+                || budget.maxElapsedNanos() < limits.readElapsedNanos()) {
+            throw new IllegalArgumentException("ordinary turn budget cannot serve the activated Target envelope");
+        }
+    }
+
     private TargetWorkerOrdinaryLoop(
             final TargetWorkerHostRuntime host,
             final TargetWorkerTargetInventory.Limits inventoryLimits,
@@ -118,10 +128,7 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
         } catch (ArithmeticException overflow) {
             throw new IllegalArgumentException("Target ordinary recheck interval exceeds nanoseconds", overflow);
         }
-        if (turnBudget.maxBytes() < drrLimits.sendEnvelopeBytes()
-                || turnBudget.maxElapsedNanos() < drrLimits.readElapsedNanos()) {
-            throw new IllegalArgumentException("ordinary turn budget cannot serve the activated Target envelope");
-        }
+        requireCompatibleTurnBudget(drrLimits, turnBudget);
         final long targets = inventoryLimits.maximumTargets();
         maximumRecoveryTurns = Math.addExact(targets, 1);
         final long creditRounds = 1 + (drrLimits.maximumCostBytes() - 1) / drrLimits.quantumBytes();
