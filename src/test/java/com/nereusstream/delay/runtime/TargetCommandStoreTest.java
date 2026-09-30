@@ -2352,22 +2352,27 @@ class TargetCommandStoreTest {
                             assertEquals(replayEntry, replacementWorker.pendingSourceEntry().orElseThrow());
                             assertEquals(replacementSequenceAfterUnknown, replacementStore.latestSequenceNumber());
 
-                            final var acknowledgedTurn = actualFleet.runNextSourceTurn(
+                            assertTrue(leases.release(replacementActive));
+                            final long replacementMutationsBeforeLostOwnerRetry =
+                                    replacementStore.shardMutationSequence();
+                            final var lostOwnerRetry = actualFleet.runNextSourceTurn(
                                     new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 101);
-                            assertEquals(otherShard, acknowledgedTurn.shardId());
+                            assertEquals(otherShard, lostOwnerRetry.shardId());
                             assertEquals(
-                                    SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
-                                    acknowledgedTurn.result().status());
-                            assertEquals(replayEntry, acknowledgedTurn.result().entry());
-                            assertEquals(2, replacementAcknowledgements.get());
-                            assertTrue(replacementWorker.pendingSourceEntry().isEmpty());
-                            assertFalse(replacementRuntime.fenced());
-                            assertEquals(replayAt, replacementStore.appliedShardLogPosition());
+                                    SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN,
+                                    lostOwnerRetry.result().status());
+                            assertEquals(replayEntry, lostOwnerRetry.result().entry());
+                            assertEquals(1, replacementAcknowledgements.get());
+                            assertEquals(replayEntry, replacementWorker.pendingSourceEntry().orElseThrow());
+                            assertTrue(replacementRuntime.fenced());
                             assertEquals(
                                     replacementMutationsBeforeUnknown + 1,
                                     replacementStore.shardMutationSequence());
                             assertEquals(replacementSequenceAfterUnknown, replacementStore.latestSequenceNumber());
-                            assertEquals(mainSequenceAfterSibling, store.latestSequenceNumber());
+                            assertEquals(
+                                    replacementMutationsBeforeLostOwnerRetry,
+                                    replacementStore.shardMutationSequence());
+                            assertFalse(claimRuntime.fenced());
                             assertEquals(siblingReplayEntry, claimWorker.pendingSourceEntry().orElseThrow());
 
                             final var acknowledgedSiblingTurn = actualFleet.runNextSourceTurn(
@@ -2384,15 +2389,8 @@ class TargetCommandStoreTest {
                             assertEquals(mainSequenceAfterSibling, store.latestSequenceNumber());
                             assertEquals(mainMutationsBeforeSibling + 1, store.shardMutationSequence());
                             assertEquals(replacementSequenceAfterUnknown, replacementStore.latestSequenceNumber());
-
-                            final var replacementWorkerDrain = claimHost.drainShard(
-                                    replacementWorker,
-                                    new TargetOwnerDrainCoordinator.Request(
-                                            5_000,
-                                            new SchedulerBudget(16, 32L << 20, 60_000_000_000L)),
-                                    new SchedulerBudget(16, 32L << 20, 60_000_000_000L),
-                                    () -> 101);
-                            assertTrue(replacementWorkerDrain.complete());
+                            assertEquals(replayEntry, replacementWorker.pendingSourceEntry().orElseThrow());
+                            assertTrue(replacementRuntime.fenced());
                         }
 
                         final long afterClaim = store.latestSequenceNumber();
