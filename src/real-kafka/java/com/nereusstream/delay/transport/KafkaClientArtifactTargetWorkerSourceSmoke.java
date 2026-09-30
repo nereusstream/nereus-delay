@@ -199,11 +199,11 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                 deleteTree(storeRoot);
             }
             System.out.println(
-                    "Kafka Target source factory: first grant at offset 0; Cancel at offset 1 applied before an "
-                            + "injected pre-commit ACK UNKNOWN;");
+                    "Kafka Target source factory: first grant at offset 0; Cancel at offset 1 applied before a "
+                            + "simulated lost commitSync response;");
             System.out.println(
                     "  replacement Owner reopened RocksDB, replayed the exact Broker record without a second "
-                            + "Store write, then committed Kafka group offset 2; TopicId/partition guard verified.");
+                            + "Store write, and confirmed Kafka group offset 2; TopicId/partition guard verified.");
             } finally {
                 try {
                     admin.deleteTopics(List.of(topic)).all().get(30, TimeUnit.SECONDS);
@@ -386,8 +386,8 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                     new TargetSourceApplyRuntime.Limits(2048, 16L << 20, 60_000_000_000L, 16, 1),
                     System::nanoTime);
             final var consumer = newSourceConsumer(bootstrap, groupId, clusterId, topic, topicId, scope.shard());
-            final var ackUnknownInjected = new AtomicBoolean();
-            final var guardedConsumer = failBeforeFirstCommit(consumer, ackUnknownInjected);
+            final var ackResponseLost = new AtomicBoolean();
+            final var guardedConsumer = loseFirstCommitSyncResponse(consumer, ackResponseLost);
             final var maintenance = new TargetWorkerShardRuntime.Maintenance(
                     closeControls,
                     new com.nereusstream.delay.ownership.TargetReservationClosureWorkClassExecutor.Limits(
@@ -425,12 +425,13 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                         || !exactCommand
                         || !exactPosition
                         || result.appliedOutcome() != null
-                        || !ackUnknownInjected.get()) {
+                        || !ackResponseLost.get()) {
                     throw new IllegalStateException(
-                            "real Kafka Target Worker did not apply the exact command before ACK UNKNOWN: status="
+                            "real Kafka Target Worker did not preserve ACK UNKNOWN after commitSync: status="
                                     + result.status() + ", exactCommand=" + exactCommand + ", exactPosition="
-                                    + exactPosition + ", appliedOutcome=" + result.appliedOutcome() + ", ackInjected="
-                                    + ackUnknownInjected.get() + ", entry=" + result.entry() + ", failure="
+                                    + exactPosition + ", appliedOutcome=" + result.appliedOutcome()
+                                    + ", ackResponseLost=" + ackResponseLost.get() + ", entry=" + result.entry()
+                                    + ", failure="
                                     + result.failure());
                 }
                 final var applied = store.appliedShardLogPosition();
@@ -442,8 +443,9 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                         .partitionsToOffsetAndMetadata()
                         .get(10, TimeUnit.SECONDS);
                 final var committed = committedOffsets.get(new TopicPartition(topic, scope.shard().partition()));
-                if (committed != null) {
-                    throw new IllegalStateException("Kafka group offset advanced before the injected ACK commit");
+                if (committed == null || committed.offset() != commandOffset + 1) {
+                    throw new IllegalStateException(
+                            "Kafka commitSync delegate did not commit before the injected response loss");
                 }
             } finally {
                 if (worker.pendingSourceEntry().isPresent()) {
@@ -657,7 +659,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
     }
 
     @SuppressWarnings("unchecked")
-    private static GuardedConsumer<byte[], byte[]> failBeforeFirstCommit(
+    private static GuardedConsumer<byte[], byte[]> loseFirstCommitSyncResponse(
             final GuardedConsumer<byte[], byte[]> delegate, final AtomicBoolean observed) {
         final var injected = new AtomicBoolean();
         return (GuardedConsumer<byte[], byte[]>) Proxy.newProxyInstance(
@@ -667,8 +669,13 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                     if (method.getName().equals("commitSync")
                             && method.getParameterCount() == 1
                             && injected.compareAndSet(false, true)) {
+                        try {
+                            method.invoke(delegate, arguments);
+                        } catch (InvocationTargetException failure) {
+                            throw failure.getCause();
+                        }
                         observed.set(true);
-                        throw new IllegalStateException("injected before Kafka source commitSync");
+                        throw new IllegalStateException("simulated lost response after Kafka commitSync returned");
                     }
                     try {
                         return method.invoke(delegate, arguments);
