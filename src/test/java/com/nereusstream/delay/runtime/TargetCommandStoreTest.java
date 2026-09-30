@@ -1658,14 +1658,34 @@ class TargetCommandStoreTest {
                     final long schedulerDeadline = claimNow;
                     final var schedulerEpoch = new java.util.concurrent.atomic.AtomicLong(
                             Math.max(0, schedulerDeadline - 100));
-                    final TargetWorkerOrdinaryDrr.Requests retryClaimRequests = (shard, selected) -> claimRequests
-                            .resolve(shard, selected)
-                            .map(requestForClaim -> new TargetWorkerOrdinaryDrr.Request(
-                                    requestForClaim.owner(),
-                                    Math.max(schedulerEpoch.get(), selected.head().timeEpochMs()) + 1000,
+                    final var schedulerOwnerEpoch = new java.util.concurrent.atomic.AtomicLong(100);
+                    final var replacementLoopOnly = new java.util.concurrent.atomic.AtomicBoolean();
+                    final var replacementLoopShard = new java.util.concurrent.atomic.AtomicReference<
+                            TargetWorkerShardRuntime>();
+                    final var replacementLoopOwner = new java.util.concurrent.atomic.AtomicReference<>(otherOwner);
+                    final TargetWorkerOrdinaryDrr.Requests retryClaimRequests = (shard, selected) -> {
+                        if (replacementLoopOnly.get()) {
+                            if (shard != replacementLoopShard.get()
+                                    || !selected.head().target().equals(physical.id())) {
+                                return java.util.Optional.empty();
+                            }
+                            return java.util.Optional.of(new TargetWorkerOrdinaryDrr.Request(
+                                    replacementLoopOwner.get(),
+                                    Math.addExact(
+                                            Math.max(schedulerEpoch.get(), selected.head().timeEpochMs()), 1000),
                                     bytes(32, 0xa4),
-                                    requestForClaim.quota(),
-                                    requestForClaim.physicalWrites()));
+                                    (kind, delta) -> {},
+                                    (a, b, c) -> guard()));
+                        }
+                        return claimRequests.resolve(shard, selected)
+                                .map(requestForClaim -> new TargetWorkerOrdinaryDrr.Request(
+                                        requestForClaim.owner(),
+                                        Math.addExact(
+                                                Math.max(schedulerEpoch.get(), selected.head().timeEpochMs()), 1000),
+                                        bytes(32, 0xa4),
+                                        requestForClaim.quota(),
+                                        requestForClaim.physicalWrites()));
+                    };
                     final var ordinaryInventoryLimits = new TargetWorkerTargetInventory.Limits(
                             2, 16, 4, 8, 4096, 32L << 20, 60_000_000_000L);
                     final var ordinaryDrrLimits = new TargetWorkerOrdinaryDrr.Limits(
@@ -1762,7 +1782,7 @@ class TargetCommandStoreTest {
                                             "ordinary Claim handoff was interrupted", interrupted);
                                 }
                             },
-                            () -> 100,
+                            schedulerOwnerEpoch::get,
                             schedulerEpoch::get,
                             System::nanoTime,
                             ignored -> {});
@@ -1904,7 +1924,6 @@ class TargetCommandStoreTest {
                             Thread.sleep(1);
                         }
                         assertTrue(ordinaryLoop.isWaitingForQueueChange());
-                        ordinaryLoop.close();
 
                         final var replacementOwnerClock = new java.util.concurrent.atomic.AtomicLong(100);
                         final var replacementProbeInventory = claimHost.rebuildTargetInventory(
@@ -2106,7 +2125,35 @@ class TargetCommandStoreTest {
                                             ignored -> {},
                                             ignored -> {},
                                             () -> 101));
+                            replacementOwnerIdentity[0] = new OwnerIdentity(
+                                    bytes(16, 0x92),
+                                    bytes(16, 0x93),
+                                    replacementActive.ownerEpoch(),
+                                    replacementActive.leaseToken());
+                            replacementLoopShard.set(replacementWorker);
+                            replacementLoopOwner.set(replacementOwnerIdentity[0]);
+                            replacementLoopOnly.set(true);
+                            schedulerOwnerEpoch.set(101);
+                            schedulerEpoch.set(replacementNow);
+                            final long sourceSequenceBeforeDynamicClaim = store.latestSequenceNumber();
+                            final long replacementSequenceBeforeDynamicClaim = replacementStore.latestSequenceNumber();
                             claimHost.admitShard(replacementWorker);
+                            final var replacementLoopClaim = schedulerClaims.poll(
+                                    5, java.util.concurrent.TimeUnit.SECONDS);
+                            assertNotNull(
+                                    replacementLoopClaim,
+                                    () -> "ordinary scheduler failure after Worker admission: "
+                                            + ordinaryLoop.firstFailure());
+                            assertEquals(physical.id(), replacementLoopClaim.selected().target());
+                            assertEquals(replacementOwnerIdentity[0], replacementLoopClaim.owner());
+                            assertEquals(sourceSequenceBeforeDynamicClaim, store.latestSequenceNumber());
+                            assertTrue(replacementStore.latestSequenceNumber() > replacementSequenceBeforeDynamicClaim);
+                            final var replacementCacheBudget = budget();
+                            assertTrue(replacementWorker
+                                    .readTargetQueue(
+                                            replacementCacheBudget, otherPhysical.id(), replacementOwnerClock::get)
+                                    .isPresent());
+                            assertEquals(0, replacementCacheBudget.actualRecords());
                             final var replacementInventory = claimHost.rebuildTargetInventory(
                                     ordinaryInventoryLimits, () -> 101, System::nanoTime);
                             assertEquals(TargetWorkerTargetInventory.Stop.COMPLETE, replacementInventory.stop());
@@ -2121,11 +2168,6 @@ class TargetCommandStoreTest {
                                             .map(TargetWorkerTargetInventory.Source::shard)
                                             .toList());
                             replacementDrr.refreshInventory(replacementInventory);
-                            replacementOwnerIdentity[0] = new OwnerIdentity(
-                                    bytes(16, 0x92),
-                                    bytes(16, 0x93),
-                                    replacementActive.ownerEpoch(),
-                                    replacementActive.leaseToken());
                             final long sequenceBeforeCreditCheck = replacementStore.latestSequenceNumber();
                             final var afterOwnerReplacement = replacementDrr.claimOrdinary(
                                     replacementNow, replacementVisitBudget, replacementRequests);
@@ -2139,6 +2181,9 @@ class TargetCommandStoreTest {
                             assertEquals(
                                     "owner replacement credit reached commit", creditReachedCommitBarrier.getMessage());
                             assertEquals(sequenceBeforeCreditCheck, replacementStore.latestSequenceNumber());
+                            schedulerEpoch.set(0);
+                            schedulerClaimGate.release();
+                            ordinaryLoop.close();
                             final var replacementWorkerDrain = claimHost.drainShard(
                                     replacementWorker,
                                     new TargetOwnerDrainCoordinator.Request(

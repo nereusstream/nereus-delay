@@ -139,6 +139,8 @@ public final class TargetWorkerHostRuntime {
     private final TargetWorkerMaintenanceLoop maintenanceLoop;
     private final List<Shard> shards;
     private TargetWorkerOrdinaryLoop ordinaryLoop;
+    /** Bound applied to Workers admitted after ordinary scheduling has started. */
+    private int ordinaryTargetCacheLimit;
     private final TargetStoreBackend.TargetQueueChangeSignal targetQueueChangeSignal =
             new TargetStoreBackend.TargetQueueChangeSignal();
     private final Set<ShardId> withdrawn = new HashSet<>();
@@ -291,6 +293,7 @@ public final class TargetWorkerHostRuntime {
                 }
             }
             loop.start();
+            ordinaryTargetCacheLimit = inventoryLimits.maximumTargets();
         } catch (RuntimeException | Error failure) {
             try {
                 loop.close();
@@ -571,6 +574,9 @@ public final class TargetWorkerHostRuntime {
             throw new IllegalStateException("Target host cannot replace a live or incompletely drained shard");
         }
         bindTargetQueueChangeSignal(shard);
+        if (shard instanceof TargetWorkerShardRuntime worker && ordinaryTargetCacheLimit > 0) {
+            worker.configureTargetQueueHeadCache(ordinaryTargetCacheLimit);
+        }
         synchronized (fleet) {
             fleet.admit(turns);
             if (previousIndex < 0) {
