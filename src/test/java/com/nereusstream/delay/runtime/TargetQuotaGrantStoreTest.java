@@ -227,10 +227,8 @@ class TargetQuotaGrantStoreTest {
                 endpoint, namespace, "target-root-owner-a-" + UUID.randomUUID(), Duration.ofSeconds(15), prefix)) {
             final var leases = new OxiaOwnerLeaseStore(first.backend());
             final long now = System.currentTimeMillis();
-            oldActive = leases.transition(
-                            leases.acquire(firstAssignment, "target-root-a", first.sessionIdentity(), now, 60_000)
-                                    .orElseThrow(),
-                            ShardLifecycleState.ACTIVE_FOR_COMMANDS)
+            final var acquiring = leases.acquire(
+                            firstAssignment, "target-root-a", first.sessionIdentity(), now, 60_000)
                     .orElseThrow();
             try (var resources = new SharedRocksDbResources(config);
                     var store = ShardStore.openTarget(config, scope.shard(), resources)) {
@@ -238,10 +236,17 @@ class TargetQuotaGrantStoreTest {
                         TargetStoreBootstrap.prepare(
                                 store, scope, lineage, limits, budget(), signed.control(), signed.mutation(),
                                 firstPosition, grantAuthority, (a, b, c) -> {}),
-                        (a, b, c) -> ownerGuard(leases, oldActive));
+                        (a, b, c) -> ownerGuard(leases, acquiring, ShardLifecycleState.ACQUIRING));
                 assertArrayEquals(lineage, initialized.root().recoveryLineage());
+                assertEquals(
+                        ShardLifecycleState.ACQUIRING,
+                        leases.current(scope.shard()).orElseThrow().state());
+                assertEquals(0, store.runtimeMetadata().lastOpenedOwnerEpoch());
+                oldActive = TargetWorkerOwnerActivation.activate(
+                        initialized, store, firstAssignment, acquiring, leases, System::currentTimeMillis);
+                assertEquals(ShardLifecycleState.ACTIVE_FOR_COMMANDS, oldActive.state());
+                assertEquals(oldActive.ownerEpoch(), store.runtimeMetadata().lastOpenedOwnerEpoch());
                 originalRoot = initialized.root().canonicalBytes();
-                store.recordOpenedOwnerEpoch(oldActive.ownerEpoch());
                 final var backend = initialized.backend();
                 final long[] targetAmounts = amounts.clone();
                 Arrays.fill(targetAmounts, 50, 55, 0);

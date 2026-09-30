@@ -1,21 +1,22 @@
-Base revision: c34ae94c10add4d6033eaed3e1fa319617950058
+Base revision: e6fe82d24b3be040c05a00ab861761c3c11eacf1
 Oxia source revision: 37a17bef17202d5fd6e23282da5fd26d94865484
 TargetWorkerOwnerActivation.java SHA-256: 7d68039a0c58a682113ccae88e98403dad041a3ee7e1f2bcdeda07b0bd4e2d63
-TargetQuotaGrantStoreTest.java SHA-256: 614533dfc6c898ad0349ce7fe4794580fcbfd8f5c81f38dcf98060adb7d54b07
+TargetQuotaGrantStoreTest.java SHA-256: 5221d1ddaacb2cca43f3bfd1f5beebdb073b463e898fb5fcea0c097901cb8d89
 
 Command:
-NEREUS_DELAY_OXIA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/oxia NEREUS_DELAY_OXIA_E2E_PORT=23649 ./e2e/run-oxia-real-service.sh
+NEREUS_DELAY_OXIA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/oxia NEREUS_DELAY_OXIA_E2E_PORT=23650 ./e2e/run-oxia-real-service.sh
 
 Result:
 The Dockerized Oxia real-service script passed. JUnit XML reports
 `TargetQuotaGrantStoreTest.realOxiaOwnerTakeoverReopensTargetRootAndCompletesCloseGc`: 1 test,
 0 failures, 0 errors, 0 skipped.
 
-The regression acquires the replacement lease in ACQUIRING, rejects the stale old Owner read without a Store write,
-reopens the real RocksDB Target root under a guarded read for the exact current ACQUIRING lease, then calls
-`TargetWorkerOwnerActivation.activate`. It verifies the persisted Owner epoch, ACTIVE lease, and exact retry using
-the original ACQUIRING lease before composing the source runtime and Worker; bounded Close GC then completes.
-The lease backend and Store are real services; assignment, SourcePosition, Control registration, and source consumer
-are test fixtures. This does not verify Kafka/Pulsar source fencing, production assignment/Start/Commit providers,
-or application Host bootstrap. Other optional real-service smoke tests in the script were skipped because their
-separate service inputs were not configured.
+The first Owner acquires an ACQUIRING lease and commits the initial Target root under that exact lease guard; the Store
+Owner epoch remains unchanged until `TargetWorkerOwnerActivation.activate` persists it and CASes the lease to ACTIVE.
+The replacement Owner is also acquired as ACQUIRING, rejects the stale old Owner read without a Store write, reopens
+the root under a guarded read, and activates from the previous Store epoch. Exact retry with the original ACQUIRING
+lease returns the same ACTIVE identity before composing the source runtime and Worker; bounded Close GC then completes.
+The Oxia lease backend and RocksDB Store are real services; assignment, SourcePosition, Control registration,
+StartAuthority and source consumer are test fixtures. This does not verify Kafka/Pulsar source fencing, production
+assignment/Start/Commit providers, or application Host bootstrap. Other optional real-service smoke tests in the
+script were skipped because their separate service inputs were not configured.
