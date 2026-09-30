@@ -56,6 +56,8 @@ import com.nereusstream.delay.store.ShardStore;
 import com.nereusstream.delay.store.ShardStoreConfig;
 import com.nereusstream.delay.store.SharedRocksDbResources;
 import com.nereusstream.delay.store.TargetStoreBackend;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyPair;
@@ -69,10 +71,12 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.consumer.GuardedConsumer;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
@@ -195,10 +199,11 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                 deleteTree(storeRoot);
             }
             System.out.println(
-                    "Kafka Target source factory: first grant at offset 0; Target Cancel applied at offset 1;");
+                    "Kafka Target source factory: first grant at offset 0; Cancel at offset 1 applied before an "
+                            + "injected pre-commit ACK UNKNOWN;");
             System.out.println(
-                    "  RocksDB source frontier committed before Kafka group offset 2; "
-                            + "TopicId/partition guard verified.");
+                    "  replacement Owner reopened RocksDB, replayed the exact Broker record without a second "
+                            + "Store write, then committed Kafka group offset 2; TopicId/partition guard verified.");
             } finally {
                 try {
                     admin.deleteTopics(List.of(topic)).all().get(30, TimeUnit.SECONDS);
@@ -380,22 +385,166 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                             entry -> commandControl),
                     new TargetSourceApplyRuntime.Limits(2048, 16L << 20, 60_000_000_000L, 16, 1),
                     System::nanoTime);
-            final var consumer = KafkaClientArtifactSourceConsumerFactory.create(
-                    Map.of(
-                            ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG,
-                            bootstrap,
-                            ConsumerConfig.GROUP_ID_CONFIG,
-                            groupId,
-                            ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG,
-                            ByteArrayDeserializer.class.getName(),
-                            ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG,
-                            ByteArrayDeserializer.class.getName(),
-                            ConsumerConfig.AUTO_OFFSET_RESET_CONFIG,
-                            "earliest"),
-                    clusterId,
+            final var consumer = newSourceConsumer(bootstrap, groupId, clusterId, topic, topicId, scope.shard());
+            final var ackUnknownInjected = new AtomicBoolean();
+            final var guardedConsumer = failBeforeFirstCommit(consumer, ackUnknownInjected);
+            final var maintenance = new TargetWorkerShardRuntime.Maintenance(
+                    closeControls,
+                    new com.nereusstream.delay.ownership.TargetReservationClosureWorkClassExecutor.Limits(
+                            4096, 250_000, 60_000_000_000L),
+                    new com.nereusstream.delay.ownership.TargetReservationExpiryWorkClassExecutor.Limits(
+                            2048, 100_000, 60_000_000_000L),
+                    ownerCommitAuthority(leases, active),
+                    delta -> { throw new AssertionError("unexpected Close materialization"); },
+                    delta -> { throw new AssertionError("unexpected reservation expiry"); },
+                    delta -> { throw new AssertionError("unexpected Close cursor update"); },
+                    System::currentTimeMillis);
+            final var worker = KafkaClientArtifactTargetWorkerSourceFactory.create(
+                    guardedConsumer,
                     topic,
-                    topicId,
-                    scope.shard().partition());
+                    Duration.ofSeconds(5),
+                    assignment,
+                    workerClasses,
+                    store,
+                    resources,
+                    sourceRuntime,
+                    maintenance);
+            try {
+                final SourceApplyCoordinator.TurnResult result = runUntilAckUnknown(worker);
+                if (result.status() == SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN) {
+                    activeHolder[0] = active;
+                }
+                final boolean exactCommand = result.entry() instanceof SourceReplayRecord replay
+                        && replay.command().equals(command);
+                final boolean exactPosition = result.entry() instanceof SourceReplayRecord replay
+                        && replay.position() instanceof KafkaSourcePosition replayPosition
+                        && replayPosition.offset() == commandOffset
+                        && clusterId.equals(replayPosition.authenticatedClusterId())
+                        && topicId.equals(replayPosition.nativeTopicUuid());
+                if (result.status() != SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN
+                        || !exactCommand
+                        || !exactPosition
+                        || result.appliedOutcome() != null
+                        || !ackUnknownInjected.get()) {
+                    throw new IllegalStateException(
+                            "real Kafka Target Worker did not apply the exact command before ACK UNKNOWN: status="
+                                    + result.status() + ", exactCommand=" + exactCommand + ", exactPosition="
+                                    + exactPosition + ", appliedOutcome=" + result.appliedOutcome() + ", ackInjected="
+                                    + ackUnknownInjected.get() + ", entry=" + result.entry() + ", failure="
+                                    + result.failure());
+                }
+                final var applied = store.appliedShardLogPosition();
+                if (!(applied instanceof KafkaSourcePosition kafka) || kafka.offset() != commandOffset
+                        || store.shardMutationSequence() != 2) {
+                    throw new IllegalStateException("Target Store did not durably advance before uncertain source ACK");
+                }
+                final var committedOffsets = admin.listConsumerGroupOffsets(groupId)
+                        .partitionsToOffsetAndMetadata()
+                        .get(10, TimeUnit.SECONDS);
+                final var committed = committedOffsets.get(new TopicPartition(topic, scope.shard().partition()));
+                if (committed != null) {
+                    throw new IllegalStateException("Kafka group offset advanced before the injected ACK commit");
+                }
+            } finally {
+                if (worker.pendingSourceEntry().isPresent()) {
+                    consumer.close();
+                    if (!leases.release(active)) {
+                        throw new IllegalStateException("test Owner loss was not observed after ACK UNKNOWN");
+                    }
+                    activeHolder[0] = null;
+                } else {
+                    worker.pauseNewTurns();
+                    final OwnerLease draining = leases.transition(active, ShardLifecycleState.DRAINING)
+                            .orElseThrow(() -> new IllegalStateException("test Owner could not enter DRAINING"));
+                    try {
+                        worker.closeSource();
+                    } finally {
+                        if (!leases.release(draining)) {
+                            throw new IllegalStateException("test Owner lease release was not observed");
+                        }
+                        activeHolder[0] = null;
+                    }
+                }
+            }
+        } finally {
+            final OwnerLease active = activeHolder[0];
+            if (active != null) {
+                leases.release(active);
+            } else if (leases.current(scope.shard()).filter(current -> current.sameIdentity(acquiring)).isPresent()) {
+                leases.release(acquiring);
+            }
+        }
+        runTargetSourceReplayAfterUnknown(
+                admin,
+                bootstrap,
+                topic,
+                groupId,
+                clusterId,
+                topicId,
+                scope,
+                assignment,
+                leases,
+                command,
+                commandOffset,
+                config);
+    }
+
+    private static void runTargetSourceReplayAfterUnknown(
+            final Admin admin,
+            final String bootstrap,
+            final String topic,
+            final String groupId,
+            final String clusterId,
+            final UUID topicId,
+            final TargetQuotaScope scope,
+            final com.nereusstream.delay.ownership.SourceAssignment assignment,
+            final OxiaOwnerLeaseStore leases,
+            final PreparedCommand command,
+            final long commandOffset,
+            final ShardStoreConfig config)
+            throws Exception {
+        final OwnerLease replayAcquiring = leases.acquire(
+                        assignment,
+                        "target-source-replay-owner-" + UUID.randomUUID(),
+                        Bytes.sha256(Bytes.utf8("target-source-replay-session-" + UUID.randomUUID())),
+                        System.currentTimeMillis(),
+                        60_000)
+                .orElseThrow(() -> new IllegalStateException("replacement Target Owner lease acquisition failed"));
+        final OwnerLease[] ownerHolder = {replayAcquiring};
+        try (var resources = new SharedRocksDbResources(config);
+                var store = ShardStore.openTarget(config, scope.shard(), resources)) {
+            final var reopened = TargetStoreBootstrap.reopen(
+                    store,
+                    scope,
+                    new TargetStoreBackend.WriteLimits(128, 4 << 20),
+                    budget(),
+                    ownerReadAuthority(leases, replayAcquiring));
+            final var active = TargetWorkerOwnerActivation.activate(
+                    reopened, store, assignment, replayAcquiring, leases, System::currentTimeMillis);
+            ownerHolder[0] = active;
+            final var replacementWorkClasses = workClasses();
+            final var lineage = reopened.root().recoveryLineage();
+            final var closeControls = new TargetCloseStore(reopened.backend(), scope, lineage, 16, 1)
+                    .reservationControls((reader, binding) -> Optional.empty());
+            final var runtime = new TargetSourceApplyRuntime(
+                    reopened,
+                    store,
+                    assignment,
+                    active,
+                    new TargetSourceApplyRuntime.Authorities(
+                            leases,
+                            SourceReplaySuccessor.strictKafka(),
+                            entry -> { throw new AssertionError("replay resolved a quota grant"); },
+                            entry -> { throw new AssertionError("replay resolved a time fence"); },
+                            entry -> { throw new AssertionError("replay resolved expiry control"); },
+                            entry -> { throw new AssertionError("replay resolved a Close control"); },
+                            entry -> { throw new AssertionError("replay resolved membership control"); },
+                            ownerCommitAuthority(leases, active),
+                            ownerReadAuthority(leases, active),
+                            entry -> { throw new AssertionError("exact replay resolved new command authority"); }),
+                    new TargetSourceApplyRuntime.Limits(2048, 16L << 20, 60_000_000_000L, 16, 1),
+                    System::nanoTime);
+            final var consumer = newSourceConsumer(bootstrap, groupId, clusterId, topic, topicId, scope.shard());
             final var maintenance = new TargetWorkerShardRuntime.Maintenance(
                     closeControls,
                     new com.nereusstream.delay.ownership.TargetReservationClosureWorkClassExecutor.Limits(
@@ -412,12 +561,14 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                     topic,
                     Duration.ofSeconds(5),
                     assignment,
-                    workerClasses,
+                    replacementWorkClasses,
                     store,
                     resources,
-                    sourceRuntime,
+                    runtime,
                     maintenance);
             try {
+                final long beforeReplaySequence = store.latestSequenceNumber();
+                final long beforeReplayMutation = store.shardMutationSequence();
                 final SourceApplyCoordinator.TurnResult result = runUntilApplied(worker);
                 final boolean exactCommand = result.entry() instanceof SourceReplayRecord replay
                         && replay.command().equals(command);
@@ -434,44 +585,97 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                         || !exactPosition
                         || appliedCode != StableCode.NOT_FOUND) {
                     throw new IllegalStateException(
-                            "real Kafka Target Worker did not apply and ACK the exact command: status="
-                                    + result.status() + ", exactCommand=" + exactCommand + ", exactPosition="
-                                    + exactPosition + ", appliedCode=" + appliedCode + ", entry=" + result.entry()
-                                    + ", failure=" + result.failure());
+                            "replacement Target Worker did not ACK the exact replay: status=" + result.status()
+                                    + ", exactCommand=" + exactCommand + ", exactPosition=" + exactPosition
+                                    + ", appliedCode=" + appliedCode + ", entry=" + result.entry() + ", failure="
+                                    + result.failure());
                 }
-                final var applied = store.appliedShardLogPosition();
-                if (!(applied instanceof KafkaSourcePosition kafka) || kafka.offset() != commandOffset
-                        || store.shardMutationSequence() != 2) {
-                    throw new IllegalStateException("Target Store did not durably advance before source ACK");
+                if (store.latestSequenceNumber() != beforeReplaySequence
+                        || store.shardMutationSequence() != beforeReplayMutation
+                        || !active.sameIdentity(leases.current(scope.shard()).orElseThrow())) {
+                    throw new IllegalStateException("Target replay rewrote the Store or lost replacement Owner");
                 }
                 final var committedOffsets = admin.listConsumerGroupOffsets(groupId)
                         .partitionsToOffsetAndMetadata()
                         .get(10, TimeUnit.SECONDS);
                 final var committed = committedOffsets.get(new TopicPartition(topic, scope.shard().partition()));
                 if (committed == null || committed.offset() != commandOffset + 1) {
-                    throw new IllegalStateException("Kafka source group did not commit the acknowledged offset");
+                    throw new IllegalStateException("Kafka source group did not commit the replayed offset");
                 }
             } finally {
-                worker.pauseNewTurns();
-                final OwnerLease draining = leases.transition(active, ShardLifecycleState.DRAINING)
-                        .orElseThrow(() -> new IllegalStateException("test Owner could not enter DRAINING"));
-                try {
-                    worker.closeSource();
-                } finally {
-                    if (!leases.release(draining)) {
-                        throw new IllegalStateException("test Owner lease release was not observed");
+                if (worker.pendingSourceEntry().isPresent()) {
+                    consumer.close();
+                    if (!leases.release(active)) {
+                        throw new IllegalStateException("replacement Target Owner release was not observed");
                     }
-                    activeHolder[0] = null;
+                    ownerHolder[0] = null;
+                } else {
+                    worker.pauseNewTurns();
+                    final OwnerLease draining = leases.transition(active, ShardLifecycleState.DRAINING)
+                            .orElseThrow(() -> new IllegalStateException("replacement Owner could not enter DRAINING"));
+                    try {
+                        worker.closeSource();
+                    } finally {
+                        if (!leases.release(draining)) {
+                            throw new IllegalStateException("replacement Target Owner release was not observed");
+                        }
+                        ownerHolder[0] = null;
+                    }
                 }
             }
         } finally {
-            final OwnerLease active = activeHolder[0];
-            if (active != null) {
-                leases.release(active);
-            } else if (leases.current(scope.shard()).filter(current -> current.sameIdentity(acquiring)).isPresent()) {
-                leases.release(acquiring);
+            final OwnerLease current = ownerHolder[0];
+            if (current != null) {
+                leases.release(current);
             }
         }
+    }
+
+    private static GuardedConsumer<byte[], byte[]> newSourceConsumer(
+            final String bootstrap,
+            final String groupId,
+            final String clusterId,
+            final String topic,
+            final UUID topicId,
+            final ShardId shard) {
+        return KafkaClientArtifactSourceConsumerFactory.create(
+                Map.of(
+                        ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG,
+                        bootstrap,
+                        ConsumerConfig.GROUP_ID_CONFIG,
+                        groupId,
+                        ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG,
+                        ByteArrayDeserializer.class.getName(),
+                        ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG,
+                        ByteArrayDeserializer.class.getName(),
+                        ConsumerConfig.AUTO_OFFSET_RESET_CONFIG,
+                        "earliest"),
+                clusterId,
+                topic,
+                topicId,
+                shard.partition());
+    }
+
+    @SuppressWarnings("unchecked")
+    private static GuardedConsumer<byte[], byte[]> failBeforeFirstCommit(
+            final GuardedConsumer<byte[], byte[]> delegate, final AtomicBoolean observed) {
+        final var injected = new AtomicBoolean();
+        return (GuardedConsumer<byte[], byte[]>) Proxy.newProxyInstance(
+                KafkaClientArtifactTargetWorkerSourceSmoke.class.getClassLoader(),
+                new Class<?>[] {GuardedConsumer.class},
+                (proxy, method, arguments) -> {
+                    if (method.getName().equals("commitSync")
+                            && method.getParameterCount() == 1
+                            && injected.compareAndSet(false, true)) {
+                        observed.set(true);
+                        throw new IllegalStateException("injected before Kafka source commitSync");
+                    }
+                    try {
+                        return method.invoke(delegate, arguments);
+                    } catch (InvocationTargetException failure) {
+                        throw failure.getCause();
+                    }
+                });
     }
 
     private static TargetStoreBackend.CommitAuthority ownerCommitAuthority(
@@ -514,6 +718,25 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
             }
         } while (System.nanoTime() < deadline);
         throw new IllegalStateException("real Kafka Target source record did not apply before the deadline");
+    }
+
+    private static SourceApplyCoordinator.TurnResult runUntilAckUnknown(final TargetWorkerShardRuntime worker) {
+        final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
+        SourceApplyCoordinator.TurnResult result;
+        do {
+            result = worker.runSourceTurn(
+                    new SchedulerBudget(64, 4L << 20, TimeUnit.SECONDS.toNanos(10)), System::currentTimeMillis);
+            if (result.status() == SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN) {
+                return result;
+            }
+            if (result.status() != SourceApplyCoordinator.TurnStatus.WAITING_FOR_SOURCE
+                    && result.status() != SourceApplyCoordinator.TurnStatus.WAITING_FOR_WORK_CLASS) {
+                throw new IllegalStateException(
+                        "real Kafka Target Worker did not reach the ACK uncertainty cut: " + result.status(),
+                        result.failure());
+            }
+        } while (System.nanoTime() < deadline);
+        throw new IllegalStateException("real Kafka Target source did not reach ACK UNKNOWN before the deadline");
     }
 
     private record RootControl(PreparedControlOperation prepared, SystemMutation mutation) {}

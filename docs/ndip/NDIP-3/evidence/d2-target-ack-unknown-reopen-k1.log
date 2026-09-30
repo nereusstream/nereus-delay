@@ -1,0 +1,21 @@
+Date: 2026-10-01
+Base revision: 0c74e826b2c2b522d39a9de545c006899173da46
+
+Locked Kafka source:
+Checkout: /Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1
+HEAD: 05849884ca81fad767fda058444d1e17c7f9cbf9
+Client JAR SHA-256: 1853eceecc76db8070a7c07c7897fc0eda45ad0bf15a95ae8100470ff43e5146
+Disposable three-broker KRaft image ID: sha256:62f1206203535f39ab09b723d8adcc6a3bb96fd79d10859aafc4c751a58f74d0
+
+Command:
+NEREUS_DELAY_KAFKA_TARGET_WORKER_SOURCE_ONLY=1 NEREUS_DELAY_KAFKA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1 ./e2e/run-kafka-real-client-e2e.sh
+
+Result: BUILD SUCCESSFUL; runRealKafkaTargetWorkerSourceSmoke passed against three disposable K1 KRaft Brokers. The smoke produced the first signed SHARD grant at offset 0 and a Cancel at offset 1, then verified the exact Broker cluster ID, native TopicId, and partition. A test consumer proxy throws before delegating the first commitSync call. The Target Worker returns ACK_UNKNOWN, and an Admin query confirms that the Kafka group offset is still absent.
+
+The smoke then closes the original native Consumer, releases the old test Owner, and closes the original RocksDB resource graph. A replacement test Owner reopens the same format-2 RocksDB Store and a fresh consumer joins the same Kafka group. The Broker redelivers the exact offset-1 command. The replay returns the persisted first result NOT_FOUND, leaves both the native Store sequence and shard mutation sequence unchanged, and commits the group offset to 2.
+
+This is a real Broker redelivery after a controlled pre-commit client exception, not a commit accepted by Kafka whose response is lost. Owner lease and bootstrap authorities are test fixtures backed by an in-memory lease store; the old Worker/Owner resource reset happens in the same JVM, not through process termination. This is single-Shard evidence and does not verify Claim/Admission/Producer ownership failures, uncertain Store writes, multi-Shard fencing/interleaving, shared-channel teardown, production authority providers, or centralized validation. D2 remains IN_PROGRESS / PENDING_CENTRAL_VALIDATION.
+
+Source SHA-256: src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetWorkerSourceSmoke.java a8ebdc405392d9826db1ea34a096564aaa797ed450337e3879c82759020e192e
+Gradle task SHA-256: build.gradle dbf866563e527c0bd011fc11a8379b735878cbf49f5ae05ef57b55bc1089b4d0
+E2E script SHA-256: e2e/run-kafka-real-client-e2e.sh 4c9ce0a3739662bda84f8910c63badd0ac4aad55663a2d25d5e16a637673b8bd
