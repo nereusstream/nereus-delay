@@ -1,0 +1,15 @@
+Date: 2026-10-01
+Base revision: 314b71dde3424424684361e6478509519bd85f7d
+
+Behavior command:
+./gradlew test --tests 'com.nereusstream.delay.runtime.TargetCommandStoreTest.modifiesActualTimelineOrClaimWithHistoryAndFirstResults' checkstyleTest --console=plain
+
+Result: The focused JUnit method passed all 5 parameterized cases (0 failures, 0 errors, 0 skipped). The combined Gradle invocation then failed only because two new assertion lines exceeded Checkstyle's 120-character limit. After wrapping those lines, the following command passed:
+
+./gradlew checkstyleTest checkDocumentation --console=plain
+
+The test uses actual Target Worker runtimes and two RocksDB Shard Stores. On the replacement Shard, it replays an already committed Command at the next source position. The Store mutation sequence advances once for that source-position replay, and the injected ACK callback returns UNKNOWN; the exact entry remains pending and the replacement runtime remains unfenced. A real TargetWorkerShardFleetRuntime then gives the sibling Worker the next source turn, which returns WAITING_FOR_SOURCE. The pending entry remains, neither runtime is fenced, and neither Store sequence changes. The next fleet turn retries only the replacement Worker ACK, returns APPLIED_AND_ACKED, clears the pending entry, and does not advance the Store sequence again.
+
+Evidence boundary: this is a focused local Worker/Store/fleet test with test source, ACK, and Owner fixtures. The sibling source is empty, so it does not prove sibling business progress or live Owner fencing. It does not cover a real Broker ACK response loss, Claim/Admission/Producer ownership failure, uncertain Store writes, process termination, shared-channel teardown, or centralized validation. D2 remains IN_PROGRESS / PENDING_CENTRAL_VALIDATION.
+
+Source SHA-256: src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java 85680efb759d1e96ff99f4941b6ed66fc762ec5598ef677a9e2ae4fb428ac188

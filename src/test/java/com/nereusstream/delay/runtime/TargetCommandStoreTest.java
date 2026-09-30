@@ -2190,8 +2190,11 @@ class TargetCommandStoreTest {
                                     new TargetSourceApplyRuntime.Limits(
                                             4096, 32L << 20, 60_000_000_000L, 16, 1),
                                     System::nanoTime);
+                            final var replacementNextSourceRecord = new java.util.concurrent.atomic.AtomicReference<
+                                    SourceRecordConsumer.PolledSourceRecord>();
                             final var replacementWorker = TargetWorkerShardFactory.create(
-                                    () -> java.util.Optional.empty(),
+                                    () -> java.util.Optional.ofNullable(
+                                            replacementNextSourceRecord.getAndSet(null)),
                                     replacementRuntime.acceptedAssignment(),
                                     workerClasses,
                                     replacementStore,
@@ -2274,6 +2277,70 @@ class TargetCommandStoreTest {
                             schedulerEpoch.set(0);
                             schedulerClaimGate.release();
                             ordinaryLoop.close();
+
+                            final var replacementBeforeReplay =
+                                    (KafkaSourcePosition) replacementStore.appliedShardLogPosition();
+                            final var replayAt = source(
+                                    replacementBeforeReplay,
+                                    replacementBeforeReplay.offset() + 1,
+                                    replacementBeforeReplay.brokerLogAppendTimeEpochMs() + 1);
+                            final var replayEntry = new SourceReplayRecord(otherSchedule, replayAt, null, null);
+                            final var replacementAcknowledgements = new java.util.concurrent.atomic.AtomicInteger();
+                            replacementNextSourceRecord.set(new SourceRecordConsumer.PolledSourceRecord(
+                                    replayEntry,
+                                    (entry, outcome) -> {
+                                        assertEquals(replayEntry, entry);
+                                        assertEquals(replayAt, outcome.position());
+                                        assertNotNull(outcome.commandResult());
+                                        return replacementAcknowledgements.incrementAndGet() == 1
+                                                ? SourceAcknowledgement.AcknowledgementResult.unknown(null)
+                                                : SourceAcknowledgement.AcknowledgementResult.acked();
+                                    }));
+                            final long mainSequenceBeforeUnknown = store.latestSequenceNumber();
+                            final long replacementMutationsBeforeUnknown = replacementStore.shardMutationSequence();
+                            final var unknownTurn = replacementWorker.runSourceTurn(
+                                    new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 101);
+                            assertEquals(SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN, unknownTurn.status());
+                            assertEquals(replayEntry, unknownTurn.entry());
+                            assertEquals(replayEntry, replacementWorker.pendingSourceEntry().orElseThrow());
+                            assertEquals(1, replacementAcknowledgements.get());
+                            assertFalse(replacementRuntime.fenced());
+                            assertEquals(replayAt, replacementStore.appliedShardLogPosition());
+                            assertEquals(
+                                    replacementMutationsBeforeUnknown + 1,
+                                    replacementStore.shardMutationSequence());
+
+                            final long replacementSequenceAfterUnknown = replacementStore.latestSequenceNumber();
+                            final var actualFleet = new TargetWorkerShardFleetRuntime(
+                                    workerClasses, resources, List.of(claimWorker, replacementWorker));
+                            final var healthySiblingTurn = actualFleet.runNextSourceTurn(
+                                    new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 101);
+                            assertEquals(scope.shard(), healthySiblingTurn.shardId());
+                            assertEquals(
+                                    SourceApplyCoordinator.TurnStatus.WAITING_FOR_SOURCE,
+                                    healthySiblingTurn.result().status());
+                            assertFalse(claimRuntime.fenced());
+                            assertEquals(replayEntry, replacementWorker.pendingSourceEntry().orElseThrow());
+                            assertEquals(mainSequenceBeforeUnknown, store.latestSequenceNumber());
+                            assertEquals(replacementSequenceAfterUnknown, replacementStore.latestSequenceNumber());
+
+                            final var acknowledgedTurn = actualFleet.runNextSourceTurn(
+                                    new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 101);
+                            assertEquals(otherShard, acknowledgedTurn.shardId());
+                            assertEquals(
+                                    SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                                    acknowledgedTurn.result().status());
+                            assertEquals(replayEntry, acknowledgedTurn.result().entry());
+                            assertEquals(2, replacementAcknowledgements.get());
+                            assertTrue(replacementWorker.pendingSourceEntry().isEmpty());
+                            assertFalse(replacementRuntime.fenced());
+                            assertEquals(replayAt, replacementStore.appliedShardLogPosition());
+                            assertEquals(
+                                    replacementMutationsBeforeUnknown + 1,
+                                    replacementStore.shardMutationSequence());
+                            assertEquals(replacementSequenceAfterUnknown, replacementStore.latestSequenceNumber());
+                            assertEquals(mainSequenceBeforeUnknown, store.latestSequenceNumber());
+
                             final var replacementWorkerDrain = claimHost.drainShard(
                                     replacementWorker,
                                     new TargetOwnerDrainCoordinator.Request(
