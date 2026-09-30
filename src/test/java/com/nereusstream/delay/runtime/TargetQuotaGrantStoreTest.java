@@ -19,6 +19,7 @@ import com.nereusstream.delay.ownership.SourceApplyCoordinator;
 import com.nereusstream.delay.ownership.SourceAssignment;
 import com.nereusstream.delay.ownership.SourceRecordConsumer;
 import com.nereusstream.delay.ownership.SourceReplayMutation;
+import com.nereusstream.delay.ownership.SourceReplayRecord;
 import com.nereusstream.delay.ownership.SourceReplaySuccessor;
 import com.nereusstream.delay.ownership.TargetReservationClosureWorkClassExecutor;
 import com.nereusstream.delay.ownership.TargetReservationExpiryWorkClassExecutor;
@@ -141,6 +142,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Properties;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -1727,7 +1729,7 @@ class TargetQuotaGrantStoreTest {
         registrations.register(signedRoot.control());
         final long[] targetAmounts = rootAmounts.clone();
         Arrays.fill(targetAmounts, 50, 55, 0);
-        targetAmounts[CapacityDimension.ACTIVE_MESSAGES.wireValue() - 1] = 1;
+        targetAmounts[CapacityDimension.ACTIVE_MESSAGES.wireValue() - 1] = 2;
         targetAmounts[CapacityDimension.RESERVATION_MESSAGES.wireValue() - 1] = 1;
         final var targetGrant = new TargetQuotaGrantControlRequest(
                 new TargetQuotaGrant(
@@ -1835,6 +1837,59 @@ class TargetQuotaGrantStoreTest {
                         throw new IllegalStateException("Owner lost before native commit");
                     }));
             assertEquals(before, store.latestSequenceNumber());
+            final var targetActivationKey = Bytes.concat(
+                    new byte[] {TargetKeyCodec.QUOTA_GRANT_ACTIVATION_TAG, TargetKeyCodec.KEY_FORMAT},
+                    scope.forTarget(physical.id()).keySuffix());
+            final var targetActivation = TargetQuotaGrantActivation.decodeForStore(
+                    targetActivationKey,
+                    TargetValueEnvelope.decode(
+                                    store.get(ColumnFamily.META, targetActivationKey),
+                                    TargetQuotaGrantActivation.VALUE_TYPE)
+                            .payload(),
+                    scope.shard(),
+                    scope.tenantScope());
+            final var profiles = ProfileBindingControlState.empty()
+                    .activate(destination.ref(), earlier)
+                    .activate(capability.ref(), base);
+            final var commandPolicy = new TargetCommandStore.Policy(
+                    scope,
+                    1000,
+                    1000,
+                    10,
+                    java.util.Set.of(ProtocolTuple.managedCommand()),
+                    new TargetCommandStore.DeliveryWindow(10_000, 1, 100_000));
+            final var firstScheduleGrantRef = new AtomicReference<TargetMembershipGrant>();
+            final var secondScheduleGrantRef = new AtomicReference<TargetMembershipGrant>();
+            final var secondScheduleGrantSource = new AtomicReference<KafkaSourcePosition>();
+            final var scheduleResolutions = new java.util.concurrent.atomic.AtomicInteger();
+            final TargetCommandStore.Schedules scheduleProvider = (incoming, position) -> {
+                scheduleResolutions.incrementAndGet();
+                final var secondSource = secondScheduleGrantSource.get();
+                final boolean second = secondSource != null && position.compareTo(secondSource) > 0;
+                final var selected = second ? secondScheduleGrantRef.get() : firstScheduleGrantRef.get();
+                if (selected == null) {
+                    throw new IllegalStateException("source-ordered Schedule membership grant is unavailable");
+                }
+                final var proposed = new TargetScheduleBinding(
+                        incoming.delayMessageId(),
+                        incoming.type(),
+                        incoming.canonicalBody(),
+                        position,
+                        physical.id(),
+                        new TargetKeyCodec.Domain(second ? 1 : 0, 1),
+                        targetActivation.allocation().identity().accountingIncarnation(),
+                        selected.required().digest(),
+                        selected.offered().digest(),
+                        selected.controls().digest(),
+                        selected.digest(),
+                        null,
+                        null);
+                return new TargetCommandStore.ScheduleAdmission(
+                        StableCode.OK,
+                        new TargetScheduleRegistration.Authority(
+                                proposed, physical, destination, capability, profiles, 60_000),
+                        TargetOrderState.OrderingContract.ADMISSION_WATERMARK);
+            };
             final var assignment = new SourceAssignment(
                     scope.shard(),
                     bytes(32, 0x61),
@@ -1893,7 +1948,15 @@ class TargetQuotaGrantStoreTest {
                             (a, b, c) -> guard(),
                             (a, b) -> guard(),
                             entry -> {
-                                throw new AssertionError("membership issue resolved Command");
+                                return new TargetSourceApplyRuntime.CommandControl(
+                                        commandPolicy,
+                                        (reader, binding, source) -> false,
+                                        (reader, binding) -> java.util.Optional.empty(),
+                                        scheduleProvider,
+                                        (binding, source) -> {
+                                            throw new AssertionError("unexpected payload proof authority");
+                                        },
+                                        (a, b, c) -> guard());
                             },
                             entry -> {
                                 nativeResolutions.incrementAndGet();
@@ -1906,7 +1969,7 @@ class TargetQuotaGrantStoreTest {
                                         nativeAuthority,
                                         (a, b, c) -> guard());
                             }),
-                    new TargetSourceApplyRuntime.Limits(2048, 32L << 20, 60_000_000_000L, 16, 1),
+                    new TargetSourceApplyRuntime.Limits(2048, 32L << 20, 60_000_000_000L, 16, 2),
                     System::nanoTime);
             final var acks = new java.util.concurrent.atomic.AtomicInteger();
             final var queue = new java.util.ArrayDeque<SourceRecordConsumer.PolledSourceRecord>();
@@ -1962,17 +2025,6 @@ class TargetQuotaGrantStoreTest {
             final var queueChanges = new TargetStoreBackend.TargetQueueChangeSignal();
             backend.bindTargetQueueChangeSignal(queueChanges);
             queueChanges.drainChanges();
-            final var targetActivationKey = Bytes.concat(
-                    new byte[] {TargetKeyCodec.QUOTA_GRANT_ACTIVATION_TAG, TargetKeyCodec.KEY_FORMAT},
-                    scope.forTarget(physical.id()).keySuffix());
-            final var targetActivation = TargetQuotaGrantActivation.decodeForStore(
-                    targetActivationKey,
-                    TargetValueEnvelope.decode(
-                                    store.get(ColumnFamily.META, targetActivationKey),
-                                    TargetQuotaGrantActivation.VALUE_TYPE)
-                            .payload(),
-                    scope.shard(),
-                    scope.tenantScope());
             final var nativeScope = new TargetNativePolicyScope(
                     bytes(32, 0x78),
                     actor.tenantResourceScopeHash(),
@@ -2158,9 +2210,6 @@ class TargetQuotaGrantStoreTest {
                     new UUID((commandTime << 16) | 0x7002L, 0x8000000000000002L),
                     scheduleIntent,
                     commandTime + 1000);
-            final var profiles = ProfileBindingControlState.empty()
-                    .activate(destination.ref(), earlier)
-                    .activate(capability.ref(), base);
             final java.util.function.Function<SourcePosition, TargetScheduleBinding> bindingAt =
                     position -> new TargetScheduleBinding(
                             schedule.delayMessageId(),
@@ -2415,13 +2464,6 @@ class TargetQuotaGrantStoreTest {
             assertEquals(beforeDenied, store.latestSequenceNumber());
             assertNull(store.get(ColumnFamily.ID, TargetKeyCodec.message(schedule.delayMessageId())));
             final var commands = new TargetCommandStore(backend, scope, lineage, 16, 1);
-            final var commandPolicy = new TargetCommandStore.Policy(
-                    scope,
-                    1000,
-                    1000,
-                    10,
-                    java.util.Set.of(schedule.protocolTuple()),
-                    new TargetCommandStore.DeliveryWindow(10_000, 1, 100_000));
             final var rejected = commands.commit(
                     commands.prepareFirst(
                             budget(),
@@ -2452,6 +2494,171 @@ class TargetQuotaGrantStoreTest {
                     deniedAt.canonicalBytes(), store.appliedShardLogPosition().canonicalBytes());
             assertNull(store.get(ColumnFamily.ID, TargetKeyCodec.message(schedule.delayMessageId())));
             assertNull(store.get(ColumnFamily.ID, bindingAt.apply(deniedAt).encodedKey()));
+
+            final var firstSeedAt = source(deniedAt, deniedAt.offset() + 1, deniedAt.brokerLogAppendTimeEpochMs() + 1);
+            final var firstScheduleAt =
+                    source(firstSeedAt, firstSeedAt.offset() + 1, firstSeedAt.brokerLogAppendTimeEpochMs() + 1);
+            final var secondSeedAt = source(
+                    firstScheduleAt, firstScheduleAt.offset() + 1, firstScheduleAt.brokerLogAppendTimeEpochMs() + 1);
+            final var secondScheduleAt =
+                    source(secondSeedAt, secondSeedAt.offset() + 1, secondSeedAt.brokerLogAppendTimeEpochMs() + 1);
+            final byte[] firstSeedDigest = Bytes.sha256(Bytes.utf8("compatibility-domain-membership-one"));
+            final byte[] secondSeedDigest = Bytes.sha256(Bytes.utf8("compatibility-domain-membership-two"));
+            final var secondControlScope = new TargetControlScope(
+                    physical.id(), scope.shard(), List.of(), List.of(bytes(32, 0x81)));
+            final var secondPolicy = new TargetMembershipPolicy(
+                    scope.tenantScope(),
+                    destination.ref(),
+                    dispatch.digest(),
+                    dispatch,
+                    secondControlScope,
+                    actor.tenantResourceScopeHash());
+            final var firstScheduleGrant = new TargetMembershipGrant(
+                    scope.tenantScope(),
+                    destination.ref(),
+                    dispatch,
+                    dispatch,
+                    controlScope,
+                    policy.digest(),
+                    bytes(32, 0x82),
+                    firstSeedDigest,
+                    firstSeedAt);
+            final var secondScheduleGrant = new TargetMembershipGrant(
+                    scope.tenantScope(),
+                    destination.ref(),
+                    dispatch,
+                    dispatch,
+                    secondControlScope,
+                    secondPolicy.digest(),
+                    bytes(32, 0x83),
+                    secondSeedDigest,
+                    secondSeedAt);
+            final var membershipSeedStore = new TargetMessageStore(backend, 1, 1, 2);
+            membershipSeedStore.applyAccounted(
+                    budget(),
+                    reader -> new TargetMessageStore.Input(
+                            List.of(),
+                            List.of(),
+                            List.of(reader.replace(
+                                    ColumnFamily.META,
+                                    firstScheduleGrant.encodedKey(),
+                                    TargetMembershipGrant.VALUE_TYPE,
+                                    firstScheduleGrant.canonicalBytes()))),
+                    new TargetSourceAccounting(scope, lineage, firstSeedAt, firstSeedDigest, 16, 1, 2),
+                    (a, b, c) -> guard());
+            firstScheduleGrantRef.set(firstScheduleGrant);
+            final long firstScheduleTime = firstScheduleAt.brokerLogAppendTimeEpochMs();
+            final var firstScheduleIntent = CanonicalScheduleIntent.create(
+                    destination.ref(),
+                    scheduleIntent.retryPolicy(),
+                    firstScheduleTime + 100,
+                    firstScheduleTime + 2000,
+                    scheduleIntent.deliveryMode(),
+                    OrderingMode.BEST_EFFORT,
+                    scheduleIntent.orderingKey(),
+                    bytes(4, 0x41),
+                    null,
+                    scheduleIntent.adapterMetadata(),
+                    null,
+                    null,
+                    NativeDeliveryPolicy.FORBID);
+            final var firstSourceSchedule = PreparedCommand.schedule(
+                    scope.shard(),
+                    new UUID((firstScheduleTime << 16) | 0x7101L, 0x8300000000000001L),
+                    new UUID((firstScheduleTime << 16) | 0x7102L, 0x8300000000000002L),
+                    firstScheduleIntent,
+                    firstScheduleTime + 1000);
+            queue.add(new SourceRecordConsumer.PolledSourceRecord(
+                    new SourceReplayRecord(firstSourceSchedule, firstScheduleAt, null, null), (entry, outcome) -> {
+                        assertEquals(StableCode.SCHEDULED, outcome.commandResult().stableCode());
+                        return SourceAcknowledgement.AcknowledgementResult.acked();
+                    }));
+            final var firstScheduleTurn = loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100);
+            assertEquals(
+                    SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                    firstScheduleTurn.status(),
+                    () -> String.valueOf(firstScheduleTurn.failure()));
+            final var firstQueue = TargetQueueState.decode(TargetValueEnvelope.decode(
+                            store.get(ColumnFamily.META, TargetKeyCodec.state(physical.id())),
+                            TargetQueueState.VALUE_TYPE)
+                    .payload());
+            assertEquals(1, firstQueue.domains().size());
+            assertEquals(new TargetKeyCodec.Domain(0, 1), firstQueue.domains().getFirst().domain());
+            assertArrayEquals(controlScope.digest(), firstQueue.domains().getFirst().controlScopeRef());
+
+            membershipSeedStore.applyAccounted(
+                    budget(),
+                    reader -> new TargetMessageStore.Input(
+                            List.of(),
+                            List.of(),
+                            List.of(
+                                    reader.replace(
+                                            ColumnFamily.META,
+                                            secondPolicy.encodedKey(),
+                                            TargetMembershipPolicy.VALUE_TYPE,
+                                            secondPolicy.canonicalBytes()),
+                                    reader.replace(
+                                            ColumnFamily.META,
+                                            secondScheduleGrant.encodedKey(),
+                                            TargetMembershipGrant.VALUE_TYPE,
+                                            secondScheduleGrant.canonicalBytes()))),
+                    new TargetSourceAccounting(scope, lineage, secondSeedAt, secondSeedDigest, 16, 1, 2),
+                    (a, b, c) -> guard());
+            secondScheduleGrantRef.set(secondScheduleGrant);
+            secondScheduleGrantSource.set(secondSeedAt);
+            final long secondCommandTime = secondScheduleAt.brokerLogAppendTimeEpochMs();
+            final var secondScheduleIntent = CanonicalScheduleIntent.create(
+                    destination.ref(),
+                    scheduleIntent.retryPolicy(),
+                    secondCommandTime + 100,
+                    secondCommandTime + 2000,
+                    scheduleIntent.deliveryMode(),
+                    OrderingMode.BEST_EFFORT,
+                    scheduleIntent.orderingKey(),
+                    bytes(4, 0x42),
+                    null,
+                    scheduleIntent.adapterMetadata(),
+                    null,
+                    null,
+                    NativeDeliveryPolicy.FORBID);
+            final var secondSourceSchedule = PreparedCommand.schedule(
+                    scope.shard(),
+                    new UUID((secondCommandTime << 16) | 0x7201L, 0x8400000000000001L),
+                    new UUID((secondCommandTime << 16) | 0x7202L, 0x8400000000000002L),
+                    secondScheduleIntent,
+                    secondCommandTime + 1000);
+            queue.add(new SourceRecordConsumer.PolledSourceRecord(
+                    new SourceReplayRecord(secondSourceSchedule, secondScheduleAt, null, null), (entry, outcome) -> {
+                        assertEquals(StableCode.SCHEDULED, outcome.commandResult().stableCode());
+                        return SourceAcknowledgement.AcknowledgementResult.acked();
+                    }));
+            final var secondScheduleTurn = loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100);
+            assertEquals(
+                    SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                    secondScheduleTurn.status(),
+                    () -> String.valueOf(secondScheduleTurn.failure()));
+            assertEquals(2, scheduleResolutions.get());
+            final var secondQueue = TargetQueueState.decode(TargetValueEnvelope.decode(
+                            store.get(ColumnFamily.META, TargetKeyCodec.state(physical.id())),
+                            TargetQueueState.VALUE_TYPE)
+                    .payload());
+            assertEquals(2, secondQueue.domains().size());
+            assertEquals(new TargetKeyCodec.Domain(0, 1), secondQueue.domains().get(0).domain());
+            assertEquals(new TargetKeyCodec.Domain(1, 1), secondQueue.domains().get(1).domain());
+            assertArrayEquals(controlScope.digest(), secondQueue.domains().get(0).controlScopeRef());
+            assertArrayEquals(secondControlScope.digest(), secondQueue.domains().get(1).controlScopeRef());
+            final var firstScheduledMessage = TargetMessageRecord.decode(TargetValueEnvelope.decode(
+                            store.get(ColumnFamily.ID, TargetKeyCodec.message(firstSourceSchedule.delayMessageId())),
+                            TargetMessageRecord.VALUE_TYPE)
+                    .payload());
+            final var secondScheduledMessage = TargetMessageRecord.decode(TargetValueEnvelope.decode(
+                            store.get(ColumnFamily.ID, TargetKeyCodec.message(secondSourceSchedule.delayMessageId())),
+                            TargetMessageRecord.VALUE_TYPE)
+                    .payload());
+            assertEquals(new TargetKeyCodec.Domain(0, 1), firstScheduledMessage.locator().domain());
+            assertEquals(new TargetKeyCodec.Domain(1, 1), secondScheduledMessage.locator().domain());
+            assertArrayEquals(
+                    secondScheduleAt.canonicalBytes(), store.appliedShardLogPosition().canonicalBytes());
         }
         try (var resources = new SharedRocksDbResources(config);
                 var reopened = ShardStore.openTarget(config, scope.shard(), resources)) {

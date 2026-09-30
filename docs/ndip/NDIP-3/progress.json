@@ -633,8 +633,10 @@
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
       "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
-      "progress": "Deterministic Target DRR tests verify that a due head retained by a DRAINING domain does not block an ACTIVE domain and that ACTIVE domains rotate within one Target. Boundary tests cover explicit K=1/K=2 registration limits, all 64 canonical slots, VACANT unsigned-generation reuse, and UINT64_MAX exhaustion. A new scheduler test verifies all 64 ACTIVE domains are selected once in successive one-visit turns. This remains planner/codec/scheduler evidence: source-ordered binding through real Source Apply with distinct compatibility contexts, formal production K/resource configuration, and centralized validation remain pending.",
+      "progress": "Deterministic Target DRR tests verify that a due head retained by a DRAINING domain does not block an ACTIVE domain and that ACTIVE domains rotate within one Target. Boundary tests cover explicit K=1/K=2 registration limits, all 64 canonical slots, VACANT unsigned-generation reuse, and UINT64_MAX exhaustion; a scheduler test verifies all 64 ACTIVE domains are selected once in successive one-visit turns. A real RocksDB/Worker test now applies two source-ordered SCHEDULE commands under K=2 with different control scopes and confirms slots 0/1 plus each Message binding locator. TargetCommandStore now lets its complete queue projection account for up to the configured K domains. The second membership context is a source-accounted Store fixture; formal production K/resource configuration and centralized validation remain pending.",
       "implementationFiles": [
+        "src/main/java/com/nereusstream/delay/runtime/TargetCommandStore.java",
+        "src/test/java/com/nereusstream/delay/runtime/TargetQuotaGrantStoreTest.java",
         "src/test/java/com/nereusstream/delay/ownership/TargetWorkerOrdinaryDrrTest.java"
       ]
     },

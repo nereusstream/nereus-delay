@@ -184,7 +184,7 @@ public final class TargetCommandStore {
         this.lineage = Bytes.copy(lineage);
         this.maximumCounters = maximumCounters;
         this.maximumDomains = maximumDomains;
-        messages = new TargetMessageStore(backend, 1, 1, maximumDomains);
+        messages = new TargetMessageStore(backend, 1, maximumDomains, maximumDomains);
     }
 
     /** Must follow the replay probe; absence is independently rechecked in this actual write-plan view. */
