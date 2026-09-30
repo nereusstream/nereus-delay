@@ -1,0 +1,27 @@
+NDIP-3 A2 final head-plan elapsed deadline regression
+Date: 2026-10-01
+Base commit: 384664504f5ae01ec5d944a847f1ee7cf1031aba
+
+Focused command:
+  ./gradlew test --tests 'com.nereusstream.delay.runtime.DelayShardHeadBudgetTest'
+Result: PASS (7 tests, 0 failures, 0 errors, 0 skipped; BUILD SUCCESSFUL)
+Regression:
+  DelayShardHeadBudgetTest.completedHeadProjectionThatCrossesDeadlineCannotCommit
+Observed contract: elapsed expiry at final plan completion leaves Store bytes, native write count, mutation sequence, applied Source Position, and CommandResult unchanged.
+
+Source SHA-256:
+  src/main/java/com/nereusstream/delay/runtime/DelayShard.java 1a740488579047bdfcc87de30dc5935b16d11c9b5ddb01492c0f3febb1f93667
+  src/test/java/com/nereusstream/delay/runtime/DelayShardHeadBudgetTest.java 15309741282a66e7d24c3476eb58d2d160ab930f222b980b683a407ddba5c8c8
+JUnit XML SHA-256:
+  build/test-results/test/TEST-com.nereusstream.delay.runtime.DelayShardHeadBudgetTest.xml 30f7ccfa51d67f9f753a7aca60348d630b2fc49be226c5c62c8be11614aac333
+
+Additional validation:
+  ./gradlew checkstyleTest checkDocumentation --no-daemon --console=plain
+Result: PASS (checkstyleTest UP-TO-DATE; checkDocumentation BUILD SUCCESSFUL)
+The focused test plus final test-source Checkstyle rerun also passes:
+  ./gradlew test --tests 'com.nereusstream.delay.runtime.DelayShardHeadBudgetTest' checkstyleTest --no-daemon --console=plain
+Result: PASS (7 tests, 0 failures/errors/skips; checkstyleTest PASS)
+  ./gradlew checkstyleMain checkstyleTest checkDocumentation --no-daemon --console=plain
+Result: FAIL only at checkstyleMain due to the existing, unmodified PersistentLaneScheduler.java:1327 line-length violation (123 characters; limit 120). The separate checkstyleTest/checkDocumentation command above passes.
+
+Scope: local DelayShard/RocksDB mutation boundary only. Maximum legal single-mutation byte envelope, formal production finite limits, Broker/Oxia behavior, recovery takeover, and centralized validation remain pending; A2 remains IN_PROGRESS.

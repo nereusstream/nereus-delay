@@ -9831,6 +9831,9 @@ public final class DelayShard {
         activeHeadReadBudget = budget;
         try {
             final ShardStore.ReadPlan<T> plan = store.readWithBudget(budget, reader);
+            if (!budget.beforeTimedWork()) {
+                throw budget.incomplete();
+            }
             requireHeadMutationState(sequenceBefore, sourceBefore);
             return new HeadPlan<>(plan.value(), new HeadPlanBinding(plan.view(), sequenceBefore, sourceBefore));
         } finally {

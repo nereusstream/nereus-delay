@@ -165,6 +165,37 @@ class DelayShardHeadBudgetTest {
     }
 
     @Test
+    void completedHeadProjectionThatCrossesDeadlineCannotCommit() {
+        try (Fixture fixture = new Fixture(tempDir.resolve("completion-deadline"))) {
+            final AtomicLong clock = new AtomicLong();
+            // The completed read path observes times 0..8: one Lane point read,
+            // the removed DUE head and its successor, the successor Message,
+            // and the empty ORDERED and Native range probes. The final plan
+            // completion check must observe time 9 and yield before any write.
+            final DelayShard shard = boundedShard(
+                    fixture.store, new HeadReadPolicy(100, 1_000_000, 9, clock::getAndIncrement));
+            final PreparedCommand cancel =
+                    PreparedCommand.cancel(fixture.shardId, fixture.first.delayMessageId(), 0, 30_000);
+            final List<String> before = snapshot(fixture.store);
+            final long writes = fixture.store.operationStatistics().nativeWriteCalls();
+            final long sequence = shard.mutationSequence();
+
+            final HeadReadIncompleteException incomplete = assertThrows(
+                    HeadReadIncompleteException.class, () -> shard.apply(cancel, fixture.position(2)));
+
+            assertEquals(BoundedReadBudget.Exhaustion.ELAPSED, incomplete.reason());
+            assertEquals(10, clock.get());
+            assertEquals(4, shard.headPlanReadStatistics().actualRecords());
+            assertEquals(1, shard.headPlanReadStatistics().consecutiveElapsedYields());
+            assertEquals(before, snapshot(fixture.store));
+            assertEquals(writes, fixture.store.operationStatistics().nativeWriteCalls());
+            assertEquals(sequence, shard.mutationSequence());
+            assertEquals(fixture.position(1), shard.lastAppliedSourcePosition());
+            assertNull(shard.getCommandResult(cancel.commandId()));
+        }
+    }
+
+    @Test
     void retryClassificationCannotHideAnEarlierWriteInAnEnclosingMutation() {
         try (Fixture fixture = new Fixture(tempDir.resolve("outer-write"))) {
             final DelayShard shard = boundedShard(fixture.store, new HeadReadPolicy(1, 1_000_000, 1_000, () -> 0));
