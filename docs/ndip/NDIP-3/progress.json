@@ -255,7 +255,8 @@
       "evidence": [],
       "implementationStatus": "NOT_STARTED",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
-      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
+      "progress": "2026-09-30: Design §15.3.1 now enumerates conservative source-state dispositions and the minimum per-Shard dry-run report. No migration converter or activation path is implemented. The durable activation relationship to the legacy source cut remains pending a protocol decision; B6 implementation and validation remain open."
     },
     {
       "id": "B7",
