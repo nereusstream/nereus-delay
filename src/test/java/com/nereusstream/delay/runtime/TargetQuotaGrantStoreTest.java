@@ -79,6 +79,7 @@ import com.nereusstream.delay.protocol.PulsarSourceLock;
 import com.nereusstream.delay.protocol.QuotaGrantRef;
 import com.nereusstream.delay.protocol.RecoveryCandidateKind;
 import com.nereusstream.delay.protocol.RecoveryCandidateRef;
+import com.nereusstream.delay.protocol.ScheduleCommandBody;
 import com.nereusstream.delay.protocol.SelfRoutingId;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.ShardSubject;
@@ -99,6 +100,7 @@ import com.nereusstream.delay.protocol.TargetNativeArtifactSet;
 import com.nereusstream.delay.protocol.TargetNativePolicyControlBody;
 import com.nereusstream.delay.protocol.TargetNativePolicyControlRecord;
 import com.nereusstream.delay.protocol.TargetNativePolicyControlRequest;
+import com.nereusstream.delay.protocol.TargetNativePolicyHead;
 import com.nereusstream.delay.protocol.TargetNativePolicyScope;
 import com.nereusstream.delay.protocol.TargetNativePolicySnapshot;
 import com.nereusstream.delay.protocol.TargetPartitionHashInput;
@@ -122,6 +124,7 @@ import com.nereusstream.delay.scheduler.WorkClass;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import com.nereusstream.delay.scheduler.WorkClassPolicy;
 import com.nereusstream.delay.scheduler.WorkClassRuntimeConfig;
+import com.nereusstream.delay.semantic.TargetNativePolicyAuthority;
 import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.CheckpointFileInventory;
 import com.nereusstream.delay.store.CheckpointManifest;
@@ -147,6 +150,7 @@ import java.time.Duration;
 import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Objects;
 import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
@@ -1875,12 +1879,13 @@ class TargetQuotaGrantStoreTest {
                     1000,
                     10,
                     java.util.Set.of(ProtocolTuple.managedCommand()),
-                    new TargetCommandStore.DeliveryWindow(10_000, 1, 100_000));
+                    new TargetCommandStore.DeliveryWindow(100_000, 1, 100_000));
             final var firstScheduleGrantRef = new AtomicReference<TargetMembershipGrant>();
             final var secondScheduleGrantRef = new AtomicReference<TargetMembershipGrant>();
             final var secondScheduleGrantSource = new AtomicReference<KafkaSourcePosition>();
             final var thirdScheduleGrantRef = new AtomicReference<TargetMembershipGrant>();
             final var thirdScheduleGrantSource = new AtomicReference<KafkaSourcePosition>();
+            final var nativePolicyScopeRef = new AtomicReference<byte[]>();
             final var scheduleResolutions = new java.util.concurrent.atomic.AtomicInteger();
             final TargetCommandStore.Schedules scheduleProvider = (incoming, position) -> {
                 scheduleResolutions.incrementAndGet();
@@ -1894,6 +1899,10 @@ class TargetQuotaGrantStoreTest {
                 if (selected == null) {
                     throw new IllegalStateException("source-ordered Schedule membership grant is unavailable");
                 }
+                final var intent = ScheduleCommandBody.decode(incoming.canonicalBody()).intent();
+                final byte[] nativeScopeRef = intent.nativeDeliveryPolicy().allowsManagedHandoff()
+                        ? Objects.requireNonNull(nativePolicyScopeRef.get(), "nativePolicyScopeRef")
+                        : null;
                 final var proposed = new TargetScheduleBinding(
                         incoming.delayMessageId(),
                         incoming.type(),
@@ -1906,7 +1915,7 @@ class TargetQuotaGrantStoreTest {
                         selected.offered().digest(),
                         selected.controls().digest(),
                         selected.digest(),
-                        null,
+                        nativeScopeRef,
                         null);
                 return new TargetCommandStore.ScheduleAdmission(
                         StableCode.OK,
@@ -2117,8 +2126,8 @@ class TargetQuotaGrantStoreTest {
                     nativeScope,
                     1,
                     HandoffPolicyMode.ENABLED,
-                    30_000,
-                    1_000,
+                    60_000,
+                    101,
                     30_000,
                     1,
                     new TrustedUtcIntervalEvidence(
@@ -2537,8 +2546,12 @@ class TargetQuotaGrantStoreTest {
             assertNull(store.get(ColumnFamily.ID, bindingAt.apply(deniedAt).encodedKey()));
 
             final var firstSeedAt = source(deniedAt, deniedAt.offset() + 1, deniedAt.brokerLogAppendTimeEpochMs() + 1);
-            final var firstScheduleAt =
+            final var firstNativeApprovalAt =
                     source(firstSeedAt, firstSeedAt.offset() + 1, firstSeedAt.brokerLogAppendTimeEpochMs() + 1);
+            final var firstScheduleAt = source(
+                    firstNativeApprovalAt,
+                    firstNativeApprovalAt.offset() + 1,
+                    firstNativeApprovalAt.brokerLogAppendTimeEpochMs() + 1);
             final var secondSeedAt = source(
                     firstScheduleAt, firstScheduleAt.offset() + 1, firstScheduleAt.brokerLogAppendTimeEpochMs() + 1);
             final var secondScheduleAt =
@@ -2588,12 +2601,32 @@ class TargetQuotaGrantStoreTest {
                     new TargetSourceAccounting(scope, lineage, firstSeedAt, firstSeedDigest, 16, 1, 2),
                     (a, b, c) -> guard());
             firstScheduleGrantRef.set(firstScheduleGrant);
+            nativePolicyScopeRef.set(nativeScope.digest());
+            final var firstScheduleNativeApproval = signedNative(
+                    TargetNativePolicyControlRequest.approveMember(nativeScope, firstScheduleGrant.digest()),
+                    bytes(32, 0x8b),
+                    actor,
+                    keys,
+                    scope.shard());
+            registrations.register(firstScheduleNativeApproval.control());
+            queue.add(new SourceRecordConsumer.PolledSourceRecord(
+                    new SourceReplayMutation(firstScheduleNativeApproval.mutation(), firstNativeApprovalAt, null, null),
+                    (entry, outcome) -> {
+                        assertEquals(StableCode.OK, outcome.systemMutationResult().stableCode());
+                        return SourceAcknowledgement.AcknowledgementResult.acked();
+                    }));
+            final var firstScheduleApprovalTurn =
+                    loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100);
+            assertEquals(
+                    SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                    firstScheduleApprovalTurn.status(),
+                    () -> String.valueOf(firstScheduleApprovalTurn.failure()));
             final long firstScheduleTime = firstScheduleAt.brokerLogAppendTimeEpochMs();
             final var firstScheduleIntent = CanonicalScheduleIntent.create(
                     destination.ref(),
                     scheduleIntent.retryPolicy(),
-                    firstScheduleTime + 100,
-                    firstScheduleTime + 2000,
+                    firstScheduleTime + nativeScope.fixedLeadCapMs(),
+                    firstScheduleTime + nativeScope.fixedLeadCapMs() + 2_000,
                     scheduleIntent.deliveryMode(),
                     OrderingMode.BEST_EFFORT,
                     scheduleIntent.orderingKey(),
@@ -2602,7 +2635,7 @@ class TargetQuotaGrantStoreTest {
                     scheduleIntent.adapterMetadata(),
                     null,
                     null,
-                    NativeDeliveryPolicy.FORBID);
+                    NativeDeliveryPolicy.ALLOW_MANAGED_HANDOFF);
             final var firstSourceSchedule = PreparedCommand.schedule(
                     scope.shard(),
                     new UUID((firstScheduleTime << 16) | 0x7101L, 0x8300000000000001L),
@@ -2613,16 +2646,72 @@ class TargetQuotaGrantStoreTest {
                     bytes(16, 0x84), bytes(16, 0x85), active.ownerEpoch(), active.leaseToken());
             final var hostClaims = new java.util.concurrent.LinkedBlockingQueue<TargetClaimRecord>();
             final var hostFailure = new java.util.concurrent.atomic.AtomicReference<Throwable>();
-            final var hostRequests = (TargetWorkerOrdinaryDrr.Requests) (worker, cost) -> {
-                if (!worker.shardId().equals(scope.shard()) || !cost.head().target().equals(physical.id())) {
-                    return java.util.Optional.empty();
+            final var schedulerEpoch = new java.util.concurrent.atomic.AtomicLong(firstScheduleTime - 1);
+            final var timeSampleSequence = new java.util.concurrent.atomic.AtomicLong();
+            final var publication = new TargetNativePolicyAuthority.Publication(
+                    1, TargetNativePolicyHead.next(null, snapshot));
+            final var hostPolicyAuthority = new TargetNativePolicyAuthority() {
+                @Override
+                public java.util.Optional<Publication> current(final byte[] scopeDigest) {
+                    return Arrays.equals(scopeDigest, nativeScope.digest())
+                            ? java.util.Optional.of(publication)
+                            : java.util.Optional.empty();
                 }
-                return java.util.Optional.of(new TargetWorkerOrdinaryDrr.Request(
-                        hostOwner,
-                        Math.addExact(cost.head().timeEpochMs(), 1000),
-                        Bytes.sha256(firstSourceSchedule.canonicalBody()),
-                        (kind, delta) -> {},
-                        (a, b, c) -> guard()));
+
+                @Override
+                public Publication compareAndSet(
+                        final byte[] scopeDigest,
+                        final long expectedRevision,
+                        final TargetNativePolicyHead next) {
+                    throw new UnsupportedOperationException("test policy authority is read-only");
+                }
+            };
+            final var hostRequests = new TargetWorkerOrdinaryDrr.Requests() {
+                @Override
+                public java.util.Optional<TargetWorkerOrdinaryDrr.Request> resolve(
+                        final TargetWorkerShardRuntime worker,
+                        final com.nereusstream.delay.runtime.TargetHeadCostProbe.Cost cost) {
+                    if (!worker.shardId().equals(scope.shard())
+                            || !cost.head().target().equals(physical.id())) {
+                        return java.util.Optional.empty();
+                    }
+                    return java.util.Optional.of(new TargetWorkerOrdinaryDrr.Request(
+                            hostOwner,
+                            Math.addExact(cost.head().timeEpochMs(), 1000),
+                            Bytes.sha256(firstSourceSchedule.canonicalBody()),
+                            (kind, delta) -> {},
+                            (a, b, c) -> guard()));
+                }
+
+                @Override
+                public java.util.Optional<TargetWorkerOrdinaryDrr.NativePolicyContext> resolveNativePolicyContext(
+                        final TargetWorkerShardRuntime worker,
+                        final com.nereusstream.delay.runtime.TargetHeadCostProbe.Cost cost) {
+                    if (!worker.shardId().equals(scope.shard())
+                            || !cost.head().target().equals(physical.id())
+                            || cost.nativeProjection() == null) {
+                        return java.util.Optional.empty();
+                    }
+                    return java.util.Optional.of(new TargetWorkerOrdinaryDrr.NativePolicyContext(
+                            hostPolicyAuthority,
+                            store::appliedShardLogPosition,
+                            () -> {
+                                final long now = schedulerEpoch.get();
+                                final long sample = timeSampleSequence.incrementAndGet();
+                                return new TrustedUtcIntervalEvidence(
+                                        now,
+                                        now,
+                                        TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                                        Bytes.utf8("native-host-timer-test"),
+                                        1,
+                                        sample,
+                                        sample,
+                                        Bytes.sha256(
+                                                Bytes.utf8("native-host-timer-test"), Bytes.utf8(Long.toString(now))),
+                                        0,
+                                        null);
+                            }));
+                }
             };
             final var hostLoop = sourceHost.startOrdinaryScheduling(
                     new TargetWorkerTargetInventory.Limits(2, 16, 4, 8, 4096, 32L << 20, 60_000_000_000L),
@@ -2633,7 +2722,7 @@ class TargetQuotaGrantStoreTest {
                     hostRequests,
                     hostClaims::add,
                     () -> 100,
-                    () -> firstScheduleTime + 200,
+                    schedulerEpoch::get,
                     System::nanoTime,
                     hostFailure::set);
             boolean hostLoopClosed = false;
@@ -2656,10 +2745,15 @@ class TargetQuotaGrantStoreTest {
                         firstScheduleTurn.status(),
                         () -> String.valueOf(firstScheduleTurn.failure()));
                 assertTrue(sourceHost.targetQueueChangeRevision() > beforeFirstSchedule);
+                assertNull(
+                        hostClaims.poll(25, java.util.concurrent.TimeUnit.MILLISECONDS),
+                        "Native Claim must wait for its action boundary without a queue-change notification");
+                schedulerEpoch.set(firstScheduleTime);
                 final var sourceCreatedClaim = hostClaims.poll(5, java.util.concurrent.TimeUnit.SECONDS);
                 assertNotNull(
                         sourceCreatedClaim, () -> "Host missed the source-created Target: " + hostFailure.get());
                 assertEquals(physical.id(), sourceCreatedClaim.selected().target());
+                assertTrue(sourceCreatedClaim.selected().nativeCandidate());
                 assertEquals(hostOwner, sourceCreatedClaim.owner());
                 assertNotNull(store.get(ColumnFamily.INFLIGHT, sourceCreatedClaim.key()));
                 final var firstCacheRead = budget();
