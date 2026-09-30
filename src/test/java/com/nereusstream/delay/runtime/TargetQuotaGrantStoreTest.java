@@ -39,6 +39,7 @@ import com.nereusstream.delay.protocol.CheckpointUploadIntent;
 import com.nereusstream.delay.protocol.CheckpointUploadState;
 import com.nereusstream.delay.protocol.CloseLaneRequest;
 import com.nereusstream.delay.protocol.ClosePolicy;
+import com.nereusstream.delay.protocol.CommandId;
 import com.nereusstream.delay.protocol.CommandType;
 import com.nereusstream.delay.protocol.CompatibleControlSnapshot;
 import com.nereusstream.delay.protocol.ControlAuthor;
@@ -59,6 +60,7 @@ import com.nereusstream.delay.protocol.EvidenceCursor;
 import com.nereusstream.delay.protocol.HandoffPolicyMode;
 import com.nereusstream.delay.protocol.KafkaActivationBarrier;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
+import com.nereusstream.delay.protocol.MessagePrecondition;
 import com.nereusstream.delay.protocol.NativeDeliveryPolicy;
 import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.OwnerIdentity;
@@ -74,6 +76,7 @@ import com.nereusstream.delay.protocol.PulsarSourceLock;
 import com.nereusstream.delay.protocol.QuotaGrantRef;
 import com.nereusstream.delay.protocol.RecoveryCandidateKind;
 import com.nereusstream.delay.protocol.RecoveryCandidateRef;
+import com.nereusstream.delay.protocol.SelfRoutingId;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.SourcePosition;
@@ -1861,12 +1864,18 @@ class TargetQuotaGrantStoreTest {
             final var firstScheduleGrantRef = new AtomicReference<TargetMembershipGrant>();
             final var secondScheduleGrantRef = new AtomicReference<TargetMembershipGrant>();
             final var secondScheduleGrantSource = new AtomicReference<KafkaSourcePosition>();
+            final var thirdScheduleGrantRef = new AtomicReference<TargetMembershipGrant>();
+            final var thirdScheduleGrantSource = new AtomicReference<KafkaSourcePosition>();
             final var scheduleResolutions = new java.util.concurrent.atomic.AtomicInteger();
             final TargetCommandStore.Schedules scheduleProvider = (incoming, position) -> {
                 scheduleResolutions.incrementAndGet();
                 final var secondSource = secondScheduleGrantSource.get();
+                final var thirdSource = thirdScheduleGrantSource.get();
                 final boolean second = secondSource != null && position.compareTo(secondSource) > 0;
-                final var selected = second ? secondScheduleGrantRef.get() : firstScheduleGrantRef.get();
+                final boolean third = thirdSource != null && position.compareTo(thirdSource) > 0;
+                final var selected = third
+                        ? thirdScheduleGrantRef.get()
+                        : second ? secondScheduleGrantRef.get() : firstScheduleGrantRef.get();
                 if (selected == null) {
                     throw new IllegalStateException("source-ordered Schedule membership grant is unavailable");
                 }
@@ -1876,7 +1885,7 @@ class TargetQuotaGrantStoreTest {
                         incoming.canonicalBody(),
                         position,
                         physical.id(),
-                        new TargetKeyCodec.Domain(second ? 1 : 0, 1),
+                        new TargetKeyCodec.Domain(third ? 2 : second ? 1 : 0, 1),
                         targetActivation.allocation().identity().accountingIncarnation(),
                         selected.required().digest(),
                         selected.offered().digest(),
@@ -2659,6 +2668,173 @@ class TargetQuotaGrantStoreTest {
             assertEquals(new TargetKeyCodec.Domain(1, 1), secondScheduledMessage.locator().domain());
             assertArrayEquals(
                     secondScheduleAt.canonicalBytes(), store.appliedShardLogPosition().canonicalBytes());
+
+            final var thirdSeedAt = source(
+                    secondScheduleAt,
+                    secondScheduleAt.offset() + 1,
+                    secondScheduleAt.brokerLogAppendTimeEpochMs() + 1);
+            final var thirdScheduleAt = source(
+                    thirdSeedAt, thirdSeedAt.offset() + 1, thirdSeedAt.brokerLogAppendTimeEpochMs() + 1);
+            final byte[] thirdSeedDigest = Bytes.sha256(Bytes.utf8("compatibility-domain-membership-three"));
+            final var thirdControlScope = new TargetControlScope(
+                    physical.id(), scope.shard(), List.of(), List.of(bytes(32, 0x85)));
+            final var thirdPolicy = new TargetMembershipPolicy(
+                    scope.tenantScope(),
+                    destination.ref(),
+                    dispatch.digest(),
+                    dispatch,
+                    thirdControlScope,
+                    actor.tenantResourceScopeHash());
+            final var thirdScheduleGrant = new TargetMembershipGrant(
+                    scope.tenantScope(),
+                    destination.ref(),
+                    dispatch,
+                    dispatch,
+                    thirdControlScope,
+                    thirdPolicy.digest(),
+                    bytes(32, 0x86),
+                    thirdSeedDigest,
+                    thirdSeedAt);
+            membershipSeedStore.applyAccounted(
+                    budget(),
+                    reader -> new TargetMessageStore.Input(
+                            List.of(),
+                            List.of(),
+                            List.of(
+                                    reader.replace(
+                                            ColumnFamily.META,
+                                            thirdPolicy.encodedKey(),
+                                            TargetMembershipPolicy.VALUE_TYPE,
+                                            thirdPolicy.canonicalBytes()),
+                                    reader.replace(
+                                            ColumnFamily.META,
+                                            thirdScheduleGrant.encodedKey(),
+                                            TargetMembershipGrant.VALUE_TYPE,
+                                            thirdScheduleGrant.canonicalBytes()))),
+                    new TargetSourceAccounting(scope, lineage, thirdSeedAt, thirdSeedDigest, 16, 1, 2),
+                    (a, b, c) -> guard());
+            thirdScheduleGrantRef.set(thirdScheduleGrant);
+            thirdScheduleGrantSource.set(thirdSeedAt);
+            final long thirdCommandTime = thirdScheduleAt.brokerLogAppendTimeEpochMs();
+            final var thirdScheduleIntent = CanonicalScheduleIntent.create(
+                    destination.ref(),
+                    scheduleIntent.retryPolicy(),
+                    thirdCommandTime + 100,
+                    thirdCommandTime + 2000,
+                    scheduleIntent.deliveryMode(),
+                    OrderingMode.BEST_EFFORT,
+                    scheduleIntent.orderingKey(),
+                    bytes(4, 0x43),
+                    null,
+                    scheduleIntent.adapterMetadata(),
+                    null,
+                    null,
+                    NativeDeliveryPolicy.FORBID);
+            final var thirdSourceSchedule = PreparedCommand.schedule(
+                    scope.shard(),
+                    new UUID((thirdCommandTime << 16) | 0x7301L, 0x8500000000000001L),
+                    new UUID((thirdCommandTime << 16) | 0x7302L, 0x8500000000000002L),
+                    thirdScheduleIntent,
+                    thirdCommandTime + 1000);
+            final var queueBeforeLimitRejection = TargetValueEnvelope.decode(
+                            store.get(ColumnFamily.META, TargetKeyCodec.state(physical.id())),
+                            TargetQueueState.VALUE_TYPE)
+                    .payload();
+            final long sequenceBeforeLimitRejection = store.latestSequenceNumber();
+            queueChanges.drainChanges();
+            queue.add(new SourceRecordConsumer.PolledSourceRecord(
+                    new SourceReplayRecord(thirdSourceSchedule, thirdScheduleAt, null, null), (entry, outcome) -> {
+                        assertEquals(ApplyStatus.REJECTED, outcome.commandResult().applyStatus());
+                        assertEquals(
+                                StableCode.TARGET_EXECUTION_DOMAIN_LIMIT_EXCEEDED,
+                                outcome.commandResult().stableCode());
+                        return SourceAcknowledgement.AcknowledgementResult.acked();
+                    }));
+            final var limitRejectionTurn = loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100);
+            assertEquals(
+                    SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                    limitRejectionTurn.status(),
+                    () -> String.valueOf(limitRejectionTurn.failure()));
+            assertEquals(3, scheduleResolutions.get());
+            assertTrue(store.latestSequenceNumber() > sequenceBeforeLimitRejection);
+            assertArrayEquals(
+                    thirdScheduleAt.canonicalBytes(), store.appliedShardLogPosition().canonicalBytes());
+            final byte[] rejectedResultKey = Bytes.concat(
+                    new byte[] {TargetKeyCodec.RESULT_QUERY_TAG, TargetKeyCodec.KEY_FORMAT},
+                    thirdSourceSchedule.commandId().bytes());
+            final byte[] encodedRejectedResult = store.get(ColumnFamily.DEDUPE, rejectedResultKey);
+            assertNotNull(encodedRejectedResult);
+            final var persistedRejection = TargetResultRecord.decode(TargetValueEnvelope.decode(
+                            encodedRejectedResult, TargetResultRecord.VALUE_TYPE)
+                    .payload());
+            assertEquals(TargetResultRecord.Kind.RESULT, persistedRejection.kind());
+            final var persistedCommandResult = CommandResult.decode(persistedRejection.typedPayload());
+            assertEquals(ApplyStatus.REJECTED, persistedCommandResult.applyStatus());
+            assertEquals(StableCode.TARGET_EXECUTION_DOMAIN_LIMIT_EXCEEDED, persistedCommandResult.stableCode());
+            assertArrayEquals(thirdScheduleAt.canonicalBytes(), persistedCommandResult.appliedSourcePosition());
+            assertArrayEquals(
+                    queueBeforeLimitRejection,
+                    TargetValueEnvelope.decode(
+                                    store.get(ColumnFamily.META, TargetKeyCodec.state(physical.id())),
+                                    TargetQueueState.VALUE_TYPE)
+                            .payload());
+            assertNull(store.get(ColumnFamily.ID, TargetKeyCodec.message(thirdSourceSchedule.delayMessageId())));
+            assertNull(store.get(ColumnFamily.ID, new TargetScheduleBinding(
+                            thirdSourceSchedule.delayMessageId(),
+                            CommandType.SCHEDULE,
+                            thirdSourceSchedule.canonicalBody(),
+                            thirdScheduleAt,
+                            physical.id(),
+                            new TargetKeyCodec.Domain(2, 1),
+                            targetActivation.allocation().identity().accountingIncarnation(),
+                            dispatch.digest(),
+                            dispatch.digest(),
+                            thirdControlScope.digest(),
+                            thirdScheduleGrant.digest(),
+                            null,
+                            null)
+                    .encodedKey()));
+            final var rejectedQueueChanges = queueChanges.drainChanges();
+            assertTrue(rejectedQueueChanges.dirtyTargets().isEmpty());
+
+            final var cancelAt = source(
+                    thirdScheduleAt,
+                    thirdScheduleAt.offset() + 1,
+                    thirdScheduleAt.brokerLogAppendTimeEpochMs() + 1);
+            final long cancelCommandTime = cancelAt.brokerLogAppendTimeEpochMs();
+            final var cancel = PreparedCommand.cancel(
+                    scope.shard(),
+                    new CommandId(SelfRoutingId.fromLogicalUuid(
+                                    scope.shard(),
+                                    new UUID(
+                                            (cancelCommandTime << 16) | 0x7401L,
+                                            0x8600000000000001L))
+                            .bytes()),
+                    firstSourceSchedule.delayMessageId(),
+                    new MessagePrecondition(0L, firstScheduledMessage.stateVersion()),
+                    cancelCommandTime + 1000);
+            queue.add(new SourceRecordConsumer.PolledSourceRecord(
+                    new SourceReplayRecord(cancel, cancelAt, null, null), (entry, outcome) -> {
+                        assertEquals(ApplyStatus.APPLIED, outcome.commandResult().applyStatus());
+                        assertEquals(StableCode.CANCELED, outcome.commandResult().stableCode());
+                        return SourceAcknowledgement.AcknowledgementResult.acked();
+                    }));
+            final var cancelTurn = loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100);
+            assertEquals(
+                    SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                    cancelTurn.status(),
+                    () -> String.valueOf(cancelTurn.failure()));
+            assertArrayEquals(cancelAt.canonicalBytes(), store.appliedShardLogPosition().canonicalBytes());
+            final var queueAfterCancel = TargetQueueState.decode(TargetValueEnvelope.decode(
+                            store.get(ColumnFamily.META, TargetKeyCodec.state(physical.id())),
+                            TargetQueueState.VALUE_TYPE)
+                    .payload());
+            assertEquals(2, queueAfterCancel.domains().size());
+            final var canceledMessage = TargetMessageRecord.decode(TargetValueEnvelope.decode(
+                            store.get(ColumnFamily.ID, TargetKeyCodec.message(firstSourceSchedule.delayMessageId())),
+                            TargetMessageRecord.VALUE_TYPE)
+                    .payload());
+            assertEquals(GenerationAggregateState.CANCELED, canceledMessage.runtime().aggregateState());
         }
         try (var resources = new SharedRocksDbResources(config);
                 var reopened = ShardStore.openTarget(config, scope.shard(), resources)) {
