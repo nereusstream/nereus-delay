@@ -5,6 +5,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import com.nereusstream.delay.protocol.DelayMessageId;
+import com.nereusstream.delay.protocol.KafkaSourcePosition;
+import com.nereusstream.delay.protocol.PreparedCommand;
 import com.nereusstream.delay.protocol.PulsarSourceLock;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
@@ -32,6 +35,7 @@ import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -402,6 +406,51 @@ class TargetWorkerShardFleetRuntimeTest {
                 assertTrue(retry.complete());
                 assertEquals(TargetWorkerHostRuntime.Status.RELEASED, retry.shards().getFirst().status());
                 assertEquals(2, shard.expiryDrainTurns.get());
+                assertEquals(1, shard.drainCalls.get());
+            } finally {
+                loop.close();
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void hostDoesNotDrainOwnerUntilPendingSourceAckIsSettled() {
+        final var registry = registry();
+        final var executor = Executors.newSingleThreadScheduledExecutor();
+        try (var resources = new SharedRocksDbResources(
+                ShardStoreConfig.defaults(tempDir.resolve("host-pending-source")))) {
+            final var shardId = new ShardId(RouteIncarnation.random(), 1);
+            final var shard = new StubShard(shardId, registry, resources);
+            final var sourcePosition = new KafkaSourcePosition(
+                    shardId, "host-drain-test", UUID.randomUUID(), 1, null, 101);
+            shard.pendingSource = new SourceReplayRecord(
+                    PreparedCommand.cancel(shardId, DelayMessageId.random(shardId), 0, 0),
+                    sourcePosition,
+                    null,
+                    null);
+            shard.sourceSettlementsBeforeAck = 1;
+
+            final var fleet = new TargetWorkerShardFleetRuntime(registry, resources, shard);
+            final var budget = new SchedulerBudget(1, 1_000, 1_000_000);
+            final var loop = new TargetWorkerMaintenanceLoop(
+                    fleet, budget, Duration.ofSeconds(10), failure -> {}, executor);
+            final var host = new TargetWorkerHostRuntime(fleet, loop, List.of(shard));
+            try {
+                final var request = new TargetOwnerDrainCoordinator.Request(5_000, budget);
+                final var pending = host.drainAll(request, budget, () -> 101).shards().getFirst();
+
+                assertEquals(TargetWorkerHostRuntime.Status.PENDING_SOURCE, pending.status());
+                assertEquals(SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN, pending.sourceTurn().status());
+                assertTrue(shard.pendingSourceEntry().isPresent());
+                assertEquals(0, shard.drainCalls.get());
+
+                final var released = host.drainAll(request, budget, () -> 101);
+
+                assertTrue(released.complete());
+                assertEquals(2, shard.sourceSettlementTurns.get());
+                assertTrue(shard.pendingSourceEntry().isEmpty());
                 assertEquals(1, shard.drainCalls.get());
             } finally {
                 loop.close();
@@ -934,10 +983,13 @@ class TargetWorkerShardFleetRuntimeTest {
         private volatile Runnable duringMaintenance;
         private volatile WorkClassTask pendingCheckpoint;
         private volatile WorkClassTask pendingMessageExpiry;
+        private volatile SourceReplayEntry pendingSource;
+        private volatile int sourceSettlementsBeforeAck;
         private volatile boolean failNextExpiryMaintenance;
         private volatile int expiryDrainSteps;
         private final AtomicInteger expiryMaintenanceTurns = new AtomicInteger();
         private final AtomicInteger expiryDrainTurns = new AtomicInteger();
+        private final AtomicInteger sourceSettlementTurns = new AtomicInteger();
 
         private StubShard(
                 final ShardId shard,
@@ -1009,12 +1061,27 @@ class TargetWorkerShardFleetRuntimeTest {
 
         @Override
         public Optional<SourceReplayEntry> pendingSourceEntry() {
-            return Optional.empty();
+            return Optional.ofNullable(pendingSource);
         }
 
         @Override
         public Optional<SourceApplyCoordinator.TurnResult> settlePendingSourceTurn(
                 final SchedulerBudget budget, final LongSupplier ownerClock) {
+            final SourceReplayEntry pending = pendingSource;
+            if (pending == null) {
+                return Optional.empty();
+            }
+            sourceSettlementTurns.incrementAndGet();
+            if (sourceSettlementsBeforeAck > 0) {
+                sourceSettlementsBeforeAck--;
+                return Optional.of(new SourceApplyCoordinator.TurnResult(
+                        SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN,
+                        pending,
+                        null,
+                        null,
+                        new IllegalStateException("source acknowledgement response is uncertain")));
+            }
+            pendingSource = null;
             return Optional.empty();
         }
 
