@@ -7,6 +7,7 @@ import com.nereusstream.delay.ownership.SourceReplayEntry;
 import com.nereusstream.delay.ownership.SourceReplayMutation;
 import com.nereusstream.delay.protocol.AuthorIdentity;
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.PulsarActivationBarrier;
 import com.nereusstream.delay.protocol.PulsarSourcePosition;
 import com.nereusstream.delay.protocol.RouteIncarnation;
@@ -15,14 +16,17 @@ import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
+import com.nereusstream.delay.protocol.TargetExpireGenerationBody;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import java.net.http.HttpClient;
 import java.net.http.HttpResponse;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -52,8 +56,8 @@ public final class PulsarClientArtifactMutationSmoke {
         try {
             final TopicResourceGuard guard = new TopicResourceGuard(CLUSTER, INCARNATION, CREATION_TIMESTAMP);
             final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
-            final SystemMutation mutation = timeFence(shard);
-            final PulsarSourcePosition appendedPosition;
+            final List<SystemMutation> mutations = List.of(timeFence(shard), expireGeneration(shard));
+            final List<PulsarSourcePosition> appendedPositions = new ArrayList<>(mutations.size());
             try (PulsarClient client =
                     PulsarClientArtifactClientBuilder.builder(serviceUrl).build()) {
                 final GuardedConsumer<byte[]> appendProofConsumer = PulsarClientArtifactSourceConsumerFactory.create(
@@ -74,13 +78,16 @@ public final class PulsarClientArtifactMutationSmoke {
                                 physicalTopic,
                                 CREATION_TIMESTAMP,
                                 Duration.ofSeconds(15))) {
-                    final var outcome = appender.append(mutation);
-                    if (outcome.disposition()
-                            != com.nereusstream.delay.ownership.ShardLogMutationAppender.AppendDisposition.PERSISTED) {
-                        throw new IllegalStateException(
-                                "Pulsar mutation append was not persisted: " + outcome.disposition());
+                    for (SystemMutation mutation : mutations) {
+                        final var outcome = appender.append(mutation);
+                        if (outcome.disposition()
+                                != com.nereusstream.delay.ownership.ShardLogMutationAppender.AppendDisposition
+                                        .PERSISTED) {
+                            throw new IllegalStateException(
+                                    "Pulsar mutation append was not persisted: " + outcome.disposition());
+                        }
+                        appendedPositions.add((PulsarSourcePosition) outcome.sourcePosition());
                     }
-                    appendedPosition = (PulsarSourcePosition) outcome.sourcePosition();
                 } finally {
                     closeNative(appendProofConsumer);
                 }
@@ -102,17 +109,12 @@ public final class PulsarClientArtifactMutationSmoke {
                                 proof.attestationDigest()));
                 try (PulsarClientArtifactRecoverySourceCursor recovery = new PulsarClientArtifactRecoverySourceCursor(
                         recoveryNative, guard, assignment, physicalTopic, Duration.ofMillis(250))) {
-                    final SourceReplayEntry recovered = recovery.next();
-                    if (!(recovered instanceof SourceReplayMutation replayed)) {
-                        throw new IllegalStateException("Pulsar recovery returned a non-mutation entry: "
-                                + recovered.getClass().getName());
+                    for (int index = 0; index < mutations.size(); index++) {
+                        requireMutation(
+                                recovery.next(), mutations.get(index), appendedPositions.get(index), "recovery");
                     }
-                    if (!mutation.equals(replayed.mutation())) {
-                        throw new IllegalStateException("Pulsar recovery mutation bytes changed");
-                    }
-                    requireReplayPosition(appendedPosition, replayed.position(), "recovery");
                     if (recovery.hasNext()) {
-                        throw new IllegalStateException("Pulsar mutation recovery exposed an unexpected second entry");
+                        throw new IllegalStateException("Pulsar mutation recovery exposed an unexpected extra entry");
                     }
                 }
 
@@ -120,28 +122,44 @@ public final class PulsarClientArtifactMutationSmoke {
                         client, guard, physicalTopic, "nereus-delay-mutation-source-" + UUID.randomUUID());
                 try (PulsarClientArtifactSourceRecordConsumer source = new PulsarClientArtifactSourceRecordConsumer(
                         activeNative, guard, shard, physicalTopic, Duration.ofMillis(250))) {
-                    final SourceRecordConsumer.PolledSourceRecord polled = poll(source);
-                    if (!(polled.entry() instanceof SourceReplayMutation replayed)
-                            || !mutation.equals(replayed.mutation())) {
-                        throw new IllegalStateException(
-                                "Pulsar active source did not expose the exact System Mutation");
-                    }
-                    requireReplayPosition(appendedPosition, replayed.position(), "active source");
-                    final SourceAcknowledgement.AcknowledgementResult ack =
-                            polled.acknowledgement().acknowledge(polled.entry(), null);
-                    if (ack.disposition() != SourceAcknowledgement.Disposition.ACKED) {
-                        throw new IllegalStateException(
-                                "Pulsar mutation ACK was not durable: " + ack.disposition(), ack.failure());
+                    for (int index = 0; index < mutations.size(); index++) {
+                        final SourceRecordConsumer.PolledSourceRecord polled = poll(source);
+                        requireMutation(
+                                polled.entry(), mutations.get(index), appendedPositions.get(index), "active source");
+                        final SourceAcknowledgement.AcknowledgementResult ack =
+                                polled.acknowledgement().acknowledge(polled.entry(), null);
+                        if (ack.disposition() != SourceAcknowledgement.Disposition.ACKED) {
+                            throw new IllegalStateException(
+                                    "Pulsar mutation ACK was not durable: " + ack.disposition(), ack.failure());
+                        }
                     }
                 }
             }
             System.out.println("Pulsar Shard Log mutation append/replay/ACK smoke passed: physicalTopic="
-                    + physicalTopic + ", ledger=" + appendedPosition.ledgerId() + ", entry="
-                    + appendedPosition.entryId() + ", record=TIME_FENCE, guarded Producer, ordered mutation replay, "
+                    + physicalTopic + ", positions="
+                    + appendedPositions.stream()
+                            .map(position -> position.ledgerId() + "/" + position.entryId())
+                            .toList()
+                    + ", records=TIME_FENCE,EXPIRE_GENERATION, guarded Producer, ordered mutation replay, "
                     + "ack receipt ACK");
         } finally {
             deleteTopicIfPresent(admin, adminUrl, topic);
         }
+    }
+
+    private static void requireMutation(
+            final SourceReplayEntry entry,
+            final SystemMutation expectedMutation,
+            final PulsarSourcePosition appendedPosition,
+            final String phase) {
+        if (!(entry instanceof SourceReplayMutation replayed)) {
+            throw new IllegalStateException("Pulsar " + phase + " returned a non-mutation entry: "
+                    + entry.getClass().getName());
+        }
+        if (!expectedMutation.equals(replayed.mutation())) {
+            throw new IllegalStateException("Pulsar " + phase + " mutation bytes changed");
+        }
+        requireReplayPosition(appendedPosition, replayed.position(), phase);
     }
 
     private static void requireReplayPosition(
@@ -199,6 +217,38 @@ public final class PulsarClientArtifactMutationSmoke {
                 proofId,
                 body,
                 AuthorIdentity.fence(Bytes.utf8("pulsar-mutation-fence"), keyVersion)
+                        .canonicalBytes(),
+                keyVersion,
+                keyPair.getPrivate());
+    }
+
+    private static SystemMutation expireGeneration(final ShardId shard) throws Exception {
+        final TrustedUtcIntervalEvidence evidence = new TrustedUtcIntervalEvidence(
+                3_000,
+                3_005,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                Bytes.utf8("pulsar-expiry-clock"),
+                1,
+                1,
+                1,
+                Bytes.sha256(Bytes.utf8("pulsar-expiry-evidence")),
+                0,
+                null);
+        final TargetExpireGenerationBody body =
+                new TargetExpireGenerationBody(shard, 9_000, DelayMessageId.random(shard), 1, 2_000, evidence);
+        final int keyVersion = 1;
+        final KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        return SystemMutation.signed(
+                shard,
+                SystemMutationType.EXPIRE_GENERATION,
+                body.retryUntil(),
+                body.logicalOperationIdentity(),
+                body.canonicalBytes(),
+                AuthorIdentity.owner(
+                                Bytes.sha256(Bytes.utf8("pulsar-expiry-deployment")),
+                                Bytes.sha256(Bytes.utf8("pulsar-expiry-worker")),
+                                1,
+                                Bytes.sha256(Bytes.utf8("pulsar-expiry-fence")))
                         .canonicalBytes(),
                 keyVersion,
                 keyPair.getPrivate());

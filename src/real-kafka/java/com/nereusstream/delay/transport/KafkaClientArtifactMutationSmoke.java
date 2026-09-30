@@ -7,6 +7,7 @@ import com.nereusstream.delay.ownership.SourceReplayEntry;
 import com.nereusstream.delay.ownership.SourceReplayMutation;
 import com.nereusstream.delay.protocol.AuthorIdentity;
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.KafkaActivationBarrier;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.RouteIncarnation;
@@ -15,10 +16,12 @@ import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
+import com.nereusstream.delay.protocol.TargetExpireGenerationBody;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -58,8 +61,8 @@ public final class KafkaClientArtifactMutationSmoke {
             final String clusterId = admin.describeCluster().clusterId().get(10, TimeUnit.SECONDS);
             final Uuid topicId = describe(admin, topic).topicId();
             final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
-            final SystemMutation mutation = timeFence(shard);
-            final KafkaSourcePosition appendedPosition;
+            final List<SystemMutation> mutations = List.of(timeFence(shard), expireGeneration(shard));
+            final List<KafkaSourcePosition> appendedPositions = new ArrayList<>(mutations.size());
             try (KafkaProducer<byte[], byte[]> producer = producer(bootstrap);
                     KafkaClientArtifactShardLogMutationAppender appender =
                             new KafkaClientArtifactShardLogMutationAppender(
@@ -69,13 +72,15 @@ public final class KafkaClientArtifactMutationSmoke {
                                     topic,
                                     toUuid(topicId),
                                     Duration.ofSeconds(15))) {
-                final var outcome = appender.append(mutation);
-                if (outcome.disposition()
-                        != com.nereusstream.delay.ownership.ShardLogMutationAppender.AppendDisposition.PERSISTED) {
-                    throw new IllegalStateException(
-                            "Kafka mutation append was not persisted: " + outcome.disposition());
+                for (SystemMutation mutation : mutations) {
+                    final var outcome = appender.append(mutation);
+                    if (outcome.disposition()
+                            != com.nereusstream.delay.ownership.ShardLogMutationAppender.AppendDisposition.PERSISTED) {
+                        throw new IllegalStateException(
+                                "Kafka mutation append was not persisted: " + outcome.disposition());
+                    }
+                    appendedPositions.add((KafkaSourcePosition) outcome.sourcePosition());
                 }
-                appendedPosition = (KafkaSourcePosition) outcome.sourcePosition();
             }
 
             final SourceAssignment assignment = new SourceAssignment(
@@ -90,40 +95,52 @@ public final class KafkaClientArtifactMutationSmoke {
                     topic,
                     0,
                     Duration.ofMillis(250))) {
-                final SourceReplayEntry recovered = recovery.next();
-                if (!(recovered instanceof SourceReplayMutation replayed)) {
-                    throw new IllegalStateException("Kafka recovery returned a non-mutation entry: "
-                            + recovered.getClass().getName());
+                for (int index = 0; index < mutations.size(); index++) {
+                    requireMutation(recovery.next(), mutations.get(index), appendedPositions.get(index), "recovery");
                 }
-                if (!mutation.equals(replayed.mutation())) {
-                    throw new IllegalStateException("Kafka recovery mutation bytes changed");
-                }
-                requireReplayPosition(appendedPosition, replayed.position(), "recovery");
                 if (recovery.hasNext()) {
-                    throw new IllegalStateException("Kafka mutation recovery exposed an unexpected second entry");
+                    throw new IllegalStateException("Kafka mutation recovery exposed an unexpected extra entry");
                 }
             }
 
             final String group = "nereus-delay-mutation-source-" + UUID.randomUUID();
             try (KafkaClientArtifactSourceRecordConsumer source =
                     source(bootstrap, group, clusterId, topic, toUuid(topicId), shard)) {
-                final SourceRecordConsumer.PolledSourceRecord polled = poll(source);
-                if (!(polled.entry() instanceof SourceReplayMutation replayed)
-                        || !mutation.equals(replayed.mutation())) {
-                    throw new IllegalStateException("Kafka active source did not expose the exact System Mutation");
-                }
-                requireReplayPosition(appendedPosition, replayed.position(), "active source");
-                final SourceAcknowledgement.AcknowledgementResult ack =
-                        polled.acknowledgement().acknowledge(polled.entry(), null);
-                if (ack.disposition() != SourceAcknowledgement.Disposition.ACKED) {
-                    throw new IllegalStateException(
-                            "Kafka mutation ACK was not durable: " + ack.disposition(), ack.failure());
+                for (int index = 0; index < mutations.size(); index++) {
+                    final SourceRecordConsumer.PolledSourceRecord polled = poll(source);
+                    requireMutation(
+                            polled.entry(), mutations.get(index), appendedPositions.get(index), "active source");
+                    final SourceAcknowledgement.AcknowledgementResult ack =
+                            polled.acknowledgement().acknowledge(polled.entry(), null);
+                    if (ack.disposition() != SourceAcknowledgement.Disposition.ACKED) {
+                        throw new IllegalStateException(
+                                "Kafka mutation ACK was not durable: " + ack.disposition(), ack.failure());
+                    }
                 }
             }
             System.out.println("Kafka Shard Log mutation append/replay/ACK smoke passed: topicId=" + topicId
-                    + ", offset=" + appendedPosition.offset()
-                    + ", record=TIME_FENCE, guarded Producer, ordered mutation replay, commitSync ACK");
+                    + ", offsets="
+                    + appendedPositions.stream()
+                            .map(KafkaSourcePosition::offset)
+                            .toList()
+                    + ", records=TIME_FENCE,EXPIRE_GENERATION, guarded Producer, ordered mutation replay, "
+                    + "commitSync ACK");
         }
+    }
+
+    private static void requireMutation(
+            final SourceReplayEntry entry,
+            final SystemMutation expectedMutation,
+            final KafkaSourcePosition appendedPosition,
+            final String phase) {
+        if (!(entry instanceof SourceReplayMutation replayed)) {
+            throw new IllegalStateException("Kafka " + phase + " returned a non-mutation entry: "
+                    + entry.getClass().getName());
+        }
+        if (!expectedMutation.equals(replayed.mutation())) {
+            throw new IllegalStateException("Kafka " + phase + " mutation bytes changed");
+        }
+        requireReplayPosition(appendedPosition, replayed.position(), phase);
     }
 
     private static void requireReplayPosition(
@@ -180,6 +197,38 @@ public final class KafkaClientArtifactMutationSmoke {
                 proofId,
                 body,
                 AuthorIdentity.fence(Bytes.utf8("kafka-mutation-fence"), keyVersion)
+                        .canonicalBytes(),
+                keyVersion,
+                keyPair.getPrivate());
+    }
+
+    private static SystemMutation expireGeneration(final ShardId shard) throws Exception {
+        final TrustedUtcIntervalEvidence evidence = new TrustedUtcIntervalEvidence(
+                2_000,
+                2_005,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                Bytes.utf8("kafka-expiry-clock"),
+                1,
+                1,
+                1,
+                Bytes.sha256(Bytes.utf8("kafka-expiry-evidence")),
+                0,
+                null);
+        final TargetExpireGenerationBody body =
+                new TargetExpireGenerationBody(shard, 9_000, DelayMessageId.random(shard), 1, 1_000, evidence);
+        final int keyVersion = 1;
+        final KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        return SystemMutation.signed(
+                shard,
+                SystemMutationType.EXPIRE_GENERATION,
+                body.retryUntil(),
+                body.logicalOperationIdentity(),
+                body.canonicalBytes(),
+                AuthorIdentity.owner(
+                                Bytes.sha256(Bytes.utf8("kafka-expiry-deployment")),
+                                Bytes.sha256(Bytes.utf8("kafka-expiry-worker")),
+                                1,
+                                Bytes.sha256(Bytes.utf8("kafka-expiry-fence")))
                         .canonicalBytes(),
                 keyVersion,
                 keyPair.getPrivate());
