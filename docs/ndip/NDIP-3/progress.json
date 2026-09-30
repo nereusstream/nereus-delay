@@ -261,11 +261,26 @@
     {
       "id": "B7",
       "title": "NDIP 规范 golden gate 闭合",
-      "status": "PLANNED",
+      "status": "IN_PROGRESS",
       "evidence": [],
-      "implementationStatus": "NOT_STARTED",
+      "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
-      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
+      "progress": "The closed NDIP receipt verifier now binds the ten-file NDIP-3 normative package and its Draft status markers. Its candidate path grants neither implementation nor deployment authority; the accepted receipt shape still forbids deployment authority. No candidate or accepted receipt was created. B7 remains open until B1-B6 are closed and the package receives the required explicit decision.",
+      "implementationSources": [
+        "scripts/verify-ndip-package.py",
+        "scripts/test-verify-ndip-package.py",
+        "docs/ndip/NDIP-3/01-目标分区队列与调度热路径设计.md",
+        "docs/ndip/NDIP-3/02-实施计划.md",
+        "docs/ndip/NDIP-3/03-代码级设计.md",
+        "docs/ndip/NDIP-3/05-Target身份与索引契约.md",
+        "docs/ndip/NDIP-3/06-执行与控制兼容契约.md",
+        "docs/ndip/NDIP-3/07-Schedule绑定与通道身份契约.md",
+        "docs/ndip/NDIP-3/08-成员授权与source关联契约.md",
+        "docs/ndip/NDIP-3/09-成员策略与认证控制契约.md",
+        "docs/ndip/NDIP-3/10-Native共同策略与签名契约.md",
+        "docs/ndip/NDIP-3/11-局部Quota与增量计费契约.md"
+      ]
     },
     {
       "id": "C1",

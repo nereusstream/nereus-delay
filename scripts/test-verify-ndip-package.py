@@ -62,13 +62,85 @@ class VerifyNdipPackageTest(unittest.TestCase):
         self.assertIs(True, receipt["authorization"]["implementationAuthorized"])
         self.assertIs(False, receipt["authorization"]["deploymentAuthority"])
 
+    def test_ndip3_candidate_binds_full_normative_package_without_authority(self) -> None:
+        package_dir = ROOT / "docs/ndip/NDIP-3"
+        receipt_path = package_dir / "acceptance-receipt.candidate.json"
+        candidate = self._ndip3_candidate()
+
+        proposal_id, paths, package_digest = VERIFIER.validate_receipt_shape(
+            candidate, package_dir, receipt_path, ROOT
+        )
+        actual_digest, files = VERIFIER.calculate_package(paths, ROOT)
+        VERIFIER.verify_file_digests(candidate, files)
+        VERIFIER.verify_repository_status(proposal_id, "CANDIDATE", 4, ROOT)
+        VERIFIER.verify_required_status("CANDIDATE", False)
+
+        self.assertEqual("NDIP-3", proposal_id)
+        self.assertEqual(10, len(paths))
+        self.assertEqual(package_digest, actual_digest)
+        self.assertIs(False, candidate["authority"])
+        self.assertIs(False, candidate["authorization"]["implementationAuthorized"])
+        self.assertIs(False, candidate["authorization"]["deploymentAuthority"])
+
+    def test_ndip3_candidate_cannot_claim_implementation_or_deployment_authority(self) -> None:
+        package_dir = ROOT / "docs/ndip/NDIP-3"
+        receipt_path = package_dir / "acceptance-receipt.candidate.json"
+
+        for field in ("implementationAuthorized", "deploymentAuthority"):
+            with self.subTest(field=field):
+                candidate = self._ndip3_candidate()
+                candidate["authorization"][field] = True
+                with self.assertRaises(VERIFIER.VerificationError):
+                    VERIFIER.validate_receipt_shape(
+                        candidate, package_dir, receipt_path, ROOT
+                    )
+
+    def test_ndip3_accepted_receipt_shape_never_grants_deployment_authority(self) -> None:
+        package_dir = ROOT / "docs/ndip/NDIP-3"
+        receipt_path = package_dir / "acceptance-receipt.json"
+        receipt = self._ndip3_candidate()
+        receipt["receiptStatus"] = "ACCEPTED"
+        receipt["authority"] = True
+        receipt["decision"] = {
+            "status": "ACCEPTED",
+            "acceptedBy": "test-only",
+            "acceptedAt": "2026-09-30",
+            "decisionReference": "test-only",
+        }
+        receipt["authorization"]["gateB"] = "PASS"
+        receipt["authorization"]["implementationAuthorized"] = True
+
+        proposal_id, paths, _ = VERIFIER.validate_receipt_shape(
+            receipt, package_dir, receipt_path, ROOT
+        )
+
+        self.assertEqual("NDIP-3", proposal_id)
+        self.assertEqual(10, len(paths))
+        self.assertIs(False, receipt["authorization"]["deploymentAuthority"])
+
+    def test_receipt_schema_generation_four_is_reserved_for_ndip3(self) -> None:
+        candidate = self._ndip3_candidate()
+        candidate["proposalId"] = "NDIP-2"
+        package_dir = ROOT / "docs/ndip/NDIP-3"
+
+        with self.assertRaisesRegex(
+            VERIFIER.VerificationError,
+            "receipt schema generation 4 is reserved for NDIP-3",
+        ):
+            VERIFIER.validate_receipt_shape(
+                candidate,
+                package_dir,
+                package_dir / "acceptance-receipt.candidate.json",
+                ROOT,
+            )
+
     def test_candidate_cannot_claim_implementation_authority(self) -> None:
         candidate = self._candidate()
         candidate["authorization"]["implementationAuthorized"] = True
 
         with self.assertRaisesRegex(
             VERIFIER.VerificationError,
-            "candidate must not authorize H1 through H6 implementation",
+            "candidate must not authorize implementation",
         ):
             VERIFIER.validate_receipt_shape(
                 candidate,
@@ -91,7 +163,7 @@ class VerifyNdipPackageTest(unittest.TestCase):
 
         with self.assertRaisesRegex(
             VERIFIER.VerificationError,
-            "accepted Gate B must authorize H1 through H6 implementation",
+            "accepted Gate B must authorize implementation",
         ):
             VERIFIER.validate_receipt_shape(
                 receipt, self.package_dir, self.receipt_path, ROOT
@@ -124,6 +196,47 @@ class VerifyNdipPackageTest(unittest.TestCase):
         candidate["authorization"]["implementationAuthorized"] = False
         candidate["authorization"]["localDisposableTestingAuthorized"] = False
         return candidate
+
+    def _ndip3_candidate(self) -> dict[str, object]:
+        paths = VERIFIER.EXPECTED_PACKAGES["NDIP-3"]
+        package_digest, files = VERIFIER.calculate_package(paths, ROOT)
+        return {
+            "receiptSchema": VERIFIER.RECEIPT_SCHEMA,
+            "receiptSchemaGeneration": 4,
+            "proposalId": "NDIP-3",
+            "receiptStatus": "CANDIDATE",
+            "authority": False,
+            "preparedAt": "2026-09-30",
+            "governanceBridge": {
+                "proposalId": "NDP-0002",
+                "requiredStatus": "ACCEPTED",
+                "observedStatus": "ACCEPTED",
+            },
+            "normativePackage": {
+                "digestAlgorithm": "SHA-256",
+                "digestDomain": VERIFIER.PACKAGE_DOMAIN_LABEL,
+                "pathBase": "repository-root",
+                "files": [
+                    {"path": path, "sha256": digest} for path, digest in files
+                ],
+                "digest": package_digest,
+            },
+            "reviewBaseline": {
+                "mainCommit": "1" * 40,
+                "governanceBaselineCommit": "2" * 40,
+            },
+            "decision": {
+                "status": "PENDING",
+                "acceptedBy": None,
+                "acceptedAt": None,
+                "decisionReference": None,
+            },
+            "authorization": {
+                "gateB": "PENDING",
+                "implementationAuthorized": False,
+                "deploymentAuthority": False,
+            },
+        }
 
 
 if __name__ == "__main__":

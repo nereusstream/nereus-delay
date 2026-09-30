@@ -250,7 +250,9 @@ B3 最终完整 check 通过：1866 项 Java 测试、失败/错误 0、外部 s
 `evidence/b3-results.json`；本次完整 JUnit XML 保存在 `evidence/b3-junit.zip`。
 B4 quota 已开始：独立 identity/counter/aggregate、有限增量规划与恢复算术核对已实现，
 21 项专项通过。完整业务 delta、grant/计量 artifact 与保护规则仍待冻结，B4 保持
-IN_PROGRESS。A2/A3、B4–B7、C–F 的未完成义务均保留，全部 29 项目标继续进行。
+IN_PROGRESS。B7 已开始接入精确十文件包的 Draft/candidate 门禁；它不生成接受凭证或
+实现/部署 authority，B1–B6 未闭合和实际接受决定前不得改为 Accepted。A2/A3、B4–B6、
+C–F 的未完成义务均保留，全部 29 项目标继续进行。
 
 B4 counter 基础批次完整 check 通过：1887 项 Java 测试、失败/错误 0、外部 skip 41；
 新增 21 项专项零 skip。24 条独立编码项与最大样本摘要、源码和全部 297 份 JUnit XML

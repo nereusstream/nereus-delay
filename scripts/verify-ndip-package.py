@@ -17,7 +17,7 @@ from typing import Any
 PACKAGE_DOMAIN = b"nereus-delay-ndip-package\0"
 PACKAGE_DOMAIN_LABEL = r"nereus-delay-ndip-package\0"
 RECEIPT_SCHEMA = "nereus-delay.ndip.acceptance-receipt"
-RECEIPT_SCHEMA_GENERATIONS = {2, 3}
+RECEIPT_SCHEMA_GENERATIONS = {2, 3, 4}
 HEX_256 = re.compile(r"[0-9a-f]{64}\Z")
 GIT_COMMIT = re.compile(r"[0-9a-f]{40}\Z")
 ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}\Z")
@@ -34,6 +34,18 @@ EXPECTED_PACKAGES = {
         "docs/ndip/NDIP-2/02-实施计划.md",
         "docs/ndip/NDIP-2/03-代码级目标设计.md",
     ),
+    "NDIP-3": (
+        "docs/ndip/NDIP-3/01-目标分区队列与调度热路径设计.md",
+        "docs/ndip/NDIP-3/02-实施计划.md",
+        "docs/ndip/NDIP-3/03-代码级设计.md",
+        "docs/ndip/NDIP-3/05-Target身份与索引契约.md",
+        "docs/ndip/NDIP-3/06-执行与控制兼容契约.md",
+        "docs/ndip/NDIP-3/07-Schedule绑定与通道身份契约.md",
+        "docs/ndip/NDIP-3/08-成员授权与source关联契约.md",
+        "docs/ndip/NDIP-3/09-成员策略与认证控制契约.md",
+        "docs/ndip/NDIP-3/10-Native共同策略与签名契约.md",
+        "docs/ndip/NDIP-3/11-局部Quota与增量计费契约.md",
+    ),
 }
 
 STATUS_MARKERS = {
@@ -46,6 +58,12 @@ STATUS_MARKERS = {
         "docs/ndip/NDIP-2/01-NDIP-生命周期与认证源码权威分层.md": "- Status: {status}",
         "docs/ndip/NDIP-2/02-实施计划.md": "- 当前状态：`{status}`",
         "docs/ndip/NDIP-2/03-代码级目标设计.md": "- 提案状态：`{status}`",
+    },
+    "NDIP-3": {
+        "docs/ndip/NDIP-3/README.md": "- 提案状态：`{status}`",
+        "docs/ndip/NDIP-3/01-目标分区队列与调度热路径设计.md": "Status: {status}",
+        "docs/ndip/NDIP-3/02-实施计划.md": "Status: {status}",
+        "docs/ndip/NDIP-3/03-代码级设计.md": "Status: {status}",
     },
 }
 
@@ -189,6 +207,8 @@ def validate_receipt_shape(
         raise VerificationError("receipt schema generation 2 is reserved for NDIP-1")
     if generation == 3 and proposal_id != "NDIP-2":
         raise VerificationError("receipt schema generation 3 is reserved for NDIP-2")
+    if generation == 4 and proposal_id != "NDIP-3":
+        raise VerificationError("receipt schema generation 4 is reserved for NDIP-3")
     expected_paths = EXPECTED_PACKAGES.get(proposal_id)
     if expected_paths is None:
         raise VerificationError(f"proposal is not registered by verifier: {proposal_id}")
@@ -316,7 +336,7 @@ def validate_receipt_shape(
                 "authorization.gateCRequiredBeforeEnabled must be true"
             )
     elif authorization["deploymentAuthority"] is not False:
-        raise VerificationError("NDIP-2 acceptance must not grant deployment authority")
+        raise VerificationError(f"{proposal_id} receipt must not grant deployment authority")
 
     if status == "CANDIDATE":
         if receipt["authority"] is not False:
@@ -332,7 +352,7 @@ def validate_receipt_shape(
             raise VerificationError("candidate Gate B must remain pending")
         if authorization["implementationAuthorized"] is not False:
             raise VerificationError(
-                "candidate must not authorize H1 through H6 implementation"
+                "candidate must not authorize implementation"
             )
         if generation == 2 and authorization["localDisposableTestingAuthorized"] is not False:
             raise VerificationError(
@@ -350,7 +370,7 @@ def validate_receipt_shape(
             raise VerificationError("accepted receipt Gate B must be PASS")
         if authorization["implementationAuthorized"] is not True:
             raise VerificationError(
-                "accepted Gate B must authorize H1 through H6 implementation"
+                "accepted Gate B must authorize implementation"
             )
         if generation == 2 and authorization["localDisposableTestingAuthorized"] is not True:
             raise VerificationError(
