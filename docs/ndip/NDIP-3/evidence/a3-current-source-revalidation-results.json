@@ -1,0 +1,141 @@
+{
+  "scope": "A3 current-source revalidation of the Lane head audit, Store failure recovery, and mapped scheduler/Claim regression set; focused local evidence only, not independent P0 acceptance",
+  "baseCommit": "8a5751da3591d729af7f24c9c1b2d87da69109be",
+  "branch": "main",
+  "command": "./gradlew test --tests 'com.nereusstream.delay.runtime.DelayShardTest' --tests 'com.nereusstream.delay.runtime.DelayShardHeadSelectionTest' --tests 'com.nereusstream.delay.runtime.DelayShardHeadBudgetTest' --tests 'com.nereusstream.delay.runtime.ClaimRecordTest' --tests 'com.nereusstream.delay.store.ShardStoreTest' --tests 'com.nereusstream.delay.store.KeyCodecTest' --tests 'com.nereusstream.delay.ownership.DueSchedulerWorkClassExecutorTest' --tests 'com.nereusstream.delay.ownership.ClaimHandoffWorkClassExecutorTest' --tests 'com.nereusstream.delay.scheduler.ClaimExecutionAdmissionTest' --tests 'com.nereusstream.delay.scheduler.WorkClassSchedulerTest' --tests 'com.nereusstream.delay.scheduler.WorkerSchedulerTest' --tests 'com.nereusstream.delay.scheduler.LaneSchedulerTest' --tests 'com.nereusstream.delay.runtime.ClaimMaterializationRuntimeTest' --tests 'com.nereusstream.delay.protocol.ClaimMaterializationTest' --tests 'com.nereusstream.delay.protocol.SchedulerProjectionsTest' checkstyleTest checkDocumentation --no-daemon --console=plain",
+  "checkResult": "PASS",
+  "checkstyleTest": "PASS",
+  "checkDocumentation": "PASS",
+  "javaResults": {
+    "classes": 15,
+    "tests": 321,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "classResults": {
+    "com.nereusstream.delay.runtime.DelayShardTest": {
+      "tests": 147,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.nereusstream.delay.runtime.DelayShardHeadSelectionTest": {
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.nereusstream.delay.runtime.DelayShardHeadBudgetTest": {
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.nereusstream.delay.runtime.ClaimRecordTest": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.nereusstream.delay.store.ShardStoreTest": {
+      "tests": 59,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.nereusstream.delay.store.KeyCodecTest": {
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.nereusstream.delay.ownership.DueSchedulerWorkClassExecutorTest": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.nereusstream.delay.ownership.ClaimHandoffWorkClassExecutorTest": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.nereusstream.delay.scheduler.ClaimExecutionAdmissionTest": {
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.nereusstream.delay.scheduler.WorkClassSchedulerTest": {
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.nereusstream.delay.scheduler.WorkerSchedulerTest": {
+      "tests": 22,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.nereusstream.delay.scheduler.LaneSchedulerTest": {
+      "tests": 47,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.nereusstream.delay.runtime.ClaimMaterializationRuntimeTest": {
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.nereusstream.delay.protocol.ClaimMaterializationTest": {
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "com.nereusstream.delay.protocol.SchedulerProjectionsTest": {
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "sourceFiles": {
+    "src/main/java/com/nereusstream/delay/runtime/DelayShard.java": "1a740488579047bdfcc87de30dc5935b16d11c9b5ddb01492c0f3febb1f93667",
+    "src/main/java/com/nereusstream/delay/store/ShardStore.java": "6125eda2ab419b1e72811790517822317ad15444e2a5efb3ff15e46bad2ea034"
+  },
+  "testFiles": {
+    "src/test/java/com/nereusstream/delay/runtime/DelayShardTest.java": "664f5b0d20b54431f178ed34615e60721f21c668af7ef3818ae18dbf036ee1bd",
+    "src/test/java/com/nereusstream/delay/runtime/DelayShardHeadSelectionTest.java": "462df16618f519b9b23626c7af4529e3e774ba958759e867c85a801ad231e090",
+    "src/test/java/com/nereusstream/delay/runtime/DelayShardHeadBudgetTest.java": "15309741282a66e7d24c3476eb58d2d160ab930f222b980b683a407ddba5c8c8",
+    "src/test/java/com/nereusstream/delay/runtime/ClaimRecordTest.java": "0c1abef382467b8da4f88d23cb50aa98cf08629920b435bef1ab269013e2c6f6",
+    "src/test/java/com/nereusstream/delay/store/ShardStoreTest.java": "102527d2062129cdb98b5ffaded536ff80ffe9a84e5606223c4490dab7098389",
+    "src/test/java/com/nereusstream/delay/store/KeyCodecTest.java": "eb0440e1e72a3a37deb6e23c74cba455ecb673a7967170f6dcf191dd075a065c",
+    "src/test/java/com/nereusstream/delay/ownership/DueSchedulerWorkClassExecutorTest.java": "776db1a3dfce805bb11ff71439059f3a94c9189ce1e4d009d92e60ade1bfa247",
+    "src/test/java/com/nereusstream/delay/ownership/ClaimHandoffWorkClassExecutorTest.java": "bca51ae603ba86e574c21d4f0608287623d3facaf46d69ccf3d42321f7cb781e",
+    "src/test/java/com/nereusstream/delay/scheduler/ClaimExecutionAdmissionTest.java": "d381e041c5afdd46cda06438d52130190a23a794bae37b4d78735cac4adc4fe2",
+    "src/test/java/com/nereusstream/delay/scheduler/WorkClassSchedulerTest.java": "685af6e1d9951e2976d7264df9e4475368d1cfee2269d8933b4f7b837c771ed8",
+    "src/test/java/com/nereusstream/delay/scheduler/WorkerSchedulerTest.java": "3ea0bff7902d0718493274c3ecbcc5ddaab7d57d6a77bbd4cb4840a657179909",
+    "src/test/java/com/nereusstream/delay/scheduler/LaneSchedulerTest.java": "d35115dff5efb503876d4ee330ea701d58d54cfca8676661d82b0f158fdb7598",
+    "src/test/java/com/nereusstream/delay/runtime/ClaimMaterializationRuntimeTest.java": "1563226a0ba58c541f4f91249bab3bf85acca61ebce0c618f061a0689a1301f3",
+    "src/test/java/com/nereusstream/delay/protocol/ClaimMaterializationTest.java": "a8c08eab5308371921c08bdb473359af3759be081d08dc2f1c25172c47acd59a",
+    "src/test/java/com/nereusstream/delay/protocol/SchedulerProjectionsTest.java": "cce4b7931b6a96417d9c63dc4c3ab5fd2a699f17e9eb408c73f153c444ccf15f"
+  },
+  "criticalRegressionCases": [
+    "DelayShardTest.readyRebuildAuditsDamagedCandidateBehindHealthyHead",
+    "ShardStoreTest.batchPreparationFailureDoesNotCommitOrFenceStore",
+    "ShardStoreTest.unknownNativeWriteResultFencesUntilReopenAndRevealsCommittedBatch"
+  ],
+  "verifiedContracts": {
+    "auditCallers": "READY activation and fenced READY-index rebuild retain explicit candidate-tail audits.",
+    "auditFailure": "A damaged later DUE candidate prevents rebuild publication and preserves prior READY bytes and sequence.",
+    "preWriteFailure": "A staged batch failing before native write persists no value, advances no sequence, leaves the Store usable, and allows a later write.",
+    "unknownWrite": "A real synchronous RocksDB batch commit followed by injected response loss fences the live Store; reopening observes the committed value and permits a later write."
+  },
+  "remaining": "A2 maximum legal single-mutation envelope, production finite-policy assembly, central validation, and independent P0 acceptance remain pending. This revalidation does not establish Broker or production authority."
+}
