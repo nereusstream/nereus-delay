@@ -25,7 +25,10 @@ import com.nereusstream.delay.ownership.TargetReservationClosureWorkClassExecuto
 import com.nereusstream.delay.ownership.TargetReservationExpiryWorkClassExecutor;
 import com.nereusstream.delay.ownership.TargetReservationGcRuntime;
 import com.nereusstream.delay.ownership.TargetSourceApplyRuntime;
+import com.nereusstream.delay.ownership.TargetWorkerHostTestBridge;
+import com.nereusstream.delay.ownership.TargetWorkerOrdinaryDrr;
 import com.nereusstream.delay.ownership.TargetWorkerShardRuntime;
+import com.nereusstream.delay.ownership.TargetWorkerTargetInventory;
 import com.nereusstream.delay.ownership.WorkerSourceApplyLoop;
 import com.nereusstream.delay.protocol.AcknowledgementSet;
 import com.nereusstream.delay.protocol.AdapterKind;
@@ -2002,8 +2005,9 @@ class TargetQuotaGrantStoreTest {
                                 ? SourceAcknowledgement.AcknowledgementResult.unknown(null)
                                 : SourceAcknowledgement.AcknowledgementResult.acked();
                     }));
+            final var workerClasses = workClasses();
             final var loop = new WorkerSourceApplyLoop(
-                    () -> java.util.Optional.ofNullable(queue.poll()), workClasses(), runtime);
+                    () -> java.util.Optional.ofNullable(queue.poll()), workerClasses, runtime);
             final var closeTurn = loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100);
             assertEquals(
                     SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN,
@@ -2043,9 +2047,25 @@ class TargetQuotaGrantStoreTest {
             assertEquals(
                     ApplyStatus.APPLIED,
                     SystemMutationResult.decode(first.typedPayload()).applyStatus());
-            final var queueChanges = new TargetStoreBackend.TargetQueueChangeSignal();
-            backend.bindTargetQueueChangeSignal(queueChanges);
-            queueChanges.drainChanges();
+            final var sourceHostWorker = new TargetWorkerShardRuntime(
+                    () -> java.util.Optional.empty(),
+                    workerClasses,
+                    store,
+                    store.sharedResources(),
+                    runtime,
+                    new TargetWorkerShardRuntime.Maintenance(
+                            new TargetCloseStore(backend, scope, lineage, 16, 1)
+                                    .reservationControls((reader, bound) -> java.util.Optional.empty()),
+                            new TargetReservationClosureWorkClassExecutor.Limits(4096, 250_000, 60_000_000_000L),
+                            new TargetReservationExpiryWorkClassExecutor.Limits(2048, 100_000, 60_000_000_000L),
+                            (a, b, c) -> guard(),
+                            ignored -> {},
+                            ignored -> {},
+                            ignored -> {},
+                            () -> 100));
+            final var sourceHost = TargetWorkerHostTestBridge.withoutMaintenanceTimer(
+                    workerClasses, store.sharedResources(), List.of(sourceHostWorker));
+            TargetWorkerHostTestBridge.drainChanges(sourceHost);
             final var nativeScope = new TargetNativePolicyScope(
                     bytes(32, 0x78),
                     actor.tenantResourceScopeHash(),
@@ -2076,13 +2096,13 @@ class TargetQuotaGrantStoreTest {
                                 ? SourceAcknowledgement.AcknowledgementResult.unknown(null)
                                 : SourceAcknowledgement.AcknowledgementResult.acked();
                     }));
-            final long beforeNativeInstallRevision = queueChanges.revision();
+            final long beforeNativeInstallRevision = sourceHost.targetQueueChangeRevision();
             assertEquals(
                     SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN,
                     loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100)
                             .status());
-            assertEquals(beforeNativeInstallRevision + 1, queueChanges.revision());
-            final var installChanges = queueChanges.drainChanges();
+            assertEquals(beforeNativeInstallRevision + 1, sourceHost.targetQueueChangeRevision());
+            final var installChanges = TargetWorkerHostTestBridge.drainChanges(sourceHost);
             assertFalse(installChanges.inventoryDirty());
             assertTrue(installChanges.businessRecheck());
             assertTrue(installChanges.dirtyTargets().isEmpty());
@@ -2092,7 +2112,7 @@ class TargetQuotaGrantStoreTest {
                     loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100)
                             .status());
             assertEquals(afterNativeInstall, store.latestSequenceNumber());
-            assertEquals(beforeNativeInstallRevision + 1, queueChanges.revision());
+            assertEquals(beforeNativeInstallRevision + 1, sourceHost.targetQueueChangeRevision());
             final var snapshot = TargetNativePolicySnapshot.create(
                     nativeScope,
                     1,
@@ -2135,8 +2155,8 @@ class TargetQuotaGrantStoreTest {
                     SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
                     activationTurn.status(),
                     () -> "activation source apply failed: " + activationTurn.failure());
-            assertEquals(beforeNativeInstallRevision + 2, queueChanges.revision());
-            final var activationChanges = queueChanges.drainChanges();
+            assertEquals(beforeNativeInstallRevision + 2, sourceHost.targetQueueChangeRevision());
+            final var activationChanges = TargetWorkerHostTestBridge.drainChanges(sourceHost);
             assertFalse(activationChanges.inventoryDirty());
             assertTrue(activationChanges.businessRecheck());
             assertTrue(activationChanges.dirtyTargets().isEmpty());
@@ -2162,8 +2182,8 @@ class TargetQuotaGrantStoreTest {
                     SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
                     loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100)
                             .status());
-            assertEquals(beforeNativeInstallRevision + 3, queueChanges.revision());
-            final var approvalChanges = queueChanges.drainChanges();
+            assertEquals(beforeNativeInstallRevision + 3, sourceHost.targetQueueChangeRevision());
+            final var approvalChanges = TargetWorkerHostTestBridge.drainChanges(sourceHost);
             assertFalse(approvalChanges.inventoryDirty());
             assertTrue(approvalChanges.businessRecheck());
             assertTrue(approvalChanges.dirtyTargets().isEmpty());
@@ -2589,16 +2609,80 @@ class TargetQuotaGrantStoreTest {
                     new UUID((firstScheduleTime << 16) | 0x7102L, 0x8300000000000002L),
                     firstScheduleIntent,
                     firstScheduleTime + 1000);
-            queue.add(new SourceRecordConsumer.PolledSourceRecord(
-                    new SourceReplayRecord(firstSourceSchedule, firstScheduleAt, null, null), (entry, outcome) -> {
-                        assertEquals(StableCode.SCHEDULED, outcome.commandResult().stableCode());
-                        return SourceAcknowledgement.AcknowledgementResult.acked();
-                    }));
-            final var firstScheduleTurn = loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100);
-            assertEquals(
-                    SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
-                    firstScheduleTurn.status(),
-                    () -> String.valueOf(firstScheduleTurn.failure()));
+            final var hostOwner = new OwnerIdentity(
+                    bytes(16, 0x84), bytes(16, 0x85), active.ownerEpoch(), active.leaseToken());
+            final var hostClaims = new java.util.concurrent.LinkedBlockingQueue<TargetClaimRecord>();
+            final var hostFailure = new java.util.concurrent.atomic.AtomicReference<Throwable>();
+            final var hostRequests = (TargetWorkerOrdinaryDrr.Requests) (worker, cost) -> {
+                if (!worker.shardId().equals(scope.shard()) || !cost.head().target().equals(physical.id())) {
+                    return java.util.Optional.empty();
+                }
+                return java.util.Optional.of(new TargetWorkerOrdinaryDrr.Request(
+                        hostOwner,
+                        Math.addExact(cost.head().timeEpochMs(), 1000),
+                        Bytes.sha256(firstSourceSchedule.canonicalBody()),
+                        (kind, delta) -> {},
+                        (a, b, c) -> guard()));
+            };
+            final var hostLoop = sourceHost.startOrdinaryScheduling(
+                    new TargetWorkerTargetInventory.Limits(2, 16, 4, 8, 4096, 32L << 20, 60_000_000_000L),
+                    new TargetWorkerOrdinaryDrr.Limits(
+                            32L << 20, 32L << 20, 32L << 20, 16, 4096, 32L << 20, 60_000_000_000L),
+                    new SchedulerBudget(16, 32L << 20, 60_000_000_000L),
+                    java.time.Duration.ofHours(1),
+                    hostRequests,
+                    hostClaims::add,
+                    () -> 100,
+                    () -> firstScheduleTime + 200,
+                    System::nanoTime,
+                    hostFailure::set);
+            boolean hostLoopClosed = false;
+            try {
+                final long idleDeadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
+                while (!hostLoop.isWaitingForQueueChange() && System.nanoTime() < idleDeadline) {
+                    Thread.sleep(1);
+                }
+                assertTrue(hostLoop.isWaitingForQueueChange());
+                assertNull(store.get(ColumnFamily.META, TargetKeyCodec.state(physical.id())));
+                final long beforeFirstSchedule = sourceHost.targetQueueChangeRevision();
+                queue.add(new SourceRecordConsumer.PolledSourceRecord(
+                        new SourceReplayRecord(firstSourceSchedule, firstScheduleAt, null, null), (entry, outcome) -> {
+                            assertEquals(StableCode.SCHEDULED, outcome.commandResult().stableCode());
+                            return SourceAcknowledgement.AcknowledgementResult.acked();
+                        }));
+                final var firstScheduleTurn = loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100);
+                assertEquals(
+                        SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                        firstScheduleTurn.status(),
+                        () -> String.valueOf(firstScheduleTurn.failure()));
+                assertTrue(sourceHost.targetQueueChangeRevision() > beforeFirstSchedule);
+                final var sourceCreatedClaim = hostClaims.poll(5, java.util.concurrent.TimeUnit.SECONDS);
+                assertNotNull(
+                        sourceCreatedClaim, () -> "Host missed the source-created Target: " + hostFailure.get());
+                assertEquals(physical.id(), sourceCreatedClaim.selected().target());
+                assertEquals(hostOwner, sourceCreatedClaim.owner());
+                assertNotNull(store.get(ColumnFamily.INFLIGHT, sourceCreatedClaim.key()));
+                final var firstCacheRead = budget();
+                assertTrue(sourceHostWorker.readTargetQueue(firstCacheRead, physical.id(), () -> 100).isPresent());
+                final var cacheHitRead = budget();
+                assertTrue(sourceHostWorker.readTargetQueue(cacheHitRead, physical.id(), () -> 100).isPresent());
+                assertEquals(0, cacheHitRead.actualRecords());
+                hostLoop.close();
+                hostLoopClosed = true;
+                sourceHostWorker.revokeClaim(
+                        budget(),
+                        sourceCreatedClaim,
+                        bytes(32, 0x86),
+                        (kind, delta) -> {},
+                        (a, b, c) -> guard(),
+                        () -> 100);
+                assertNull(store.get(ColumnFamily.INFLIGHT, sourceCreatedClaim.key()));
+            } finally {
+                if (!hostLoopClosed) {
+                    hostLoop.close();
+                }
+                sourceHostWorker.closeSource();
+            }
             final var firstQueue = TargetQueueState.decode(TargetValueEnvelope.decode(
                             store.get(ColumnFamily.META, TargetKeyCodec.state(physical.id())),
                             TargetQueueState.VALUE_TYPE)
@@ -2753,7 +2837,7 @@ class TargetQuotaGrantStoreTest {
                             TargetQueueState.VALUE_TYPE)
                     .payload();
             final long sequenceBeforeLimitRejection = store.latestSequenceNumber();
-            queueChanges.drainChanges();
+            TargetWorkerHostTestBridge.drainChanges(sourceHost);
             queue.add(new SourceRecordConsumer.PolledSourceRecord(
                     new SourceReplayRecord(thirdSourceSchedule, thirdScheduleAt, null, null), (entry, outcome) -> {
                         assertEquals(ApplyStatus.REJECTED, outcome.commandResult().applyStatus());
@@ -2806,7 +2890,7 @@ class TargetQuotaGrantStoreTest {
                             null,
                             null)
                     .encodedKey()));
-            final var rejectedQueueChanges = queueChanges.drainChanges();
+            final var rejectedQueueChanges = TargetWorkerHostTestBridge.drainChanges(sourceHost);
             assertTrue(rejectedQueueChanges.dirtyTargets().isEmpty());
 
             final var cancelAt = source(

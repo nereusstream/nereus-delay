@@ -3,6 +3,7 @@ package com.nereusstream.delay.ownership;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import com.nereusstream.delay.store.SharedRocksDbResources;
+import com.nereusstream.delay.store.TargetStoreBackend;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
@@ -21,5 +22,10 @@ public final class TargetWorkerHostTestBridge {
         final var loop = new TargetWorkerMaintenanceLoop(
                 fleet, new SchedulerBudget(1, 1, 60_000_000_000L), Duration.ofDays(1), ignored -> {}, executor);
         return new TargetWorkerHostRuntime(fleet, loop, workers);
+    }
+
+    public static TargetStoreBackend.TargetQueueChangeSignal.Changes drainChanges(
+            final TargetWorkerHostRuntime host) {
+        return host.drainTargetQueueChanges();
     }
 }
