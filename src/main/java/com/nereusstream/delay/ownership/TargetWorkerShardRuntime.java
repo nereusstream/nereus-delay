@@ -321,6 +321,7 @@ public final class TargetWorkerShardRuntime
         if (maintenance.hasPendingTurn()) {
             throw new IllegalStateException("Target checkpoint cannot cut a pending GC action");
         }
+        requireMessageExpirySettledForCut();
         final var submitted = target.submitLocalCheckpointCandidate(
                 workClasses, intents, ownerClock, checkpointPath, pending, physicalLimits, quotaLimits, ledgerLimits);
         pendingCheckpoint = submitted;
@@ -355,6 +356,7 @@ public final class TargetWorkerShardRuntime
         if (maintenance.hasPendingTurn()) {
             throw new IllegalStateException("Target checkpoint cannot cut a pending GC action");
         }
+        requireMessageExpirySettledForCut();
         final var cut = sourceLoop.checkpointCut(store.appliedShardLogPosition());
         preparedCheckpointCut = cut;
         return cut;
@@ -371,7 +373,9 @@ public final class TargetWorkerShardRuntime
             final SourceRecordConsumer.CheckpointCut cut) {
         requireNewTurnsAdmitted();
         resources.requireRuntimeBusinessAdmission();
-        if (preparedCheckpointCut != Objects.requireNonNull(cut, "cut") || maintenance.hasPendingTurn()) {
+        if (preparedCheckpointCut != Objects.requireNonNull(cut, "cut")
+                || maintenance.hasPendingTurn()
+                || hasUnsettledMessageExpiry()) {
             throw new IllegalStateException("Target checkpoint cut is no longer prepared for this Shard");
         }
         cut.requireCurrent();
@@ -419,6 +423,9 @@ public final class TargetWorkerShardRuntime
         requireCheckpointSettled();
         if (sourceLoop.pendingEntry().isPresent()) {
             throw new IllegalStateException("Target Worker cannot pause a pending source acknowledgement");
+        }
+        if (hasUnsettledMessageExpiry()) {
+            throw new IllegalStateException("Target Worker cannot pause a pending message expiry handoff");
         }
         sourceAndMaintenancePaused = true;
         preparedCheckpointCut = null;
@@ -480,5 +487,15 @@ public final class TargetWorkerShardRuntime
         if (pendingCheckpoint != null) {
             throw new IllegalStateException("Target Worker checkpoint cut is still pending");
         }
+    }
+
+    private void requireMessageExpirySettledForCut() {
+        if (hasUnsettledMessageExpiry()) {
+            throw new IllegalStateException("Target checkpoint cannot cut a pending message expiry handoff");
+        }
+    }
+
+    private boolean hasUnsettledMessageExpiry() {
+        return messageExpiryHandoff != null && messageExpiryHandoff.hasUnsettledSubmission();
     }
 }

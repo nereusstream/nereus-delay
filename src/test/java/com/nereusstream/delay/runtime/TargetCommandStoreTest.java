@@ -2098,6 +2098,23 @@ class TargetCommandStoreTest {
             assertEquals(expiry, messageExpirySubmission.mutation());
             assertEquals(beforeDiscoverySequence, store.latestSequenceNumber());
             assertTrue(messageExpiryHandoff.settlePending(() -> 100).isEmpty());
+            final var checkpointCutFailure = assertThrows(
+                    IllegalStateException.class,
+                    () -> messageExpiryWorker.submitProtectedCheckpointCandidate(
+                            null, null, null, null, null, null, null));
+            assertEquals(
+                    "Target checkpoint cannot cut a pending message expiry handoff",
+                    checkpointCutFailure.getMessage());
+            final var localCheckpointFailure = assertThrows(
+                    IllegalStateException.class,
+                    () -> messageExpiryWorker.submitLocalCheckpointCandidate(
+                            null, null, null, null, null, null, null));
+            assertEquals(
+                    "Target checkpoint cannot cut a pending message expiry handoff",
+                    localCheckpointFailure.getMessage());
+            final var pauseFailure = assertThrows(
+                    IllegalStateException.class, messageExpiryWorker::pauseNewTurns);
+            assertEquals("Target Worker cannot pause a pending message expiry handoff", pauseFailure.getMessage());
             assertThrows(
                     IllegalStateException.class,
                     () -> messageExpiryHandoff.submit(

@@ -25,7 +25,7 @@ public final class TargetMessageExpiryWorkClassExecutor {
 
     private final TargetWorkerShardRuntime worker;
     private final ShardLogMutationAppender appender;
-    private Submission pending;
+    private volatile Submission pending;
 
     TargetMessageExpiryWorkClassExecutor(
             final TargetWorkerShardRuntime worker, final ShardLogMutationAppender appender) {
@@ -122,6 +122,10 @@ public final class TargetMessageExpiryWorkClassExecutor {
         prior.confirmApplied();
         pending = null;
         return Optional.of(prior.result);
+    }
+
+    boolean hasUnsettledSubmission() {
+        return pending != null;
     }
 
     private void execute(final Request request, final Submission submission) {
