@@ -26,7 +26,6 @@ public final class TargetMessageExpiryWorkClassExecutor {
     private final TargetWorkerShardRuntime worker;
     private final ShardLogMutationAppender appender;
     private Submission pending;
-    private SourcePosition awaitingApply;
 
     TargetMessageExpiryWorkClassExecutor(
             final TargetWorkerShardRuntime worker, final ShardLogMutationAppender appender) {
@@ -36,8 +35,8 @@ public final class TargetMessageExpiryWorkClassExecutor {
 
     /**
      * Prepares one exact source mutation before queue admission; it never applies locally. When a
-     * previous UNKNOWN append is confirmed applied, this call only settles that submission so the
-     * caller can rediscover a fresh candidate before queueing another mutation.
+     * previous append is confirmed applied, this call only settles that submission so the caller
+     * can rediscover a fresh candidate before queueing another mutation.
      */
     public synchronized Submission submit(
             final TargetExpiryDiscoveryStore.Candidate candidate,
@@ -52,28 +51,32 @@ public final class TargetMessageExpiryWorkClassExecutor {
             if (pending.result == null) {
                 throw new IllegalStateException("Target message expiry already has an outstanding WorkClass action");
             }
-            if (pending.result.kind() == ResultKind.UNKNOWN) {
+            final var prior = pending;
+            final ResultKind priorKind = prior.result.kind();
+            if (priorKind == ResultKind.APPENDED || priorKind == ResultKind.UNKNOWN) {
+                if (priorKind == ResultKind.APPENDED
+                        && !worker.messageExpiryAppendApplied(prior.result.sourcePosition(), clock)) {
+                    throw new IllegalStateException("previous Target expiry source append has not been applied");
+                }
                 final SystemMutationResult applied = worker
-                        .messageExpiryMutationResult(pending.mutation, clock)
+                        .messageExpiryMutationResult(prior.mutation, clock)
                         .orElse(null);
                 if (applied == null) {
-                    throw new IllegalStateException("previous Target expiry append outcome remains unknown");
+                    throw new IllegalStateException(priorKind == ResultKind.UNKNOWN
+                            ? "previous Target expiry append outcome remains unknown"
+                            : "previous Target expiry source result is absent");
                 }
                 if (applied.applyStatus() != ApplyStatus.APPLIED || applied.stableCode() != StableCode.OK) {
                     throw new IllegalStateException("previous Target expiry mutation did not apply successfully");
                 }
-                final Submission settled = pending;
-                settled.confirmApplied();
+                prior.confirmApplied();
                 pending = null;
-                return settled;
+                return prior;
             }
-        }
-        pending = null;
-        if (awaitingApply != null) {
-            if (!worker.messageExpiryAppendApplied(awaitingApply, clock)) {
-                throw new IllegalStateException("previous Target expiry source append has not been applied");
+            if (priorKind != ResultKind.DEFINITIVELY_NOT_APPENDED) {
+                throw new IllegalStateException("Target expiry handoff has an invalid pending result");
             }
-            awaitingApply = null;
+            pending = null;
         }
 
         final Request request = Request.prepare(
@@ -106,9 +109,6 @@ public final class TargetMessageExpiryWorkClassExecutor {
                     request.candidate, request.evidence, request.owner, request.mutation, appender, request.ownerClock);
             switch (appended.disposition()) {
                 case PERSISTED -> {
-                    synchronized (this) {
-                        awaitingApply = appended.sourcePosition();
-                    }
                     submission.complete(HandoffResult.appended(request.mutation, appended.sourcePosition()));
                 }
                 case DEFINITIVELY_NOT_PERSISTED ->
@@ -252,8 +252,9 @@ public final class TargetMessageExpiryWorkClassExecutor {
         }
 
         private synchronized void confirmApplied() {
-            if (result == null || result.kind() != ResultKind.UNKNOWN) {
-                throw new IllegalStateException("only an unknown Target expiry append can be reconciled");
+            if (result == null
+                    || (result.kind() != ResultKind.UNKNOWN && result.kind() != ResultKind.APPENDED)) {
+                throw new IllegalStateException("only an appended Target expiry can be confirmed applied");
             }
             result = HandoffResult.applied(mutation);
         }

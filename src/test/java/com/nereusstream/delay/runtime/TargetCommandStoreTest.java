@@ -2128,6 +2128,18 @@ class TargetCommandStoreTest {
             assertEquals(
                     StableCode.OK,
                     applyExpiry(loop, entries, messageExpirySubmission.mutation(), expiryAt).stableCode());
+            final var confirmedExpirySubmission = messageExpiryHandoff.submit(
+                    expectedExpiry,
+                    expiryProof,
+                    expiry.retryUntilEpochMs(),
+                    expiryOwner.asOwnerIdentity(),
+                    expiry.signingKeyVersion(),
+                    keys.getPrivate(),
+                    () -> 100);
+            assertEquals(messageExpirySubmission, confirmedExpirySubmission);
+            assertEquals(
+                    TargetMessageExpiryWorkClassExecutor.ResultKind.APPLIED,
+                    confirmedExpirySubmission.result().orElseThrow().kind());
             final var expired = TargetMessageRecord.decode(TargetValueEnvelope.decode(
                             store.get(ColumnFamily.ID, beforeExpiry.encodedKey()), TargetMessageRecord.VALUE_TYPE)
                     .payload());
@@ -2329,10 +2341,52 @@ class TargetCommandStoreTest {
                     TargetMessageExpiryWorkClassExecutor.ResultKind.DEFINITIVELY_NOT_APPENDED,
                     nextExpirySubmission.result().orElseThrow().kind());
             assertEquals(beforeNextExpirySubmit, store.latestSequenceNumber());
-            final var prepareAt = source(
+            final var rejectedExpiryAt = source(
                     nextScheduleAt,
                     nextScheduleAt.offset() + 1,
                     nextScheduleAt.brokerLogAppendTimeEpochMs() + 1);
+            final var invalidProofExpiry = expire(
+                    nextSchedule.delayMessageId(),
+                    nextMessage.expireAtEpochMs(),
+                    rejectedExpiryAt,
+                    expiryOwner,
+                    wrongProofKeys,
+                    false);
+            messageExpiryAppendMutation.set(invalidProofExpiry);
+            messageExpiryAppendOutcome.set(
+                    com.nereusstream.delay.ownership.ShardLogMutationAppender.AppendOutcome.persisted(
+                    rejectedExpiryAt));
+            final var rejectedExpirySubmission = messageExpiryHandoff.submit(
+                    nextExpiryCandidate,
+                    expiryProof,
+                    invalidProofExpiry.retryUntilEpochMs(),
+                    expiryOwner.asOwnerIdentity(),
+                    expiry.signingKeyVersion(),
+                    wrongProofKeys.getPrivate(),
+                    () -> 100);
+            workerClasses.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
+            assertEquals(
+                    TargetMessageExpiryWorkClassExecutor.ResultKind.APPENDED,
+                    rejectedExpirySubmission.result().orElseThrow().kind());
+            final var rejectedExpiryResult = applyExpiry(loop, entries, invalidProofExpiry, rejectedExpiryAt);
+            assertEquals(ApplyStatus.REJECTED, rejectedExpiryResult.applyStatus());
+            assertEquals(StableCode.UNAUTHORIZED_SYSTEM_MUTATION, rejectedExpiryResult.stableCode());
+            final long afterRejectedExpiry = store.latestSequenceNumber();
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> messageExpiryHandoff.submit(
+                            nextExpiryCandidate,
+                            expiryProof,
+                            invalidProofExpiry.retryUntilEpochMs(),
+                            expiryOwner.asOwnerIdentity(),
+                            expiry.signingKeyVersion(),
+                            wrongProofKeys.getPrivate(),
+                            () -> 100));
+            assertEquals(afterRejectedExpiry, store.latestSequenceNumber());
+            final var prepareAt = source(
+                    rejectedExpiryAt,
+                    rejectedExpiryAt.offset() + 1,
+                    rejectedExpiryAt.brokerLogAppendTimeEpochMs() + 1);
             final var modelPrepare = PrepareLargeScheduleBody.decode(
                     vector("target-binding-channel-vectors.properties", "body.prepare"));
             final var prepareIntent = CanonicalScheduleIntent.forPrepare(
