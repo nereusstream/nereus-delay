@@ -1904,17 +1904,262 @@ class TargetCommandStoreTest {
                             Thread.sleep(1);
                         }
                         assertTrue(ordinaryLoop.isWaitingForQueueChange());
-                        assertTrue(leases.release(otherActive));
+                        ordinaryLoop.close();
+
+                        final var replacementOwnerClock = new java.util.concurrent.atomic.AtomicLong(100);
+                        final var replacementProbeInventory = claimHost.rebuildTargetInventory(
+                                ordinaryInventoryLimits, replacementOwnerClock::get, System::nanoTime);
+                        assertEquals(TargetWorkerTargetInventory.Stop.COMPLETE, replacementProbeInventory.stop());
+                        final var replacementTargetBEntry = replacementProbeInventory.snapshot().targets().stream()
+                                .filter(target -> target.id().equals(otherPhysical.id()))
+                                .flatMap(target -> target.sources().stream())
+                                .filter(source -> source.shard().equals(otherShard))
+                                .map(TargetWorkerTargetInventory.Source::entry)
+                                .findFirst()
+                                .orElseThrow();
+                        final var replacementTargetBHead = replacementTargetBEntry.queue().domains().stream()
+                                .map(domain -> domain.ordinaryHead())
+                                .filter(head -> head != null)
+                                .findFirst()
+                                .orElseThrow();
+                        final long replacementTargetBCost = otherWorker
+                                .probeSelectedHead(budget(), replacementTargetBHead, replacementOwnerClock::get)
+                                .schedulingCost();
+                        assertTrue(replacementTargetBCost > 1);
+                        long replacementMaximumCost = 0;
+                        for (final var target : replacementProbeInventory.snapshot().targets()) {
+                            for (final var source : target.sources()) {
+                                final var sourceWorker = source.shard().equals(scope.shard())
+                                        ? claimWorker
+                                        : otherWorker;
+                                for (final var domain : source.entry().queue().domains()) {
+                                    final var head = domain.ordinaryHead();
+                                    if (head != null) {
+                                        replacementMaximumCost = Math.max(
+                                                replacementMaximumCost,
+                                                sourceWorker.probeSelectedHead(
+                                                                budget(), head, replacementOwnerClock::get)
+                                                        .schedulingCost());
+                                    }
+                                }
+                            }
+                        }
+                        assertTrue(replacementMaximumCost >= replacementTargetBCost);
+                        final int replacementTargetCount = replacementProbeInventory.snapshot().targets().size();
+                        final long replacementQuantum =
+                                replacementTargetBCost / 2 + replacementTargetBCost % 2;
+                        final var replacementDrr = claimHost.newOrdinaryDrr(
+                                replacementProbeInventory,
+                                new TargetWorkerOrdinaryDrr.Limits(
+                                        replacementQuantum,
+                                        replacementMaximumCost,
+                                replacementMaximumCost,
+                                replacementTargetCount,
+                                4096,
+                                32L << 20,
+                                60_000_000_000L),
+                                replacementOwnerClock::get,
+                                System::nanoTime);
+                        final long replacementNow = replacementTargetBHead.timeEpochMs();
+                        final var replacementVisitBudget = new SchedulerBudget(
+                                replacementTargetCount,
+                                Math.multiplyExact(replacementMaximumCost, replacementTargetCount),
+                                60_000_000_000L);
+                        final OwnerIdentity[] replacementOwnerIdentity = {otherOwner};
+                        final TargetWorkerOrdinaryDrr.Requests replacementRequests = (sourceWorker, cost) -> {
+                            if (!cost.head().target().equals(otherPhysical.id())
+                                    || !sourceWorker.shardId().equals(otherShard)) {
+                                return java.util.Optional.empty();
+                            }
+                            final OwnerIdentity owner = sourceWorker.shardId().equals(otherShard)
+                                    ? replacementOwnerIdentity[0]
+                                    : actualOwner;
+                            return java.util.Optional.of(new TargetWorkerOrdinaryDrr.Request(
+                                    owner,
+                                    Math.addExact(Math.max(replacementNow, cost.head().timeEpochMs()), 1000),
+                                    bytes(32, 0x95),
+                                    (kind, delta) -> {},
+                                    (a, b, c) -> {
+                                        throw new IllegalStateException("owner replacement credit reached commit");
+                                    }));
+                        };
+                        assertEquals(
+                                TargetWorkerOrdinaryDrr.FreezeStop.READY,
+                                replacementDrr
+                                        .freezeRecoveryFirstPass(
+                                                replacementNow, replacementVisitBudget, replacementRequests)
+                                        .stop());
+                        final var beforeOwnerReplacement = replacementDrr.claimOrdinary(
+                                replacementNow, replacementVisitBudget, replacementRequests);
+                        assertTrue(beforeOwnerReplacement.claims().isEmpty());
+                        assertEquals(TargetWorkerOrdinaryDrr.Stop.CREDIT_WAIT, beforeOwnerReplacement.stop());
+
+                        final var oldStoreIncarnation = replacementProbeInventory
+                                .snapshot()
+                                .cuts()
+                                .get(otherShard)
+                                .storeIncarnation();
+                        final var oldTargetBSourceIds = replacementProbeInventory.snapshot().targets().stream()
+                                .filter(target -> target.id().equals(otherPhysical.id()))
+                                .flatMap(target -> target.sources().stream())
+                                .map(TargetWorkerTargetInventory.Source::shard)
+                                .toList();
+                        assertTrue(oldTargetBSourceIds.contains(otherShard));
+                        final var oldWorkerDrain = claimHost.drainShard(
+                                otherWorker,
+                                new TargetOwnerDrainCoordinator.Request(
+                                        5_000,
+                                        new SchedulerBudget(16, 32L << 20, 60_000_000_000L)),
+                                new SchedulerBudget(16, 32L << 20, 60_000_000_000L),
+                                () -> 100);
+                        assertTrue(oldWorkerDrain.complete());
+                        final var replacementActive = leases
+                                .transition(
+                                        leases.acquire(
+                                                        otherAssignment,
+                                                        "other-claim-worker-replacement",
+                                                        bytes(32, 0x85),
+                                                        101,
+                                                        10_000)
+                                                .orElseThrow(),
+                                        ShardLifecycleState.ACTIVE_FOR_COMMANDS)
+                                .orElseThrow();
+                        assertEquals(otherActive.ownerEpoch() + 1, replacementActive.ownerEpoch());
+                        try (var replacementStore = ShardStore.openTarget(config, otherShard, resources)) {
+                            replacementOwnerClock.set(101);
+                            replacementStore.recordOpenedOwnerEpoch(replacementActive.ownerEpoch());
+                            final TargetStoreBackend.ReadAuthority replacementOwnerReads =
+                                    (actual, actualScope) -> new TargetStoreBackend.CommitGuard() {
+                                        @Override
+                                        public void requireCurrent() {
+                                            assertEquals(otherScope, actualScope);
+                                            assertArrayEquals(replacementStore.metadata().encode(), actual.encode());
+                                            final var current = leases.current(otherShard).orElseThrow();
+                                            assertTrue(replacementActive.sameIdentity(current));
+                                            assertEquals(ShardLifecycleState.ACTIVE_FOR_COMMANDS, current.state());
+                                            assertEquals(
+                                                    replacementActive.ownerEpoch(),
+                                                    replacementStore.runtimeMetadata().lastOpenedOwnerEpoch());
+                                        }
+
+                                        @Override
+                                        public void close() {}
+                                    };
+                            final var replacementInitialized = TargetStoreBootstrap.reopen(
+                                    replacementStore,
+                                    otherScope,
+                                    new TargetStoreBackend.WriteLimits(64, 2 << 20),
+                                    budget(),
+                                    replacementOwnerReads);
+                            final var replacementRuntime = new TargetSourceApplyRuntime(
+                                    replacementInitialized,
+                                    replacementStore,
+                                    otherAssignment,
+                                    replacementActive,
+                                    new TargetSourceApplyRuntime.Authorities(
+                                            leases,
+                                            SourceReplaySuccessor.strictKafka(),
+                                            entry -> {
+                                                throw new AssertionError("replacement Shard resolved a grant");
+                                            },
+                                            entry -> {
+                                                throw new AssertionError("replacement Shard resolved a fence");
+                                            },
+                                            entry -> {
+                                                throw new AssertionError("unexpected Target expiry authority");
+                                            },
+                                            entry -> {
+                                                throw new AssertionError("replacement Shard resolved a Close");
+                                            },
+                                            entry -> {
+                                                throw new AssertionError("replacement Shard resolved membership");
+                                            },
+                                            (a, b, c) -> guard(),
+                                            replacementOwnerReads,
+                                            entry -> {
+                                                throw new AssertionError("replacement Shard resolved a command");
+                                            }),
+                                    new TargetSourceApplyRuntime.Limits(
+                                            4096, 32L << 20, 60_000_000_000L, 16, 1),
+                                    System::nanoTime);
+                            final var replacementWorker = new TargetWorkerShardRuntime(
+                                    () -> java.util.Optional.empty(),
+                                    workerClasses,
+                                    replacementStore,
+                                    resources,
+                                    replacementRuntime,
+                                    new TargetWorkerShardRuntime.Maintenance(
+                                            new TargetCloseStore(
+                                                            replacementInitialized.backend(),
+                                                            otherScope,
+                                                            replacementInitialized.root().recoveryLineage(),
+                                                            16,
+                                                            1)
+                                                    .reservationControls(
+                                                            (reader, bound) -> java.util.Optional.empty()),
+                                            new TargetReservationClosureWorkClassExecutor.Limits(
+                                                    4096, 250_000, 60_000_000_000L),
+                                            new TargetReservationExpiryWorkClassExecutor.Limits(
+                                                    2048, 100_000, 60_000_000_000L),
+                                            (a, b, c) -> guard(),
+                                            ignored -> {},
+                                            ignored -> {},
+                                            ignored -> {},
+                                            () -> 101));
+                            claimHost.admitShard(replacementWorker);
+                            final var replacementInventory = claimHost.rebuildTargetInventory(
+                                    ordinaryInventoryLimits, () -> 101, System::nanoTime);
+                            assertEquals(TargetWorkerTargetInventory.Stop.COMPLETE, replacementInventory.stop());
+                            assertArrayEquals(
+                                    oldStoreIncarnation,
+                                    replacementInventory.snapshot().cuts().get(otherShard).storeIncarnation());
+                            assertEquals(
+                                    oldTargetBSourceIds,
+                                    replacementInventory.snapshot().targets().stream()
+                                            .filter(target -> target.id().equals(otherPhysical.id()))
+                                            .flatMap(target -> target.sources().stream())
+                                            .map(TargetWorkerTargetInventory.Source::shard)
+                                            .toList());
+                            replacementDrr.refreshInventory(replacementInventory);
+                            replacementOwnerIdentity[0] = new OwnerIdentity(
+                                    bytes(16, 0x92),
+                                    bytes(16, 0x93),
+                                    replacementActive.ownerEpoch(),
+                                    replacementActive.leaseToken());
+                            final long sequenceBeforeCreditCheck = replacementStore.latestSequenceNumber();
+                            final var afterOwnerReplacement = replacementDrr.claimOrdinary(
+                                    replacementNow, replacementVisitBudget, replacementRequests);
+                            assertTrue(afterOwnerReplacement.claims().isEmpty());
+                            assertEquals(TargetWorkerOrdinaryDrr.Stop.CREDIT_WAIT, afterOwnerReplacement.stop());
+                            assertEquals(sequenceBeforeCreditCheck, replacementStore.latestSequenceNumber());
+                            final var creditReachedCommitBarrier = assertThrows(
+                                    IllegalStateException.class,
+                                    () -> replacementDrr.claimOrdinary(
+                                            replacementNow, replacementVisitBudget, replacementRequests));
+                            assertEquals(
+                                    "owner replacement credit reached commit", creditReachedCommitBarrier.getMessage());
+                            assertEquals(sequenceBeforeCreditCheck, replacementStore.latestSequenceNumber());
+                            final var replacementWorkerDrain = claimHost.drainShard(
+                                    replacementWorker,
+                                    new TargetOwnerDrainCoordinator.Request(
+                                            5_000,
+                                            new SchedulerBudget(16, 32L << 20, 60_000_000_000L)),
+                                    new SchedulerBudget(16, 32L << 20, 60_000_000_000L),
+                                    () -> 101);
+                            assertTrue(replacementWorkerDrain.complete());
+                        }
 
                         final long afterClaim = store.latestSequenceNumber();
-                        assertNotEquals(scanCut, claimWorker.readTargetQueueCut(budget(), () -> 100));
+                        assertNotEquals(
+                                scanCut, claimWorker.readTargetQueueCut(budget(), replacementOwnerClock::get));
                         assertNotEquals(
                                 partialPage.cut(),
                                 claimWorker
-                                        .scanTargetQueues(budget(), partialPage.nextAfter(), 1, () -> 100)
+                                        .scanTargetQueues(
+                                                budget(), partialPage.nextAfter(), 1, replacementOwnerClock::get)
                                         .cut());
                         final var refreshed = claimWorker
-                                .readTargetQueue(budget(), binding.target(), () -> 100)
+                                .readTargetQueue(budget(), binding.target(), replacementOwnerClock::get)
                                 .orElseThrow()
                                 .queue();
                         assertNotEquals(actualQueue.headRevision(), refreshed.headRevision());
@@ -1922,7 +2167,8 @@ class TargetCommandStoreTest {
                         assertEquals(afterClaim, store.latestSequenceNumber());
                         assertThrows(
                                 IllegalStateException.class,
-                                () -> claimWorker.probeSelectedHead(budget(), selectedHead, () -> 100));
+                                () -> claimWorker.probeSelectedHead(
+                                        budget(), selectedHead, replacementOwnerClock::get));
                         assertEquals(afterClaim, store.latestSequenceNumber());
                     } finally {
                         schedulerEpoch.set(0);
