@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -1455,9 +1456,9 @@ class TargetCommandStoreTest {
                     final long otherBeforeRevoke = otherStore.latestSequenceNumber();
                     final long sourceSequenceBeforeRevoke = store.shardMutationSequence();
                     final var sourceBeforeRevoke = store.appliedShardLogPosition();
-                    final var schedulerClaim = new java.util.concurrent.atomic.AtomicReference<TargetClaimRecord>();
-                    final var schedulerClaimed = new java.util.concurrent.CountDownLatch(1);
-                    final long schedulerDeadline = message.deliverAtEpochMs();
+                    final var schedulerClaims = new java.util.concurrent.LinkedBlockingQueue<TargetClaimRecord>();
+                    final var schedulerClaimGate = new java.util.concurrent.Semaphore(0);
+                    final long schedulerDeadline = claimNow;
                     final var schedulerEpoch = new java.util.concurrent.atomic.AtomicLong(
                             Math.max(0, schedulerDeadline - 100));
                     final TargetWorkerOrdinaryDrr.Requests retryClaimRequests = (shard, selected) -> claimRequests
@@ -1555,8 +1556,14 @@ class TargetCommandStoreTest {
                             java.time.Duration.ofSeconds(10),
                             retryClaimRequests,
                             scheduledClaim -> {
-                                schedulerClaim.set(scheduledClaim);
-                                schedulerClaimed.countDown();
+                                schedulerClaims.add(scheduledClaim);
+                                try {
+                                    schedulerClaimGate.acquire();
+                                } catch (InterruptedException interrupted) {
+                                    Thread.currentThread().interrupt();
+                                    throw new IllegalStateException(
+                                            "ordinary Claim handoff was interrupted", interrupted);
+                                }
                             },
                             () -> 100,
                             schedulerEpoch::get,
@@ -1618,21 +1625,83 @@ class TargetCommandStoreTest {
                                     (a, b, c) -> guard(),
                                     () -> 100));
                     assertEquals(afterRevoke, store.latestSequenceNumber());
-                    assertFalse(schedulerClaimed.await(150, java.util.concurrent.TimeUnit.MILLISECONDS));
+                    assertNull(schedulerClaims.poll(150, java.util.concurrent.TimeUnit.MILLISECONDS));
                     assertEquals(afterRevoke, store.latestSequenceNumber());
                     assertEquals(otherBeforeRevoke, otherStore.latestSequenceNumber());
                     assertEquals(writesAfterRevoke, store.operationStatistics().nativeWriteCalls());
                     assertEquals(otherWritesAfterRevoke, otherStore.operationStatistics().nativeWriteCalls());
                     schedulerEpoch.set(schedulerDeadline);
                     try {
-                        assertTrue(
-                                schedulerClaimed.await(5, java.util.concurrent.TimeUnit.SECONDS),
-                                () -> "ordinary scheduler failure: " + ordinaryLoop.firstFailure());
-                        claim = schedulerClaim.get();
+                        claim = schedulerClaims.poll(5, java.util.concurrent.TimeUnit.SECONDS);
+                        assertNotNull(claim, () -> "ordinary scheduler failure: " + ordinaryLoop.firstFailure());
                         assertEquals(selectedHead, claim.selected());
                         assertEquals(actualOwner, claim.owner());
                         assertNotEquals(Bytes.hex(originalClaim.claimId()), Bytes.hex(claim.claimId()));
+                        assertTrue(store.latestSequenceNumber() > afterRevoke);
                         assertEquals(otherBeforeRevoke, otherStore.latestSequenceNumber());
+
+                        // Keep both real RocksDB source Shards continuously eligible while the
+                        // Host loop is paused at each post-commit Claim handoff. With one physical
+                        // Target, two source Shards, and Q=Cmax, successful Claims must alternate.
+                        claimHost.revokeClaim(
+                                otherWorker,
+                                budget(),
+                                otherClaim,
+                                bytes(32, 0xa5),
+                                (kind, delta) -> {},
+                                (a, b, c) -> guard(),
+                                () -> 100);
+                        claimHost.revokeClaim(
+                                claimWorker,
+                                budget(),
+                                claim,
+                                bytes(32, 0xa6),
+                                (kind, delta) -> {},
+                                (a, b, c) -> guard(),
+                                () -> 100);
+                        long firstBeforeNextClaim = store.latestSequenceNumber();
+                        long otherBeforeNextClaim = otherStore.latestSequenceNumber();
+                        schedulerClaimGate.release();
+                        for (int turn = 1; turn < 5; turn++) {
+                            final var nextClaim = schedulerClaims.poll(5, java.util.concurrent.TimeUnit.SECONDS);
+                            assertNotNull(
+                                    nextClaim,
+                                    () -> "ordinary scheduler failure: " + ordinaryLoop.firstFailure());
+                            final boolean firstClaimWorker = turn % 2 == 0;
+                            assertEquals(firstClaimWorker ? actualOwner : otherOwner, nextClaim.owner());
+                            if (firstClaimWorker) {
+                                assertTrue(store.latestSequenceNumber() > firstBeforeNextClaim);
+                                assertEquals(otherBeforeNextClaim, otherStore.latestSequenceNumber());
+                            } else {
+                                assertEquals(firstBeforeNextClaim, store.latestSequenceNumber());
+                                assertTrue(otherStore.latestSequenceNumber() > otherBeforeNextClaim);
+                            }
+                            claim = nextClaim;
+                            if (turn < 4) {
+                                final var selectedWorker = firstClaimWorker ? claimWorker : otherWorker;
+                                claimHost.revokeClaim(
+                                        selectedWorker,
+                                        budget(),
+                                        nextClaim,
+                                        bytes(32, 0xb0 + turn),
+                                        (kind, delta) -> {},
+                                        (a, b, c) -> guard(),
+                                        () -> 100);
+                                firstBeforeNextClaim = store.latestSequenceNumber();
+                                otherBeforeNextClaim = otherStore.latestSequenceNumber();
+                                schedulerClaimGate.release();
+                            } else {
+                                schedulerEpoch.set(0);
+                                schedulerClaimGate.release();
+                            }
+                        }
+                        final long schedulerIdleDeadline =
+                                System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
+                        while (!ordinaryLoop.isWaitingForQueueChange()
+                                && System.nanoTime() < schedulerIdleDeadline) {
+                            Thread.sleep(1);
+                        }
+                        assertTrue(ordinaryLoop.isWaitingForQueueChange());
                         assertTrue(leases.release(otherActive));
 
                         final long afterClaim = store.latestSequenceNumber();
@@ -1654,6 +1723,8 @@ class TargetCommandStoreTest {
                                 () -> claimWorker.probeSelectedHead(budget(), selectedHead, () -> 100));
                         assertEquals(afterClaim, store.latestSequenceNumber());
                     } finally {
+                        schedulerEpoch.set(0);
+                        schedulerClaimGate.release();
                         ordinaryLoop.close();
                     }
                     assertTrue(ordinaryLoop.isClosed());
