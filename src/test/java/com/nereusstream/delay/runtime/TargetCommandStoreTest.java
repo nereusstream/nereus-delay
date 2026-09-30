@@ -2091,6 +2091,7 @@ class TargetCommandStoreTest {
             assertEquals(expiryAt, messageExpiryResult.sourcePosition());
             assertEquals(expiry, messageExpirySubmission.mutation());
             assertEquals(beforeDiscoverySequence, store.latestSequenceNumber());
+            assertTrue(messageExpiryHandoff.settlePending(() -> 100).isEmpty());
             assertThrows(
                     IllegalStateException.class,
                     () -> messageExpiryHandoff.submit(
@@ -2128,18 +2129,13 @@ class TargetCommandStoreTest {
             assertEquals(
                     StableCode.OK,
                     applyExpiry(loop, entries, messageExpirySubmission.mutation(), expiryAt).stableCode());
-            final var confirmedExpirySubmission = messageExpiryHandoff.submit(
-                    expectedExpiry,
-                    expiryProof,
-                    expiry.retryUntilEpochMs(),
-                    expiryOwner.asOwnerIdentity(),
-                    expiry.signingKeyVersion(),
-                    keys.getPrivate(),
-                    () -> 100);
-            assertEquals(messageExpirySubmission, confirmedExpirySubmission);
+            final var confirmedExpiry = messageExpiryHandoff.settlePending(() -> 100).orElseThrow();
+            assertEquals(
+                    TargetMessageExpiryWorkClassExecutor.ResultKind.APPLIED, confirmedExpiry.kind());
+            assertEquals(expiry, confirmedExpiry.mutation());
             assertEquals(
                     TargetMessageExpiryWorkClassExecutor.ResultKind.APPLIED,
-                    confirmedExpirySubmission.result().orElseThrow().kind());
+                    messageExpirySubmission.result().orElseThrow().kind());
             final var expired = TargetMessageRecord.decode(TargetValueEnvelope.decode(
                             store.get(ColumnFamily.ID, beforeExpiry.encodedKey()), TargetMessageRecord.VALUE_TYPE)
                     .payload());
@@ -2264,6 +2260,7 @@ class TargetCommandStoreTest {
             assertEquals("Target Worker read authority unavailable", readAuthorityFailure.getMessage());
             failWorkerReads.set(false);
             assertEquals(beforeReplacementExpirySubmit, store.latestSequenceNumber());
+            assertTrue(messageExpiryHandoff.settlePending(() -> 100).isEmpty());
             assertThrows(
                     IllegalStateException.class,
                     () -> messageExpiryHandoff.submit(
@@ -2278,19 +2275,14 @@ class TargetCommandStoreTest {
             assertEquals(
                     StableCode.OK,
                     applyExpiry(loop, entries, replacementExpiry, replacementExpiryAt).stableCode());
-            final var reconciledReplacement = messageExpiryHandoff.submit(
-                    replacementExpiryCandidate,
-                    expiryProof,
-                    replacementExpiry.retryUntilEpochMs(),
-                    expiryOwner.asOwnerIdentity(),
-                    expiry.signingKeyVersion(),
-                    keys.getPrivate(),
-                    () -> 100);
-            assertEquals(replacementExpirySubmission, reconciledReplacement);
+            final var reconciledReplacement = messageExpiryHandoff.settlePending(() -> 100).orElseThrow();
+            assertEquals(
+                    TargetMessageExpiryWorkClassExecutor.ResultKind.APPLIED, reconciledReplacement.kind());
+            assertEquals(replacementExpiry, reconciledReplacement.mutation());
             assertEquals(
                     TargetMessageExpiryWorkClassExecutor.ResultKind.APPLIED,
-                    reconciledReplacement.result().orElseThrow().kind());
-            assertNull(reconciledReplacement.result().orElseThrow().sourcePosition());
+                    replacementExpirySubmission.result().orElseThrow().kind());
+            assertNull(replacementExpirySubmission.result().orElseThrow().sourcePosition());
             final var nextScheduleAt = source(
                     replacementExpiryAt,
                     replacementExpiryAt.offset() + 1,
@@ -2341,6 +2333,9 @@ class TargetCommandStoreTest {
                     TargetMessageExpiryWorkClassExecutor.ResultKind.DEFINITIVELY_NOT_APPENDED,
                     nextExpirySubmission.result().orElseThrow().kind());
             assertEquals(beforeNextExpirySubmit, store.latestSequenceNumber());
+            assertEquals(
+                    TargetMessageExpiryWorkClassExecutor.ResultKind.DEFINITIVELY_NOT_APPENDED,
+                    messageExpiryHandoff.settlePending(() -> 100).orElseThrow().kind());
             final var rejectedExpiryAt = source(
                     nextScheduleAt,
                     nextScheduleAt.offset() + 1,

@@ -54,29 +54,16 @@ public final class TargetMessageExpiryWorkClassExecutor {
             final var prior = pending;
             final ResultKind priorKind = prior.result.kind();
             if (priorKind == ResultKind.APPENDED || priorKind == ResultKind.UNKNOWN) {
-                if (priorKind == ResultKind.APPENDED
-                        && !worker.messageExpiryAppendApplied(prior.result.sourcePosition(), clock)) {
-                    throw new IllegalStateException("previous Target expiry source append has not been applied");
+                final Optional<HandoffResult> settled = settlePending(clock);
+                if (settled.isEmpty()) {
+                    throw new IllegalStateException("previous Target expiry submission is still pending");
                 }
-                final SystemMutationResult applied = worker
-                        .messageExpiryMutationResult(prior.mutation, clock)
-                        .orElse(null);
-                if (applied == null) {
-                    throw new IllegalStateException(priorKind == ResultKind.UNKNOWN
-                            ? "previous Target expiry append outcome remains unknown"
-                            : "previous Target expiry source result is absent");
-                }
-                if (applied.applyStatus() != ApplyStatus.APPLIED || applied.stableCode() != StableCode.OK) {
-                    throw new IllegalStateException("previous Target expiry mutation did not apply successfully");
-                }
-                prior.confirmApplied();
-                pending = null;
                 return prior;
             }
             if (priorKind != ResultKind.DEFINITIVELY_NOT_APPENDED) {
                 throw new IllegalStateException("Target expiry handoff has an invalid pending result");
             }
-            pending = null;
+            settlePending(clock);
         }
 
         final Request request = Request.prepare(
@@ -101,6 +88,40 @@ public final class TargetMessageExpiryWorkClassExecutor {
             throw failure;
         }
         return submission;
+    }
+
+    /**
+     * Settles only the currently retained append. Empty means there is no pending submission or it has not
+     * reached a terminal source result; the caller may retry without rediscovering or submitting another candidate.
+     */
+    public synchronized Optional<HandoffResult> settlePending(final LongSupplier ownerClock) {
+        final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
+        final Submission prior = pending;
+        if (prior == null || prior.result == null) {
+            return Optional.empty();
+        }
+        final HandoffResult result = prior.result;
+        if (result.kind() == ResultKind.DEFINITIVELY_NOT_APPENDED) {
+            pending = null;
+            return Optional.of(result);
+        }
+        if (result.kind() != ResultKind.APPENDED && result.kind() != ResultKind.UNKNOWN) {
+            throw new IllegalStateException("Target expiry handoff has an invalid pending result");
+        }
+        if (result.kind() == ResultKind.APPENDED
+                && !worker.messageExpiryAppendApplied(result.sourcePosition(), clock)) {
+            return Optional.empty();
+        }
+        final SystemMutationResult applied = worker.messageExpiryMutationResult(prior.mutation, clock).orElse(null);
+        if (applied == null) {
+            return Optional.empty();
+        }
+        if (applied.applyStatus() != ApplyStatus.APPLIED || applied.stableCode() != StableCode.OK) {
+            throw new IllegalStateException("previous Target expiry mutation did not apply successfully");
+        }
+        prior.confirmApplied();
+        pending = null;
+        return Optional.of(prior.result);
     }
 
     private void execute(final Request request, final Submission submission) {
