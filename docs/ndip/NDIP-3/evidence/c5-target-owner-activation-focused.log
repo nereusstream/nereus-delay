@@ -1,0 +1,10 @@
+Base revision: b8f8f72faae2220f1d681b2b74d60de0d56264e3
+TargetWorkerOwnerActivation.java SHA-256: 7d68039a0c58a682113ccae88e98403dad041a3ee7e1f2bcdeda07b0bd4e2d63
+TargetCommandStoreTest.java SHA-256: 9c378cbb32e086e7513e26c5f5d189301c7dff8dc90f6eac61715bde5913bca9
+
+Command:
+./gradlew test --tests '*TargetCommandStoreTest' checkstyleTest --no-daemon --console=plain
+
+Result: BUILD SUCCESSFUL. TargetCommandStoreTest: 5 tests, 0 failures, 0 errors, 0 skipped. `checkstyleTest` passed.
+
+The test uses a real RocksDB Target Store and `OxiaOwnerLeaseStore` backed by the deterministic `InMemoryOwnerLeaseStore` test backend. It verifies that a mismatched assignment is rejected before the Store Owner epoch changes, a clock rollback after the Owner epoch marker prevents the ACTIVE CAS, the exact assignment persists the Owner epoch before activation, an empty transition response is resolved by reading the exact ACTIVE lease, and a response exception after a committed CAS is recovered by retrying the same ACQUIRING lease. This does not use a live Oxia server and does not verify external assignment/Start/Commit authorities, source/Host startup, Broker execution, recovery, migration, or production failure cleanup.

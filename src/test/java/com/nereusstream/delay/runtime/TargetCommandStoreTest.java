@@ -30,6 +30,7 @@ import com.nereusstream.delay.ownership.TargetReservationQueryWorkClassExecutor;
 import com.nereusstream.delay.ownership.TargetSourceApplyRuntime;
 import com.nereusstream.delay.ownership.TargetWorkerHostTestBridge;
 import com.nereusstream.delay.ownership.TargetWorkerOrdinaryDrr;
+import com.nereusstream.delay.ownership.TargetWorkerOwnerActivation;
 import com.nereusstream.delay.ownership.TargetWorkerShardFactory;
 import com.nereusstream.delay.ownership.TargetWorkerShardFleetRuntime;
 import com.nereusstream.delay.ownership.TargetWorkerShardRuntime;
@@ -811,11 +812,54 @@ class TargetCommandStoreTest {
                     return delegateLeases.current(shard);
                 }
             });
-            final var active = leases.transition(
-                            leases.acquire(assignment, "cancel-worker", bytes(32, 0x44), 1, 10000)
-                                    .orElseThrow(),
-                            ShardLifecycleState.ACTIVE_FOR_COMMANDS)
+            final var acquiring = leases.acquire(assignment, "cancel-worker", bytes(32, 0x44), 1, 10000)
                     .orElseThrow();
+            final long ownerEpochBeforeActivation = store.runtimeMetadata().lastOpenedOwnerEpoch();
+            final var activationWrongAssignment = new SourceAssignment(
+                    assignment.shardId(),
+                    bytes(32, 0x45),
+                    assignment.assignmentEpoch(),
+                    assignment.activationBarrier());
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> TargetWorkerOwnerActivation.activate(
+                            initialized, store, activationWrongAssignment, acquiring, leases, () -> 1));
+            assertEquals(ownerEpochBeforeActivation, store.runtimeMetadata().lastOpenedOwnerEpoch());
+            assertEquals(
+                    ShardLifecycleState.ACQUIRING,
+                    leases.current(scope.shard()).orElseThrow().state());
+            if (claimed && !rescheduled && strictOrderExpiry) {
+                final var clockReads = new java.util.concurrent.atomic.AtomicInteger();
+                assertThrows(
+                        IllegalStateException.class,
+                        () -> TargetWorkerOwnerActivation.activate(
+                                initialized,
+                                store,
+                                assignment,
+                                acquiring,
+                                leases,
+                                () -> clockReads.getAndIncrement() == 0 ? 2 : 1));
+                assertEquals(
+                        ShardLifecycleState.ACQUIRING,
+                        leases.current(scope.shard()).orElseThrow().state());
+                assertEquals(acquiring.ownerEpoch(), store.runtimeMetadata().lastOpenedOwnerEpoch());
+            }
+            if (!claimed && !rescheduled && !strictOrderExpiry) {
+                throwTransitionAfterCommit.set(true);
+                assertThrows(
+                        IllegalStateException.class,
+                        () -> TargetWorkerOwnerActivation.activate(
+                                initialized, store, assignment, acquiring, leases, () -> 1));
+                assertEquals(
+                        ShardLifecycleState.ACTIVE_FOR_COMMANDS,
+                        leases.current(scope.shard()).orElseThrow().state());
+            } else {
+                loseTransitionResponse.set(true);
+            }
+            final var active = TargetWorkerOwnerActivation.activate(
+                    initialized, store, assignment, acquiring, leases, () -> 1);
+            assertEquals(ShardLifecycleState.ACTIVE_FOR_COMMANDS, active.state());
+            assertEquals(active.ownerEpoch(), store.runtimeMetadata().lastOpenedOwnerEpoch());
             reopenOwner[0] = new ReopenOwner(
                     assignment,
                     leases,
@@ -824,7 +868,6 @@ class TargetCommandStoreTest {
                     loseReleaseResponse,
                     throwTransitionAfterCommit,
                     throwReleaseAfterCommit);
-            store.recordOpenedOwnerEpoch(active.ownerEpoch());
             final var workerClasses = workClasses();
             TargetClaimRecord claim = null;
             if (claimed) {
