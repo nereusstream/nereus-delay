@@ -2115,6 +2115,14 @@ class TargetCommandStoreTest {
             final var pauseFailure = assertThrows(
                     IllegalStateException.class, messageExpiryWorker::pauseNewTurns);
             assertEquals("Target Worker cannot pause a pending message expiry handoff", pauseFailure.getMessage());
+            assertEquals(
+                    messageExpirySubmission.task(),
+                    messageExpiryWorker
+                            .settlePendingMessageExpiryForDrain(
+                                    new SchedulerBudget(100, 2_000_000, 60_000_000_000L),
+                                    new SchedulerBudget(1, 1, 60_000_000_000L),
+                                    () -> 100)
+                            .orElseThrow());
             assertThrows(
                     IllegalStateException.class,
                     () -> messageExpiryHandoff.submit(
@@ -2152,10 +2160,12 @@ class TargetCommandStoreTest {
             assertEquals(
                     StableCode.OK,
                     applyExpiry(loop, entries, messageExpirySubmission.mutation(), expiryAt).stableCode());
-            final var confirmedExpiry = messageExpiryHandoff.settlePending(() -> 100).orElseThrow();
-            assertEquals(
-                    TargetMessageExpiryWorkClassExecutor.ResultKind.APPLIED, confirmedExpiry.kind());
-            assertEquals(expiry, confirmedExpiry.mutation());
+            assertTrue(messageExpiryWorker
+                    .settlePendingMessageExpiryForDrain(
+                            new SchedulerBudget(100, 2_000_000, 60_000_000_000L),
+                            new SchedulerBudget(1, 1, 60_000_000_000L),
+                            () -> 100)
+                    .isEmpty());
             assertEquals(
                     TargetMessageExpiryWorkClassExecutor.ResultKind.APPLIED,
                     messageExpirySubmission.result().orElseThrow().kind());

@@ -70,7 +70,7 @@ public final class TargetWorkerShardRuntime
     private final TargetReservationGcRuntime maintenance;
     private final TargetOwnerDrainCoordinator drainCoordinator;
     private boolean sourceAndMaintenancePaused;
-    private TargetMessageExpiryWorkClassExecutor messageExpiryHandoff;
+    private volatile TargetMessageExpiryWorkClassExecutor messageExpiryHandoff;
     private TargetCheckpointCandidateWorkClassExecutor.Submission pendingCheckpoint;
     private SourceRecordConsumer.CheckpointCut preparedCheckpointCut;
 
@@ -418,7 +418,7 @@ public final class TargetWorkerShardRuntime
                 : Optional.of(pendingCheckpoint.task());
     }
 
-    /** Stops new source polls and GC submissions before Owner drain begins. */
+    /** Stops new source polls and maintenance submissions after retained maintenance work settles. */
     public synchronized void pauseNewTurns() {
         requireCheckpointSettled();
         if (sourceLoop.pendingEntry().isPresent()) {
@@ -436,6 +436,44 @@ public final class TargetWorkerShardRuntime
             final SchedulerBudget budget) {
         resources.requireRuntimeBusinessAdmission();
         return maintenance.settlePendingTurn(Objects.requireNonNull(budget, "budget"));
+    }
+
+    /** Advances only the retained expiry append and its source result by one bounded drain step. */
+    @Override
+    public Optional<WorkClassTask> settlePendingMessageExpiryForDrain(
+            final SchedulerBudget workBudget,
+            final SchedulerBudget sourceBudget,
+            final LongSupplier ownerClock) {
+        final var handoff = messageExpiryHandoff;
+        if (handoff == null) {
+            return Optional.empty();
+        }
+        final var submission = handoff.pendingSubmission();
+        if (submission == null) {
+            return Optional.empty();
+        }
+        final var exactWorkBudget = Objects.requireNonNull(workBudget, "workBudget");
+        final var exactSourceBudget = Objects.requireNonNull(sourceBudget, "sourceBudget");
+        final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
+        if (submission.result().isEmpty()) {
+            workClasses.runTurn(exactWorkBudget);
+        }
+        handoff.settlePending(clock);
+        if (handoff.pendingSubmission() != null) {
+            final var result = submission.result().orElse(null);
+            if (result != null
+                    && (result.kind() == TargetMessageExpiryWorkClassExecutor.ResultKind.APPENDED
+                            || result.kind() == TargetMessageExpiryWorkClassExecutor.ResultKind.UNKNOWN)) {
+                if (sourceLoop.pendingEntry().isPresent()) {
+                    sourceLoop.settlePendingEntry(exactSourceBudget, clock);
+                } else {
+                    sourceLoop.runTurn(exactSourceBudget, clock);
+                }
+                handoff.settlePending(clock);
+            }
+        }
+        final var pending = handoff.pendingSubmission();
+        return pending == null ? Optional.empty() : Optional.of(pending.task());
     }
 
     public synchronized Optional<SourceReplayEntry> pendingSourceEntry() {

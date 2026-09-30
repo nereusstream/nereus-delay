@@ -128,6 +128,10 @@ public final class TargetMessageExpiryWorkClassExecutor {
         return pending != null;
     }
 
+    Submission pendingSubmission() {
+        return pending;
+    }
+
     private void execute(final Request request, final Submission submission) {
         try {
             final ShardLogMutationAppender.AppendOutcome appended = worker.appendMessageExpiry(

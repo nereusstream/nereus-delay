@@ -65,6 +65,13 @@ public final class TargetWorkerHostRuntime {
 
         Optional<TargetCheckpointCandidateWorkClassExecutor.Outcome> runCheckpointTurn(SchedulerBudget budget);
 
+        default Optional<WorkClassTask> settlePendingMessageExpiryForDrain(
+                final SchedulerBudget workBudget,
+                final SchedulerBudget sourceBudget,
+                final LongSupplier ownerClock) {
+            return Optional.empty();
+        }
+
         TargetOwnerDrainCoordinator.Result drain(TargetOwnerDrainCoordinator.Request request, LongSupplier clock);
     }
 
@@ -72,6 +79,7 @@ public final class TargetWorkerHostRuntime {
         PENDING_CHECKPOINT,
         PENDING_SOURCE,
         PENDING_GC,
+        PENDING_MESSAGE_EXPIRY,
         RELEASED,
         UNCERTAIN_RELEASED,
         OWNER_LOST_CLOSED,
@@ -84,13 +92,25 @@ public final class TargetWorkerHostRuntime {
             SourceApplyCoordinator.TurnResult sourceTurn,
             WorkClassTask pendingCheckpointTask,
             WorkClassTask pendingGcTask,
-            RuntimeException failure) {
+            RuntimeException failure,
+            WorkClassTask pendingMessageExpiryTask) {
+        public ShardDrain(
+                final ShardId shardId,
+                final Status status,
+                final SourceApplyCoordinator.TurnResult sourceTurn,
+                final WorkClassTask pendingCheckpointTask,
+                final WorkClassTask pendingGcTask,
+                final RuntimeException failure) {
+            this(shardId, status, sourceTurn, pendingCheckpointTask, pendingGcTask, failure, null);
+        }
+
         public ShardDrain {
             Objects.requireNonNull(shardId, "shardId");
             Objects.requireNonNull(status, "status");
             if ((status == Status.FAILED) != (failure != null)
                     || (status == Status.PENDING_CHECKPOINT) != (pendingCheckpointTask != null)
-                    || (status == Status.PENDING_GC) != (pendingGcTask != null)) {
+                    || (status == Status.PENDING_GC) != (pendingGcTask != null)
+                    || (status == Status.PENDING_MESSAGE_EXPIRY) != (pendingMessageExpiryTask != null)) {
                 throw new IllegalArgumentException("Target host drain result has inconsistent evidence");
             }
         }
@@ -540,7 +560,7 @@ public final class TargetWorkerHostRuntime {
 
     /**
      * Stops all maintenance ticks before whole-host Store drain. Each call retries incomplete
-     * Shards; pending source/GC and ordinary failures remain visible for a same-host retry.
+     * Shards; pending source/GC/expiry and ordinary failures remain visible for a same-host retry.
      */
     public Result drainAll(
             final TargetOwnerDrainCoordinator.Request request,
@@ -602,8 +622,8 @@ public final class TargetWorkerHostRuntime {
 
     /**
      * Withdraws one Shard from future source/GC selection, waits for its selected turn to exit,
-     * then drains it while other Shards remain live. A pending result is retried with the same
-     * withdrawn Shard identity; the maintenance loop keeps serving the rest of the fleet.
+     * then drains it while other Shards remain live. Pending source, GC, or expiry work is retried
+     * with the same withdrawn Shard identity; the maintenance loop keeps serving the rest.
      */
     public ShardDrain drainShard(
             final TargetWorkerShardRuntime shard,
@@ -695,6 +715,18 @@ public final class TargetWorkerHostRuntime {
                 if (checkpoint.isPresent()) {
                     return new ShardDrain(
                             shard.shardId(), Status.PENDING_CHECKPOINT, null, checkpoint.orElseThrow(), null, null);
+                }
+                final Optional<WorkClassTask> pendingExpiry = shard.settlePendingMessageExpiryForDrain(
+                        request.gcBudget(), sourceBudget, ownerClock);
+                if (pendingExpiry.isPresent()) {
+                    return new ShardDrain(
+                            shard.shardId(),
+                            Status.PENDING_MESSAGE_EXPIRY,
+                            null,
+                            null,
+                            null,
+                            null,
+                            pendingExpiry.orElseThrow());
                 }
                 if (shard.pendingSourceEntry().isPresent()) {
                     sourceTurn = shard.settlePendingSourceTurn(sourceBudget, ownerClock)

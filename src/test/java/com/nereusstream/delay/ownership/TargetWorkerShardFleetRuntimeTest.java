@@ -334,6 +334,43 @@ class TargetWorkerShardFleetRuntimeTest {
     }
 
     @Test
+    void hostRetainsPendingMessageExpiryAcrossDrainRetries() {
+        final var registry = registry();
+        final var executor = Executors.newSingleThreadScheduledExecutor();
+        try (var resources = new SharedRocksDbResources(
+                ShardStoreConfig.defaults(tempDir.resolve("host-message-expiry-drain")))) {
+            final var shard = new StubShard(new ShardId(RouteIncarnation.random(), 1), registry, resources);
+            final var pendingExpiry = new WorkClassTask(WorkClass.EXPIRY, "host-expiry/first", 64);
+            shard.pendingMessageExpiry = pendingExpiry;
+            shard.expiryDrainSteps = 1;
+            final var fleet = new TargetWorkerShardFleetRuntime(registry, resources, shard);
+            final var budget = new SchedulerBudget(1, 1_000, 1_000_000);
+            final var loop = new TargetWorkerMaintenanceLoop(
+                    fleet, budget, Duration.ofSeconds(10), failure -> {}, executor);
+            final var host = new TargetWorkerHostRuntime(fleet, loop, List.of(shard));
+            try {
+                final var request = new TargetOwnerDrainCoordinator.Request(5_000, budget);
+                final var first = host.drainAll(request, budget, () -> 101);
+                assertFalse(first.complete());
+                assertEquals(TargetWorkerHostRuntime.Status.PENDING_MESSAGE_EXPIRY, first.shards().getFirst().status());
+                assertEquals(pendingExpiry, first.shards().getFirst().pendingMessageExpiryTask());
+                assertEquals(0, shard.drainCalls.get());
+                assertThrows(IllegalStateException.class, () -> host.runNextSourceTurn(budget, () -> 101));
+
+                final var retry = host.drainAll(request, budget, () -> 101);
+                assertTrue(retry.complete());
+                assertEquals(TargetWorkerHostRuntime.Status.RELEASED, retry.shards().getFirst().status());
+                assertEquals(2, shard.expiryDrainTurns.get());
+                assertEquals(1, shard.drainCalls.get());
+            } finally {
+                loop.close();
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     void scheduledCandidatesRetainClaimsUntilExactTerminalOutcomeAcrossHostStop() {
         final var registry = registry();
         final var executor = Executors.newSingleThreadScheduledExecutor();
@@ -855,6 +892,9 @@ class TargetWorkerShardFleetRuntimeTest {
         private volatile CountDownLatch releaseDrain;
         private volatile Runnable duringMaintenance;
         private volatile WorkClassTask pendingCheckpoint;
+        private volatile WorkClassTask pendingMessageExpiry;
+        private volatile int expiryDrainSteps;
+        private final AtomicInteger expiryDrainTurns = new AtomicInteger();
 
         private StubShard(
                 final ShardId shard,
@@ -939,6 +979,24 @@ class TargetWorkerShardFleetRuntimeTest {
             pendingCheckpoint = null;
             return Optional.of(new TargetCheckpointCandidateWorkClassExecutor.Outcome(
                     Path.of("checkpoint-candidate"), null));
+        }
+
+        @Override
+        public Optional<WorkClassTask> settlePendingMessageExpiryForDrain(
+                final SchedulerBudget workBudget,
+                final SchedulerBudget sourceBudget,
+                final LongSupplier ownerClock) {
+            expiryDrainTurns.incrementAndGet();
+            final var pending = pendingMessageExpiry;
+            if (pending == null) {
+                return Optional.empty();
+            }
+            if (expiryDrainSteps > 0) {
+                expiryDrainSteps--;
+                return Optional.of(pending);
+            }
+            pendingMessageExpiry = null;
+            return Optional.empty();
         }
 
         @Override
