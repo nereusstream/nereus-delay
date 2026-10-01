@@ -16,7 +16,10 @@ Owner epoch remains unchanged until `TargetWorkerOwnerActivation.activate` persi
 The replacement Owner is also acquired as ACQUIRING, rejects the stale old Owner read without a Store write, reopens
 the root under a guarded read, and activates from the previous Store epoch. Exact retry with the original ACQUIRING
 lease returns the same ACTIVE identity before composing the source runtime and Worker; bounded Close GC then completes.
-The Oxia lease backend and RocksDB Store are real services; assignment, SourcePosition, Control registration,
-StartAuthority and source consumer are test fixtures. This does not verify Kafka/Pulsar source fencing, production
-assignment/Start/Commit providers, or application Host bootstrap. Other optional real-service smoke tests in the
+Before the old Store closes, the test releases its real ACTIVE Oxia lease while that Worker has a Close-GC task
+queued. Running the pending task returns FAILED, marks the old Target source runtime fenced, leaves the RocksDB sequence
+unchanged, and preserves the OPEN Close cursor. The Oxia lease backend and RocksDB Store are real services; assignment,
+SourcePosition, Control registration, StartAuthority and source consumer are test fixtures. This verifies live Owner loss
+on the queued maintenance path, but not source apply/ACK fencing, same-Target sibling isolation, Kafka/Pulsar source
+fencing, production assignment/Start/Commit providers, or application Host bootstrap. Other optional real-service smoke tests in the
 script were skipped because their separate service inputs were not configured.
