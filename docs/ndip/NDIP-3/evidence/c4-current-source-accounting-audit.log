@@ -1,0 +1,27 @@
+C4 current-source source accounting and independent ledger audit
+
+Execution source revision: c8a6abd3998a606ab39878ac2b7fcb7175230c71
+The preceding commit changed only NDIP-3 evidence and documentation; implementation source hashes below are unchanged from 58bc3529ff1c2f234ab6f4089db75708374b3245.
+
+Command:
+./gradlew test --tests com.nereusstream.delay.runtime.TargetSourceAccountingTest --tests com.nereusstream.delay.protocol.TargetQuotaAccountingContractTest --console=plain
+
+Result: BUILD SUCCESSFUL. TargetSourceAccountingTest: 1 passed, 0 skipped;
+TargetQuotaAccountingContractTest: 20 passed, 0 skipped. Total: 21 passed,
+0 failures, 0 errors.
+
+The real RocksDB test commits the Shard inventory and result records, verifies
+Target primary and tenant mirror counters, the Shard counter, Target total,
+aggregate, and source mutation sequence, then runs the independent ledger audit
+over the physical Store. The contract tests cover immutable accounting artifacts,
+budget phases, exact reserve/release behavior, source identity, and overflow.
+
+SHA-256:
+2cc0a98d735a5556920717eb399fe71921b7f04ad6bd7e4dc536885216fe6236 src/main/java/com/nereusstream/delay/runtime/TargetSourceAccounting.java
+aa801ecc454ed131776ee41a180b133d93bcf7e898e4310c74cb40b5cabbffb5 src/main/java/com/nereusstream/delay/runtime/TargetRecordAccounting.java
+758363bc7f1c3c9eba47c5ea0f681e0369f2ded5ec609df01197fceabd508abe src/test/java/com/nereusstream/delay/runtime/TargetSourceAccountingTest.java
+82c470d6dc00e8273d95a27e61bd178f7937bb5d1296fd19afe3c65ecddc6f70 src/test/java/com/nereusstream/delay/protocol/TargetQuotaAccountingContractTest.java
+
+Scope: current-source source/accounting and local independent-ledger evidence only.
+Test authorities are local fixtures. This does not certify production provider
+wiring, migration, or centralized C4 acceptance. C4 remains IN_PROGRESS.
