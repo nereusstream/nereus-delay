@@ -91,7 +91,7 @@ public final class ClaimHandoffWorkClassExecutor {
 
     /**
      * Binds and queues one exact already-polled Claim action. Queue rejection
-     * restores the head and persisted fairness projection before returning.
+     * restores the head and process-local fairness state before returning.
      */
     public Submission submit(
             final ScheduleWorkItem item,

@@ -352,6 +352,8 @@ class ClaimHandoffWorkClassExecutorTest {
             final ScheduleWorkItem readDeferred =
                     scheduler.poll(evidence.earliestEpochMs(), budget).get(0);
             final long claimSequenceBefore = shard.claimSequence();
+            final long storeSequenceBeforeReadYield = store.latestSequenceNumber();
+            final long nativeWritesBeforeReadYield = store.operationStatistics().nativeWriteCalls();
             exhaustHead.set(true);
             final ClaimHandoffWorkClassExecutor.Submission incomplete =
                     executor.submit(readDeferred, evidence, 3_000, materialization, claimCharge, () -> 101);
@@ -364,6 +366,8 @@ class ClaimHandoffWorkClassExecutorTest {
                     incomplete.result().orElseThrow().readIncompleteReason());
             assertEquals(ShardLifecycleState.ACTIVE_FOR_COMMANDS, owned.state());
             assertEquals(claimSequenceBefore, shard.claimSequence());
+            assertEquals(storeSequenceBeforeReadYield, store.latestSequenceNumber());
+            assertEquals(nativeWritesBeforeReadYield, store.operationStatistics().nativeWriteCalls());
             assertEquals(
                     MessageStatus.SCHEDULED,
                     shard.getMessage(schedule.delayMessageId()).status());

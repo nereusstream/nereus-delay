@@ -25,8 +25,8 @@ import java.util.function.LongSupplier;
  * Delay Shard.
  *
  * <p>Activation supplies the exact active Lane projection. This class
- * restores the persisted Lane fairness state, rebuilds the READY ring from
- * the authoritative Store, and routes due discovery through the bounded
+ * starts fresh process-local Lane fairness state, rebuilds the READY ring
+ * from the authoritative Store, and routes due discovery through the bounded
  * {@code DUE_SCHEDULER} work class. READY polling is a separate strict
  * Owner/Store action; it deliberately does not manufacture a Claim,
  * materialization, publish descriptor or external-time proof.</p>
