@@ -24,6 +24,7 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import org.rocksdb.RocksDB;
 
@@ -447,6 +448,7 @@ public final class TargetStoreBackend {
     private final TargetQuotaAggregate genesis;
     private final byte[] lineage;
     private final WriteLimits limits;
+    private final AtomicReference<ShardStore.NativeWriteOperation> nextNativeWriteForTesting = new AtomicReference<>();
     private volatile TargetQueueChangeSignal targetQueueChangeSignal;
     private volatile TargetQueueHeadCache targetQueueHeadCache;
 
@@ -474,6 +476,12 @@ public final class TargetStoreBackend {
     public void requireStore(final ShardStore actual) {
         if (store != Objects.requireNonNull(actual, "store")) {
             throw new IllegalArgumentException("Target backend belongs to another Store instance");
+        }
+    }
+
+    void injectNextNativeWriteForTesting(final ShardStore.NativeWriteOperation nativeWrite) {
+        if (!nextNativeWriteForTesting.compareAndSet(null, Objects.requireNonNull(nativeWrite, "nativeWrite"))) {
+            throw new IllegalStateException("a Target native write injection is already pending");
         }
     }
 
@@ -668,7 +676,8 @@ public final class TargetStoreBackend {
 
     /** Consumes the plan once. Failed/unknown attempts are reconciled by a fresh read/recovery, never blind retry. */
     public void commit(final Prepared prepared, final CommitAuthority authority) {
-        commit(prepared, authority, RocksDB::write);
+        final var injected = nextNativeWriteForTesting.getAndSet(null);
+        commit(prepared, authority, injected == null ? RocksDB::write : injected);
     }
 
     /** Package-local native boundary for verifying whole-batch failure and ambiguous-response recovery. */

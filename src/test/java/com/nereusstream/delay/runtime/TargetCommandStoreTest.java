@@ -130,6 +130,7 @@ import com.nereusstream.delay.store.SharedRocksDbResources;
 import com.nereusstream.delay.store.TargetCheckpointRootVerifier;
 import com.nereusstream.delay.store.TargetKeyCodec;
 import com.nereusstream.delay.store.TargetStoreBackend;
+import com.nereusstream.delay.store.TargetStoreBackendFailureTestBridge;
 import com.nereusstream.delay.store.TargetValueEnvelope;
 import java.nio.file.Path;
 import java.security.KeyPair;
@@ -5294,23 +5295,35 @@ class TargetCommandStoreTest {
                 return SourceAcknowledgement.AcknowledgementResult.unknown(null);
             }));
             final long beforeUncertainApply = store.shardMutationSequence();
-            final var uncertainTurn = loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100);
-            assertEquals(SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN, uncertainTurn.status());
-            assertEquals(uncertainEntry, loop.pendingEntry().orElseThrow());
-            assertEquals(1, unknownAcknowledgements.get());
-            assertEquals(beforeUncertainApply + 1, store.shardMutationSequence());
-            assertEquals(uncertainAt, store.appliedShardLogPosition());
+            if (!claimed && !rescheduled && !strictOrderExpiry) {
+                TargetStoreBackendFailureTestBridge.failNextCommitAfterNativeWrite(backend);
+                final var uncertainTurn = loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100);
+                assertEquals(SourceApplyCoordinator.TurnStatus.APPLY_FAILURE, uncertainTurn.status());
+                assertEquals(uncertainEntry, uncertainTurn.entry());
+                assertEquals(uncertainEntry, loop.pendingEntry().orElseThrow());
+                assertEquals(0, unknownAcknowledgements.get());
+                assertTrue(store.isWriteOutcomeUncertain());
+                assertTrue(runtime.fenced());
+                assertTrue(leases.release(active));
+            } else {
+                final var uncertainTurn = loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100);
+                assertEquals(SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN, uncertainTurn.status());
+                assertEquals(uncertainEntry, loop.pendingEntry().orElseThrow());
+                assertEquals(1, unknownAcknowledgements.get());
+                assertEquals(beforeUncertainApply + 1, store.shardMutationSequence());
+                assertEquals(uncertainAt, store.appliedShardLogPosition());
 
-            final long beforeOldOwnerLoss = store.latestSequenceNumber();
-            final var oldQueued = oldGc.submit(
-                    new TargetReservationClosureWorkClassExecutor.SweepRequest(scope.shard(), bytes(16, 0xe7)));
-            assertTrue(leases.release(active));
-            workerClasses.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
-            assertEquals(
-                    TargetReservationClosureWorkClassExecutor.Kind.FAILED,
-                    oldQueued.result().orElseThrow().kind());
-            assertTrue(runtime.fenced());
-            assertEquals(beforeOldOwnerLoss, store.latestSequenceNumber());
+                final long beforeOldOwnerLoss = store.latestSequenceNumber();
+                final var oldQueued = oldGc.submit(
+                        new TargetReservationClosureWorkClassExecutor.SweepRequest(scope.shard(), bytes(16, 0xe7)));
+                assertTrue(leases.release(active));
+                workerClasses.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
+                assertEquals(
+                        TargetReservationClosureWorkClassExecutor.Kind.FAILED,
+                        oldQueued.result().orElseThrow().kind());
+                assertTrue(runtime.fenced());
+                assertEquals(beforeOldOwnerLoss, store.latestSequenceNumber());
+            }
             // Simulate process loss; the source fixture replays this unacknowledged entry after reopen.
         }
         TargetCheckpointRootVerifier.auditIndependentLedger(

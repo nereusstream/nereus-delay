@@ -1,0 +1,23 @@
+# D2 active Target Worker Store-write UNKNOWN evidence
+
+Date: 2026-10-01
+Base revision: f7eee9dcd543f9d1ccc05ef91c5a020a5a46866c
+
+Command:
+./gradlew test --tests 'com.nereusstream.delay.runtime.TargetCommandStoreTest.modifiesActualTimelineOrClaimWithHistoryAndFirstResults' --no-daemon --console=plain
+
+Result: exit 0, `BUILD SUCCESSFUL in 30s`. JUnit XML reports 5 cases, 0 failures/errors/skips. One case (`claimed=false`, `rescheduled=false`, `strictOrderExpiry=false`) injects a synthetic RocksDB response loss after the real `db.write` returns; the other four cases retain their prior ACK UNKNOWN coverage.
+
+The injected failure travels through the active `TargetSourceApplyRuntime`, `TargetTimeFenceStore`, `TargetStoreBackend`, actual RocksDB Store and Worker source coordinator. The first turn returns `APPLY_FAILURE`; the ACK callback count stays zero, the exact source entry remains pending, the Store reports an uncertain write outcome, and the source runtime fences. After process-state loss, the existing recovery path opens the same RocksDB image under a replacement test Owner, replays the exact TIME_FENCE source entry, reads its persisted first result, ACKs it, and does not advance the reopened Store sequence or source mutation sequence again.
+
+Validation:
+- `./gradlew checkstyleTest` ran successfully as part of `./gradlew checkstyleMain checkstyleTest checkDocumentation --no-daemon --console=plain`.
+- `./gradlew checkDocumentation --no-daemon --console=plain` passed independently after the NDIP records were updated.
+- `checkstyleMain` reports only two unchanged line-length violations: `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347` (123 characters; maximum 120).
+
+Boundary: this is local active-Worker/RocksDB and source-fixture recovery evidence. Source, Owner and ACK authorities are test fixtures; there is no real Broker ACK callback or Oxia session-loss in this test. It does not close D2, central validation, or production authority.
+
+Source SHA-256:
+src/main/java/com/nereusstream/delay/store/TargetStoreBackend.java 17a6a4d3194175c36aca5ffbd14df4dcb91e92f52ddd01c7bfeb1ac42e7f4338
+src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java 33ab45a3122d1510161f582291fed847ce3cebe21a5503f6858c88fbe15af7f8
+src/test/java/com/nereusstream/delay/store/TargetStoreBackendFailureTestBridge.java 8510ac3294a7bec84c58838ea3ec508ea63fade8af84a6d94de109bedbd3f35e
