@@ -4,6 +4,7 @@ import com.nereusstream.delay.ownership.InMemoryControlTargetRegistrationAuthori
 import com.nereusstream.delay.ownership.InMemoryOwnerLeaseStore;
 import com.nereusstream.delay.ownership.OwnerLease;
 import com.nereusstream.delay.ownership.OxiaOwnerLeaseStore;
+import com.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend;
 import com.nereusstream.delay.ownership.ShardLifecycleState;
 import com.nereusstream.delay.ownership.SourceApplyCoordinator;
 import com.nereusstream.delay.ownership.SourceReplayRecord;
@@ -183,58 +184,68 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                     Bytes.sha256(Bytes.utf8("target-source-assignment-" + UUID.randomUUID())),
                     1,
                     new KafkaActivationBarrier(shard, clusterId, toUuid(topicId), 1));
-            final var leaseBackend = new InMemoryOwnerLeaseStore();
-            final var leases = new OxiaOwnerLeaseStore(leaseBackend);
-            final long leaseNow = System.currentTimeMillis();
-            final var acquiring = leases.acquire(
-                            assignment,
-                            "target-source-owner-" + UUID.randomUUID(),
-                            Bytes.sha256(Bytes.utf8("target-source-session-" + UUID.randomUUID())),
-                            leaseNow,
-                            60_000)
-                    .orElseThrow(() -> new IllegalStateException("test Owner lease acquisition failed"));
+            final OxiaSyncOwnerLeaseBackend.ClientHandle ownerClient = openProcessCrashOwnerClient(ackInjection);
+            try (ownerClient) {
+                final OxiaOwnerLeaseStore leases = ownerClient == null
+                        ? new OxiaOwnerLeaseStore(new InMemoryOwnerLeaseStore())
+                        : new OxiaOwnerLeaseStore(ownerClient.backend());
+                final byte[] ownerSessionIdentity = ownerClient == null
+                        ? Bytes.sha256(Bytes.utf8("target-source-session-" + UUID.randomUUID()))
+                        : ownerClient.sessionIdentity();
+                final String ownerLeasePrefix = ownerClient == null ? null : processCrashOwnerLeasePrefix(ackInjection);
+                final long leaseNow = System.currentTimeMillis();
+                final var acquiring = leases.acquire(
+                                assignment,
+                                "target-source-owner-" + UUID.randomUUID(),
+                                ownerSessionIdentity,
+                                leaseNow,
+                                60_000)
+                        .orElseThrow(() -> new IllegalStateException("test Owner lease acquisition failed"));
 
-            final boolean preserveStore = ackInjection.crashPhase() == CrashPhase.PREPARE;
-            final Path storeRoot = preserveStore
-                    ? ackInjection.storeRoot()
-                    : Files.createTempDirectory("nereus-delay-kafka-target-source-");
-            try {
-                if (preserveStore) {
-                    Files.createDirectories(storeRoot);
+                final boolean preserveStore = ackInjection.crashPhase() == CrashPhase.PREPARE;
+                final Path storeRoot = preserveStore
+                        ? ackInjection.storeRoot()
+                        : Files.createTempDirectory("nereus-delay-kafka-target-source-");
+                try {
+                    if (preserveStore) {
+                        Files.createDirectories(storeRoot);
+                    }
+                    runTargetSourceTurn(
+                            admin,
+                            bootstrap,
+                            topic,
+                            groupId,
+                            clusterId,
+                            toUuid(topicId),
+                            scope,
+                            source,
+                            assignment,
+                            acquiring,
+                            leases,
+                            ownerSessionIdentity,
+                            ownerLeasePrefix,
+                            actor,
+                            signingKeys,
+                            rootControl,
+                            command,
+                            commandMetadata.offset(),
+                            storeRoot,
+                            ackInjection);
+                } finally {
+                    if (!preserveStore) {
+                        deleteTree(storeRoot);
+                    }
                 }
-                runTargetSourceTurn(
-                        admin,
-                        bootstrap,
-                        topic,
-                        groupId,
-                        clusterId,
-                        toUuid(topicId),
-                        scope,
-                        source,
-                        assignment,
-                        acquiring,
-                        leases,
-                        actor,
-                        signingKeys,
-                        rootControl,
-                        command,
-                        commandMetadata.offset(),
-                        storeRoot,
-                        ackInjection);
-            } finally {
-                if (!preserveStore) {
-                    deleteTree(storeRoot);
-                }
+                final String failureBoundary = ackInjection.networkResponseLoss()
+                        ? "Broker OffsetCommit response was received by the TCP proxy and withheld before reaching "
+                                + "the Kafka client"
+                        : "simulated lost commitSync response after the Kafka client returned success";
+                System.out.println("Kafka Target source factory: first grant at offset 0; Cancel at offset 1 applied; "
+                        + failureBoundary + ";");
+                System.out.println(
+                        "  replacement Owner reopened RocksDB, replayed the exact Broker record without a second "
+                                + "Store write, and confirmed Kafka group offset 2; TopicId/partition guard verified.");
             }
-            final String failureBoundary = ackInjection.networkResponseLoss()
-                    ? "Broker OffsetCommit response was received by the TCP proxy and withheld before reaching "
-                            + "the Kafka client"
-                    : "simulated lost commitSync response after the Kafka client returned success";
-            System.out.println("Kafka Target source factory: first grant at offset 0; Cancel at offset 1 applied; "
-                    + failureBoundary + ";");
-            System.out.println(
-                    "  replacement Owner reopened RocksDB, replayed the exact Broker record without a second "
-                            + "Store write, and confirmed Kafka group offset 2; TopicId/partition guard verified.");
             } finally {
                 try {
                     admin.deleteTopics(List.of(topic)).all().get(30, TimeUnit.SECONDS);
@@ -322,6 +333,8 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
             final com.nereusstream.delay.ownership.SourceAssignment assignment,
             final OwnerLease acquiring,
             final OxiaOwnerLeaseStore leases,
+            final byte[] ownerSessionIdentity,
+            final String ownerLeasePrefix,
             final ControlAuthorizationContext actor,
             final KeyPair signingKeys,
             final RootControl rootControl,
@@ -495,7 +508,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                 }
                 if (ackInjection.crashPhase() == CrashPhase.PREPARE) {
                     writeProcessCrashState(ackInjection, topic, groupId, clusterId, topicId, scope, assignment,
-                            command, commandOffset, active.ownerEpoch());
+                            command, commandOffset, active.ownerEpoch(), ownerLeasePrefix);
                 } else if (ackInjection.networkResponseLoss()) {
                     Files.writeString(ackInjection.releaseFile(), "release\n");
                 }
@@ -538,13 +551,14 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                 scope,
                 assignment,
                 leases,
+                ownerSessionIdentity,
                 command,
                 commandOffset,
                 config,
                 ackInjection.mode());
     }
 
-    private static void runTargetSourceReplayAfterUnknown(
+    private static long runTargetSourceReplayAfterUnknown(
             final Admin admin,
             final String bootstrap,
             final String topic,
@@ -554,6 +568,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
             final TargetQuotaScope scope,
             final com.nereusstream.delay.ownership.SourceAssignment assignment,
             final OxiaOwnerLeaseStore leases,
+            final byte[] ownerSessionIdentity,
             final PreparedCommand command,
             final long commandOffset,
             final ShardStoreConfig config,
@@ -562,7 +577,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
         final OwnerLease replayAcquiring = leases.acquire(
                         assignment,
                         "target-source-replay-owner-" + UUID.randomUUID(),
-                        Bytes.sha256(Bytes.utf8("target-source-replay-session-" + UUID.randomUUID())),
+                        ownerSessionIdentity,
                         System.currentTimeMillis(),
                         60_000)
                 .orElseThrow(() -> new IllegalStateException("replacement Target Owner lease acquisition failed"));
@@ -691,6 +706,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                 leases.release(current);
             }
         }
+        return replayAcquiring.ownerEpoch();
     }
 
     private static GuardedConsumer<byte[], byte[]> newSourceConsumer(
@@ -817,7 +833,8 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
             final com.nereusstream.delay.ownership.SourceAssignment assignment,
             final PreparedCommand command,
             final long commandOffset,
-            final long ownerEpoch)
+            final long ownerEpoch,
+            final String ownerLeasePrefix)
             throws Exception {
         final Properties state = new Properties();
         state.setProperty("topic", topic);
@@ -834,6 +851,9 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
         state.setProperty("commandFrame", Base64.getEncoder().encodeToString(
                 com.nereusstream.delay.protocol.CommandCodec.encodeFrame(command)));
         state.setProperty("ownerEpoch", Long.toUnsignedString(ownerEpoch));
+        if (ownerLeasePrefix != null) {
+            state.setProperty("ownerLeasePrefix", ownerLeasePrefix);
+        }
         final Path stateParent = injection.stateFile().getParent();
         if (stateParent != null) {
             Files.createDirectories(stateParent);
@@ -904,33 +924,58 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
             if (committed == null || committed.offset() != commandOffset + 1) {
                 throw new IllegalStateException("Broker group offset changed before process-crash recovery");
             }
-            final var leaseBackend = new InMemoryOwnerLeaseStore();
-            final var leases = new OxiaOwnerLeaseStore(leaseBackend);
-            final long leaseNow = System.currentTimeMillis();
-            final OwnerLease priorEpoch = leaseBackend
-                    .acquire(shard, "target-source-pre-crash-test-epoch", leaseNow, 60_000)
-                    .orElseThrow(() -> new IllegalStateException("test prior Owner epoch seed failed"));
-            if (Long.compareUnsigned(priorEpoch.ownerEpoch(), previousOwnerEpoch) != 0
-                    || !leaseBackend.release(priorEpoch)) {
-                throw new IllegalStateException("test Owner epoch seed disagrees with the persisted Store epoch");
+            final String ownerLeasePrefix = saved.getProperty("ownerLeasePrefix");
+            final String oxiaEndpoint = configuredEnvironment("NEREUS_DELAY_OXIA_ENDPOINT");
+            if ((ownerLeasePrefix != null) != (oxiaEndpoint != null)) {
+                throw new IllegalStateException("process-crash recovery Owner authority mode changed between JVMs");
             }
-            runTargetSourceReplayAfterUnknown(
-                    admin,
-                    bootstrap,
-                    topic,
-                    groupId,
-                    clusterId,
-                    topicId,
-                    scope,
-                    assignment,
-                    leases,
-                    command,
-                    commandOffset,
-                    ShardStoreConfig.defaults(injection.storeRoot()),
-                    AckMode.NETWORK_RESPONSE_LOSS);
-            System.out.println("Kafka Target source process-crash recovery passed: previousOwnerEpoch="
-                    + Long.toUnsignedString(previousOwnerEpoch) + ", brokerOffset=" + (commandOffset + 1)
-                    + ", exact replay ACKed by a fresh JVM.");
+            final byte[] ownerSessionIdentity;
+            final OxiaOwnerLeaseStore leases;
+            final OxiaSyncOwnerLeaseBackend.ClientHandle ownerClient;
+            if (oxiaEndpoint == null) {
+                final var leaseBackend = new InMemoryOwnerLeaseStore();
+                leases = new OxiaOwnerLeaseStore(leaseBackend);
+                final long leaseNow = System.currentTimeMillis();
+                final OwnerLease priorEpoch = leaseBackend
+                        .acquire(shard, "target-source-pre-crash-test-epoch", leaseNow, 60_000)
+                        .orElseThrow(() -> new IllegalStateException("test prior Owner epoch seed failed"));
+                if (Long.compareUnsigned(priorEpoch.ownerEpoch(), previousOwnerEpoch) != 0
+                        || !leaseBackend.release(priorEpoch)) {
+                    throw new IllegalStateException("test Owner epoch seed disagrees with the persisted Store epoch");
+                }
+                ownerSessionIdentity = Bytes.sha256(Bytes.utf8("target-source-process-crash-session"));
+                ownerClient = null;
+            } else {
+                ownerClient = connectOwnerLeaseClient(
+                        oxiaEndpoint,
+                        configuredEnvironment("NEREUS_DELAY_OXIA_NAMESPACE", "default"),
+                        "target-source-process-crash-resume-" + UUID.randomUUID(),
+                        ownerLeasePrefix);
+                leases = new OxiaOwnerLeaseStore(ownerClient.backend());
+                waitForProcessCrashOwnerLeaseRelease(leases, shard, previousOwnerEpoch);
+                ownerSessionIdentity = ownerClient.sessionIdentity();
+            }
+            try (ownerClient) {
+                final long replacementOwnerEpoch = runTargetSourceReplayAfterUnknown(
+                        admin,
+                        bootstrap,
+                        topic,
+                        groupId,
+                        clusterId,
+                        topicId,
+                        scope,
+                        assignment,
+                        leases,
+                        ownerSessionIdentity,
+                        command,
+                        commandOffset,
+                        ShardStoreConfig.defaults(injection.storeRoot()),
+                        AckMode.NETWORK_RESPONSE_LOSS);
+                System.out.println("Kafka Target source process-crash recovery passed: previousOwnerEpoch="
+                        + Long.toUnsignedString(previousOwnerEpoch)
+                        + ", replacementOwnerEpoch=" + Long.toUnsignedString(replacementOwnerEpoch)
+                        + ", brokerOffset=" + (commandOffset + 1) + ", exact replay ACKed by a fresh JVM.");
+            }
         }
     }
 
@@ -940,6 +985,66 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
             throw new IllegalArgumentException("process-crash state is missing " + name);
         }
         return value;
+    }
+
+    private static OxiaSyncOwnerLeaseBackend.ClientHandle openProcessCrashOwnerClient(
+            final AckInjection injection) throws Exception {
+        if (injection.crashPhase() == CrashPhase.NONE) {
+            return null;
+        }
+        final String endpoint = configuredEnvironment("NEREUS_DELAY_OXIA_ENDPOINT");
+        return endpoint == null
+                ? null
+                : connectOwnerLeaseClient(
+                        endpoint,
+                        configuredEnvironment("NEREUS_DELAY_OXIA_NAMESPACE", "default"),
+                        "target-source-process-crash-prepare-" + UUID.randomUUID(),
+                        processCrashOwnerLeasePrefix(injection));
+    }
+
+    private static OxiaSyncOwnerLeaseBackend.ClientHandle connectOwnerLeaseClient(
+            final String endpoint,
+            final String namespace,
+            final String clientIdentifier,
+            final String ownerLeasePrefix) throws Exception {
+        return OxiaSyncOwnerLeaseBackend.connect(
+                endpoint,
+                namespace,
+                clientIdentifier,
+                Duration.ofSeconds(15),
+                ownerLeasePrefix);
+    }
+
+    private static String processCrashOwnerLeasePrefix(final AckInjection injection) {
+        final String statePath = injection.stateFile().toAbsolutePath().normalize().toString();
+        return "nereus-delay/kafka-target-source-process-crash/"
+                + Bytes.hex(Bytes.sha256(Bytes.utf8(statePath)));
+    }
+
+    private static void waitForProcessCrashOwnerLeaseRelease(
+            final OxiaOwnerLeaseStore leases, final ShardId shard, final long previousOwnerEpoch)
+            throws InterruptedException {
+        final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(60);
+        do {
+            final Optional<OwnerLease> current = leases.current(shard);
+            if (current.isEmpty()) {
+                return;
+            }
+            if (Long.compareUnsigned(current.orElseThrow().ownerEpoch(), previousOwnerEpoch) != 0) {
+                throw new IllegalStateException("another Owner acquired the process-crash Shard before recovery");
+            }
+            Thread.sleep(100);
+        } while (System.nanoTime() < deadline);
+        throw new IllegalStateException("Oxia did not remove the killed process Owner lease before recovery");
+    }
+
+    private static String configuredEnvironment(final String name) {
+        return configuredEnvironment(name, null);
+    }
+
+    private static String configuredEnvironment(final String name, final String fallback) {
+        final String value = System.getenv(name);
+        return value == null || value.isBlank() ? fallback : value;
     }
 
     private enum AckMode {

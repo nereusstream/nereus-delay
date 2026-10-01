@@ -418,7 +418,11 @@ if [[ "${broker_tcp_cut_only}" == "1" && ("${route_failover_only}" == "1"
 fi
 
 if [[ "${source_ack_network_loss_only}" == "1" || "${source_ack_process_crash_only}" == "1" ]]; then
-  for focused_mode in "${with_oxia}" "${route_failover}" "${route_failover_only}" "${multi_shard_only}" \
+  if [[ "${source_ack_network_loss_only}" == "1" && "${with_oxia}" == "1" ]]; then
+    echo "Kafka Target source ACK network-loss-only mode does not exercise an Oxia Owner lease" >&2
+    exit 1
+  fi
+  for focused_mode in "${route_failover}" "${route_failover_only}" "${multi_shard_only}" \
     "${k2_failover}" "${k2_failover_only}" "${k2_response_loss}" "${k2_response_loss_only}" \
     "${worker_destination_response_loss}" "${worker_destination_response_loss_only}" \
     "${source_ack_response_loss}" "${source_ack_response_loss_only}" "${target_worker_source_only}" \
@@ -994,6 +998,11 @@ wait_for_broker kafka-2
 wait_for_broker kafka-3
 
 if [[ "${source_ack_process_crash_only}" == "1" ]]; then
+  if [[ "${with_oxia}" == "1" ]]; then
+    start_oxia
+    export NEREUS_DELAY_OXIA_ENDPOINT="${oxia_endpoint}"
+    export NEREUS_DELAY_OXIA_NAMESPACE=default
+  fi
   start_offset_commit_response_loss_proxy
   target_worker_source_topic="${KAFKA_DELAY_TARGET_WORKER_SOURCE_TOPIC:-${source_topic}-target-worker-process-crash}"
   rm -f "${source_ack_crash_state_file}" "${source_ack_crash_ready_file}"
@@ -1079,7 +1088,7 @@ if [[ "${source_ack_process_crash_only}" == "1" ]]; then
   fi
   offset_commit_proxy_pid=""
   cat "${offset_commit_proxy_log}"
-  echo "Kafka Target source ACK network-loss/process-crash recovery E2E passed: the first JVM was SIGKILLed at ACK_UNKNOWN after Broker offset 2; a fresh JVM reopened RocksDB, advanced the test Owner epoch, replayed the exact command, and ACKed offset 2."
+  echo "Kafka Target source ACK network-loss/process-crash recovery E2E passed: the first JVM was SIGKILLed at ACK_UNKNOWN after Broker offset 2; a fresh JVM reopened RocksDB, advanced the Owner epoch, replayed the exact command, and ACKed offset 2."
   exit 0
 fi
 
