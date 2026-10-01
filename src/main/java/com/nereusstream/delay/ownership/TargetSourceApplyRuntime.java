@@ -272,10 +272,12 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     private final Authorities authorities;
     private final Limits limits;
     private final LongSupplier monotonicClock;
+    // Store-read guards revalidate ownership while holding the Store monitor; keep this lock free of Store access.
+    private final Object ownerStateLock = new Object();
     private WorkClassExecutionRegistry workClasses;
     private TargetReservationGcRuntime maintenanceRuntime;
-    private OwnerLease lease;
-    private boolean fenced;
+    private volatile OwnerLease lease;
+    private volatile boolean fenced;
     private long lastOwnerTime = -1;
 
     /** Requires prior explicit activation, including persisted Owner epoch and the reached source barrier. */
@@ -840,7 +842,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         };
     }
 
-    private synchronized void requireGcOwner(final LongSupplier clock) {
+    private void requireGcOwner(final LongSupplier clock) {
         try {
             requireOwner(clock);
         } catch (RuntimeException | Error failure) {
@@ -1096,23 +1098,42 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         }
     }
 
-    private synchronized void requireOwner(final LongSupplier clock) {
-        if (fenced || store.runtimeMetadata().lastOpenedOwnerEpoch() != lease.ownerEpoch()) {
+    private void requireOwner(final LongSupplier clock) {
+        final OwnerLease initialLease = lease;
+        if (fenced || store.runtimeMetadata().lastOpenedOwnerEpoch() != initialLease.ownerEpoch()) {
             throw new IllegalStateException("Target source Owner/Store is fenced");
         }
-        final OwnerLease current = authorities.leases().current(scope.shard()).orElse(null);
-        final long now = Objects.requireNonNull(clock, "ownerClock").getAsLong();
-        if (now < 0
-                || now < lastOwnerTime
-                || current == null
-                || !lease.sameIdentity(current)
-                || current.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS
-                || !current.validAt(now)
-                || current.expiresAtEpochMs() < lease.expiresAtEpochMs()) {
-            throw new IllegalStateException("Target source authoritative lease/time changed");
+        final LongSupplier ownerClock = Objects.requireNonNull(clock, "ownerClock");
+        while (true) {
+            final OwnerLease observedLease = lease;
+            final OwnerLease current = authorities.leases().current(scope.shard()).orElse(null);
+            synchronized (ownerStateLock) {
+                final OwnerLease activeLease = lease;
+                if (fenced || !activeLease.sameIdentity(initialLease)) {
+                    throw new IllegalStateException("Target source Owner/Store is fenced");
+                }
+                if (current == null
+                        || !activeLease.sameIdentity(current)
+                        || current.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS) {
+                    throw new IllegalStateException("Target source authoritative lease/time changed");
+                }
+                if (current.expiresAtEpochMs() < activeLease.expiresAtEpochMs()) {
+                    if (activeLease != observedLease) {
+                        continue;
+                    }
+                    throw new IllegalStateException("Target source authoritative lease/time changed");
+                }
+                final long now = ownerClock.getAsLong();
+                if (now < 0 || now < lastOwnerTime || !current.validAt(now)) {
+                    throw new IllegalStateException("Target source authoritative lease/time changed");
+                }
+                lastOwnerTime = now;
+                if (current.expiresAtEpochMs() > activeLease.expiresAtEpochMs()) {
+                    lease = current;
+                }
+                return;
+            }
         }
-        lastOwnerTime = now;
-        lease = current;
     }
 
     private void validateEntry(final SourceReplayEntry entry) {

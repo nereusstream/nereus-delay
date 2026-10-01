@@ -2144,25 +2144,26 @@ class TargetQuotaGrantStoreTest {
                             .status());
             assertEquals(afterNativeInstall, store.latestSequenceNumber());
             assertEquals(beforeNativeInstallRevision + 1, sourceHost.targetQueueChangeRevision());
+            final var snapshotIssueTime = new TrustedUtcIntervalEvidence(
+                    100,
+                    101,
+                    TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                    Bytes.utf8("native-policy-test-clock"),
+                    1,
+                    2,
+                    3,
+                    bytes(32, 0x7b),
+                    0,
+                    null);
             final var snapshot = TargetNativePolicySnapshot.create(
                     nativeScope,
                     1,
                     HandoffPolicyMode.ENABLED,
-                    60_000,
+                    30_000,
                     101,
                     30_000,
                     1,
-                    new TrustedUtcIntervalEvidence(
-                            100,
-                            101,
-                            TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
-                            Bytes.utf8("native-policy-test-clock"),
-                            1,
-                            2,
-                            3,
-                            bytes(32, 0x7b),
-                            0,
-                            null),
+                    snapshotIssueTime,
                     9,
                     issuerKeys.getPrivate());
             final var nativeActivation = signedNative(
@@ -2574,8 +2575,12 @@ class TargetQuotaGrantStoreTest {
                     firstNativeApprovalAt,
                     firstNativeApprovalAt.offset() + 1,
                     firstNativeApprovalAt.brokerLogAppendTimeEpochMs() + 1);
-            final var secondSeedAt = source(
+            final var secondNativeActivationAt = source(
                     firstScheduleAt, firstScheduleAt.offset() + 1, firstScheduleAt.brokerLogAppendTimeEpochMs() + 1);
+            final var secondSeedAt = source(
+                    secondNativeActivationAt,
+                    secondNativeActivationAt.offset() + 1,
+                    secondNativeActivationAt.brokerLogAppendTimeEpochMs() + 1);
             final var secondScheduleAt =
                     source(secondSeedAt, secondSeedAt.offset() + 1, secondSeedAt.brokerLogAppendTimeEpochMs() + 1);
             final byte[] firstSeedDigest = Bytes.sha256(Bytes.utf8("compatibility-domain-membership-one"));
@@ -2670,13 +2675,16 @@ class TargetQuotaGrantStoreTest {
             final var hostFailure = new java.util.concurrent.atomic.AtomicReference<Throwable>();
             final var schedulerEpoch = new java.util.concurrent.atomic.AtomicLong(firstScheduleTime - 1);
             final var timeSampleSequence = new java.util.concurrent.atomic.AtomicLong();
-            final var publication = new TargetNativePolicyAuthority.Publication(
-                    1, TargetNativePolicyHead.next(null, snapshot));
+            final var publication = new java.util.concurrent.atomic.AtomicReference<>(
+                    new TargetNativePolicyAuthority.Publication(1, TargetNativePolicyHead.next(null, snapshot)));
+            final var policyWakeup = new java.util.concurrent.atomic.AtomicReference<Runnable>();
+            final var policyWakeupCalls = new java.util.concurrent.atomic.AtomicInteger();
+            final var nativeContextResolutions = new java.util.concurrent.atomic.AtomicInteger();
             final var hostPolicyAuthority = new TargetNativePolicyAuthority() {
                 @Override
                 public java.util.Optional<Publication> current(final byte[] scopeDigest) {
                     return Arrays.equals(scopeDigest, nativeScope.digest())
-                            ? java.util.Optional.of(publication)
+                            ? java.util.Optional.of(publication.get())
                             : java.util.Optional.empty();
                 }
 
@@ -2686,6 +2694,15 @@ class TargetQuotaGrantStoreTest {
                         final long expectedRevision,
                         final TargetNativePolicyHead next) {
                     throw new UnsupportedOperationException("test policy authority is read-only");
+                }
+
+                @Override
+                public java.io.Closeable subscribeCurrentHeadChanges(final Runnable listener) {
+                    policyWakeup.set(() -> {
+                        policyWakeupCalls.incrementAndGet();
+                        listener.run();
+                    });
+                    return () -> {};
                 }
             };
             final var hostRequests = new TargetWorkerOrdinaryDrr.Requests() {
@@ -2714,6 +2731,7 @@ class TargetQuotaGrantStoreTest {
                             || cost.nativeProjection() == null) {
                         return java.util.Optional.empty();
                     }
+                    nativeContextResolutions.incrementAndGet();
                     return java.util.Optional.of(new TargetWorkerOrdinaryDrr.NativePolicyContext(
                             hostPolicyAuthority,
                             store::appliedShardLogPosition,
@@ -2740,7 +2758,7 @@ class TargetQuotaGrantStoreTest {
                     new TargetWorkerOrdinaryDrr.Limits(
                             32L << 20, 32L << 20, 32L << 20, 16, 4096, 32L << 20, 60_000_000_000L),
                     new SchedulerBudget(16, 32L << 20, 60_000_000_000L),
-                    java.time.Duration.ofHours(1),
+                    java.time.Duration.ofMillis(50),
                     hostRequests,
                     hostClaims::add,
                     () -> 100,
@@ -2770,7 +2788,73 @@ class TargetQuotaGrantStoreTest {
                 assertNull(
                         hostClaims.poll(25, java.util.concurrent.TimeUnit.MILLISECONDS),
                         "Native Claim must wait for its action boundary without a queue-change notification");
+
+                final long firstPolicyDeadline =
+                        System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
+                while ((nativeContextResolutions.get() == 0 || !hostLoop.isWaitingForQueueChange())
+                        && System.nanoTime() < firstPolicyDeadline) {
+                    Thread.sleep(1);
+                }
+                assertTrue(nativeContextResolutions.get() > 0);
+                assertTrue(hostLoop.isWaitingForQueueChange());
+                assertNotNull(policyWakeup.get());
+
+                final var earlierPolicy = TargetNativePolicySnapshot.create(
+                        nativeScope,
+                        2,
+                        HandoffPolicyMode.ENABLED,
+                        60_000,
+                        101,
+                        30_000,
+                        1,
+                        snapshotIssueTime,
+                        9,
+                        issuerKeys.getPrivate());
+                final var earlierPolicyActivation = signedNative(
+                        TargetNativePolicyControlRequest.activate(nativeScope, earlierPolicy),
+                        bytes(32, 0x8c),
+                        actor,
+                        keys,
+                        scope.shard());
+                registrations.register(earlierPolicyActivation.control());
+                final int resolutionsBeforeActivation = nativeContextResolutions.get();
+                queue.add(new SourceRecordConsumer.PolledSourceRecord(
+                        new SourceReplayMutation(
+                                earlierPolicyActivation.mutation(), secondNativeActivationAt, null, null),
+                        (entry, outcome) -> {
+                            assertEquals(StableCode.OK, outcome.systemMutationResult().stableCode());
+                            return SourceAcknowledgement.AcknowledgementResult.acked();
+                        }));
+                final long beforeEarlierPolicyActivation = sourceHost.targetQueueChangeRevision();
+                final var policyActivationTurn =
+                        loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100);
+                assertEquals(
+                        SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                        policyActivationTurn.status(),
+                        () -> String.valueOf(policyActivationTurn.failure()));
+                assertEquals(
+                        earlierPolicy,
+                        sourceHostWorker.nativePolicyTrustStore(() -> 100)
+                                .activation(nativeScope.digest(), earlierPolicy.generation())
+                                .orElseThrow()
+                                .snapshot());
+                assertTrue(sourceHost.targetQueueChangeRevision() > beforeEarlierPolicyActivation);
+                final long updatedPolicyObservedDeadline =
+                        System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
+                while ((nativeContextResolutions.get() <= resolutionsBeforeActivation
+                                || !hostLoop.isWaitingForQueueChange())
+                        && System.nanoTime() < updatedPolicyObservedDeadline) {
+                    Thread.sleep(1);
+                }
+                assertTrue(nativeContextResolutions.get() > resolutionsBeforeActivation);
+                assertTrue(hostLoop.isWaitingForQueueChange());
+
                 schedulerEpoch.set(firstScheduleTime);
+                final var previousPublication = publication.get();
+                publication.set(new TargetNativePolicyAuthority.Publication(
+                        previousPublication.revision() + 1,
+                        TargetNativePolicyHead.next(previousPublication.head(), earlierPolicy)));
+                assertEquals(0, policyWakeupCalls.get(), "the current-policy notification is intentionally lost");
                 final var sourceCreatedClaim = hostClaims.poll(5, java.util.concurrent.TimeUnit.SECONDS);
                 assertNotNull(
                         sourceCreatedClaim, () -> "Host missed the source-created Target: " + hostFailure.get());
