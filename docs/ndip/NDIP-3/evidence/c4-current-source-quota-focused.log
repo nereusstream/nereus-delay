@@ -1,0 +1,20 @@
+C4 current-source Target quota revalidation
+
+Execution source revision: 38d9c6b5455ba621e04a101a0d9004a275faf826
+
+Command:
+./gradlew test --tests com.nereusstream.delay.protocol.TargetQuotaContractTest --tests com.nereusstream.delay.protocol.TargetQuotaLocalClaimTest --tests com.nereusstream.delay.runtime.TargetQuotaGrantStoreTest --console=plain
+
+Result: BUILD SUCCESSFUL in 18s.
+JUnit reports: TargetQuotaContractTest 21 tests, 0 skipped, 0 failures, 0 errors; TargetQuotaLocalClaimTest 15 tests, 0 skipped, 0 failures, 0 errors; TargetQuotaGrantStoreTest 3 tests, 1 skipped, 0 failures, 0 errors. Total: 38 passed and 1 skipped.
+The skipped case is realOxiaOwnerTakeoverReopensTargetRootAndCompletesCloseGc; its JUnit assumption reports that NEREUS_DELAY_OXIA_ENDPOINT is not configured.
+
+SHA-256:
+f296a42832b6c0903bc1398d26e87da21c75153d9514a0ddae287bede7566991 src/main/java/com/nereusstream/delay/runtime/TargetQuotaDelta.java
+43ba81eacfbbba243c83c9d4ddd776d3169034838f6aa7224e71634081d74d1d src/main/java/com/nereusstream/delay/protocol/TargetQuotaCounter.java
+70de1099ad7eb4eedfd5118b72d20bfb86f563473ce0d37bc6f81c59d8071014 src/main/java/com/nereusstream/delay/protocol/TargetQuotaAggregate.java
+ebec07a0c2c42f75ce360821702c99fa7ab75354e9d658843eec70dfad750329 src/test/java/com/nereusstream/delay/protocol/TargetQuotaContractTest.java
+34a0b7c3a7fde92422036967322db566575f71be405c1424f7cc5a3e76898c90 src/test/java/com/nereusstream/delay/protocol/TargetQuotaLocalClaimTest.java
+5b6e2be93f78131eb5f9de49a772698c5eeda17aae29ff918339c5b1cd92e286 src/test/java/com/nereusstream/delay/runtime/TargetQuotaGrantStoreTest.java
+
+Scope: local Target quota counter/delta and Store behavior only. The run did not verify real Oxia takeover, production provider/recovery wiring, migration, or centralized C4 acceptance. C4 remains IN_PROGRESS.
