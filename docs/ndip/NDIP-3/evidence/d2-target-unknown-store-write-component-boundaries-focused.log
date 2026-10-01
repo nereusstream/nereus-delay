@@ -1,0 +1,19 @@
+# D2 focused evidence for Target Store unknown writes and source apply failure boundaries
+
+Date: 2026-10-01
+Base revision: 2ee9d931cbd109348fbd385c1e3596aa65b777d3
+
+Command:
+./gradlew test --tests 'com.nereusstream.delay.store.TargetStoreBackendTest.quotaBusinessAndSourceRemainOneBatchAcrossNativeWriteFailure' --tests 'com.nereusstream.delay.ownership.SourceApplyCoordinatorTest.ownerLossBetweenHeadReadRetriesStillFencesAndNeverAcknowledgesTheSource' --no-daemon --console=plain
+
+Result: exit 0, `BUILD SUCCESSFUL in 18s`. JUnit reports 3 cases, 0 failures/errors/skips: two parameter cases for `TargetStoreBackendTest.quotaBusinessAndSourceRemainOneBatchAcrossNativeWriteFailure`, and one `SourceApplyCoordinatorTest.ownerLossBetweenHeadReadRetriesStillFencesAndNeverAcknowledgesTheSource` case.
+
+The TargetStoreBackend test uses a real RocksDB Store and a target mutation containing business, quota, and source-position edits. Its injected native-write boundary throws once before `db.write` and once after `db.write` returns. The open Store is fenced as outcome-uncertain in both cases. Reopen proves the before-write case persisted none of the batch, while the after-write case persisted the business value, quota counters, and source frontier together. The coordinator test independently confirms that an Owner-loss apply failure retains the exact source entry and does not invoke the ACK callback.
+
+Boundary: these are component-level contracts. The coordinator case fails on Owner loss after a read yield, not on a native Store write; the TargetStoreBackend case does not run through `TargetSourceApplyRuntime`, `TargetWorkerShardRuntime`, or a Broker ACK callback. No combined active-Worker test yet proves that an uncertain Target Store write suppresses Broker ACK and then recovers by replay. D2 remains IN_PROGRESS / PENDING_CENTRAL_VALIDATION.
+
+Source SHA-256:
+src/test/java/com/nereusstream/delay/store/TargetStoreBackendTest.java 35d7b2725f4568dcaec7198a6c2b64116aece73f62f283e5f595b425fd41c3a9
+src/test/java/com/nereusstream/delay/ownership/SourceApplyCoordinatorTest.java bfa91caa7f0ef13054e690108f8919e492488529e4bc0af303e659a2b8402c8a
+src/main/java/com/nereusstream/delay/ownership/TargetSourceApplyRuntime.java f187d391a02a69fc4085ae2f918a3822e6f78e8b5b178fd49d29be8bc3378054
+src/main/java/com/nereusstream/delay/ownership/SourceApplyCoordinator.java 0a74534715a53dd40e93e4f8201b7d3ae5804fb330d46712534b65d2cbc6345e
