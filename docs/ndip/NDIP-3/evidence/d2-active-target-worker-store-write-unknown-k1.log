@@ -1,0 +1,26 @@
+# D2 real-K1 Broker ACK after Target Store write UNKNOWN
+
+Date: 2026-10-01
+Base revision: 9e55869eb379c877262ba4e013266415bd6eec78
+
+Locked Kafka source:
+Checkout: /Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1
+HEAD: 05849884ca81fad767fda058444d1e17c7f9cbf9
+Client JAR SHA-256: 1853eceecc76db807a0c7c7897fc0eda45ad0bf15a95ae8100470ff43e5146
+Disposable three-broker KRaft image ID: sha256:62f1206203535f39ab09b723d8adcc6a3bb96fd79d10859aafc4c751a58f74d0
+
+Commands:
+./gradlew compileRealKafka -PkafkaClientJar=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1/clients/build/libs/kafka-clients-4.4.0-SNAPSHOT.jar --no-daemon --console=plain
+NEREUS_DELAY_KAFKA_TARGET_WORKER_SOURCE_ONLY=1 NEREUS_DELAY_KAFKA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1 ./e2e/run-kafka-real-client-e2e.sh
+
+Result: `compileRealKafka` passed with `-Werror`. The focused K1 three-Broker runner exited 0 and passed all three Target Worker source cases: client-delegate ACK response loss, no-injection Host lifecycle, and Store-write UNKNOWN recovery.
+
+In the new recovery case, the test-only native writer calls the real RocksDB `db.write` and then throws `RocksDBException`. The source turn returned `APPLY_FAILURE`; the Store reported an uncertain write, the Target source runtime fenced, and the exact Kafka entry remained pending. Admin observed no committed group offset for the command before recovery. The old Worker/Owner was released, the same RocksDB image was reopened under a replacement in-memory test Owner, and the replacement K1 source factory replayed the exact Broker record. It reused the persisted `NOT_FOUND` result, passed `APPLIED_AND_ACKED`, left the Store sequence unchanged, and committed group offset 2. The exact TopicId and partition guards also passed.
+
+Boundary: this combines a real K1 Broker source read and ACK callback with an actual post-`db.write` response-loss cut and same-JVM Store/Owner reopen. Assignment, grant, and Owner authority remain test fixtures. It does not exercise Oxia lease loss in this cut, process crash, Claim/Admission/Producer ownership, multi-Shard interleaving, shared-channel teardown, full D2, or centralized validation. D2 remains IN_PROGRESS / PENDING_CENTRAL_VALIDATION.
+
+Source SHA-256:
+src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetWorkerSourceSmoke.java 3b2ce4e866c1bfb15e0be1353d3d1b9427f11264fe453389560b410de24121d2
+src/real-kafka/java/com/nereusstream/delay/store/TargetStoreBackendFailureSmokeBridge.java 0ed3ae95fafac59525bf44da374c92a0a30176d9a46d41a85c1b208982d0d491
+build.gradle 6a1e94a21170d7c366c0b36d8110343188c379c0d49527fb0770d3c420ef3f46
+e2e/run-kafka-real-client-e2e.sh 7f24458165a2c35ddf02b77587bab0f33222c693cfa1f51681cbf92ac4272091

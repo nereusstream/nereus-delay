@@ -61,6 +61,7 @@ import com.nereusstream.delay.store.ShardStore;
 import com.nereusstream.delay.store.ShardStoreConfig;
 import com.nereusstream.delay.store.SharedRocksDbResources;
 import com.nereusstream.delay.store.TargetStoreBackend;
+import com.nereusstream.delay.store.TargetStoreBackendFailureSmokeBridge;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
 import java.nio.file.Files;
@@ -104,7 +105,8 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
     public static void main(final String[] arguments) throws Exception {
         if (arguments.length != 2 && arguments.length != 3 && arguments.length != 6 && arguments.length != 10) {
             throw new IllegalArgumentException("usage: <bootstrap-server> <source-topic-prefix> "
-                    + "[no-injection | network-response-loss <hold-file> <release-file> <dropped-response-file>] "
+                    + "[no-injection | store-write-response-unknown | network-response-loss "
+                    + "<hold-file> <release-file> <dropped-response-file>] "
                     + "[network-response-loss-process-crash <phase> <hold-file> <release-file> "
                     + "<dropped-response-file> <state-file> <store-root> <ready-file>]");
         }
@@ -351,15 +353,26 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                     case NO_INJECTION -> "Broker OffsetCommit response reached the Kafka client";
                     case CLIENT_DELEGATE_RESPONSE_LOSS ->
                         "simulated lost commitSync response after the Kafka client returned success";
+                    case STORE_WRITE_RESPONSE_UNKNOWN ->
+                        "RocksDB applied the source batch but its native write response was lost before source ACK";
                     case NETWORK_RESPONSE_LOSS ->
                         "Broker OffsetCommit response was received by the TCP proxy and withheld before reaching "
                                 + "the Kafka client";
                 };
-                System.out.println("Kafka Target source factory: first grant at offset 0; Cancel at offset 1 applied; "
-                        + failureBoundary + ";");
-                System.out.println(
-                        "  replacement Owner reopened RocksDB, replayed the exact Broker record without a second "
-                                + "Store write, and confirmed Kafka group offset 2; TopicId/partition guard verified.");
+                if (ackInjection.storeWriteResponseUnknown()) {
+                    System.out.println("Kafka Target source factory: first grant at offset 0; Cancel at offset 1 "
+                            + "was written by RocksDB before the native response failed; Broker offset remained "
+                            + "uncommitted and the Worker retained/fenced the exact entry.");
+                    System.out.println("  replacement Owner reopened RocksDB, replayed the exact Broker record "
+                            + "without another Store write, and confirmed group offset 2; TopicId/partition guard "
+                            + "verified.");
+                } else {
+                    System.out.println("Kafka Target source factory: first grant at offset 0; Cancel at offset 1 "
+                            + "applied; " + failureBoundary + ";");
+                    System.out.println("  replacement Owner reopened RocksDB, replayed the exact Broker record "
+                            + "without a second Store write, and confirmed Kafka group offset 2; TopicId/partition "
+                            + "guard verified.");
+                }
             }
             } finally {
                 try {
@@ -578,8 +591,9 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
             TargetWorkerHostRuntime host = null;
             final CountDownLatch hostMaintenanceTick = new CountDownLatch(1);
             try {
-                final boolean expectAckUnknown = ackInjection.mode() != AckMode.NO_INJECTION;
-                if (!expectAckUnknown) {
+                final boolean expectApplyFailure = ackInjection.storeWriteResponseUnknown();
+                final boolean expectAckUnknown = ackInjection.acknowledgementResponseUnknown();
+                if (!expectApplyFailure && !expectAckUnknown) {
                     worker.configureMessageExpiryMaintenance(
                             mutation -> {
                                 throw new AssertionError("unexpected Target message expiry append");
@@ -621,9 +635,12 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                         throw new IllegalStateException("real Kafka Target Worker Host did not run maintenance");
                     }
                 }
-                final SourceApplyCoordinator.TurnResult result = expectAckUnknown
-                        ? runUntilAckUnknown(worker)
-                        : runUntilAppliedByHost(host);
+                if (expectApplyFailure) {
+                    TargetStoreBackendFailureSmokeBridge.failNextCommitAfterNativeWrite(backend);
+                }
+                final SourceApplyCoordinator.TurnResult result = expectApplyFailure
+                        ? runUntilApplyFailure(worker)
+                        : expectAckUnknown ? runUntilAckUnknown(worker) : runUntilAppliedByHost(host);
                 if (ackInjection.networkResponseLoss()) {
                     final String dropped = Files.exists(ackInjection.droppedResponseFile())
                             ? Files.readString(ackInjection.droppedResponseFile())
@@ -648,13 +665,16 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                 final StableCode resultCode = result.appliedOutcome() == null
                         ? null
                         : result.appliedOutcome().commandResult().stableCode();
-                if (result.status() != (expectAckUnknown
+                final SourceApplyCoordinator.TurnStatus expectedStatus = expectApplyFailure
+                        ? SourceApplyCoordinator.TurnStatus.APPLY_FAILURE
+                        : expectAckUnknown
                                 ? SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN
-                                : SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED)
+                                : SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED;
+                if (result.status() != expectedStatus
                         || !exactCommand
                         || !exactPosition
-                        || (expectAckUnknown && result.appliedOutcome() != null)
-                        || (!expectAckUnknown && resultCode != StableCode.NOT_FOUND)
+                        || ((expectApplyFailure || expectAckUnknown) && result.appliedOutcome() != null)
+                        || (!expectApplyFailure && !expectAckUnknown && resultCode != StableCode.NOT_FOUND)
                         || ackResponseLost.get() != expectAckUnknown) {
                     throw new IllegalStateException(
                             "real Kafka Target Worker produced an unexpected source turn: status="
@@ -664,18 +684,30 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                                     + ", failure="
                                     + result.failure());
                 }
-                final var applied = store.appliedShardLogPosition();
-                if (!(applied instanceof KafkaSourcePosition kafka) || kafka.offset() != commandOffset
-                        || store.shardMutationSequence() != 2) {
-                    throw new IllegalStateException("Target Store did not durably advance before uncertain source ACK");
+                if (expectApplyFailure) {
+                    if (!store.isWriteOutcomeUncertain()
+                            || !sourceRuntime.fenced()
+                            || !worker.pendingSourceEntry().filter(result.entry()::equals).isPresent()) {
+                        throw new IllegalStateException(
+                                "uncertain Target native write did not fence and retain the exact Broker entry");
+                    }
+                } else {
+                    final var applied = store.appliedShardLogPosition();
+                    if (!(applied instanceof KafkaSourcePosition kafka) || kafka.offset() != commandOffset
+                            || store.shardMutationSequence() != 2) {
+                        throw new IllegalStateException(
+                                "Target Store did not durably advance before uncertain source ACK");
+                    }
                 }
                 final var committedOffsets = admin.listConsumerGroupOffsets(groupId)
                         .partitionsToOffsetAndMetadata()
                         .get(10, TimeUnit.SECONDS);
                 final var committed = committedOffsets.get(new TopicPartition(topic, scope.shard().partition()));
-                if (committed == null || committed.offset() != commandOffset + 1) {
-                    throw new IllegalStateException(
-                            "Kafka Broker did not commit the source offset before the injected response loss");
+                if (expectApplyFailure ? committed != null
+                        : committed == null || committed.offset() != commandOffset + 1) {
+                    throw new IllegalStateException(expectApplyFailure
+                            ? "Kafka Broker committed the source offset after the Target Store apply failed"
+                            : "Kafka Broker did not commit the source offset before the injected response loss");
                 }
                 if (ackInjection.crashPhase() == CrashPhase.PREPARE) {
                     writeProcessCrashState(ackInjection, topic, groupId, clusterId, topicId, scope, assignment,
@@ -1073,6 +1105,25 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
         throw new IllegalStateException("real Kafka Target source did not reach ACK UNKNOWN before the deadline");
     }
 
+    private static SourceApplyCoordinator.TurnResult runUntilApplyFailure(final TargetWorkerShardRuntime worker) {
+        final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
+        SourceApplyCoordinator.TurnResult result;
+        do {
+            result = worker.runSourceTurn(
+                    new SchedulerBudget(64, 4L << 20, TimeUnit.SECONDS.toNanos(10)), System::currentTimeMillis);
+            if (result.status() == SourceApplyCoordinator.TurnStatus.APPLY_FAILURE) {
+                return result;
+            }
+            if (result.status() != SourceApplyCoordinator.TurnStatus.WAITING_FOR_SOURCE
+                    && result.status() != SourceApplyCoordinator.TurnStatus.WAITING_FOR_WORK_CLASS) {
+                throw new IllegalStateException(
+                        "real Kafka Target Worker did not reach the uncertain native-write cut: " + result.status(),
+                        result.failure());
+            }
+        } while (System.nanoTime() < deadline);
+        throw new IllegalStateException("real Kafka Target source did not reach APPLY_FAILURE before the deadline");
+    }
+
     private static void writeProcessCrashState(
             final AckInjection injection,
             final String topic,
@@ -1311,6 +1362,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
     private enum AckMode {
         NO_INJECTION,
         CLIENT_DELEGATE_RESPONSE_LOSS,
+        STORE_WRITE_RESPONSE_UNKNOWN,
         NETWORK_RESPONSE_LOSS
     }
 
@@ -1341,6 +1393,10 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
             }
             if (arguments.length == 3 && "no-injection".equals(arguments[2])) {
                 return acked();
+            }
+            if (arguments.length == 3 && "store-write-response-unknown".equals(arguments[2])) {
+                return new AckInjection(
+                        AckMode.STORE_WRITE_RESPONSE_UNKNOWN, null, null, null, CrashPhase.NONE, null, null, null);
             }
             if (arguments.length == 6 && "network-response-loss".equals(arguments[2])) {
                 return new AckInjection(
@@ -1374,6 +1430,14 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
 
         private boolean networkResponseLoss() {
             return mode == AckMode.NETWORK_RESPONSE_LOSS;
+        }
+
+        private boolean storeWriteResponseUnknown() {
+            return mode == AckMode.STORE_WRITE_RESPONSE_UNKNOWN;
+        }
+
+        private boolean acknowledgementResponseUnknown() {
+            return mode == AckMode.CLIENT_DELEGATE_RESPONSE_LOSS || networkResponseLoss();
         }
     }
 
