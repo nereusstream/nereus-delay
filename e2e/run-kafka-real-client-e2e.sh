@@ -1138,7 +1138,13 @@ if [[ "${target_worker_source_only}" == "1" ]]; then
     "-PkafkaBootstrap=${bootstrap_all}" \
     "-PkafkaTargetSourceTopic=${target_worker_source_topic}" \
     --no-daemon --console=plain
-  echo "Kafka Target Worker source E2E passed against the locked K1 Broker/client fixture."
+  GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaTargetWorkerSourceSmoke \
+    "-PkafkaClientJar=${client_jar}" \
+    "-PkafkaBootstrap=${bootstrap_all}" \
+    "-PkafkaTargetSourceTopic=${target_worker_source_topic}-host-lifecycle" \
+    -PkafkaTargetAckMode=no-injection \
+    --no-daemon --console=plain
+  echo "Kafka Target Worker source and Host lifecycle E2E passed against the locked K1 Broker/client fixture."
   exit 0
 fi
 

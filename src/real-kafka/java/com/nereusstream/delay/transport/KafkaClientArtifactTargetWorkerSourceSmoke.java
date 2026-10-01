@@ -9,7 +9,9 @@ import com.nereusstream.delay.ownership.ShardLifecycleState;
 import com.nereusstream.delay.ownership.SourceApplyCoordinator;
 import com.nereusstream.delay.ownership.SourceReplayRecord;
 import com.nereusstream.delay.ownership.SourceReplaySuccessor;
+import com.nereusstream.delay.ownership.TargetOwnerDrainCoordinator;
 import com.nereusstream.delay.ownership.TargetSourceApplyRuntime;
+import com.nereusstream.delay.ownership.TargetWorkerHostRuntime;
 import com.nereusstream.delay.ownership.TargetWorkerOwnerActivation;
 import com.nereusstream.delay.ownership.TargetWorkerShardRuntime;
 import com.nereusstream.delay.protocol.AuthorIdentity;
@@ -28,6 +30,7 @@ import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.KafkaActivationBarrier;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.MessagePrecondition;
+import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.PreparedCommand;
 import com.nereusstream.delay.protocol.PreparedControlOperation;
 import com.nereusstream.delay.protocol.RouteIncarnation;
@@ -43,6 +46,7 @@ import com.nereusstream.delay.protocol.TargetQuotaGrantControlBody;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlRequest;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
 import com.nereusstream.delay.protocol.TargetQuotaUsage;
+import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.runtime.TargetCloseStore;
 import com.nereusstream.delay.runtime.TargetCommandStore;
 import com.nereusstream.delay.runtime.TargetQuotaGrantControlVerifier;
@@ -98,9 +102,9 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
     private KafkaClientArtifactTargetWorkerSourceSmoke() {}
 
     public static void main(final String[] arguments) throws Exception {
-        if (arguments.length != 2 && arguments.length != 6 && arguments.length != 10) {
+        if (arguments.length != 2 && arguments.length != 3 && arguments.length != 6 && arguments.length != 10) {
             throw new IllegalArgumentException("usage: <bootstrap-server> <source-topic-prefix> "
-                    + "[network-response-loss <hold-file> <release-file> <dropped-response-file>] "
+                    + "[no-injection | network-response-loss <hold-file> <release-file> <dropped-response-file>] "
                     + "[network-response-loss-process-crash <phase> <hold-file> <release-file> "
                     + "<dropped-response-file> <state-file> <store-root> <ready-file>]");
         }
@@ -343,10 +347,14 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                         deleteTree(storeRoot);
                     }
                 }
-                final String failureBoundary = ackInjection.networkResponseLoss()
-                        ? "Broker OffsetCommit response was received by the TCP proxy and withheld before reaching "
-                                + "the Kafka client"
-                        : "simulated lost commitSync response after the Kafka client returned success";
+                final String failureBoundary = switch (ackInjection.mode()) {
+                    case NO_INJECTION -> "Broker OffsetCommit response reached the Kafka client";
+                    case CLIENT_DELEGATE_RESPONSE_LOSS ->
+                        "simulated lost commitSync response after the Kafka client returned success";
+                    case NETWORK_RESPONSE_LOSS ->
+                        "Broker OffsetCommit response was received by the TCP proxy and withheld before reaching "
+                                + "the Kafka client";
+                };
                 System.out.println("Kafka Target source factory: first grant at offset 0; Cancel at offset 1 applied; "
                         + failureBoundary + ";");
                 System.out.println(
@@ -567,11 +575,55 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                     resources,
                     sourceRuntime,
                     maintenance);
+            TargetWorkerHostRuntime host = null;
+            final CountDownLatch hostMaintenanceTick = new CountDownLatch(1);
             try {
                 final boolean expectAckUnknown = ackInjection.mode() != AckMode.NO_INJECTION;
+                if (!expectAckUnknown) {
+                    worker.configureMessageExpiryMaintenance(
+                            mutation -> {
+                                throw new AssertionError("unexpected Target message expiry append");
+                            },
+                            () -> {
+                                final long now = System.currentTimeMillis();
+                                final var evidence = new TrustedUtcIntervalEvidence(
+                                        Math.max(0, now - 1),
+                                        now,
+                                        TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                                        Bytes.utf8("kafka-target-worker-host-clock"),
+                                        1,
+                                        1,
+                                        Math.max(0, System.nanoTime()),
+                                        Bytes.sha256(Bytes.utf8("kafka-target-worker-host-clock-evidence")),
+                                        0,
+                                        null);
+                                hostMaintenanceTick.countDown();
+                                return new TargetWorkerShardRuntime.MessageExpiryRequest(
+                                        budget(),
+                                        evidence,
+                                        Math.addExact(now, 600_000),
+                                        new OwnerIdentity(
+                                                Bytes.utf8("kafka-target-worker-deployment"),
+                                                Bytes.utf8("kafka-target-worker-host-run"),
+                                                active.ownerEpoch(),
+                                                Bytes.sha256(active.leaseToken())),
+                                        1,
+                                        signingKeys.getPrivate());
+                            });
+                    host = TargetWorkerHostRuntime.start(
+                            workerClasses,
+                            resources,
+                            List.of(worker),
+                            new SchedulerBudget(64, 4L << 20, TimeUnit.SECONDS.toNanos(10)),
+                            Duration.ofHours(1),
+                            failure -> {});
+                    if (!hostMaintenanceTick.await(10, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("real Kafka Target Worker Host did not run maintenance");
+                    }
+                }
                 final SourceApplyCoordinator.TurnResult result = expectAckUnknown
                         ? runUntilAckUnknown(worker)
-                        : runUntilApplied(worker);
+                        : runUntilAppliedByHost(host);
                 if (ackInjection.networkResponseLoss()) {
                     final String dropped = Files.exists(ackInjection.droppedResponseFile())
                             ? Files.readString(ackInjection.droppedResponseFile())
@@ -669,7 +721,27 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                     }
                 }
             } finally {
-                if (worker.pendingSourceEntry().isPresent()) {
+                if (host != null) {
+                    final var drained = host.drainAll(
+                            new TargetOwnerDrainCoordinator.Request(
+                                    Math.addExact(System.currentTimeMillis(), 60_000),
+                                    new SchedulerBudget(64, 4L << 20, TimeUnit.SECONDS.toNanos(10))),
+                            new SchedulerBudget(64, 4L << 20, TimeUnit.SECONDS.toNanos(10)),
+                            System::currentTimeMillis);
+                    if (!drained.complete()
+                            || drained.shards().size() != 1
+                            || drained.shards().getFirst().status() != TargetWorkerHostRuntime.Status.RELEASED) {
+                        throw new IllegalStateException("real Kafka Target Worker Host did not drain completely: "
+                                + drained.shards());
+                    }
+                    if (host.firstMaintenanceFailure() != null) {
+                        throw new IllegalStateException("real Kafka Target Worker Host maintenance failed",
+                                host.firstMaintenanceFailure());
+                    }
+                    activeHolder[0] = null;
+                    System.out.println("Kafka Target Worker Host lifecycle passed: real maintenance tick, source "
+                            + "apply/ACK, and exact Owner/Store drain.");
+                } else if (worker.pendingSourceEntry().isPresent()) {
                     consumer.close();
                     if (!activeLeaseReleased.get() && !leases.release(active)) {
                         throw new IllegalStateException("test Owner loss was not observed after ACK UNKNOWN");
@@ -950,6 +1022,26 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
         do {
             result = worker.runSourceTurn(
                     new SchedulerBudget(64, 4L << 20, TimeUnit.SECONDS.toNanos(10)), System::currentTimeMillis);
+            if (result.status() == SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED) {
+                return result;
+            }
+            if (result.status() != SourceApplyCoordinator.TurnStatus.WAITING_FOR_SOURCE
+                    && result.status() != SourceApplyCoordinator.TurnStatus.WAITING_FOR_WORK_CLASS) {
+                throw new IllegalStateException(
+                        "real Kafka Target Worker source turn failed: " + result.status(), result.failure());
+            }
+        } while (System.nanoTime() < deadline);
+        throw new IllegalStateException("real Kafka Target source record did not apply before the deadline");
+    }
+
+    private static SourceApplyCoordinator.TurnResult runUntilAppliedByHost(final TargetWorkerHostRuntime host) {
+        final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
+        SourceApplyCoordinator.TurnResult result;
+        do {
+            result = host.runNextSourceTurn(
+                            new SchedulerBudget(64, 4L << 20, TimeUnit.SECONDS.toNanos(10)),
+                            System::currentTimeMillis)
+                    .result();
             if (result.status() == SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED) {
                 return result;
             }
@@ -1246,6 +1338,9 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
             if (arguments.length == 2) {
                 return new AckInjection(
                         AckMode.CLIENT_DELEGATE_RESPONSE_LOSS, null, null, null, CrashPhase.NONE, null, null, null);
+            }
+            if (arguments.length == 3 && "no-injection".equals(arguments[2])) {
+                return acked();
             }
             if (arguments.length == 6 && "network-response-loss".equals(arguments[2])) {
                 return new AckInjection(

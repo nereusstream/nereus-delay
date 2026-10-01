@@ -241,7 +241,8 @@ tasks.register('runRealKafkaTargetWorkerSourceSmoke', JavaExec) {
         }
         args project.ext.optionalRealTaskArgument.call(findProperty('kafkaTargetAckCrashPhase'))
     }
-    if (findProperty('kafkaTargetAckMode') != null) {
+    if (findProperty('kafkaTargetAckMode') != null
+            && findProperty('kafkaTargetAckMode') != 'no-injection') {
         args project.ext.optionalRealTaskArgument.call(findProperty('kafkaTargetAckHoldFile')),
                 project.ext.optionalRealTaskArgument.call(findProperty('kafkaTargetAckReleaseFile')),
                 project.ext.optionalRealTaskArgument.call(findProperty('kafkaTargetAckDroppedFile'))

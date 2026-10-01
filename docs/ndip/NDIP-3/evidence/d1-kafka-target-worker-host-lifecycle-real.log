@@ -1,0 +1,42 @@
+Date: 2026-10-01
+Delay base revision: e0163b705a05c998aad29d16f5738e8e594407d1
+
+Locked Kafka source:
+Checkout: /Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1
+HEAD: 05849884ca81fad767fda058444d1e17c7f9cbf9
+Client JAR SHA-256: 1853eceecc76db8070a7c07c7897fc0eda45ad0bf15a95ae8100470ff43e5146
+Disposable three-broker KRaft image ID: sha256:62f1206203535f39ab09b723d8adcc6a3bb96fd79d10859aafc4c751a58f74d0
+Compose project: nereus-delay-kafka-e2e-1790828595-138
+Broker ports: 19230, 19231, 19232
+
+Command:
+NEREUS_DELAY_KAFKA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1 NEREUS_DELAY_KAFKA_TARGET_WORKER_SOURCE_ONLY=1 ./e2e/run-kafka-real-client-e2e.sh
+
+Result: the focused three-broker K1 runner exited successfully and retained both
+the prior ACK-uncertainty replay case and a new explicit no-injection Host case.
+Both cases applied the initial SHARD grant at offset 0 and the exact Cancel at
+offset 1, verified the Target Store frontier/mutation sequence and Broker group
+offset 2, and checked the native TopicId/partition identity.
+
+The Host case printed:
+Kafka Target Worker Host lifecycle passed: real maintenance tick, source apply/ACK, and exact Owner/Store drain.
+Kafka Target source factory: first grant at offset 0; Cancel at offset 1 applied; Broker OffsetCommit response reached the Kafka client;
+
+The Host run awaited the actual message-expiry maintenance request callback,
+dispatched source work through TargetWorkerHostRuntime, and required
+drainAll() to return exactly RELEASED for its one Shard. The maintenance loop
+reported no failure. These runs use explicit test-only bootstrap, grant,
+Start/Commit and Owner authorities; they are not production provider or full
+application assembly evidence.
+
+Source SHA-256:
+src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetWorkerSourceSmoke.java fca2352fdea1f10c1072e478e6876ccf3bfb4ccfaa798a41261db0017836030b
+src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetWorkerSourceFactory.java 3a81b0f661e406ef1b886cbffcc8a7e10347d09cce187240fc06119545d0f60b
+build.gradle 760b9b7a8a9752f703975ded162165c950c1bdd73420d460f176a2c8c92ed6bb
+e2e/run-kafka-real-client-e2e.sh d688cae9cebf5980f65bbda394af6bbc0e8183769760c22547b5b226904f54e2
+
+After the run, Docker had no container, network or volume with the exact
+Compose project name. The result covers one K1 source Shard and one bounded
+maintenance tick. Production config/providers, live Oxia owner fencing,
+Host-based ACK-unknown takeover/recovery, the broader Broker matrix, and
+central validation remain open; C5 and D1 stay IN_PROGRESS.

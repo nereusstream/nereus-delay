@@ -9,7 +9,6 @@ import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import com.nereusstream.delay.store.ShardStore;
 import com.nereusstream.delay.store.SharedRocksDbResources;
 import java.time.Duration;
-import java.util.List;
 import java.util.Objects;
 import org.apache.kafka.clients.consumer.ConsumerResourceGuard;
 import org.apache.kafka.clients.consumer.GuardedConsumer;
