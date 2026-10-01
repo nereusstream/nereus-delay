@@ -1,0 +1,41 @@
+NDIP-3 A2 negative-origin and wrapped nanoTime regression
+Date: 2026-10-01
+Base commit: 5c2f50fd6a0dfc25e7a878b43a5a19bd41b9dd68
+
+Contract basis:
+  Java SE System.nanoTime documentation says readings use an arbitrary origin,
+  may be negative, and elapsed time must be computed by subtracting readings.
+  https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/lang/System.html#nanoTime()
+
+Change:
+  BoundedReadBudget no longer rejects negative clock readings or compares
+  absolute signed values. It checks forward progress using modular elapsed
+  deltas, which accepts a valid signed-long wrap while still rejecting a
+  backward step within the observed interval.
+
+Focused command:
+  ./gradlew test --tests com.nereusstream.delay.store.ShardReadPlanTest
+Result: PASS (9 tests, 0 failures, 0 errors, 0 skipped; BUILD SUCCESSFUL)
+Regression:
+  ShardReadPlanTest.elapsedBudgetUsesMonotonicDeltasForNegativeOriginsAndLongWraparound
+
+Source SHA-256:
+  src/main/java/com/nereusstream/delay/store/BoundedReadBudget.java 5327df5eb5e784702b2c7a1fed635d538fb3c17fbc4adea794d206b3198f1f04
+  src/test/java/com/nereusstream/delay/store/ShardReadPlanTest.java fa34239d686993a36cd17ee655a9a3b1b62f6cfc02131a3d9c8a92b152b2434d
+JUnit XML SHA-256:
+  build/test-results/test/TEST-com.nereusstream.delay.store.ShardReadPlanTest.xml 736396ce3bb1d0c5205889615258da4f38d81a91ebf9e692073f7175778d8111
+
+Additional validation:
+  ./gradlew checkstyleMain checkstyleTest checkDocumentation --continue --no-daemon --console=plain
+Result: checkstyleTest and checkDocumentation completed. The combined command
+  exited 1 because checkstyleMain found two line-length violations in untouched
+  files: PersistentLaneScheduler.java:1327 and TargetWorkerHostRuntime.java:347
+  (123 characters each; 120 maximum).
+  ./gradlew checkDocumentation --no-daemon --console=plain
+Result: PASS (BUILD SUCCESSFUL).
+
+Scope:
+  This proves clock-origin/wrap handling and backward-clock rejection in
+  BoundedReadBudget. It does not certify maximum legal head-plan resource
+  envelopes, production finite limits, Broker/Oxia behavior, recovery takeover,
+  or centralized validation; A2 remains IN_PROGRESS.

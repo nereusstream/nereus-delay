@@ -213,6 +213,33 @@ class ShardReadPlanTest {
         assertEquals(0, deadlineOnly.actualRecords());
     }
 
+    @Test
+    void elapsedBudgetUsesMonotonicDeltasForNegativeOriginsAndLongWraparound() {
+        final AtomicLong negativeClock = new AtomicLong(Long.MIN_VALUE + 10);
+        final BoundedReadBudget negativeOrigin = new BoundedReadBudget(1, 10, 5, negativeClock::get);
+        org.junit.jupiter.api.Assertions.assertTrue(negativeOrigin.beforeRead());
+        negativeClock.incrementAndGet();
+        org.junit.jupiter.api.Assertions.assertTrue(negativeOrigin.beforeTimedWork());
+        negativeClock.addAndGet(4);
+        org.junit.jupiter.api.Assertions.assertFalse(negativeOrigin.beforeRead());
+        assertEquals(BoundedReadBudget.Exhaustion.ELAPSED, negativeOrigin.exhaustion());
+
+        final AtomicLong wrappingClock = new AtomicLong(Long.MAX_VALUE - 2);
+        final BoundedReadBudget wrapping = new BoundedReadBudget(1, 10, 5, wrappingClock::get);
+        org.junit.jupiter.api.Assertions.assertTrue(wrapping.beforeRead());
+        wrappingClock.set(Long.MIN_VALUE + 1);
+        org.junit.jupiter.api.Assertions.assertTrue(wrapping.beforeTimedWork());
+        wrappingClock.incrementAndGet();
+        org.junit.jupiter.api.Assertions.assertFalse(wrapping.beforeTimedWork());
+        assertEquals(BoundedReadBudget.Exhaustion.ELAPSED, wrapping.exhaustion());
+
+        final AtomicLong backwardsClock = new AtomicLong(10);
+        final BoundedReadBudget backwards = new BoundedReadBudget(1, 10, 5, backwardsClock::get);
+        org.junit.jupiter.api.Assertions.assertTrue(backwards.beforeRead());
+        backwardsClock.decrementAndGet();
+        assertThrows(IllegalStateException.class, backwards::beforeRead);
+    }
+
     private static BoundedReadBudget budget(final long bytes) {
         return new BoundedReadBudget(bytes, 1_000, () -> 0);
     }

@@ -78,7 +78,9 @@ public final class BoundedReadBudget {
 
     private long observeClock() {
         final long now = readClock();
-        if (now < lastObservedNanos) {
+        // nanoTime has an arbitrary origin and may wrap. Compare elapsed deltas,
+        // as required by its contract, rather than comparing absolute values.
+        if (now - lastObservedNanos < 0) {
             throw new IllegalStateException("bounded read monotonic clock moved backwards");
         }
         lastObservedNanos = now;
@@ -148,10 +150,6 @@ public final class BoundedReadBudget {
     }
 
     private long readClock() {
-        final long value = monotonicClockNanos.getAsLong();
-        if (value < 0) {
-            throw new IllegalStateException("bounded read monotonic clock returned a negative value");
-        }
-        return value;
+        return monotonicClockNanos.getAsLong();
     }
 }
