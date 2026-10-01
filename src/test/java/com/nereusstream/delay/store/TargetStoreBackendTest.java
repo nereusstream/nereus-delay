@@ -138,6 +138,25 @@ class TargetStoreBackendTest {
         }
     }
 
+    @Test
+    void completingAQuotaReadPlanAfterAnInterveningBatchRejectsItsStaleView() {
+        final var config = ShardStoreConfig.defaults(root.resolve("stale-read-plan"));
+        try (var resources = new SharedRocksDbResources(config);
+                var store = ShardStore.openTarget(config, shard, resources)) {
+            final var backend = backend(store);
+            final var readPlan = backend.guardedPrepareRead(
+                    new BoundedReadBudget(100, 1 << 20, 10_000_000_000L, System::nanoTime),
+                    reader -> reader.sourceSequence(),
+                    (metadata, targetScope) -> guard());
+
+            backend.commit(plan(backend, 1), (metadata, targetScope, mutation) -> guard());
+
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> backend.completeRead(readPlan, (metadata, targetScope) -> guard()));
+        }
+    }
+
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void quotaBusinessAndSourceRemainOneBatchAcrossNativeWriteFailure(final boolean writeBeforeFailure) {

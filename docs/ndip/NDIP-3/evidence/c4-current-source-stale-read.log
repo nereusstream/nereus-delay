@@ -1,0 +1,23 @@
+C4 stale Target read-plan fencing after an intervening Store mutation
+
+Base source revision: 6f7c33b5e705cbacd46c6d6a2592d33ad27c6940
+
+Command:
+./gradlew test --tests 'com.nereusstream.delay.store.TargetStoreBackendTest' --console=plain
+
+Result: BUILD SUCCESSFUL. TargetStoreBackendTest: 7 tests, 0 skipped,
+0 failures, 0 errors.
+
+The new real RocksDB regression prepares a guarded read plan at the current
+source frontier, commits an intervening Target quota/source batch, then verifies
+that completing the old plan with a fresh test guard throws instead of returning
+the stale frontier. The remaining tests retain batch-atomicity, reopen, and
+prepared-write fencing coverage.
+
+SHA-256:
+507be173e00d76624cb551925fe9e51152be0ec37b6fc221e4ace7b0ebbbf526 src/test/java/com/nereusstream/delay/store/TargetStoreBackendTest.java
+17a6a4d3194175c36aca5ffbd14df4dcb91e92f52ddd01c7bfeb1ac42e7f4338 src/main/java/com/nereusstream/delay/store/TargetStoreBackend.java
+
+Scope: local Target read-view staleness only. The guard is a test fixture; this
+does not verify production Owner/read-authority wiring, full recovery/migration,
+or centralized C4 acceptance. C4 remains IN_PROGRESS.
