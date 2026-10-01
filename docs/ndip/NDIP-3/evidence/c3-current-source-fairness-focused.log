@@ -1,0 +1,19 @@
+C3 current-source fairness and Worker revalidation
+
+Execution source revision: beecc6b66cdb040541c9f75ffae125270b62a178
+The subsequent 5732f51779760ec843187c0413f744fff6e60ae1 commit changed only NDIP-3 progress documentation; it did not change the tested source or test classes.
+
+Command:
+./gradlew test --tests com.nereusstream.delay.ownership.TargetWorkerOrdinaryDrrTest --tests 'com.nereusstream.delay.runtime.TargetCommandStoreTest.modifiesActualTimelineOrClaimWithHistoryAndFirstResults' --console=plain
+
+Result: BUILD SUCCESSFUL in 20s.
+JUnit reports: TargetWorkerOrdinaryDrrTest 28 tests, 0 skipped, 0 failures, 0 errors; the selected parameterized TargetCommandStoreTest method 5 cases, 0 skipped, 0 failures, 0 errors.
+
+SHA-256:
+71defa78f6f9facadde3809275c7e62c95cf638e4238aed8ced7a1b60e5a99c7 src/main/java/com/nereusstream/delay/ownership/TargetWorkerOrdinaryDrr.java
+7c8d042a3f1690d807c076a10d73c0ea658e31f86844be992732a64f5c362a82 src/main/java/com/nereusstream/delay/ownership/TargetWorkerOrdinaryLoop.java
+3999f761ceca59281508f3d329b34b7743e643ab4ed82bb902ede293aeeb2295 src/main/java/com/nereusstream/delay/ownership/TargetWorkerHostRuntime.java
+dd0e74e351707364a54025372b50f0634afc288f7b512bde8936c9ae957c8191 src/test/java/com/nereusstream/delay/ownership/TargetWorkerOrdinaryDrrTest.java
+33ab45a3122d1510161f582291fed847ce3cebe21a5503f6858c88fbe15af7f8 src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java
+
+Scope: local DRR/recovery fairness and RocksDB/Worker behavior only. Test authorities do not establish production Owner/provider wiring, real Oxia/Broker behavior, or centralized C3 acceptance. C3 remains IN_PROGRESS.
