@@ -132,6 +132,10 @@ public final class TargetWorkerShardRuntime
         target.bindTargetQueueChangeSignal(signal);
     }
 
+    void unbindTargetQueueChangeSignal(final TargetStoreBackend.TargetQueueChangeSignal signal) {
+        target.unbindTargetQueueChangeSignal(signal);
+    }
+
     synchronized void configureTargetQueueHeadCache(final int maximumEntries) {
         requireNewTurnsAdmitted();
         resources.requireRuntimeBusinessAdmission();

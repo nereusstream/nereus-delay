@@ -382,6 +382,10 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         backend.bindTargetQueueChangeSignal(signal);
     }
 
+    synchronized void unbindTargetQueueChangeSignal(final TargetStoreBackend.TargetQueueChangeSignal signal) {
+        backend.unbindTargetQueueChangeSignal(signal);
+    }
+
     synchronized void configureTargetQueueHeadCache(final int maximumEntries) {
         targetQueueHeadCache.configure(maximumEntries);
     }

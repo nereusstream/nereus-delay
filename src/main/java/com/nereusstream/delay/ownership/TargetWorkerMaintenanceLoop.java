@@ -33,20 +33,39 @@ public final class TargetWorkerMaintenanceLoop implements AutoCloseable {
             final SchedulerBudget budget,
             final Duration interval,
             final Consumer<Throwable> failureConsumer) {
+        final var loop = create(fleet, budget, interval, failureConsumer);
+        try {
+            loop.start();
+        } catch (RuntimeException | Error failure) {
+            try {
+                loop.close();
+            } catch (RuntimeException | Error closeFailure) {
+                if (closeFailure != failure) {
+                    failure.addSuppressed(closeFailure);
+                }
+            }
+            throw failure;
+        }
+        return loop;
+    }
+
+    /** Creates the owned daemon scheduler without admitting a tick until {@link #start()} is called. */
+    static TargetWorkerMaintenanceLoop create(
+            final TargetWorkerShardFleetRuntime fleet,
+            final SchedulerBudget budget,
+            final Duration interval,
+            final Consumer<Throwable> failureConsumer) {
         final var executor = Executors.newSingleThreadScheduledExecutor(runnable -> {
             final var thread = new Thread(runnable, "nereus-delay-target-maintenance");
             thread.setDaemon(true);
             return thread;
         });
-        final TargetWorkerMaintenanceLoop loop;
         try {
-            loop = new TargetWorkerMaintenanceLoop(fleet, budget, interval, failureConsumer, executor, true);
-            loop.start();
+            return new TargetWorkerMaintenanceLoop(fleet, budget, interval, failureConsumer, executor, true);
         } catch (RuntimeException | Error failure) {
             executor.shutdown();
             throw failure;
         }
-        return loop;
     }
 
     /** Injected scheduler seam for host integration and deterministic lifecycle tests. */

@@ -1605,6 +1605,10 @@ class TargetCommandStoreTest {
                                     () -> 100));
                     final var claimHost = TargetWorkerHostTestBridge.withoutMaintenanceTimer(
                             workerClasses, resources, List.of(claimWorker));
+                    assertThrows(
+                            IllegalStateException.class,
+                            () -> TargetWorkerHostTestBridge.withoutMaintenanceTimer(
+                                    workerClasses, resources, List.of(otherWorker, claimWorker)));
                     assertTrue(claimHost.targetQueueChangeRevision() > 0);
                     final var inventory = claimHost.rebuildTargetInventory(
                             new TargetWorkerTargetInventory.Limits(2, 16, 4, 8, 4096, 32L << 20, 60_000_000_000L),
@@ -2990,6 +2994,30 @@ class TargetCommandStoreTest {
                             expiryOwner.asOwnerIdentity(),
                             expiry.signingKeyVersion(),
                             keys.getPrivate()));
+            if (claimed) {
+                final java.util.function.LongSupplier maintenanceThreadCount = () -> Thread.getAllStackTraces()
+                        .keySet().stream()
+                        .filter(thread -> thread.isAlive()
+                                && thread.getName().equals("nereus-delay-target-maintenance"))
+                        .count();
+                final long maintenanceThreadsBeforeFailedStart = maintenanceThreadCount.getAsLong();
+                assertThrows(
+                        IllegalStateException.class,
+                        () -> com.nereusstream.delay.ownership.TargetWorkerHostRuntime.start(
+                                workerClasses,
+                                store.sharedResources(),
+                                List.of(messageExpiryWorker),
+                                new SchedulerBudget(1, 1024, 1_000_000),
+                                java.time.Duration.ofHours(1),
+                                ignored -> {}));
+                final long maintenanceThreadDeadline = System.nanoTime()
+                        + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
+                while (maintenanceThreadCount.getAsLong() > maintenanceThreadsBeforeFailedStart
+                        && System.nanoTime() < maintenanceThreadDeadline) {
+                    Thread.sleep(1);
+                }
+                assertTrue(maintenanceThreadCount.getAsLong() <= maintenanceThreadsBeforeFailedStart);
+            }
             final var staleExpiryOwner = AuthorIdentity.owner(
                     Bytes.utf8("target-expiry-test-deployment"),
                     Bytes.utf8("target-expiry-test-worker"),

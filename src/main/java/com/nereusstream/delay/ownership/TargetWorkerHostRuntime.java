@@ -162,8 +162,25 @@ public final class TargetWorkerHostRuntime {
         exactShards.forEach(TargetWorkerShardRuntime::requireMessageExpiryMaintenanceConfigured);
         final var fleet = new TargetWorkerShardFleetRuntime(workClasses, resources, exactShards);
         final var loop =
-                TargetWorkerMaintenanceLoop.start(fleet, maintenanceBudget, maintenanceInterval, failureConsumer);
-        return new TargetWorkerHostRuntime(fleet, loop, exactShards);
+                TargetWorkerMaintenanceLoop.create(fleet, maintenanceBudget, maintenanceInterval, failureConsumer);
+        TargetWorkerHostRuntime host = null;
+        try {
+            host = new TargetWorkerHostRuntime(fleet, loop, exactShards);
+            loop.start();
+            return host;
+        } catch (RuntimeException | Error failure) {
+            if (host != null) {
+                host.rollbackTargetQueueChangeSignalBindings(host.shards, failure);
+            }
+            try {
+                loop.close();
+            } catch (RuntimeException | Error closeFailure) {
+                if (closeFailure != failure) {
+                    failure.addSuppressed(closeFailure);
+                }
+            }
+            throw failure;
+        }
     }
 
     /** Test seam; production creates the fleet and scheduler from the same exact shards. */
@@ -177,8 +194,15 @@ public final class TargetWorkerHostRuntime {
         if (!fleet.shardIds().equals(this.shards.stream().map(Shard::shardId).toList())) {
             throw new IllegalArgumentException("Target host drain shards differ from maintenance fleet");
         }
-        for (Shard shard : this.shards) {
-            bindTargetQueueChangeSignal(shard);
+        final var attemptedBindings = new ArrayList<Shard>();
+        try {
+            for (Shard shard : this.shards) {
+                attemptedBindings.add(shard);
+                bindTargetQueueChangeSignal(shard);
+            }
+        } catch (RuntimeException | Error failure) {
+            rollbackTargetQueueChangeSignalBindings(attemptedBindings, failure);
+            throw failure;
         }
     }
 
@@ -311,6 +335,24 @@ public final class TargetWorkerHostRuntime {
     private void bindTargetQueueChangeSignal(final Shard shard) {
         if (shard instanceof TargetWorkerShardRuntime worker) {
             worker.bindTargetQueueChangeSignal(targetQueueChangeSignal);
+        }
+    }
+
+    private void unbindTargetQueueChangeSignal(final Shard shard) {
+        if (shard instanceof TargetWorkerShardRuntime worker) {
+            worker.unbindTargetQueueChangeSignal(targetQueueChangeSignal);
+        }
+    }
+
+    private void rollbackTargetQueueChangeSignalBindings(final List<? extends Shard> candidates, final Throwable failure) {
+        for (int index = candidates.size() - 1; index >= 0; index--) {
+            try {
+                unbindTargetQueueChangeSignal(candidates.get(index));
+            } catch (RuntimeException | Error rollbackFailure) {
+                if (rollbackFailure != failure) {
+                    failure.addSuppressed(rollbackFailure);
+                }
+            }
         }
     }
 

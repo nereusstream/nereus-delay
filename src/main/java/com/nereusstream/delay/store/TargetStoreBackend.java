@@ -487,6 +487,13 @@ public final class TargetStoreBackend {
         exactSignal.signal();
     }
 
+    /** Clears a failed Host-construction binding without detaching a signal installed by another Host. */
+    public synchronized void unbindTargetQueueChangeSignal(final TargetQueueChangeSignal signal) {
+        if (targetQueueChangeSignal == Objects.requireNonNull(signal, "signal")) {
+            targetQueueChangeSignal = null;
+        }
+    }
+
     /** Binds the active source runtime's Owner/Store-scoped cache for post-commit invalidation. */
     public void bindTargetQueueHeadCache(final TargetQueueHeadCache cache) {
         targetQueueHeadCache = Objects.requireNonNull(cache, "cache");
