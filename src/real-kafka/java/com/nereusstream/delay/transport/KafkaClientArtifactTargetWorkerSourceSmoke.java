@@ -238,7 +238,9 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                 final byte[] ownerSessionIdentity = ownerClient == null
                         ? Bytes.sha256(Bytes.utf8("target-source-session-" + UUID.randomUUID()))
                         : ownerClient.sessionIdentity();
-                final String ownerLeasePrefix = ownerClient == null ? null : processCrashOwnerLeasePrefix(ackInjection);
+                final String ownerLeasePrefix = ownerClient == null || ackInjection.crashPhase() == CrashPhase.NONE
+                        ? null
+                        : processCrashOwnerLeasePrefix(ackInjection);
                 final long leaseNow = System.currentTimeMillis();
                 final var acquiring = leases.acquire(
                                 assignment,
@@ -298,7 +300,8 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                                         siblingCommandMetadata.offset(),
                                         siblingStoreRoot,
                                         AckInjection.acked(),
-                                        null);
+                                        null,
+                                        false);
                             } finally {
                                 leases.current(siblingShard).ifPresent(leases::release);
                                 deleteTree(siblingStoreRoot);
@@ -333,7 +336,8 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                             commandMetadata.offset(),
                             storeRoot,
                             ackInjection,
-                            siblingProgress);
+                            siblingProgress,
+                            ownerClient != null && exerciseSibling);
                 } finally {
                     if (!preserveStore) {
                         deleteTree(storeRoot);
@@ -445,7 +449,8 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
             final long commandOffset,
             final Path storeRoot,
             final AckInjection ackInjection,
-            final CheckedAction siblingProgress) throws Exception {
+            final CheckedAction siblingProgress,
+            final boolean loseOwnerBeforeSibling) throws Exception {
         final var config = ShardStoreConfig.defaults(storeRoot);
         final var registration = new InMemoryControlTargetRegistrationAuthority();
         registration.register(rootControl.prepared());
@@ -468,6 +473,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                 prepared -> true);
         final var workerClasses = workClasses();
         final OwnerLease[] activeHolder = new OwnerLease[1];
+        final AtomicBoolean activeLeaseReleased = new AtomicBoolean();
         try (var resources = new SharedRocksDbResources(config);
                 var store = ShardStore.openTarget(config, scope.shard(), resources)) {
             final var prepared = TargetStoreBootstrap.prepare(
@@ -628,10 +634,35 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                         final var pendingBeforeSibling = worker.pendingSourceEntry().orElseThrow(() ->
                                 new IllegalStateException("first Shard lost its ACK_UNKNOWN obligation"));
                         final long mutationBeforeSibling = store.shardMutationSequence();
+                        if (loseOwnerBeforeSibling) {
+                            if (!leases.release(active)) {
+                                throw new IllegalStateException("live Oxia Owner release was not observed");
+                            }
+                            activeLeaseReleased.set(true);
+                            final long sequenceBeforeOwnerRetry = store.latestSequenceNumber();
+                            final SourceApplyCoordinator.TurnResult ownerLossTurn = worker.runSourceTurn(
+                                    new SchedulerBudget(64, 4L << 20, TimeUnit.SECONDS.toNanos(10)),
+                                    System::currentTimeMillis);
+                            if (ownerLossTurn.status() != SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN
+                                    || !pendingBeforeSibling.equals(worker.pendingSourceEntry().orElse(null))
+                                    || !sourceRuntime.fenced()
+                                    || leases.current(scope.shard()).isPresent()
+                                    || store.latestSequenceNumber() != sequenceBeforeOwnerRetry
+                                    || store.shardMutationSequence() != mutationBeforeSibling) {
+                                throw new IllegalStateException(
+                                        "live Oxia Owner loss did not fence only the pending source Shard");
+                            }
+                            System.out.println(
+                                    "Kafka Target live Oxia Owner loss fenced only partition 0; pending ACK_UNKNOWN "
+                                            + "and Store mutation sequence were preserved.");
+                        }
                         siblingProgress.run();
                         if (!worker.pendingSourceEntry().filter(pendingBeforeSibling::equals).isPresent()
                                 || store.shardMutationSequence() != mutationBeforeSibling
-                                || !active.sameIdentity(leases.current(scope.shard()).orElseThrow())) {
+                                || (loseOwnerBeforeSibling && leases.current(scope.shard()).isPresent())
+                                || (!loseOwnerBeforeSibling
+                                        && !active.sameIdentity(leases.current(scope.shard()).orElseThrow()))
+                                || sourceRuntime.fenced() != loseOwnerBeforeSibling) {
                             throw new IllegalStateException(
                                     "sibling source progress changed the first Shard ACK_UNKNOWN state");
                         }
@@ -640,7 +671,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
             } finally {
                 if (worker.pendingSourceEntry().isPresent()) {
                     consumer.close();
-                    if (!leases.release(active)) {
+                    if (!activeLeaseReleased.get() && !leases.release(active)) {
                         throw new IllegalStateException("test Owner loss was not observed after ACK UNKNOWN");
                     }
                     activeHolder[0] = null;
@@ -1116,10 +1147,21 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
 
     private static OxiaSyncOwnerLeaseBackend.ClientHandle openProcessCrashOwnerClient(
             final AckInjection injection) throws Exception {
-        if (injection.crashPhase() == CrashPhase.NONE) {
-            return null;
-        }
         final String endpoint = configuredEnvironment("NEREUS_DELAY_OXIA_ENDPOINT");
+        if (injection.crashPhase() == CrashPhase.NONE) {
+            if (!injection.networkResponseLoss()
+                    || !"1".equals(configuredEnvironment("NEREUS_DELAY_TARGET_SOURCE_OWNER_OXIA"))) {
+                return null;
+            }
+            if (endpoint == null) {
+                throw new IllegalStateException("live Target source Owner mode requires an Oxia endpoint");
+            }
+            return connectOwnerLeaseClient(
+                    endpoint,
+                    configuredEnvironment("NEREUS_DELAY_OXIA_NAMESPACE", "default"),
+                    "target-source-network-owner-" + UUID.randomUUID(),
+                    "nereus-delay/kafka-target-source/network/" + UUID.randomUUID());
+        }
         return endpoint == null
                 ? null
                 : connectOwnerLeaseClient(

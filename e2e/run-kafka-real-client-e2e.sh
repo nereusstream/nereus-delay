@@ -418,10 +418,6 @@ if [[ "${broker_tcp_cut_only}" == "1" && ("${route_failover_only}" == "1"
 fi
 
 if [[ "${source_ack_network_loss_only}" == "1" || "${source_ack_process_crash_only}" == "1" ]]; then
-  if [[ "${source_ack_network_loss_only}" == "1" && "${with_oxia}" == "1" ]]; then
-    echo "Kafka Target source ACK network-loss-only mode does not exercise an Oxia Owner lease" >&2
-    exit 1
-  fi
   for focused_mode in "${route_failover}" "${route_failover_only}" "${multi_shard_only}" \
     "${k2_failover}" "${k2_failover_only}" "${k2_response_loss}" "${k2_response_loss_only}" \
     "${worker_destination_response_loss}" "${worker_destination_response_loss_only}" \
@@ -1093,17 +1089,29 @@ if [[ "${source_ack_process_crash_only}" == "1" ]]; then
 fi
 
 if [[ "${source_ack_network_loss_only}" == "1" ]]; then
+  if [[ "${with_oxia}" == "1" ]]; then
+    start_oxia
+  fi
   start_offset_commit_response_loss_proxy
   target_worker_source_topic="${KAFKA_DELAY_TARGET_WORKER_SOURCE_TOPIC:-${source_topic}-target-worker}"
-  GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaTargetWorkerSourceSmoke \
+  target_source_command=(./gradlew runRealKafkaTargetWorkerSourceSmoke \
     "-PkafkaClientJar=${client_jar}" \
     "-PkafkaBootstrap=${bootstrap_all}" \
     "-PkafkaTargetSourceTopic=${target_worker_source_topic}" \
     -PkafkaTargetAckMode=network-response-loss \
     "-PkafkaTargetAckHoldFile=${offset_commit_proxy_hold_file}" \
     "-PkafkaTargetAckReleaseFile=${offset_commit_proxy_release_file}" \
-    "-PkafkaTargetAckDroppedFile=${offset_commit_proxy_dropped_file}" \
-    --no-daemon --console=plain
+    "-PkafkaTargetAckDroppedFile=${offset_commit_proxy_dropped_file}")
+  if [[ "${with_oxia}" == "1" ]]; then
+    NEREUS_DELAY_OXIA_ENDPOINT="${oxia_endpoint}" \
+    NEREUS_DELAY_OXIA_NAMESPACE=default \
+    NEREUS_DELAY_TARGET_SOURCE_OWNER_OXIA=1 \
+    GRADLE_USER_HOME="${gradle_user_home}" "${target_source_command[@]}" \
+      --no-daemon --console=plain
+  else
+    GRADLE_USER_HOME="${gradle_user_home}" "${target_source_command[@]}" \
+      --no-daemon --console=plain
+  fi
   if ! rg -q 'apiKey=8 .*brokerResponseReceived=true forwarded=false' \
       "${offset_commit_proxy_dropped_file}"; then
     cat "${offset_commit_proxy_log}" >&2
