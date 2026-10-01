@@ -226,6 +226,12 @@ tasks.register('runRealKafkaTargetWorkerSourceSmoke', JavaExec) {
     mainClass = 'com.nereusstream.delay.transport.KafkaClientArtifactTargetWorkerSourceSmoke'
     args project.ext.optionalRealTaskArgument.call(findProperty('kafkaBootstrap')),
             project.ext.optionalRealTaskArgument.call(findProperty('kafkaTargetSourceTopic'))
+    if (findProperty('kafkaTargetAckMode') != null) {
+        args project.ext.optionalRealTaskArgument.call(findProperty('kafkaTargetAckMode')),
+                project.ext.optionalRealTaskArgument.call(findProperty('kafkaTargetAckHoldFile')),
+                project.ext.optionalRealTaskArgument.call(findProperty('kafkaTargetAckReleaseFile')),
+                project.ext.optionalRealTaskArgument.call(findProperty('kafkaTargetAckDroppedFile'))
+    }
 }
 
 tasks.register('runRealKafkaFetchResponseLossSmoke', JavaExec) {
@@ -340,6 +346,28 @@ tasks.register('runRealKafkaTcpFaultProxy', JavaExec) {
     }
     classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientFiles)
     mainClass = 'com.nereusstream.delay.transport.KafkaClientArtifactTcpFaultProxy'
+    args proxyProperties.collect { project.ext.optionalRealTaskArgument.call(findProperty(it)) }
+}
+
+tasks.register('runRealKafkaOffsetCommitResponseLossProxy', JavaExec) {
+    group = 'verification'
+    description = 'Withholds real Kafka OffsetCommit responses between K1 Brokers and the client.'
+    dependsOn tasks.named('compileRealKafka')
+    def proxyProperties = [
+            'kafkaOffsetCommitProxyListen1', 'kafkaOffsetCommitProxyListen2', 'kafkaOffsetCommitProxyListen3',
+            'kafkaOffsetCommitProxyTarget1', 'kafkaOffsetCommitProxyTarget2', 'kafkaOffsetCommitProxyTarget3',
+            'kafkaOffsetCommitProxyHoldFile', 'kafkaOffsetCommitProxyReleaseFile',
+            'kafkaOffsetCommitProxyStopFile', 'kafkaOffsetCommitProxyReadyFile',
+            'kafkaOffsetCommitProxyDroppedFile'
+    ]
+    if (proxyProperties.any { findProperty(it) == null }) {
+        doFirst {
+            throw new GradleException('runRealKafkaOffsetCommitResponseLossProxy requires all '
+                    + 'kafkaOffsetCommitProxy* properties')
+        }
+    }
+    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output)
+    mainClass = 'com.nereusstream.delay.transport.KafkaClientArtifactOffsetCommitResponseLossProxy'
     args proxyProperties.collect { project.ext.optionalRealTaskArgument.call(findProperty(it)) }
 }
 

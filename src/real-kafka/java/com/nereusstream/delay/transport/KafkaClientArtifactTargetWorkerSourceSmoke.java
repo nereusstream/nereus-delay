@@ -65,6 +65,7 @@ import java.security.KeyPairGenerator;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -92,12 +93,20 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
     private KafkaClientArtifactTargetWorkerSourceSmoke() {}
 
     public static void main(final String[] arguments) throws Exception {
-        if (arguments.length != 2) {
-            throw new IllegalArgumentException("usage: <bootstrap-server> <source-topic-prefix>");
+        if (arguments.length != 2 && arguments.length != 6) {
+            throw new IllegalArgumentException("usage: <bootstrap-server> <source-topic-prefix> "
+                    + "[network-response-loss <hold-file> <release-file> <dropped-response-file>]");
         }
         final String bootstrap = arguments[0];
         final String topic = arguments[1] + "-target-" + UUID.randomUUID();
         final String groupId = "nereus-delay-target-source-" + UUID.randomUUID();
+        final AckInjection ackInjection = AckInjection.from(arguments);
+        if (ackInjection.mode() == AckMode.NETWORK_RESPONSE_LOSS
+                && (!Files.exists(ackInjection.holdFile())
+                        || Files.exists(ackInjection.releaseFile())
+                        || Files.exists(ackInjection.droppedResponseFile()))) {
+            throw new IllegalArgumentException("network ACK response-loss gate must start held and unobserved");
+        }
         final Map<String, Object> adminConfig = Map.of(
                 AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap,
                 AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, 10_000);
@@ -194,13 +203,17 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                         rootControl,
                         command,
                         commandMetadata.offset(),
-                        storeRoot);
+                        storeRoot,
+                        ackInjection);
             } finally {
                 deleteTree(storeRoot);
             }
-            System.out.println(
-                    "Kafka Target source factory: first grant at offset 0; Cancel at offset 1 applied before a "
-                            + "simulated lost commitSync response;");
+            final String failureBoundary = ackInjection.mode() == AckMode.NETWORK_RESPONSE_LOSS
+                    ? "Broker OffsetCommit response was received by the TCP proxy and withheld before reaching "
+                            + "the Kafka client"
+                    : "simulated lost commitSync response after the Kafka client returned success";
+            System.out.println("Kafka Target source factory: first grant at offset 0; Cancel at offset 1 applied; "
+                    + failureBoundary + ";");
             System.out.println(
                     "  replacement Owner reopened RocksDB, replayed the exact Broker record without a second "
                             + "Store write, and confirmed Kafka group offset 2; TopicId/partition guard verified.");
@@ -296,7 +309,8 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
             final RootControl rootControl,
             final PreparedCommand command,
             final long commandOffset,
-            final Path storeRoot) throws Exception {
+            final Path storeRoot,
+            final AckInjection ackInjection) throws Exception {
         final var config = ShardStoreConfig.defaults(storeRoot);
         final var registration = new InMemoryControlTargetRegistrationAuthority();
         registration.register(rootControl.prepared());
@@ -385,9 +399,12 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                             entry -> commandControl),
                     new TargetSourceApplyRuntime.Limits(2048, 16L << 20, 60_000_000_000L, 16, 1),
                     System::nanoTime);
-            final var consumer = newSourceConsumer(bootstrap, groupId, clusterId, topic, topicId, scope.shard());
+            final var consumer = newSourceConsumer(
+                    bootstrap, groupId, clusterId, topic, topicId, scope.shard(), ackInjection.mode());
             final var ackResponseLost = new AtomicBoolean();
-            final var guardedConsumer = loseFirstCommitSyncResponse(consumer, ackResponseLost);
+            final var guardedConsumer = ackInjection.mode() == AckMode.CLIENT_DELEGATE_RESPONSE_LOSS
+                    ? loseFirstCommitSyncResponse(consumer, ackResponseLost)
+                    : consumer;
             final var maintenance = new TargetWorkerShardRuntime.Maintenance(
                     closeControls,
                     new com.nereusstream.delay.ownership.TargetReservationClosureWorkClassExecutor.Limits(
@@ -411,6 +428,17 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                     maintenance);
             try {
                 final SourceApplyCoordinator.TurnResult result = runUntilAckUnknown(worker);
+                if (ackInjection.mode() == AckMode.NETWORK_RESPONSE_LOSS) {
+                    final String dropped = Files.exists(ackInjection.droppedResponseFile())
+                            ? Files.readString(ackInjection.droppedResponseFile())
+                            : "";
+                    if (!dropped.contains("apiKey=8")
+                            || !dropped.contains("brokerResponseReceived=true forwarded=false")) {
+                        throw new IllegalStateException(
+                                "TCP proxy did not withhold a Broker OffsetCommit response: " + dropped);
+                    }
+                    ackResponseLost.set(true);
+                }
                 if (result.status() == SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN) {
                     activeHolder[0] = active;
                 }
@@ -445,7 +473,10 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                 final var committed = committedOffsets.get(new TopicPartition(topic, scope.shard().partition()));
                 if (committed == null || committed.offset() != commandOffset + 1) {
                     throw new IllegalStateException(
-                            "Kafka commitSync delegate did not commit before the injected response loss");
+                            "Kafka Broker did not commit the source offset before the injected response loss");
+                }
+                if (ackInjection.mode() == AckMode.NETWORK_RESPONSE_LOSS) {
+                    Files.writeString(ackInjection.releaseFile(), "release\n");
                 }
             } finally {
                 if (worker.pendingSourceEntry().isPresent()) {
@@ -488,7 +519,8 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                 leases,
                 command,
                 commandOffset,
-                config);
+                config,
+                ackInjection.mode());
     }
 
     private static void runTargetSourceReplayAfterUnknown(
@@ -503,7 +535,8 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
             final OxiaOwnerLeaseStore leases,
             final PreparedCommand command,
             final long commandOffset,
-            final ShardStoreConfig config)
+            final ShardStoreConfig config,
+            final AckMode ackMode)
             throws Exception {
         final OwnerLease replayAcquiring = leases.acquire(
                         assignment,
@@ -546,7 +579,8 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                             entry -> { throw new AssertionError("exact replay resolved new command authority"); }),
                     new TargetSourceApplyRuntime.Limits(2048, 16L << 20, 60_000_000_000L, 16, 1),
                     System::nanoTime);
-            final var consumer = newSourceConsumer(bootstrap, groupId, clusterId, topic, topicId, scope.shard());
+            final var consumer =
+                    newSourceConsumer(bootstrap, groupId, clusterId, topic, topicId, scope.shard(), ackMode);
             final var maintenance = new TargetWorkerShardRuntime.Maintenance(
                     closeControls,
                     new com.nereusstream.delay.ownership.TargetReservationClosureWorkClassExecutor.Limits(
@@ -639,19 +673,20 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
             final String clusterId,
             final String topic,
             final UUID topicId,
-            final ShardId shard) {
+            final ShardId shard,
+            final AckMode ackMode) {
+        final Map<String, Object> config = new HashMap<>();
+        config.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap);
+        config.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
+        config.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
+        config.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
+        config.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        if (ackMode == AckMode.NETWORK_RESPONSE_LOSS) {
+            config.put(ConsumerConfig.DEFAULT_API_TIMEOUT_MS_CONFIG, 5_000);
+            config.put(ConsumerConfig.REQUEST_TIMEOUT_MS_CONFIG, 2_000);
+        }
         return KafkaClientArtifactSourceConsumerFactory.create(
-                Map.of(
-                        ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG,
-                        bootstrap,
-                        ConsumerConfig.GROUP_ID_CONFIG,
-                        groupId,
-                        ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG,
-                        ByteArrayDeserializer.class.getName(),
-                        ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG,
-                        ByteArrayDeserializer.class.getName(),
-                        ConsumerConfig.AUTO_OFFSET_RESET_CONFIG,
-                        "earliest"),
+                config,
                 clusterId,
                 topic,
                 topicId,
@@ -744,6 +779,27 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
             }
         } while (System.nanoTime() < deadline);
         throw new IllegalStateException("real Kafka Target source did not reach ACK UNKNOWN before the deadline");
+    }
+
+    private enum AckMode {
+        CLIENT_DELEGATE_RESPONSE_LOSS,
+        NETWORK_RESPONSE_LOSS
+    }
+
+    private record AckInjection(AckMode mode, Path holdFile, Path releaseFile, Path droppedResponseFile) {
+        private static AckInjection from(final String[] arguments) {
+            if (arguments.length == 2) {
+                return new AckInjection(AckMode.CLIENT_DELEGATE_RESPONSE_LOSS, null, null, null);
+            }
+            if (arguments.length != 6 || !"network-response-loss".equals(arguments[2])) {
+                throw new IllegalArgumentException("unsupported Target source ACK injection mode");
+            }
+            return new AckInjection(
+                    AckMode.NETWORK_RESPONSE_LOSS,
+                    Path.of(arguments[3]),
+                    Path.of(arguments[4]),
+                    Path.of(arguments[5]));
+        }
     }
 
     private record RootControl(PreparedControlOperation prepared, SystemMutation mutation) {}

@@ -40,6 +40,7 @@ worker_destination_response_loss_only="${NEREUS_DELAY_KAFKA_WORKER_DESTINATION_R
 source_ack_response_loss="${NEREUS_DELAY_KAFKA_SOURCE_ACK_RESPONSE_LOSS:-0}"
 source_ack_response_loss_only="${NEREUS_DELAY_KAFKA_SOURCE_ACK_RESPONSE_LOSS_ONLY:-0}"
 target_worker_source_only="${NEREUS_DELAY_KAFKA_TARGET_WORKER_SOURCE_ONLY:-0}"
+source_ack_network_loss_only="${NEREUS_DELAY_KAFKA_TARGET_SOURCE_ACK_NETWORK_LOSS_ONLY:-0}"
 fetch_response_loss_only="${NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_ONLY:-0}"
 fetch_response_loss_process_crash_only="${NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_PROCESS_CRASH_ONLY:-0}"
 retention_floor_only="${NEREUS_DELAY_KAFKA_RETENTION_FLOOR_ONLY:-0}"
@@ -59,10 +60,18 @@ broker_tcp_state_dump_dir="${NEREUS_DELAY_KAFKA_BROKER_TCP_CUT_STATE_DUMP_DIR:-}
 half_open_only="${NEREUS_DELAY_KAFKA_HALF_OPEN_ONLY:-0}"
 half_open_state_dump_dir="${NEREUS_DELAY_KAFKA_HALF_OPEN_STATE_DUMP_DIR:-}"
 half_open_channel_deadline_ms="${NEREUS_DELAY_KAFKA_HALF_OPEN_CHANNEL_DEADLINE_MS:-10000}"
-if [[ "${broker_tcp_cut_only}" == "1" || "${half_open_only}" == "1" ]]; then
+if [[ "${source_ack_network_loss_only}" == "1" ]]; then
   broker_1_bind_port="${KAFKA_BROKER_1_BIND_PORT:-$((broker_1_port + 100))}"
+  broker_2_bind_port="${KAFKA_BROKER_2_BIND_PORT:-$((broker_2_port + 100))}"
+  broker_3_bind_port="${KAFKA_BROKER_3_BIND_PORT:-$((broker_3_port + 100))}"
+elif [[ "${broker_tcp_cut_only}" == "1" || "${half_open_only}" == "1" ]]; then
+  broker_1_bind_port="${KAFKA_BROKER_1_BIND_PORT:-$((broker_1_port + 100))}"
+  broker_2_bind_port="${KAFKA_BROKER_2_BIND_PORT:-${broker_2_port}}"
+  broker_3_bind_port="${KAFKA_BROKER_3_BIND_PORT:-${broker_3_port}}"
 else
   broker_1_bind_port="${KAFKA_BROKER_1_BIND_PORT:-${broker_1_port}}"
+  broker_2_bind_port="${KAFKA_BROKER_2_BIND_PORT:-${broker_2_port}}"
+  broker_3_bind_port="${KAFKA_BROKER_3_BIND_PORT:-${broker_3_port}}"
 fi
 oxia_checkout="${NEREUS_DELAY_KAFKA_OXIA_CHECKOUT:-${delay_dir}/../../oxia}"
 oxia_port="${NEREUS_DELAY_KAFKA_OXIA_PORT:-$((16650 + ($$ % 100)))}"
@@ -121,6 +130,10 @@ if [[ "${source_ack_response_loss_only}" != "0" && "${source_ack_response_loss_o
 fi
 if [[ "${target_worker_source_only}" != "0" && "${target_worker_source_only}" != "1" ]]; then
   echo "NEREUS_DELAY_KAFKA_TARGET_WORKER_SOURCE_ONLY must be 0 or 1" >&2
+  exit 1
+fi
+if [[ "${source_ack_network_loss_only}" != "0" && "${source_ack_network_loss_only}" != "1" ]]; then
+  echo "NEREUS_DELAY_KAFKA_TARGET_SOURCE_ACK_NETWORK_LOSS_ONLY must be 0 or 1" >&2
   exit 1
 fi
 if [[ "${fetch_response_loss_only}" != "0" && "${fetch_response_loss_only}" != "1" ]]; then
@@ -183,10 +196,12 @@ if [[ "${broker_tcp_cut_only}" == "1" && "${half_open_only}" == "1" ]]; then
   echo "NEREUS_DELAY_KAFKA_BROKER_TCP_CUT_ONLY and NEREUS_DELAY_KAFKA_HALF_OPEN_ONLY are exclusive" >&2
   exit 1
 fi
-if (( broker_1_bind_port <= 0 || broker_1_bind_port > 65535 )); then
-  echo "KAFKA_BROKER_1_BIND_PORT must be 1..65535" >&2
-  exit 1
-fi
+for broker_bind_port in "${broker_1_bind_port}" "${broker_2_bind_port}" "${broker_3_bind_port}"; do
+  if (( broker_bind_port <= 0 || broker_bind_port > 65535 )); then
+    echo "Kafka Broker bind ports must be 1..65535" >&2
+    exit 1
+  fi
+done
 if ! [[ "${half_open_channel_deadline_ms}" =~ ^[1-9][0-9]*$ ]]; then
   echo "NEREUS_DELAY_KAFKA_HALF_OPEN_CHANNEL_DEADLINE_MS must be a positive integer" >&2
   exit 1
@@ -397,6 +412,22 @@ if [[ "${broker_tcp_cut_only}" == "1" && ("${route_failover_only}" == "1"
   exit 1
 fi
 
+if [[ "${source_ack_network_loss_only}" == "1" ]]; then
+  for focused_mode in "${with_oxia}" "${route_failover}" "${route_failover_only}" "${multi_shard_only}" \
+    "${k2_failover}" "${k2_failover_only}" "${k2_response_loss}" "${k2_response_loss_only}" \
+    "${worker_destination_response_loss}" "${worker_destination_response_loss_only}" \
+    "${source_ack_response_loss}" "${source_ack_response_loss_only}" "${target_worker_source_only}" \
+    "${fetch_response_loss_only}" "${fetch_response_loss_process_crash_only}" \
+    "${retention_floor_only}" "${retention_floor_process_crash_only}" "${process_crash_only}" \
+    "${worker_process_crash_only}" "${worker_ack_process_crash_only}" "${broker_process_crash_only}" \
+    "${leader_placement_only}" "${broker_network_partition_only}" "${broker_tcp_cut_only}" "${half_open_only}"; do
+    if [[ "${focused_mode}" != "0" ]]; then
+      echo "Kafka Target source ACK network-response-loss mode is exclusive with other focused modes" >&2
+      exit 1
+    fi
+  done
+fi
+
 if [[ "${worker_destination_response_loss}" == "1" ]]; then
   export NEREUS_DELAY_KAFKA_WORKER_DESTINATION_RESPONSE_LOSS=1
 fi
@@ -451,6 +482,14 @@ half_open_worker_log="${half_open_dir}/worker.log"
 half_open_worker_state_dir="${half_open_dir}/worker-state"
 half_open_worker_pid=""
 half_open_proxy_pid=""
+offset_commit_proxy_dir="$(mktemp -d -t nereus-delay-kafka-offset-commit-proxy.XXXXXX)"
+offset_commit_proxy_log="${offset_commit_proxy_dir}/proxy.log"
+offset_commit_proxy_hold_file="${offset_commit_proxy_dir}/hold"
+offset_commit_proxy_release_file="${offset_commit_proxy_dir}/release"
+offset_commit_proxy_stop_file="${offset_commit_proxy_dir}/stop"
+offset_commit_proxy_ready_file="${offset_commit_proxy_dir}/ready"
+offset_commit_proxy_dropped_file="${offset_commit_proxy_dir}/dropped-responses"
+offset_commit_proxy_pid=""
 
 cleanup() {
   if [[ -n "${half_open_state_dump_dir}" && -d "${half_open_dir}" ]]; then
@@ -484,6 +523,10 @@ cleanup() {
     touch "${half_open_stop_file}" >/dev/null 2>&1 || true
     wait "${half_open_proxy_pid}" >/dev/null 2>&1 || true
   fi
+  if [[ -n "${offset_commit_proxy_pid}" ]]; then
+    touch "${offset_commit_proxy_stop_file}" >/dev/null 2>&1 || true
+    wait "${offset_commit_proxy_pid}" >/dev/null 2>&1 || true
+  fi
   if [[ -n "${half_open_worker_pid}" ]]; then
     kill "${half_open_worker_pid}" >/dev/null 2>&1 || true
     wait "${half_open_worker_pid}" >/dev/null 2>&1 || true
@@ -506,6 +549,7 @@ cleanup() {
   rm -rf "${leader_placement_dir}"
   rm -rf "${broker_tcp_cut_dir}"
   rm -rf "${half_open_dir}"
+  rm -rf "${offset_commit_proxy_dir}"
 }
 trap cleanup EXIT INT TERM
 
@@ -671,6 +715,42 @@ start_half_open_proxy() {
   done
   cat "${half_open_log}" >&2
   echo "Kafka half-open proxy did not become ready" >&2
+  return 1
+}
+
+start_offset_commit_response_loss_proxy() {
+  rm -f "${offset_commit_proxy_ready_file}" "${offset_commit_proxy_dropped_file}" \
+    "${offset_commit_proxy_stop_file}" "${offset_commit_proxy_release_file}"
+  touch "${offset_commit_proxy_hold_file}"
+  GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaOffsetCommitResponseLossProxy \
+    "-PkafkaClientJar=${client_jar}" \
+    "-PkafkaOffsetCommitProxyListen1=${broker_1_port}" \
+    "-PkafkaOffsetCommitProxyListen2=${broker_2_port}" \
+    "-PkafkaOffsetCommitProxyListen3=${broker_3_port}" \
+    "-PkafkaOffsetCommitProxyTarget1=${broker_1_bind_port}" \
+    "-PkafkaOffsetCommitProxyTarget2=${broker_2_bind_port}" \
+    "-PkafkaOffsetCommitProxyTarget3=${broker_3_bind_port}" \
+    "-PkafkaOffsetCommitProxyHoldFile=${offset_commit_proxy_hold_file}" \
+    "-PkafkaOffsetCommitProxyReleaseFile=${offset_commit_proxy_release_file}" \
+    "-PkafkaOffsetCommitProxyStopFile=${offset_commit_proxy_stop_file}" \
+    "-PkafkaOffsetCommitProxyReadyFile=${offset_commit_proxy_ready_file}" \
+    "-PkafkaOffsetCommitProxyDroppedFile=${offset_commit_proxy_dropped_file}" \
+    --no-daemon --console=plain >"${offset_commit_proxy_log}" 2>&1 &
+  offset_commit_proxy_pid=$!
+  local deadline=$((SECONDS + 120))
+  while (( SECONDS < deadline )); do
+    if [[ -f "${offset_commit_proxy_ready_file}" ]]; then
+      return 0
+    fi
+    if ! kill -0 "${offset_commit_proxy_pid}" >/dev/null 2>&1; then
+      cat "${offset_commit_proxy_log}" >&2
+      echo "Kafka OffsetCommit response-loss proxy exited before readiness" >&2
+      return 1
+    fi
+    sleep 1
+  done
+  cat "${offset_commit_proxy_log}" >&2
+  echo "Kafka OffsetCommit response-loss proxy did not become ready" >&2
   return 1
 }
 
@@ -863,7 +943,9 @@ export KAFKA_K1_IMAGE="${image}"
 export KAFKA_BROKER_1_PORT="${broker_1_port}"
 export KAFKA_BROKER_1_BIND_PORT="${broker_1_bind_port}"
 export KAFKA_BROKER_2_PORT="${broker_2_port}"
+export KAFKA_BROKER_2_BIND_PORT="${broker_2_bind_port}"
 export KAFKA_BROKER_3_PORT="${broker_3_port}"
+export KAFKA_BROKER_3_BIND_PORT="${broker_3_bind_port}"
 if [[ "${retention_floor_only}" == "1" ]]; then
   export KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS=1000
 fi
@@ -873,7 +955,8 @@ echo "K1 client jar: ${client_jar}"
 echo "K1 client SHA256: $(shasum -a 256 "${client_jar}" | awk '{print $1}')"
 echo "K1 broker image ID: ${image_digest}"
 echo "Compose project: ${compose_project}"
-echo "Broker ports: ${broker_1_port},${broker_2_port},${broker_3_port}"
+echo "Broker advertised ports: ${broker_1_port},${broker_2_port},${broker_3_port}"
+echo "Broker bind ports: ${broker_1_bind_port},${broker_2_bind_port},${broker_3_bind_port}"
 
 "${compose[@]}" up -d
 if [[ "${broker_tcp_cut_only}" == "1" ]]; then
@@ -885,6 +968,37 @@ fi
 wait_for_broker kafka-1
 wait_for_broker kafka-2
 wait_for_broker kafka-3
+
+if [[ "${source_ack_network_loss_only}" == "1" ]]; then
+  start_offset_commit_response_loss_proxy
+  target_worker_source_topic="${KAFKA_DELAY_TARGET_WORKER_SOURCE_TOPIC:-${source_topic}-target-worker}"
+  GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaTargetWorkerSourceSmoke \
+    "-PkafkaClientJar=${client_jar}" \
+    "-PkafkaBootstrap=${bootstrap_all}" \
+    "-PkafkaTargetSourceTopic=${target_worker_source_topic}" \
+    -PkafkaTargetAckMode=network-response-loss \
+    "-PkafkaTargetAckHoldFile=${offset_commit_proxy_hold_file}" \
+    "-PkafkaTargetAckReleaseFile=${offset_commit_proxy_release_file}" \
+    "-PkafkaTargetAckDroppedFile=${offset_commit_proxy_dropped_file}" \
+    --no-daemon --console=plain
+  if ! rg -q 'apiKey=8 .*brokerResponseReceived=true forwarded=false' \
+      "${offset_commit_proxy_dropped_file}"; then
+    cat "${offset_commit_proxy_log}" >&2
+    cat "${offset_commit_proxy_dropped_file}" >&2 || true
+    echo "Kafka OffsetCommit response-loss proxy did not record a real Broker response drop" >&2
+    exit 1
+  fi
+  touch "${offset_commit_proxy_stop_file}"
+  if ! wait "${offset_commit_proxy_pid}"; then
+    cat "${offset_commit_proxy_log}" >&2
+    echo "Kafka OffsetCommit response-loss proxy exited unsuccessfully" >&2
+    exit 1
+  fi
+  offset_commit_proxy_pid=""
+  cat "${offset_commit_proxy_log}"
+  echo "Kafka Target source ACK network-response-loss E2E passed against the locked K1 Broker/client fixture."
+  exit 0
+fi
 
 if [[ "${target_worker_source_only}" == "1" ]]; then
   target_worker_source_topic="${KAFKA_DELAY_TARGET_WORKER_SOURCE_TOPIC:-${source_topic}-target-worker}"

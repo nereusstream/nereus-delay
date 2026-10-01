@@ -1,0 +1,25 @@
+Date: 2026-10-01
+Base revision: db8a0ddda5811d75db43934f7b26f19a35548708
+
+Locked Kafka source:
+Checkout: /Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1
+HEAD: 05849884ca81fad767fda058444d1e17c7f9cbf9
+Client JAR SHA-256: 1853eceecc76db807a0c7c7897fc0eda45ad0bf15a95ae8100470ff43e5146
+Disposable three-broker KRaft image ID: sha256:62f1206203535f39ab09b723d8adcc6a3bb96fd79d10859aafc4c751a58f74d0
+
+Commands:
+./gradlew compileRealKafka -PkafkaClientJar=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1/clients/build/libs/kafka-clients-4.4.0-SNAPSHOT.jar --no-daemon --console=plain
+NEREUS_DELAY_KAFKA_TARGET_SOURCE_ACK_NETWORK_LOSS_ONLY=1 NEREUS_DELAY_KAFKA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1 ./e2e/run-kafka-real-client-e2e.sh
+
+Result: compileRealKafka passed. The isolated K1 three-Broker E2E exited 0. Its TCP proxy parsed Kafka frames, forwarded ordinary traffic, and closed each connection only after receiving an OffsetCommit response (API key 8) from a Broker while the hold gate was closed. The smoke required a receipt with `brokerResponseReceived=true forwarded=false`; the proxy reported 8 such responses dropped.
+
+The real Target Worker returned ACK_UNKNOWN with the exact Cancel and source position after Target Store application. An Admin query confirmed the Broker group offset was 2 while OffsetCommit responses were still withheld. The test then released the gate, closed the original Consumer and test Owner, reopened the same RocksDB Store under a replacement test Owner in the same JVM, and replayed the exact Broker record from the persisted activation barrier. Replay returned the persisted NOT_FOUND result, did not advance native or shard mutation sequence, and confirmed group offset 2. The TopicId/partition guard also passed.
+
+This verifies a network-level lost Broker ACK response and same-process Store/Owner reset. It does not kill/restart a process, exercise a live Oxia Owner lease, combine source ACK uncertainty with multi-Shard sibling isolation, or cover Claim/Admission/Producer ownership, uncertain Store writes, shared-channel teardown, the full D2 matrix, or centralized validation. D2 remains IN_PROGRESS / PENDING_CENTRAL_VALIDATION.
+
+Source SHA-256:
+src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetWorkerSourceSmoke.java 5d8e16f5c3966d765e54e7e0462d4d2904cb7723d36a8d5c73098ee47e911400
+src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactOffsetCommitResponseLossProxy.java 08852374c5b07b5c404007148c41d9c06045bc5d8f673b82d49824aaa3561cdb
+build.gradle 4b7adf43d4d8dc963f214b73e3ca2adfb556312699f76afb59d9463b22ef5d7e
+e2e/run-kafka-real-client-e2e.sh 0a1772294e30a67a74cee6a563acbd1cc1c8491899139e6d3a4b08b73a793db8
+e2e/docker-compose.kafka.yml b4f46655415e34f56d9084f8508a5b36e29d11ec2ada546eb5ea9552e8178904
