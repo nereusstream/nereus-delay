@@ -64,13 +64,17 @@ import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.EnumMap;
 import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.kafka.clients.admin.Admin;
@@ -93,15 +97,21 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
     private KafkaClientArtifactTargetWorkerSourceSmoke() {}
 
     public static void main(final String[] arguments) throws Exception {
-        if (arguments.length != 2 && arguments.length != 6) {
+        if (arguments.length != 2 && arguments.length != 6 && arguments.length != 10) {
             throw new IllegalArgumentException("usage: <bootstrap-server> <source-topic-prefix> "
-                    + "[network-response-loss <hold-file> <release-file> <dropped-response-file>]");
+                    + "[network-response-loss <hold-file> <release-file> <dropped-response-file>] "
+                    + "[network-response-loss-process-crash <phase> <hold-file> <release-file> "
+                    + "<dropped-response-file> <state-file> <store-root> <ready-file>]");
         }
         final String bootstrap = arguments[0];
+        final AckInjection ackInjection = AckInjection.from(arguments);
+        if (ackInjection.crashPhase() == CrashPhase.RESUME) {
+            replayAfterProcessCrash(bootstrap, ackInjection);
+            return;
+        }
         final String topic = arguments[1] + "-target-" + UUID.randomUUID();
         final String groupId = "nereus-delay-target-source-" + UUID.randomUUID();
-        final AckInjection ackInjection = AckInjection.from(arguments);
-        if (ackInjection.mode() == AckMode.NETWORK_RESPONSE_LOSS
+        if (ackInjection.networkResponseLoss()
                 && (!Files.exists(ackInjection.holdFile())
                         || Files.exists(ackInjection.releaseFile())
                         || Files.exists(ackInjection.droppedResponseFile()))) {
@@ -184,8 +194,14 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                             60_000)
                     .orElseThrow(() -> new IllegalStateException("test Owner lease acquisition failed"));
 
-            final Path storeRoot = Files.createTempDirectory("nereus-delay-kafka-target-source-");
+            final boolean preserveStore = ackInjection.crashPhase() == CrashPhase.PREPARE;
+            final Path storeRoot = preserveStore
+                    ? ackInjection.storeRoot()
+                    : Files.createTempDirectory("nereus-delay-kafka-target-source-");
             try {
+                if (preserveStore) {
+                    Files.createDirectories(storeRoot);
+                }
                 runTargetSourceTurn(
                         admin,
                         bootstrap,
@@ -206,9 +222,11 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                         storeRoot,
                         ackInjection);
             } finally {
-                deleteTree(storeRoot);
+                if (!preserveStore) {
+                    deleteTree(storeRoot);
+                }
             }
-            final String failureBoundary = ackInjection.mode() == AckMode.NETWORK_RESPONSE_LOSS
+            final String failureBoundary = ackInjection.networkResponseLoss()
                     ? "Broker OffsetCommit response was received by the TCP proxy and withheld before reaching "
                             + "the Kafka client"
                     : "simulated lost commitSync response after the Kafka client returned success";
@@ -428,7 +446,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                     maintenance);
             try {
                 final SourceApplyCoordinator.TurnResult result = runUntilAckUnknown(worker);
-                if (ackInjection.mode() == AckMode.NETWORK_RESPONSE_LOSS) {
+                if (ackInjection.networkResponseLoss()) {
                     final String dropped = Files.exists(ackInjection.droppedResponseFile())
                             ? Files.readString(ackInjection.droppedResponseFile())
                             : "";
@@ -475,7 +493,10 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                     throw new IllegalStateException(
                             "Kafka Broker did not commit the source offset before the injected response loss");
                 }
-                if (ackInjection.mode() == AckMode.NETWORK_RESPONSE_LOSS) {
+                if (ackInjection.crashPhase() == CrashPhase.PREPARE) {
+                    writeProcessCrashState(ackInjection, topic, groupId, clusterId, topicId, scope, assignment,
+                            command, commandOffset, active.ownerEpoch());
+                } else if (ackInjection.networkResponseLoss()) {
                     Files.writeString(ackInjection.releaseFile(), "release\n");
                 }
             } finally {
@@ -548,6 +569,11 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
         final OwnerLease[] ownerHolder = {replayAcquiring};
         try (var resources = new SharedRocksDbResources(config);
                 var store = ShardStore.openTarget(config, scope.shard(), resources)) {
+            if (Long.compareUnsigned(
+                            replayAcquiring.ownerEpoch(), store.runtimeMetadata().lastOpenedOwnerEpoch())
+                    <= 0) {
+                throw new IllegalStateException("replacement Target Owner epoch did not advance past the Store");
+            }
             final var reopened = TargetStoreBootstrap.reopen(
                     store,
                     scope,
@@ -781,24 +807,198 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
         throw new IllegalStateException("real Kafka Target source did not reach ACK UNKNOWN before the deadline");
     }
 
+    private static void writeProcessCrashState(
+            final AckInjection injection,
+            final String topic,
+            final String groupId,
+            final String clusterId,
+            final UUID topicId,
+            final TargetQuotaScope scope,
+            final com.nereusstream.delay.ownership.SourceAssignment assignment,
+            final PreparedCommand command,
+            final long commandOffset,
+            final long ownerEpoch)
+            throws Exception {
+        final Properties state = new Properties();
+        state.setProperty("topic", topic);
+        state.setProperty("groupId", groupId);
+        state.setProperty("clusterId", clusterId);
+        state.setProperty("topicId", topicId.toString());
+        state.setProperty("route", HexFormat.of().formatHex(scope.shard().routeIncarnation().bytes()));
+        state.setProperty("partition", Integer.toString(scope.shard().partition()));
+        state.setProperty("tenantScope", HexFormat.of().formatHex(scope.tenantScope()));
+        state.setProperty("assignmentId", HexFormat.of().formatHex(assignment.assignmentId()));
+        state.setProperty("assignmentEpoch", Long.toUnsignedString(assignment.assignmentEpoch()));
+        state.setProperty("barrierOffset", "1");
+        state.setProperty("commandOffset", Long.toString(commandOffset));
+        state.setProperty("commandFrame", Base64.getEncoder().encodeToString(
+                com.nereusstream.delay.protocol.CommandCodec.encodeFrame(command)));
+        state.setProperty("ownerEpoch", Long.toUnsignedString(ownerEpoch));
+        final Path stateParent = injection.stateFile().getParent();
+        if (stateParent != null) {
+            Files.createDirectories(stateParent);
+        }
+        try (var output = Files.newOutputStream(injection.stateFile())) {
+            state.store(output, "test-only Target Worker process-crash recovery state");
+        }
+        final Path readyParent = injection.readyFile().getParent();
+        if (readyParent != null) {
+            Files.createDirectories(readyParent);
+        }
+        Files.writeString(injection.readyFile(), ProcessHandle.current().pid() + "\n");
+        System.out.println("Kafka Target source process-crash cut reached: status=ACK_UNKNOWN, brokerOffset=2, "
+                + "storeOffset=" + commandOffset + ", ownerEpoch=" + Long.toUnsignedString(ownerEpoch));
+        System.out.flush();
+        new CountDownLatch(1).await();
+        throw new IllegalStateException("Target source process-crash cut resumed without a new JVM");
+    }
+
+    private static void replayAfterProcessCrash(final String bootstrap, final AckInjection injection)
+            throws Exception {
+        if (!Files.isRegularFile(injection.stateFile())
+                || !Files.exists(injection.releaseFile())
+                || !Files.exists(injection.droppedResponseFile())) {
+            throw new IllegalStateException("process-crash resume requires saved state and a released ACK proxy");
+        }
+        final Properties saved = new Properties();
+        try (var input = Files.newInputStream(injection.stateFile())) {
+            saved.load(input);
+        }
+        final String topic = requireProperty(saved, "topic");
+        final String groupId = requireProperty(saved, "groupId");
+        final String clusterId = requireProperty(saved, "clusterId");
+        final UUID topicId = UUID.fromString(requireProperty(saved, "topicId"));
+        final ShardId shard = new ShardId(
+                new RouteIncarnation(HexFormat.of().parseHex(requireProperty(saved, "route"))),
+                Integer.parseInt(requireProperty(saved, "partition")));
+        final TargetQuotaScope scope = new TargetQuotaScope(
+                shard, HexFormat.of().parseHex(requireProperty(saved, "tenantScope")), null);
+        final long assignmentEpoch = Long.parseUnsignedLong(requireProperty(saved, "assignmentEpoch"));
+        final long barrierOffset = Long.parseLong(requireProperty(saved, "barrierOffset"));
+        final long commandOffset = Long.parseLong(requireProperty(saved, "commandOffset"));
+        final long previousOwnerEpoch = Long.parseUnsignedLong(requireProperty(saved, "ownerEpoch"));
+        final var assignment = new com.nereusstream.delay.ownership.SourceAssignment(
+                shard,
+                HexFormat.of().parseHex(requireProperty(saved, "assignmentId")),
+                assignmentEpoch,
+                new KafkaActivationBarrier(shard, clusterId, topicId, barrierOffset));
+        final PreparedCommand command = com.nereusstream.delay.protocol.CommandCodec.decodeFrame(
+                Base64.getDecoder().decode(requireProperty(saved, "commandFrame")));
+        final Map<String, Object> adminConfig = Map.of(
+                AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap,
+                AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, 10_000);
+        try (Admin admin = Admin.create(adminConfig)) {
+            final String actualClusterId = admin.describeCluster().clusterId().get(10, TimeUnit.SECONDS);
+            final Uuid actualTopicId = admin.describeTopics(List.of(topic))
+                    .allTopicNames()
+                    .get(10, TimeUnit.SECONDS)
+                    .get(topic)
+                    .topicId();
+            if (!clusterId.equals(actualClusterId) || !topicId.equals(toUuid(actualTopicId))) {
+                throw new IllegalStateException("process-crash recovery reached a different Kafka cluster/topic");
+            }
+            final var committedOffsets = admin.listConsumerGroupOffsets(groupId)
+                    .partitionsToOffsetAndMetadata()
+                    .get(10, TimeUnit.SECONDS);
+            final var committed = committedOffsets.get(new TopicPartition(topic, shard.partition()));
+            if (committed == null || committed.offset() != commandOffset + 1) {
+                throw new IllegalStateException("Broker group offset changed before process-crash recovery");
+            }
+            final var leaseBackend = new InMemoryOwnerLeaseStore();
+            final var leases = new OxiaOwnerLeaseStore(leaseBackend);
+            final long leaseNow = System.currentTimeMillis();
+            final OwnerLease priorEpoch = leaseBackend
+                    .acquire(shard, "target-source-pre-crash-test-epoch", leaseNow, 60_000)
+                    .orElseThrow(() -> new IllegalStateException("test prior Owner epoch seed failed"));
+            if (Long.compareUnsigned(priorEpoch.ownerEpoch(), previousOwnerEpoch) != 0
+                    || !leaseBackend.release(priorEpoch)) {
+                throw new IllegalStateException("test Owner epoch seed disagrees with the persisted Store epoch");
+            }
+            runTargetSourceReplayAfterUnknown(
+                    admin,
+                    bootstrap,
+                    topic,
+                    groupId,
+                    clusterId,
+                    topicId,
+                    scope,
+                    assignment,
+                    leases,
+                    command,
+                    commandOffset,
+                    ShardStoreConfig.defaults(injection.storeRoot()),
+                    AckMode.NETWORK_RESPONSE_LOSS);
+            System.out.println("Kafka Target source process-crash recovery passed: previousOwnerEpoch="
+                    + Long.toUnsignedString(previousOwnerEpoch) + ", brokerOffset=" + (commandOffset + 1)
+                    + ", exact replay ACKed by a fresh JVM.");
+        }
+    }
+
+    private static String requireProperty(final Properties properties, final String name) {
+        final String value = properties.getProperty(name);
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException("process-crash state is missing " + name);
+        }
+        return value;
+    }
+
     private enum AckMode {
         CLIENT_DELEGATE_RESPONSE_LOSS,
         NETWORK_RESPONSE_LOSS
     }
 
-    private record AckInjection(AckMode mode, Path holdFile, Path releaseFile, Path droppedResponseFile) {
+    private enum CrashPhase {
+        NONE,
+        PREPARE,
+        RESUME
+    }
+
+    private record AckInjection(
+            AckMode mode,
+            Path holdFile,
+            Path releaseFile,
+            Path droppedResponseFile,
+            CrashPhase crashPhase,
+            Path stateFile,
+            Path storeRoot,
+            Path readyFile) {
         private static AckInjection from(final String[] arguments) {
             if (arguments.length == 2) {
-                return new AckInjection(AckMode.CLIENT_DELEGATE_RESPONSE_LOSS, null, null, null);
+                return new AckInjection(
+                        AckMode.CLIENT_DELEGATE_RESPONSE_LOSS, null, null, null, CrashPhase.NONE, null, null, null);
             }
-            if (arguments.length != 6 || !"network-response-loss".equals(arguments[2])) {
+            if (arguments.length == 6 && "network-response-loss".equals(arguments[2])) {
+                return new AckInjection(
+                        AckMode.NETWORK_RESPONSE_LOSS,
+                        Path.of(arguments[3]),
+                        Path.of(arguments[4]),
+                        Path.of(arguments[5]),
+                        CrashPhase.NONE,
+                        null,
+                        null,
+                        null);
+            }
+            if (arguments.length != 10 || !"network-response-loss-process-crash".equals(arguments[2])) {
                 throw new IllegalArgumentException("unsupported Target source ACK injection mode");
             }
+            final CrashPhase phase = switch (arguments[3]) {
+                case "prepare" -> CrashPhase.PREPARE;
+                case "resume" -> CrashPhase.RESUME;
+                default -> throw new IllegalArgumentException("unsupported Target source process-crash phase");
+            };
             return new AckInjection(
                     AckMode.NETWORK_RESPONSE_LOSS,
-                    Path.of(arguments[3]),
                     Path.of(arguments[4]),
-                    Path.of(arguments[5]));
+                    Path.of(arguments[5]),
+                    Path.of(arguments[6]),
+                    phase,
+                    Path.of(arguments[7]),
+                    Path.of(arguments[8]),
+                    Path.of(arguments[9]));
+        }
+
+        private boolean networkResponseLoss() {
+            return mode == AckMode.NETWORK_RESPONSE_LOSS;
         }
     }
 

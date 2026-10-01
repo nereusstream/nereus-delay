@@ -41,6 +41,7 @@ source_ack_response_loss="${NEREUS_DELAY_KAFKA_SOURCE_ACK_RESPONSE_LOSS:-0}"
 source_ack_response_loss_only="${NEREUS_DELAY_KAFKA_SOURCE_ACK_RESPONSE_LOSS_ONLY:-0}"
 target_worker_source_only="${NEREUS_DELAY_KAFKA_TARGET_WORKER_SOURCE_ONLY:-0}"
 source_ack_network_loss_only="${NEREUS_DELAY_KAFKA_TARGET_SOURCE_ACK_NETWORK_LOSS_ONLY:-0}"
+source_ack_process_crash_only="${NEREUS_DELAY_KAFKA_TARGET_SOURCE_ACK_PROCESS_CRASH_ONLY:-0}"
 fetch_response_loss_only="${NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_ONLY:-0}"
 fetch_response_loss_process_crash_only="${NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_PROCESS_CRASH_ONLY:-0}"
 retention_floor_only="${NEREUS_DELAY_KAFKA_RETENTION_FLOOR_ONLY:-0}"
@@ -60,7 +61,7 @@ broker_tcp_state_dump_dir="${NEREUS_DELAY_KAFKA_BROKER_TCP_CUT_STATE_DUMP_DIR:-}
 half_open_only="${NEREUS_DELAY_KAFKA_HALF_OPEN_ONLY:-0}"
 half_open_state_dump_dir="${NEREUS_DELAY_KAFKA_HALF_OPEN_STATE_DUMP_DIR:-}"
 half_open_channel_deadline_ms="${NEREUS_DELAY_KAFKA_HALF_OPEN_CHANNEL_DEADLINE_MS:-10000}"
-if [[ "${source_ack_network_loss_only}" == "1" ]]; then
+if [[ "${source_ack_network_loss_only}" == "1" || "${source_ack_process_crash_only}" == "1" ]]; then
   broker_1_bind_port="${KAFKA_BROKER_1_BIND_PORT:-$((broker_1_port + 100))}"
   broker_2_bind_port="${KAFKA_BROKER_2_BIND_PORT:-$((broker_2_port + 100))}"
   broker_3_bind_port="${KAFKA_BROKER_3_BIND_PORT:-$((broker_3_port + 100))}"
@@ -134,6 +135,10 @@ if [[ "${target_worker_source_only}" != "0" && "${target_worker_source_only}" !=
 fi
 if [[ "${source_ack_network_loss_only}" != "0" && "${source_ack_network_loss_only}" != "1" ]]; then
   echo "NEREUS_DELAY_KAFKA_TARGET_SOURCE_ACK_NETWORK_LOSS_ONLY must be 0 or 1" >&2
+  exit 1
+fi
+if [[ "${source_ack_process_crash_only}" != "0" && "${source_ack_process_crash_only}" != "1" ]]; then
+  echo "NEREUS_DELAY_KAFKA_TARGET_SOURCE_ACK_PROCESS_CRASH_ONLY must be 0 or 1" >&2
   exit 1
 fi
 if [[ "${fetch_response_loss_only}" != "0" && "${fetch_response_loss_only}" != "1" ]]; then
@@ -412,7 +417,7 @@ if [[ "${broker_tcp_cut_only}" == "1" && ("${route_failover_only}" == "1"
   exit 1
 fi
 
-if [[ "${source_ack_network_loss_only}" == "1" ]]; then
+if [[ "${source_ack_network_loss_only}" == "1" || "${source_ack_process_crash_only}" == "1" ]]; then
   for focused_mode in "${with_oxia}" "${route_failover}" "${route_failover_only}" "${multi_shard_only}" \
     "${k2_failover}" "${k2_failover_only}" "${k2_response_loss}" "${k2_response_loss_only}" \
     "${worker_destination_response_loss}" "${worker_destination_response_loss_only}" \
@@ -426,6 +431,10 @@ if [[ "${source_ack_network_loss_only}" == "1" ]]; then
       exit 1
     fi
   done
+fi
+if [[ "${source_ack_network_loss_only}" == "1" && "${source_ack_process_crash_only}" == "1" ]]; then
+  echo "Kafka Target source ACK network-loss and process-crash-only modes are mutually exclusive" >&2
+  exit 1
 fi
 
 if [[ "${worker_destination_response_loss}" == "1" ]]; then
@@ -490,6 +499,13 @@ offset_commit_proxy_stop_file="${offset_commit_proxy_dir}/stop"
 offset_commit_proxy_ready_file="${offset_commit_proxy_dir}/ready"
 offset_commit_proxy_dropped_file="${offset_commit_proxy_dir}/dropped-responses"
 offset_commit_proxy_pid=""
+source_ack_crash_dir="$(mktemp -d -t nereus-delay-kafka-target-source-ack-crash.XXXXXX)"
+source_ack_crash_log="${source_ack_crash_dir}/prepare.log"
+source_ack_crash_resume_log="${source_ack_crash_dir}/resume.log"
+source_ack_crash_state_file="${source_ack_crash_dir}/state.properties"
+source_ack_crash_store_root="${source_ack_crash_dir}/target-store"
+source_ack_crash_ready_file="${source_ack_crash_dir}/ready"
+source_ack_crash_launcher_pid=""
 
 cleanup() {
   if [[ -n "${half_open_state_dump_dir}" && -d "${half_open_dir}" ]]; then
@@ -514,6 +530,13 @@ cleanup() {
   if [[ -n "${worker_ack_process_crash_launcher_pid}" ]]; then
     kill "${worker_ack_process_crash_launcher_pid}" >/dev/null 2>&1 || true
     wait "${worker_ack_process_crash_launcher_pid}" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "${source_ack_crash_launcher_pid}" ]]; then
+    if [[ -s "${source_ack_crash_ready_file}" ]]; then
+      source_ack_crash_java_pid="$(<"${source_ack_crash_ready_file}")"
+      kill -KILL "${source_ack_crash_java_pid}" >/dev/null 2>&1 || true
+    fi
+    wait "${source_ack_crash_launcher_pid}" >/dev/null 2>&1 || true
   fi
   if [[ -n "${broker_tcp_proxy_pid}" ]]; then
     touch "${broker_tcp_stop_file}" >/dev/null 2>&1 || true
@@ -550,6 +573,7 @@ cleanup() {
   rm -rf "${broker_tcp_cut_dir}"
   rm -rf "${half_open_dir}"
   rm -rf "${offset_commit_proxy_dir}"
+  rm -rf "${source_ack_crash_dir}"
 }
 trap cleanup EXIT INT TERM
 
@@ -879,8 +903,8 @@ run_k2_smoke() {
   NEREUS_DELAY_KAFKA_K2_COMMIT_READY="${k2_failover_ready}" \
   GRADLE_USER_HOME="${gradle_user_home}" "${k2_command[@]}" >"${k2_failover_log}" 2>&1 &
   k2_failover_pid=$!
-  local deadline=$((SECONDS + 180))
-  while (( SECONDS < deadline )); do
+  source_ack_crash_deadline=$((SECONDS + 180))
+  while (( SECONDS < source_ack_crash_deadline )); do
     if [[ -f "${k2_failover_ready}" ]]; then
       break
     fi
@@ -968,6 +992,96 @@ fi
 wait_for_broker kafka-1
 wait_for_broker kafka-2
 wait_for_broker kafka-3
+
+if [[ "${source_ack_process_crash_only}" == "1" ]]; then
+  start_offset_commit_response_loss_proxy
+  target_worker_source_topic="${KAFKA_DELAY_TARGET_WORKER_SOURCE_TOPIC:-${source_topic}-target-worker-process-crash}"
+  rm -f "${source_ack_crash_state_file}" "${source_ack_crash_ready_file}"
+  GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaTargetWorkerSourceSmoke \
+    "-PkafkaClientJar=${client_jar}" \
+    "-PkafkaBootstrap=${bootstrap_all}" \
+    "-PkafkaTargetSourceTopic=${target_worker_source_topic}" \
+    -PkafkaTargetAckMode=network-response-loss-process-crash \
+    -PkafkaTargetAckCrashPhase=prepare \
+    "-PkafkaTargetAckHoldFile=${offset_commit_proxy_hold_file}" \
+    "-PkafkaTargetAckReleaseFile=${offset_commit_proxy_release_file}" \
+    "-PkafkaTargetAckDroppedFile=${offset_commit_proxy_dropped_file}" \
+    "-PkafkaTargetAckStateFile=${source_ack_crash_state_file}" \
+    "-PkafkaTargetAckStoreRoot=${source_ack_crash_store_root}" \
+    "-PkafkaTargetAckReadyFile=${source_ack_crash_ready_file}" \
+    --no-daemon --console=plain >"${source_ack_crash_log}" 2>&1 &
+  source_ack_crash_launcher_pid=$!
+  source_ack_crash_deadline=$((SECONDS + 180))
+  while (( SECONDS < source_ack_crash_deadline )); do
+    if [[ -s "${source_ack_crash_ready_file}" ]]; then
+      break
+    fi
+    if ! kill -0 "${source_ack_crash_launcher_pid}" >/dev/null 2>&1; then
+      cat "${source_ack_crash_log}" >&2
+      echo "Kafka Target source ACK process-crash JVM exited before its ACK_UNKNOWN cut" >&2
+      exit 1
+    fi
+    sleep 1
+  done
+  if [[ ! -s "${source_ack_crash_ready_file}" || ! -s "${source_ack_crash_state_file}" ]]; then
+    cat "${source_ack_crash_log}" >&2
+    echo "Kafka Target source ACK process-crash JVM did not publish durable recovery state" >&2
+    exit 1
+  fi
+  source_ack_crash_java_pid="$(<"${source_ack_crash_ready_file}")"
+  if ! [[ "${source_ack_crash_java_pid}" =~ ^[1-9][0-9]*$ ]] \
+      || ! kill -0 "${source_ack_crash_java_pid}" >/dev/null 2>&1 \
+      || ! rg -F --quiet "Kafka Target source process-crash cut reached" "${source_ack_crash_log}"; then
+    cat "${source_ack_crash_log}" >&2
+    echo "Kafka Target source ACK crash cut lacks a live JVM or ACK_UNKNOWN receipt" >&2
+    exit 1
+  fi
+  rg -F "Kafka Target source process-crash cut reached" "${source_ack_crash_log}"
+  kill -KILL "${source_ack_crash_java_pid}"
+  set +e
+  wait "${source_ack_crash_launcher_pid}"
+  source_ack_crash_status=$?
+  set -e
+  source_ack_crash_launcher_pid=""
+  if [[ "${source_ack_crash_status}" == "0" ]]; then
+    cat "${source_ack_crash_log}" >&2
+    echo "Kafka Target source ACK JVM unexpectedly returned success after SIGKILL" >&2
+    exit 1
+  fi
+  touch "${offset_commit_proxy_release_file}"
+  if ! rg -q 'apiKey=8 .*brokerResponseReceived=true forwarded=false' \
+      "${offset_commit_proxy_dropped_file}"; then
+    cat "${offset_commit_proxy_dropped_file}" >&2 || true
+    echo "Kafka Target source ACK process-crash path did not record a Broker response drop" >&2
+    exit 1
+  fi
+  GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaTargetWorkerSourceSmoke \
+    "-PkafkaClientJar=${client_jar}" \
+    "-PkafkaBootstrap=${bootstrap_all}" \
+    "-PkafkaTargetSourceTopic=${target_worker_source_topic}" \
+    -PkafkaTargetAckMode=network-response-loss-process-crash \
+    -PkafkaTargetAckCrashPhase=resume \
+    "-PkafkaTargetAckHoldFile=${offset_commit_proxy_hold_file}" \
+    "-PkafkaTargetAckReleaseFile=${offset_commit_proxy_release_file}" \
+    "-PkafkaTargetAckDroppedFile=${offset_commit_proxy_dropped_file}" \
+    "-PkafkaTargetAckStateFile=${source_ack_crash_state_file}" \
+    "-PkafkaTargetAckStoreRoot=${source_ack_crash_store_root}" \
+    "-PkafkaTargetAckReadyFile=${source_ack_crash_ready_file}" \
+    --no-daemon --console=plain >"${source_ack_crash_resume_log}" 2>&1
+  rg -F --quiet "Kafka Target source process-crash recovery passed" "${source_ack_crash_resume_log}" \
+    || { cat "${source_ack_crash_resume_log}" >&2; exit 1; }
+  cat "${source_ack_crash_resume_log}"
+  touch "${offset_commit_proxy_stop_file}"
+  if ! wait "${offset_commit_proxy_pid}"; then
+    cat "${offset_commit_proxy_log}" >&2
+    echo "Kafka OffsetCommit response-loss proxy exited unsuccessfully" >&2
+    exit 1
+  fi
+  offset_commit_proxy_pid=""
+  cat "${offset_commit_proxy_log}"
+  echo "Kafka Target source ACK network-loss/process-crash recovery E2E passed: the first JVM was SIGKILLed at ACK_UNKNOWN after Broker offset 2; a fresh JVM reopened RocksDB, advanced the test Owner epoch, replayed the exact command, and ACKed offset 2."
+  exit 0
+fi
 
 if [[ "${source_ack_network_loss_only}" == "1" ]]; then
   start_offset_commit_response_loss_proxy
