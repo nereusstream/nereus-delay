@@ -1,0 +1,16 @@
+C4 current-source Target Store backend regression
+
+Execution source revision: 58bc3529ff1c2f234ab6f4089db75708374b3245
+
+Command:
+./gradlew test --tests 'com.nereusstream.delay.store.TargetStoreBackendTest' --console=plain
+
+Result: BUILD SUCCESSFUL. JUnit report: 6 tests, 0 skipped, 0 failures, 0 errors.
+
+The real RocksDB tests cover a committed batch surviving reopen, stale prepared-plan fencing, and both sides of an uncertain native write response. For injected failure before db.write, business data, source frontier, quota counters, totals, and aggregate are all absent after reopen. For injected failure after db.write, those same projections are all present after reopen. The test also verifies that an uncertain result fences reads before reopen.
+
+SHA-256:
+35d7b2725f4568dcaec7198a6c2b64116aece73f62f283e5f595b425fd41c3a9 src/test/java/com/nereusstream/delay/store/TargetStoreBackendTest.java
+17a6a4d3194175c36aca5ffbd14df4dcb91e92f52ddd01c7bfeb1ac42e7f4338 src/main/java/com/nereusstream/delay/store/TargetStoreBackend.java
+
+Scope: local RocksDB batch atomicity and stale-plan evidence only. It does not certify production authority wiring, full recovery/migration, or centralized C4 acceptance. C4 remains IN_PROGRESS.

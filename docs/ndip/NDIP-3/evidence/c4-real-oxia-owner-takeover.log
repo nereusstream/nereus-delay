@@ -1,0 +1,30 @@
+C4 real Oxia Owner takeover and Target root reopen
+
+Delay source revision: 58bc3529ff1c2f234ab6f4089db75708374b3245
+Oxia source revision: 37a17bef17202d5fd6e23282da5fd26d94865484
+Locked Oxia client dependency: io.github.oxia-db:oxia-client:0.9.0
+
+Command:
+NEREUS_DELAY_OXIA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/oxia NEREUS_DELAY_OXIA_E2E_PORT=16649 ./e2e/run-oxia-real-service.sh
+
+Result: Dockerized Oxia real-service script passed. JUnit reported
+TargetQuotaGrantStoreTest.realOxiaOwnerTakeoverReopensTargetRootAndCompletesCloseGc:
+1 test, 0 skipped, 0 failures, 0 errors. The complete script run had 17 passed,
+6 skipped, 0 failures, and 0 errors. The other skips were separate optional
+fresh-process, route-restart, or MinIO scenarios whose prerequisites were not configured.
+
+The targeted case used a real Oxia service and RocksDB Store for Owner takeover,
+guarded root reopen, activation, exact lease retry, and bounded queued Close-GC.
+Assignment, SourcePosition, Control registration, StartAuthority, and the source
+consumer remain test fixtures. This does not establish production provider or
+application Host wiring, source apply/ACK fencing, full recovery/migration, or
+centralized C4 acceptance.
+
+SHA-256:
+5b6e2be93f78131eb5f9de49a772698c5eeda17aae29ff918339c5b1cd92e286 src/test/java/com/nereusstream/delay/runtime/TargetQuotaGrantStoreTest.java
+2f11a5908ac863d627722c64773482f8e700feeb70a56cff9c33c201a1a6db4e e2e/run-oxia-real-service.sh
+6bfc9680f5b373210c8a623d6cdc50d113bc484a0a7fdc5a3a3ce1d7ceda39e e2e/docker-compose.oxia.yml
+6a1e94a21170d7c366c0b36d8110343188c379c0d49527fb0770d3c420ef3f46 build.gradle
+
+The temporary Compose service was removed by the harness; a follow-up process
+check found only the unrelated connector container and no listener on port 16649.
