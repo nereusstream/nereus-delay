@@ -123,7 +123,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                 AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, 10_000);
         try (Admin admin = Admin.create(adminConfig)) {
             try {
-            admin.createTopics(List.of(new NewTopic(topic, 1, (short) 1))).all().get(30, TimeUnit.SECONDS);
+            admin.createTopics(List.of(new NewTopic(topic, 2, (short) 1))).all().get(30, TimeUnit.SECONDS);
             final String clusterId = admin.describeCluster().clusterId().get(10, TimeUnit.SECONDS);
             final Uuid topicId = admin.describeTopics(List.of(topic))
                     .allTopicNames()
@@ -172,6 +172,52 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                 throw new IllegalStateException("fresh Kafka Target source did not start at offsets 0 and 1");
             }
 
+            final boolean exerciseSibling = ackInjection.networkResponseLoss()
+                    && ackInjection.crashPhase() == CrashPhase.NONE;
+            final ShardId siblingShard = new ShardId(shard.routeIncarnation(), 1);
+            final TargetQuotaScope siblingScope = new TargetQuotaScope(
+                    siblingShard, Bytes.sha256(Bytes.utf8("target-source-tenant")), null);
+            final RootControl siblingRootControl;
+            final PreparedCommand siblingCommand;
+            final org.apache.kafka.clients.producer.RecordMetadata siblingRootMetadata;
+            final org.apache.kafka.clients.producer.RecordMetadata siblingCommandMetadata;
+            if (exerciseSibling) {
+                siblingRootControl = firstGrant(siblingScope, siblingShard, sourceTime, actor, signingKeys);
+                final long siblingCommandTime = Math.addExact(sourceTime, 2);
+                final var siblingRoutingId =
+                        SelfRoutingId.uuidV7(siblingCommandTime, new java.security.SecureRandom());
+                final var siblingCommandId =
+                        new CommandId(SelfRoutingId.fromLogicalUuid(siblingShard, siblingRoutingId).bytes());
+                siblingCommand = PreparedCommand.cancel(
+                        siblingShard,
+                        siblingCommandId,
+                        DelayMessageId.random(siblingShard),
+                        new MessagePrecondition(null, null),
+                        Math.addExact(siblingCommandTime, 600_000));
+                siblingRootMetadata = produce(
+                        bootstrap,
+                        topic,
+                        siblingShard.partition(),
+                        siblingCommandTime,
+                        siblingRootControl.mutation().systemMutationId(),
+                        siblingRootControl.mutation().encodeFrame());
+                siblingCommandMetadata = produce(
+                        bootstrap,
+                        topic,
+                        siblingShard.partition(),
+                        Math.addExact(siblingCommandTime, 1),
+                        siblingCommand.commandId().bytes(),
+                        com.nereusstream.delay.protocol.CommandCodec.encodeFrame(siblingCommand));
+                if (siblingRootMetadata.offset() != 0 || siblingCommandMetadata.offset() != 1) {
+                    throw new IllegalStateException("fresh Kafka sibling Shard did not start at offsets 0 and 1");
+                }
+            } else {
+                siblingRootControl = null;
+                siblingCommand = null;
+                siblingRootMetadata = null;
+                siblingCommandMetadata = null;
+            }
+
             final var source = new KafkaSourcePosition(
                     shard,
                     clusterId,
@@ -206,6 +252,62 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                 final Path storeRoot = preserveStore
                         ? ackInjection.storeRoot()
                         : Files.createTempDirectory("nereus-delay-kafka-target-source-");
+                final CheckedAction siblingProgress = exerciseSibling
+                        ? () -> {
+                            final var siblingSource = new KafkaSourcePosition(
+                                    siblingShard,
+                                    clusterId,
+                                    toUuid(topicId),
+                                    siblingRootMetadata.offset(),
+                                    null,
+                                    siblingRootMetadata.timestamp());
+                            final var siblingAssignment = new com.nereusstream.delay.ownership.SourceAssignment(
+                                    siblingShard,
+                                    Bytes.sha256(Bytes.utf8("target-source-assignment-" + UUID.randomUUID())),
+                                    1,
+                                    new KafkaActivationBarrier(siblingShard, clusterId, toUuid(topicId), 1));
+                            final var siblingAcquiring = leases.acquire(
+                                            siblingAssignment,
+                                            "target-source-sibling-owner-" + UUID.randomUUID(),
+                                            ownerSessionIdentity,
+                                            System.currentTimeMillis(),
+                                            60_000)
+                                    .orElseThrow(() -> new IllegalStateException(
+                                            "test sibling Owner lease acquisition failed"));
+                            final Path siblingStoreRoot = Files.createTempDirectory(
+                                    "nereus-delay-kafka-target-source-sibling-");
+                            try {
+                                runTargetSourceTurn(
+                                        admin,
+                                        bootstrap,
+                                        topic,
+                                        groupId,
+                                        clusterId,
+                                        toUuid(topicId),
+                                        siblingScope,
+                                        siblingSource,
+                                        siblingAssignment,
+                                        siblingAcquiring,
+                                        leases,
+                                        ownerSessionIdentity,
+                                        null,
+                                        actor,
+                                        signingKeys,
+                                        siblingRootControl,
+                                        siblingCommand,
+                                        siblingCommandMetadata.offset(),
+                                        siblingStoreRoot,
+                                        AckInjection.acked(),
+                                        null);
+                            } finally {
+                                leases.current(siblingShard).ifPresent(leases::release);
+                                deleteTree(siblingStoreRoot);
+                            }
+                            System.out.println(
+                                    "Kafka Target sibling Shard progressed while the first Shard retained "
+                                            + "ACK_UNKNOWN: partition=1, brokerOffset=2, status=APPLIED_AND_ACKED.");
+                        }
+                        : null;
                 try {
                     if (preserveStore) {
                         Files.createDirectories(storeRoot);
@@ -230,7 +332,8 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                             command,
                             commandMetadata.offset(),
                             storeRoot,
-                            ackInjection);
+                            ackInjection,
+                            siblingProgress);
                 } finally {
                     if (!preserveStore) {
                         deleteTree(storeRoot);
@@ -341,7 +444,8 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
             final PreparedCommand command,
             final long commandOffset,
             final Path storeRoot,
-            final AckInjection ackInjection) throws Exception {
+            final AckInjection ackInjection,
+            final CheckedAction siblingProgress) throws Exception {
         final var config = ShardStoreConfig.defaults(storeRoot);
         final var registration = new InMemoryControlTargetRegistrationAuthority();
         registration.register(rootControl.prepared());
@@ -458,7 +562,10 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                     sourceRuntime,
                     maintenance);
             try {
-                final SourceApplyCoordinator.TurnResult result = runUntilAckUnknown(worker);
+                final boolean expectAckUnknown = ackInjection.mode() != AckMode.NO_INJECTION;
+                final SourceApplyCoordinator.TurnResult result = expectAckUnknown
+                        ? runUntilAckUnknown(worker)
+                        : runUntilApplied(worker);
                 if (ackInjection.networkResponseLoss()) {
                     final String dropped = Files.exists(ackInjection.droppedResponseFile())
                             ? Files.readString(ackInjection.droppedResponseFile())
@@ -480,15 +587,21 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                         && replayPosition.offset() == commandOffset
                         && clusterId.equals(replayPosition.authenticatedClusterId())
                         && topicId.equals(replayPosition.nativeTopicUuid());
-                if (result.status() != SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN
+                final StableCode resultCode = result.appliedOutcome() == null
+                        ? null
+                        : result.appliedOutcome().commandResult().stableCode();
+                if (result.status() != (expectAckUnknown
+                                ? SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN
+                                : SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED)
                         || !exactCommand
                         || !exactPosition
-                        || result.appliedOutcome() != null
-                        || !ackResponseLost.get()) {
+                        || (expectAckUnknown && result.appliedOutcome() != null)
+                        || (!expectAckUnknown && resultCode != StableCode.NOT_FOUND)
+                        || ackResponseLost.get() != expectAckUnknown) {
                     throw new IllegalStateException(
-                            "real Kafka Target Worker did not preserve ACK UNKNOWN after commitSync: status="
+                            "real Kafka Target Worker produced an unexpected source turn: status="
                                     + result.status() + ", exactCommand=" + exactCommand + ", exactPosition="
-                                    + exactPosition + ", appliedOutcome=" + result.appliedOutcome()
+                                    + exactPosition + ", resultCode=" + resultCode
                                     + ", ackResponseLost=" + ackResponseLost.get() + ", entry=" + result.entry()
                                     + ", failure="
                                     + result.failure());
@@ -511,6 +624,18 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                             command, commandOffset, active.ownerEpoch(), ownerLeasePrefix);
                 } else if (ackInjection.networkResponseLoss()) {
                     Files.writeString(ackInjection.releaseFile(), "release\n");
+                    if (siblingProgress != null) {
+                        final var pendingBeforeSibling = worker.pendingSourceEntry().orElseThrow(() ->
+                                new IllegalStateException("first Shard lost its ACK_UNKNOWN obligation"));
+                        final long mutationBeforeSibling = store.shardMutationSequence();
+                        siblingProgress.run();
+                        if (!worker.pendingSourceEntry().filter(pendingBeforeSibling::equals).isPresent()
+                                || store.shardMutationSequence() != mutationBeforeSibling
+                                || !active.sameIdentity(leases.current(scope.shard()).orElseThrow())) {
+                            throw new IllegalStateException(
+                                    "sibling source progress changed the first Shard ACK_UNKNOWN state");
+                        }
+                    }
                 }
             } finally {
                 if (worker.pendingSourceEntry().isPresent()) {
@@ -541,21 +666,23 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                 leases.release(acquiring);
             }
         }
-        runTargetSourceReplayAfterUnknown(
-                admin,
-                bootstrap,
-                topic,
-                groupId,
-                clusterId,
-                topicId,
-                scope,
-                assignment,
-                leases,
-                ownerSessionIdentity,
-                command,
-                commandOffset,
-                config,
-                ackInjection.mode());
+        if (ackInjection.mode() != AckMode.NO_INJECTION) {
+            runTargetSourceReplayAfterUnknown(
+                    admin,
+                    bootstrap,
+                    topic,
+                    groupId,
+                    clusterId,
+                    topicId,
+                    scope,
+                    assignment,
+                    leases,
+                    ownerSessionIdentity,
+                    command,
+                    commandOffset,
+                    config,
+                    ackInjection.mode());
+        }
     }
 
     private static long runTargetSourceReplayAfterUnknown(
@@ -1048,6 +1175,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
     }
 
     private enum AckMode {
+        NO_INJECTION,
         CLIENT_DELEGATE_RESPONSE_LOSS,
         NETWORK_RESPONSE_LOSS
     }
@@ -1067,6 +1195,11 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
             Path stateFile,
             Path storeRoot,
             Path readyFile) {
+        private static AckInjection acked() {
+            return new AckInjection(
+                    AckMode.NO_INJECTION, null, null, null, CrashPhase.NONE, null, null, null);
+        }
+
         private static AckInjection from(final String[] arguments) {
             if (arguments.length == 2) {
                 return new AckInjection(
@@ -1105,6 +1238,11 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
         private boolean networkResponseLoss() {
             return mode == AckMode.NETWORK_RESPONSE_LOSS;
         }
+    }
+
+    @FunctionalInterface
+    private interface CheckedAction {
+        void run() throws Exception;
     }
 
     private record RootControl(PreparedControlOperation prepared, SystemMutation mutation) {}
