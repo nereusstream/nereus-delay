@@ -50,3 +50,23 @@ Result: BUILD SUCCESSFUL. Both guarded appends returned the exact Shard source a
 Validation: `compileRealKafka`, `checkstyleTest`, `checkDocumentation`, and this single-node K1 smoke passed.
 
 Scope limits: the signed expiry targets a deliberately missing Message and uses test-only signing/time/authority fixtures. This proves guarded K1 append combined with Target Source Apply and duplicate replay; it does not exercise automatic expiry discovery, handoff settlement for a scheduled Message, three-broker failover, production authority providers, ACK response loss, Owner takeover/recovery, migration, or central C1 acceptance. The Docker three-broker attempt above remains blocked before broker startup by the base-image transfer issue.
+
+Follow-up: Target expiry ACK response loss and retained-entry retry
+Date: 2026-10-02
+
+Source lock:
+- Delay base HEAD: a9650d8368c63ab37bb66c442e2542e5e37e444a
+- Tested `KafkaClientArtifactTargetWorkerSourceSmoke.java` SHA-256: 19e64c3fe9d11e5c13fba30ff661feb79dbdc843b224dbab3be45925e10c2b20
+- K1 checkout HEAD: 05849884ca81fad767fda058444d1e17c7f9cbf9
+- K1 client artifact SHA-256: 1853eceecc76db8070a7c07c7897fc0eda45ad0bf15a95ae8100470ff43e5146
+
+Runtime: Kafka 4.4.0-SNAPSHOT ran directly from the locked K1 checkout as a single KRaft broker/controller on 127.0.0.1:29092/29093. Cluster ID was `ZBwKhKNLT2KEYds0vl_Jlw`; replication factors for offsets and transaction state were 1. The task-created broker data directory was removed after the run.
+
+Command:
+`./gradlew runRealKafkaTargetWorkerSourceSmoke -PkafkaClientJar=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1/clients/build/libs/kafka-clients-4.4.0-SNAPSHOT.jar -PkafkaBootstrap=127.0.0.1:29092 -PkafkaTargetSourceTopic=c1-target-expire-not-found-ack-loss-final -PkafkaTargetScenario=target-expire-not-found-ack-loss --no-daemon --console=plain`
+
+Result: `BUILD SUCCESSFUL in 18s`. The first Cancel record at offset 1 applied and ACKed. The signed EXPIRE_GENERATION at offset 2 applied as `APPLIED/NOT_FOUND`; an in-process `GuardedConsumer` wrapper invoked the real one-argument `commitSync`, waited for it to return successfully, then threw to simulate loss of the response. The Host returned `ACK_UNKNOWN` with the exact expiry entry still pending; Store source frontier was offset 2 and the Broker group committed offset was 3. The same Host retried ACK for that retained entry, returned `APPLIED_AND_ACKED` with the cached `NOT_FOUND`, and left both Store sequence and shard mutation sequence unchanged; expiry authority was resolved once and Broker group offset stayed 3. The exact duplicate at offset 3 then replayed the immutable result and was ACKed; Store frontier reached offset 3 and group offset 4.
+
+Validation: the smoke task compiled the current `compileRealKafka` source set. `checkstyleRealKafka` passed. `checkstyleTest`, `checkDocumentation`, `bash -n e2e/run-kafka-real-client-e2e.sh`, and `git diff --check` were also run for this update.
+
+Scope limits: this is a single-node K1 Broker and an in-process response-loss wrapper after the Kafka client reports commit success. It does not inject TCP/network loss, replace the Owner, test automatic expiry discovery or expiry of an existing scheduled Message, exercise three-broker failover, or complete centralized C1 validation. C1 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.

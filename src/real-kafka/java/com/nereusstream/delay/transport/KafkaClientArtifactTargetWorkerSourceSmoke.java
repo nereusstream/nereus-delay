@@ -83,6 +83,7 @@ import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.NewTopic;
@@ -107,15 +108,20 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
         if (arguments.length != 2 && arguments.length != 3 && arguments.length != 6 && arguments.length != 10) {
             throw new IllegalArgumentException("usage: <bootstrap-server> <source-topic-prefix> "
                     + "[no-injection | store-write-response-unknown | target-expire-not-found | "
+                    + "target-expire-not-found-ack-loss | "
                     + "network-response-loss "
                     + "<hold-file> <release-file> <dropped-response-file>] "
                     + "[network-response-loss-process-crash <phase> <hold-file> <release-file> "
                     + "<dropped-response-file> <state-file> <store-root> <ready-file>]");
         }
         final String bootstrap = arguments[0];
+        final String scenario = arguments.length == 3 ? arguments[2] : "";
+        final boolean targetExpiryAckResponseLoss = "target-expire-not-found-ack-loss".equals(scenario);
         final boolean targetExpiryNotFound =
-                arguments.length == 3 && "target-expire-not-found".equals(arguments[2]);
-        final AckInjection ackInjection = targetExpiryNotFound ? AckInjection.acked() : AckInjection.from(arguments);
+                targetExpiryAckResponseLoss || "target-expire-not-found".equals(scenario);
+        final AckInjection ackInjection = targetExpiryAckResponseLoss
+                ? AckInjection.withExpiryAckResponseLoss()
+                : targetExpiryNotFound ? AckInjection.acked() : AckInjection.from(arguments);
         if (ackInjection.crashPhase() == CrashPhase.RESUME) {
             replayAfterProcessCrash(bootstrap, ackInjection);
             return;
@@ -361,6 +367,9 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                     case NO_INJECTION -> "Broker OffsetCommit response reached the Kafka client";
                     case CLIENT_DELEGATE_RESPONSE_LOSS ->
                         "simulated lost commitSync response after the Kafka client returned success";
+                    case EXPIRY_ACK_RESPONSE_LOSS ->
+                        "in-process wrapper lost expiry commitSync response after "
+                                + "the Kafka client returned success";
                     case STORE_WRITE_RESPONSE_UNKNOWN ->
                         "RocksDB applied the source batch but its native write response was lost before source ACK";
                     case NETWORK_RESPONSE_LOSS ->
@@ -374,6 +383,12 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                     System.out.println("  replacement Owner reopened RocksDB, replayed the exact Broker record "
                             + "without another Store write, and confirmed group offset 2; TopicId/partition guard "
                             + "verified.");
+                } else if (ackInjection.expiryAckResponseLoss()) {
+                    System.out.println("Kafka Target source factory: first grant at offset 0; Cancel at offset 1 "
+                            + "was applied and ACKed; EXPIRE_GENERATION applied with NOT_FOUND; "
+                            + failureBoundary + ".");
+                    System.out.println("  the Worker retained the exact applied source entry and retried only "
+                            + "the ACK, without another Store write; TopicId/partition guard verified.");
                 } else {
                     System.out.println("Kafka Target source factory: first grant at offset 0; Cancel at offset 1 "
                             + "applied; " + failureBoundary + ";");
@@ -620,9 +635,11 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
             final var consumer = newSourceConsumer(
                     bootstrap, groupId, clusterId, topic, topicId, scope.shard(), ackInjection.mode());
             final var ackResponseLost = new AtomicBoolean();
-            final var guardedConsumer = ackInjection.mode() == AckMode.CLIENT_DELEGATE_RESPONSE_LOSS
-                    ? loseFirstCommitSyncResponse(consumer, ackResponseLost)
-                    : consumer;
+            final var guardedConsumer = switch (ackInjection.mode()) {
+                case CLIENT_DELEGATE_RESPONSE_LOSS -> loseCommitSyncResponse(consumer, ackResponseLost, 1);
+                case EXPIRY_ACK_RESPONSE_LOSS -> loseCommitSyncResponse(consumer, ackResponseLost, 2);
+                default -> consumer;
+            };
             final var maintenance = new TargetWorkerShardRuntime.Maintenance(
                     closeControls,
                     new com.nereusstream.delay.ownership.TargetReservationClosureWorkClassExecutor.Limits(
@@ -809,7 +826,61 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                     }
                 }
                 if (expiryFixture != null) {
-                    final var firstExpiryTurn = runUntilAppliedByHost(host);
+                    final SourceApplyCoordinator.TurnResult firstExpiryTurn;
+                    if (ackInjection.expiryAckResponseLoss()) {
+                        final var unknownExpiryTurn = runUntilAckUnknownByHost(host);
+                        if (unknownExpiryTurn.status() != SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN
+                                || !(unknownExpiryTurn.entry() instanceof com.nereusstream.delay.ownership
+                                        .SourceReplayMutation unknownExpiryEntry)
+                                || !expiryFixture.mutation().equals(unknownExpiryEntry.mutation())
+                                || !(unknownExpiryEntry.position() instanceof KafkaSourcePosition unknownPosition)
+                                || unknownPosition.offset() != commandOffset + 1
+                                || !ackResponseLost.get()
+                                || worker.pendingSourceEntry().filter(unknownExpiryEntry::equals).isEmpty()
+                                || expiryAuthorityResolutions.get() != 1) {
+                            throw new IllegalStateException(
+                                    "Target expiry ACK response loss did not retain the exact applied Broker record");
+                        }
+                        final var sourceAfterUnknown = store.appliedShardLogPosition();
+                        final long sequenceAfterUnknown = store.latestSequenceNumber();
+                        final long mutationsAfterUnknown = store.shardMutationSequence();
+                        if (!(sourceAfterUnknown instanceof KafkaSourcePosition appliedExpiryPosition)
+                                || appliedExpiryPosition.offset() != commandOffset + 1) {
+                            throw new IllegalStateException(
+                                    "Target Store did not durably apply expiry before Broker ACK response loss");
+                        }
+                        final var committedAfterUnknown = admin.listConsumerGroupOffsets(groupId)
+                                .partitionsToOffsetAndMetadata()
+                                .get(10, TimeUnit.SECONDS)
+                                .get(new TopicPartition(topic, scope.shard().partition()));
+                        if (committedAfterUnknown == null || committedAfterUnknown.offset() != commandOffset + 2) {
+                            throw new IllegalStateException(
+                                    "Kafka Broker did not commit expiry offset before its response was lost");
+                        }
+
+                        firstExpiryTurn = runUntilAppliedByHost(host);
+                        if (firstExpiryTurn.status() != SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED
+                                || !unknownExpiryEntry.equals(firstExpiryTurn.entry())
+                                || firstExpiryTurn.appliedOutcome() == null
+                                || firstExpiryTurn.appliedOutcome().systemMutationResult().stableCode()
+                                        != StableCode.NOT_FOUND
+                                || worker.pendingSourceEntry().isPresent()
+                                || store.latestSequenceNumber() != sequenceAfterUnknown
+                                || store.shardMutationSequence() != mutationsAfterUnknown
+                                || expiryAuthorityResolutions.get() != 1) {
+                            throw new IllegalStateException(
+                                    "Target expiry ACK retry reapplied Store state or changed the pending entry");
+                        }
+                        final var committedAfterRetry = admin.listConsumerGroupOffsets(groupId)
+                                .partitionsToOffsetAndMetadata()
+                                .get(10, TimeUnit.SECONDS)
+                                .get(new TopicPartition(topic, scope.shard().partition()));
+                        if (committedAfterRetry == null || committedAfterRetry.offset() != commandOffset + 2) {
+                            throw new IllegalStateException("Kafka expiry ACK retry changed the committed frontier");
+                        }
+                    } else {
+                        firstExpiryTurn = runUntilAppliedByHost(host);
+                    }
                     if (firstExpiryTurn.status() != SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED
                             || !(firstExpiryTurn.entry() instanceof com.nereusstream.delay.ownership
                                     .SourceReplayMutation firstExpiryEntry)
@@ -859,6 +930,12 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                             "Kafka Target EXPIRE_GENERATION first application and immutable duplicate replay passed: "
                                     + "Broker offsets " + (commandOffset + 1) + "/" + (commandOffset + 2)
                                     + " ACKed; expiry authority resolved once.");
+                    if (ackInjection.expiryAckResponseLoss()) {
+                        System.out.println(
+                                "Kafka Target EXPIRE_GENERATION ACK response-loss recovery passed: the Broker "
+                                        + "committed the first expiry offset before the client lost the response; "
+                                        + "retry ACKed the retained entry without another Store write.");
+                    }
                 }
             } finally {
                 if (host != null) {
@@ -909,7 +986,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                 leases.release(acquiring);
             }
         }
-        if (ackInjection.mode() != AckMode.NO_INJECTION) {
+        if (ackInjection.mode() != AckMode.NO_INJECTION && !ackInjection.expiryAckResponseLoss()) {
             runTargetSourceReplayAfterUnknown(
                     admin,
                     bootstrap,
@@ -1106,16 +1183,21 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
     }
 
     @SuppressWarnings("unchecked")
-    private static GuardedConsumer<byte[], byte[]> loseFirstCommitSyncResponse(
-            final GuardedConsumer<byte[], byte[]> delegate, final AtomicBoolean observed) {
-        final var injected = new AtomicBoolean();
+    private static GuardedConsumer<byte[], byte[]> loseCommitSyncResponse(
+            final GuardedConsumer<byte[], byte[]> delegate,
+            final AtomicBoolean observed,
+            final int commitInvocationToLose) {
+        if (commitInvocationToLose <= 0) {
+            throw new IllegalArgumentException("commit invocation to lose must be positive");
+        }
+        final var commitInvocations = new AtomicInteger();
         return (GuardedConsumer<byte[], byte[]>) Proxy.newProxyInstance(
                 KafkaClientArtifactTargetWorkerSourceSmoke.class.getClassLoader(),
                 new Class<?>[] {GuardedConsumer.class},
                 (proxy, method, arguments) -> {
                     if (method.getName().equals("commitSync")
                             && method.getParameterCount() == 1
-                            && injected.compareAndSet(false, true)) {
+                            && commitInvocations.incrementAndGet() == commitInvocationToLose) {
                         try {
                             method.invoke(delegate, arguments);
                         } catch (InvocationTargetException failure) {
@@ -1192,6 +1274,27 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
             }
         } while (System.nanoTime() < deadline);
         throw new IllegalStateException("real Kafka Target source record did not apply before the deadline");
+    }
+
+    private static SourceApplyCoordinator.TurnResult runUntilAckUnknownByHost(final TargetWorkerHostRuntime host) {
+        final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
+        SourceApplyCoordinator.TurnResult result;
+        do {
+            result = host.runNextSourceTurn(
+                            new SchedulerBudget(64, 4L << 20, TimeUnit.SECONDS.toNanos(10)),
+                            System::currentTimeMillis)
+                    .result();
+            if (result.status() == SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN) {
+                return result;
+            }
+            if (result.status() != SourceApplyCoordinator.TurnStatus.WAITING_FOR_SOURCE
+                    && result.status() != SourceApplyCoordinator.TurnStatus.WAITING_FOR_WORK_CLASS) {
+                throw new IllegalStateException(
+                        "real Kafka Target Worker Host did not reach the ACK uncertainty cut: " + result.status(),
+                        result.failure());
+            }
+        } while (System.nanoTime() < deadline);
+        throw new IllegalStateException("real Kafka Target source did not reach ACK UNKNOWN before the deadline");
     }
 
     private static SourceApplyCoordinator.TurnResult runUntilAckUnknown(final TargetWorkerShardRuntime worker) {
@@ -1470,6 +1573,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
     private enum AckMode {
         NO_INJECTION,
         CLIENT_DELEGATE_RESPONSE_LOSS,
+        EXPIRY_ACK_RESPONSE_LOSS,
         STORE_WRITE_RESPONSE_UNKNOWN,
         NETWORK_RESPONSE_LOSS
     }
@@ -1492,6 +1596,11 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
         private static AckInjection acked() {
             return new AckInjection(
                     AckMode.NO_INJECTION, null, null, null, CrashPhase.NONE, null, null, null);
+        }
+
+        private static AckInjection withExpiryAckResponseLoss() {
+            return new AckInjection(
+                    AckMode.EXPIRY_ACK_RESPONSE_LOSS, null, null, null, CrashPhase.NONE, null, null, null);
         }
 
         private static AckInjection from(final String[] arguments) {
@@ -1542,6 +1651,10 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
 
         private boolean storeWriteResponseUnknown() {
             return mode == AckMode.STORE_WRITE_RESPONSE_UNKNOWN;
+        }
+
+        private boolean expiryAckResponseLoss() {
+            return mode == AckMode.EXPIRY_ACK_RESPONSE_LOSS;
         }
 
         private boolean acknowledgementResponseUnknown() {
