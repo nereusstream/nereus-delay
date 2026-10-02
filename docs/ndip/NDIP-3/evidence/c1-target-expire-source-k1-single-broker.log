@@ -26,3 +26,27 @@ Result: BUILD SUCCESSFUL in 14s. The smoke confirmed the first signed EXPIRE_GEN
 The single-node Broker briefly returned NOT_COORDINATOR during initial group-offset coordinator setup; the Kafka consumer rediscovered the coordinator, and the final committed-offset assertions passed.
 
 Scope limits: expiry signing, time evidence, and authority resolution are test fixtures. This is a real single-node K1 Broker/Target Worker Source Apply check; it does not exercise the three-broker runner, Broker failover, expiry producer/Host assembly, production authority providers, ACK response loss, Owner takeover/recovery, or central C1 acceptance. The three-broker Docker runner was separately canceled before broker startup because the eclipse-temurin:21-jre base-image download remained near 2.1 MiB after about five minutes.
+
+Follow-up: guarded K1 expiry append and Target Source Apply
+Date: 2026-10-02
+
+Source lock:
+- Delay source commit: f451844fd0ae242dd80da23fa1de1fa63f4a951b
+- K1 checkout commit: 05849884ca81fad767fda058444d1e17c7f9cbf9
+- K1 client artifact SHA-256: 1853eceecc76db8070a7c07c7897fc0eda45ad0bf15a95ae8100470ff43e5146
+
+The Target source smoke now creates its unique Kafka topic with `message.timestamp.type=LogAppendTime` and appends both identical EXPIRE_GENERATION records through `KafkaClientArtifactShardLogMutationAppender`. The appender requires the exact authenticated cluster, TopicId, partition, and Broker source position before the records are accepted by the smoke.
+
+Command (run from nereus-delay):
+./gradlew runRealKafkaTargetWorkerSourceSmoke \
+  -PkafkaClientJar=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1/clients/build/libs/kafka-clients-4.4.0-SNAPSHOT.jar \
+  -PkafkaBootstrap=127.0.0.1:29092 \
+  -PkafkaTargetSourceTopic=c1-target-expire-not-found-guarded-appender \
+  -PkafkaTargetScenario=target-expire-not-found \
+  --no-daemon --console=plain
+
+Result: BUILD SUCCESSFUL. Both guarded appends returned the exact Shard source at offsets 2 and 3. Target Source Apply ACKed the first signed mutation as APPLIED/NOT_FOUND and ACKed the exact duplicate by replaying its immutable NOT_FOUND result; expiry authority resolved once, the Target Store source frontier reached offset 3, and the Broker consumer-group offset reached 4. The Host lifecycle and initial Cancel source-turn checks also passed. The Broker emitted transient NOT_COORDINATOR warnings during group-offset coordinator setup; final offset assertions passed.
+
+Validation: `compileRealKafka`, `checkstyleTest`, `checkDocumentation`, and this single-node K1 smoke passed.
+
+Scope limits: the signed expiry targets a deliberately missing Message and uses test-only signing/time/authority fixtures. This proves guarded K1 append combined with Target Source Apply and duplicate replay; it does not exercise automatic expiry discovery, handoff settlement for a scheduled Message, three-broker failover, production authority providers, ACK response loss, Owner takeover/recovery, migration, or central C1 acceptance. The Docker three-broker attempt above remains blocked before broker startup by the base-image transfer issue.
