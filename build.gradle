@@ -55,6 +55,8 @@ sourceSets {
     }
     realKafka {
         java.srcDir('src/real-kafka/java')
+        resources.srcDir('src/test/resources')
+        resources.include('ndip3/target-compatibility-vectors.properties')
     }
     realPulsar {
         java.srcDir('src/real-pulsar/java')
@@ -254,13 +256,14 @@ tasks.register('runRealKafkaTargetWorkerSourceSmoke', JavaExec) {
         if (findProperty('kafkaTargetAckMode') != null || findProperty('kafkaTargetAckCrashPhase') != null
                 || !(findProperty('kafkaTargetScenario') in [
                     'target-expire-not-found', 'target-expire-not-found-ack-loss',
-                    'target-expire-not-found-ack-loss-reopen'
+                    'target-expire-not-found-ack-loss-reopen', 'target-expire-scheduled-message'
                 ])) {
             doFirst {
                 throw new GradleException(
                         'kafkaTargetScenario supports target-expire-not-found and '
                                 + 'target-expire-not-found-ack-loss and '
-                                + 'target-expire-not-found-ack-loss-reopen only and cannot combine with ACK modes')
+                                + 'target-expire-not-found-ack-loss-reopen and '
+                                + 'target-expire-scheduled-message only and cannot combine with ACK modes')
             }
         }
         args project.ext.optionalRealTaskArgument.call(findProperty('kafkaTargetScenario'))
@@ -1174,6 +1177,12 @@ tasks.named('checkstyleTest').configure {
 // both in the same invocation so Gradle never observes an implicit producer.
 tasks.named('checkstyleRealPulsar').configure {
     mustRunAfter tasks.named('compileRealPulsar')
+}
+
+// The opt-in compiler writes the realKafka source-set output that Checkstyle
+// analyzes. Order both when requested without making K1 artifacts a default check dependency.
+tasks.named('checkstyleRealKafka').configure {
+    mustRunAfter tasks.named('compileRealKafka')
 }
 
 spotless {

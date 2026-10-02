@@ -90,3 +90,23 @@ Result: `BUILD SUCCESSFUL in 18s`. The test wrapper waited for the real `commitS
 Validation: the smoke task compiled the current `compileRealKafka` source set. The existing `target-expire-not-found-ack-loss` same-Host retry scenario also passed against the same single-node Broker. Separate `checkstyleRealKafka`, `checkDocumentation`, `bash -n e2e/run-kafka-real-client-e2e.sh`, `python3 -m json.tool docs/ndip/NDIP-3/progress.json`, and `git diff --check` results are recorded with this follow-up in the execution record.
 
 Scope limits: the Broker and guarded Kafka client are real, but ACK response loss is injected in-process after `commitSync` returns success, and the Owner lease backend is in-memory within the same JVM. This does not test TCP/network loss, JVM termination, a live Oxia lease takeover, ACK loss before Broker commit, a scheduled Message's real expiry handoff, three-broker failover, production authority providers, migration, or central C1 acceptance. C1 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
+
+
+Follow-up: automatic discovery and expiry of an existing scheduled Target Message
+Date: 2026-10-02
+
+Source lock:
+- Delay base HEAD: 9027e3472319da8f0a65dee14563f714721ddfc4
+- Tested `KafkaClientArtifactTargetWorkerSourceSmoke.java` SHA-256: f35ca70431c30be42a8f67180b6cb2b428c276c3eb45a04e59fe3f57bf1e27ec
+- Tested `KafkaClientArtifactTargetScheduledExpirySmoke.java` SHA-256: c3734a9d0ed45a4f0d2f2a5db4f44cb5c216b7c20e94382aacb46e79392ccdeb
+- K1 checkout HEAD: 05849884ca81fad767fda058444d1e17c7f9cbf9
+- K1 client artifact SHA-256: 1c83ae777c364be833f7c8ff31f1fdeb28dafd5eb3998f0246e7d226a543cbe0
+
+Runtime: Kafka 4.4.0-SNAPSHOT ran from that locked K1 checkout as a single KRaft broker/controller on 127.0.0.1:29092/29093. Cluster ID was `K4hVO5VuSWGElmciwfsE6w`; offsets and transaction-state replication factors were 1. The Broker used `LogAppendTime`; task-created broker data and logs were removed after the run.
+
+Command (run from nereus-delay):
+`./gradlew runRealKafkaTargetWorkerSourceSmoke -PkafkaClientJar=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1/clients/build/libs/kafka-clients-4.4.0-SNAPSHOT.jar -PkafkaBootstrap=127.0.0.1:29092 -PkafkaTargetSourceTopic=c1-target-expire-scheduled-message-final -PkafkaTargetScenario=target-expire-scheduled-message --no-daemon --console=plain`
+
+Result: `BUILD SUCCESSFUL in 26s`. The real Broker source contained the root grant, Target grant, membership grant, and Schedule at offsets 0–3. The actual Target Worker Host expiry maintenance discovered the scheduled live Message and the guarded Kafka appender wrote `EXPIRE_GENERATION` at offset 4. Target Source Apply terminalized that Message as `EXPIRED`, removed its expiry index, and atomically advanced the Store source frontier to offset 4 and mutation sequence to 5. The Broker consumer-group next offset reached 5. The source turn was `APPLIED_AND_ACKED`, and the Host drained as `RELEASED`. The smoke asserts the exact Kafka cluster, TopicId, partition, and source positions.
+
+Scope limits: the Target grant, membership, Owner lease, signing key, and time evidence are explicit test fixtures; Store transitions, Host expiry maintenance, guarded append, K1 Broker persistence, Source Apply, ACK, and Host drain use the actual implementations. This does not certify production authority providers or factory assembly, live Oxia takeover, three-broker failover, process-crash recovery, migration, or centralized C1 acceptance. C1 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.

@@ -109,6 +109,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
             throw new IllegalArgumentException("usage: <bootstrap-server> <source-topic-prefix> "
                     + "[no-injection | store-write-response-unknown | target-expire-not-found | "
                     + "target-expire-not-found-ack-loss | target-expire-not-found-ack-loss-reopen | "
+                    + "target-expire-scheduled-message | "
                     + "network-response-loss "
                     + "<hold-file> <release-file> <dropped-response-file>] "
                     + "[network-response-loss-process-crash <phase> <hold-file> <release-file> "
@@ -122,10 +123,13 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                 || "target-expire-not-found-ack-loss".equals(scenario);
         final boolean targetExpiryNotFound =
                 targetExpiryAckResponseLoss || "target-expire-not-found".equals(scenario);
+        final boolean targetScheduledMessageExpiry = "target-expire-scheduled-message".equals(scenario);
         final AckInjection ackInjection = targetExpiryAckResponseLossReopen
                 ? AckInjection.withExpiryAckResponseLossReopen()
                 : targetExpiryAckResponseLoss ? AckInjection.withExpiryAckResponseLoss()
-                : targetExpiryNotFound ? AckInjection.acked() : AckInjection.from(arguments);
+                : targetExpiryNotFound || targetScheduledMessageExpiry
+                        ? AckInjection.acked()
+                        : AckInjection.from(arguments);
         if (ackInjection.crashPhase() == CrashPhase.RESUME) {
             replayAfterProcessCrash(bootstrap, ackInjection);
             return;
@@ -154,6 +158,11 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                     .topicId();
             if (topicId == null || topicId.equals(Uuid.ZERO_UUID)) {
                 throw new IllegalStateException("Kafka did not return the exact source TopicId");
+            }
+            if ("target-expire-scheduled-message".equals(scenario)) {
+                KafkaClientArtifactTargetScheduledExpirySmoke.run(
+                        admin, bootstrap, topic, clusterId, topicId);
+                return;
             }
 
             final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
@@ -443,7 +452,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
         }
     }
 
-    private static RootControl firstGrant(
+    static RootControl firstGrant(
             final TargetQuotaScope scope,
             final ShardId shard,
             final long sourceTime,
@@ -1388,7 +1397,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
         }
     }
 
-    private static GuardedConsumer<byte[], byte[]> newSourceConsumer(
+    static GuardedConsumer<byte[], byte[]> newSourceConsumer(
             final String bootstrap,
             final String groupId,
             final String clusterId,
@@ -1446,7 +1455,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                 });
     }
 
-    private static TargetStoreBackend.CommitAuthority ownerCommitAuthority(
+    static TargetStoreBackend.CommitAuthority ownerCommitAuthority(
             final OxiaOwnerLeaseStore leases, final OwnerLease expected) {
         return (metadata, scope, mutation) -> new TargetStoreBackend.CommitGuard() {
             @Override
@@ -1465,7 +1474,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
         };
     }
 
-    private static TargetStoreBackend.ReadAuthority ownerReadAuthority(
+    static TargetStoreBackend.ReadAuthority ownerReadAuthority(
             final OxiaOwnerLeaseStore leases, final OwnerLease expected) {
         return (metadata, scope) -> ownerCommitAuthority(leases, expected).acquire(metadata, scope, null);
     }
@@ -1488,7 +1497,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
         throw new IllegalStateException("real Kafka Target source record did not apply before the deadline");
     }
 
-    private static SourceApplyCoordinator.TurnResult runUntilAppliedByHost(final TargetWorkerHostRuntime host) {
+    static SourceApplyCoordinator.TurnResult runUntilAppliedByHost(final TargetWorkerHostRuntime host) {
         final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
         SourceApplyCoordinator.TurnResult result;
         do {
@@ -1802,7 +1811,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
         return value == null || value.isBlank() ? fallback : value;
     }
 
-    private enum AckMode {
+    enum AckMode {
         NO_INJECTION,
         CLIENT_DELEGATE_RESPONSE_LOSS,
         EXPIRY_ACK_RESPONSE_LOSS,
@@ -1910,7 +1919,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
         void run() throws Exception;
     }
 
-    private record RootControl(PreparedControlOperation prepared, SystemMutation mutation) {}
+    record RootControl(PreparedControlOperation prepared, SystemMutation mutation) {}
 
     private record TargetExpiryFixture(
             com.nereusstream.delay.protocol.SystemMutation mutation,
@@ -1955,7 +1964,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
         return new TargetExpiryFixture(mutation, author, evidence, timestamp);
     }
 
-    private static org.apache.kafka.clients.producer.RecordMetadata produce(
+    static org.apache.kafka.clients.producer.RecordMetadata produce(
             final String bootstrap,
             final String topic,
             final int partition,
@@ -2018,7 +2027,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
         }
     }
 
-    private static WorkClassExecutionRegistry workClasses() {
+    static WorkClassExecutionRegistry workClasses() {
         final var policies = new EnumMap<WorkClass, WorkClassPolicy>(WorkClass.class);
         for (WorkClass workClass : WorkClass.values()) {
             final boolean protectedClass = workClass != WorkClass.QUERY && workClass != WorkClass.CHECKPOINT;
@@ -2039,7 +2048,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                 new WorkClassRuntimeConfig(policies, 100, 100, 16, 2_000_000), () -> 0);
     }
 
-    private static BoundedReadBudget budget() {
+    static BoundedReadBudget budget() {
         return new BoundedReadBudget(2048, 32L << 20, 60_000_000_000L, System::nanoTime);
     }
 
@@ -2047,13 +2056,13 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
         return new UUID(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
     }
 
-    private static byte[] bytes(final int size, final int value) {
+    static byte[] bytes(final int size, final int value) {
         final byte[] result = new byte[size];
         Arrays.fill(result, (byte) value);
         return result;
     }
 
-    private static void deleteTree(final Path root) throws Exception {
+    static void deleteTree(final Path root) throws Exception {
         if (!Files.exists(root)) {
             return;
         }
