@@ -4,7 +4,6 @@ import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
 import com.nereusstream.delay.protocol.CanonicalTargetPartition;
 import com.nereusstream.delay.protocol.CheckpointUploadIntent;
-import com.nereusstream.delay.protocol.CommandCodec;
 import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.PreparedControlOperation;
 import com.nereusstream.delay.protocol.PulsarActivationBarrier;
@@ -1028,10 +1027,10 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     }
 
     private static byte[] sourceDigest(final SourceReplayEntry entry) {
-        return Bytes.sha256(
-                entry instanceof SourceReplayRecord command
-                        ? CommandCodec.encodeFrame(command.command())
-                        : ((SourceReplayMutation) entry).mutation().canonicalEnvelope());
+        if (entry instanceof SourceReplayRecord command) {
+            return command.command().canonicalFrameDigest();
+        }
+        return Bytes.sha256(((SourceReplayMutation) entry).mutation().canonicalEnvelope());
     }
 
     private TargetStoreBackend.CommitAuthority writes(
