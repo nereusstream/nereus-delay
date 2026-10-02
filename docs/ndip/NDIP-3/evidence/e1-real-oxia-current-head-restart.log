@@ -1,0 +1,47 @@
+Date: 2026-10-02
+Delay base revision: 803e12f1d87eaad5a99d37c9db78dc738aa5f457
+Delay test source SHA-256 at Oxia run: 6556ac4f96f4c98680ea93319cce9a9e92003c3aa6ea3261db89487133ef119fd
+Oxia source revision: 37a17bef17202d5fd6e23282da5fd26d94865484
+Design SHA-256: 39e8e464d4b077a7a74bc5c4c9f6dacec4f9288a1d8e024f5f27fc6a5d6fdba4
+
+Command:
+
+```bash
+NEREUS_DELAY_OXIA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/oxia \
+NEREUS_DELAY_OXIA_E2E_PORT=16650 \
+NEREUS_DELAY_E2E_GRADLE_USER_HOME=/Users/liusinan/.gradle \
+NEREUS_DELAY_OXIA_NATIVE_POLICY_RESTART=1 \
+NEREUS_DELAY_OXIA_ROUTE_RESTART=1 \
+NEREUS_DELAY_OXIA_ROUTE_RESTART_ONLY=1 \
+./e2e/run-oxia-real-service.sh
+```
+
+Result: the Dockerized Oxia run exited successfully. Its JUnit report recorded
+`tests=1`, `skipped=0`, `failures=0`, `errors=0` for
+`currentHeadReadRecoversAfterRealOxiaRestartNotificationGap`.
+
+The test observed a real current-head notification for the first publication
+before restart. After stopping and restarting Oxia, a replacement publisher
+published the next snapshot, and the same pre-restart subscriber authority's
+`current(scope.digest())` read returned that exact publication. This verifies
+the direct current-head read through the existing client after a real service
+restart. The test does not assert that its notification stream resumes or
+exercise the Host's bounded safety-recheck timer.
+
+An earlier strict experiment required a post-restart notification and timed
+out after 30 seconds with no resumed notification. That result is consistent
+with the design contract that notifications can be lost and bounded rereads
+must provide correctness. The passing test intentionally verifies the direct
+head read instead of treating notification delivery as guaranteed.
+
+The smoke uses test fixtures for publisher trust and authorization. It does
+not verify the production Host timer wired to Oxia, other external-event
+invalidation, production authority assembly, or centralized validation. The
+Java test source was line-wrapped after this run to satisfy Checkstyle; the
+current SHA-256 is
+`07f7ea46db56d0857be89c12e2d8a57a3a30cb83c05bbb0a6ee432959faa4339`, with test
+logic unchanged. The runner's success message was corrected after this run to
+describe the direct current-head reread; its current SHA-256 is
+`fbf84fb8a009ce7f9d4d7af52e74d5240baef4a6c9e20a4e05e664a68386175c`.
+`bash -n e2e/run-oxia-real-service.sh` passed after that message-only correction,
+and the Docker harness was not rerun for the source-format/message changes.

@@ -11,6 +11,7 @@ compose_project="nereus-delay-oxia-e2e-$(date +%s)-$$"
 route_restart=${NEREUS_DELAY_OXIA_ROUTE_RESTART:-0}
 route_restart_only=${NEREUS_DELAY_OXIA_ROUTE_RESTART_ONLY:-0}
 route_restart_notifications=${NEREUS_DELAY_OXIA_ROUTE_RESTART_NOTIFICATIONS:-0}
+native_policy_restart=${NEREUS_DELAY_OXIA_NATIVE_POLICY_RESTART:-0}
 route_restart_pause_seconds=${NEREUS_DELAY_OXIA_ROUTE_RESTART_PAUSE_SECONDS:-5}
 
 if ! command -v docker >/dev/null 2>&1; then
@@ -39,6 +40,18 @@ if [[ "$route_restart_only" == 1 && "$route_restart" != 1 ]]; then
 fi
 if [[ "$route_restart_notifications" != 0 && "$route_restart_notifications" != 1 ]]; then
     echo "NEREUS_DELAY_OXIA_ROUTE_RESTART_NOTIFICATIONS must be 0 or 1" >&2
+    exit 1
+fi
+if [[ "$native_policy_restart" != 0 && "$native_policy_restart" != 1 ]]; then
+    echo "NEREUS_DELAY_OXIA_NATIVE_POLICY_RESTART must be 0 or 1" >&2
+    exit 1
+fi
+if [[ "$native_policy_restart" == 1 && "$route_restart" != 1 ]]; then
+    echo "NEREUS_DELAY_OXIA_NATIVE_POLICY_RESTART requires NEREUS_DELAY_OXIA_ROUTE_RESTART=1" >&2
+    exit 1
+fi
+if [[ "$native_policy_restart" == 1 && "$route_restart_notifications" == 1 ]]; then
+    echo "NEREUS_DELAY_OXIA_NATIVE_POLICY_RESTART cannot be combined with route notification restart" >&2
     exit 1
 fi
 if [[ "$route_restart_notifications" == 1 && "$route_restart" != 1 ]]; then
@@ -94,7 +107,9 @@ wait_for_oxia_health() {
 
 run_route_restart_smoke() {
     local route_restart_test="com.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest.signedRouteProviderRecoversAfterRealOxiaRestart"
-    if [[ "$route_restart_notifications" == 1 ]]; then
+    if [[ "$native_policy_restart" == 1 ]]; then
+        route_restart_test="com.nereusstream.delay.semantic.OxiaRealTargetNativePolicySmokeTest.currentHeadReadRecoversAfterRealOxiaRestartNotificationGap"
+    elif [[ "$route_restart_notifications" == 1 ]]; then
         route_restart_test="com.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest.signedRouteNotificationsRecoverAfterRealOxiaRestart"
     fi
     NEREUS_DELAY_OXIA_ENDPOINT="127.0.0.1:$oxia_port" \
@@ -150,7 +165,10 @@ wait_for_oxia_health
 if [[ "$route_restart" == 1 ]]; then
     run_route_restart_smoke
     if [[ "$route_restart_only" == 1 ]]; then
-        if [[ "$route_restart_notifications" == 1 ]]; then
+        if [[ "$native_policy_restart" == 1 ]]; then
+            echo "Dockerized Oxia Target Native current-head reread after restart passed"
+            exit 0
+        elif [[ "$route_restart_notifications" == 1 ]]; then
             echo "Dockerized Oxia Route notification restart smoke passed: session rotation and notification stream recovery"
             exit 0
         fi
@@ -166,6 +184,7 @@ GRADLE_USER_HOME="$delay_gradle_user_home" \
         --tests com.nereusstream.delay.ownership.OxiaRealServiceSmokeTest \
         --tests com.nereusstream.delay.ownership.OxiaRealControlAuthoritySmokeTest \
         --tests com.nereusstream.delay.runtime.OxiaRealProfileCatalogSmokeTest \
+        --tests com.nereusstream.delay.semantic.OxiaRealTargetNativePolicySmokeTest \
         --tests com.nereusstream.delay.runtime.TargetQuotaGrantStoreTest.realOxiaOwnerTakeoverReopensTargetRootAndCompletesCloseGc \
         --tests com.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest \
         --tests com.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest \
