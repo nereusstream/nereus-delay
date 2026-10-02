@@ -745,11 +745,18 @@
     {
       "id": "E3",
       "title": "校验 wrapper 兼容入口",
-      "status": "PLANNED",
-      "evidence": [],
-      "implementationStatus": "NOT_STARTED",
+      "status": "IN_PROGRESS",
+      "evidence": [
+        "evidence/e3-obsolete-catchup-overloads-focused.log"
+      ],
+      "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
-      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
+      "progress": "2026-10-02: The E3 call-site audit found the deprecated package-local no-argument and SourceActivationBarrier markCatchingUp overloads had no repository callers and delegated to the assignment-only monotonic replay seam. Removed those two wrappers. OwnerRecoveryCoordinator remains the production call path through the authority-, assignment-, and successor-bound overload. The assignment-only seam remains for OwnerLeaseTest coverage of lease-context matching and is not a formal production entry. OwnerLeaseTest passes 53/53 and checkstyleTest passes. checkstyleMain fails on two 123-character lines in untouched PersistentLaneScheduler.java:1327 and TargetWorkerHostRuntime.java:347. This is only a dead-wrapper cleanup: the full four-boundary guard matrix, compatibility inventory, failure-propagation review, and measured encode/decode/hash reduction remain open; E3 remains IN_PROGRESS / PENDING_CENTRAL_VALIDATION.",
+      "implementationFiles": [
+        "src/main/java/com/nereusstream/delay/ownership/OwnedDelayShard.java"
+      ],
+      "validationHandoff": "12-集中验证交接清单.md"
     },
     {
       "id": "E4",

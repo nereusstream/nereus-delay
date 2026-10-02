@@ -1,0 +1,17 @@
+E3 focused source/API cleanup: obsolete catch-up overloads
+Date: 2026-10-02
+
+Source lock:
+- Delay base HEAD: 963da724
+- Tested `src/main/java/com/nereusstream/delay/ownership/OwnedDelayShard.java` SHA-256: c7512a835f4ed3d9524b696097abfe44135b1c1ccb6043154a041b14085ab01e
+
+Call-site result: repository search found no callers for the deprecated package-local `markCatchingUp()` or `markCatchingUp(SourceActivationBarrier)` overloads. Both forwarded to the assignment-only monotonic replay seam. `OwnerRecoveryCoordinator` calls the authority-, assignment-, successor-, and time-bound overload. Assignment-only `markCatchingUp(SourceAssignment)` remains used by `OwnerLeaseTest` to exercise assignment-context mismatch behavior.
+
+Change: removed only the two uncalled deprecated wrappers. No replay successor, lease transition, lifecycle state, stored data, public signature, or exception behavior in remaining overloads changed.
+
+Command:
+`./gradlew test --tests com.nereusstream.delay.ownership.OwnerLeaseTest checkstyleMain checkstyleTest --no-daemon --console=plain`
+
+Result: `OwnerLeaseTest` 53 tests, 0 failures/errors/skips; `checkstyleTest` passed. `compileJava` and `compileTestJava` passed. The combined command exited 1 because `checkstyleMain` found two 123-character lines in untouched `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`; no unrelated source was changed.
+
+Scope: this closes one dead-wrapper cleanup only. Full E3 guard ownership, compatibility API/call graph, failure propagation, and data-backed encode/decode/hash reduction remain open; E3 is still `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
