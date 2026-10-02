@@ -15,3 +15,23 @@ Command:
 Result: `OwnerLeaseTest` 53 tests, 0 failures/errors/skips; `checkstyleTest` passed. `compileJava` and `compileTestJava` passed. The combined command exited 1 because `checkstyleMain` found two 123-character lines in untouched `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`; no unrelated source was changed.
 
 Scope: this closes one dead-wrapper cleanup only. Full E3 guard ownership, compatibility API/call graph, failure propagation, and data-backed encode/decode/hash reduction remain open; E3 is still `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
+
+
+E3 focused typed Native Prepared submission and Producer-boundary reuse
+Date: 2026-10-02
+
+Source lock:
+- Delay base HEAD: a1b219d4b8ef07a267fee03bcdf8332c559ca1d6
+- `PinnedPulsarNativeSubmissionAdapter.java` SHA-256: 60eac05757ccba80edd24e126f563b38acc99e9fe8a6055af2b5e8a92987aaab
+- `PulsarNativePreparedRecordFactory.java` SHA-256: ded145c370713a01d36a7141c81bca41aae90f53b9d5b445d64bd75e040de99c
+- `PulsarNativePreparedRecordValidator.java` SHA-256: 0f75ce2a3a1c5dc0777b0a272e2f8ba00f7255801c343dfccbd022f334f4eece
+- `PulsarNativeProductionCompositionTest.java` SHA-256: c43eb7283bf6c43bdd5132e4a83ccf1327676b636eedc2200e1d615e1d8d701c
+
+Call path: `PreparedSubmission` is immutable and its constructor validates the context-to-envelope binding. Before this change, one `submitPreparedSubmission` adapter invocation performed `NativePreparedRecordBinding.derive` in raw record construction, `materialize()` validation and Producer-boundary validation (3 calls), and ran the live policy/credential checks twice. The internal path now constructs from the typed submission and retains one strict Producer-boundary validator: 1 binding derive and 1 live policy/credential round. The initial PreparedSubmission construction check remains. Public `materialize()`, the public raw Factory entry and arbitrary-record Producer submission retain full binding validation. This is deterministic source-call-count evidence; no latency or throughput claim is made.
+
+Regression command:
+`./gradlew test --tests com.nereusstream.delay.submission.PulsarNativeProductionCompositionTest --tests com.nereusstream.delay.adapter.NativeSubmissionAdapterTest checkstyleTest --no-daemon --console=plain`
+
+Result: `PulsarNativeProductionCompositionTest` 6 tests, `NativeSubmissionAdapterTest` 14 tests, 0 failures/errors/skips; `compileJava`, `compileTestJava`, and `checkstyleTest` passed. The new success regression observes one credential resolution, one Handoff check, and one prepared-record send. The credential-drift regression observes one authority check and zero Producer calls. `checkDocumentation` is run after the synchronized progress/doc update.
+
+Scope: one Native Prepared path only. It does not close the four-boundary guard matrix, remaining compatibility call graph, async stale-token matrix, failure-propagation audit or other encode/decode/hash reductions; E3 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`. These tests use test authorities and do not claim Broker/production assembly validation.

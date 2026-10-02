@@ -9,6 +9,7 @@ import com.nereusstream.delay.protocol.NativeDeliveryPolicy;
 import com.nereusstream.delay.protocol.NativePreparedDelivery;
 import com.nereusstream.delay.protocol.NativePreparedRecordBinding;
 import com.nereusstream.delay.protocol.NativePreparedRecordContext;
+import com.nereusstream.delay.protocol.PreparedSubmission;
 import com.nereusstream.delay.protocol.PayloadForPublish;
 import com.nereusstream.delay.protocol.PulsarKey;
 import com.nereusstream.delay.protocol.PulsarMetadata;
@@ -34,6 +35,28 @@ public final class PulsarNativePreparedRecordFactory {
             final NativePreparedDelivery prepared,
             final NativePreparedRecordContext context,
             final ArtifactGenerationSet artifacts) {
+        return create(prepared, context, artifacts, true);
+    }
+
+    /**
+     * Builds from the immutable submission whose constructor already checked
+     * the context-to-envelope binding. The producer boundary still validates
+     * current policy, credentials, activation, and the exact materialized fields.
+     */
+    static PulsarPreparedRecord createForSubmission(
+            final PreparedSubmission submission, final ArtifactGenerationSet artifacts) {
+        final PreparedSubmission exact = Objects.requireNonNull(submission, "submission");
+        if (!exact.isNativeRecordReady()) {
+            throw new IllegalArgumentException("AUTO_FAST submission has no bound record context");
+        }
+        return create(exact.nativePrepared(), exact.nativeRecordContext(), artifacts, false);
+    }
+
+    private static PulsarPreparedRecord create(
+            final NativePreparedDelivery prepared,
+            final NativePreparedRecordContext context,
+            final ArtifactGenerationSet artifacts,
+            final boolean verifyContextBinding) {
         final NativePreparedDelivery exact = Objects.requireNonNull(prepared, "prepared");
         final NativePreparedRecordContext exactContext = Objects.requireNonNull(context, "context");
         final ArtifactGenerationSet exactArtifacts = Objects.requireNonNull(artifacts, "artifacts");
@@ -44,7 +67,9 @@ public final class PulsarNativePreparedRecordFactory {
                 || !Arrays.equals(exactContext.artifactGenerationSetDigest(), exactArtifacts.setDigest())) {
             throw new IllegalArgumentException("AUTO_FAST native record inputs are not current and exact");
         }
-        NativePreparedRecordBinding.requireExact(exactContext, exact);
+        if (verifyContextBinding) {
+            NativePreparedRecordBinding.requireExact(exactContext, exact);
+        }
         if (!exact.destination().equals(exact.capabilitySnapshot().destination())
                 || !exact.capability().equals(exact.capabilitySnapshot().capability())
                 || !exact.target().equals(exact.capabilitySnapshot().target())

@@ -79,21 +79,28 @@ public final class PulsarNativePreparedRecordValidator {
     /** Materializes and validates the exact target record without touching a Producer. */
     public PulsarPreparedRecord materialize(final PreparedSubmission submission) {
         final PreparedSubmission exact = Objects.requireNonNull(submission, "submission");
-        if (!exact.isNativeRecordReady()) {
-            throw new Rejection(StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE);
-        }
-        final PulsarPreparedRecord record;
-        try {
-            record = PulsarNativePreparedRecordFactory.create(
-                    exact.nativePrepared(), exact.nativeRecordContext(), activationGate.artifacts());
-        } catch (RuntimeException mismatch) {
-            throw new Rejection(StableCode.PREPARED_SUBMISSION_MISMATCH, mismatch);
-        }
+        final PulsarPreparedRecord record = createRecord(exact);
         final StableCode rejection = validate(exact.nativePrepared(), record, activationGate.artifacts());
         if (rejection != null) {
             throw new Rejection(rejection);
         }
         return record;
+    }
+
+    /** Builds for the adapter path, which runs the strict live validation before Producer ownership. */
+    PulsarPreparedRecord materializeForSubmission(final PreparedSubmission submission) {
+        return createRecord(Objects.requireNonNull(submission, "submission"));
+    }
+
+    private PulsarPreparedRecord createRecord(final PreparedSubmission submission) {
+        if (!submission.isNativeRecordReady()) {
+            throw new Rejection(StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE);
+        }
+        try {
+            return PulsarNativePreparedRecordFactory.createForSubmission(submission, activationGate.artifacts());
+        } catch (RuntimeException mismatch) {
+            throw new Rejection(StableCode.PREPARED_SUBMISSION_MISMATCH, mismatch);
+        }
     }
 
     /** Returns {@code null} only when every pre-ownership check succeeds. */

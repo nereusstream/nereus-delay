@@ -232,7 +232,7 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
         }
         final PulsarPreparedRecord record;
         try {
-            record = preparedRecordValidator.materialize(submission);
+            record = preparedRecordValidator.materializeForSubmission(submission);
         } catch (PulsarNativePreparedRecordValidator.Rejection rejection) {
             return completed(localDefinite(prepared, rejection.code()));
         } catch (RuntimeException invalid) {

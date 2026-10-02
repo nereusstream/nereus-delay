@@ -146,6 +146,131 @@ class PulsarNativeProductionCompositionTest {
     }
 
     @Test
+    void nativeSubmissionRunsLiveAuthorityChecksOnceAtTheProducerBoundary() throws Exception {
+        final Fixture fixture = fixture();
+        final AtomicInteger credentialResolutions = new AtomicInteger();
+        final AtomicInteger handoffChecks = new AtomicInteger();
+        final AtomicInteger preparedRecordSends = new AtomicInteger();
+        final PinnedPulsarNativeSubmissionAdapter.PulsarNativeSendTransport sender =
+                new PinnedPulsarNativeSubmissionAdapter.PulsarNativeSendTransport() {
+                    @Override
+                    public CompletableFuture<PulsarSendResult> send(final PulsarNativeSendRequest request) {
+                        return CompletableFuture.failedFuture(
+                                new AssertionError("envelope-only native sender was used"));
+                    }
+
+                    @Override
+                    public CompletableFuture<PulsarSendResult> sendPreparedRecord(
+                            final PulsarPreparedRecord record, final ArtifactGenerationSet artifacts) {
+                        preparedRecordSends.incrementAndGet();
+                        assertEquals(fixture.record, record);
+                        assertEquals(fixture.artifacts, artifacts);
+                        final PublishEvidence evidence = PulsarSendAckEvidence.publishedRecord(
+                                record,
+                                artifacts,
+                                hash("producer"),
+                                11,
+                                12,
+                                0,
+                                1,
+                                3_100,
+                                21,
+                                22,
+                                23,
+                                24,
+                                hash("send-command"),
+                                hash("response-command"));
+                        return CompletableFuture.completedFuture(new PulsarSendResult(
+                                PulsarSendResult.Disposition.PERSISTED,
+                                fixture.target.authenticatedClusterId(),
+                                fixture.target.resourceIncarnation(),
+                                fixture.target.physicalTopic(),
+                                fixture.target.physicalTopicCreationTimestamp(),
+                                0,
+                                11,
+                                12,
+                                0,
+                                1,
+                                false,
+                                3_100,
+                                0,
+                                hash("request-evidence"),
+                                evidence.canonicalBytes()));
+                    }
+                };
+        try (PinnedPulsarNativeSubmissionAdapter adapter = new PinnedPulsarNativeSubmissionAdapter(
+                fixture.resource,
+                fixture.capabilityKeys.getPublic(),
+                Clock.fixed(Instant.ofEpochMilli(3_000), ZoneOffset.UTC),
+                sender,
+                prepared -> {
+                    credentialResolutions.incrementAndGet();
+                    return prepared.capabilitySnapshot().resolvedCredentialFingerprintDigest();
+                },
+                true,
+                fixture.activationGate,
+                (snapshot, artifacts, now) -> {
+                    handoffChecks.incrementAndGet();
+                    assertEquals(fixture.artifacts, artifacts);
+                    assertEquals(3_000, now);
+                })) {
+            final var outcome = adapter.submitPreparedSubmission(fixture.submission, bytes(16, 92))
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(SubmissionOutcomeKind.NATIVE_RECEIPT, outcome.kind());
+        }
+        assertEquals(1, credentialResolutions.get());
+        assertEquals(1, handoffChecks.get());
+        assertEquals(1, preparedRecordSends.get());
+    }
+
+    @Test
+    void nativeSubmissionStillRejectsCredentialDriftBeforeProducerOwnership() throws Exception {
+        final Fixture fixture = fixture();
+        final AtomicInteger credentialResolutions = new AtomicInteger();
+        final AtomicInteger handoffChecks = new AtomicInteger();
+        final AtomicInteger sends = new AtomicInteger();
+        final PinnedPulsarNativeSubmissionAdapter.PulsarNativeSendTransport sender =
+                new PinnedPulsarNativeSubmissionAdapter.PulsarNativeSendTransport() {
+                    @Override
+                    public CompletableFuture<PulsarSendResult> send(final PulsarNativeSendRequest request) {
+                        sends.incrementAndGet();
+                        return CompletableFuture.failedFuture(new AssertionError("Producer must remain untouched"));
+                    }
+
+                    @Override
+                    public CompletableFuture<PulsarSendResult> sendPreparedRecord(
+                            final PulsarPreparedRecord record, final ArtifactGenerationSet artifacts) {
+                        sends.incrementAndGet();
+                        return CompletableFuture.failedFuture(new AssertionError("Producer must remain untouched"));
+                    }
+                };
+        try (PinnedPulsarNativeSubmissionAdapter adapter = new PinnedPulsarNativeSubmissionAdapter(
+                fixture.resource,
+                fixture.capabilityKeys.getPublic(),
+                Clock.fixed(Instant.ofEpochMilli(3_000), ZoneOffset.UTC),
+                sender,
+                prepared -> {
+                    credentialResolutions.incrementAndGet();
+                    return hash("rotated-credential");
+                },
+                true,
+                fixture.activationGate,
+                (snapshot, artifacts, now) -> handoffChecks.incrementAndGet())) {
+            final var outcome = adapter.submitPreparedSubmission(fixture.submission, bytes(16, 93))
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(SubmissionOutcomeKind.NATIVE_DEFINITELY_NOT_QUEUED, outcome.kind());
+            assertEquals(
+                    com.nereusstream.delay.protocol.StableCode.CREDENTIAL_BINDING_DRIFT,
+                    outcome.nativeDefinitelyNotQueued().error().code());
+        }
+        assertEquals(1, credentialResolutions.get());
+        assertEquals(1, handoffChecks.get());
+        assertEquals(0, sends.get());
+    }
+
+    @Test
     void missingActivationValidatorCannotTransferOwnershipOrReachEitherSender() throws Exception {
         final Fixture fixture = fixture();
         final AtomicInteger sends = new AtomicInteger();
