@@ -88,6 +88,7 @@ import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.GuardedConsumer;
+import org.apache.kafka.clients.producer.GuardedProducer;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
@@ -132,7 +133,9 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                 AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, 10_000);
         try (Admin admin = Admin.create(adminConfig)) {
             try {
-            admin.createTopics(List.of(new NewTopic(topic, 2, (short) 1))).all().get(30, TimeUnit.SECONDS);
+            final NewTopic sourceTopic = new NewTopic(topic, 2, (short) 1);
+            sourceTopic.configs(Map.of("message.timestamp.type", "LogAppendTime"));
+            admin.createTopics(List.of(sourceTopic)).all().get(30, TimeUnit.SECONDS);
             final String clusterId = admin.describeCluster().clusterId().get(10, TimeUnit.SECONDS);
             final Uuid topicId = admin.describeTopics(List.of(topic))
                     .allTopicNames()
@@ -533,20 +536,10 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
             final java.util.concurrent.atomic.AtomicInteger expiryAuthorityResolutions =
                     new java.util.concurrent.atomic.AtomicInteger();
             if (expiryFixture != null) {
-                final var firstExpiry = produce(
-                        bootstrap,
-                        topic,
-                        scope.shard().partition(),
-                        expiryFixture.timestamp(),
-                        expiryFixture.mutation().systemMutationId(),
-                        expiryFixture.mutation().encodeFrame());
-                final var duplicateExpiry = produce(
-                        bootstrap,
-                        topic,
-                        scope.shard().partition(),
-                        Math.addExact(expiryFixture.timestamp(), 1),
-                        expiryFixture.mutation().systemMutationId(),
-                        expiryFixture.mutation().encodeFrame());
+                final KafkaSourcePosition firstExpiry = appendExpiryMutation(
+                        bootstrap, clusterId, topic, topicId, scope.shard(), expiryFixture.mutation());
+                final KafkaSourcePosition duplicateExpiry = appendExpiryMutation(
+                        bootstrap, clusterId, topic, topicId, scope.shard(), expiryFixture.mutation());
                 if (firstExpiry.offset() != commandOffset + 1
                         || duplicateExpiry.offset() != commandOffset + 2) {
                     throw new IllegalStateException("Kafka Target expiry source records are not consecutive");
@@ -1625,6 +1618,47 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
         try (var producer = new KafkaProducer<byte[], byte[]>(config)) {
             return producer.send(new ProducerRecord<>(topic, partition, timestamp, key, value))
                     .get(30, TimeUnit.SECONDS);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static KafkaSourcePosition appendExpiryMutation(
+            final String bootstrap,
+            final String clusterId,
+            final String topic,
+            final UUID topicId,
+            final ShardId shard,
+            final com.nereusstream.delay.protocol.SystemMutation mutation) {
+        final Map<String, Object> config = Map.of(
+                ProducerConfig.BOOTSTRAP_SERVERS_CONFIG,
+                bootstrap,
+                ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
+                ByteArraySerializer.class.getName(),
+                ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
+                ByteArraySerializer.class.getName(),
+                ProducerConfig.ACKS_CONFIG,
+                "all");
+        try (var producer = new KafkaProducer<byte[], byte[]>(config);
+                KafkaClientArtifactShardLogMutationAppender appender =
+                        new KafkaClientArtifactShardLogMutationAppender(
+                                (GuardedProducer<byte[], byte[]>) producer,
+                                shard,
+                                clusterId,
+                                topic,
+                                topicId,
+                                Duration.ofSeconds(15))) {
+            final var outcome = appender.append(mutation);
+            if (outcome.disposition()
+                            != com.nereusstream.delay.ownership.ShardLogMutationAppender.AppendDisposition.PERSISTED
+                    || !(outcome.sourcePosition() instanceof KafkaSourcePosition position)
+                    || !clusterId.equals(position.authenticatedClusterId())
+                    || !topicId.equals(position.nativeTopicUuid())
+                    || !shard.equals(position.shardId())) {
+                throw new IllegalStateException(
+                        "guarded Kafka Target expiry append did not persist at the exact Shard source: disposition="
+                                + outcome.disposition() + ", sourcePosition=" + outcome.sourcePosition());
+            }
+            return position;
         }
     }
 
