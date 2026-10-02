@@ -108,7 +108,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
         if (arguments.length != 2 && arguments.length != 3 && arguments.length != 6 && arguments.length != 10) {
             throw new IllegalArgumentException("usage: <bootstrap-server> <source-topic-prefix> "
                     + "[no-injection | store-write-response-unknown | target-expire-not-found | "
-                    + "target-expire-not-found-ack-loss | "
+                    + "target-expire-not-found-ack-loss | target-expire-not-found-ack-loss-reopen | "
                     + "network-response-loss "
                     + "<hold-file> <release-file> <dropped-response-file>] "
                     + "[network-response-loss-process-crash <phase> <hold-file> <release-file> "
@@ -116,11 +116,15 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
         }
         final String bootstrap = arguments[0];
         final String scenario = arguments.length == 3 ? arguments[2] : "";
-        final boolean targetExpiryAckResponseLoss = "target-expire-not-found-ack-loss".equals(scenario);
+        final boolean targetExpiryAckResponseLossReopen =
+                "target-expire-not-found-ack-loss-reopen".equals(scenario);
+        final boolean targetExpiryAckResponseLoss = targetExpiryAckResponseLossReopen
+                || "target-expire-not-found-ack-loss".equals(scenario);
         final boolean targetExpiryNotFound =
                 targetExpiryAckResponseLoss || "target-expire-not-found".equals(scenario);
-        final AckInjection ackInjection = targetExpiryAckResponseLoss
-                ? AckInjection.withExpiryAckResponseLoss()
+        final AckInjection ackInjection = targetExpiryAckResponseLossReopen
+                ? AckInjection.withExpiryAckResponseLossReopen()
+                : targetExpiryAckResponseLoss ? AckInjection.withExpiryAckResponseLoss()
                 : targetExpiryNotFound ? AckInjection.acked() : AckInjection.from(arguments);
         if (ackInjection.crashPhase() == CrashPhase.RESUME) {
             replayAfterProcessCrash(bootstrap, ackInjection);
@@ -268,8 +272,9 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                                 60_000)
                         .orElseThrow(() -> new IllegalStateException("test Owner lease acquisition failed"));
 
-                final boolean preserveStore = ackInjection.crashPhase() == CrashPhase.PREPARE;
-                final Path storeRoot = preserveStore
+                final boolean preserveStoreAfterTurn = ackInjection.crashPhase() == CrashPhase.PREPARE
+                        || ackInjection.expiryAckResponseLossReopen();
+                final Path storeRoot = ackInjection.crashPhase() == CrashPhase.PREPARE
                         ? ackInjection.storeRoot()
                         : Files.createTempDirectory("nereus-delay-kafka-target-source-");
                 final CheckedAction siblingProgress = exerciseSibling
@@ -331,10 +336,10 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                         }
                         : null;
                 try {
-                    if (preserveStore) {
+                    if (preserveStoreAfterTurn) {
                         Files.createDirectories(storeRoot);
                     }
-                    runTargetSourceTurn(
+                    final TargetExpiryFixture completedExpiryFixture = runTargetSourceTurn(
                             admin,
                             bootstrap,
                             topic,
@@ -358,8 +363,28 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                             siblingProgress,
                             ownerClient != null && exerciseSibling,
                             targetExpiryNotFound);
+                    if (ackInjection.expiryAckResponseLossReopen()) {
+                        if (completedExpiryFixture == null) {
+                            throw new IllegalStateException("expiry ACK response-loss replay has no expiry fixture");
+                        }
+                        runTargetSourceExpiryReplayAfterUnknown(
+                                admin,
+                                bootstrap,
+                                topic,
+                                groupId,
+                                clusterId,
+                                toUuid(topicId),
+                                scope,
+                                assignment,
+                                leases,
+                                ownerSessionIdentity,
+                                completedExpiryFixture.mutation(),
+                                commandMetadata.offset() + 1,
+                                commandMetadata.offset() + 2,
+                                storeRoot);
+                    }
                 } finally {
-                    if (!preserveStore) {
+                    if (ackInjection.crashPhase() != CrashPhase.PREPARE) {
                         deleteTree(storeRoot);
                     }
                 }
@@ -370,6 +395,9 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                     case EXPIRY_ACK_RESPONSE_LOSS ->
                         "in-process wrapper lost expiry commitSync response after "
                                 + "the Kafka client returned success";
+                    case EXPIRY_ACK_RESPONSE_LOSS_REOPEN ->
+                        "in-process wrapper lost expiry commitSync response after "
+                                + "the Kafka client returned success, followed by replacement Owner replay";
                     case STORE_WRITE_RESPONSE_UNKNOWN ->
                         "RocksDB applied the source batch but its native write response was lost before source ACK";
                     case NETWORK_RESPONSE_LOSS ->
@@ -387,8 +415,15 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                     System.out.println("Kafka Target source factory: first grant at offset 0; Cancel at offset 1 "
                             + "was applied and ACKed; EXPIRE_GENERATION applied with NOT_FOUND; "
                             + failureBoundary + ".");
-                    System.out.println("  the Worker retained the exact applied source entry and retried only "
-                            + "the ACK, without another Store write; TopicId/partition guard verified.");
+                    if (ackInjection.expiryAckResponseLossReopen()) {
+                        System.out.println("  a replacement Owner reopened the same Store at offset "
+                                + (commandMetadata.offset() + 1) + "; its assignment resumed from the Broker's "
+                                + "committed frontier, then ACKed the exact duplicate expiry record; "
+                                + "TopicId/partition guard verified.");
+                    } else {
+                        System.out.println("  the Worker retained the exact applied source entry and retried only "
+                                + "the ACK, without another Store write; TopicId/partition guard verified.");
+                    }
                 } else {
                     System.out.println("Kafka Target source factory: first grant at offset 0; Cancel at offset 1 "
                             + "applied; " + failureBoundary + ";");
@@ -472,7 +507,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
         return new RootControl(prepared, mutation);
     }
 
-    private static void runTargetSourceTurn(
+    private static TargetExpiryFixture runTargetSourceTurn(
             final Admin admin,
             final String bootstrap,
             final String topic,
@@ -519,6 +554,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
         final var workerClasses = workClasses();
         final OwnerLease[] activeHolder = new OwnerLease[1];
         final AtomicBoolean activeLeaseReleased = new AtomicBoolean();
+        final TargetExpiryFixture[] expiryFixtureAfterTurn = new TargetExpiryFixture[1];
         try (var resources = new SharedRocksDbResources(config);
                 var store = ShardStore.openTarget(config, scope.shard(), resources)) {
             final var prepared = TargetStoreBootstrap.prepare(
@@ -548,6 +584,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
             final TargetExpiryFixture expiryFixture = targetExpiryNotFound
                     ? targetExpiryFixture(scope.shard(), command.delayMessageId(), active, signingKeys)
                     : null;
+            expiryFixtureAfterTurn[0] = expiryFixture;
             final java.util.concurrent.atomic.AtomicInteger expiryAuthorityResolutions =
                     new java.util.concurrent.atomic.AtomicInteger();
             if (expiryFixture != null) {
@@ -637,7 +674,8 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
             final var ackResponseLost = new AtomicBoolean();
             final var guardedConsumer = switch (ackInjection.mode()) {
                 case CLIENT_DELEGATE_RESPONSE_LOSS -> loseCommitSyncResponse(consumer, ackResponseLost, 1);
-                case EXPIRY_ACK_RESPONSE_LOSS -> loseCommitSyncResponse(consumer, ackResponseLost, 2);
+                case EXPIRY_ACK_RESPONSE_LOSS, EXPIRY_ACK_RESPONSE_LOSS_REOPEN ->
+                    loseCommitSyncResponse(consumer, ackResponseLost, 2);
                 default -> consumer;
             };
             final var maintenance = new TargetWorkerShardRuntime.Maintenance(
@@ -666,7 +704,8 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
             try {
                 final boolean expectApplyFailure = ackInjection.storeWriteResponseUnknown();
                 final boolean expectAckUnknown = ackInjection.acknowledgementResponseUnknown();
-                if (!expectApplyFailure && !expectAckUnknown) {
+                final boolean replacementOwnerExpiryReplay = ackInjection.expiryAckResponseLossReopen();
+                if (!expectApplyFailure && !expectAckUnknown && !replacementOwnerExpiryReplay) {
                     worker.configureMessageExpiryMaintenance(
                             mutation -> {
                                 throw new AssertionError("unexpected Target message expiry append");
@@ -713,7 +752,11 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                 }
                 final SourceApplyCoordinator.TurnResult result = expectApplyFailure
                         ? runUntilApplyFailure(worker)
-                        : expectAckUnknown ? runUntilAckUnknown(worker) : runUntilAppliedByHost(host);
+                        : expectAckUnknown
+                                ? runUntilAckUnknown(worker)
+                                : replacementOwnerExpiryReplay
+                                        ? runUntilApplied(worker)
+                                        : runUntilAppliedByHost(host);
                 if (ackInjection.networkResponseLoss()) {
                     final String dropped = Files.exists(ackInjection.droppedResponseFile())
                             ? Files.readString(ackInjection.droppedResponseFile())
@@ -828,7 +871,9 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                 if (expiryFixture != null) {
                     final SourceApplyCoordinator.TurnResult firstExpiryTurn;
                     if (ackInjection.expiryAckResponseLoss()) {
-                        final var unknownExpiryTurn = runUntilAckUnknownByHost(host);
+                        final var unknownExpiryTurn = ackInjection.expiryAckResponseLossReopen()
+                                ? runUntilAckUnknown(worker)
+                                : runUntilAckUnknownByHost(host);
                         if (unknownExpiryTurn.status() != SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN
                                 || !(unknownExpiryTurn.entry() instanceof com.nereusstream.delay.ownership
                                         .SourceReplayMutation unknownExpiryEntry)
@@ -856,6 +901,10 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                         if (committedAfterUnknown == null || committedAfterUnknown.offset() != commandOffset + 2) {
                             throw new IllegalStateException(
                                     "Kafka Broker did not commit expiry offset before its response was lost");
+                        }
+
+                        if (ackInjection.expiryAckResponseLossReopen()) {
+                            return expiryFixture;
                         }
 
                         firstExpiryTurn = runUntilAppliedByHost(host);
@@ -1003,6 +1052,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                     config,
                     ackInjection.mode());
         }
+        return expiryFixtureAfterTurn[0];
     }
 
     private static long runTargetSourceReplayAfterUnknown(
@@ -1154,6 +1204,188 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
             }
         }
         return replayAcquiring.ownerEpoch();
+    }
+
+    private static void runTargetSourceExpiryReplayAfterUnknown(
+            final Admin admin,
+            final String bootstrap,
+            final String topic,
+            final String groupId,
+            final String clusterId,
+            final UUID topicId,
+            final TargetQuotaScope scope,
+            final com.nereusstream.delay.ownership.SourceAssignment assignment,
+            final OxiaOwnerLeaseStore leases,
+            final byte[] ownerSessionIdentity,
+            final com.nereusstream.delay.protocol.SystemMutation expiryMutation,
+            final long expiryOffset,
+            final long duplicateExpiryOffset,
+            final Path storeRoot)
+            throws Exception {
+        final var config = ShardStoreConfig.defaults(storeRoot);
+        final var recoveryAssignment = new com.nereusstream.delay.ownership.SourceAssignment(
+                scope.shard(),
+                Bytes.sha256(Bytes.utf8("target-expiry-replay-assignment-" + UUID.randomUUID())),
+                Math.addExact(assignment.assignmentEpoch(), 1),
+                new KafkaActivationBarrier(scope.shard(), clusterId, topicId, duplicateExpiryOffset));
+        final OwnerLease acquiring = leases.acquire(
+                        recoveryAssignment,
+                        "target-expiry-replay-owner-" + UUID.randomUUID(),
+                        ownerSessionIdentity,
+                        System.currentTimeMillis(),
+                        60_000)
+                .orElseThrow(() -> new IllegalStateException("replacement expiry Owner lease acquisition failed"));
+        final OwnerLease[] ownerHolder = {acquiring};
+        try (var resources = new SharedRocksDbResources(config);
+                var store = ShardStore.openTarget(config, scope.shard(), resources)) {
+            if (Long.compareUnsigned(acquiring.ownerEpoch(), store.runtimeMetadata().lastOpenedOwnerEpoch()) <= 0) {
+                throw new IllegalStateException("replacement expiry Owner epoch did not advance past the Store");
+            }
+            final var persistedSource = store.appliedShardLogPosition();
+            if (!(persistedSource instanceof KafkaSourcePosition persistedKafka)
+                    || persistedKafka.offset() != expiryOffset
+                    || !clusterId.equals(persistedKafka.authenticatedClusterId())
+                    || !topicId.equals(persistedKafka.nativeTopicUuid())) {
+                throw new IllegalStateException("replacement Owner did not reopen the Store at the ACK-unknown "
+                        + "expiry position: " + persistedSource);
+            }
+            requireCommittedOffset(admin, groupId, topic, scope.shard(), expiryOffset + 1);
+            final var reopened = TargetStoreBootstrap.reopen(
+                    store,
+                    scope,
+                    new TargetStoreBackend.WriteLimits(128, 4 << 20),
+                    budget(),
+                    ownerReadAuthority(leases, acquiring));
+            final var active = TargetWorkerOwnerActivation.activate(
+                    reopened, store, recoveryAssignment, acquiring, leases, System::currentTimeMillis);
+            ownerHolder[0] = active;
+            final var workClasses = workClasses();
+            final var closeControls = new TargetCloseStore(
+                            reopened.backend(), scope, reopened.root().recoveryLineage(), 16, 1)
+                    .reservationControls((reader, binding) -> Optional.empty());
+            final var runtime = new TargetSourceApplyRuntime(
+                    reopened,
+                    store,
+                    recoveryAssignment,
+                    active,
+                    new TargetSourceApplyRuntime.Authorities(
+                            leases,
+                            SourceReplaySuccessor.strictKafka(),
+                            entry -> { throw new AssertionError("expiry replay resolved a quota grant"); },
+                            entry -> { throw new AssertionError("expiry replay resolved a time fence"); },
+                            entry -> { throw new AssertionError("expiry replay resolved expiry authority"); },
+                            entry -> { throw new AssertionError("expiry replay resolved a Close control"); },
+                            entry -> { throw new AssertionError("expiry replay resolved membership control"); },
+                            ownerCommitAuthority(leases, active),
+                            ownerReadAuthority(leases, active),
+                            entry -> { throw new AssertionError("expiry replay resolved command authority"); }),
+                    new TargetSourceApplyRuntime.Limits(2048, 16L << 20, 60_000_000_000L, 16, 1),
+                    System::nanoTime);
+            final var consumer = newSourceConsumer(
+                    bootstrap, groupId, clusterId, topic, topicId, scope.shard(), AckMode.NO_INJECTION);
+            final var maintenance = new TargetWorkerShardRuntime.Maintenance(
+                    closeControls,
+                    new com.nereusstream.delay.ownership.TargetReservationClosureWorkClassExecutor.Limits(
+                            4096, 250_000, 60_000_000_000L),
+                    new com.nereusstream.delay.ownership.TargetReservationExpiryWorkClassExecutor.Limits(
+                            2048, 100_000, 60_000_000_000L),
+                    ownerCommitAuthority(leases, active),
+                    delta -> { throw new AssertionError("unexpected Close materialization"); },
+                    delta -> { throw new AssertionError("unexpected reservation expiry"); },
+                    delta -> { throw new AssertionError("unexpected Close cursor update"); },
+                    System::currentTimeMillis);
+            final var worker = KafkaClientArtifactTargetWorkerSourceFactory.create(
+                    consumer,
+                    topic,
+                    Duration.ofSeconds(5),
+                    recoveryAssignment,
+                    workClasses,
+                    store,
+                    resources,
+                    runtime,
+                    maintenance);
+            try {
+                final long sequenceBeforeDuplicate = store.latestSequenceNumber();
+                final long mutationBeforeDuplicate = store.shardMutationSequence();
+                final SourceApplyCoordinator.TurnResult duplicateExpiry = runUntilApplied(worker);
+                final boolean exactDuplicateExpiry = duplicateExpiry.entry() instanceof com.nereusstream.delay.ownership
+                                .SourceReplayMutation replay
+                        && replay.mutation().equals(expiryMutation)
+                        && replay.position() instanceof KafkaSourcePosition position
+                        && position.offset() == duplicateExpiryOffset
+                        && clusterId.equals(position.authenticatedClusterId())
+                        && topicId.equals(position.nativeTopicUuid());
+                final StableCode duplicateResult = duplicateExpiry.appliedOutcome() == null
+                        || duplicateExpiry.appliedOutcome().systemMutationResult() == null
+                        ? null
+                        : duplicateExpiry.appliedOutcome().systemMutationResult().stableCode();
+                final var appliedPosition = store.appliedShardLogPosition();
+                if (duplicateExpiry.status() != SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED
+                        || !exactDuplicateExpiry
+                        || duplicateResult != StableCode.NOT_FOUND
+                        || !(appliedPosition instanceof KafkaSourcePosition appliedKafka)
+                        || appliedKafka.offset() != duplicateExpiryOffset
+                        || !clusterId.equals(appliedKafka.authenticatedClusterId())
+                        || !topicId.equals(appliedKafka.nativeTopicUuid())
+                        || store.latestSequenceNumber() <= sequenceBeforeDuplicate
+                        || store.shardMutationSequence() <= mutationBeforeDuplicate
+                        || !active.sameIdentity(leases.current(scope.shard()).orElseThrow())) {
+                    throw new IllegalStateException(
+                            "replacement Owner did not durably advance and ACK the physical duplicate expiry: "
+                                    + "status=" + duplicateExpiry.status() + ", exactDuplicate="
+                                    + exactDuplicateExpiry + ", result=" + duplicateResult + ", position="
+                                    + appliedPosition + ", entry=" + duplicateExpiry.entry() + ", failure="
+                                    + duplicateExpiry.failure());
+                }
+                requireCommittedOffset(admin, groupId, topic, scope.shard(), duplicateExpiryOffset + 1);
+                System.out.println("Kafka Target EXPIRE_GENERATION ACK UNKNOWN replacement-Owner recovery passed: "
+                        + "same Store reopened at offset " + expiryOffset + "; Broker had committed through "
+                        + (expiryOffset + 1) + "; replacement assignment resumed at physical duplicate offset "
+                        + duplicateExpiryOffset + " and advanced/ACKed it without re-resolving expiry authority.");
+            } finally {
+                if (worker.pendingSourceEntry().isPresent()) {
+                    consumer.close();
+                    if (!leases.release(active)) {
+                        throw new IllegalStateException("replacement expiry Owner release was not observed");
+                    }
+                    ownerHolder[0] = null;
+                } else {
+                    worker.pauseNewTurns();
+                    final OwnerLease draining = leases.transition(active, ShardLifecycleState.DRAINING)
+                            .orElseThrow(() -> new IllegalStateException("replacement expiry Owner could not drain"));
+                    try {
+                        worker.closeSource();
+                    } finally {
+                        if (!leases.release(draining)) {
+                            throw new IllegalStateException("replacement expiry Owner release was not observed");
+                        }
+                        ownerHolder[0] = null;
+                    }
+                }
+            }
+        } finally {
+            final OwnerLease current = ownerHolder[0];
+            if (current != null) {
+                leases.release(current);
+            }
+        }
+    }
+
+    private static void requireCommittedOffset(
+            final Admin admin,
+            final String groupId,
+            final String topic,
+            final ShardId shard,
+            final long expectedOffset)
+            throws Exception {
+        final var committedOffsets = admin.listConsumerGroupOffsets(groupId)
+                .partitionsToOffsetAndMetadata()
+                .get(10, TimeUnit.SECONDS);
+        final var committed = committedOffsets.get(new TopicPartition(topic, shard.partition()));
+        if (committed == null || committed.offset() != expectedOffset) {
+            throw new IllegalStateException("Kafka source group offset mismatch: expected " + expectedOffset
+                    + " but was " + (committed == null ? null : committed.offset()));
+        }
     }
 
     private static GuardedConsumer<byte[], byte[]> newSourceConsumer(
@@ -1574,6 +1806,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
         NO_INJECTION,
         CLIENT_DELEGATE_RESPONSE_LOSS,
         EXPIRY_ACK_RESPONSE_LOSS,
+        EXPIRY_ACK_RESPONSE_LOSS_REOPEN,
         STORE_WRITE_RESPONSE_UNKNOWN,
         NETWORK_RESPONSE_LOSS
     }
@@ -1601,6 +1834,11 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
         private static AckInjection withExpiryAckResponseLoss() {
             return new AckInjection(
                     AckMode.EXPIRY_ACK_RESPONSE_LOSS, null, null, null, CrashPhase.NONE, null, null, null);
+        }
+
+        private static AckInjection withExpiryAckResponseLossReopen() {
+            return new AckInjection(
+                    AckMode.EXPIRY_ACK_RESPONSE_LOSS_REOPEN, null, null, null, CrashPhase.NONE, null, null, null);
         }
 
         private static AckInjection from(final String[] arguments) {
@@ -1654,7 +1892,12 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
         }
 
         private boolean expiryAckResponseLoss() {
-            return mode == AckMode.EXPIRY_ACK_RESPONSE_LOSS;
+            return mode == AckMode.EXPIRY_ACK_RESPONSE_LOSS
+                    || mode == AckMode.EXPIRY_ACK_RESPONSE_LOSS_REOPEN;
+        }
+
+        private boolean expiryAckResponseLossReopen() {
+            return mode == AckMode.EXPIRY_ACK_RESPONSE_LOSS_REOPEN;
         }
 
         private boolean acknowledgementResponseUnknown() {

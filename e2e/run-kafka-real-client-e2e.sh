@@ -1162,7 +1162,13 @@ if [[ "${target_worker_source_only}" == "1" ]]; then
     "-PkafkaTargetSourceTopic=${target_worker_source_topic}-expiry-ack-loss" \
     -PkafkaTargetScenario=target-expire-not-found-ack-loss \
     --no-daemon --console=plain
-  echo "Kafka Target Worker source, Host lifecycle, Store-write UNKNOWN, EXPIRE_GENERATION Source Apply, and retained-entry ACK response-loss E2Es passed against the locked K1 Broker/client fixture."
+  GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaTargetWorkerSourceSmoke \
+    "-PkafkaClientJar=${client_jar}" \
+    "-PkafkaBootstrap=${bootstrap_all}" \
+    "-PkafkaTargetSourceTopic=${target_worker_source_topic}-expiry-ack-loss-reopen" \
+    -PkafkaTargetScenario=target-expire-not-found-ack-loss-reopen \
+    --no-daemon --console=plain
+  echo "Kafka Target Worker source, Host lifecycle, Store-write UNKNOWN, EXPIRE_GENERATION Source Apply, and in-process ACK response-loss recovery E2Es passed against the locked K1 Broker/client fixture."
   exit 0
 fi
 
