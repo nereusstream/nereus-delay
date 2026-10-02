@@ -69,6 +69,119 @@ class PublishAdmissionWorkClassExecutorTest {
     Path tempDir;
 
     @Test
+    void queuedAdmissionRechecksTheLiveOwnerLeaseBeforeAppending() throws Exception {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 32);
+        final UUID sourceTopic = UUID.randomUUID();
+        final SourceAssignment assignment = new SourceAssignment(
+                shardId,
+                Bytes.sha256(Bytes.utf8("queued-admission-assignment")),
+                7,
+                new KafkaActivationBarrier(shardId, "queued-admission-cluster", sourceTopic, 0));
+        final InMemoryOwnerLeaseStore leaseBackend = new InMemoryOwnerLeaseStore();
+        final OwnerLease lease = leaseBackend.acquire(
+                        assignment,
+                        "queued-admission-owner",
+                        Bytes.sha256(Bytes.utf8("queued-admission-session")),
+                        100,
+                        100)
+                .orElseThrow();
+        final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(leaseBackend);
+        final ProfileRef destination = profile(ProfileKind.DESTINATION, "queued-admission-destination");
+        final ProfileRef capability = profile(ProfileKind.DELIVERY_CAPABILITY, "queued-admission-capability");
+        final DestinationLaneId laneId =
+                DestinationLaneId.derive(Bytes.concat(destination.canonicalBytes(), capability.canonicalBytes()));
+        final byte[] payload = Bytes.utf8("queued-admission-payload");
+        final PreparedCommand schedule = PreparedCommand.schedule(
+                shardId,
+                new com.nereusstream.delay.protocol.ScheduleIntent(
+                        laneId, 2_000, 9_000, com.nereusstream.delay.protocol.OrderingMode.BEST_EFFORT, payload),
+                10_000);
+        final KafkaSourcePosition schedulePosition =
+                new KafkaSourcePosition(shardId, "queued-admission-cluster", sourceTopic, 0, null, 1_000);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("queued-admission-store"));
+        final KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnerIdentity owner = new OwnerIdentity(
+                    Bytes.utf8("queued-admission-deployment"),
+                    Bytes.utf8("queued-admission-worker"),
+                    lease.ownerEpoch(),
+                    Bytes.sha256(Bytes.utf8("queued-admission-fence")));
+            final DelayShard shard = BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults());
+            shard.apply(schedule, schedulePosition);
+            com.nereusstream.delay.runtime.DelayShardTestSupport.updateLaneReadiness(
+                    shard, laneId, RuntimeReadiness.READY);
+            final OwnedDelayShard owned = new OwnedDelayShard(shard, lease, owner);
+            owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
+            owned.recordCatchup(schedulePosition);
+            owned.activateForCommands(authority, 101);
+
+            final MessageRecord message = shard.getMessage(schedule.delayMessageId());
+            final ClaimMaterialization materialization =
+                    materialization(destination, capability, schedule.delayMessageId(), message, payload);
+            final ClaimRecord claim = shard.claimForPublish(
+                    schedule.delayMessageId(),
+                    AuthorIdentity.owner(
+                            owner.deploymentId(), owner.workerRunId(), owner.ownerEpoch(), owner.leaseFencingDigest()),
+                    3_000,
+                    materialization,
+                    claimCharge(payload.length));
+            final PreparedPublishDescriptor descriptor = descriptor(claim, materialization);
+            final ReadyCertificate certificate =
+                    certificate(owner, store.metadata().storeIncarnation(), descriptor, sourceTopic);
+            final TrustedUtcIntervalEvidence decision = evidence(2_000, 2_001);
+            final ClaimExecutionAdmission permits = new ClaimExecutionAdmission(1, payload.length);
+            permits.registerShard(new ClaimExecutionAdmission.ShardSpec(shardId, 1, payload.length));
+            permits.registerLane(new ClaimExecutionAdmission.LaneSpec(
+                    shardId, laneId, claim.laneIncarnation(), 0, 0, 1, payload.length));
+            permits.openReady(shardId, laneId, claim.laneIncarnation());
+            final ClaimExecutionAdmission.Reservation reservation = permits.tryAcquire(
+                            shardId,
+                            laneId,
+                            claim.laneIncarnation(),
+                            claim.delayMessageId(),
+                            Integer.toUnsignedLong(claim.generation()),
+                            payload.length)
+                    .reservation();
+
+            final AtomicInteger appendCalls = new AtomicInteger();
+            final WorkClassExecutionRegistry workClasses = workClasses();
+            final PublishAdmissionWorkClassExecutor executor = new PublishAdmissionWorkClassExecutor(
+                    workClasses,
+                    owned,
+                    authority,
+                    permits,
+                    mutation -> {
+                        appendCalls.incrementAndGet();
+                        return ShardLogMutationAppender.AppendOutcome.persisted(new KafkaSourcePosition(
+                                shardId, "queued-admission-cluster", sourceTopic, 1, null, 2_100));
+                    },
+                    ignored -> PublishAdmissionWorkClassExecutor.PrerequisiteDecision.available());
+            final PublishAdmissionWorkClassExecutor.Submission submission = executor.submit(
+                    claim,
+                    reservation,
+                    descriptor,
+                    certificate,
+                    decision,
+                    2_500,
+                    1,
+                    keyPair.getPrivate(),
+                    () -> 101);
+
+            assertEquals(1, workClasses.registeredActions());
+            assertTrue(leaseBackend.release(lease));
+            workClasses.runTurn(new com.nereusstream.delay.scheduler.SchedulerBudget(1, 1_000_000, 1_000));
+
+            assertEquals(
+                    PublishAdmissionWorkClassExecutor.ResultKind.UNKNOWN,
+                    submission.result().orElseThrow().kind());
+            assertEquals(0, appendCalls.get());
+            assertEquals(ClaimExecutionAdmission.ReservationState.ACTIVE, reservation.state());
+        }
+    }
+
+    @Test
     void deferralRetainsExactReservationThenPreparesSignsAndAppends() throws Exception {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 31);
         final UUID sourceTopic = UUID.randomUUID();

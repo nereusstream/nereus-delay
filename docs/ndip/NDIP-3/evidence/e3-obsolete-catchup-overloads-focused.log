@@ -85,3 +85,20 @@ Verification commands and results:
 - `./gradlew test --tests com.nereusstream.delay.ownership.PublishAdmissionWorkClassExecutorTest --tests com.nereusstream.delay.ownership.WorkerPhysicalPublishExecutorTest checkstyleTest --no-daemon --console=plain`: 10 tests, 0 failures/errors/skips; `checkstyleTest` passed.
 
 Scope: this completes the static inventory of annotated deprecated public APIs and records the current partial four-boundary ownership matrix. It does not complete every typed identity replacement, Store/Owner/policy drift negative case, asynchronous stale-token case, repeated-first-Producer case, legacy bridge failure matrix, or central validation. E3 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
+
+
+E3 focused asynchronous Publish Admission Owner recheck
+Date: 2026-10-03
+
+Source lock:
+- Delay base HEAD: 1b090de04c45343cf2f658f162967f85d4e34140
+- `PublishAdmissionWorkClassExecutorTest.java` SHA-256: ec83145232df8777850112d402fc48ef88479ea661262b4edd84b3f154003861
+
+Regression: `queuedAdmissionRechecksTheLiveOwnerLeaseBeforeAppending` prepares and submits a signed Publish Admission while the exact Claim/Owner are current, releases the `InMemoryOwnerLeaseStore` lease after queue registration but before the WorkClass action runs, then executes the action. The async-time authoritative check rejects the append; the handoff is `UNKNOWN`, appender calls remain zero, and the exact Claim reservation remains ACTIVE. This verifies a real RocksDB Worker path with a deterministic in-memory Owner authority; it does not claim Oxia takeover or production assembly evidence.
+
+Command:
+`./gradlew test --tests com.nereusstream.delay.ownership.PublishAdmissionWorkClassExecutorTest checkstyleTest --no-daemon --console=plain`
+
+Result: `PublishAdmissionWorkClassExecutorTest` 2 tests, 0 failures/errors/skips; `compileJava`, `compileTestJava`, and `checkstyleTest` passed.
+
+Scope: the added test closes one enqueue-to-execute Owner revocation scenario. Store incarnation changes, policy refresh, credential renewal, other async stale-token paths, repeated first Producer ownership, and E3 central validation remain open.
