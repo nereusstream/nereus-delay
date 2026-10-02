@@ -250,6 +250,16 @@ tasks.register('runRealKafkaTargetWorkerSourceSmoke', JavaExec) {
         def recoveryProperties = ['kafkaTargetAckStateFile', 'kafkaTargetAckStoreRoot', 'kafkaTargetAckReadyFile']
         args recoveryProperties.collect { project.ext.optionalRealTaskArgument.call(findProperty(it)) }
     }
+    if (findProperty('kafkaTargetScenario') != null) {
+        if (findProperty('kafkaTargetAckMode') != null || findProperty('kafkaTargetAckCrashPhase') != null
+                || findProperty('kafkaTargetScenario') != 'target-expire-not-found') {
+            doFirst {
+                throw new GradleException(
+                        'kafkaTargetScenario supports target-expire-not-found only and cannot combine with ACK modes')
+            }
+        }
+        args project.ext.optionalRealTaskArgument.call(findProperty('kafkaTargetScenario'))
+    }
 }
 
 tasks.register('runRealKafkaFetchResponseLossSmoke', JavaExec) {

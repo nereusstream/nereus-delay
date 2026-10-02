@@ -105,13 +105,16 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
     public static void main(final String[] arguments) throws Exception {
         if (arguments.length != 2 && arguments.length != 3 && arguments.length != 6 && arguments.length != 10) {
             throw new IllegalArgumentException("usage: <bootstrap-server> <source-topic-prefix> "
-                    + "[no-injection | store-write-response-unknown | network-response-loss "
+                    + "[no-injection | store-write-response-unknown | target-expire-not-found | "
+                    + "network-response-loss "
                     + "<hold-file> <release-file> <dropped-response-file>] "
                     + "[network-response-loss-process-crash <phase> <hold-file> <release-file> "
                     + "<dropped-response-file> <state-file> <store-root> <ready-file>]");
         }
         final String bootstrap = arguments[0];
-        final AckInjection ackInjection = AckInjection.from(arguments);
+        final boolean targetExpiryNotFound =
+                arguments.length == 3 && "target-expire-not-found".equals(arguments[2]);
+        final AckInjection ackInjection = targetExpiryNotFound ? AckInjection.acked() : AckInjection.from(arguments);
         if (ackInjection.crashPhase() == CrashPhase.RESUME) {
             replayAfterProcessCrash(bootstrap, ackInjection);
             return;
@@ -307,6 +310,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                                         siblingStoreRoot,
                                         AckInjection.acked(),
                                         null,
+                                        false,
                                         false);
                             } finally {
                                 leases.current(siblingShard).ifPresent(leases::release);
@@ -343,7 +347,8 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                             storeRoot,
                             ackInjection,
                             siblingProgress,
-                            ownerClient != null && exerciseSibling);
+                            ownerClient != null && exerciseSibling,
+                            targetExpiryNotFound);
                 } finally {
                     if (!preserveStore) {
                         deleteTree(storeRoot);
@@ -471,7 +476,8 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
             final Path storeRoot,
             final AckInjection ackInjection,
             final CheckedAction siblingProgress,
-            final boolean loseOwnerBeforeSibling) throws Exception {
+            final boolean loseOwnerBeforeSibling,
+            final boolean targetExpiryNotFound) throws Exception {
         final var config = ShardStoreConfig.defaults(storeRoot);
         final var registration = new InMemoryControlTargetRegistrationAuthority();
         registration.register(rootControl.prepared());
@@ -521,6 +527,31 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
             final var active = TargetWorkerOwnerActivation.activate(
                     initialized, store, assignment, acquiring, leases, System::currentTimeMillis);
             activeHolder[0] = active;
+            final TargetExpiryFixture expiryFixture = targetExpiryNotFound
+                    ? targetExpiryFixture(scope.shard(), command.delayMessageId(), active, signingKeys)
+                    : null;
+            final java.util.concurrent.atomic.AtomicInteger expiryAuthorityResolutions =
+                    new java.util.concurrent.atomic.AtomicInteger();
+            if (expiryFixture != null) {
+                final var firstExpiry = produce(
+                        bootstrap,
+                        topic,
+                        scope.shard().partition(),
+                        expiryFixture.timestamp(),
+                        expiryFixture.mutation().systemMutationId(),
+                        expiryFixture.mutation().encodeFrame());
+                final var duplicateExpiry = produce(
+                        bootstrap,
+                        topic,
+                        scope.shard().partition(),
+                        Math.addExact(expiryFixture.timestamp(), 1),
+                        expiryFixture.mutation().systemMutationId(),
+                        expiryFixture.mutation().encodeFrame());
+                if (firstExpiry.offset() != commandOffset + 1
+                        || duplicateExpiry.offset() != commandOffset + 2) {
+                    throw new IllegalStateException("Kafka Target expiry source records are not consecutive");
+                }
+            }
             final var backend = initialized.backend();
             final var commandStore = new TargetCommandStore(backend, scope, LINEAGE, 16, 1);
             final var closeControls = new TargetCloseStore(backend, scope, LINEAGE, 16, 1)
@@ -553,7 +584,39 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                             SourceReplaySuccessor.strictKafka(),
                             entry -> { throw new AssertionError("unexpected quota grant after activation"); },
                             entry -> { throw new AssertionError("unexpected Target time fence"); },
-                            entry -> { throw new AssertionError("unexpected Target expiry control"); },
+                            entry -> {
+                                if (expiryFixture == null || !expiryFixture.mutation().equals(entry.mutation())) {
+                                    throw new AssertionError("unexpected Target expiry control");
+                                }
+                                expiryAuthorityResolutions.incrementAndGet();
+                                final var expiryAuthor = expiryFixture.author();
+                                return new TargetSourceApplyRuntime.ExpiryControl(
+                                        (actualScope, author, mutation, position) -> {
+                                            if (!scope.equals(actualScope)
+                                                    || !Arrays.equals(
+                                                            expiryAuthor.canonicalBytes(), author.canonicalBytes())
+                                                    || !expiryFixture.mutation().equals(mutation)
+                                                    || !source.sameSourceIdentity(position)) {
+                                                throw new IllegalStateException(
+                                                        "Target expiry authority received another signed source entry");
+                                            }
+                                            return new com.nereusstream.delay.runtime.TargetExpireGenerationVerifier
+                                                    .Authorization(
+                                                            signingKeys.getPublic(),
+                                                            1,
+                                                            (proofScope, proofAuthor, proofSource, evidence) ->
+                                                                    scope.equals(proofScope)
+                                                                            && Arrays.equals(
+                                                                                    expiryAuthor.canonicalBytes(),
+                                                                                    proofAuthor.canonicalBytes())
+                                                                            && source.sameSourceIdentity(proofSource)
+                                                                            && Arrays.equals(
+                                                                                    expiryFixture.evidence()
+                                                                                            .canonicalBytes(),
+                                                                                    evidence.canonicalBytes()));
+                                        },
+                                        ownerCommitAuthority(leases, active));
+                            },
                             entry -> { throw new AssertionError("unexpected Target Close control"); },
                             entry -> { throw new AssertionError("unexpected membership control"); },
                             ownerCommitAuthority(leases, active),
@@ -751,6 +814,58 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                                     "sibling source progress changed the first Shard ACK_UNKNOWN state");
                         }
                     }
+                }
+                if (expiryFixture != null) {
+                    final var firstExpiryTurn = runUntilAppliedByHost(host);
+                    if (firstExpiryTurn.status() != SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED
+                            || !(firstExpiryTurn.entry() instanceof com.nereusstream.delay.ownership
+                                    .SourceReplayMutation firstExpiryEntry)
+                            || !expiryFixture.mutation().equals(firstExpiryEntry.mutation())
+                            || !(firstExpiryEntry.position() instanceof KafkaSourcePosition firstExpiryPosition)
+                            || firstExpiryPosition.offset() != commandOffset + 1
+                            || firstExpiryTurn.appliedOutcome() == null
+                            || firstExpiryTurn.appliedOutcome().systemMutationResult().applyStatus()
+                                    != com.nereusstream.delay.runtime.ApplyStatus.APPLIED
+                            || firstExpiryTurn.appliedOutcome().systemMutationResult().stableCode()
+                                    != StableCode.NOT_FOUND
+                            || expiryAuthorityResolutions.get() != 1) {
+                        throw new IllegalStateException(
+                                "real Kafka Target EXPIRE_GENERATION first application did not apply and ACK");
+                    }
+                    final var duplicateExpiryTurn = runUntilAppliedByHost(host);
+                    if (duplicateExpiryTurn.status() != SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED
+                            || !(duplicateExpiryTurn.entry() instanceof com.nereusstream.delay.ownership
+                                    .SourceReplayMutation duplicateExpiryEntry)
+                            || !expiryFixture.mutation().equals(duplicateExpiryEntry.mutation())
+                            || !(duplicateExpiryEntry.position() instanceof KafkaSourcePosition duplicatePosition)
+                            || duplicatePosition.offset() != commandOffset + 2
+                            || duplicateExpiryTurn.appliedOutcome() == null
+                            || duplicateExpiryTurn.appliedOutcome().systemMutationResult().stableCode()
+                                    != StableCode.NOT_FOUND
+                            || expiryAuthorityResolutions.get() != 1) {
+                        throw new IllegalStateException(
+                                "real Kafka Target EXPIRE_GENERATION duplicate did not replay its first result");
+                    }
+                    final var appliedPosition = store.appliedShardLogPosition();
+                    if (!(appliedPosition instanceof KafkaSourcePosition appliedKafka)
+                            || appliedKafka.offset() != commandOffset + 2
+                            || !source.sameSourceIdentity(appliedKafka)) {
+                        throw new IllegalStateException(
+                                "Target Store did not persist the duplicate expiry source frontier");
+                    }
+                    final var expiryCommittedOffsets = admin.listConsumerGroupOffsets(groupId)
+                            .partitionsToOffsetAndMetadata()
+                            .get(10, TimeUnit.SECONDS);
+                    final var expiryCommitted = expiryCommittedOffsets.get(
+                            new TopicPartition(topic, scope.shard().partition()));
+                    if (expiryCommitted == null || expiryCommitted.offset() != commandOffset + 3) {
+                        throw new IllegalStateException(
+                                "Kafka Broker did not commit first and duplicate Target expiry source records");
+                    }
+                    System.out.println(
+                            "Kafka Target EXPIRE_GENERATION first application and immutable duplicate replay passed: "
+                                    + "Broker offsets " + (commandOffset + 1) + "/" + (commandOffset + 2)
+                                    + " ACKed; expiry authority resolved once.");
                 }
             } finally {
                 if (host != null) {
@@ -1447,6 +1562,49 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
     }
 
     private record RootControl(PreparedControlOperation prepared, SystemMutation mutation) {}
+
+    private record TargetExpiryFixture(
+            com.nereusstream.delay.protocol.SystemMutation mutation,
+            AuthorIdentity author,
+            TrustedUtcIntervalEvidence evidence,
+            long timestamp) {}
+
+    private static TargetExpiryFixture targetExpiryFixture(
+            final ShardId shard,
+            final DelayMessageId messageId,
+            final OwnerLease active,
+            final KeyPair signingKeys) {
+        final long timestamp = Math.addExact(System.currentTimeMillis(), 5);
+        final long retryUntil = Math.addExact(timestamp, 600_000);
+        final var evidence = new TrustedUtcIntervalEvidence(
+                timestamp - 1,
+                timestamp,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                Bytes.utf8("kafka-target-expiry-source-smoke"),
+                1,
+                1,
+                1,
+                Bytes.sha256(Bytes.utf8("kafka-target-expiry-source-smoke-evidence")),
+                0,
+                null);
+        final var author = AuthorIdentity.owner(
+                Bytes.utf8("kafka-target-worker-deployment"),
+                Bytes.utf8("kafka-target-worker-host-run"),
+                active.ownerEpoch(),
+                Bytes.sha256(active.leaseToken()));
+        final var body = new com.nereusstream.delay.protocol.TargetExpireGenerationBody(
+                shard, retryUntil, messageId, 0, timestamp - 1, evidence);
+        final var mutation = com.nereusstream.delay.protocol.SystemMutation.signed(
+                shard,
+                com.nereusstream.delay.protocol.SystemMutationType.EXPIRE_GENERATION,
+                retryUntil,
+                body.logicalOperationIdentity(),
+                body.canonicalBytes(),
+                author.canonicalBytes(),
+                1,
+                signingKeys.getPrivate());
+        return new TargetExpiryFixture(mutation, author, evidence, timestamp);
+    }
 
     private static org.apache.kafka.clients.producer.RecordMetadata produce(
             final String bootstrap,
