@@ -102,3 +102,20 @@ Command:
 Result: `PublishAdmissionWorkClassExecutorTest` 2 tests, 0 failures/errors/skips; `compileJava`, `compileTestJava`, and `checkstyleTest` passed.
 
 Scope: the added test closes one enqueue-to-execute Owner revocation scenario. Store incarnation changes, policy refresh, credential renewal, other async stale-token paths, repeated first Producer ownership, and E3 central validation remain open.
+
+
+E3 focused Prepared Record Handoff authority recheck
+Date: 2026-10-03
+
+Source lock:
+- Delay base HEAD: 6dbdea1333427a959f419ccd6715d43845b1f032
+- `PulsarNativeProductionCompositionTest.java` SHA-256: 0ef87e8009b1f8dcb68521de8820bfa06949e58700c3bc7624b1eb57e6a9619f
+
+Regression: `handoffAuthorityRevocationAfterRecordPreparationBlocksProducerOwnership` first validates the prepared record while a test Handoff gate allows the frozen policy, revokes that gate, then submits the same exact prepared record through `PinnedPulsarNativeSubmissionAdapter`. The Producer-boundary validator returns `NATIVE_DEFINITELY_NOT_QUEUED` with `AUTO_FAST_PREREQUISITE_UNAVAILABLE`; neither transport method is called. The test gate is not a production/current-head Oxia provider.
+
+Command:
+`./gradlew test --tests com.nereusstream.delay.submission.PulsarNativeProductionCompositionTest checkstyleTest`
+
+Result: `PulsarNativeProductionCompositionTest` 7 tests, 0 failures/errors/skips; `compileJava`, `compileTestJava`, and `checkstyleTest` passed. `checkDocumentation` is run after the synchronized progress/doc update.
+
+Scope: this closes one pre-prepare to Producer-boundary gate-revocation case under a test authority only. It does not verify production policy refresh, Store incarnation or credential renewal drift, other async stale tokens, repeated first Producer ownership, or E3 central validation.

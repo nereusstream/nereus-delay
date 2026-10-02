@@ -62,6 +62,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
@@ -267,6 +268,75 @@ class PulsarNativeProductionCompositionTest {
         }
         assertEquals(1, credentialResolutions.get());
         assertEquals(1, handoffChecks.get());
+        assertEquals(0, sends.get());
+    }
+
+    @Test
+    void handoffAuthorityRevocationAfterRecordPreparationBlocksProducerOwnership() throws Exception {
+        final Fixture fixture = fixture();
+        final AtomicBoolean handoffAllowed = new AtomicBoolean(true);
+        final AtomicInteger handoffChecks = new AtomicInteger();
+        final AtomicInteger sends = new AtomicInteger();
+        final PulsarNativePreparedRecordValidator validator = new PulsarNativePreparedRecordValidator(
+                fixture.resource,
+                fixture.capabilityKeys.getPublic(),
+                Clock.fixed(Instant.ofEpochMilli(3_000), ZoneOffset.UTC),
+                null,
+                fixture.activationGate,
+                (snapshot, artifacts, now) -> {
+                    handoffChecks.incrementAndGet();
+                    if (!handoffAllowed.get()) {
+                        throw new IllegalArgumentException("handoff authority revoked the frozen policy");
+                    }
+                    assertEquals(fixture.artifacts, artifacts);
+                    assertEquals(3_000, now);
+                });
+
+        assertEquals(null, validator.validate(fixture.prepared, fixture.record, fixture.artifacts));
+        handoffAllowed.set(false);
+        final PinnedPulsarNativeSubmissionAdapter.PulsarNativeSendTransport sender =
+                new PinnedPulsarNativeSubmissionAdapter.PulsarNativeSendTransport() {
+                    @Override
+                    public CompletableFuture<PulsarSendResult> send(final PulsarNativeSendRequest request) {
+                        sends.incrementAndGet();
+                        return CompletableFuture.failedFuture(
+                                new AssertionError("envelope-only native sender must remain untouched"));
+                    }
+
+                    @Override
+                    public CompletableFuture<PulsarSendResult> sendPreparedRecord(
+                            final PulsarPreparedRecord record, final ArtifactGenerationSet artifacts) {
+                        sends.incrementAndGet();
+                        return CompletableFuture.failedFuture(new AssertionError("Producer must remain untouched"));
+                    }
+                };
+
+        try (PinnedPulsarNativeSubmissionAdapter adapter = new PinnedPulsarNativeSubmissionAdapter(
+                fixture.resource,
+                fixture.capabilityKeys.getPublic(),
+                Clock.fixed(Instant.ofEpochMilli(3_000), ZoneOffset.UTC),
+                sender,
+                null,
+                true,
+                fixture.activationGate,
+                (snapshot, artifacts, now) -> {
+                    handoffChecks.incrementAndGet();
+                    if (!handoffAllowed.get()) {
+                        throw new IllegalArgumentException("handoff authority revoked the frozen policy");
+                    }
+                    assertEquals(fixture.artifacts, artifacts);
+                    assertEquals(3_000, now);
+                })) {
+            final var outcome = adapter.submitPreparedRecord(
+                            fixture.prepared, fixture.record, fixture.artifacts, bytes(16, 94))
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(SubmissionOutcomeKind.NATIVE_DEFINITELY_NOT_QUEUED, outcome.kind());
+            assertEquals(
+                    com.nereusstream.delay.protocol.StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE,
+                    outcome.nativeDefinitelyNotQueued().error().code());
+        }
+        assertEquals(2, handoffChecks.get());
         assertEquals(0, sends.get());
     }
 
