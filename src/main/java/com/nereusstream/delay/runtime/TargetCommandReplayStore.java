@@ -1,7 +1,6 @@
 package com.nereusstream.delay.runtime;
 
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CommandCodec;
 import com.nereusstream.delay.protocol.PreparedCommand;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.StableCode;
@@ -95,7 +94,7 @@ public final class TargetCommandReplayStore {
             final var stamp = new TargetQuotaMutation(
                     TargetQuotaMutation.increment(reader.sourceSequence()),
                     source,
-                    Bytes.sha256(CommandCodec.encodeFrame(mutation)));
+                    mutation.canonicalFrameDigest());
             final var rootId = new TargetQuotaIdentity(
                     TargetQuotaIdentity.Kind.SHARD,
                     scope.shard(),
@@ -217,7 +216,7 @@ public final class TargetCommandReplayStore {
                     || position.kind() != TargetResultRecord.Kind.POSITION_COMMAND
                     || position.mutation().sequence() != reader.sourceSequence()
                     || !Arrays.equals(
-                            position.mutation().mutationDigest(), Bytes.sha256(CommandCodec.encodeFrame(mutation)))) {
+                            position.mutation().mutationDigest(), mutation.canonicalFrameDigest())) {
                 throw new IllegalStateException(
                         "same physical Command replay lacks its exact committed envelope audit");
             }

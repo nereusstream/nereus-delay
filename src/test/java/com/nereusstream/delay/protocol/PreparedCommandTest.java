@@ -1,11 +1,39 @@
 package com.nereusstream.delay.protocol;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class PreparedCommandTest {
+    @Test
+    void canonicalFrameDigestMatchesTheEncodedFrameAndIsDefensive() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 2);
+        final PreparedCommand command = PreparedCommand.schedule(
+                shard,
+                CanonicalScheduleIntent.create(
+                        destination(),
+                        retryPolicy(),
+                        10,
+                        100,
+                        DeliveryMode.MANAGED,
+                        OrderingMode.BEST_EFFORT,
+                        new byte[0],
+                        Bytes.utf8("payload"),
+                        null,
+                        AdapterMetadata.kafka(new KafkaMetadata(null, List.of())),
+                        null,
+                        null),
+                500);
+
+        final byte[] expected = Bytes.sha256(CommandCodec.encodeFrame(command));
+        final byte[] digest = command.canonicalFrameDigest();
+        assertArrayEquals(expected, digest);
+        digest[0] ^= 1;
+        assertArrayEquals(expected, command.canonicalFrameDigest());
+    }
+
     @Test
     void scheduleAndPrepareCommandsKeepOuterAndBodyIdentityAligned() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 2);

@@ -5,7 +5,6 @@ import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CancelCommandBody;
 import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
 import com.nereusstream.delay.protocol.CanonicalTargetPartition;
-import com.nereusstream.delay.protocol.CommandCodec;
 import com.nereusstream.delay.protocol.CommandType;
 import com.nereusstream.delay.protocol.CommitLargeScheduleBody;
 import com.nereusstream.delay.protocol.MessagePrecondition;
@@ -210,7 +209,7 @@ public final class TargetCommandStore {
         }
         final var result = new CommandResult[1];
         final var ingress = new TargetQuotaAccounting[1];
-        final byte[] digest = Bytes.sha256(CommandCodec.encodeFrame(command));
+        final byte[] digest = command.canonicalFrameDigest();
         final var batch = messages.prepareAccountedWithQuotaRejection(
                 budget,
                 reader -> {

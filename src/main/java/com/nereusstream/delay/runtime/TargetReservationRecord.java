@@ -2,7 +2,6 @@ package com.nereusstream.delay.runtime;
 
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
-import com.nereusstream.delay.protocol.CommandCodec;
 import com.nereusstream.delay.protocol.CommandHash;
 import com.nereusstream.delay.protocol.CommandId;
 import com.nereusstream.delay.protocol.CommandType;
@@ -177,7 +176,7 @@ public record TargetReservationRecord(
             TargetOrderState.OrderingContract orderingContract) {
         if (command.type() != CommandType.PREPARE_LARGE_SCHEDULE
                 || !command.delayMessageId().equals(locator.messageId())
-                || !Arrays.equals(stamp.mutationDigest(), Bytes.sha256(CommandCodec.encodeFrame(command)))) {
+                || !Arrays.equals(stamp.mutationDigest(), command.canonicalFrameDigest())) {
             throw new IllegalArgumentException("reservation is not anchored to its exact Prepare frame");
         }
         return new TargetReservationRecord(
@@ -306,7 +305,7 @@ public record TargetReservationRecord(
                                 locator.messageId(),
                                 body.retryUntilEpochMs(),
                                 binding.canonicalBody()))
-                || !Arrays.equals(prepareAnchor.mutationDigest(), Bytes.sha256(CommandCodec.encodeFrame(command)))
+                || !Arrays.equals(prepareAnchor.mutationDigest(), command.canonicalFrameDigest())
                 || expiryEpochMs
                         != Math.addExact(
                                 binding.bindingSource().brokerPersistenceTimeEpochMs(), body.reservationTtlMs())) {

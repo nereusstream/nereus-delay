@@ -35,3 +35,25 @@ Regression command:
 Result: `PulsarNativeProductionCompositionTest` 6 tests, `NativeSubmissionAdapterTest` 14 tests, 0 failures/errors/skips; `compileJava`, `compileTestJava`, and `checkstyleTest` passed. The new success regression observes one credential resolution, one Handoff check, and one prepared-record send. The credential-drift regression observes one authority check and zero Producer calls. `checkDocumentation` is run after the synchronized progress/doc update.
 
 Scope: one Native Prepared path only. It does not close the four-boundary guard matrix, remaining compatibility call graph, async stale-token matrix, failure-propagation audit or other encode/decode/hash reductions; E3 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`. These tests use test authorities and do not claim Broker/production assembly validation.
+
+
+E3 focused Target canonical frame digest reuse
+Date: 2026-10-03
+
+Source lock:
+- Delay base HEAD: ce3dbacbcc40e4f9e1839d3d8c0331c7a2899fbc
+- `PreparedCommand.java` SHA-256: e749d8eec13931b2ff9bf6b21beedb5dc6709ae8664bdfe748a08f34e392347b
+- `TargetCommandStore.java` SHA-256: fb9308b74390cc3eb4a3349896fe301d6a471ae60ee031ac5d4b7a792efeeaa0
+- `TargetCommandReplayStore.java` SHA-256: 9762f90f59c4133755a0df45087beb2e0192ed22697afb87ec86765bed703b86
+- `TargetReservationRecord.java` SHA-256: 674a2e0157ed618c465b4d0c733bd7b893ebacbcf0ba652711120e76f757122a
+- `TargetResultRecord.java` SHA-256: a9cf6d09509ba378360302e5736de4966f3fb52c96603a1418c37ba518a86b66
+- `PreparedCommandTest.java` SHA-256: 400b9b133d6f320f6adf93fde2673035a683c2629c020ff5bbb5660be20d6cbc
+
+Call path: Target first apply, command replay, result and reservation code had seven production calls to `Bytes.sha256(CommandCodec.encodeFrame(command))` across four runtime classes. `PreparedCommand` now lazily computes the identical SHA-256 once per command object and stores only the 32-byte digest; later checks reuse it and every public accessor returns a defensive copy. Complete encoded frames are not retained. The command encoding, durable mutation stamp, and comparisons are unchanged. This is deterministic source call-count evidence only; no latency/throughput claim is made.
+
+Regression command:
+`./gradlew test --tests com.nereusstream.delay.protocol.PreparedCommandTest --tests com.nereusstream.delay.runtime.TargetCommandStoreTest --tests com.nereusstream.delay.runtime.TargetCommandReplayStoreTest --tests com.nereusstream.delay.runtime.TargetResultRecordTest checkstyleTest --no-daemon --console=plain`
+
+Result: `PreparedCommandTest` 4 tests, `TargetCommandStoreTest` 5 tests, `TargetCommandReplayStoreTest` 3 tests, and `TargetResultRecordTest` 15 tests; 27 tests total, 0 failures/errors/skips. `compileJava`, `compileTestJava`, and `checkstyleTest` passed. A separate `checkstyleMain` rerun after removing the now-unused `CommandCodec` imports and correcting `PulsarNativePreparedRecordFactory.java` import order found only the two unchanged 123-character lines in `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`.
+
+Scope: this reduces repeated frame encoding and hashing for repeated checks of the same `PreparedCommand`; it does not measure end-to-end performance or close E3's guard matrix, remaining compatibility call graph, async token invalidation, failure propagation, or central validation. E3 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.

@@ -14,6 +14,7 @@ public final class PreparedCommand {
     private final long retryUntilEpochMs;
     private final byte[] canonicalBody;
     private final byte[] commandHash;
+    private volatile byte[] canonicalFrameDigest;
 
     public PreparedCommand(
             final ShardId shardId,
@@ -390,6 +391,21 @@ public final class PreparedCommand {
 
     public byte[] commandHash() {
         return Bytes.copy(commandHash);
+    }
+
+    /** Returns the SHA-256 digest of this command's canonical frame. */
+    public byte[] canonicalFrameDigest() {
+        byte[] digest = canonicalFrameDigest;
+        if (digest == null) {
+            synchronized (this) {
+                digest = canonicalFrameDigest;
+                if (digest == null) {
+                    digest = Bytes.sha256(CommandCodec.encodeFrame(this));
+                    canonicalFrameDigest = digest;
+                }
+            }
+        }
+        return Bytes.copy(digest);
     }
 
     @Override

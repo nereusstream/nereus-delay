@@ -4,7 +4,6 @@ import com.nereusstream.delay.protocol.AuthorIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
 import com.nereusstream.delay.protocol.CapacityVector;
-import com.nereusstream.delay.protocol.CommandCodec;
 import com.nereusstream.delay.protocol.CommandId;
 import com.nereusstream.delay.protocol.PreparedCommand;
 import com.nereusstream.delay.protocol.ProtocolTuple;
@@ -309,7 +308,7 @@ public final class TargetResultRecord {
             final PreparedCommand command,
             final TargetQuotaMutation stamp,
             final CreationAuthority authority) {
-        if (!Arrays.equals(stamp.mutationDigest(), Bytes.sha256(CommandCodec.encodeFrame(command)))) {
+        if (!Arrays.equals(stamp.mutationDigest(), command.canonicalFrameDigest())) {
             throw new IllegalArgumentException("expired POSITION must bind the full incoming Command frame");
         }
         final var outcome = new CommandResult(
@@ -335,7 +334,7 @@ public final class TargetResultRecord {
     public CommandResult requireExpiredCommand(final PreparedCommand command) {
         if (kind != Kind.POSITION_COMMAND_EXPIRED
                 || !Arrays.equals(logicalId, command.commandId().bytes())
-                || !Arrays.equals(mutation.mutationDigest(), Bytes.sha256(CommandCodec.encodeFrame(command)))) {
+                || !Arrays.equals(mutation.mutationDigest(), command.canonicalFrameDigest())) {
             throw new IllegalStateException("standalone expired POSITION differs from incoming Command");
         }
         final var prior = CommandDedupeRecord.decode(payload);
