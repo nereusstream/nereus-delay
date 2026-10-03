@@ -53,13 +53,13 @@ import org.rocksdb.WriteOptions;
 /** One independent RocksDB instance for exactly one Delay Shard. */
 public final class ShardStore implements AutoCloseable {
     private static final int ACTIVE_MAGIC = 0x41435431;
-    private static final int META_STORE_FORMAT = 1;
-    private static final int META_SHARD_IDENTITY = 2;
-    private static final int META_APPLIED_SOURCE_POSITION = 3;
+    static final int META_STORE_FORMAT = 1;
+    static final int META_SHARD_IDENTITY = 2;
+    static final int META_APPLIED_SOURCE_POSITION = 3;
     private static final int META_INGRESS_FENCE_STATE = 4;
-    private static final int META_MUTATION_SEQUENCE = 5;
+    static final int META_MUTATION_SEQUENCE = 5;
     private static final int META_EVIDENCE_CURSORS = 6;
-    private static final int META_CHECKPOINT_ID = 7;
+    static final int META_CHECKPOINT_ID = 7;
     private static final int META_OWNER_EPOCH = 8;
     private static final int META_CLEAN_CLOSE_MARKER = 9;
     private static final int META_CONTROL_SNAPSHOT = 10;
@@ -72,7 +72,7 @@ public final class ShardStore implements AutoCloseable {
     private static final int META_RECOVERY_CATALOG_GENERATION = 3;
     private static final int META_RECOVERY_INSTALL_STATE = 4;
     private static final int META_RECOVERY_VALUE_TYPE = 1;
-    private static final int META_FIXED_VALUE_TYPE = 1;
+    static final int META_FIXED_VALUE_TYPE = 1;
     private static final int META_PAYLOAD_PROOF_VALUE_TYPE = 9;
     private static final int META_PROFILE_VALUE_TYPE = 10;
     private static final int META_PROTOCOL_ACTIVATION_VALUE_TYPE = 11;

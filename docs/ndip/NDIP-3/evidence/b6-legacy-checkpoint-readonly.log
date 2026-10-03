@@ -1,0 +1,19 @@
+B6 legacy format-1 checkpoint image read-only inspection
+Date: 2026-10-03
+
+Source lock:
+- Delay base HEAD: ba44f341fa8dd5e8b2c52975b73969c3e9986cb7
+- `ShardStore.java` SHA-256: f5e7377bf2c9d289fcb72e48ec13f1f6132a2135b0468ac9854180e98456026f
+- `LegacyCheckpointImageInspector.java` SHA-256: 9795ba2010f772bc0976ea5a19537d57ac9024ef552ed11d061a6a5455601e05
+- `LegacyCheckpointImageInspectorTest.java` SHA-256: 8bb80204b9f09268208c1f314eba5911d35579847de0c5ff43cd7c0a2f6f8a49
+
+Verification: a real format-1 RocksDB checkpoint image is opened through `RocksDB.openReadOnly`. The inspector enforces finite file/byte bounds, exact column-family inventory, empty default column family with checked iterator status, manifest file length/checksum equality, and exact Store format/Shard/db identity/incarnation, checkpoint ID, applied source position, and mutation sequence. It inventories and verifies all physical files both before and after opening the image read-only, rejecting any change during inspection. A second scenario changes the image after capturing the manifest and is rejected before RocksDB open. The successful test scenario independently re-inventories every checkpoint file and observes identical names, lengths, and SHA-256 values.
+
+Command:
+`./gradlew test --tests 'com.nereusstream.delay.store.LegacyCheckpointImageInspectorTest' checkstyleTest`
+
+`./gradlew checkDocumentation`
+
+Result: 2 tests, 0 failures/errors/skips; `checkstyleTest` and `checkDocumentation` passed. `./gradlew checkstyleMain` reports only pre-existing 123-character lines in untouched `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`.
+
+Scope: this is physical checkpoint identity/read-only evidence only. It does not scan all legacy business records or their cross-record obligations, replay source bytes after the checkpoint, produce the full per-Shard dry-run/disposition report, establish durable migration activation, convert a Store, or authorize rollback/reader retirement. B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
