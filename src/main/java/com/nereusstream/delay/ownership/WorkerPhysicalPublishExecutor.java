@@ -539,6 +539,7 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
             throw new HandoffTimeOverlapException();
         }
         descriptor.handoffPolicySnapshot().requireActiveAt(trustedTime);
+        descriptor.channel().credentialUseLease().requireActiveAt(trustedTime);
         if (!Arrays.equals(
                 descriptor.handoffPolicySnapshot().artifactGenerationSetDigest(),
                 context.artifacts().setDigest())) {

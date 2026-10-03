@@ -75,6 +75,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
 
 class WorkerManagedPulsarNativePublishTest {
@@ -179,6 +180,52 @@ class WorkerManagedPulsarNativePublishTest {
                             StableCode.CAPABILITY_UNAVAILABLE));
             assertTrue(fixture.journal.records().isEmpty());
             assertEquals(0, fixture.admission.workerSnapshot().activeRequests());
+        }
+    }
+
+    @Test
+    void credentialLeaseExpiryWhileQueuedStopsBeforeProducerOwnership() throws Exception {
+        final Fixture fixture = Fixture.create(2_500);
+        final AtomicInteger preparedCalls = new AtomicInteger();
+        final AtomicReference<PulsarPreparedRecord> sent = new AtomicReference<>();
+        final AtomicReference<TrustedUtcIntervalEvidence> physicalTime =
+                new AtomicReference<>(fixture.validPhysicalTime);
+        final List<Runnable> queuedPhysicalTasks = new ArrayList<>();
+        final DestinationPhysicalAdmission physicalAdmission =
+                Fixture.admission(fixture.lane, fixture.laneIncarnation, 1);
+        final WorkerPhysicalPublishExecutor executor = fixture.queuedExecutor(
+                preparedAdapter(preparedCalls, sent),
+                physicalAdmission,
+                queuedPhysicalTasks::add,
+                physicalTime::get);
+
+        try (executor) {
+            final DestinationPublishRequest request =
+                    WorkerPhysicalPublishExecutor.prepareRequest(fixture.attempt, fixture.payload);
+            final WorkerPhysicalPublishExecutor.Submission submission =
+                    executor.submit(fixture.attempt, request, () -> 1_950);
+
+            assertEquals(1, queuedPhysicalTasks.size());
+            assertEquals(0, preparedCalls.get());
+            physicalTime.set(exactTime(2_500));
+            queuedPhysicalTasks.getFirst().run();
+
+            assertEquals(0, preparedCalls.get());
+            assertTrue(sent.get() == null);
+            assertEquals(
+                    DestinationPublishResult.Disposition.DEFINITIVELY_NOT_PUBLISHED,
+                    submission.physicalResult().orElseThrow().disposition());
+            assertEquals(
+                    StableCode.CAPABILITY_UNAVAILABLE,
+                    submission.physicalResult().orElseThrow().stableCode());
+            assertEquals(
+                    List.of(
+                            PulsarAttemptJournal.RecordKind.MAPPED,
+                            PulsarAttemptJournal.RecordKind.RETIRED_NOT_PUBLISHED),
+                    fixture.journal.records().stream()
+                            .map(PulsarAttemptJournal.JournalRecord::kind)
+                            .toList());
+            assertEquals(0, physicalAdmission.workerSnapshot().activeRequests());
         }
     }
 
@@ -526,9 +573,13 @@ class WorkerManagedPulsarNativePublishTest {
         private final PublishAttemptLedger attempt;
 
         private Fixture() throws Exception {
+            this(9_000);
+        }
+
+        private Fixture(final long credentialLeaseValidUntilEpochMs) throws Exception {
             final ProfileRef destination = profile(ProfileKind.DESTINATION, "worker-native-destination");
             final ProfileRef capability = profile(ProfileKind.DELIVERY_CAPABILITY, "worker-native-capability");
-            final ChannelResourceIdentity channel = channel(destination);
+            final ChannelResourceIdentity channel = channel(destination, credentialLeaseValidUntilEpochMs);
             final HandoffPolicySnapshot snapshot = HandoffPolicySnapshot.create(
                     Bytes.sha256(Bytes.utf8("worker-native-policy-scope")),
                     1,
@@ -638,6 +689,10 @@ class WorkerManagedPulsarNativePublishTest {
             return new Fixture();
         }
 
+        private static Fixture create(final long credentialLeaseValidUntilEpochMs) throws Exception {
+            return new Fixture(credentialLeaseValidUntilEpochMs);
+        }
+
         private WorkerPhysicalPublishExecutor executor(
                 final DestinationPublishAdapter adapter,
                 final AtomicInteger leaseChecks,
@@ -684,10 +739,18 @@ class WorkerManagedPulsarNativePublishTest {
                 final DestinationPublishAdapter adapter,
                 final DestinationPhysicalAdmission physicalAdmission,
                 final Executor physicalExecutor) {
+            return queuedExecutor(adapter, physicalAdmission, physicalExecutor, () -> validPhysicalTime);
+        }
+
+        private WorkerPhysicalPublishExecutor queuedExecutor(
+                final DestinationPublishAdapter adapter,
+                final DestinationPhysicalAdmission physicalAdmission,
+                final Executor physicalExecutor,
+                final Supplier<TrustedUtcIntervalEvidence> physicalTimeSupplier) {
             return executor(
                     adapter,
                     new AtomicInteger(),
-                    validPhysicalTime,
+                    physicalTimeSupplier,
                     physicalActivation,
                     owner.ownerEpoch(),
                     physicalAdmission,
@@ -699,6 +762,26 @@ class WorkerManagedPulsarNativePublishTest {
                 final DestinationPublishAdapter adapter,
                 final AtomicInteger leaseChecks,
                 final TrustedUtcIntervalEvidence physicalTime,
+                final PhysicalSendActivationGate activationGate,
+                final long contextOwnerEpoch,
+                final DestinationPhysicalAdmission physicalAdmission,
+                final Executor physicalExecutor,
+                final boolean assertJournalPreflightOrder) {
+            return executor(
+                    adapter,
+                    leaseChecks,
+                    () -> physicalTime,
+                    activationGate,
+                    contextOwnerEpoch,
+                    physicalAdmission,
+                    physicalExecutor,
+                    assertJournalPreflightOrder);
+        }
+
+        private WorkerPhysicalPublishExecutor executor(
+                final DestinationPublishAdapter adapter,
+                final AtomicInteger leaseChecks,
+                final Supplier<TrustedUtcIntervalEvidence> physicalTimeSupplier,
                 final PhysicalSendActivationGate activationGate,
                 final long contextOwnerEpoch,
                 final DestinationPhysicalAdmission physicalAdmission,
@@ -744,12 +827,13 @@ class WorkerManagedPulsarNativePublishTest {
                             assertTrue(journal.records().isEmpty());
                         }
                     },
-                    () -> physicalTime,
+                    physicalTimeSupplier,
                     contextOwnerEpoch));
             return result;
         }
 
-        private ChannelResourceIdentity channel(final ProfileRef destination) {
+        private ChannelResourceIdentity channel(
+                final ProfileRef destination, final long credentialLeaseValidUntilEpochMs) {
             final BrokerResourceIdentity evidenceIdentity =
                     BrokerResourceIdentity.pulsar(new PulsarBrokerResourceIdentity(
                             journalResource.authenticatedClusterId(),
@@ -782,7 +866,7 @@ class WorkerManagedPulsarNativePublishTest {
                     binding,
                     fingerprint,
                     exactTime(900),
-                    9_000,
+                    credentialLeaseValidUntilEpochMs,
                     1);
             return new ChannelResourceIdentity(
                     AdapterKind.PULSAR,
@@ -864,7 +948,8 @@ class WorkerManagedPulsarNativePublishTest {
                 CanonicalProtobuf.bytes(output, 8, cursor);
                 CanonicalProtobuf.uint32(output, 9, 1);
                 CanonicalProtobuf.uint32(output, 10, 1);
-                CanonicalProtobuf.int64(output, 11, 7_000);
+                CanonicalProtobuf.int64(
+                        output, 11, Math.min(7_000, channel.credentialUseLease().validUntilEpochMs()));
                 CanonicalProtobuf.bytes(output, 12, issuedAt.canonicalBytes());
                 CanonicalProtobuf.uint64(output, 13, channel.credentialBindingGeneration());
                 CanonicalProtobuf.bytes(output, 14, channel.credentialBindingDigest());

@@ -94,6 +94,15 @@ public final class CredentialUseLease {
         return protectionRevision;
     }
 
+    /** Requires trusted time to prove this credential lease is currently active. */
+    public void requireActiveAt(final TrustedUtcIntervalEvidence trustedTime) {
+        Objects.requireNonNull(trustedTime, "trustedTime");
+        if (trustedTime.earliestEpochMs() < issuedAt.latestEpochMs()
+                || trustedTime.latestEpochMs() >= validUntilEpochMs) {
+            throw new IllegalArgumentException("trusted interval is not fully contained by the credential lease");
+        }
+    }
+
     /** Checks the configured kind-specific TTL bound without inventing a default here. */
     public void requireTtlAtMost(final long maxTtlMs) {
         if (maxTtlMs < 0) {

@@ -11,6 +11,25 @@ import org.junit.jupiter.api.Test;
 
 class CredentialBindingTest {
     @Test
+    void credentialUseLeaseRequiresTrustedIntervalInsideItsValidityWindow() {
+        final ProfileRef profile = profile();
+        final CredentialUseLease lease = new CredentialUseLease(
+                profile,
+                CredentialUseKind.DESTINATION_CHANNEL,
+                bytes(32, 9),
+                1,
+                bytes(32, 10),
+                bytes(32, 11),
+                trustedTime(),
+                1_500,
+                1);
+
+        lease.requireActiveAt(exactTime(1_010));
+        assertThrows(IllegalArgumentException.class, () -> lease.requireActiveAt(exactTime(1_009)));
+        assertThrows(IllegalArgumentException.class, () -> lease.requireActiveAt(exactTime(1_500)));
+    }
+
+    @Test
     void signsAndRoundTripsAttestationBindingHeadAndProtection() throws Exception {
         final ProfileRef profile = profile();
         final TrustedUtcIntervalEvidence verifiedAt = trustedTime();
@@ -136,6 +155,20 @@ class CredentialBindingTest {
         return new TrustedUtcIntervalEvidence(
                 1_000,
                 1_010,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                Bytes.utf8("clock-a"),
+                1,
+                2,
+                3,
+                bytes(32, 8),
+                0,
+                new byte[0]);
+    }
+
+    private static TrustedUtcIntervalEvidence exactTime(final long epochMs) {
+        return new TrustedUtcIntervalEvidence(
+                epochMs,
+                epochMs,
                 TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
                 Bytes.utf8("clock-a"),
                 1,

@@ -263,3 +263,29 @@ Commands:
 Results: `WorkerManagedPulsarNativePublishTest` 7 tests, 0 failures/errors/skips; `checkstyleTest` passed.
 
 Scope: this proves the local Journal/Worker behavior for the deterministic two-task queue race. It does not establish persistent Journal recovery, real Broker/Oxia behavior, or cross-process concurrency, and does not close the remaining E3 guard matrix or central validation.
+
+E3 Native channel credential lease is rechecked after physical queue delay
+Date: 2026-10-03
+
+Source lock:
+- Delay base HEAD: ec619ae77591af855699a33cb7f0d2828cfe2f18
+- `CredentialUseLease.java` SHA-256: 75bb41b3d44bbbcad92c9644f98be867212af1bfbdd55dd9a5ebddb29f357277
+- `WorkerPhysicalPublishExecutor.java` SHA-256: dd87ddc37e4e0bde283af96d40aee39e2ee3ea2f152324a29504f94cdd0b5928
+- `CredentialBindingTest.java` SHA-256: 662e31a09ffee1819ee34239f88e963f8287e57d928847a5c1a8f505cb51f141
+- `WorkerManagedPulsarNativePublishTest.java` SHA-256: cd069d6e8898b2d27df69fd3fc57a449cc6e4b00b03704127568c86ff58ba13c
+
+Finding: Worker rechecked the frozen Handoff policy at the bounded physical-send callback, but did not check the channel `CredentialUseLease` against that fresh trusted-time sample. A queued task could therefore reach Producer after the credential lease expired.
+
+Change: `CredentialUseLease.requireActiveAt` requires `trustedTime.earliestEpochMs >= issuedAt.latestEpochMs` and `trustedTime.latestEpochMs < validUntilEpochMs`. `WorkerPhysicalPublishExecutor.requireFrozenHandoffLease` reuses that value-level check at both the preflight and final Producer-ownership boundary. The canonical lease encoding is unchanged.
+
+Regression: `credentialLeaseExpiryWhileQueuedStopsBeforeProducerOwnership` admits at 1950ms, queues the physical task, advances the trusted physical time to the exclusive 2500ms expiry, and then runs the task. Before the change it failed the zero-Producer-call assertion because Producer was reached. After the change it returns `DEFINITIVELY_NOT_PUBLISHED`, records only `MAPPED` and `RETIRED_NOT_PUBLISHED`, never records `OWNERSHIP_STARTED`, invokes Producer zero times, and releases the physical reservation. `CredentialBindingTest` covers the issuance-evidence and exclusive-expiry boundaries.
+
+Commands:
+`./gradlew test --tests 'com.nereusstream.delay.protocol.CredentialBindingTest' --tests 'com.nereusstream.delay.ownership.WorkerManagedPulsarNativePublishTest.credentialLeaseExpiryWhileQueuedStopsBeforeProducerOwnership'`
+`./gradlew test --tests 'com.nereusstream.delay.ownership.WorkerManagedPulsarNativePublishTest'`
+`./gradlew checkstyleTest`
+`./gradlew checkDocumentation`
+
+Results: targeted protocol and queued-expiry tests passed; `WorkerManagedPulsarNativePublishTest` 8 tests, 0 failures/errors/skips; `checkstyleTest` and `checkDocumentation` passed.
+
+Scope: this is local protocol and Worker evidence with test-supplied authority. It does not establish production credential-provider/Oxia wiring, cross-process behavior or E3 central validation; E3 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
