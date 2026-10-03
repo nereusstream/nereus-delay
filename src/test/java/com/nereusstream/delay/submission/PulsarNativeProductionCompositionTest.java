@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 import com.nereusstream.delay.adapter.PinnedPulsarCommandIngress;
 import com.nereusstream.delay.adapter.PinnedPulsarNativeSubmissionAdapter;
 import com.nereusstream.delay.adapter.PulsarNativePreparedRecordValidator;
@@ -365,6 +366,49 @@ class PulsarNativeProductionCompositionTest {
                     outcome.nativeDefinitelyNotQueued().error().code());
         }
         assertEquals(1, handoffChecks.get());
+        assertEquals(0, sends.get());
+    }
+
+    @Test
+    void legacyNativeSubmissionCannotEnterPreparedRecordWriter() throws Exception {
+        final Fixture fixture = fixture();
+        final PreparedSubmission legacy = PreparedSubmission.nativePrepared(fixture.prepared);
+        final AtomicInteger sends = new AtomicInteger();
+        final PinnedPulsarNativeSubmissionAdapter.PulsarNativeSendTransport sender =
+                new PinnedPulsarNativeSubmissionAdapter.PulsarNativeSendTransport() {
+                    @Override
+                    public CompletableFuture<PulsarSendResult> send(final PulsarNativeSendRequest request) {
+                        sends.incrementAndGet();
+                        return CompletableFuture.failedFuture(new AssertionError("Producer must remain untouched"));
+                    }
+
+                    @Override
+                    public CompletableFuture<PulsarSendResult> sendPreparedRecord(
+                            final PulsarPreparedRecord record, final ArtifactGenerationSet artifacts) {
+                        sends.incrementAndGet();
+                        return CompletableFuture.failedFuture(new AssertionError("Producer must remain untouched"));
+                    }
+                };
+
+        assertFalse(legacy.isNativeRecordReady());
+        assertEquals(legacy, PreparedSubmission.decode(legacy.canonicalBytes()));
+        try (PinnedPulsarNativeSubmissionAdapter adapter = new PinnedPulsarNativeSubmissionAdapter(
+                fixture.resource,
+                fixture.capabilityKeys.getPublic(),
+                Clock.fixed(Instant.ofEpochMilli(3_000), ZoneOffset.UTC),
+                sender,
+                null,
+                true,
+                fixture.activationGate,
+                (snapshot, artifacts, now) -> fail("legacy submission must not reach the Handoff gate"))) {
+            final var outcome = adapter.submitPreparedSubmission(legacy, bytes(16, 97))
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(SubmissionOutcomeKind.NATIVE_DEFINITELY_NOT_QUEUED, outcome.kind());
+            assertEquals(
+                    com.nereusstream.delay.protocol.StableCode.CAPABILITY_UNAVAILABLE,
+                    outcome.nativeDefinitelyNotQueued().error().code());
+        }
         assertEquals(0, sends.get());
     }
 

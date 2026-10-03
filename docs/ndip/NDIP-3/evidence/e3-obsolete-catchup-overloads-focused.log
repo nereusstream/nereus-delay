@@ -190,3 +190,20 @@ Command:
 Result: `PulsarNativeProductionCompositionTest` 9 tests and `NativeSubmissionAdapterTest` 14 tests, 0 failures/errors/skips; `compileJava`, `compileTestJava`, and `checkstyleTest` passed.
 
 Scope: these are deterministic test-authority checks on the exact Native submission path. They do not establish production current-policy/Oxia provider wiring or the remaining E3 four-boundary, Store-incarnation, stale-token and bridge-failure matrix; E3 remains open.
+
+
+E3 legacy Native PreparedSubmission rejected by the current record writer
+Date: 2026-10-03
+
+Source lock:
+- Delay base HEAD: 5fbc321e6305f00c982ac54d99f35305380a4ef5
+- `PulsarNativeProductionCompositionTest.java` SHA-256: d93c05aff836bebbb623756cd113083f8f7543d6163a4317876b5c8c76012fdf
+
+Regression: `legacyNativeSubmissionCannotEnterPreparedRecordWriter` creates and round-trips the version-1 Native `PreparedSubmission` branch without a `NativePreparedRecordContext`, then submits it through the current record-writer entrypoint. The adapter returns local `CAPABILITY_UNAVAILABLE` before the Handoff gate or either transport method; send count remains zero.
+
+Command:
+`./gradlew test --tests com.nereusstream.delay.submission.PulsarNativeProductionCompositionTest checkstyleTest`
+
+Result: `PulsarNativeProductionCompositionTest` 10 tests, 0 failures/errors/skips; `compileJava`, `compileTestJava`, and `checkstyleTest` passed.
+
+Scope: this proves an old no-context Native branch cannot enter this current typed record writer. It does not validate every historic command/frame decoder or the remaining E3 guard matrix; E3 remains open.
