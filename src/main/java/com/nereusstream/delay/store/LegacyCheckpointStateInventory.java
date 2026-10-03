@@ -611,6 +611,10 @@ public final class LegacyCheckpointStateInventory {
                         sourcePosition,
                         ConflictReason.CLAIM_RECORD_STORE_INCARNATION_MISMATCH));
             }
+            if (!matchesClaimIdDerivation(claim)) {
+                conflicts.add(conflict(
+                        entry.key(), "CLAIM", sourcePosition, ConflictReason.CLAIM_ID_DERIVATION_MISMATCH));
+            }
             if (!matchesClaimLane(claim, lane)) {
                 final ConflictReason reason = matchesClaimLaneIdentity(claim, lane)
                         ? ConflictReason.CLAIM_LANE_RUNTIME_VERSION_AFTER_CURRENT
@@ -673,6 +677,7 @@ public final class LegacyCheckpointStateInventory {
                 && message.workKind() == CurrentSendWorkKind.CLAIMED
                 && message.generation() == claim.generation()
                 && message.laneId().equals(claim.laneId())
+                && matchesClaimIdDerivation(claim)
                 && matchesClaimLane(claim, lane)
                 && Arrays.equals(message.claimId(), claim.claimId())
                 && message.stateVersion() == claim.runtimeRevision()
@@ -684,7 +689,19 @@ public final class LegacyCheckpointStateInventory {
                 && Bytes.constantTimeEquals(
                         precondition.expectedObligationSetDigest(),
                         GenerationRuntimeIndex.obligationSetDigest(message.attemptObligations()))
-                && matchesClaimSourceTimeline(message, claim);
+                        && matchesClaimSourceTimeline(message, claim);
+    }
+
+    private static boolean matchesClaimIdDerivation(final ClaimRecord claim) {
+        final byte[] expectedClaimId = Bytes.sha256(
+                Bytes.utf8("nereus-delay-claim-id\0"),
+                claim.storeIncarnation(),
+                Bytes.u64beBits(claim.ownerEpoch()),
+                Bytes.u64beBits(claim.claimSequence()),
+                claim.delayMessageId().bytes(),
+                Bytes.u32beBits(claim.generation()),
+                Bytes.u64be(claim.runtimeLaneVersion()));
+        return Bytes.constantTimeEquals(expectedClaimId, claim.claimId());
     }
 
     private static boolean claimDeadlineWithinMessageExpiry(
@@ -1143,6 +1160,7 @@ public final class LegacyCheckpointStateInventory {
         TERMINAL_SUMMARY_MISSING,
         CLAIM_RECORD_KEY_VALUE_MISMATCH,
         CLAIM_RECORD_STORE_INCARNATION_MISMATCH,
+        CLAIM_ID_DERIVATION_MISMATCH,
         CLAIM_LANE_STATE_MISMATCH,
         CLAIM_LANE_RUNTIME_VERSION_AFTER_CURRENT,
         CLAIM_DEADLINE_AFTER_MESSAGE_EXPIRY,
