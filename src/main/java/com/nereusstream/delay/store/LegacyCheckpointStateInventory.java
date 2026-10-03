@@ -1,9 +1,12 @@
 package com.nereusstream.delay.store;
 
+import com.nereusstream.delay.protocol.ActiveLaneState;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.ClaimResultBody;
 import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.DestinationLaneId;
+import com.nereusstream.delay.protocol.LaneRecordEnvelope;
+import com.nereusstream.delay.protocol.LaneTerminalGuard;
 import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
@@ -15,6 +18,7 @@ import com.nereusstream.delay.runtime.ClaimRecord;
 import com.nereusstream.delay.runtime.CurrentSendWorkKind;
 import com.nereusstream.delay.runtime.GenerationAggregateState;
 import com.nereusstream.delay.runtime.GenerationRuntimeIndex;
+import com.nereusstream.delay.runtime.LaneRecord;
 import com.nereusstream.delay.runtime.MessageRecord;
 import com.nereusstream.delay.runtime.MessageStatus;
 import com.nereusstream.delay.runtime.PublishAttemptLedger;
@@ -101,6 +105,7 @@ public final class LegacyCheckpointStateInventory {
         final Set<String> referencedAttemptKeys = new HashSet<>();
         final TreeMap<String, PublishAttemptLedger> attemptLedgers = new TreeMap<>();
         final TreeMap<String, CurrentMessageState> messages = new TreeMap<>();
+        final TreeMap<String, LaneStateSnapshot> laneStates = new TreeMap<>();
         final TreeMap<String, TerminalSummaryEntry> terminalSummaries = new TreeMap<>();
         final List<ClaimRecordEntry> claimRecords = new ArrayList<>();
         try (Options listOptions = new Options()) {
@@ -233,6 +238,20 @@ public final class LegacyCheckpointStateInventory {
                                     }
                                 }
                             }
+                            if (family == ColumnFamily.META && isLaneKey(key)) {
+                                final DestinationLaneId keyLaneId = laneId(key);
+                                final byte[] payload = ValueEnvelope.decode(value, 2).payload();
+                                final LaneStateSnapshot lane = decodeLaneState(payload);
+                                if (!keyLaneId.equals(lane.laneId())) {
+                                    conflicts.add(conflict(
+                                            key,
+                                            "LANE",
+                                            proof.appliedSourcePosition(),
+                                            ConflictReason.LANE_RECORD_KEY_VALUE_MISMATCH));
+                                } else if (laneStates.put(Bytes.hex(keyLaneId.bytes()), lane) != null) {
+                                    throw new IllegalArgumentException("duplicate legacy Lane identity");
+                                }
+                            }
                             if (family == ColumnFamily.TERMINAL && isTerminalGenerationKey(key)) {
                                 final DelayMessageId terminalMessageId = terminalMessageId(key);
                                 if (!terminalMessageId.routingId().shardId().equals(proof.metadata().shardId())) {
@@ -346,6 +365,7 @@ public final class LegacyCheckpointStateInventory {
         auditTerminalSummaries(messages, terminalSummaries, conflicts);
         auditClaimRecords(
                 messages,
+                laneStates,
                 claimRecords,
                 proof.metadata().storeIncarnation(),
                 proof.appliedSourcePosition(),
@@ -530,6 +550,7 @@ public final class LegacyCheckpointStateInventory {
 
     private static void auditClaimRecords(
             final Map<String, CurrentMessageState> messages,
+            final Map<String, LaneStateSnapshot> laneStates,
             final List<ClaimRecordEntry> claimRecords,
             final byte[] storeIncarnation,
             final SourcePosition appliedSourcePosition,
@@ -540,6 +561,7 @@ public final class LegacyCheckpointStateInventory {
             final String messageId = Bytes.hex(claim.delayMessageId().bytes());
             claimsByMessage.computeIfAbsent(messageId, ignored -> new ArrayList<>()).add(entry);
             final CurrentMessageState message = messages.get(messageId);
+            final LaneStateSnapshot lane = laneStates.get(Bytes.hex(claim.laneId().bytes()));
             final SourcePosition sourcePosition =
                     message == null ? appliedSourcePosition : message.sourcePosition();
             if (!entry.keyMatches()) {
@@ -556,7 +578,11 @@ public final class LegacyCheckpointStateInventory {
                         sourcePosition,
                         ConflictReason.CLAIM_RECORD_STORE_INCARNATION_MISMATCH));
             }
-            if (message == null || !representsCurrentClaim(message, claim) || !entry.keyMatches()) {
+            if (!matchesClaimLane(claim, lane)) {
+                conflicts.add(conflict(
+                        entry.key(), "CLAIM", sourcePosition, ConflictReason.CLAIM_LANE_STATE_MISMATCH));
+            }
+            if (message == null || !representsCurrentClaim(message, claim, lane) || !entry.keyMatches()) {
                 conflicts.add(conflict(
                         entry.key(),
                         "CLAIM",
@@ -577,7 +603,11 @@ public final class LegacyCheckpointStateInventory {
                         ConflictReason.CLAIM_MULTIPLE_FOR_MESSAGE));
             }
             final boolean represented = claims.stream()
-                    .anyMatch(entry -> entry.keyMatches() && representsCurrentClaim(message, entry.claim()));
+                    .anyMatch(entry -> entry.keyMatches()
+                            && representsCurrentClaim(
+                                    message,
+                                    entry.claim(),
+                                    laneStates.get(Bytes.hex(entry.claim().laneId().bytes()))));
             if (!represented) {
                 conflicts.add(conflict(
                         message.key(), message.sourcePosition(), ConflictReason.CLAIM_RECORD_MISSING));
@@ -585,13 +615,15 @@ public final class LegacyCheckpointStateInventory {
         }
     }
 
-    private static boolean representsCurrentClaim(final CurrentMessageState message, final ClaimRecord claim) {
+    private static boolean representsCurrentClaim(
+            final CurrentMessageState message, final ClaimRecord claim, final LaneStateSnapshot lane) {
         final ClaimResultBody.ClaimPrecondition precondition =
                 ClaimResultBody.decodePrecondition(claim.preconditionBytes());
         return message.status() == MessageStatus.CLAIMED
                 && message.workKind() == CurrentSendWorkKind.CLAIMED
                 && message.generation() == claim.generation()
                 && message.laneId().equals(claim.laneId())
+                && matchesClaimLane(claim, lane)
                 && Arrays.equals(message.claimId(), claim.claimId())
                 && message.stateVersion() == claim.runtimeRevision()
                 && precondition.stateVersion() != Long.MAX_VALUE
@@ -601,6 +633,30 @@ public final class LegacyCheckpointStateInventory {
                 && Bytes.constantTimeEquals(
                         precondition.expectedObligationSetDigest(),
                         GenerationRuntimeIndex.obligationSetDigest(message.attemptObligations()));
+    }
+
+    private static boolean matchesClaimLane(final ClaimRecord claim, final LaneStateSnapshot lane) {
+        return lane != null
+                && lane.active()
+                && lane.laneId().equals(claim.laneId())
+                && Arrays.equals(lane.laneIncarnation(), claim.laneIncarnation())
+                && lane.laneControlVersion() == claim.laneControlVersion();
+    }
+
+    private static LaneStateSnapshot decodeLaneState(final byte[] encoded) {
+        final LaneRecordEnvelope envelope = LaneRecordEnvelope.decode(encoded);
+        if (!envelope.isActive()) {
+            final LaneTerminalGuard guard = envelope.terminalGuard();
+            return new LaneStateSnapshot(
+                    guard.laneId(), guard.laneIncarnation(), guard.laneControlVersion(), false);
+        }
+        final ActiveLaneState typed = envelope.typedActiveState().orElse(null);
+        if (typed != null) {
+            return new LaneStateSnapshot(typed.laneId(), typed.laneIncarnation(), typed.laneControlVersion(), true);
+        }
+        final LaneRecord adapter = LaneRecord.decode(envelope.activeStateBytes());
+        return new LaneStateSnapshot(
+                adapter.laneId(), adapter.laneIncarnation(), adapter.laneControlVersion(), true);
     }
 
     private static void auditTerminalSummaries(
@@ -753,6 +809,20 @@ public final class LegacyCheckpointStateInventory {
         return true;
     }
 
+    private static boolean isLaneKey(final byte[] key) {
+        if (key.length < 2 || key[0] != 2 || key[1] != 1) {
+            return false;
+        }
+        if (key.length != 2 + DestinationLaneId.LENGTH) {
+            throw new IllegalArgumentException("legacy Lane key has an invalid length");
+        }
+        return true;
+    }
+
+    private static DestinationLaneId laneId(final byte[] key) {
+        return new DestinationLaneId(Arrays.copyOfRange(key, 2, key.length));
+    }
+
     private static DelayMessageId messageId(final byte[] key) {
         return new DelayMessageId(java.util.Arrays.copyOfRange(key, 2, key.length));
     }
@@ -893,6 +963,8 @@ public final class LegacyCheckpointStateInventory {
         TERMINAL_SUMMARY_MISSING,
         CLAIM_RECORD_KEY_VALUE_MISMATCH,
         CLAIM_RECORD_STORE_INCARNATION_MISMATCH,
+        CLAIM_LANE_STATE_MISMATCH,
+        LANE_RECORD_KEY_VALUE_MISMATCH,
         CLAIM_NOT_REPRESENTED_BY_CURRENT_MESSAGE,
         CLAIM_RECORD_MISSING,
         CLAIM_MULTIPLE_FOR_MESSAGE,
@@ -912,6 +984,7 @@ public final class LegacyCheckpointStateInventory {
             if (!checkedRecordKind.equals("MESSAGE")
                     && !checkedRecordKind.equals("TERMINAL")
                     && !checkedRecordKind.equals("CLAIM")
+                    && !checkedRecordKind.equals("LANE")
                     && !checkedRecordKind.equals("ATTEMPT")) {
                 throw new IllegalArgumentException("legacy index conflict record kind is not registered");
             }
@@ -944,6 +1017,19 @@ public final class LegacyCheckpointStateInventory {
             List<AttemptObligationRef> attemptObligations,
             boolean possibleDestinationDuplicate,
             SourcePosition sourcePosition) {}
+
+    private record LaneStateSnapshot(
+            DestinationLaneId laneId, byte[] laneIncarnation, long laneControlVersion, boolean active) {
+        private LaneStateSnapshot {
+            Objects.requireNonNull(laneId, "laneId");
+            laneIncarnation = Bytes.copy(Objects.requireNonNull(laneIncarnation, "laneIncarnation"));
+        }
+
+        @Override
+        public byte[] laneIncarnation() {
+            return Bytes.copy(laneIncarnation);
+        }
+    }
 
     private record ClaimRecordEntry(byte[] key, ClaimRecord claim, boolean keyMatches) {}
 
