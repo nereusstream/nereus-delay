@@ -521,6 +521,75 @@ class LegacyCheckpointClaimInventoryTest {
                 Bytes.sha256(mismatchedOrphanClaimKey), keyValueMismatch.oldKeyDigest()));
     }
 
+    @Test
+    void rejectsClaimLaneRuntimeVersionAheadOfCheckpointLane() throws Exception {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 11);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("claim-lane-version-store"));
+        final Path image = tempDir.resolve("claim-lane-version-checkpoint");
+        final byte[] checkpointId = bytes(16, 51);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("claim-lane-version"));
+        final PreparedCommand schedule = PreparedCommand.schedule(
+                shard,
+                new ScheduleIntent(lane, 3_000, 9_000, OrderingMode.BEST_EFFORT, Bytes.utf8("claim-lane-version")),
+                10_000);
+        final KafkaSourcePosition source = new KafkaSourcePosition(
+                shard, "legacy-cluster", UUID.randomUUID(), 51, null, 4_100);
+        final AuthorIdentity owner = AuthorIdentity.owner(
+                Bytes.utf8("claim-lane-version-deployment"),
+                Bytes.utf8("claim-lane-version-worker"),
+                Long.MIN_VALUE,
+                Bytes.sha256(Bytes.utf8("claim-lane-version-fence")));
+        final CheckpointManifest manifest;
+        final ClaimRecord futureLaneVersionClaim;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore store = ShardStore.open(config, shard, resources)) {
+            final ClaimRecord claim = ClaimRecordTestSupport.claimScheduled(
+                    store, schedule, source, lane, owner, 4_000, chargeVector());
+            final long futureLaneVersion = Math.addExact(claim.runtimeLaneVersion(), 2);
+            final ClaimResultBody.ClaimPrecondition precondition =
+                    ClaimResultBody.decodePrecondition(claim.preconditionBytes());
+            futureLaneVersionClaim = ClaimRecord.claimed(
+                    claim.delayMessageId(),
+                    claim.generation(),
+                    claim.claimId(),
+                    claim.ownerEpoch(),
+                    claim.claimSequence(),
+                    claim.laneId(),
+                    claim.laneIncarnation(),
+                    claim.laneControlVersion(),
+                    futureLaneVersion,
+                    claim.ownerIdentity(),
+                    claim.storeIncarnation(),
+                    preconditionWithRuntimeLaneVersion(precondition, futureLaneVersion),
+                    claim.timelineKey(),
+                    claim.runtimeRevision(),
+                    claim.sourceTimelineWork());
+            store.write(batch -> batch.putValue(
+                    ColumnFamily.INFLIGHT,
+                    ClaimRecord.VALUE_TYPE,
+                    futureLaneVersionClaim.encodedKey(),
+                    futureLaneVersionClaim.encode()));
+            store.createCheckpoint(image, checkpointId);
+            manifest = manifestFor(image, shard, store, checkpointId, source);
+        }
+
+        final LegacyCheckpointStateInventory.Inventory inventory = LegacyCheckpointStateInventory.inspect(
+                image,
+                shard,
+                manifest,
+                finiteLimits(),
+                new LegacyCheckpointStateInventory.ReadLimits(1_000, 1 << 20, 60_000_000_000L));
+        final LegacyCheckpointStateInventory.Conflict conflict = inventory.conflicts().stream()
+                .filter(item -> item.reason()
+                        == LegacyCheckpointStateInventory.ConflictReason.CLAIM_LANE_RUNTIME_VERSION_AFTER_CURRENT)
+                .filter(item -> Bytes.constantTimeEquals(
+                        Bytes.sha256(futureLaneVersionClaim.encodedKey()), item.oldKeyDigest()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals("CLAIM", conflict.recordKind());
+        assertTrue(Bytes.constantTimeEquals(source.canonicalBytes(), conflict.sourcePosition()));
+    }
+
     private static CheckpointManifest manifestFor(
             final Path image,
             final ShardId shard,
@@ -585,6 +654,7 @@ class LegacyCheckpointClaimInventoryTest {
                 admissionsUsed,
                 precondition.expectedObligationSetDigest(),
                 precondition.stateVersion(),
+                precondition.runtimeLaneVersion(),
                 precondition.destinationLaneId(),
                 precondition.originalTimelineKeySha256(),
                 precondition.sourceTimelineSemanticDigest());
@@ -629,6 +699,7 @@ class LegacyCheckpointClaimInventoryTest {
                 precondition.expectedAdmissionsUsed(),
                 precondition.expectedObligationSetDigest(),
                 precondition.stateVersion(),
+                precondition.runtimeLaneVersion(),
                 precondition.destinationLaneId(),
                 Bytes.sha256(timelineKey),
                 work.semanticWorkDigest());
@@ -663,6 +734,7 @@ class LegacyCheckpointClaimInventoryTest {
                 precondition.expectedAdmissionsUsed(),
                 obligationSetDigest,
                 precondition.stateVersion(),
+                precondition.runtimeLaneVersion(),
                 precondition.destinationLaneId(),
                 precondition.originalTimelineKeySha256(),
                 precondition.sourceTimelineSemanticDigest());
@@ -675,6 +747,20 @@ class LegacyCheckpointClaimInventoryTest {
                 precondition.expectedAdmissionsUsed(),
                 precondition.expectedObligationSetDigest(),
                 stateVersion,
+                precondition.runtimeLaneVersion(),
+                precondition.destinationLaneId(),
+                precondition.originalTimelineKeySha256(),
+                precondition.sourceTimelineSemanticDigest());
+    }
+
+    private static byte[] preconditionWithRuntimeLaneVersion(
+            final ClaimResultBody.ClaimPrecondition precondition, final long runtimeLaneVersion) {
+        return encodePrecondition(
+                precondition,
+                precondition.expectedAdmissionsUsed(),
+                precondition.expectedObligationSetDigest(),
+                precondition.stateVersion(),
+                runtimeLaneVersion,
                 precondition.destinationLaneId(),
                 precondition.originalTimelineKeySha256(),
                 precondition.sourceTimelineSemanticDigest());
@@ -689,6 +775,7 @@ class LegacyCheckpointClaimInventoryTest {
                 precondition.expectedAdmissionsUsed(),
                 precondition.expectedObligationSetDigest(),
                 precondition.stateVersion(),
+                precondition.runtimeLaneVersion(),
                 laneId.bytes(),
                 Bytes.sha256(timelineKey),
                 precondition.sourceTimelineSemanticDigest());
@@ -699,6 +786,7 @@ class LegacyCheckpointClaimInventoryTest {
             final int admissionsUsed,
             final byte[] obligationSetDigest,
             final long stateVersion,
+            final long runtimeLaneVersion,
             final byte[] destinationLaneId,
             final byte[] originalTimelineKeySha256,
             final byte[] sourceTimelineSemanticDigest) {
@@ -710,7 +798,7 @@ class LegacyCheckpointClaimInventoryTest {
             CanonicalProtobuf.bytes(output, 5, destinationLaneId);
             CanonicalProtobuf.bytes(output, 6, precondition.laneIncarnation());
             CanonicalProtobuf.int64(output, 7, precondition.laneControlVersion());
-            CanonicalProtobuf.int64(output, 8, precondition.runtimeLaneVersion());
+            CanonicalProtobuf.int64(output, 8, runtimeLaneVersion);
             CanonicalProtobuf.bytes(output, 9, originalTimelineKeySha256);
             if (precondition.hasMaterialization()) {
                 CanonicalProtobuf.bytes(output, 10, precondition.materialization());

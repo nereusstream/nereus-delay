@@ -286,3 +286,27 @@ Commands:
 Result: the two targeted B6 test classes pass 10/10 with zero failures/errors/skips; `checkstyleTest` passes. `checkstyleMain` reports only the two unchanged 123-character lines in `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`. `checkDocumentation`, progress JSON parsing and `git diff --check` pass after documentation synchronization.
 
 Scope: this checks only recognized Message DUE/ORDERED/EXPIRY rows against current SCHEDULED Message identity and expected keys. READY/system/native candidate/reservation expiry relations, old-generation history, full state closure, source replay/cutover, activation, conversion, rollback, reader retirement and central validation remain open. B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
+
+## 2026-10-04 Claim runtime Lane version against current checkpoint Lane
+
+Source lock:
+- Base HEAD and origin/main: `99356b1021acfebe55cd55f3614bae4a53ced0d7`
+- `LegacyCheckpointStateInventory.java` SHA-256: `949cceb3a319fed3291743d23e72931ca9617d540061147980f799e892db146e`
+- `LegacyCheckpointClaimInventoryTest.java` SHA-256: `4265772188e41fa58cf094042ffde375126f4aebdc4782ac5ce744e4317d43b0`
+
+Verification: the bounded META scan now captures `laneVersion` from typed and legacy active Lane records. After Claim Lane ID/incarnation/controlVersion match, a retained Claim must have `runtimeLaneVersion <=` the current Lane version; equality is not required because Claim creation may advance the current Lane in the same batch through READY projection. `LaneRecord.withReadiness`, `withNextEligibleAt`, and `withGate` advance the version. A real RocksDB checkpoint regression stores an internally canonical Claim whose captured version is ahead of the checkpoint Lane and inventory emits `CLAIM_LANE_RUNTIME_VERSION_AFTER_CURRENT`.
+
+Commands:
+`./gradlew test --tests com.nereusstream.delay.store.LegacyCheckpointClaimInventoryTest --tests com.nereusstream.delay.store.LegacyCheckpointImageInspectorTest checkstyleTest`
+
+`./gradlew checkDocumentation`
+
+`jq empty docs/ndip/NDIP-3/progress.json`
+
+`git diff --check`
+
+`./gradlew checkstyleMain`
+
+Result: the targeted Claim and image-inspector classes pass 11/11 total (2 and 9 respectively), with zero failures/errors/skips; `checkstyleTest`, `checkDocumentation`, progress JSON parsing, and `git diff --check` pass. `checkstyleMain` reports only the two unchanged 123-character lines in `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`.
+
+Scope: this is a checkpoint-local monotonicity check. It does not prove live Lane/Owner authority or close the remaining Claim preconditions, external Admission/Journal joins, source replay/cutover, migration activation/conversion/rollback, reader retirement, or central validation; B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.

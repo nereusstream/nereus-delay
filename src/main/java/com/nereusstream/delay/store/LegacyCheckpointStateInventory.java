@@ -611,8 +611,10 @@ public final class LegacyCheckpointStateInventory {
                         ConflictReason.CLAIM_RECORD_STORE_INCARNATION_MISMATCH));
             }
             if (!matchesClaimLane(claim, lane)) {
-                conflicts.add(conflict(
-                        entry.key(), "CLAIM", sourcePosition, ConflictReason.CLAIM_LANE_STATE_MISMATCH));
+                final ConflictReason reason = matchesClaimLaneIdentity(claim, lane)
+                        ? ConflictReason.CLAIM_LANE_RUNTIME_VERSION_AFTER_CURRENT
+                        : ConflictReason.CLAIM_LANE_STATE_MISMATCH;
+                conflicts.add(conflict(entry.key(), "CLAIM", sourcePosition, reason));
             }
             if (message != null && !matchesClaimSourceTimeline(message, claim)) {
                 conflicts.add(conflict(
@@ -714,6 +716,10 @@ public final class LegacyCheckpointStateInventory {
     }
 
     private static boolean matchesClaimLane(final ClaimRecord claim, final LaneStateSnapshot lane) {
+        return matchesClaimLaneIdentity(claim, lane) && claim.runtimeLaneVersion() <= lane.laneVersion();
+    }
+
+    private static boolean matchesClaimLaneIdentity(final ClaimRecord claim, final LaneStateSnapshot lane) {
         return lane != null
                 && lane.active()
                 && lane.laneId().equals(claim.laneId())
@@ -726,15 +732,20 @@ public final class LegacyCheckpointStateInventory {
         if (!envelope.isActive()) {
             final LaneTerminalGuard guard = envelope.terminalGuard();
             return new LaneStateSnapshot(
-                    guard.laneId(), guard.laneIncarnation(), guard.laneControlVersion(), false);
+                    guard.laneId(), guard.laneIncarnation(), guard.laneControlVersion(), 0, false);
         }
         final ActiveLaneState typed = envelope.typedActiveState().orElse(null);
         if (typed != null) {
-            return new LaneStateSnapshot(typed.laneId(), typed.laneIncarnation(), typed.laneControlVersion(), true);
+            return new LaneStateSnapshot(
+                    typed.laneId(), typed.laneIncarnation(), typed.laneControlVersion(), typed.laneVersion(), true);
         }
         final LaneRecord adapter = LaneRecord.decode(envelope.activeStateBytes());
         return new LaneStateSnapshot(
-                adapter.laneId(), adapter.laneIncarnation(), adapter.laneControlVersion(), true);
+                adapter.laneId(),
+                adapter.laneIncarnation(),
+                adapter.laneControlVersion(),
+                adapter.laneVersion(),
+                true);
     }
 
     private static void auditTerminalSummaries(
@@ -1114,6 +1125,7 @@ public final class LegacyCheckpointStateInventory {
         CLAIM_RECORD_KEY_VALUE_MISMATCH,
         CLAIM_RECORD_STORE_INCARNATION_MISMATCH,
         CLAIM_LANE_STATE_MISMATCH,
+        CLAIM_LANE_RUNTIME_VERSION_AFTER_CURRENT,
         CLAIM_SOURCE_TIMELINE_MISMATCH,
         LANE_RECORD_KEY_VALUE_MISMATCH,
         CLAIM_NOT_REPRESENTED_BY_CURRENT_MESSAGE,
@@ -1176,7 +1188,11 @@ public final class LegacyCheckpointStateInventory {
             byte[] expiryKey) {}
 
     private record LaneStateSnapshot(
-            DestinationLaneId laneId, byte[] laneIncarnation, long laneControlVersion, boolean active) {
+            DestinationLaneId laneId,
+            byte[] laneIncarnation,
+            long laneControlVersion,
+            long laneVersion,
+            boolean active) {
         private LaneStateSnapshot {
             Objects.requireNonNull(laneId, "laneId");
             laneIncarnation = Bytes.copy(Objects.requireNonNull(laneIncarnation, "laneIncarnation"));
