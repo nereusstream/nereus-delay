@@ -173,3 +173,20 @@ Command:
 Result: `PublishAdmissionWorkClassExecutorTest` 2 tests, 0 failures/errors/skips; `compileJava`, `compileTestJava`, and `checkstyleTest` passed.
 
 Scope: this closes one deterministic enqueue-to-execute prerequisite-gate revocation case under the injected test gate only. Store incarnation drift, production policy/provider refresh, credential renewal, other async stale-token paths, and E3 central validation remain open.
+
+
+E3 Native capability expiry after record preparation
+Date: 2026-10-03
+
+Source lock:
+- Delay base HEAD: c4e227092cb850419fbc28245069927c6d390c60
+- `PulsarNativeProductionCompositionTest.java` SHA-256: a887d473ef03ce0ff531d2e4051a177fc02e3a9a3cab54c7f30ced1da903d587
+
+Regression: `capabilityExpiryAfterPreparedRecordBlocksProducerOwnership` builds and materializes the exact typed Native submission at 3000ms with capability `notAfter=6000ms`; its Handoff snapshot remains valid until 7000ms. The Producer-boundary attempt at 6000ms passes the live Handoff gate once, then returns local `AUTO_FAST_PREREQUISITE_UNAVAILABLE` with zero transport calls. The same focused class run also includes `recordContextMutationCannotReuseOneNativePreparedEnvelope`, which rejects a changed attempt context before reuse.
+
+Command:
+`./gradlew test --tests com.nereusstream.delay.submission.PulsarNativeProductionCompositionTest --tests com.nereusstream.delay.adapter.NativeSubmissionAdapterTest checkstyleTest`
+
+Result: `PulsarNativeProductionCompositionTest` 9 tests and `NativeSubmissionAdapterTest` 14 tests, 0 failures/errors/skips; `compileJava`, `compileTestJava`, and `checkstyleTest` passed.
+
+Scope: these are deterministic test-authority checks on the exact Native submission path. They do not establish production current-policy/Oxia provider wiring or the remaining E3 four-boundary, Store-incarnation, stale-token and bridge-failure matrix; E3 remains open.

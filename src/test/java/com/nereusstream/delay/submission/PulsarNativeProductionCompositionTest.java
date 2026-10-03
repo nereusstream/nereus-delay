@@ -323,6 +323,52 @@ class PulsarNativeProductionCompositionTest {
     }
 
     @Test
+    void capabilityExpiryAfterPreparedRecordBlocksProducerOwnership() throws Exception {
+        final Fixture fixture = fixture(6_000, 7_000);
+        final AtomicInteger handoffChecks = new AtomicInteger();
+        final AtomicInteger sends = new AtomicInteger();
+        final PinnedPulsarNativeSubmissionAdapter.PulsarNativeSendTransport sender =
+                new PinnedPulsarNativeSubmissionAdapter.PulsarNativeSendTransport() {
+                    @Override
+                    public CompletableFuture<PulsarSendResult> send(final PulsarNativeSendRequest request) {
+                        sends.incrementAndGet();
+                        return CompletableFuture.failedFuture(new AssertionError("Producer must remain untouched"));
+                    }
+
+                    @Override
+                    public CompletableFuture<PulsarSendResult> sendPreparedRecord(
+                            final PulsarPreparedRecord record, final ArtifactGenerationSet artifacts) {
+                        sends.incrementAndGet();
+                        return CompletableFuture.failedFuture(new AssertionError("Producer must remain untouched"));
+                    }
+                };
+        try (PinnedPulsarNativeSubmissionAdapter adapter = new PinnedPulsarNativeSubmissionAdapter(
+                fixture.resource,
+                fixture.capabilityKeys.getPublic(),
+                Clock.fixed(Instant.ofEpochMilli(6_000), ZoneOffset.UTC),
+                sender,
+                null,
+                true,
+                fixture.activationGate,
+                (snapshot, artifacts, now) -> {
+                    handoffChecks.incrementAndGet();
+                    assertEquals(7_000, snapshot.validUntilEpochMs());
+                    assertEquals(fixture.artifacts, artifacts);
+                    assertEquals(6_000, now);
+                })) {
+            final var outcome = adapter.submitPreparedSubmission(fixture.submission, bytes(16, 96))
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(SubmissionOutcomeKind.NATIVE_DEFINITELY_NOT_QUEUED, outcome.kind());
+            assertEquals(
+                    com.nereusstream.delay.protocol.StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE,
+                    outcome.nativeDefinitelyNotQueued().error().code());
+        }
+        assertEquals(1, handoffChecks.get());
+        assertEquals(0, sends.get());
+    }
+
+    @Test
     void handoffAuthorityRevocationAfterRecordPreparationBlocksProducerOwnership() throws Exception {
         final Fixture fixture = fixture();
         final AtomicBoolean handoffAllowed = new AtomicBoolean(true);
@@ -458,6 +504,11 @@ class PulsarNativeProductionCompositionTest {
     }
 
     private static Fixture fixture() throws Exception {
+        return fixture(6_000, 6_000);
+    }
+
+    private static Fixture fixture(final long capabilityExpiryEpochMs, final long handoffValidUntilEpochMs)
+            throws Exception {
         final KeyPair capabilityKeys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         final KeyPair handoffKeys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         final ArtifactGenerationSet artifacts =
@@ -489,7 +540,7 @@ class PulsarNativeProductionCompositionTest {
                 hash("credential-fingerprint"),
                 principalScope,
                 issuedAt,
-                6_000,
+                capabilityExpiryEpochMs,
                 1,
                 capabilityKeys.getPrivate());
         final HandoffPolicySnapshot handoff = HandoffPolicySnapshot.create(
@@ -498,7 +549,7 @@ class PulsarNativeProductionCompositionTest {
                 HandoffPolicyMode.ENABLED,
                 100,
                 2_000,
-                6_000,
+                handoffValidUntilEpochMs,
                 HandoffPath.MANAGED_HANDOFF | HandoffPath.AUTO_FAST,
                 issuedAt,
                 1,
