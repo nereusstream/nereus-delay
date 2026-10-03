@@ -7,6 +7,8 @@ import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.SourcePositionCodec;
 import com.nereusstream.delay.runtime.AttemptObligationRef;
+import com.nereusstream.delay.runtime.ClaimRecord;
+import com.nereusstream.delay.runtime.CurrentSendWorkKind;
 import com.nereusstream.delay.runtime.GenerationAggregateState;
 import com.nereusstream.delay.runtime.MessageRecord;
 import com.nereusstream.delay.runtime.MessageStatus;
@@ -93,6 +95,8 @@ public final class LegacyCheckpointStateInventory {
         final List<Conflict> conflicts = new ArrayList<>();
         final Set<String> referencedAttemptKeys = new HashSet<>();
         final TreeMap<String, PublishAttemptLedger> attemptLedgers = new TreeMap<>();
+        final TreeMap<String, MessageClaimState> messageClaims = new TreeMap<>();
+        final List<ClaimRecordEntry> claimRecords = new ArrayList<>();
         try (Options listOptions = new Options()) {
             final List<byte[]> familyNames = RocksDB.listColumnFamilies(listOptions, image.toString());
             LegacyCheckpointImageInspector.requireExactColumnFamilies(familyNames);
@@ -154,12 +158,21 @@ public final class LegacyCheckpointStateInventory {
                                         throw new IllegalArgumentException(
                                                 "legacy Message source position belongs to another Shard");
                                     }
+                                    final byte[] oldMessageKey = KeyCodec.idMessage(messageId);
+                                    messageClaims.put(
+                                            Bytes.hex(messageId.bytes()),
+                                            new MessageClaimState(
+                                                    oldMessageKey,
+                                                    message.generation(),
+                                                    message.status(),
+                                                    message.runtimeIndex().currentWorkKind(),
+                                                    message.runtimeIndex().claimId(),
+                                                    schedulePosition));
                                     messageStatuses.compute(
                                             message.status(), (ignored, count) -> Math.addExact(count, 1));
                                     final MessageDisposition disposition = dispositionFor(message);
                                     messageDispositions.compute(
                                             disposition, (ignored, count) -> Math.addExact(count, 1));
-                                    final byte[] oldMessageKey = KeyCodec.idMessage(messageId);
                                     auditAttemptObligations(
                                             db,
                                             inflight,
@@ -219,6 +232,15 @@ public final class LegacyCheckpointStateInventory {
                                         conflicts,
                                         referencedAttemptKeys);
                             }
+                            if (family == ColumnFamily.INFLIGHT && isClaimRecordKey(key)) {
+                                final byte[] payload = ValueEnvelope.decode(value, ClaimRecord.VALUE_TYPE).payload();
+                                final ClaimRecord claim = ClaimRecord.decode(payload);
+                                if (!claim.delayMessageId().routingId().shardId().equals(proof.metadata().shardId())) {
+                                    throw new IllegalArgumentException("legacy Claim belongs to another Shard");
+                                }
+                                claimRecords.add(
+                                        new ClaimRecordEntry(key, claim, Arrays.equals(key, claim.encodedKey())));
+                            }
                             if (family == ColumnFamily.INFLIGHT && isAttemptLedgerKey(key)) {
                                 final byte[] payload = ValueEnvelope.decode(value, PublishAttemptLedger.VALUE_TYPE)
                                         .payload();
@@ -267,6 +289,12 @@ public final class LegacyCheckpointStateInventory {
         } catch (RocksDBException failure) {
             throw new IllegalArgumentException("cannot enumerate legacy checkpoint column families", failure);
         }
+        auditClaimRecords(
+                messageClaims,
+                claimRecords,
+                proof.metadata().storeIncarnation(),
+                proof.appliedSourcePosition(),
+                conflicts);
         for (Map.Entry<String, PublishAttemptLedger> attemptEntry : attemptLedgers.entrySet()) {
             if (!referencedAttemptKeys.contains(attemptEntry.getKey())) {
                 final PublishAttemptLedger ledger = attemptEntry.getValue();
@@ -401,6 +429,70 @@ public final class LegacyCheckpointStateInventory {
         }
     }
 
+    private static void auditClaimRecords(
+            final Map<String, MessageClaimState> messageClaims,
+            final List<ClaimRecordEntry> claimRecords,
+            final byte[] storeIncarnation,
+            final SourcePosition appliedSourcePosition,
+            final List<Conflict> conflicts) {
+        final TreeMap<String, List<ClaimRecordEntry>> claimsByMessage = new TreeMap<>();
+        for (ClaimRecordEntry entry : claimRecords) {
+            final ClaimRecord claim = entry.claim();
+            final String messageId = Bytes.hex(claim.delayMessageId().bytes());
+            claimsByMessage.computeIfAbsent(messageId, ignored -> new ArrayList<>()).add(entry);
+            final MessageClaimState message = messageClaims.get(messageId);
+            final SourcePosition sourcePosition =
+                    message == null ? appliedSourcePosition : message.sourcePosition();
+            if (!entry.keyMatches()) {
+                conflicts.add(conflict(
+                        entry.key(),
+                        "CLAIM",
+                        sourcePosition,
+                        ConflictReason.CLAIM_RECORD_KEY_VALUE_MISMATCH));
+            }
+            if (!Arrays.equals(claim.storeIncarnation(), storeIncarnation)) {
+                conflicts.add(conflict(
+                        entry.key(),
+                        "CLAIM",
+                        sourcePosition,
+                        ConflictReason.CLAIM_RECORD_STORE_INCARNATION_MISMATCH));
+            }
+            if (message == null || !representsCurrentClaim(message, claim) || !entry.keyMatches()) {
+                conflicts.add(conflict(
+                        entry.key(),
+                        "CLAIM",
+                        sourcePosition,
+                        ConflictReason.CLAIM_NOT_REPRESENTED_BY_CURRENT_MESSAGE));
+            }
+        }
+        for (Map.Entry<String, MessageClaimState> messageEntry : messageClaims.entrySet()) {
+            final MessageClaimState message = messageEntry.getValue();
+            if (message.status() != MessageStatus.CLAIMED && message.workKind() != CurrentSendWorkKind.CLAIMED) {
+                continue;
+            }
+            final List<ClaimRecordEntry> claims = claimsByMessage.getOrDefault(messageEntry.getKey(), List.of());
+            if (claims.size() > 1) {
+                conflicts.add(conflict(
+                        message.key(),
+                        message.sourcePosition(),
+                        ConflictReason.CLAIM_MULTIPLE_FOR_MESSAGE));
+            }
+            final boolean represented = claims.stream()
+                    .anyMatch(entry -> entry.keyMatches() && representsCurrentClaim(message, entry.claim()));
+            if (!represented) {
+                conflicts.add(conflict(
+                        message.key(), message.sourcePosition(), ConflictReason.CLAIM_RECORD_MISSING));
+            }
+        }
+    }
+
+    private static boolean representsCurrentClaim(final MessageClaimState message, final ClaimRecord claim) {
+        return message.status() == MessageStatus.CLAIMED
+                && message.workKind() == CurrentSendWorkKind.CLAIMED
+                && message.generation() == claim.generation()
+                && Arrays.equals(message.claimId(), claim.claimId());
+    }
+
     private static boolean matchesAttemptObligation(
             final byte[] encodedLedger,
             final DelayMessageId messageId,
@@ -524,6 +616,16 @@ public final class LegacyCheckpointStateInventory {
         return true;
     }
 
+    private static boolean isClaimRecordKey(final byte[] key) {
+        if (key.length < 2 || key[0] != 1 || key[1] != 1) {
+            return false;
+        }
+        if (key.length != 2 + Long.BYTES + Integer.BYTES + ClaimRecord.HASH_LENGTH) {
+            throw new IllegalArgumentException("legacy Claim key has an invalid length");
+        }
+        return true;
+    }
+
     private static DelayMessageId terminalMessageId(final byte[] key) {
         return new DelayMessageId(
                 java.util.Arrays.copyOfRange(key, 2, 2 + DelayMessageId.LENGTH));
@@ -630,6 +732,11 @@ public final class LegacyCheckpointStateInventory {
         ATTEMPT_OBLIGATION_VALUE_MISMATCH,
         ATTEMPT_LEDGER_KEY_VALUE_MISMATCH,
         ATTEMPT_LEDGER_UNREFERENCED,
+        CLAIM_RECORD_KEY_VALUE_MISMATCH,
+        CLAIM_RECORD_STORE_INCARNATION_MISMATCH,
+        CLAIM_NOT_REPRESENTED_BY_CURRENT_MESSAGE,
+        CLAIM_RECORD_MISSING,
+        CLAIM_MULTIPLE_FOR_MESSAGE,
         CLAIM_REQUIRES_SOURCE_CUT_RECONCILIATION,
         SCHEDULED_REQUIRES_OLD_SEND_RECOVERY,
         UNRESOLVED_SEND_REQUIRES_OLD_RECOVERY,
@@ -645,6 +752,7 @@ public final class LegacyCheckpointStateInventory {
             final String checkedRecordKind = Objects.requireNonNull(recordKind, "recordKind");
             if (!checkedRecordKind.equals("MESSAGE")
                     && !checkedRecordKind.equals("TERMINAL")
+                    && !checkedRecordKind.equals("CLAIM")
                     && !checkedRecordKind.equals("ATTEMPT")) {
                 throw new IllegalArgumentException("legacy index conflict record kind is not registered");
             }
@@ -662,4 +770,14 @@ public final class LegacyCheckpointStateInventory {
             return Bytes.copy(sourcePosition);
         }
     }
+
+    private record MessageClaimState(
+            byte[] key,
+            int generation,
+            MessageStatus status,
+            CurrentSendWorkKind workKind,
+            byte[] claimId,
+            SourcePosition sourcePosition) {}
+
+    private record ClaimRecordEntry(byte[] key, ClaimRecord claim, boolean keyMatches) {}
 }
