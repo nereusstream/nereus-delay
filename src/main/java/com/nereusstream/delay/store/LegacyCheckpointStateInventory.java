@@ -198,6 +198,9 @@ public final class LegacyCheckpointStateInventory {
                                                     message.stateVersion(),
                                                     message.status(),
                                                     message.laneId(),
+                                                    message.deliverAtEpochMs(),
+                                                    message.retryEligibilityAtEpochMs(),
+                                                    message.orderingMode(),
                                                     message.runtimeIndex().currentWorkKind(),
                                                     message.runtimeIndex().claimId(),
                                                     message.runtimeIndex().admissionsUsed(),
@@ -582,6 +585,10 @@ public final class LegacyCheckpointStateInventory {
                 conflicts.add(conflict(
                         entry.key(), "CLAIM", sourcePosition, ConflictReason.CLAIM_LANE_STATE_MISMATCH));
             }
+            if (message != null && !matchesClaimSourceTimeline(message, claim)) {
+                conflicts.add(conflict(
+                        entry.key(), "CLAIM", sourcePosition, ConflictReason.CLAIM_SOURCE_TIMELINE_MISMATCH));
+            }
             if (message == null || !representsCurrentClaim(message, claim, lane) || !entry.keyMatches()) {
                 conflicts.add(conflict(
                         entry.key(),
@@ -632,7 +639,49 @@ public final class LegacyCheckpointStateInventory {
                 && precondition.expectedUncertainRetryAdmissionsUsed() == message.uncertainRetryAdmissionsUsed()
                 && Bytes.constantTimeEquals(
                         precondition.expectedObligationSetDigest(),
-                        GenerationRuntimeIndex.obligationSetDigest(message.attemptObligations()));
+                        GenerationRuntimeIndex.obligationSetDigest(message.attemptObligations()))
+                && matchesClaimSourceTimeline(message, claim);
+    }
+
+    private static boolean matchesClaimSourceTimeline(
+            final CurrentMessageState message, final ClaimRecord claim) {
+        final byte[] encodedSourceWork = claim.sourceTimelineWork();
+        if (encodedSourceWork.length == 0) {
+            // Claim v1 did not retain the original typed work projection; leave it for
+            // source-cut reconciliation instead of reconstructing authority from Message.
+            return true;
+        }
+        final TimelineWorkRef sourceWork = TimelineWorkRef.decode(encodedSourceWork);
+        final ClaimResultBody.ClaimPrecondition precondition =
+                ClaimResultBody.decodePrecondition(claim.preconditionBytes());
+        if (sourceWork.runtimeRevision() != precondition.stateVersion()
+                || sourceWork.retryEligibilityAtEpochMs() != message.retryEligibilityAtEpochMs()
+                || sourceWork.orderedHeadBlocking()
+                        != (message.orderingMode() == OrderingMode.DELIVERY_TIME_FIFO)
+                || sourceWork.actionAtEpochMs() > message.deliverAtEpochMs()
+                || precondition.expectedAdmissionsUsed() == Integer.MAX_VALUE
+                || sourceWork.candidateAttemptNo() != precondition.expectedAdmissionsUsed() + 1) {
+            return false;
+        }
+        final boolean ordered = message.orderingMode() == OrderingMode.DELIVERY_TIME_FIFO;
+        final long eligibleAt = ordered
+                ? message.deliverAtEpochMs()
+                : Math.max(sourceWork.actionAtEpochMs(), sourceWork.retryEligibilityAtEpochMs());
+        final byte[] expectedTimelineKey = ordered
+                ? KeyCodec.timelineOrdered(
+                        message.laneId(),
+                        eligibleAt,
+                        message.sourcePosition().sourceOrderToken(),
+                        message.messageId(),
+                        message.generation())
+                : KeyCodec.timelineDue(
+                        message.laneId(),
+                        eligibleAt,
+                        message.sourcePosition().sourceOrderToken(),
+                        message.messageId(),
+                        message.generation());
+        return Arrays.equals(expectedTimelineKey, claim.timelineKey())
+                && Arrays.equals(expectedTimelineKey, sourceWork.encodedTimelineKey());
     }
 
     private static boolean matchesClaimLane(final ClaimRecord claim, final LaneStateSnapshot lane) {
@@ -964,6 +1013,7 @@ public final class LegacyCheckpointStateInventory {
         CLAIM_RECORD_KEY_VALUE_MISMATCH,
         CLAIM_RECORD_STORE_INCARNATION_MISMATCH,
         CLAIM_LANE_STATE_MISMATCH,
+        CLAIM_SOURCE_TIMELINE_MISMATCH,
         LANE_RECORD_KEY_VALUE_MISMATCH,
         CLAIM_NOT_REPRESENTED_BY_CURRENT_MESSAGE,
         CLAIM_RECORD_MISSING,
@@ -1010,6 +1060,9 @@ public final class LegacyCheckpointStateInventory {
             long stateVersion,
             MessageStatus status,
             DestinationLaneId laneId,
+            long deliverAtEpochMs,
+            long retryEligibilityAtEpochMs,
+            OrderingMode orderingMode,
             CurrentSendWorkKind workKind,
             byte[] claimId,
             int admissionsUsed,

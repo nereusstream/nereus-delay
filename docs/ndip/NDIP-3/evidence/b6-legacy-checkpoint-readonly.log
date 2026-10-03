@@ -237,3 +237,27 @@ Commands:
 Result: the two targeted B6 test classes pass 9/9 with zero failures/errors/skips; `checkstyleTest`, `checkDocumentation`, JSON parsing, and `git diff --check` pass. `checkstyleMain` fails only on the two unchanged 123-character lines in `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`.
 
 Scope: this joins Claim identity to the Lane state embedded in the checkpoint only. It does not prove live Owner or Lane authority, full Claim policy/materialization/certificate prerequisites, external Admission/Journal joins, source replay/cutover, durable activation, conversion, rollback, reader retirement, or central validation; B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
+
+## 2026-10-04 Claim source timeline against current Message
+
+Source lock:
+- Base HEAD and origin/main: `4053dd5be93998c570521c9aba094b55476a7fdd`
+- `LegacyCheckpointStateInventory.java` SHA-256: `5e60f15df20880fc332a681b2801a65a4522b4ce3e1e6087434ea8f927d7fe34`
+- `LegacyCheckpointClaimInventoryTest.java` SHA-256: `72871866c27bea6e13bf5b76a8ba0815e126d7a1ef565050170fe114084838f9`
+
+Verification: when a Claim retains v2 `sourceTimelineWork`, the bounded inventory compares its runtime revision with precondition stateVersion, candidate attempt with the next frozen admission, retry gate and ordering mode with Message, and rebuilds the DUE/ORDERED key from Message fields plus the schedule source-order token. Claim v1 without source work remains unresolved for source-cut reconciliation. A real RocksDB checkpoint case stores an internally canonical Claim whose precondition digest and Claim/work keys agree with each other but whose source-order token differs from the current Message; inventory emits `CLAIM_SOURCE_TIMELINE_MISMATCH` and does not treat it as the current Claim.
+
+Commands:
+`./gradlew test --tests com.nereusstream.delay.store.LegacyCheckpointImageInspectorTest --tests com.nereusstream.delay.store.LegacyCheckpointClaimInventoryTest checkstyleTest`
+
+`./gradlew checkstyleMain`
+
+`./gradlew checkDocumentation`
+
+`jq empty docs/ndip/NDIP-3/progress.json`
+
+`git diff --check`
+
+Result: the two targeted B6 test classes pass 9/9 with zero failures/errors/skips; `checkstyleTest` passes. `checkstyleMain` reports only the two unchanged 123-character lines in `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`. `checkDocumentation`, progress JSON parsing and `git diff --check` pass after documentation synchronization.
+
+Scope: this checks persisted Claim source-work consistency with the checkpoint Message projection. It does not verify uncertain-retry external control/evidence authority, complete Claim policy/materialization/certificate prerequisites, live Owner lease, external Admission/Journal joins, historical Terminal/Floor/retention/GC closure, source replay/cutover, activation, conversion, rollback, reader retirement or central validation. B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
