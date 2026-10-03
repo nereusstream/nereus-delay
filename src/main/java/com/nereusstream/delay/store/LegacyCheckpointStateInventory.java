@@ -222,6 +222,7 @@ public final class LegacyCheckpointStateInventory {
                                                     oldMessageKey,
                                                     message.generation(),
                                                     message.stateVersion(),
+                                                    message.expireAtEpochMs(),
                                                     message.status(),
                                                     message.laneId(),
                                                     message.deliverAtEpochMs(),
@@ -616,6 +617,17 @@ public final class LegacyCheckpointStateInventory {
                         : ConflictReason.CLAIM_LANE_STATE_MISMATCH;
                 conflicts.add(conflict(entry.key(), "CLAIM", sourcePosition, reason));
             }
+            if (message != null
+                    && message.generation() == claim.generation()
+                    && message.status() == MessageStatus.CLAIMED
+                    && Arrays.equals(message.claimId(), claim.claimId())
+                    && !claimDeadlineWithinMessageExpiry(message, claim)) {
+                conflicts.add(conflict(
+                        entry.key(),
+                        "CLAIM",
+                        sourcePosition,
+                        ConflictReason.CLAIM_DEADLINE_AFTER_MESSAGE_EXPIRY));
+            }
             if (message != null && !matchesClaimSourceTimeline(message, claim)) {
                 conflicts.add(conflict(
                         entry.key(), "CLAIM", sourcePosition, ConflictReason.CLAIM_SOURCE_TIMELINE_MISMATCH));
@@ -666,12 +678,19 @@ public final class LegacyCheckpointStateInventory {
                 && message.stateVersion() == claim.runtimeRevision()
                 && precondition.stateVersion() != Long.MAX_VALUE
                 && precondition.stateVersion() + 1 == message.stateVersion()
+                && precondition.claimDeadline() <= message.expireAtEpochMs()
                 && precondition.expectedAdmissionsUsed() == message.admissionsUsed()
                 && precondition.expectedUncertainRetryAdmissionsUsed() == message.uncertainRetryAdmissionsUsed()
                 && Bytes.constantTimeEquals(
                         precondition.expectedObligationSetDigest(),
                         GenerationRuntimeIndex.obligationSetDigest(message.attemptObligations()))
                 && matchesClaimSourceTimeline(message, claim);
+    }
+
+    private static boolean claimDeadlineWithinMessageExpiry(
+            final CurrentMessageState message, final ClaimRecord claim) {
+        return ClaimResultBody.decodePrecondition(claim.preconditionBytes()).claimDeadline()
+                <= message.expireAtEpochMs();
     }
 
     private static boolean matchesClaimSourceTimeline(
@@ -1126,6 +1145,7 @@ public final class LegacyCheckpointStateInventory {
         CLAIM_RECORD_STORE_INCARNATION_MISMATCH,
         CLAIM_LANE_STATE_MISMATCH,
         CLAIM_LANE_RUNTIME_VERSION_AFTER_CURRENT,
+        CLAIM_DEADLINE_AFTER_MESSAGE_EXPIRY,
         CLAIM_SOURCE_TIMELINE_MISMATCH,
         LANE_RECORD_KEY_VALUE_MISMATCH,
         CLAIM_NOT_REPRESENTED_BY_CURRENT_MESSAGE,
@@ -1172,6 +1192,7 @@ public final class LegacyCheckpointStateInventory {
             byte[] key,
             int generation,
             long stateVersion,
+            long expireAtEpochMs,
             MessageStatus status,
             DestinationLaneId laneId,
             long deliverAtEpochMs,

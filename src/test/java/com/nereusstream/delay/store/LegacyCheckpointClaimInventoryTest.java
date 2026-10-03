@@ -590,6 +590,61 @@ class LegacyCheckpointClaimInventoryTest {
         assertTrue(Bytes.constantTimeEquals(source.canonicalBytes(), conflict.sourcePosition()));
     }
 
+    @Test
+    void rejectsClaimDeadlineAfterCheckpointMessageExpiry() throws Exception {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 11);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("claim-deadline-store"));
+        final Path image = tempDir.resolve("claim-deadline-checkpoint");
+        final byte[] checkpointId = bytes(16, 52);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("claim-deadline"));
+        final PreparedCommand schedule = PreparedCommand.schedule(
+                shard,
+                new ScheduleIntent(lane, 3_000, 9_000, OrderingMode.BEST_EFFORT, Bytes.utf8("claim-deadline")),
+                10_000);
+        final KafkaSourcePosition source = new KafkaSourcePosition(
+                shard, "legacy-cluster", UUID.randomUUID(), 52, null, 4_100);
+        final AuthorIdentity owner = AuthorIdentity.owner(
+                Bytes.utf8("claim-deadline-deployment"),
+                Bytes.utf8("claim-deadline-worker"),
+                Long.MIN_VALUE,
+                Bytes.sha256(Bytes.utf8("claim-deadline-fence")));
+        final CheckpointManifest manifest;
+        final ClaimRecord lateDeadlineClaim;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore store = ShardStore.open(config, shard, resources)) {
+            final ClaimRecord claim = ClaimRecordTestSupport.claimScheduled(
+                    store, schedule, source, lane, owner, 4_000, chargeVector());
+            final ClaimResultBody.ClaimPrecondition precondition =
+                    ClaimResultBody.decodePrecondition(claim.preconditionBytes());
+            lateDeadlineClaim = withPrecondition(
+                    claim,
+                    preconditionWithClaimDeadline(precondition, 9_001));
+            store.write(batch -> batch.putValue(
+                    ColumnFamily.INFLIGHT,
+                    ClaimRecord.VALUE_TYPE,
+                    lateDeadlineClaim.encodedKey(),
+                    lateDeadlineClaim.encode()));
+            store.createCheckpoint(image, checkpointId);
+            manifest = manifestFor(image, shard, store, checkpointId, source);
+        }
+
+        final LegacyCheckpointStateInventory.Inventory inventory = LegacyCheckpointStateInventory.inspect(
+                image,
+                shard,
+                manifest,
+                finiteLimits(),
+                new LegacyCheckpointStateInventory.ReadLimits(1_000, 1 << 20, 60_000_000_000L));
+        final LegacyCheckpointStateInventory.Conflict conflict = inventory.conflicts().stream()
+                .filter(item -> item.reason()
+                        == LegacyCheckpointStateInventory.ConflictReason.CLAIM_DEADLINE_AFTER_MESSAGE_EXPIRY)
+                .filter(item -> Bytes.constantTimeEquals(
+                        Bytes.sha256(lateDeadlineClaim.encodedKey()), item.oldKeyDigest()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals("CLAIM", conflict.recordKind());
+        assertTrue(Bytes.constantTimeEquals(source.canonicalBytes(), conflict.sourcePosition()));
+    }
+
     private static CheckpointManifest manifestFor(
             final Path image,
             final ShardId shard,
@@ -766,6 +821,20 @@ class LegacyCheckpointClaimInventoryTest {
                 precondition.sourceTimelineSemanticDigest());
     }
 
+    private static byte[] preconditionWithClaimDeadline(
+            final ClaimResultBody.ClaimPrecondition precondition, final long claimDeadline) {
+        return encodePrecondition(
+                precondition,
+                precondition.expectedAdmissionsUsed(),
+                precondition.expectedObligationSetDigest(),
+                precondition.stateVersion(),
+                precondition.runtimeLaneVersion(),
+                claimDeadline,
+                precondition.destinationLaneId(),
+                precondition.originalTimelineKeySha256(),
+                precondition.sourceTimelineSemanticDigest());
+    }
+
     private static byte[] preconditionWithLaneIdentity(
             final ClaimResultBody.ClaimPrecondition precondition,
             final DestinationLaneId laneId,
@@ -790,6 +859,28 @@ class LegacyCheckpointClaimInventoryTest {
             final byte[] destinationLaneId,
             final byte[] originalTimelineKeySha256,
             final byte[] sourceTimelineSemanticDigest) {
+        return encodePrecondition(
+                precondition,
+                admissionsUsed,
+                obligationSetDigest,
+                stateVersion,
+                runtimeLaneVersion,
+                precondition.claimDeadline(),
+                destinationLaneId,
+                originalTimelineKeySha256,
+                sourceTimelineSemanticDigest);
+    }
+
+    private static byte[] encodePrecondition(
+            final ClaimResultBody.ClaimPrecondition precondition,
+            final int admissionsUsed,
+            final byte[] obligationSetDigest,
+            final long stateVersion,
+            final long runtimeLaneVersion,
+            final long claimDeadline,
+            final byte[] destinationLaneId,
+            final byte[] originalTimelineKeySha256,
+            final byte[] sourceTimelineSemanticDigest) {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, precondition.claimId());
             CanonicalProtobuf.bytes(output, 2, precondition.messageId());
@@ -806,7 +897,7 @@ class LegacyCheckpointClaimInventoryTest {
                         output, 11, precondition.materializationValue().materializationDigest());
             }
             CanonicalProtobuf.bytes(output, 12, precondition.claimedCharge());
-            CanonicalProtobuf.int64(output, 13, precondition.claimDeadline());
+            CanonicalProtobuf.int64(output, 13, claimDeadline);
             CanonicalProtobuf.bytes(output, 14, precondition.ownerIdentity());
             CanonicalProtobuf.bytes(output, 15, precondition.storeIncarnation());
             CanonicalProtobuf.uint32(output, 16, precondition.sourceWorkKind());

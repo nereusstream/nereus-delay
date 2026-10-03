@@ -310,3 +310,27 @@ Commands:
 Result: the targeted Claim and image-inspector classes pass 11/11 total (2 and 9 respectively), with zero failures/errors/skips; `checkstyleTest`, `checkDocumentation`, progress JSON parsing, and `git diff --check` pass. `checkstyleMain` reports only the two unchanged 123-character lines in `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`.
 
 Scope: this is a checkpoint-local monotonicity check. It does not prove live Lane/Owner authority or close the remaining Claim preconditions, external Admission/Journal joins, source replay/cutover, migration activation/conversion/rollback, reader retirement, or central validation; B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
+
+## 2026-10-04 Claim deadline against current Message expiry
+
+Source lock:
+- Base HEAD and origin/main: `7784c03e9174110c82db37566b5daa05730e3a4c`
+- `LegacyCheckpointStateInventory.java` SHA-256: `e92aad774ef41c71c24a2a0b9e0879d6f1b85e5b067e687ad1524f4f383c6e7f`
+- `LegacyCheckpointClaimInventoryTest.java` SHA-256: `2f5482aab6cf1382d465c51c1d322db4b6c52ef0a93ad56765150068e40c1ef7`
+
+Verification: the current-generation CLAIMED Message join now requires `ClaimPrecondition.claimDeadline <= Message.expireAt`, matching the runtime Claim creation guard. The bounded Message snapshot retains expiry time; an explicit stable CLAIM conflict is emitted only when the Claim is the one still represented by the current Message. A real RocksDB checkpoint regression keeps the current Message and Claim identity but changes the canonical precondition deadline to 9001 while Message expiry is 9000; inventory reports `CLAIM_DEADLINE_AFTER_MESSAGE_EXPIRY`.
+
+Commands:
+`./gradlew test --tests com.nereusstream.delay.store.LegacyCheckpointClaimInventoryTest --tests com.nereusstream.delay.store.LegacyCheckpointImageInspectorTest checkstyleTest`
+
+`./gradlew checkDocumentation`
+
+`jq empty docs/ndip/NDIP-3/progress.json`
+
+`git diff --check`
+
+`./gradlew checkstyleMain`
+
+Result: the targeted Claim and image-inspector classes pass 12/12 total (3 and 9 respectively), with zero failures/errors/skips; `checkstyleTest`, `checkDocumentation`, progress JSON parsing, and `git diff --check` pass. `checkstyleMain` reports only the two unchanged 123-character lines in `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`.
+
+Scope: this verifies only the Claim deadline upper bound against the current Message expiry. It does not prove Owner/Claim external authority, complete materialization or certificate prerequisites, Admission/Journal joins, source replay/cutover, migration activation/conversion/rollback, reader retirement, or central validation; B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
