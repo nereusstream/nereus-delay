@@ -12,6 +12,7 @@ import com.nereusstream.delay.runtime.MessageRecord;
 import com.nereusstream.delay.runtime.MessageStatus;
 import com.nereusstream.delay.runtime.PublishAttemptLedger;
 import com.nereusstream.delay.runtime.RetiredMessageIdentityRecord;
+import com.nereusstream.delay.runtime.TerminalGenerationRecord;
 import com.nereusstream.delay.runtime.TimelineEntry;
 import com.nereusstream.delay.runtime.TimelineWorkRef;
 import java.nio.file.Path;
@@ -19,9 +20,11 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.TreeMap;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
@@ -88,6 +91,8 @@ public final class LegacyCheckpointStateInventory {
         long scannedRecords = 0;
         long totalBytes = 0;
         final List<Conflict> conflicts = new ArrayList<>();
+        final Set<String> referencedAttemptKeys = new HashSet<>();
+        final TreeMap<String, PublishAttemptLedger> attemptLedgers = new TreeMap<>();
         try (Options listOptions = new Options()) {
             final List<byte[]> familyNames = RocksDB.listColumnFamilies(listOptions, image.toString());
             LegacyCheckpointImageInspector.requireExactColumnFamilies(familyNames);
@@ -159,10 +164,14 @@ public final class LegacyCheckpointStateInventory {
                                             db,
                                             inflight,
                                             messageId,
-                                            message,
+                                            message.generation(),
                                             schedulePosition,
+                                            message.runtimeIndex().attemptObligations(),
+                                            oldMessageKey,
+                                            "MESSAGE",
                                             budget,
-                                            conflicts);
+                                            conflicts,
+                                            referencedAttemptKeys);
                                     final ConflictReason blocker = blockerFor(message);
                                     if (blocker != null) {
                                         conflicts.add(conflict(oldMessageKey, schedulePosition, blocker));
@@ -177,6 +186,58 @@ public final class LegacyCheckpointStateInventory {
                                                 budget,
                                                 conflicts);
                                     }
+                                }
+                            }
+                            if (family == ColumnFamily.TERMINAL && isTerminalGenerationKey(key)) {
+                                final DelayMessageId terminalMessageId = terminalMessageId(key);
+                                if (!terminalMessageId.routingId().shardId().equals(proof.metadata().shardId())) {
+                                    throw new IllegalArgumentException(
+                                            "legacy terminal summary belongs to another Shard");
+                                }
+                                final byte[] payload = ValueEnvelope.decode(value, 1).payload();
+                                final TerminalGenerationRecord terminal = TerminalGenerationRecord.decode(payload);
+                                if (!terminal.messageId().equals(terminalMessageId)
+                                        || !Arrays.equals(
+                                                key,
+                                                KeyCodec.terminalGeneration(
+                                                        terminal.messageId(), terminal.generation()))) {
+                                    throw new IllegalArgumentException(
+                                            "legacy terminal summary identity differs from its key");
+                                }
+                                final SourcePosition terminalPosition = SourcePositionCodec.decode(
+                                        terminal.appliedSourcePosition());
+                                auditAttemptObligations(
+                                        db,
+                                        inflight,
+                                        terminal.messageId(),
+                                        terminal.generation(),
+                                        terminalPosition,
+                                        terminal.openObligations(),
+                                        key,
+                                        "TERMINAL",
+                                        budget,
+                                        conflicts,
+                                        referencedAttemptKeys);
+                            }
+                            if (family == ColumnFamily.INFLIGHT && isAttemptLedgerKey(key)) {
+                                final byte[] payload = ValueEnvelope.decode(value, PublishAttemptLedger.VALUE_TYPE)
+                                        .payload();
+                                final PublishAttemptLedger ledger = PublishAttemptLedger.decode(payload);
+                                final SourcePosition attemptPosition =
+                                        SourcePositionCodec.decode(ledger.sourcePosition());
+                                if (!ledger.delayMessageId().routingId().shardId().equals(proof.metadata().shardId())
+                                        || !attemptPosition.shardId().equals(proof.metadata().shardId())) {
+                                    throw new IllegalArgumentException(
+                                            "legacy publish attempt belongs to another Shard");
+                                }
+                                if (!Arrays.equals(key, ledger.encodedKey())) {
+                                    conflicts.add(conflict(
+                                            key,
+                                            "ATTEMPT",
+                                            attemptPosition,
+                                            ConflictReason.ATTEMPT_LEDGER_KEY_VALUE_MISMATCH));
+                                } else if (attemptLedgers.put(Bytes.hex(key), ledger) != null) {
+                                    throw new IllegalArgumentException("duplicate legacy publish attempt key");
                                 }
                             }
                             iterator.next();
@@ -205,6 +266,16 @@ public final class LegacyCheckpointStateInventory {
             }
         } catch (RocksDBException failure) {
             throw new IllegalArgumentException("cannot enumerate legacy checkpoint column families", failure);
+        }
+        for (Map.Entry<String, PublishAttemptLedger> attemptEntry : attemptLedgers.entrySet()) {
+            if (!referencedAttemptKeys.contains(attemptEntry.getKey())) {
+                final PublishAttemptLedger ledger = attemptEntry.getValue();
+                conflicts.add(conflict(
+                        ledger.encodedKey(),
+                        "ATTEMPT",
+                        SourcePositionCodec.decode(ledger.sourcePosition()),
+                        ConflictReason.ATTEMPT_LEDGER_UNREFERENCED));
+            }
         }
         return new Inventory(
                 proof,
@@ -303,20 +374,29 @@ public final class LegacyCheckpointStateInventory {
             final RocksDB db,
             final ColumnFamilyHandle inflight,
             final DelayMessageId messageId,
-            final MessageRecord message,
-            final SourcePosition schedulePosition,
+            final int generation,
+            final SourcePosition sourcePosition,
+            final List<AttemptObligationRef> obligations,
+            final byte[] conflictKey,
+            final String recordKind,
             final BoundedReadBudget budget,
-            final List<Conflict> conflicts)
+            final List<Conflict> conflicts,
+            final Set<String> referencedAttemptKeys)
             throws RocksDBException {
-        final byte[] messageKey = KeyCodec.idMessage(messageId);
-        for (AttemptObligationRef obligation : message.runtimeIndex().attemptObligations()) {
+        for (AttemptObligationRef obligation : obligations) {
             final byte[] encodedKey = obligation.encodedInflightKey();
+            referencedAttemptKeys.add(Bytes.hex(encodedKey));
             final byte[] encodedLedger = readPoint(db, inflight, encodedKey, budget);
             if (encodedLedger == null) {
-                conflicts.add(conflict(messageKey, schedulePosition, ConflictReason.ATTEMPT_OBLIGATION_MISSING));
-            } else if (!matchesAttemptObligation(encodedLedger, messageId, message, obligation)) {
+                conflicts.add(conflict(
+                        conflictKey, recordKind, sourcePosition, ConflictReason.ATTEMPT_OBLIGATION_MISSING));
+            } else if (!matchesAttemptObligation(encodedLedger, messageId, generation, obligation)) {
                 conflicts.add(
-                        conflict(messageKey, schedulePosition, ConflictReason.ATTEMPT_OBLIGATION_VALUE_MISMATCH));
+                        conflict(
+                                conflictKey,
+                                recordKind,
+                                sourcePosition,
+                                ConflictReason.ATTEMPT_OBLIGATION_VALUE_MISMATCH));
             }
         }
     }
@@ -324,13 +404,13 @@ public final class LegacyCheckpointStateInventory {
     private static boolean matchesAttemptObligation(
             final byte[] encodedLedger,
             final DelayMessageId messageId,
-            final MessageRecord message,
+            final int generation,
             final AttemptObligationRef expected) {
         try {
             final byte[] payload = ValueEnvelope.decode(encodedLedger, PublishAttemptLedger.VALUE_TYPE).payload();
             final PublishAttemptLedger ledger = PublishAttemptLedger.decode(payload);
             return ledger.delayMessageId().equals(messageId)
-                    && ledger.generation() == message.generation()
+                    && ledger.generation() == generation
                     && Arrays.equals(ledger.obligationRef().canonicalBytes(), expected.canonicalBytes());
         } catch (IllegalArgumentException malformed) {
             return false;
@@ -364,7 +444,15 @@ public final class LegacyCheckpointStateInventory {
             final byte[] messageKey,
             final SourcePosition sourcePosition,
             final ConflictReason reason) {
-        return new Conflict(Bytes.sha256(messageKey), "MESSAGE", sourcePosition.canonicalBytes(), reason);
+        return conflict(messageKey, "MESSAGE", sourcePosition, reason);
+    }
+
+    private static Conflict conflict(
+            final byte[] key,
+            final String recordKind,
+            final SourcePosition sourcePosition,
+            final ConflictReason reason) {
+        return new Conflict(Bytes.sha256(key), recordKind, sourcePosition.canonicalBytes(), reason);
     }
 
     static MessageDisposition dispositionForStatus(final MessageStatus status) {
@@ -424,6 +512,31 @@ public final class LegacyCheckpointStateInventory {
 
     private static DelayMessageId messageId(final byte[] key) {
         return new DelayMessageId(java.util.Arrays.copyOfRange(key, 2, key.length));
+    }
+
+    private static boolean isTerminalGenerationKey(final byte[] key) {
+        if (key.length < 2 || key[0] != 1 || key[1] != 1) {
+            return false;
+        }
+        if (key.length != 2 + DelayMessageId.LENGTH + Integer.BYTES) {
+            throw new IllegalArgumentException("legacy terminal generation key has an invalid length");
+        }
+        return true;
+    }
+
+    private static DelayMessageId terminalMessageId(final byte[] key) {
+        return new DelayMessageId(
+                java.util.Arrays.copyOfRange(key, 2, 2 + DelayMessageId.LENGTH));
+    }
+
+    private static boolean isAttemptLedgerKey(final byte[] key) {
+        if (key.length < 2 || key[1] != 1 || (key[0] != 2 && key[0] != 3)) {
+            return false;
+        }
+        if (key.length != 2 + Long.BYTES + Integer.BYTES + PublishAttemptLedger.HASH_LENGTH) {
+            throw new IllegalArgumentException("legacy publish-attempt key has an invalid length");
+        }
+        return true;
     }
 
     private static String keyKind(final ColumnFamily family, final byte[] key) {
@@ -515,6 +628,8 @@ public final class LegacyCheckpointStateInventory {
         EXPIRY_INDEX_VALUE_MISMATCH,
         ATTEMPT_OBLIGATION_MISSING,
         ATTEMPT_OBLIGATION_VALUE_MISMATCH,
+        ATTEMPT_LEDGER_KEY_VALUE_MISMATCH,
+        ATTEMPT_LEDGER_UNREFERENCED,
         CLAIM_REQUIRES_SOURCE_CUT_RECONCILIATION,
         SCHEDULED_REQUIRES_OLD_SEND_RECOVERY,
         UNRESOLVED_SEND_REQUIRES_OLD_RECOVERY,
@@ -527,7 +642,10 @@ public final class LegacyCheckpointStateInventory {
         public Conflict {
             Bytes.requireLength(oldKeyDigest, 32, "oldKeyDigest");
             oldKeyDigest = Bytes.copy(oldKeyDigest);
-            if (!"MESSAGE".equals(Objects.requireNonNull(recordKind, "recordKind"))) {
+            final String checkedRecordKind = Objects.requireNonNull(recordKind, "recordKind");
+            if (!checkedRecordKind.equals("MESSAGE")
+                    && !checkedRecordKind.equals("TERMINAL")
+                    && !checkedRecordKind.equals("ATTEMPT")) {
                 throw new IllegalArgumentException("legacy index conflict record kind is not registered");
             }
             sourcePosition = SourcePositionCodec.decode(sourcePosition).canonicalBytes();

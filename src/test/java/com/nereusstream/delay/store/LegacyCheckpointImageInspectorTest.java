@@ -11,11 +11,13 @@ import com.nereusstream.delay.protocol.NativeDeliveryPolicy;
 import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
+import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.runtime.GenerationAggregateState;
 import com.nereusstream.delay.runtime.GenerationRuntimeIndex;
 import com.nereusstream.delay.runtime.MessageRecord;
 import com.nereusstream.delay.runtime.MessageStatus;
 import com.nereusstream.delay.runtime.PublishAttemptLedger;
+import com.nereusstream.delay.runtime.TerminalGenerationRecord;
 import com.nereusstream.delay.runtime.TimelineWorkKind;
 import com.nereusstream.delay.runtime.TimelineWorkRef;
 import com.nereusstream.delay.runtime.UncertainRetryAuthority;
@@ -234,7 +236,7 @@ class LegacyCheckpointImageInspectorTest {
     }
 
     @Test
-    void checksOpenScheduledAttemptObligationsAgainstTheirInflightLedgers() throws Exception {
+    void checksAttemptObligationsAndFindsOnlyUnreferencedInflightLedgers() throws Exception {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 8);
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("uncertain-retry-store"));
         final Path image = tempDir.resolve("uncertain-retry-checkpoint");
@@ -247,6 +249,23 @@ class LegacyCheckpointImageInspectorTest {
                 shard, "legacy-cluster", source.nativeTopicUuid(), 32, null, 4_001);
         final UncertainRetryFixture missing = uncertainRetryFixture(
                 shard, missingSource, "uncertain-retry-missing", 60);
+        final KafkaSourcePosition terminalSource = new KafkaSourcePosition(
+                shard, "legacy-cluster", source.nativeTopicUuid(), 33, null, 4_002);
+        final UncertainRetryFixture terminal = uncertainRetryFixture(
+                shard, terminalSource, "uncertain-retry-terminal", 80);
+        final KafkaSourcePosition orphanSource = new KafkaSourcePosition(
+                shard, "legacy-cluster", source.nativeTopicUuid(), 34, null, 4_003);
+        final UncertainRetryFixture orphan = uncertainRetryFixture(
+                shard, orphanSource, "uncertain-retry-orphan", 100);
+        final TerminalGenerationRecord terminalSummary = new TerminalGenerationRecord(
+                terminal.scheduled().messageId(),
+                1,
+                MessageStatus.PUBLISHED,
+                StableCode.ALREADY_PUBLISHED,
+                2,
+                terminalSource.canonicalBytes(),
+                false,
+                List.of(terminal.attempt().obligationRef()));
         final CheckpointManifest manifest;
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shard, resources)) {
@@ -255,7 +274,7 @@ class LegacyCheckpointImageInspectorTest {
                         ColumnFamily.META,
                         ShardStore.META_FIXED_VALUE_TYPE,
                         KeyCodec.metaFixed(ShardStore.META_APPLIED_SOURCE_POSITION),
-                        missingSource.canonicalBytes());
+                        orphanSource.canonicalBytes());
                 batch.putValue(
                         ColumnFamily.META,
                         ShardStore.META_FIXED_VALUE_TYPE,
@@ -264,13 +283,28 @@ class LegacyCheckpointImageInspectorTest {
                 putUncertainRetry(batch, present);
                 putUncertainRetry(batch, missing);
                 batch.putValue(
+                        ColumnFamily.TERMINAL,
+                        1,
+                        KeyCodec.terminalGeneration(terminal.scheduled().messageId(), 1),
+                        terminalSummary.encode());
+                batch.putValue(
                         ColumnFamily.INFLIGHT,
                         PublishAttemptLedger.VALUE_TYPE,
                         present.attempt().encodedKey(),
                         present.attempt().encode());
+                batch.putValue(
+                        ColumnFamily.INFLIGHT,
+                        PublishAttemptLedger.VALUE_TYPE,
+                        terminal.attempt().encodedKey(),
+                        terminal.attempt().encode());
+                batch.putValue(
+                        ColumnFamily.INFLIGHT,
+                        PublishAttemptLedger.VALUE_TYPE,
+                        orphan.attempt().encodedKey(),
+                        orphan.attempt().encode());
             });
             store.createCheckpoint(image, checkpointId);
-            manifest = manifestFor(image, shard, store, checkpointId, missingSource);
+            manifest = manifestFor(image, shard, store, checkpointId, orphanSource);
         }
 
         final LegacyCheckpointStateInventory.Inventory inventory = LegacyCheckpointStateInventory.inspect(
@@ -297,8 +331,18 @@ class LegacyCheckpointImageInspectorTest {
                 .orElseThrow();
         assertTrue(Bytes.constantTimeEquals(
                 Bytes.sha256(KeyCodec.idMessage(missing.scheduled().messageId())), missingLedger.oldKeyDigest()));
+        assertEquals("MESSAGE", missingLedger.recordKind());
         assertTrue(Bytes.constantTimeEquals(missingSource.canonicalBytes(), missingLedger.sourcePosition()));
-        assertEquals(3, inventory.conflicts().size());
+        final LegacyCheckpointStateInventory.Conflict orphanLedger = inventory.conflicts().stream()
+                .filter(conflict -> conflict.reason()
+                        == LegacyCheckpointStateInventory.ConflictReason.ATTEMPT_LEDGER_UNREFERENCED)
+                .findFirst()
+                .orElseThrow();
+        assertEquals("ATTEMPT", orphanLedger.recordKind());
+        assertTrue(Bytes.constantTimeEquals(
+                Bytes.sha256(orphan.attempt().encodedKey()), orphanLedger.oldKeyDigest()));
+        assertTrue(Bytes.constantTimeEquals(orphanSource.canonicalBytes(), orphanLedger.sourcePosition()));
+        assertEquals(4, inventory.conflicts().size());
     }
 
     @Test
