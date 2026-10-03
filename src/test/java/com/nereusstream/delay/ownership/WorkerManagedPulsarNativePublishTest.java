@@ -73,6 +73,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
@@ -208,6 +209,50 @@ class WorkerManagedPulsarNativePublishTest {
             assertEquals(1, queuedPhysicalTasks.size());
             assertEquals(0, preparedCalls.get());
             physicalTime.set(exactTime(2_500));
+            queuedPhysicalTasks.getFirst().run();
+
+            assertEquals(0, preparedCalls.get());
+            assertTrue(sent.get() == null);
+            assertEquals(
+                    DestinationPublishResult.Disposition.DEFINITIVELY_NOT_PUBLISHED,
+                    submission.physicalResult().orElseThrow().disposition());
+            assertEquals(
+                    StableCode.CAPABILITY_UNAVAILABLE,
+                    submission.physicalResult().orElseThrow().stableCode());
+            assertEquals(
+                    List.of(
+                            PulsarAttemptJournal.RecordKind.MAPPED,
+                            PulsarAttemptJournal.RecordKind.RETIRED_NOT_PUBLISHED),
+                    fixture.journal.records().stream()
+                            .map(PulsarAttemptJournal.JournalRecord::kind)
+                            .toList());
+            assertEquals(0, physicalAdmission.workerSnapshot().activeRequests());
+        }
+    }
+
+    @Test
+    void ownerLeaseRevocationWhileQueuedStopsBeforeProducerOwnership() throws Exception {
+        final Fixture fixture = Fixture.create();
+        final AtomicInteger preparedCalls = new AtomicInteger();
+        final AtomicReference<PulsarPreparedRecord> sent = new AtomicReference<>();
+        final List<Runnable> queuedPhysicalTasks = new ArrayList<>();
+        final DestinationPhysicalAdmission physicalAdmission =
+                Fixture.admission(fixture.lane, fixture.laneIncarnation, 1);
+        final WorkerPhysicalPublishExecutor executor = fixture.queuedExecutor(
+                preparedAdapter(preparedCalls, sent),
+                physicalAdmission,
+                queuedPhysicalTasks::add,
+                () -> fixture.validPhysicalTime);
+
+        try (executor) {
+            final DestinationPublishRequest request =
+                    WorkerPhysicalPublishExecutor.prepareRequest(fixture.attempt, fixture.payload);
+            final WorkerPhysicalPublishExecutor.Submission submission =
+                    executor.submit(fixture.attempt, request, () -> 1_950);
+
+            assertEquals(1, queuedPhysicalTasks.size());
+            assertEquals(0, preparedCalls.get());
+            fixture.ownerLeaseActive.set(false);
             queuedPhysicalTasks.getFirst().run();
 
             assertEquals(0, preparedCalls.get());
@@ -569,6 +614,7 @@ class WorkerManagedPulsarNativePublishTest {
                 new PulsarAttemptJournal.ProducerKey(lane, laneIncarnation, Bytes.sha256(producerIdentity), target);
         private final DestinationPhysicalAdmission admission = admission(lane, laneIncarnation);
         private final TrustedUtcIntervalEvidence validPhysicalTime = exactTime(1_950);
+        private final AtomicBoolean ownerLeaseActive = new AtomicBoolean(true);
         private final PreparedPublishDescriptor descriptor;
         private final PublishAttemptLedger attempt;
 
@@ -790,7 +836,10 @@ class WorkerManagedPulsarNativePublishTest {
             final WorkerPhysicalPublishExecutor result = new WorkerPhysicalPublishExecutor(
                     new BoundedDestinationPublishAdapter(adapter, physicalAdmission, workClasses(), physicalExecutor),
                     (mutation, ownerClock) -> {},
-                    (ignoredAttempt, ignoredRequest, ignoredClock) -> WorkerPhysicalPublishExecutor.Decision.allowed(),
+                    (ignoredAttempt, ignoredRequest, ignoredClock) -> ownerLeaseActive.get()
+                            ? WorkerPhysicalPublishExecutor.Decision.allowed()
+                            : WorkerPhysicalPublishExecutor.Decision.definitivelyNotPublished(
+                                    StableCode.CAPABILITY_UNAVAILABLE, null),
                     (ignoredAttempt, ignoredRequest, ignoredResult) -> mutation(shard),
                     () -> {},
                     activationGate);

@@ -289,3 +289,19 @@ Commands:
 Results: targeted protocol and queued-expiry tests passed; `WorkerManagedPulsarNativePublishTest` 8 tests, 0 failures/errors/skips; `checkstyleTest` and `checkDocumentation` passed.
 
 Scope: this is local protocol and Worker evidence with test-supplied authority. It does not establish production credential-provider/Oxia wiring, cross-process behavior or E3 central validation; E3 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
+
+E3 physical Owner gate revocation after Native send queueing
+Date: 2026-10-03
+
+Source lock:
+- Delay base HEAD: 150d4032970593c8f5fd841043de2133377b40ef
+- `WorkerManagedPulsarNativePublishTest.java` SHA-256: 24256cafbcee6844fdf8d68db8a0de4296e2389020cb2976537bf7028d66219f
+
+Regression: `ownerLeaseRevocationWhileQueuedStopsBeforeProducerOwnership` captures the bounded physical task after Native record preparation, then changes the fixture Owner gate to a definitive non-publication decision before the physical callback runs. The late boundary observes the revoked gate, does not invoke Producer, records `MAPPED` followed by `RETIRED_NOT_PUBLISHED` without `OWNERSHIP_STARTED`, returns `DEFINITIVELY_NOT_PUBLISHED`, and releases the physical reservation.
+
+Command:
+`./gradlew test --tests 'com.nereusstream.delay.ownership.WorkerManagedPulsarNativePublishTest' checkstyleTest`
+
+Result: `WorkerManagedPulsarNativePublishTest` 9 tests, 0 failures/errors/skips; `checkstyleTest` passed.
+
+Scope: the test uses an injected gate, process-local Journal and controlled executor. It does not prove production Owner lease assembly, live Oxia takeover or cross-process fencing; E3 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
