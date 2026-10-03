@@ -244,6 +244,14 @@ public final class LegacyCheckpointStateInventory {
                                 }
                                 final SourcePosition terminalPosition = SourcePositionCodec.decode(
                                         terminal.appliedSourcePosition());
+                                if (!terminalPosition.sameSourceIdentity(proof.appliedSourcePosition())
+                                        || terminalPosition.compareTo(proof.appliedSourcePosition()) > 0) {
+                                    conflicts.add(conflict(
+                                            key,
+                                            "TERMINAL",
+                                            terminalPosition,
+                                            ConflictReason.TERMINAL_SOURCE_AFTER_CHECKPOINT));
+                                }
                                 if (terminalSummaries.put(
                                                 terminalIdentityKey(terminal.messageId(), terminal.generation()),
                                                 new TerminalSummaryEntry(key, terminal))
@@ -282,6 +290,14 @@ public final class LegacyCheckpointStateInventory {
                                         || !attemptPosition.shardId().equals(proof.metadata().shardId())) {
                                     throw new IllegalArgumentException(
                                             "legacy publish attempt belongs to another Shard");
+                                }
+                                if (!attemptPosition.sameSourceIdentity(proof.appliedSourcePosition())
+                                        || attemptPosition.compareTo(proof.appliedSourcePosition()) > 0) {
+                                    conflicts.add(conflict(
+                                            key,
+                                            "ATTEMPT",
+                                            attemptPosition,
+                                            ConflictReason.ATTEMPT_SOURCE_AFTER_CHECKPOINT));
                                 }
                                 if (!Arrays.equals(key, ledger.encodedKey())) {
                                     conflicts.add(conflict(
@@ -851,8 +867,10 @@ public final class LegacyCheckpointStateInventory {
         ATTEMPT_LEDGER_UNREFERENCED,
         ATTEMPT_ADMISSION_MALFORMED,
         ATTEMPT_ADMISSION_LEDGER_MISMATCH,
+        ATTEMPT_SOURCE_AFTER_CHECKPOINT,
         RETIRED_IDENTITY_SOURCE_AFTER_CHECKPOINT,
         RETIRED_IDENTITY_SEQUENCE_AFTER_CHECKPOINT,
+        TERMINAL_SOURCE_AFTER_CHECKPOINT,
         TERMINAL_SUMMARY_VALUE_MISMATCH,
         TERMINAL_SUMMARY_MISSING,
         CLAIM_RECORD_KEY_VALUE_MISMATCH,

@@ -270,7 +270,7 @@ class LegacyCheckpointImageInspectorTest {
         final UncertainRetryFixture terminal = uncertainRetryFixture(
                 shard, terminalSource, "uncertain-retry-terminal", 80);
         final KafkaSourcePosition orphanSource = new KafkaSourcePosition(
-                shard, "legacy-cluster", source.nativeTopicUuid(), 34, null, 4_003);
+                shard, "legacy-cluster", source.nativeTopicUuid(), 37, null, 4_006);
         final UncertainRetryFixture orphan = uncertainRetryFixture(
                 shard, orphanSource, "uncertain-retry-orphan", 100);
         final KafkaSourcePosition missingTerminalSource = new KafkaSourcePosition(
@@ -318,14 +318,23 @@ class LegacyCheckpointImageInspectorTest {
                 canceledRuntime);
         final KafkaSourcePosition mismatchedTerminalSource = new KafkaSourcePosition(
                 shard, "legacy-cluster", source.nativeTopicUuid(), 36, null, 4_005);
-        final KafkaSourcePosition futureRetiredSource = new KafkaSourcePosition(
-                shard, "legacy-cluster", source.nativeTopicUuid(), 37, null, 4_006);
+        final KafkaSourcePosition futureRetiredSource = orphanSource;
         final DelayMessageId futureRetiredMessageId = DelayMessageId.random(shard);
         final RetiredMessageIdentityRecord futureRetired = new RetiredMessageIdentityRecord(
                 futureRetiredMessageId,
                 futureRetiredMessageId.routingId().logicalTimestampEpochMs(),
                 3,
                 futureRetiredSource.canonicalBytes());
+        final DelayMessageId terminalBeyondCutMessageId = DelayMessageId.random(shard);
+        final TerminalGenerationRecord terminalBeyondCut = new TerminalGenerationRecord(
+                terminalBeyondCutMessageId,
+                0,
+                MessageStatus.CANCELED,
+                StableCode.CANCELED,
+                1,
+                futureRetiredSource.canonicalBytes(),
+                false,
+                List.of());
         final ScheduledFixture mismatchedTerminal =
                 scheduledFixture(shard, mismatchedTerminalSource, "terminal-summary-mismatch");
         final GenerationRuntimeIndex mismatchedPublishedRuntime = GenerationRuntimeIndex.none(
@@ -410,6 +419,11 @@ class LegacyCheckpointImageInspectorTest {
                         KeyCodec.terminalGeneration(mismatchedTerminal.messageId(), 1),
                         mismatchedTerminalSummary.encode());
                 batch.putValue(
+                        ColumnFamily.TERMINAL,
+                        1,
+                        KeyCodec.terminalGeneration(terminalBeyondCutMessageId, 0),
+                        terminalBeyondCut.encode());
+                batch.putValue(
                         ColumnFamily.INFLIGHT,
                         PublishAttemptLedger.VALUE_TYPE,
                         present.attempt().encodedKey(),
@@ -464,6 +478,15 @@ class LegacyCheckpointImageInspectorTest {
         assertTrue(Bytes.constantTimeEquals(
                 Bytes.sha256(orphan.attempt().encodedKey()), orphanLedger.oldKeyDigest()));
         assertTrue(Bytes.constantTimeEquals(orphanSource.canonicalBytes(), orphanLedger.sourcePosition()));
+        final LegacyCheckpointStateInventory.Conflict futureAttemptConflict = inventory.conflicts().stream()
+                .filter(conflict -> conflict.reason()
+                        == LegacyCheckpointStateInventory.ConflictReason.ATTEMPT_SOURCE_AFTER_CHECKPOINT)
+                .findFirst()
+                .orElseThrow();
+        assertEquals("ATTEMPT", futureAttemptConflict.recordKind());
+        assertTrue(Bytes.constantTimeEquals(
+                Bytes.sha256(orphan.attempt().encodedKey()), futureAttemptConflict.oldKeyDigest()));
+        assertTrue(Bytes.constantTimeEquals(orphanSource.canonicalBytes(), futureAttemptConflict.sourcePosition()));
         final LegacyCheckpointStateInventory.Conflict missingTerminalSummary = inventory.conflicts().stream()
                 .filter(conflict -> conflict.reason()
                         == LegacyCheckpointStateInventory.ConflictReason.TERMINAL_SUMMARY_MISSING)
@@ -509,7 +532,18 @@ class LegacyCheckpointImageInspectorTest {
                 futureRetiredSequenceConflict.oldKeyDigest()));
         assertTrue(Bytes.constantTimeEquals(
                 futureRetiredSource.canonicalBytes(), futureRetiredSequenceConflict.sourcePosition()));
-        assertEquals(11, inventory.conflicts().size());
+        final LegacyCheckpointStateInventory.Conflict terminalSourceConflict = inventory.conflicts().stream()
+                .filter(conflict -> conflict.reason()
+                        == LegacyCheckpointStateInventory.ConflictReason.TERMINAL_SOURCE_AFTER_CHECKPOINT)
+                .findFirst()
+                .orElseThrow();
+        assertEquals("TERMINAL", terminalSourceConflict.recordKind());
+        assertTrue(Bytes.constantTimeEquals(
+                Bytes.sha256(KeyCodec.terminalGeneration(terminalBeyondCutMessageId, 0)),
+                terminalSourceConflict.oldKeyDigest()));
+        assertTrue(Bytes.constantTimeEquals(
+                futureRetiredSource.canonicalBytes(), terminalSourceConflict.sourcePosition()));
+        assertEquals(13, inventory.conflicts().size());
     }
 
     @Test

@@ -72,3 +72,27 @@ Commands:
 Result: the two B6 test classes pass 8/8 with zero failures/errors/skips; `checkstyleTest`, `checkDocumentation`, JSON parsing, and `git diff --check` pass. `checkstyleMain` reports only the two unchanged 123-character lines in `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`.
 
 Scope: this is a checkpoint source/mutation-cut sanity check, not a Recovery Floor proof or a retention/GC authorization. It does not establish terminal-generation-history closure, external result/evidence cleanup, source replay/cutover, or migration readiness; B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
+
+## 2026-10-04 Attempt and Terminal checkpoint-cut join
+
+Source lock:
+- Base HEAD and origin/main: `87f91e80b3dcbf8715f7c1ed06dd87134f3d9f14`
+- `LegacyCheckpointStateInventory.java` SHA-256: `93a7f4f0492e16e165ee324c4517b8f504aad3ab59d03f51d3f79e8e442e5d1b`
+- `LegacyCheckpointImageInspectorTest.java` SHA-256: `a7c61f1c25552f2a50f99dcfe336c58fc578a9d145197ca6b9edd5c810a63e84`
+
+Verification: every recognized INFLIGHT Attempt ledger and every TerminalGenerationRecord must use the checkpoint applied source identity and must not have a source position after that cut. RetiredMessageIdentityRecord keeps the same source-cut check and its unsigned retirement mutation sequence must not exceed the checkpoint mutation sequence. Each violation produces a stable conflict bound to the old key digest and canonical source position. Real RocksDB tests cover valid records at the cut and future Attempt, Terminal and Retired identity records; `LegacyCheckpointImageInspectorTest` passes 7/7 and `LegacyCheckpointClaimInventoryTest` passes 1/1.
+
+Commands:
+`./gradlew test --tests com.nereusstream.delay.store.LegacyCheckpointImageInspectorTest --tests com.nereusstream.delay.store.LegacyCheckpointClaimInventoryTest checkstyleTest`
+
+`./gradlew checkDocumentation`
+
+`jq empty docs/ndip/NDIP-3/progress.json`
+
+`git diff --check`
+
+`./gradlew checkstyleMain`
+
+Result: the two targeted B6 test classes pass 8/8 with zero failures/errors/skips; `checkstyleTest`, `checkDocumentation`, JSON parsing and `git diff --check` pass. `checkstyleMain` fails only on the two unchanged 123-character lines in `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`.
+
+Scope: this enforces the checkpoint's applied source/mutation cut for the recognized local records; it does not prove source-log continuity/replay, Recovery Floor coverage, terminal-history or retention/GC closure, or migration readiness. B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
