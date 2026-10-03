@@ -6,6 +6,7 @@ import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.SourcePositionCodec;
+import com.nereusstream.delay.runtime.GenerationAggregateState;
 import com.nereusstream.delay.runtime.MessageRecord;
 import com.nereusstream.delay.runtime.MessageStatus;
 import com.nereusstream.delay.runtime.RetiredMessageIdentityRecord;
@@ -147,10 +148,14 @@ public final class LegacyCheckpointStateInventory {
                                     }
                                     messageStatuses.compute(
                                             message.status(), (ignored, count) -> Math.addExact(count, 1));
-                                    final MessageDisposition disposition = dispositionFor(message.status());
+                                    final MessageDisposition disposition = dispositionFor(message);
                                     messageDispositions.compute(
                                             disposition, (ignored, count) -> Math.addExact(count, 1));
                                     final byte[] oldMessageKey = KeyCodec.idMessage(messageId);
+                                    final ConflictReason blocker = blockerFor(message);
+                                    if (blocker != null) {
+                                        conflicts.add(conflict(oldMessageKey, schedulePosition, blocker));
+                                    }
                                     if (message.status() == MessageStatus.SCHEDULED) {
                                         auditScheduledIndexes(
                                                 db,
@@ -160,11 +165,6 @@ public final class LegacyCheckpointStateInventory {
                                                 schedulePosition,
                                                 budget,
                                                 conflicts);
-                                    } else {
-                                        final ConflictReason blocker = blockerFor(message.status());
-                                        if (blocker != null) {
-                                            conflicts.add(conflict(oldMessageKey, schedulePosition, blocker));
-                                        }
                                     }
                                 }
                             }
@@ -318,7 +318,7 @@ public final class LegacyCheckpointStateInventory {
         return new Conflict(Bytes.sha256(messageKey), "MESSAGE", sourcePosition.canonicalBytes(), reason);
     }
 
-    public static MessageDisposition dispositionFor(final MessageStatus status) {
+    static MessageDisposition dispositionForStatus(final MessageStatus status) {
         return switch (Objects.requireNonNull(status, "status")) {
             case SCHEDULED -> MessageDisposition.CANDIDATE_PENDING_FULL_AUDIT;
             case CLAIMED -> MessageDisposition.BLOCKED_PENDING_CLAIM_RECONCILIATION;
@@ -338,6 +338,26 @@ public final class LegacyCheckpointStateInventory {
             case CANCELED, SUPERSEDED, PUBLISHED, EXPIRED, DEAD_LETTER ->
                     ConflictReason.TERMINAL_REQUIRES_FLOOR_AND_REFERENCE_CLOSURE;
         };
+    }
+
+    private static MessageDisposition dispositionFor(final MessageRecord message) {
+        if (message.status() == MessageStatus.SCHEDULED && hasOpenAttemptObligation(message)) {
+            return MessageDisposition.BLOCKED_PENDING_OLD_SEND_RECOVERY;
+        }
+        return dispositionForStatus(message.status());
+    }
+
+    private static ConflictReason blockerFor(final MessageRecord message) {
+        if (message.status() == MessageStatus.SCHEDULED && hasOpenAttemptObligation(message)) {
+            return ConflictReason.SCHEDULED_REQUIRES_OLD_SEND_RECOVERY;
+        }
+        return blockerFor(message.status());
+    }
+
+    private static boolean hasOpenAttemptObligation(final MessageRecord message) {
+        final var runtime = message.runtimeIndex();
+        return runtime.aggregateState() == GenerationAggregateState.UNCERTAIN
+                || !runtime.attemptObligations().isEmpty();
     }
 
     private static boolean isMessageKey(final byte[] key) {
@@ -430,6 +450,7 @@ public final class LegacyCheckpointStateInventory {
     public enum MessageDisposition {
         CANDIDATE_PENDING_FULL_AUDIT,
         BLOCKED_PENDING_CLAIM_RECONCILIATION,
+        BLOCKED_PENDING_OLD_SEND_RECOVERY,
         PRESERVE_OLD_SEND_RECOVERY,
         PRESERVE_BROKER_RESPONSIBILITY,
         PRESERVE_TERMINAL_AND_REFERENCES
@@ -444,6 +465,7 @@ public final class LegacyCheckpointStateInventory {
         EXPIRY_INDEX_MISSING,
         EXPIRY_INDEX_VALUE_MISMATCH,
         CLAIM_REQUIRES_SOURCE_CUT_RECONCILIATION,
+        SCHEDULED_REQUIRES_OLD_SEND_RECOVERY,
         UNRESOLVED_SEND_REQUIRES_OLD_RECOVERY,
         HANDOFF_REQUIRES_OLD_BROKER_RESPONSIBILITY,
         TERMINAL_REQUIRES_FLOOR_AND_REFERENCE_CLOSURE

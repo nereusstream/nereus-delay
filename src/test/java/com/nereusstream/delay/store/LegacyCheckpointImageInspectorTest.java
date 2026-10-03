@@ -11,11 +11,15 @@ import com.nereusstream.delay.protocol.NativeDeliveryPolicy;
 import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
+import com.nereusstream.delay.runtime.AttemptLedgerState;
+import com.nereusstream.delay.runtime.AttemptObligationRef;
 import com.nereusstream.delay.runtime.GenerationAggregateState;
 import com.nereusstream.delay.runtime.GenerationRuntimeIndex;
 import com.nereusstream.delay.runtime.MessageRecord;
 import com.nereusstream.delay.runtime.MessageStatus;
+import com.nereusstream.delay.runtime.TimelineWorkKind;
 import com.nereusstream.delay.runtime.TimelineWorkRef;
+import com.nereusstream.delay.runtime.UncertainRetryAuthority;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -230,19 +234,102 @@ class LegacyCheckpointImageInspectorTest {
     }
 
     @Test
+    void blocksScheduledUncertainRetryWithOpenAttemptObligation() throws Exception {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 8);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("uncertain-retry-store"));
+        final Path image = tempDir.resolve("uncertain-retry-checkpoint");
+        final byte[] checkpointId = bytes(16, 5);
+        final KafkaSourcePosition source = new KafkaSourcePosition(
+                shard, "legacy-cluster", UUID.randomUUID(), 31, null, 4_000);
+        final ScheduledFixture scheduled = scheduledFixture(shard, source, "uncertain-retry-lane");
+        final byte[] attemptId = bytes(32, 40);
+        final AttemptObligationRef obligation = new AttemptObligationRef(
+                attemptId,
+                1,
+                AttemptLedgerState.UNCERTAIN,
+                KeyCodec.inflight((byte) 3, 9, attemptId));
+        final TimelineWorkRef retryWork = new TimelineWorkRef(
+                TimelineWorkKind.UNCERTAIN_RETRY,
+                scheduled.timelineKey(),
+                5_000,
+                5_000,
+                2,
+                2,
+                false,
+                UncertainRetryAuthority.PINNED_POLICY,
+                null,
+                null);
+        final GenerationRuntimeIndex runtime = GenerationRuntimeIndex.timeline(
+                GenerationAggregateState.UNCERTAIN, retryWork, List.of(obligation), 1, 0, false, 2);
+        final MessageRecord message = MessageRecord.current(
+                MessageStatus.SCHEDULED,
+                1,
+                2,
+                5_000,
+                8_000,
+                scheduled.message().laneId(),
+                OrderingMode.BEST_EFFORT,
+                Bytes.utf8("payload"),
+                source.canonicalBytes(),
+                null,
+                5_000,
+                runtime);
+        final CheckpointManifest manifest;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore store = ShardStore.open(config, shard, resources)) {
+            store.write(batch -> {
+                batch.putValue(
+                        ColumnFamily.META,
+                        ShardStore.META_FIXED_VALUE_TYPE,
+                        KeyCodec.metaFixed(ShardStore.META_APPLIED_SOURCE_POSITION),
+                        source.canonicalBytes());
+                batch.putValue(
+                        ColumnFamily.META,
+                        ShardStore.META_FIXED_VALUE_TYPE,
+                        KeyCodec.metaFixed(ShardStore.META_MUTATION_SEQUENCE),
+                        Bytes.u64beBits(2));
+                batch.putValue(
+                        ColumnFamily.ID, 1, KeyCodec.idMessage(scheduled.messageId()), message.encode());
+                batch.putValue(ColumnFamily.TIMELINE, 1, scheduled.timelineKey(), retryWork.canonicalBytes());
+                batch.putValue(ColumnFamily.TIMELINE, 1, scheduled.expiryKey(), retryWork.canonicalBytes());
+            });
+            store.createCheckpoint(image, checkpointId);
+            manifest = manifestFor(image, shard, store, checkpointId, source);
+        }
+
+        final LegacyCheckpointStateInventory.Inventory inventory = LegacyCheckpointStateInventory.inspect(
+                image,
+                shard,
+                manifest,
+                finiteLimits(),
+                new LegacyCheckpointStateInventory.ReadLimits(1_000, 1 << 20, 60_000_000_000L));
+
+        assertEquals(
+                1,
+                inventory.messageDispositions().get(
+                        LegacyCheckpointStateInventory.MessageDisposition.BLOCKED_PENDING_OLD_SEND_RECOVERY));
+        assertEquals(1, inventory.conflicts().size());
+        final LegacyCheckpointStateInventory.Conflict conflict = inventory.conflicts().get(0);
+        assertEquals(
+                LegacyCheckpointStateInventory.ConflictReason.SCHEDULED_REQUIRES_OLD_SEND_RECOVERY,
+                conflict.reason());
+        assertTrue(Bytes.constantTimeEquals(source.canonicalBytes(), conflict.sourcePosition()));
+    }
+
+    @Test
     void messageDispositionsKeepUnresolvedAndTerminalObligationsInTheLegacyDomain() {
         assertEquals(
                 LegacyCheckpointStateInventory.MessageDisposition.BLOCKED_PENDING_CLAIM_RECONCILIATION,
-                LegacyCheckpointStateInventory.dispositionFor(MessageStatus.CLAIMED));
+                LegacyCheckpointStateInventory.dispositionForStatus(MessageStatus.CLAIMED));
         assertEquals(
                 LegacyCheckpointStateInventory.MessageDisposition.PRESERVE_OLD_SEND_RECOVERY,
-                LegacyCheckpointStateInventory.dispositionFor(MessageStatus.UNCERTAIN));
+                LegacyCheckpointStateInventory.dispositionForStatus(MessageStatus.UNCERTAIN));
         assertEquals(
                 LegacyCheckpointStateInventory.MessageDisposition.PRESERVE_BROKER_RESPONSIBILITY,
-                LegacyCheckpointStateInventory.dispositionFor(MessageStatus.HANDED_OFF));
+                LegacyCheckpointStateInventory.dispositionForStatus(MessageStatus.HANDED_OFF));
         assertEquals(
                 LegacyCheckpointStateInventory.MessageDisposition.PRESERVE_TERMINAL_AND_REFERENCES,
-                LegacyCheckpointStateInventory.dispositionFor(MessageStatus.PUBLISHED));
+                LegacyCheckpointStateInventory.dispositionForStatus(MessageStatus.PUBLISHED));
     }
 
     private static CheckpointManifest manifestFor(
