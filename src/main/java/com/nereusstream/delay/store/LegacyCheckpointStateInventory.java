@@ -1,6 +1,7 @@
 package com.nereusstream.delay.store;
 
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.ClaimResultBody;
 import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.OwnerIdentity;
@@ -12,6 +13,7 @@ import com.nereusstream.delay.runtime.AttemptObligationRef;
 import com.nereusstream.delay.runtime.ClaimRecord;
 import com.nereusstream.delay.runtime.CurrentSendWorkKind;
 import com.nereusstream.delay.runtime.GenerationAggregateState;
+import com.nereusstream.delay.runtime.GenerationRuntimeIndex;
 import com.nereusstream.delay.runtime.MessageRecord;
 import com.nereusstream.delay.runtime.MessageStatus;
 import com.nereusstream.delay.runtime.PublishAttemptLedger;
@@ -191,6 +193,8 @@ public final class LegacyCheckpointStateInventory {
                                                     message.status(),
                                                     message.runtimeIndex().currentWorkKind(),
                                                     message.runtimeIndex().claimId(),
+                                                    message.runtimeIndex().admissionsUsed(),
+                                                    message.runtimeIndex().uncertainRetryAdmissionsUsed(),
                                                     message.runtimeIndex().attemptObligations(),
                                                     message.runtimeIndex().possibleDestinationDuplicate(),
                                                     schedulePosition));
@@ -580,11 +584,18 @@ public final class LegacyCheckpointStateInventory {
     }
 
     private static boolean representsCurrentClaim(final CurrentMessageState message, final ClaimRecord claim) {
+        final ClaimResultBody.ClaimPrecondition precondition =
+                ClaimResultBody.decodePrecondition(claim.preconditionBytes());
         return message.status() == MessageStatus.CLAIMED
                 && message.workKind() == CurrentSendWorkKind.CLAIMED
                 && message.generation() == claim.generation()
                 && Arrays.equals(message.claimId(), claim.claimId())
-                && message.stateVersion() == claim.runtimeRevision();
+                && message.stateVersion() == claim.runtimeRevision()
+                && precondition.expectedAdmissionsUsed() == message.admissionsUsed()
+                && precondition.expectedUncertainRetryAdmissionsUsed() == message.uncertainRetryAdmissionsUsed()
+                && Bytes.constantTimeEquals(
+                        precondition.expectedObligationSetDigest(),
+                        GenerationRuntimeIndex.obligationSetDigest(message.attemptObligations()));
     }
 
     private static void auditTerminalSummaries(
@@ -922,6 +933,8 @@ public final class LegacyCheckpointStateInventory {
             MessageStatus status,
             CurrentSendWorkKind workKind,
             byte[] claimId,
+            int admissionsUsed,
+            int uncertainRetryAdmissionsUsed,
             List<AttemptObligationRef> attemptObligations,
             boolean possibleDestinationDuplicate,
             SourcePosition sourcePosition) {}

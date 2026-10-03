@@ -141,3 +141,27 @@ Commands:
 Result: the two targeted B6 test classes pass 9/9 with zero failures/errors/skips; `checkstyleTest`, `checkDocumentation`, JSON parsing and `git diff --check` pass. `checkstyleMain` fails only on the two unchanged 123-character lines in `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`.
 
 Scope: this adds only the Claim/current Message revision fence. Remaining Claim precondition fields, Lane control proof, live Owner lease, source replay, durable activation, conversion and reader retirement remain open; B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
+
+## 2026-10-04 Claim precondition counters and obligation digest
+
+Source lock:
+- Base HEAD and origin/main: `d887c19d1828109b57ed44d3d745f18e58d7c0e4`
+- `LegacyCheckpointStateInventory.java` SHA-256: `a7855455dce6d67bf53d055d9754c667a12cce4dc9445c736861b85c6dc9166a`
+- `LegacyCheckpointClaimInventoryTest.java` SHA-256: `dbde2e062245eecdfe6320e564a2128e76d82717deb18bf88ebab8130dd30734`
+
+Verification: a referenced Claim represents the current CLAIMED Message only when `expectedAdmissionsUsed` and `expectedUncertainRetryAdmissionsUsed` equal the Message runtime counters and `expectedObligationSetDigest` equals the digest of its open Attempt obligations. Two separate real RocksDB checkpoint cases replace otherwise-valid Claims with a canonical stale admission count or a different fixed-length obligation digest; each reports stable Claim and current-Message missing-Claim conflicts. Existing revision, missing, orphan, and mis-key coverage remains.
+
+Commands:
+`./gradlew test --tests com.nereusstream.delay.store.LegacyCheckpointImageInspectorTest --tests com.nereusstream.delay.store.LegacyCheckpointClaimInventoryTest checkstyleTest`
+
+`./gradlew checkDocumentation`
+
+`jq empty docs/ndip/NDIP-3/progress.json`
+
+`git diff --check`
+
+`./gradlew checkstyleMain`
+
+Result: the two targeted B6 test classes pass 9/9 with zero failures/errors/skips; `checkstyleTest`, `checkDocumentation`, JSON parsing, and `git diff --check` pass. `checkstyleMain` fails only on the two unchanged 123-character lines in `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`.
+
+Scope: this checks only the two admission counters and open-obligation digest within Claim preconditions. Other precondition fields, Lane control state, live Owner lease, external Admission/Journal joins, source replay/cutover, durable activation, conversion, rollback, reader retirement, and central validation remain open; B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
