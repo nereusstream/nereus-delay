@@ -117,3 +117,27 @@ Commands:
 Result: `LegacyCheckpointImageInspectorTest` passes 8/8 and `LegacyCheckpointClaimInventoryTest` passes 1/1 with zero failures/errors/skips; `checkstyleTest`, `checkDocumentation`, JSON parsing and `git diff --check` pass.
 
 Scope: legacy scalar Message migration, reverse/orphan Timeline scans, old Profile/control authority, external source replay, durable activation and conversion remain open. B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
+
+## 2026-10-04 Claim revision fence in checkpoint inventory
+
+Source lock:
+- Base HEAD and origin/main: `659b9d1a9228bcdd3db6142472b290934d35abac`
+- `LegacyCheckpointStateInventory.java` SHA-256: `33c60b1a597ee19d74948c065809686e3cc118f79c3ce6b51e5d5121122840c4`
+- `LegacyCheckpointClaimInventoryTest.java` SHA-256: `9019ed258174a9844083352ac5a1e825cd0e22a931e89f7dc8ca16e2b911792e`
+
+Verification: a Claim represents a current CLAIMED Message only when status, work kind, generation, Claim ID and `runtimeRevision == Message.stateVersion` agree. A real RocksDB checkpoint regression keeps an existing Claim while advancing the current Message state version; inventory reports the stale Claim and the current Message without a representing Claim. Existing valid, missing, orphan and mis-key Claim coverage remains in the same real Store fixture.
+
+Commands:
+`./gradlew test --tests com.nereusstream.delay.store.LegacyCheckpointImageInspectorTest --tests com.nereusstream.delay.store.LegacyCheckpointClaimInventoryTest checkstyleTest`
+
+`./gradlew checkDocumentation`
+
+`jq empty docs/ndip/NDIP-3/progress.json`
+
+`git diff --check`
+
+`./gradlew checkstyleMain`
+
+Result: the two targeted B6 test classes pass 9/9 with zero failures/errors/skips; `checkstyleTest`, `checkDocumentation`, JSON parsing and `git diff --check` pass. `checkstyleMain` fails only on the two unchanged 123-character lines in `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`.
+
+Scope: this adds only the Claim/current Message revision fence. Remaining Claim precondition fields, Lane control proof, live Owner lease, source replay, durable activation, conversion and reader retirement remain open; B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.

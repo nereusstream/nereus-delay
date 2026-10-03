@@ -187,6 +187,7 @@ public final class LegacyCheckpointStateInventory {
                                                     messageId,
                                                     oldMessageKey,
                                                     message.generation(),
+                                                    message.stateVersion(),
                                                     message.status(),
                                                     message.runtimeIndex().currentWorkKind(),
                                                     message.runtimeIndex().claimId(),
@@ -582,7 +583,8 @@ public final class LegacyCheckpointStateInventory {
         return message.status() == MessageStatus.CLAIMED
                 && message.workKind() == CurrentSendWorkKind.CLAIMED
                 && message.generation() == claim.generation()
-                && Arrays.equals(message.claimId(), claim.claimId());
+                && Arrays.equals(message.claimId(), claim.claimId())
+                && message.stateVersion() == claim.runtimeRevision();
     }
 
     private static void auditTerminalSummaries(
@@ -916,6 +918,7 @@ public final class LegacyCheckpointStateInventory {
             DelayMessageId messageId,
             byte[] key,
             int generation,
+            long stateVersion,
             MessageStatus status,
             CurrentSendWorkKind workKind,
             byte[] claimId,
