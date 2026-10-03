@@ -73,7 +73,6 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
@@ -252,7 +251,11 @@ class WorkerManagedPulsarNativePublishTest {
 
             assertEquals(1, queuedPhysicalTasks.size());
             assertEquals(0, preparedCalls.get());
-            fixture.ownerLeaseActive.set(false);
+            assertTrue(fixture.ownerAuthority.release(fixture.activeOwnerLease));
+            final OwnerLease replacement = fixture.ownerAuthority
+                    .acquire(fixture.shard, "worker-native-replacement", 1_950, 10_000)
+                    .orElseThrow();
+            assertTrue(replacement.ownerEpoch() > fixture.activeOwnerLease.ownerEpoch());
             queuedPhysicalTasks.getFirst().run();
 
             assertEquals(0, preparedCalls.get());
@@ -569,6 +572,8 @@ class WorkerManagedPulsarNativePublishTest {
                 Bytes.utf8("worker-native-worker"),
                 7,
                 Bytes.sha256(Bytes.utf8("worker-native-fence")));
+        private final InMemoryOwnerLeaseStore ownerAuthority = new InMemoryOwnerLeaseStore();
+        private final OwnerLease activeOwnerLease;
         private final ArtifactGenerationSet artifacts = ArtifactGenerationSet.current(
                 1, PulsarSourceLock.digest(), Bytes.sha256(Bytes.utf8("worker-native-schema")));
         private final PhysicalSendActivationGate physicalActivation = PhysicalSendActivationGate.disposableLocal(
@@ -614,7 +619,6 @@ class WorkerManagedPulsarNativePublishTest {
                 new PulsarAttemptJournal.ProducerKey(lane, laneIncarnation, Bytes.sha256(producerIdentity), target);
         private final DestinationPhysicalAdmission admission = admission(lane, laneIncarnation);
         private final TrustedUtcIntervalEvidence validPhysicalTime = exactTime(1_950);
-        private final AtomicBoolean ownerLeaseActive = new AtomicBoolean(true);
         private final PreparedPublishDescriptor descriptor;
         private final PublishAttemptLedger attempt;
 
@@ -623,6 +627,9 @@ class WorkerManagedPulsarNativePublishTest {
         }
 
         private Fixture(final long credentialLeaseValidUntilEpochMs) throws Exception {
+            activeOwnerLease = ownerAuthority
+                    .acquire(shard, "worker-native-owner", 1_000, 10_000)
+                    .orElseThrow();
             final ProfileRef destination = profile(ProfileKind.DESTINATION, "worker-native-destination");
             final ProfileRef capability = profile(ProfileKind.DELIVERY_CAPABILITY, "worker-native-capability");
             final ChannelResourceIdentity channel = channel(destination, credentialLeaseValidUntilEpochMs);
@@ -836,10 +843,15 @@ class WorkerManagedPulsarNativePublishTest {
             final WorkerPhysicalPublishExecutor result = new WorkerPhysicalPublishExecutor(
                     new BoundedDestinationPublishAdapter(adapter, physicalAdmission, workClasses(), physicalExecutor),
                     (mutation, ownerClock) -> {},
-                    (ignoredAttempt, ignoredRequest, ignoredClock) -> ownerLeaseActive.get()
-                            ? WorkerPhysicalPublishExecutor.Decision.allowed()
-                            : WorkerPhysicalPublishExecutor.Decision.definitivelyNotPublished(
-                                    StableCode.CAPABILITY_UNAVAILABLE, null),
+                    (ignoredAttempt, ignoredRequest, ownerClock) -> {
+                        final OwnerLease current = ownerAuthority.current(shard).orElse(null);
+                        return current != null
+                                        && current.sameIdentity(activeOwnerLease)
+                                        && current.validAt(ownerClock.getAsLong())
+                                ? WorkerPhysicalPublishExecutor.Decision.allowed()
+                                : WorkerPhysicalPublishExecutor.Decision.definitivelyNotPublished(
+                                        StableCode.CAPABILITY_UNAVAILABLE, null);
+                    },
                     (ignoredAttempt, ignoredRequest, ignoredResult) -> mutation(shard),
                     () -> {},
                     activationGate);
