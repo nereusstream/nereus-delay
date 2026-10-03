@@ -108,6 +108,7 @@ public final class LegacyCheckpointStateInventory {
         final TreeMap<String, LaneStateSnapshot> laneStates = new TreeMap<>();
         final TreeMap<String, TerminalSummaryEntry> terminalSummaries = new TreeMap<>();
         final List<ClaimRecordEntry> claimRecords = new ArrayList<>();
+        final List<TimelineIndexEntry> timelineIndexes = new ArrayList<>();
         try (Options listOptions = new Options()) {
             final List<byte[]> familyNames = RocksDB.listColumnFamilies(listOptions, image.toString());
             LegacyCheckpointImageInspector.requireExactColumnFamilies(familyNames);
@@ -147,6 +148,19 @@ public final class LegacyCheckpointStateInventory {
                             totalBytes = Math.addExact(totalBytes, (long) key.length + value.length);
                             final String keyKind = keyKind(family, key);
                             keyKinds.merge(keyKind, 1L, Math::addExact);
+                            if (family == ColumnFamily.TIMELINE && hasMessageTimelineIndexTag(key)) {
+                                try {
+                                    final TimelineIndexIdentity identity = decodeMessageTimelineIndexIdentity(key);
+                                    timelineIndexes.add(new TimelineIndexEntry(
+                                            key, identity.kind(), identity.messageId(), identity.generation()));
+                                } catch (IllegalArgumentException malformedKey) {
+                                    conflicts.add(conflict(
+                                            key,
+                                            "TIMELINE",
+                                            proof.appliedSourcePosition(),
+                                            ConflictReason.TIMELINE_INDEX_KEY_MALFORMED));
+                                }
+                            }
                             if (family == ColumnFamily.ID && isMessageKey(key)) {
                                 final DelayMessageId messageId = messageId(key);
                                 if (!messageId.routingId().shardId().equals(proof.metadata().shardId())) {
@@ -189,6 +203,18 @@ public final class LegacyCheckpointStateInventory {
                                                 "legacy Message source position belongs to another Shard");
                                     }
                                     final byte[] oldMessageKey = KeyCodec.idMessage(messageId);
+                                    final TimelineWorkRef timelineWork = message.runtimeIndex().timeline();
+                                    final byte[] currentTimelineKey = message.status() == MessageStatus.SCHEDULED
+                                                    && timelineWork != null
+                                            ? timelineWork.encodedTimelineKey()
+                                            : null;
+                                    final byte[] currentExpiryKey = message.status() == MessageStatus.SCHEDULED
+                                            ? KeyCodec.timelineExpiry(
+                                                    message.expireAtEpochMs(),
+                                                    message.laneId(),
+                                                    messageId,
+                                                    message.generation())
+                                            : null;
                                     messages.put(
                                             Bytes.hex(messageId.bytes()),
                                             new CurrentMessageState(
@@ -207,7 +233,9 @@ public final class LegacyCheckpointStateInventory {
                                                     message.runtimeIndex().uncertainRetryAdmissionsUsed(),
                                                     message.runtimeIndex().attemptObligations(),
                                                     message.runtimeIndex().possibleDestinationDuplicate(),
-                                                    schedulePosition));
+                                                    schedulePosition,
+                                                    currentTimelineKey,
+                                                    currentExpiryKey));
                                     messageStatuses.compute(
                                             message.status(), (ignored, count) -> Math.addExact(count, 1));
                                     final MessageDisposition disposition = dispositionFor(message);
@@ -365,6 +393,7 @@ public final class LegacyCheckpointStateInventory {
         } catch (RocksDBException failure) {
             throw new IllegalArgumentException("cannot enumerate legacy checkpoint column families", failure);
         }
+        auditTimelineIndexes(timelineIndexes, messages, proof.appliedSourcePosition(), budget, conflicts);
         auditTerminalSummaries(messages, terminalSummaries, conflicts);
         auditClaimRecords(
                 messages,
@@ -736,6 +765,76 @@ public final class LegacyCheckpointStateInventory {
         }
     }
 
+    private static void auditTimelineIndexes(
+            final List<TimelineIndexEntry> timelineIndexes,
+            final Map<String, CurrentMessageState> messages,
+            final SourcePosition appliedSourcePosition,
+            final BoundedReadBudget budget,
+            final List<Conflict> conflicts) {
+        for (TimelineIndexEntry index : timelineIndexes) {
+            if (!budget.beforeTimedWork()) {
+                throw budget.incomplete();
+            }
+            final CurrentMessageState message = messages.get(Bytes.hex(index.messageId().bytes()));
+            final SourcePosition sourcePosition = message == null ? appliedSourcePosition : message.sourcePosition();
+            if (message == null
+                    || message.status() != MessageStatus.SCHEDULED
+                    || message.generation() != index.generation()) {
+                conflicts.add(conflict(
+                        index.key(), "TIMELINE", sourcePosition, ConflictReason.TIMELINE_INDEX_ORPHANED_OR_STALE));
+                continue;
+            }
+            final byte[] expectedKey = index.kind() == 4 ? message.expiryKey() : message.timelineKey();
+            if (expectedKey != null && !Arrays.equals(expectedKey, index.key())) {
+                conflicts.add(conflict(
+                        index.key(), "TIMELINE", sourcePosition, ConflictReason.TIMELINE_INDEX_ORPHANED_OR_STALE));
+            }
+        }
+    }
+
+    private static boolean hasMessageTimelineIndexTag(final byte[] key) {
+        if (key.length < 2 || key[1] != 1) {
+            return false;
+        }
+        final int tag = Byte.toUnsignedInt(key[0]);
+        return tag == 1 || tag == 2 || tag == 4;
+    }
+
+    private static TimelineIndexIdentity decodeMessageTimelineIndexIdentity(final byte[] key) {
+        final int tag = Byte.toUnsignedInt(key[0]);
+        if (tag == 4) {
+            final int expectedLength = 2 + Long.BYTES + DestinationLaneId.LENGTH
+                    + DelayMessageId.LENGTH + Integer.BYTES;
+            if (key.length != expectedLength || java.nio.ByteBuffer.wrap(key, 2, Long.BYTES).getLong() < 0) {
+                throw new IllegalArgumentException("malformed expiry index key");
+            }
+            final int messageOffset = 2 + Long.BYTES + DestinationLaneId.LENGTH;
+            return new TimelineIndexIdentity(
+                    tag,
+                    new DelayMessageId(Arrays.copyOfRange(key, messageOffset, messageOffset + DelayMessageId.LENGTH)),
+                    java.nio.ByteBuffer.wrap(key, messageOffset + DelayMessageId.LENGTH, Integer.BYTES).getInt());
+        }
+        final int tokenOffset = 2 + DestinationLaneId.LENGTH + Long.BYTES;
+        if (key.length <= tokenOffset) {
+            throw new IllegalArgumentException("truncated due/ordered index key");
+        }
+        final int tokenLength = switch (Byte.toUnsignedInt(key[tokenOffset])) {
+            case 1 -> 9;
+            case 2 -> 21;
+            default -> throw new IllegalArgumentException("unknown timeline source-order token");
+        };
+        final int messageOffset = tokenOffset + tokenLength;
+        final int expectedLength = messageOffset + DelayMessageId.LENGTH + Integer.BYTES;
+        if (key.length != expectedLength
+                || java.nio.ByteBuffer.wrap(key, 2 + DestinationLaneId.LENGTH, Long.BYTES).getLong() < 0) {
+            throw new IllegalArgumentException("malformed due/ordered index key");
+        }
+        return new TimelineIndexIdentity(
+                tag,
+                new DelayMessageId(Arrays.copyOfRange(key, messageOffset, messageOffset + DelayMessageId.LENGTH)),
+                java.nio.ByteBuffer.wrap(key, messageOffset + DelayMessageId.LENGTH, Integer.BYTES).getInt());
+    }
+
     private static boolean isTerminalStatus(final MessageStatus status) {
         return status == MessageStatus.CANCELED
                 || status == MessageStatus.SUPERSEDED
@@ -998,6 +1097,8 @@ public final class LegacyCheckpointStateInventory {
         DUE_INDEX_VALUE_MISMATCH,
         EXPIRY_INDEX_MISSING,
         EXPIRY_INDEX_VALUE_MISMATCH,
+        TIMELINE_INDEX_KEY_MALFORMED,
+        TIMELINE_INDEX_ORPHANED_OR_STALE,
         ATTEMPT_OBLIGATION_MISSING,
         ATTEMPT_OBLIGATION_VALUE_MISMATCH,
         ATTEMPT_LEDGER_KEY_VALUE_MISMATCH,
@@ -1035,6 +1136,7 @@ public final class LegacyCheckpointStateInventory {
                     && !checkedRecordKind.equals("TERMINAL")
                     && !checkedRecordKind.equals("CLAIM")
                     && !checkedRecordKind.equals("LANE")
+                    && !checkedRecordKind.equals("TIMELINE")
                     && !checkedRecordKind.equals("ATTEMPT")) {
                 throw new IllegalArgumentException("legacy index conflict record kind is not registered");
             }
@@ -1069,7 +1171,9 @@ public final class LegacyCheckpointStateInventory {
             int uncertainRetryAdmissionsUsed,
             List<AttemptObligationRef> attemptObligations,
             boolean possibleDestinationDuplicate,
-            SourcePosition sourcePosition) {}
+            SourcePosition sourcePosition,
+            byte[] timelineKey,
+            byte[] expiryKey) {}
 
     private record LaneStateSnapshot(
             DestinationLaneId laneId, byte[] laneIncarnation, long laneControlVersion, boolean active) {
@@ -1085,6 +1189,20 @@ public final class LegacyCheckpointStateInventory {
     }
 
     private record ClaimRecordEntry(byte[] key, ClaimRecord claim, boolean keyMatches) {}
+
+    private record TimelineIndexEntry(byte[] key, int kind, DelayMessageId messageId, int generation) {
+        private TimelineIndexEntry {
+            key = Bytes.copy(Objects.requireNonNull(key, "key"));
+            Objects.requireNonNull(messageId, "messageId");
+        }
+
+        @Override
+        public byte[] key() {
+            return Bytes.copy(key);
+        }
+    }
+
+    private record TimelineIndexIdentity(int kind, DelayMessageId messageId, int generation) {}
 
     private record TerminalSummaryEntry(byte[] key, TerminalGenerationRecord summary) {}
 }

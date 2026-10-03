@@ -300,6 +300,61 @@ class LegacyCheckpointImageInspectorTest {
     }
 
     @Test
+    void reportsOrphanedTimelineIndexForCurrentScheduledMessage() throws Exception {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 10);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("orphan-timeline-store"));
+        final Path image = tempDir.resolve("orphan-timeline-checkpoint");
+        final byte[] checkpointId = bytes(16, 21);
+        final KafkaSourcePosition source = new KafkaSourcePosition(
+                shard, "legacy-cluster", UUID.randomUUID(), 31, null, 4_000);
+        final ScheduledFixture scheduled = scheduledFixture(shard, source, "orphan-timeline-lane");
+        final byte[] orphanKey = KeyCodec.timelineDue(
+                scheduled.message().laneId(),
+                5_001,
+                source.sourceOrderToken(),
+                scheduled.messageId(),
+                scheduled.message().generation());
+        final CheckpointManifest manifest;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore store = ShardStore.open(config, shard, resources)) {
+            store.write(batch -> {
+                batch.putValue(
+                        ColumnFamily.META,
+                        ShardStore.META_FIXED_VALUE_TYPE,
+                        KeyCodec.metaFixed(ShardStore.META_APPLIED_SOURCE_POSITION),
+                        source.canonicalBytes());
+                batch.putValue(
+                        ColumnFamily.META,
+                        ShardStore.META_FIXED_VALUE_TYPE,
+                        KeyCodec.metaFixed(ShardStore.META_MUTATION_SEQUENCE),
+                        Bytes.u64beBits(1));
+                batch.putValue(
+                        ColumnFamily.ID, 1, KeyCodec.idMessage(scheduled.messageId()), scheduled.message().encode());
+                batch.putValue(ColumnFamily.TIMELINE, 1, scheduled.timelineKey(), scheduled.work().canonicalBytes());
+                batch.putValue(ColumnFamily.TIMELINE, 1, scheduled.expiryKey(), scheduled.work().canonicalBytes());
+                batch.putValue(ColumnFamily.TIMELINE, 1, orphanKey, scheduled.work().canonicalBytes());
+            });
+            store.createCheckpoint(image, checkpointId);
+            manifest = manifestFor(image, shard, store, checkpointId, source);
+        }
+
+        final LegacyCheckpointStateInventory.Inventory inventory = LegacyCheckpointStateInventory.inspect(
+                image,
+                shard,
+                manifest,
+                finiteLimits(),
+                new LegacyCheckpointStateInventory.ReadLimits(1_000, 1 << 20, 60_000_000_000L));
+        assertEquals(1, inventory.conflicts().size());
+        final LegacyCheckpointStateInventory.Conflict conflict = inventory.conflicts().get(0);
+        assertEquals(
+                LegacyCheckpointStateInventory.ConflictReason.TIMELINE_INDEX_ORPHANED_OR_STALE,
+                conflict.reason());
+        assertEquals("TIMELINE", conflict.recordKind());
+        assertTrue(Bytes.constantTimeEquals(Bytes.sha256(orphanKey), conflict.oldKeyDigest()));
+        assertTrue(Bytes.constantTimeEquals(source.canonicalBytes(), conflict.sourcePosition()));
+    }
+
+    @Test
     void checksAttemptObligationsAndFindsOnlyUnreferencedInflightLedgers() throws Exception {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 8);
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("uncertain-retry-store"));

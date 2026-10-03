@@ -261,3 +261,28 @@ Commands:
 Result: the two targeted B6 test classes pass 9/9 with zero failures/errors/skips; `checkstyleTest` passes. `checkstyleMain` reports only the two unchanged 123-character lines in `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`. `checkDocumentation`, progress JSON parsing and `git diff --check` pass after documentation synchronization.
 
 Scope: this checks persisted Claim source-work consistency with the checkpoint Message projection. It does not verify uncertain-retry external control/evidence authority, complete Claim policy/materialization/certificate prerequisites, live Owner lease, external Admission/Journal joins, historical Terminal/Floor/retention/GC closure, source replay/cutover, activation, conversion, rollback, reader retirement or central validation. B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
+
+## 2026-10-04 Reverse audit of Message Timeline indexes
+
+Source lock:
+- Base HEAD and origin/main: `b58d741a1590e7a29f1266105aa767895da808bc`
+- `LegacyCheckpointStateInventory.java` SHA-256: `df197f953a1f3d9931a3c0ec742f05b62e71352d1e467b9b81f7368957e7d409`
+- `LegacyCheckpointImageInspectorTest.java` SHA-256: `11be4121956f89452e1556fee630f301de3f1f858014a8aa0f2747f0586dc0f6`
+- `LegacyCheckpointClaimInventoryTest.java` SHA-256: `72871866c27bea6e13bf5b76a8ba0815e126d7a1ef565050170fe114084838f9`
+
+Verification: within the existing bounded TIMELINE family scan, recognized format-1 DUE/ORDERED/EXPIRY keys are parsed for Message ID and generation and checked against a same-generation SCHEDULED Message and its expected index key. Malformed recognized keys and orphan/stale rows return stable TIMELINE conflicts. READY and system work keys are not part of this join. A real RocksDB checkpoint case adds an extra DUE key for an otherwise valid SCHEDULED Message; inventory reports `TIMELINE_INDEX_ORPHANED_OR_STALE`. The valid legacy TimelineEntry-pointer test remains conflict-free.
+
+Commands:
+`./gradlew test --tests com.nereusstream.delay.store.LegacyCheckpointImageInspectorTest --tests com.nereusstream.delay.store.LegacyCheckpointClaimInventoryTest checkstyleTest`
+
+`./gradlew checkstyleMain`
+
+`./gradlew checkDocumentation`
+
+`jq empty docs/ndip/NDIP-3/progress.json`
+
+`git diff --check`
+
+Result: the two targeted B6 test classes pass 10/10 with zero failures/errors/skips; `checkstyleTest` passes. `checkstyleMain` reports only the two unchanged 123-character lines in `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`. `checkDocumentation`, progress JSON parsing and `git diff --check` pass after documentation synchronization.
+
+Scope: this checks only recognized Message DUE/ORDERED/EXPIRY rows against current SCHEDULED Message identity and expected keys. READY/system/native candidate/reservation expiry relations, old-generation history, full state closure, source replay/cutover, activation, conversion, rollback, reader retirement and central validation remain open. B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
