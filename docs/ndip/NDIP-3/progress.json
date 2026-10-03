@@ -271,10 +271,11 @@
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
       "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
-      "progress": "2026-09-30: Design §15.3.1 now enumerates conservative source-state dispositions and the minimum per-Shard dry-run report. No migration converter or activation path is implemented. The durable activation relationship to the legacy source cut remains pending a protocol decision. 2026-10-03: Added a bounded, read-only format-1 checkpoint-image inspector that verifies manifest file checksums, exact RocksDB column families, Store/shard/checkpoint identity, applied source position and mutation sequence. A real RocksDB regression verifies the image file inventory is unchanged by inspection. This is only the physical image identity prerequisite; logical disposition joins, post-checkpoint source replay, migration report, activation proof, conversion, rollback and reader retirement remain unimplemented. B6 remains IN_PROGRESS / PENDING_CENTRAL_VALIDATION.",
+      "progress": "2026-09-30: Design §15.3.1 now enumerates conservative source-state dispositions and the minimum per-Shard dry-run report. No migration converter or activation path is implemented. The durable activation relationship to the legacy source cut remains pending a protocol decision. 2026-10-03: Added bounded read-only format-1 checkpoint identity inspection and a bounded state inventory that counts all Column Family key kinds, decodes old Message dispositions/retired identities, and verifies the Shard/source route of those rows. Three real RocksDB cases cover a valid SCHEDULED Message, malformed Message rejection without image changes, and read-budget exhaustion. Physical image identity is checked before and after inventory. Cross-record closure, full disposition/conflict report, post-checkpoint source replay, activation proof, conversion, rollback and reader retirement remain unimplemented. B6 remains IN_PROGRESS / PENDING_CENTRAL_VALIDATION.",
       "implementationFiles": [
         "src/main/java/com/nereusstream/delay/store/ShardStore.java",
         "src/main/java/com/nereusstream/delay/store/LegacyCheckpointImageInspector.java",
+        "src/main/java/com/nereusstream/delay/store/LegacyCheckpointStateInventory.java",
         "src/test/java/com/nereusstream/delay/store/LegacyCheckpointImageInspectorTest.java"
       ]
     },

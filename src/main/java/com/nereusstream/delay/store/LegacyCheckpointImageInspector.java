@@ -112,7 +112,7 @@ public final class LegacyCheckpointImageInspector {
         return new ImageProof(metadata, checkpointId, sourcePosition, mutationSequence, totalBytes, files);
     }
 
-    private static void requireExactColumnFamilies(final List<byte[]> names) {
+    static void requireExactColumnFamilies(final List<byte[]> names) {
         final Set<String> actual = new HashSet<>();
         for (byte[] name : names) {
             actual.add(new String(name, StandardCharsets.UTF_8));
@@ -127,7 +127,7 @@ public final class LegacyCheckpointImageInspector {
         }
     }
 
-    private static Map<String, ColumnFamilyHandle> indexHandles(
+    static Map<String, ColumnFamilyHandle> indexHandles(
             final List<byte[]> names, final List<ColumnFamilyHandle> handles) {
         if (names.size() != handles.size()) {
             throw new IllegalArgumentException("RocksDB returned an incomplete column-family handle set");

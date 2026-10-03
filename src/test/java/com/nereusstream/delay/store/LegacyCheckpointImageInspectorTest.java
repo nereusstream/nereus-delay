@@ -4,9 +4,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.DelayMessageId;
+import com.nereusstream.delay.protocol.DestinationLaneId;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
+import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
+import com.nereusstream.delay.runtime.MessageRecord;
+import com.nereusstream.delay.runtime.MessageStatus;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -40,6 +45,18 @@ class LegacyCheckpointImageInspectorTest {
                         ShardStore.META_FIXED_VALUE_TYPE,
                         KeyCodec.metaFixed(ShardStore.META_MUTATION_SEQUENCE),
                         Bytes.u64beBits(17));
+                final DelayMessageId messageId = DelayMessageId.random(shard);
+                final MessageRecord scheduled = MessageRecord.current(
+                        MessageStatus.SCHEDULED,
+                        1,
+                        1,
+                        5_000,
+                        8_000,
+                        DestinationLaneId.derive(Bytes.utf8("legacy-inventory-lane")),
+                        OrderingMode.BEST_EFFORT,
+                        Bytes.utf8("payload"),
+                        source.canonicalBytes());
+                batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(messageId), scheduled.encode());
             });
             store.createCheckpoint(image, checkpointId);
             manifest = manifestFor(image, shard, store, checkpointId, source);
@@ -58,6 +75,28 @@ class LegacyCheckpointImageInspectorTest {
         assertTrue(Bytes.constantTimeEquals(checkpointId, proof.checkpointId()));
         assertEquals(proof.physicalBytes(), before.stream().mapToLong(CheckpointFileInventory::length).sum());
         assertFileInventoriesEqual(before, after);
+
+        final LegacyCheckpointStateInventory.Inventory state = LegacyCheckpointStateInventory.inspect(
+                image,
+                shard,
+                manifest,
+                finiteLimits(),
+                new LegacyCheckpointStateInventory.ReadLimits(1_000, 1 << 20, 60_000_000_000L));
+        assertEquals(1, state.messageStatuses().get(MessageStatus.SCHEDULED));
+        assertTrue(state.recordsByFamily().get(ColumnFamily.ID) > 0);
+        assertEquals(
+                state.scannedRecords(),
+                state.recordsByFamily().values().stream().mapToLong(Long::longValue).sum());
+        assertTrue(state.scannedBytes() > 0);
+        assertEquals(state.scannedBytes(), state.chargedBytes());
+        assertThrows(
+                ReadIncompleteException.class,
+                () -> LegacyCheckpointStateInventory.inspect(
+                        image,
+                        shard,
+                        manifest,
+                        finiteLimits(),
+                        new LegacyCheckpointStateInventory.ReadLimits(1, 1 << 20, 60_000_000_000L)));
     }
 
     @Test
@@ -85,6 +124,46 @@ class LegacyCheckpointImageInspectorTest {
                 IllegalArgumentException.class,
                 () -> LegacyCheckpointImageInspector.inspect(image, shard, manifest, finiteLimits()));
         assertTrue(failure.getMessage().contains("physical files"));
+    }
+
+    @Test
+    void rejectsMalformedMessageStateWithoutChangingTheCheckpoint() throws Exception {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 6);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("malformed-store"));
+        final Path image = tempDir.resolve("malformed-checkpoint");
+        final byte[] checkpointId = bytes(16, 3);
+        final KafkaSourcePosition source = new KafkaSourcePosition(
+                shard, "legacy-cluster", UUID.randomUUID(), 31, null, 4_000);
+        final CheckpointManifest manifest;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore store = ShardStore.open(config, shard, resources)) {
+            store.write(batch -> {
+                batch.putValue(
+                        ColumnFamily.META,
+                        ShardStore.META_FIXED_VALUE_TYPE,
+                        KeyCodec.metaFixed(ShardStore.META_APPLIED_SOURCE_POSITION),
+                        source.canonicalBytes());
+                batch.putValue(
+                        ColumnFamily.ID,
+                        1,
+                        KeyCodec.idMessage(DelayMessageId.random(shard)),
+                        Bytes.utf8("malformed-message-record"));
+            });
+            store.createCheckpoint(image, checkpointId);
+            manifest = manifestFor(image, shard, store, checkpointId, source);
+        }
+
+        final List<CheckpointFileInventory> before = CheckpointFileInventory.collect(image, finiteLimits());
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> LegacyCheckpointStateInventory.inspect(
+                        image,
+                        shard,
+                        manifest,
+                        finiteLimits(),
+                        new LegacyCheckpointStateInventory.ReadLimits(1_000, 1 << 20, 60_000_000_000L)));
+        final List<CheckpointFileInventory> after = CheckpointFileInventory.collect(image, finiteLimits());
+        assertFileInventoriesEqual(before, after);
     }
 
     private static CheckpointManifest manifestFor(

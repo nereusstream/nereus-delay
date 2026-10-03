@@ -1,19 +1,20 @@
-B6 legacy format-1 checkpoint image read-only inspection
+B6 legacy format-1 checkpoint image and state inventory read-only inspection
 Date: 2026-10-03
 
 Source lock:
-- Delay base HEAD: ba44f341fa8dd5e8b2c52975b73969c3e9986cb7
+- Delay base HEAD: 67c6315b2ef48dc73c2be23a7ecf627d3178b1e0
 - `ShardStore.java` SHA-256: f5e7377bf2c9d289fcb72e48ec13f1f6132a2135b0468ac9854180e98456026f
-- `LegacyCheckpointImageInspector.java` SHA-256: 9795ba2010f772bc0976ea5a19537d57ac9024ef552ed11d061a6a5455601e05
-- `LegacyCheckpointImageInspectorTest.java` SHA-256: 8bb80204b9f09268208c1f314eba5911d35579847de0c5ff43cd7c0a2f6f8a49
+- `LegacyCheckpointImageInspector.java` SHA-256: 612e963664c8fd8377f30f5b5ef8740a51bcfa675c64f932a524bf16da4aec83
+- `LegacyCheckpointStateInventory.java` SHA-256: 14970003a05acc723917462f6892a86216070dd0a77f8debb229c6459f7c754b
+- `LegacyCheckpointImageInspectorTest.java` SHA-256: 2d42a463909bf218b7bd51cb09b07a18a90d0bd7005fd5af8ad48b69d7d348df
 
-Verification: a real format-1 RocksDB checkpoint image is opened through `RocksDB.openReadOnly`. The inspector enforces finite file/byte bounds, exact column-family inventory, empty default column family with checked iterator status, manifest file length/checksum equality, and exact Store format/Shard/db identity/incarnation, checkpoint ID, applied source position, and mutation sequence. It inventories and verifies all physical files both before and after opening the image read-only, rejecting any change during inspection. A second scenario changes the image after capturing the manifest and is rejected before RocksDB open. The successful test scenario independently re-inventories every checkpoint file and observes identical names, lengths, and SHA-256 values.
+Verification: a real format-1 RocksDB checkpoint image is opened through `RocksDB.openReadOnly`. The physical inspector enforces finite file/byte bounds, exact column-family inventory, empty default column family with checked iterator status, manifest file length/checksum equality, and exact Store format/Shard/db identity/incarnation, checkpoint ID, applied source position, and mutation sequence. The state inventory scans every registered Column Family under finite record/byte/time bounds; it counts key-kind prefixes and decodes old Message status and retired identity records, checking each Message key/source route belongs to the checkpoint Shard. The manifest-bound physical inventory is checked before and after the logical scan. Tests cover SCHEDULED status inventory, malformed Message rejection without file changes, read-budget exhaustion, and a manifest/image mismatch.
 
 Command:
 `./gradlew test --tests 'com.nereusstream.delay.store.LegacyCheckpointImageInspectorTest' checkstyleTest`
 
 `./gradlew checkDocumentation`
 
-Result: 2 tests, 0 failures/errors/skips; `checkstyleTest` and `checkDocumentation` passed. `./gradlew checkstyleMain` reports only pre-existing 123-character lines in untouched `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`.
+Result: 3 tests, 0 failures/errors/skips; `checkstyleTest` and `checkDocumentation` passed. `./gradlew checkstyleMain` reports only pre-existing 123-character lines in untouched `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`.
 
-Scope: this is physical checkpoint identity/read-only evidence only. It does not scan all legacy business records or their cross-record obligations, replay source bytes after the checkpoint, produce the full per-Shard dry-run/disposition report, establish durable migration activation, convert a Store, or authorize rollback/reader retirement. B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
+Scope: this proves physical identity and bounded record inventory only. It does not validate full legacy cross-record obligations, replay source bytes after the checkpoint, produce the per-Shard dry-run/disposition/conflict report, establish durable migration activation, convert a Store, or authorize rollback/reader retirement. B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
