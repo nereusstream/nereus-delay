@@ -22,6 +22,7 @@ import com.nereusstream.delay.runtime.MessageStatus;
 import com.nereusstream.delay.runtime.PublishAttemptLedger;
 import com.nereusstream.delay.runtime.RetiredMessageIdentityRecord;
 import com.nereusstream.delay.runtime.TerminalGenerationRecord;
+import com.nereusstream.delay.runtime.TimelineEntry;
 import com.nereusstream.delay.runtime.TimelineWorkKind;
 import com.nereusstream.delay.runtime.TimelineWorkRef;
 import com.nereusstream.delay.runtime.UncertainRetryAuthority;
@@ -249,6 +250,53 @@ class LegacyCheckpointImageInspectorTest {
         assertTrue(Bytes.constantTimeEquals(
                 Bytes.sha256(KeyCodec.idMessage(scheduled.messageId())), conflict.oldKeyDigest()));
         assertTrue(Bytes.constantTimeEquals(source.canonicalBytes(), conflict.sourcePosition()));
+    }
+
+    @Test
+    void acceptsLegacyTimelinePointersForScheduledCheckpointMessages() throws Exception {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 7);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("legacy-timeline-store"));
+        final Path image = tempDir.resolve("legacy-timeline-checkpoint");
+        final byte[] checkpointId = bytes(16, 6);
+        final KafkaSourcePosition source = new KafkaSourcePosition(
+                shard, "legacy-cluster", UUID.randomUUID(), 31, null, 4_000);
+        final ScheduledFixture scheduled = scheduledFixture(shard, source, "legacy-timeline-lane");
+        final byte[] legacyPointer = new TimelineEntry(scheduled.messageId(), scheduled.message().generation())
+                .encode();
+        final CheckpointManifest manifest;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore store = ShardStore.open(config, shard, resources)) {
+            store.write(batch -> {
+                batch.putValue(
+                        ColumnFamily.META,
+                        ShardStore.META_FIXED_VALUE_TYPE,
+                        KeyCodec.metaFixed(ShardStore.META_APPLIED_SOURCE_POSITION),
+                        source.canonicalBytes());
+                batch.putValue(
+                        ColumnFamily.META,
+                        ShardStore.META_FIXED_VALUE_TYPE,
+                        KeyCodec.metaFixed(ShardStore.META_MUTATION_SEQUENCE),
+                        Bytes.u64beBits(1));
+                batch.putValue(
+                        ColumnFamily.ID,
+                        1,
+                        KeyCodec.idMessage(scheduled.messageId()),
+                        scheduled.message().encode());
+                batch.putValue(ColumnFamily.TIMELINE, 1, scheduled.timelineKey(), legacyPointer);
+                batch.putValue(ColumnFamily.TIMELINE, 1, scheduled.expiryKey(), legacyPointer);
+            });
+            store.createCheckpoint(image, checkpointId);
+            manifest = manifestFor(image, shard, store, checkpointId, source);
+        }
+
+        final LegacyCheckpointStateInventory.Inventory inventory = LegacyCheckpointStateInventory.inspect(
+                image,
+                shard,
+                manifest,
+                finiteLimits(),
+                new LegacyCheckpointStateInventory.ReadLimits(1_000, 1 << 20, 60_000_000_000L));
+        assertTrue(inventory.conflicts().isEmpty());
+        assertEquals(1, inventory.messageStatuses().get(MessageStatus.SCHEDULED));
     }
 
     @Test

@@ -96,3 +96,24 @@ Commands:
 Result: the two targeted B6 test classes pass 8/8 with zero failures/errors/skips; `checkstyleTest`, `checkDocumentation`, JSON parsing and `git diff --check` pass. `checkstyleMain` fails only on the two unchanged 123-character lines in `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`.
 
 Scope: this enforces the checkpoint's applied source/mutation cut for the recognized local records; it does not prove source-log continuity/replay, Recovery Floor coverage, terminal-history or retention/GC closure, or migration readiness. B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
+
+## 2026-10-04 legacy TimelineEntry pointer in checkpoint inventory
+
+Source lock:
+- Base HEAD and origin/main: `9c85b2cdea289a4f65003aba58e9760fc962e5e2`
+- `LegacyCheckpointImageInspectorTest.java` SHA-256: `8824341fbe94eaf502392da9a2223d553bed47118ec788baa528f2222b442388`
+
+Verification: a real RocksDB format-1 checkpoint contains a typed SCHEDULED Message whose DUE and EXPIRY values both use the legacy `TimelineEntry` Message/generation pointer. The bounded inventory accepts it with no conflicts. This tests the checkpoint reader's explicit legacy-value branch while keeping current Message/TimelineWorkRef fields authoritative for the expected index key.
+
+Commands:
+`./gradlew test --tests com.nereusstream.delay.store.LegacyCheckpointImageInspectorTest --tests com.nereusstream.delay.store.LegacyCheckpointClaimInventoryTest checkstyleTest`
+
+`./gradlew checkDocumentation`
+
+`jq empty docs/ndip/NDIP-3/progress.json`
+
+`git diff --check`
+
+Result: `LegacyCheckpointImageInspectorTest` passes 8/8 and `LegacyCheckpointClaimInventoryTest` passes 1/1 with zero failures/errors/skips; `checkstyleTest`, `checkDocumentation`, JSON parsing and `git diff --check` pass.
+
+Scope: legacy scalar Message migration, reverse/orphan Timeline scans, old Profile/control authority, external source replay, durable activation and conversion remain open. B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
