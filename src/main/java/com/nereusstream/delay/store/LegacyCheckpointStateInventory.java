@@ -152,6 +152,25 @@ public final class LegacyCheckpointStateInventory {
                                         throw new IllegalArgumentException(
                                                 "legacy retired Message value identity differs from its key");
                                     }
+                                    final SourcePosition retirementPosition =
+                                            SourcePositionCodec.decode(retired.appliedSourcePosition());
+                                    if (!retirementPosition.sameSourceIdentity(proof.appliedSourcePosition())
+                                            || retirementPosition.compareTo(proof.appliedSourcePosition()) > 0) {
+                                        conflicts.add(conflict(
+                                                key,
+                                                "MESSAGE",
+                                                retirementPosition,
+                                                ConflictReason.RETIRED_IDENTITY_SOURCE_AFTER_CHECKPOINT));
+                                    }
+                                    if (Long.compareUnsigned(
+                                                    retired.retirementMutationSequence(), proof.mutationSequence())
+                                            > 0) {
+                                        conflicts.add(conflict(
+                                                key,
+                                                "MESSAGE",
+                                                retirementPosition,
+                                                ConflictReason.RETIRED_IDENTITY_SEQUENCE_AFTER_CHECKPOINT));
+                                    }
                                     retiredMessageIdentities = Math.addExact(retiredMessageIdentities, 1);
                                 } else {
                                     final MessageRecord message = MessageRecord.decode(payload);
@@ -832,6 +851,8 @@ public final class LegacyCheckpointStateInventory {
         ATTEMPT_LEDGER_UNREFERENCED,
         ATTEMPT_ADMISSION_MALFORMED,
         ATTEMPT_ADMISSION_LEDGER_MISMATCH,
+        RETIRED_IDENTITY_SOURCE_AFTER_CHECKPOINT,
+        RETIRED_IDENTITY_SEQUENCE_AFTER_CHECKPOINT,
         TERMINAL_SUMMARY_VALUE_MISMATCH,
         TERMINAL_SUMMARY_MISSING,
         CLAIM_RECORD_KEY_VALUE_MISMATCH,

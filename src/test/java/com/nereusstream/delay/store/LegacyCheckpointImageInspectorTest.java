@@ -20,6 +20,7 @@ import com.nereusstream.delay.runtime.GenerationRuntimeIndex;
 import com.nereusstream.delay.runtime.MessageRecord;
 import com.nereusstream.delay.runtime.MessageStatus;
 import com.nereusstream.delay.runtime.PublishAttemptLedger;
+import com.nereusstream.delay.runtime.RetiredMessageIdentityRecord;
 import com.nereusstream.delay.runtime.TerminalGenerationRecord;
 import com.nereusstream.delay.runtime.TimelineWorkKind;
 import com.nereusstream.delay.runtime.TimelineWorkRef;
@@ -44,6 +45,12 @@ class LegacyCheckpointImageInspectorTest {
         final byte[] checkpointId = bytes(16, 1);
         final KafkaSourcePosition source = new KafkaSourcePosition(
                 shard, "legacy-cluster", UUID.randomUUID(), 31, null, 4_000);
+        final DelayMessageId retiredMessageId = DelayMessageId.random(shard);
+        final RetiredMessageIdentityRecord retired = new RetiredMessageIdentityRecord(
+                retiredMessageId,
+                retiredMessageId.routingId().logicalTimestampEpochMs(),
+                17,
+                source.canonicalBytes());
         final CheckpointManifest manifest;
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shard, resources)) {
@@ -68,6 +75,11 @@ class LegacyCheckpointImageInspectorTest {
                         ColumnFamily.TIMELINE, 1, scheduled.timelineKey(), scheduled.work().canonicalBytes());
                 batch.putValue(
                         ColumnFamily.TIMELINE, 1, scheduled.expiryKey(), scheduled.work().canonicalBytes());
+                batch.putValue(
+                        ColumnFamily.ID,
+                        1,
+                        KeyCodec.idMessage(retiredMessageId),
+                        retired.encode());
             });
             store.createCheckpoint(image, checkpointId);
             manifest = manifestFor(image, shard, store, checkpointId, source);
@@ -95,6 +107,7 @@ class LegacyCheckpointImageInspectorTest {
                 new LegacyCheckpointStateInventory.ReadLimits(1_000, 1 << 20, 60_000_000_000L));
         assertEquals(1, state.messageStatuses().get(MessageStatus.SCHEDULED));
         assertTrue(state.conflicts().isEmpty());
+        assertEquals(1, state.retiredMessageIdentities());
         assertEquals(
                 1,
                 state.messageDispositions().get(
@@ -305,6 +318,14 @@ class LegacyCheckpointImageInspectorTest {
                 canceledRuntime);
         final KafkaSourcePosition mismatchedTerminalSource = new KafkaSourcePosition(
                 shard, "legacy-cluster", source.nativeTopicUuid(), 36, null, 4_005);
+        final KafkaSourcePosition futureRetiredSource = new KafkaSourcePosition(
+                shard, "legacy-cluster", source.nativeTopicUuid(), 37, null, 4_006);
+        final DelayMessageId futureRetiredMessageId = DelayMessageId.random(shard);
+        final RetiredMessageIdentityRecord futureRetired = new RetiredMessageIdentityRecord(
+                futureRetiredMessageId,
+                futureRetiredMessageId.routingId().logicalTimestampEpochMs(),
+                3,
+                futureRetiredSource.canonicalBytes());
         final ScheduledFixture mismatchedTerminal =
                 scheduledFixture(shard, mismatchedTerminalSource, "terminal-summary-mismatch");
         final GenerationRuntimeIndex mismatchedPublishedRuntime = GenerationRuntimeIndex.none(
@@ -373,6 +394,11 @@ class LegacyCheckpointImageInspectorTest {
                         1,
                         KeyCodec.idMessage(mismatchedTerminal.messageId()),
                         mismatchedPublishedMessage.encode());
+                batch.putValue(
+                        ColumnFamily.ID,
+                        1,
+                        KeyCodec.idMessage(futureRetiredMessageId),
+                        futureRetired.encode());
                 batch.putValue(
                         ColumnFamily.TERMINAL,
                         1,
@@ -460,7 +486,30 @@ class LegacyCheckpointImageInspectorTest {
                 terminalMismatch.oldKeyDigest()));
         assertTrue(Bytes.constantTimeEquals(
                 mismatchedTerminalSource.canonicalBytes(), terminalMismatch.sourcePosition()));
-        assertEquals(9, inventory.conflicts().size());
+        assertEquals(1, inventory.retiredMessageIdentities());
+        final LegacyCheckpointStateInventory.Conflict futureRetiredSourceConflict = inventory.conflicts().stream()
+                .filter(conflict -> conflict.reason()
+                        == LegacyCheckpointStateInventory.ConflictReason.RETIRED_IDENTITY_SOURCE_AFTER_CHECKPOINT)
+                .findFirst()
+                .orElseThrow();
+        final LegacyCheckpointStateInventory.Conflict futureRetiredSequenceConflict = inventory.conflicts().stream()
+                .filter(conflict -> conflict.reason()
+                        == LegacyCheckpointStateInventory.ConflictReason.RETIRED_IDENTITY_SEQUENCE_AFTER_CHECKPOINT)
+                .findFirst()
+                .orElseThrow();
+        assertEquals("MESSAGE", futureRetiredSourceConflict.recordKind());
+        assertTrue(Bytes.constantTimeEquals(
+                Bytes.sha256(KeyCodec.idMessage(futureRetiredMessageId)),
+                futureRetiredSourceConflict.oldKeyDigest()));
+        assertTrue(Bytes.constantTimeEquals(
+                futureRetiredSource.canonicalBytes(), futureRetiredSourceConflict.sourcePosition()));
+        assertEquals("MESSAGE", futureRetiredSequenceConflict.recordKind());
+        assertTrue(Bytes.constantTimeEquals(
+                Bytes.sha256(KeyCodec.idMessage(futureRetiredMessageId)),
+                futureRetiredSequenceConflict.oldKeyDigest()));
+        assertTrue(Bytes.constantTimeEquals(
+                futureRetiredSource.canonicalBytes(), futureRetiredSequenceConflict.sourcePosition()));
+        assertEquals(11, inventory.conflicts().size());
     }
 
     @Test
