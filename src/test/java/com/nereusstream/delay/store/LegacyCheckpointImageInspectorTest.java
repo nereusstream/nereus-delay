@@ -7,11 +7,15 @@ import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.DestinationLaneId;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
+import com.nereusstream.delay.protocol.NativeDeliveryPolicy;
 import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
+import com.nereusstream.delay.runtime.GenerationAggregateState;
+import com.nereusstream.delay.runtime.GenerationRuntimeIndex;
 import com.nereusstream.delay.runtime.MessageRecord;
 import com.nereusstream.delay.runtime.MessageStatus;
+import com.nereusstream.delay.runtime.TimelineWorkRef;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -45,18 +49,16 @@ class LegacyCheckpointImageInspectorTest {
                         ShardStore.META_FIXED_VALUE_TYPE,
                         KeyCodec.metaFixed(ShardStore.META_MUTATION_SEQUENCE),
                         Bytes.u64beBits(17));
-                final DelayMessageId messageId = DelayMessageId.random(shard);
-                final MessageRecord scheduled = MessageRecord.current(
-                        MessageStatus.SCHEDULED,
+                final ScheduledFixture scheduled = scheduledFixture(shard, source, "legacy-inventory-lane");
+                batch.putValue(
+                        ColumnFamily.ID,
                         1,
-                        1,
-                        5_000,
-                        8_000,
-                        DestinationLaneId.derive(Bytes.utf8("legacy-inventory-lane")),
-                        OrderingMode.BEST_EFFORT,
-                        Bytes.utf8("payload"),
-                        source.canonicalBytes());
-                batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(messageId), scheduled.encode());
+                        KeyCodec.idMessage(scheduled.messageId()),
+                        scheduled.message().encode());
+                batch.putValue(
+                        ColumnFamily.TIMELINE, 1, scheduled.timelineKey(), scheduled.work().canonicalBytes());
+                batch.putValue(
+                        ColumnFamily.TIMELINE, 1, scheduled.expiryKey(), scheduled.work().canonicalBytes());
             });
             store.createCheckpoint(image, checkpointId);
             manifest = manifestFor(image, shard, store, checkpointId, source);
@@ -83,12 +85,13 @@ class LegacyCheckpointImageInspectorTest {
                 finiteLimits(),
                 new LegacyCheckpointStateInventory.ReadLimits(1_000, 1 << 20, 60_000_000_000L));
         assertEquals(1, state.messageStatuses().get(MessageStatus.SCHEDULED));
+        assertTrue(state.scheduledIndexConflicts().isEmpty());
         assertTrue(state.recordsByFamily().get(ColumnFamily.ID) > 0);
         assertEquals(
                 state.scannedRecords(),
                 state.recordsByFamily().values().stream().mapToLong(Long::longValue).sum());
         assertTrue(state.scannedBytes() > 0);
-        assertEquals(state.scannedBytes(), state.chargedBytes());
+        assertTrue(state.chargedBytes() >= state.scannedBytes());
         assertThrows(
                 ReadIncompleteException.class,
                 () -> LegacyCheckpointStateInventory.inspect(
@@ -144,6 +147,11 @@ class LegacyCheckpointImageInspectorTest {
                         KeyCodec.metaFixed(ShardStore.META_APPLIED_SOURCE_POSITION),
                         source.canonicalBytes());
                 batch.putValue(
+                        ColumnFamily.META,
+                        ShardStore.META_FIXED_VALUE_TYPE,
+                        KeyCodec.metaFixed(ShardStore.META_MUTATION_SEQUENCE),
+                        Bytes.u64beBits(1));
+                batch.putValue(
                         ColumnFamily.ID,
                         1,
                         KeyCodec.idMessage(DelayMessageId.random(shard)),
@@ -154,7 +162,7 @@ class LegacyCheckpointImageInspectorTest {
         }
 
         final List<CheckpointFileInventory> before = CheckpointFileInventory.collect(image, finiteLimits());
-        assertThrows(
+        final IllegalArgumentException malformed = assertThrows(
                 IllegalArgumentException.class,
                 () -> LegacyCheckpointStateInventory.inspect(
                         image,
@@ -162,8 +170,59 @@ class LegacyCheckpointImageInspectorTest {
                         manifest,
                         finiteLimits(),
                         new LegacyCheckpointStateInventory.ReadLimits(1_000, 1 << 20, 60_000_000_000L)));
+        assertTrue(malformed.getMessage().contains("unsupported message record version"));
         final List<CheckpointFileInventory> after = CheckpointFileInventory.collect(image, finiteLimits());
         assertFileInventoriesEqual(before, after);
+    }
+
+    @Test
+    void reportsMissingScheduledExpiryIndexAsAStableSourceBoundConflict() throws Exception {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 7);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("missing-index-store"));
+        final Path image = tempDir.resolve("missing-index-checkpoint");
+        final byte[] checkpointId = bytes(16, 4);
+        final KafkaSourcePosition source = new KafkaSourcePosition(
+                shard, "legacy-cluster", UUID.randomUUID(), 31, null, 4_000);
+        final ScheduledFixture scheduled = scheduledFixture(shard, source, "missing-index-lane");
+        final CheckpointManifest manifest;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore store = ShardStore.open(config, shard, resources)) {
+            store.write(batch -> {
+                batch.putValue(
+                        ColumnFamily.META,
+                        ShardStore.META_FIXED_VALUE_TYPE,
+                        KeyCodec.metaFixed(ShardStore.META_APPLIED_SOURCE_POSITION),
+                        source.canonicalBytes());
+                batch.putValue(
+                        ColumnFamily.META,
+                        ShardStore.META_FIXED_VALUE_TYPE,
+                        KeyCodec.metaFixed(ShardStore.META_MUTATION_SEQUENCE),
+                        Bytes.u64beBits(1));
+                batch.putValue(
+                        ColumnFamily.ID,
+                        1,
+                        KeyCodec.idMessage(scheduled.messageId()),
+                        scheduled.message().encode());
+                batch.putValue(
+                        ColumnFamily.TIMELINE, 1, scheduled.timelineKey(), scheduled.work().canonicalBytes());
+            });
+            store.createCheckpoint(image, checkpointId);
+            manifest = manifestFor(image, shard, store, checkpointId, source);
+        }
+
+        final LegacyCheckpointStateInventory.Inventory inventory = LegacyCheckpointStateInventory.inspect(
+                image,
+                shard,
+                manifest,
+                finiteLimits(),
+                new LegacyCheckpointStateInventory.ReadLimits(1_000, 1 << 20, 60_000_000_000L));
+        assertEquals(1, inventory.scheduledIndexConflicts().size());
+        final LegacyCheckpointStateInventory.IndexConflict conflict = inventory.scheduledIndexConflicts().get(0);
+        assertEquals(LegacyCheckpointStateInventory.IndexConflictReason.EXPIRY_INDEX_MISSING, conflict.reason());
+        assertEquals("MESSAGE", conflict.recordKind());
+        assertTrue(Bytes.constantTimeEquals(
+                Bytes.sha256(KeyCodec.idMessage(scheduled.messageId())), conflict.oldKeyDigest()));
+        assertTrue(Bytes.constantTimeEquals(source.canonicalBytes(), conflict.sourcePosition()));
     }
 
     private static CheckpointManifest manifestFor(
@@ -214,6 +273,41 @@ class LegacyCheckpointImageInspectorTest {
     private static CheckpointManifestLimits finiteLimits() {
         return new CheckpointManifestLimits(1_024, 1L << 30, 1L << 28, 4_096, 1 << 20, 256, 4_096);
     }
+
+    private static ScheduledFixture scheduledFixture(
+            final ShardId shard, final KafkaSourcePosition source, final String laneTuple) {
+        final DelayMessageId messageId = DelayMessageId.random(shard);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8(laneTuple));
+        final byte[] timelineKey = KeyCodec.timelineDue(
+                lane, 5_000, source.sourceOrderToken(), messageId, 1);
+        final TimelineWorkRef work = TimelineWorkRef.initial(timelineKey, 5_000, 1);
+        final GenerationRuntimeIndex runtime = GenerationRuntimeIndex.timeline(
+                GenerationAggregateState.SCHEDULED, work, 1);
+        final MessageRecord message = MessageRecord.current(
+                MessageStatus.SCHEDULED,
+                1,
+                1,
+                5_000,
+                8_000,
+                5_000,
+                lane,
+                OrderingMode.BEST_EFFORT,
+                NativeDeliveryPolicy.FORBID,
+                Bytes.utf8("payload"),
+                source.canonicalBytes(),
+                null,
+                5_000,
+                runtime);
+        final byte[] expiryKey = KeyCodec.timelineExpiry(8_000, lane, messageId, 1);
+        return new ScheduledFixture(messageId, message, work, timelineKey, expiryKey);
+    }
+
+    private record ScheduledFixture(
+            DelayMessageId messageId,
+            MessageRecord message,
+            TimelineWorkRef work,
+            byte[] timelineKey,
+            byte[] expiryKey) {}
 
     private static void assertFileInventoriesEqual(
             final List<CheckpointFileInventory> expected, final List<CheckpointFileInventory> actual) {

@@ -2,13 +2,18 @@ package com.nereusstream.delay.store;
 
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.DelayMessageId;
+import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.ShardId;
+import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.SourcePositionCodec;
 import com.nereusstream.delay.runtime.MessageRecord;
 import com.nereusstream.delay.runtime.MessageStatus;
 import com.nereusstream.delay.runtime.RetiredMessageIdentityRecord;
+import com.nereusstream.delay.runtime.TimelineEntry;
+import com.nereusstream.delay.runtime.TimelineWorkRef;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumMap;
 import java.util.List;
@@ -73,7 +78,9 @@ public final class LegacyCheckpointStateInventory {
             messageStatuses.put(status, 0L);
         }
         long retiredMessageIdentities = 0;
+        long scannedRecords = 0;
         long totalBytes = 0;
+        final List<IndexConflict> scheduledIndexConflicts = new ArrayList<>();
         try (Options listOptions = new Options()) {
             final List<byte[]> familyNames = RocksDB.listColumnFamilies(listOptions, image.toString());
             LegacyCheckpointImageInspector.requireExactColumnFamilies(familyNames);
@@ -92,6 +99,7 @@ public final class LegacyCheckpointStateInventory {
                 db = RocksDB.openReadOnly(dbOptions, image.toString(), descriptors, handles);
                 final Map<String, ColumnFamilyHandle> byName =
                         LegacyCheckpointImageInspector.indexHandles(familyNames, handles);
+                final ColumnFamilyHandle timeline = byName.get(ColumnFamily.TIMELINE.rocksName());
                 for (ColumnFamily family : ColumnFamily.values()) {
                     final ColumnFamilyHandle handle = byName.get(family.rocksName());
                     try (RocksIterator iterator = db.newIterator(
@@ -107,6 +115,7 @@ public final class LegacyCheckpointStateInventory {
                                 throw budget.incomplete();
                             }
                             recordsByFamily.compute(family, (ignored, count) -> Math.addExact(count, 1));
+                            scannedRecords = Math.addExact(scannedRecords, 1);
                             totalBytes = Math.addExact(totalBytes, (long) key.length + value.length);
                             final String keyKind = keyKind(family, key);
                             keyKinds.merge(keyKind, 1L, Math::addExact);
@@ -126,14 +135,24 @@ public final class LegacyCheckpointStateInventory {
                                     retiredMessageIdentities = Math.addExact(retiredMessageIdentities, 1);
                                 } else {
                                     final MessageRecord message = MessageRecord.decode(payload);
-                                    if (!SourcePositionCodec.decode(message.scheduleSourcePosition())
-                                            .shardId()
-                                            .equals(proof.metadata().shardId())) {
+                                    final SourcePosition schedulePosition =
+                                            SourcePositionCodec.decode(message.scheduleSourcePosition());
+                                    if (!schedulePosition.shardId().equals(proof.metadata().shardId())) {
                                         throw new IllegalArgumentException(
                                                 "legacy Message source position belongs to another Shard");
                                     }
                                     messageStatuses.compute(
                                             message.status(), (ignored, count) -> Math.addExact(count, 1));
+                                    if (message.status() == MessageStatus.SCHEDULED) {
+                                        auditScheduledIndexes(
+                                                db,
+                                                timeline,
+                                                messageId,
+                                                message,
+                                                schedulePosition,
+                                                budget,
+                                                scheduledIndexConflicts);
+                                    }
                                 }
                             }
                             iterator.next();
@@ -169,9 +188,120 @@ public final class LegacyCheckpointStateInventory {
                 keyKinds,
                 messageStatuses,
                 retiredMessageIdentities,
-                budget.actualRecords(),
+                scannedRecords,
                 totalBytes,
-                budget.chargedBytes());
+                budget.chargedBytes(),
+                scheduledIndexConflicts);
+    }
+
+    private static void auditScheduledIndexes(
+            final RocksDB db,
+            final ColumnFamilyHandle timeline,
+            final DelayMessageId messageId,
+            final MessageRecord message,
+            final SourcePosition schedulePosition,
+            final BoundedReadBudget budget,
+            final List<IndexConflict> conflicts)
+            throws RocksDBException {
+        final TimelineWorkRef work = message.runtimeIndex().timeline();
+        final byte[] messageKey = KeyCodec.idMessage(messageId);
+        if (work == null) {
+            conflicts.add(conflict(
+                    messageKey,
+                    schedulePosition,
+                    IndexConflictReason.SCHEDULED_WORK_REFERENCE_MISSING));
+            return;
+        }
+        final boolean ordered = message.orderingMode() == OrderingMode.DELIVERY_TIME_FIFO;
+        if (work.orderedHeadBlocking() != ordered
+                || work.retryEligibilityAtEpochMs() != message.retryEligibilityAtEpochMs()
+                || work.actionAtEpochMs() > message.deliverAtEpochMs()) {
+            conflicts.add(conflict(
+                    messageKey,
+                    schedulePosition,
+                    IndexConflictReason.SCHEDULED_WORK_FIELDS_DISAGREE));
+            return;
+        }
+        final long eligibleAt = ordered
+                ? message.deliverAtEpochMs()
+                : Math.max(work.actionAtEpochMs(), work.retryEligibilityAtEpochMs());
+        final byte[] expectedTimelineKey = ordered
+                ? KeyCodec.timelineOrdered(
+                        message.laneId(),
+                        eligibleAt,
+                        schedulePosition.sourceOrderToken(),
+                        messageId,
+                        message.generation())
+                : KeyCodec.timelineDue(
+                        message.laneId(),
+                        eligibleAt,
+                        schedulePosition.sourceOrderToken(),
+                        messageId,
+                        message.generation());
+        if (!Arrays.equals(expectedTimelineKey, work.encodedTimelineKey())) {
+            conflicts.add(conflict(
+                    messageKey,
+                    schedulePosition,
+                    IndexConflictReason.SCHEDULED_WORK_KEY_DISAGREES_WITH_MESSAGE));
+            return;
+        }
+        final byte[] timelineValue = readPoint(db, timeline, expectedTimelineKey, budget);
+        if (timelineValue == null) {
+            conflicts.add(conflict(messageKey, schedulePosition, IndexConflictReason.DUE_INDEX_MISSING));
+        } else if (!matchesTimelineValue(timelineValue, messageId, message, work)) {
+            conflicts.add(conflict(messageKey, schedulePosition, IndexConflictReason.DUE_INDEX_VALUE_MISMATCH));
+        }
+        final byte[] expiryKey = KeyCodec.timelineExpiry(
+                message.expireAtEpochMs(), message.laneId(), messageId, message.generation());
+        final byte[] expiryValue = readPoint(db, timeline, expiryKey, budget);
+        if (expiryValue == null) {
+            conflicts.add(conflict(messageKey, schedulePosition, IndexConflictReason.EXPIRY_INDEX_MISSING));
+        } else if (!matchesTimelineValue(expiryValue, messageId, message, work)) {
+            conflicts.add(conflict(messageKey, schedulePosition, IndexConflictReason.EXPIRY_INDEX_VALUE_MISMATCH));
+        }
+    }
+
+    private static byte[] readPoint(
+            final RocksDB db, final ColumnFamilyHandle family, final byte[] key, final BoundedReadBudget budget)
+            throws RocksDBException {
+        if (!budget.beforeRead()) {
+            throw budget.incomplete();
+        }
+        final byte[] value = db.get(family, key);
+        if (!budget.tryCharge(key.length, value == null ? 0 : value.length)) {
+            throw budget.incomplete();
+        }
+        return value;
+    }
+
+    private static boolean matchesTimelineValue(
+            final byte[] encoded,
+            final DelayMessageId messageId,
+            final MessageRecord message,
+            final TimelineWorkRef expectedWork) {
+        try {
+            final byte[] payload = ValueEnvelope.decode(encoded, 1).payload();
+            if (isLegacyTimelineEntry(payload)) {
+                final TimelineEntry entry = TimelineEntry.decode(payload);
+                return entry.messageId().equals(messageId) && entry.generation() == message.generation();
+            }
+            final TimelineWorkRef work = TimelineWorkRef.decode(payload);
+            return Arrays.equals(work.canonicalBytes(), expectedWork.canonicalBytes());
+        } catch (IllegalArgumentException malformed) {
+            return false;
+        }
+    }
+
+    private static boolean isLegacyTimelineEntry(final byte[] encoded) {
+        return encoded.length >= Integer.BYTES
+                && java.nio.ByteBuffer.wrap(encoded, 0, Integer.BYTES).getInt() == 1;
+    }
+
+    private static IndexConflict conflict(
+            final byte[] messageKey,
+            final SourcePosition sourcePosition,
+            final IndexConflictReason reason) {
+        return new IndexConflict(Bytes.sha256(messageKey), "MESSAGE", sourcePosition.canonicalBytes(), reason);
     }
 
     private static boolean isMessageKey(final byte[] key) {
@@ -239,7 +369,8 @@ public final class LegacyCheckpointStateInventory {
             long retiredMessageIdentities,
             long scannedRecords,
             long scannedBytes,
-            long chargedBytes) {
+            long chargedBytes,
+            List<IndexConflict> scheduledIndexConflicts) {
         public Inventory {
             Objects.requireNonNull(physicalProof, "physicalProof");
             final EnumMap<ColumnFamily, Long> familyCopy = new EnumMap<>(ColumnFamily.class);
@@ -249,9 +380,44 @@ public final class LegacyCheckpointStateInventory {
             final EnumMap<MessageStatus, Long> statusCopy = new EnumMap<>(MessageStatus.class);
             statusCopy.putAll(Objects.requireNonNull(messageStatuses, "messageStatuses"));
             messageStatuses = Collections.unmodifiableMap(statusCopy);
+            scheduledIndexConflicts = List.copyOf(
+                    Objects.requireNonNull(scheduledIndexConflicts, "scheduledIndexConflicts"));
             if (retiredMessageIdentities < 0 || scannedRecords < 0 || scannedBytes < 0 || chargedBytes < 0) {
                 throw new IllegalArgumentException("legacy checkpoint inventory has a negative count");
             }
+        }
+    }
+
+    public enum IndexConflictReason {
+        SCHEDULED_WORK_REFERENCE_MISSING,
+        SCHEDULED_WORK_FIELDS_DISAGREE,
+        SCHEDULED_WORK_KEY_DISAGREES_WITH_MESSAGE,
+        DUE_INDEX_MISSING,
+        DUE_INDEX_VALUE_MISMATCH,
+        EXPIRY_INDEX_MISSING,
+        EXPIRY_INDEX_VALUE_MISMATCH
+    }
+
+    public record IndexConflict(
+            byte[] oldKeyDigest, String recordKind, byte[] sourcePosition, IndexConflictReason reason) {
+        public IndexConflict {
+            Bytes.requireLength(oldKeyDigest, 32, "oldKeyDigest");
+            oldKeyDigest = Bytes.copy(oldKeyDigest);
+            if (!"MESSAGE".equals(Objects.requireNonNull(recordKind, "recordKind"))) {
+                throw new IllegalArgumentException("legacy index conflict record kind is not registered");
+            }
+            sourcePosition = SourcePositionCodec.decode(sourcePosition).canonicalBytes();
+            Objects.requireNonNull(reason, "reason");
+        }
+
+        @Override
+        public byte[] oldKeyDigest() {
+            return Bytes.copy(oldKeyDigest);
+        }
+
+        @Override
+        public byte[] sourcePosition() {
+            return Bytes.copy(sourcePosition);
         }
     }
 }
