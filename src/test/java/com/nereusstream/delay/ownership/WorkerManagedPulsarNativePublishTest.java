@@ -67,10 +67,12 @@ import com.nereusstream.delay.scheduler.WorkClassRuntimeConfig;
 import java.io.ByteArrayOutputStream;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
+import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
@@ -363,6 +365,69 @@ class WorkerManagedPulsarNativePublishTest {
         }
     }
 
+    @Test
+    void queuedDuplicateSubmissionsTransferProducerOwnershipOnlyOnce() throws Exception {
+        final Fixture fixture = Fixture.create();
+        final AtomicInteger preparedCalls = new AtomicInteger();
+        final CompletableFuture<DestinationPublishResult> unresolvedTargetResult = new CompletableFuture<>();
+        final DestinationPublishAdapter unresolvedAdapter = new DestinationPublishAdapter() {
+            @Override
+            public java.util.concurrent.CompletionStage<DestinationPublishResult> publish(
+                    final DestinationPublishRequest request) {
+                throw new AssertionError("managed Pulsar path used the payload-only transport boundary");
+            }
+
+            @Override
+            public java.util.concurrent.CompletionStage<DestinationPublishResult> publishPreparedRecord(
+                    final PulsarPreparedRecord record, final ArtifactGenerationSet artifacts) {
+                preparedCalls.incrementAndGet();
+                return unresolvedTargetResult;
+            }
+        };
+        final List<Runnable> queuedPhysicalTasks = new ArrayList<>();
+        final Executor physicalExecutor = queuedPhysicalTasks::add;
+        final DestinationPhysicalAdmission physicalAdmission =
+                Fixture.admission(fixture.lane, fixture.laneIncarnation, 2);
+        final WorkerPhysicalPublishExecutor executor = fixture.queuedExecutor(
+                unresolvedAdapter, physicalAdmission, physicalExecutor);
+
+        try (executor) {
+            final DestinationPublishRequest request =
+                    WorkerPhysicalPublishExecutor.prepareRequest(fixture.attempt, fixture.payload);
+            final WorkerPhysicalPublishExecutor.Submission first =
+                    executor.submit(fixture.attempt, request, () -> 1_950);
+            final WorkerPhysicalPublishExecutor.Submission duplicate =
+                    executor.submit(fixture.attempt, request, () -> 1_950);
+
+            assertEquals(2, queuedPhysicalTasks.size());
+            assertEquals(0, preparedCalls.get());
+            queuedPhysicalTasks.get(0).run();
+            assertEquals(1, preparedCalls.get());
+            queuedPhysicalTasks.get(1).run();
+            unresolvedTargetResult.complete(
+                    DestinationPublishResult.unknown(StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN, null));
+
+            assertEquals(1, preparedCalls.get());
+            assertEquals(
+                    List.of(
+                            PulsarAttemptJournal.RecordKind.MAPPED,
+                            PulsarAttemptJournal.RecordKind.OWNERSHIP_STARTED),
+                    fixture.journal.records().stream()
+                            .map(PulsarAttemptJournal.JournalRecord::kind)
+                            .toList());
+            assertEquals(
+                    DestinationPublishResult.Disposition.UNKNOWN,
+                    first.physicalResult().orElseThrow().disposition());
+            assertEquals(
+                    DestinationPublishResult.Disposition.UNKNOWN,
+                    duplicate.physicalResult().orElseThrow().disposition());
+            assertEquals(
+                    StableCode.RECOVERY_FIRST_SEND_UNCERTAIN,
+                    duplicate.physicalResult().orElseThrow().stableCode());
+            assertEquals(0, physicalAdmission.workerSnapshot().activeRequests());
+        }
+    }
+
     private static DestinationPublishAdapter preparedAdapter(
             final AtomicInteger calls, final AtomicReference<PulsarPreparedRecord> sent) {
         return new DestinationPublishAdapter() {
@@ -604,8 +669,43 @@ class WorkerManagedPulsarNativePublishTest {
                 final PhysicalSendActivationGate activationGate,
                 final long contextOwnerEpoch,
                 final DestinationPhysicalAdmission physicalAdmission) {
+            return executor(
+                    adapter,
+                    leaseChecks,
+                    physicalTime,
+                    activationGate,
+                    contextOwnerEpoch,
+                    physicalAdmission,
+                    Runnable::run,
+                    true);
+        }
+
+        private WorkerPhysicalPublishExecutor queuedExecutor(
+                final DestinationPublishAdapter adapter,
+                final DestinationPhysicalAdmission physicalAdmission,
+                final Executor physicalExecutor) {
+            return executor(
+                    adapter,
+                    new AtomicInteger(),
+                    validPhysicalTime,
+                    physicalActivation,
+                    owner.ownerEpoch(),
+                    physicalAdmission,
+                    physicalExecutor,
+                    false);
+        }
+
+        private WorkerPhysicalPublishExecutor executor(
+                final DestinationPublishAdapter adapter,
+                final AtomicInteger leaseChecks,
+                final TrustedUtcIntervalEvidence physicalTime,
+                final PhysicalSendActivationGate activationGate,
+                final long contextOwnerEpoch,
+                final DestinationPhysicalAdmission physicalAdmission,
+                final Executor physicalExecutor,
+                final boolean assertJournalPreflightOrder) {
             final WorkerPhysicalPublishExecutor result = new WorkerPhysicalPublishExecutor(
-                    new BoundedDestinationPublishAdapter(adapter, physicalAdmission, workClasses(), Runnable::run),
+                    new BoundedDestinationPublishAdapter(adapter, physicalAdmission, workClasses(), physicalExecutor),
                     (mutation, ownerClock) -> {},
                     (ignoredAttempt, ignoredRequest, ignoredClock) -> WorkerPhysicalPublishExecutor.Decision.allowed(),
                     (ignoredAttempt, ignoredRequest, ignoredResult) -> mutation(shard),
@@ -631,7 +731,9 @@ class WorkerManagedPulsarNativePublishTest {
                                 final PublishAttemptLedger ignoredAttempt, final byte[] ignoredPosition) {}
                     },
                     (ignoredAdmission, ignoredArtifacts, ignoredTime, ignoredPosition) -> {
-                        if (leaseChecks.getAndIncrement() > 0) {
+                        if (!assertJournalPreflightOrder) {
+                            leaseChecks.incrementAndGet();
+                        } else if (leaseChecks.getAndIncrement() > 0) {
                             assertEquals(
                                     PulsarAttemptJournal.AttemptState.MAPPED,
                                     journal.state(journal.records()
@@ -829,10 +931,23 @@ class WorkerManagedPulsarNativePublishTest {
 
         private static DestinationPhysicalAdmission admission(
                 final DestinationLaneId lane, final byte[] laneIncarnation) {
-            final DestinationPhysicalAdmission result = new DestinationPhysicalAdmission(1, 10_000);
-            result.registerTargetCluster("worker-native-cluster", 1, 10_000);
+            return admission(lane, laneIncarnation, 1);
+        }
+
+        private static DestinationPhysicalAdmission admission(
+                final DestinationLaneId lane, final byte[] laneIncarnation, final long maximumRequests) {
+            final DestinationPhysicalAdmission result = new DestinationPhysicalAdmission(maximumRequests, 10_000);
+            result.registerTargetCluster("worker-native-cluster", maximumRequests, 10_000);
             result.registerLane(new DestinationPhysicalAdmission.LaneSpec(
-                    lane, laneIncarnation, "worker-native-cluster", 0, 0, 1, 10_000, 1, 10_000));
+                    lane,
+                    laneIncarnation,
+                    "worker-native-cluster",
+                    0,
+                    0,
+                    maximumRequests,
+                    10_000,
+                    maximumRequests,
+                    10_000));
             result.openReady(lane);
             return result;
         }

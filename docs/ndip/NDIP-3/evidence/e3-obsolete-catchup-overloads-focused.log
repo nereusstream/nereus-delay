@@ -242,3 +242,24 @@ Commands:
 Results: the targeted JUnit XML reports 1 test, 0 failures/errors/skips. `checkstyleTest` reports `BUILD SUCCESSFUL` (task up-to-date).
 
 Scope: this proves one local RocksDB Store-incarnation mismatch is rejected at the formal Admission boundary before queueing or append, using the in-memory Owner lease authority. It does not establish production policy/provider or Oxia wiring, all Store/policy/credential drift cases, other asynchronous stale-token paths, or E3 central validation; E3 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
+
+
+E3 duplicate queued physical tasks transfer Producer ownership at most once
+Date: 2026-10-03
+
+Source lock:
+- Delay base HEAD: bca7c172bc275805c6375d44525cb5eb2abb9cd3
+- `WorkerPhysicalPublishExecutor.java` SHA-256: eb74509fdbb45b78063fb7ac300d2fb30539f6a34e060fa3f9c8569f20f12a3f
+- `WorkerManagedPulsarNativePublishTest.java` SHA-256: 7cf8977095393f01632920ae741974452cf8ab0a092afebca13077b252502e14
+
+Finding: both duplicate submits can pass `PulsarAttemptJournal.sendAfterMapped` while the exact attempt is still `MAPPED`, then queue separate physical tasks. The first preflight durably marks `OWNERSHIP_STARTED`; the second marker append is idempotent. Ignoring that result allowed a second call to the prepared-record Producer.
+
+Regression: `queuedDuplicateSubmissionsTransferProducerOwnershipOnlyOnce` queues two submissions for the same PUBLISHING attempt and Owner before either physical preflight runs, with admission capacity for both. Before the fix, the focused test observed two Producer calls. The executor now treats an idempotent `markOwnershipStarted` result as an already-owned attempt and returns `UNKNOWN/RECOVERY_FIRST_SEND_UNCERTAIN` before invoking the second Producer call. The Journal contains one `MAPPED` and one `OWNERSHIP_STARTED`; after the first target stage resolves UNKNOWN, both submissions remain UNKNOWN and all physical reservations are released.
+
+Commands:
+`./gradlew test --tests 'com.nereusstream.delay.ownership.WorkerManagedPulsarNativePublishTest.queuedDuplicateSubmissionsTransferProducerOwnershipOnlyOnce' checkstyleTest`
+`./gradlew test --tests com.nereusstream.delay.ownership.WorkerManagedPulsarNativePublishTest checkstyleTest`
+
+Results: `WorkerManagedPulsarNativePublishTest` 7 tests, 0 failures/errors/skips; `checkstyleTest` passed.
+
+Scope: this proves the local Journal/Worker behavior for the deterministic two-task queue race. It does not establish persistent Journal recovery, real Broker/Oxia behavior, or cross-process concurrency, and does not close the remaining E3 guard matrix or central validation.
