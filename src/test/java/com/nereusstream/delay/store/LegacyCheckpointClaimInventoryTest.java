@@ -39,6 +39,8 @@ class LegacyCheckpointClaimInventoryTest {
         final DestinationLaneId staleLane = DestinationLaneId.derive(Bytes.utf8("claim-audit-stale"));
         final DestinationLaneId staleObligationLane =
                 DestinationLaneId.derive(Bytes.utf8("claim-audit-stale-obligation"));
+        final DestinationLaneId stalePreconditionVersionLane =
+                DestinationLaneId.derive(Bytes.utf8("claim-audit-stale-precondition-version"));
         final PreparedCommand validSchedule = PreparedCommand.schedule(
                 shard,
                 new ScheduleIntent(
@@ -68,6 +70,15 @@ class LegacyCheckpointClaimInventoryTest {
                         OrderingMode.BEST_EFFORT,
                         Bytes.utf8("claim-audit-stale-obligation")),
                 9_000);
+        final PreparedCommand stalePreconditionVersionSchedule = PreparedCommand.schedule(
+                shard,
+                new ScheduleIntent(
+                        stalePreconditionVersionLane,
+                        2_500,
+                        8_500,
+                        OrderingMode.BEST_EFFORT,
+                        Bytes.utf8("claim-audit-stale-precondition-version")),
+                9_000);
         final KafkaSourcePosition validSource = new KafkaSourcePosition(
                 shard, "legacy-cluster", UUID.randomUUID(), 40, null, 4_000);
         final KafkaSourcePosition missingSource = new KafkaSourcePosition(
@@ -78,6 +89,8 @@ class LegacyCheckpointClaimInventoryTest {
                 shard, "legacy-cluster", validSource.nativeTopicUuid(), 43, null, 4_003);
         final KafkaSourcePosition staleObligationSource = new KafkaSourcePosition(
                 shard, "legacy-cluster", validSource.nativeTopicUuid(), 44, null, 4_004);
+        final KafkaSourcePosition stalePreconditionVersionSource = new KafkaSourcePosition(
+                shard, "legacy-cluster", validSource.nativeTopicUuid(), 45, null, 4_005);
         final AuthorIdentity owner = AuthorIdentity.owner(
                 Bytes.utf8("claim-audit-deployment"),
                 Bytes.utf8("claim-audit-worker"),
@@ -88,6 +101,7 @@ class LegacyCheckpointClaimInventoryTest {
         final ClaimRecord staleClaim;
         final ClaimRecord stalePreconditionClaim;
         final ClaimRecord staleObligationClaim;
+        final ClaimRecord stalePreconditionVersionClaim;
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shard, resources)) {
             final ClaimRecord validClaim = ClaimRecordTestSupport.claimScheduled(
@@ -117,6 +131,20 @@ class LegacyCheckpointClaimInventoryTest {
             staleObligationClaim = withPrecondition(
                     staleObligationSourceClaim,
                     preconditionWithObligationSetDigest(obligationPrecondition, bytes(ClaimRecord.HASH_LENGTH, 119)));
+            final ClaimRecord stalePreconditionVersionSourceClaim = ClaimRecordTestSupport.claimScheduled(
+                    store,
+                    stalePreconditionVersionSchedule,
+                    stalePreconditionVersionSource,
+                    stalePreconditionVersionLane,
+                    owner,
+                    2_500,
+                    chargeVector());
+            final ClaimResultBody.ClaimPrecondition versionPrecondition =
+                    ClaimResultBody.decodePrecondition(stalePreconditionVersionSourceClaim.preconditionBytes());
+            stalePreconditionVersionClaim = withPrecondition(
+                    stalePreconditionVersionSourceClaim,
+                    preconditionWithStateVersion(
+                            versionPrecondition, Math.addExact(versionPrecondition.stateVersion(), 1)));
             final MessageRecord currentStaleMessage = MessageRecord.decode(store.getValue(
                             ColumnFamily.ID, KeyCodec.idMessage(staleSchedule.delayMessageId()), 1)
                     .payload());
@@ -161,6 +189,11 @@ class LegacyCheckpointClaimInventoryTest {
                         staleObligationClaim.encodedKey(),
                         staleObligationClaim.encode());
                 batch.putValue(
+                        ColumnFamily.INFLIGHT,
+                        ClaimRecord.VALUE_TYPE,
+                        stalePreconditionVersionClaim.encodedKey(),
+                        stalePreconditionVersionClaim.encode());
+                batch.putValue(
                         ColumnFamily.ID,
                         1,
                         KeyCodec.idMessage(staleSchedule.delayMessageId()),
@@ -172,7 +205,7 @@ class LegacyCheckpointClaimInventoryTest {
                         orphanClaim.encode());
             });
             store.createCheckpoint(image, checkpointId);
-            manifest = manifestFor(image, shard, store, checkpointId, staleObligationSource);
+            manifest = manifestFor(image, shard, store, checkpointId, stalePreconditionVersionSource);
             assertTrue(store.getValue(ColumnFamily.INFLIGHT, validClaim.encodedKey(), ClaimRecord.VALUE_TYPE) != null);
         }
 
@@ -234,6 +267,31 @@ class LegacyCheckpointClaimInventoryTest {
         assertEquals("MESSAGE", staleObligationMessageMissing.recordKind());
         assertTrue(Bytes.constantTimeEquals(
                 staleObligationSource.canonicalBytes(), staleObligationMessageMissing.sourcePosition()));
+        final LegacyCheckpointStateInventory.Conflict stalePreconditionVersionConflict =
+                inventory.conflicts().stream()
+                        .filter(conflict -> conflict.reason()
+                                == LegacyCheckpointStateInventory.ConflictReason
+                                        .CLAIM_NOT_REPRESENTED_BY_CURRENT_MESSAGE)
+                        .filter(conflict -> Bytes.constantTimeEquals(
+                                Bytes.sha256(stalePreconditionVersionClaim.encodedKey()), conflict.oldKeyDigest()))
+                        .findFirst()
+                        .orElseThrow();
+        assertEquals("CLAIM", stalePreconditionVersionConflict.recordKind());
+        assertTrue(Bytes.constantTimeEquals(
+                stalePreconditionVersionSource.canonicalBytes(), stalePreconditionVersionConflict.sourcePosition()));
+        final LegacyCheckpointStateInventory.Conflict stalePreconditionVersionMessageMissing =
+                inventory.conflicts().stream()
+                        .filter(conflict -> conflict.reason()
+                                == LegacyCheckpointStateInventory.ConflictReason.CLAIM_RECORD_MISSING)
+                        .filter(conflict -> Bytes.constantTimeEquals(
+                                Bytes.sha256(KeyCodec.idMessage(stalePreconditionVersionSchedule.delayMessageId())),
+                                conflict.oldKeyDigest()))
+                        .findFirst()
+                        .orElseThrow();
+        assertEquals("MESSAGE", stalePreconditionVersionMessageMissing.recordKind());
+        assertTrue(Bytes.constantTimeEquals(
+                stalePreconditionVersionSource.canonicalBytes(),
+                stalePreconditionVersionMessageMissing.sourcePosition()));
         final byte[] mismatchedOrphanClaimKey =
                 KeyCodec.inflight((byte) 1, orphanClaim.ownerEpoch(), bytes(ClaimRecord.HASH_LENGTH, 93));
         final LegacyCheckpointStateInventory.Conflict orphanRecord = inventory.conflicts().stream()
@@ -245,7 +303,8 @@ class LegacyCheckpointClaimInventoryTest {
                 .orElseThrow();
         assertEquals("CLAIM", orphanRecord.recordKind());
         assertTrue(Bytes.constantTimeEquals(Bytes.sha256(mismatchedOrphanClaimKey), orphanRecord.oldKeyDigest()));
-        assertTrue(Bytes.constantTimeEquals(staleObligationSource.canonicalBytes(), orphanRecord.sourcePosition()));
+        assertTrue(Bytes.constantTimeEquals(
+                stalePreconditionVersionSource.canonicalBytes(), orphanRecord.sourcePosition()));
         final LegacyCheckpointStateInventory.Conflict staleClaimConflict = inventory.conflicts().stream()
                 .filter(conflict -> conflict.reason()
                         == LegacyCheckpointStateInventory.ConflictReason.CLAIM_NOT_REPRESENTED_BY_CURRENT_MESSAGE)
@@ -333,7 +392,11 @@ class LegacyCheckpointClaimInventoryTest {
 
     private static byte[] preconditionWithAdmissionsUsed(
             final ClaimResultBody.ClaimPrecondition precondition, final int admissionsUsed) {
-        return encodePrecondition(precondition, admissionsUsed, precondition.expectedObligationSetDigest());
+        return encodePrecondition(
+                precondition,
+                admissionsUsed,
+                precondition.expectedObligationSetDigest(),
+                precondition.stateVersion());
     }
 
     private static ClaimRecord withPrecondition(final ClaimRecord claim, final byte[] preconditionBytes) {
@@ -357,18 +420,32 @@ class LegacyCheckpointClaimInventoryTest {
 
     private static byte[] preconditionWithObligationSetDigest(
             final ClaimResultBody.ClaimPrecondition precondition, final byte[] obligationSetDigest) {
-        return encodePrecondition(precondition, precondition.expectedAdmissionsUsed(), obligationSetDigest);
+        return encodePrecondition(
+                precondition,
+                precondition.expectedAdmissionsUsed(),
+                obligationSetDigest,
+                precondition.stateVersion());
+    }
+
+    private static byte[] preconditionWithStateVersion(
+            final ClaimResultBody.ClaimPrecondition precondition, final long stateVersion) {
+        return encodePrecondition(
+                precondition,
+                precondition.expectedAdmissionsUsed(),
+                precondition.expectedObligationSetDigest(),
+                stateVersion);
     }
 
     private static byte[] encodePrecondition(
             final ClaimResultBody.ClaimPrecondition precondition,
             final int admissionsUsed,
-            final byte[] obligationSetDigest) {
+            final byte[] obligationSetDigest,
+            final long stateVersion) {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, precondition.claimId());
             CanonicalProtobuf.bytes(output, 2, precondition.messageId());
             CanonicalProtobuf.uint32Bits(output, 3, precondition.generation());
-            CanonicalProtobuf.int64(output, 4, precondition.stateVersion());
+            CanonicalProtobuf.int64(output, 4, stateVersion);
             CanonicalProtobuf.bytes(output, 5, precondition.destinationLaneId());
             CanonicalProtobuf.bytes(output, 6, precondition.laneIncarnation());
             CanonicalProtobuf.int64(output, 7, precondition.laneControlVersion());

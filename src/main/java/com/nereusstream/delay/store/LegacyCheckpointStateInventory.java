@@ -591,6 +591,8 @@ public final class LegacyCheckpointStateInventory {
                 && message.generation() == claim.generation()
                 && Arrays.equals(message.claimId(), claim.claimId())
                 && message.stateVersion() == claim.runtimeRevision()
+                && precondition.stateVersion() != Long.MAX_VALUE
+                && precondition.stateVersion() + 1 == message.stateVersion()
                 && precondition.expectedAdmissionsUsed() == message.admissionsUsed()
                 && precondition.expectedUncertainRetryAdmissionsUsed() == message.uncertainRetryAdmissionsUsed()
                 && Bytes.constantTimeEquals(
