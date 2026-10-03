@@ -85,7 +85,11 @@ class LegacyCheckpointImageInspectorTest {
                 finiteLimits(),
                 new LegacyCheckpointStateInventory.ReadLimits(1_000, 1 << 20, 60_000_000_000L));
         assertEquals(1, state.messageStatuses().get(MessageStatus.SCHEDULED));
-        assertTrue(state.scheduledIndexConflicts().isEmpty());
+        assertTrue(state.conflicts().isEmpty());
+        assertEquals(
+                1,
+                state.messageDispositions().get(
+                        LegacyCheckpointStateInventory.MessageDisposition.CANDIDATE_PENDING_FULL_AUDIT));
         assertTrue(state.recordsByFamily().get(ColumnFamily.ID) > 0);
         assertEquals(
                 state.scannedRecords(),
@@ -216,13 +220,29 @@ class LegacyCheckpointImageInspectorTest {
                 manifest,
                 finiteLimits(),
                 new LegacyCheckpointStateInventory.ReadLimits(1_000, 1 << 20, 60_000_000_000L));
-        assertEquals(1, inventory.scheduledIndexConflicts().size());
-        final LegacyCheckpointStateInventory.IndexConflict conflict = inventory.scheduledIndexConflicts().get(0);
-        assertEquals(LegacyCheckpointStateInventory.IndexConflictReason.EXPIRY_INDEX_MISSING, conflict.reason());
+        assertEquals(1, inventory.conflicts().size());
+        final LegacyCheckpointStateInventory.Conflict conflict = inventory.conflicts().get(0);
+        assertEquals(LegacyCheckpointStateInventory.ConflictReason.EXPIRY_INDEX_MISSING, conflict.reason());
         assertEquals("MESSAGE", conflict.recordKind());
         assertTrue(Bytes.constantTimeEquals(
                 Bytes.sha256(KeyCodec.idMessage(scheduled.messageId())), conflict.oldKeyDigest()));
         assertTrue(Bytes.constantTimeEquals(source.canonicalBytes(), conflict.sourcePosition()));
+    }
+
+    @Test
+    void messageDispositionsKeepUnresolvedAndTerminalObligationsInTheLegacyDomain() {
+        assertEquals(
+                LegacyCheckpointStateInventory.MessageDisposition.BLOCKED_PENDING_CLAIM_RECONCILIATION,
+                LegacyCheckpointStateInventory.dispositionFor(MessageStatus.CLAIMED));
+        assertEquals(
+                LegacyCheckpointStateInventory.MessageDisposition.PRESERVE_OLD_SEND_RECOVERY,
+                LegacyCheckpointStateInventory.dispositionFor(MessageStatus.UNCERTAIN));
+        assertEquals(
+                LegacyCheckpointStateInventory.MessageDisposition.PRESERVE_BROKER_RESPONSIBILITY,
+                LegacyCheckpointStateInventory.dispositionFor(MessageStatus.HANDED_OFF));
+        assertEquals(
+                LegacyCheckpointStateInventory.MessageDisposition.PRESERVE_TERMINAL_AND_REFERENCES,
+                LegacyCheckpointStateInventory.dispositionFor(MessageStatus.PUBLISHED));
     }
 
     private static CheckpointManifest manifestFor(
