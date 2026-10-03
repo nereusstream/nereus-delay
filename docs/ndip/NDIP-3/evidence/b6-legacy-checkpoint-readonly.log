@@ -358,3 +358,28 @@ Commands:
 Result: the targeted Claim and image-inspector classes pass 13/13 total (4 and 9 respectively), with zero failures/errors/skips; `checkstyleTest`, `checkDocumentation`, progress JSON parsing, and `git diff --check` pass. `checkstyleMain` reports only the two unchanged 123-character lines in `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`.
 
 Scope: this is a checkpoint-local deterministic identity check; it does not establish live Owner authority or complete Claim/materialization/certificate, external Admission/Journal, source replay/cutover, migration activation/conversion/rollback, reader retirement, or central validation. B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
+
+## 2026-10-04 Claim sequence against checkpoint high-water
+
+Source lock:
+- Base HEAD and origin/main: `db0c2052e4ee98ff3c647a633b69c3bde452fb29`
+- `LegacyCheckpointStateInventory.java` SHA-256: `192207c07d53068daa357aba50852273b969fe15f632108685bcda64cc65aa1d`
+- `ShardStore.java` SHA-256: `21e4a6f8c64f895e812af567c8f1e14732e6715e5b4d9b1a9aac83b645aeb896`
+- `LegacyCheckpointClaimInventoryTest.java` SHA-256: `7c556909c35dde111a5dba76ef1c570508879bbaf9e57c94534e44cb17730393`
+
+Verification: the bounded META scan captures the persisted `META_CLAIM_SEQUENCE` high-water and compares every retained Claim sequence with it using unsigned ordering. `DelayShard` writes the Claim record and advances this metadata in the same synchronous RocksDB batch. A real RocksDB checkpoint regression keeps a valid current Claim/Message pair but lowers the metadata high-water below the Claim sequence; inventory reports the stable `CLAIM_SEQUENCE_AFTER_CHECKPOINT_HIGH_WATER` conflict. `ShardStore.META_CLAIM_SEQUENCE` is package-visible so the inventory and Store share the fixed metadata key kind without duplicating its value.
+
+Commands:
+`./gradlew test --tests com.nereusstream.delay.store.LegacyCheckpointClaimInventoryTest --tests com.nereusstream.delay.store.LegacyCheckpointImageInspectorTest checkstyleTest`
+
+`./gradlew checkDocumentation`
+
+`jq empty docs/ndip/NDIP-3/progress.json`
+
+`git diff --check`
+
+`./gradlew checkstyleMain`
+
+Result: the targeted Claim and image-inspector classes pass 14/14 total (5 and 9 respectively), with zero failures/errors/skips; `checkstyleTest`, `checkDocumentation`, progress JSON parsing, and `git diff --check` pass. `checkstyleMain` reports only the two unchanged 123-character lines in `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`.
+
+Scope: this checks only the persisted Claim sequence against the checkpoint-local high-water. It does not establish live Owner authority, full Claim policy/materialization/certificate, external Admission/Journal, source replay/cutover, migration activation/conversion/rollback, reader retirement, or central validation; B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.

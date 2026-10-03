@@ -732,6 +732,56 @@ class LegacyCheckpointClaimInventoryTest {
         assertTrue(Bytes.constantTimeEquals(source.canonicalBytes(), conflict.sourcePosition()));
     }
 
+    @Test
+    void rejectsClaimSequenceAfterCheckpointHighWater() throws Exception {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 11);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("claim-sequence-store"));
+        final Path image = tempDir.resolve("claim-sequence-checkpoint");
+        final byte[] checkpointId = bytes(16, 54);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("claim-sequence"));
+        final PreparedCommand schedule = PreparedCommand.schedule(
+                shard,
+                new ScheduleIntent(
+                        lane, 3_000, 9_000, OrderingMode.BEST_EFFORT, Bytes.utf8("claim-sequence")),
+                10_000);
+        final KafkaSourcePosition source = new KafkaSourcePosition(
+                shard, "legacy-cluster", UUID.randomUUID(), 54, null, 4_100);
+        final AuthorIdentity owner = AuthorIdentity.owner(
+                Bytes.utf8("claim-sequence-deployment"),
+                Bytes.utf8("claim-sequence-worker"),
+                Long.MIN_VALUE,
+                Bytes.sha256(Bytes.utf8("claim-sequence-fence")));
+        final CheckpointManifest manifest;
+        final ClaimRecord claim;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore store = ShardStore.open(config, shard, resources)) {
+            claim = ClaimRecordTestSupport.claimScheduled(store, schedule, source, lane, owner, 4_000, chargeVector());
+            final long staleHighWater = Math.subtractExact(claim.claimSequence(), 1);
+            store.write(batch -> batch.putValue(
+                    ColumnFamily.META,
+                    1,
+                    KeyCodec.metaFixed(ShardStore.META_CLAIM_SEQUENCE),
+                    Bytes.u64beBits(staleHighWater)));
+            store.createCheckpoint(image, checkpointId);
+            manifest = manifestFor(image, shard, store, checkpointId, source);
+        }
+
+        final LegacyCheckpointStateInventory.Inventory inventory = LegacyCheckpointStateInventory.inspect(
+                image,
+                shard,
+                manifest,
+                finiteLimits(),
+                new LegacyCheckpointStateInventory.ReadLimits(1_000, 1 << 20, 60_000_000_000L));
+        final LegacyCheckpointStateInventory.Conflict conflict = inventory.conflicts().stream()
+                .filter(item -> item.reason()
+                        == LegacyCheckpointStateInventory.ConflictReason.CLAIM_SEQUENCE_AFTER_CHECKPOINT_HIGH_WATER)
+                .filter(item -> Bytes.constantTimeEquals(Bytes.sha256(claim.encodedKey()), item.oldKeyDigest()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals("CLAIM", conflict.recordKind());
+        assertTrue(Bytes.constantTimeEquals(source.canonicalBytes(), conflict.sourcePosition()));
+    }
+
     private static CheckpointManifest manifestFor(
             final Path image,
             final ShardId shard,

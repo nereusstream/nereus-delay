@@ -99,6 +99,7 @@ public final class LegacyCheckpointStateInventory {
             messageDispositions.put(disposition, 0L);
         }
         long retiredMessageIdentities = 0;
+        long claimSequenceHighWater = 0;
         long scannedRecords = 0;
         long totalBytes = 0;
         final List<Conflict> conflicts = new ArrayList<>();
@@ -270,6 +271,14 @@ public final class LegacyCheckpointStateInventory {
                                     }
                                 }
                             }
+                            if (family == ColumnFamily.META
+                                    && Arrays.equals(key, KeyCodec.metaFixed(ShardStore.META_CLAIM_SEQUENCE))) {
+                                final byte[] sequence = ValueEnvelope.decode(value, 1).payload();
+                                if (sequence.length != Long.BYTES) {
+                                    throw new IllegalArgumentException("invalid persisted Claim sequence");
+                                }
+                                claimSequenceHighWater = java.nio.ByteBuffer.wrap(sequence).getLong();
+                            }
                             if (family == ColumnFamily.META && isLaneKey(key)) {
                                 final DestinationLaneId keyLaneId = laneId(key);
                                 final byte[] payload = ValueEnvelope.decode(value, 2).payload();
@@ -401,6 +410,7 @@ public final class LegacyCheckpointStateInventory {
                 laneStates,
                 claimRecords,
                 proof.metadata().storeIncarnation(),
+                claimSequenceHighWater,
                 proof.appliedSourcePosition(),
                 conflicts);
         for (Map.Entry<String, PublishAttemptLedger> attemptEntry : attemptLedgers.entrySet()) {
@@ -586,6 +596,7 @@ public final class LegacyCheckpointStateInventory {
             final Map<String, LaneStateSnapshot> laneStates,
             final List<ClaimRecordEntry> claimRecords,
             final byte[] storeIncarnation,
+            final long claimSequenceHighWater,
             final SourcePosition appliedSourcePosition,
             final List<Conflict> conflicts) {
         final TreeMap<String, List<ClaimRecordEntry>> claimsByMessage = new TreeMap<>();
@@ -614,6 +625,13 @@ public final class LegacyCheckpointStateInventory {
             if (!matchesClaimIdDerivation(claim)) {
                 conflicts.add(conflict(
                         entry.key(), "CLAIM", sourcePosition, ConflictReason.CLAIM_ID_DERIVATION_MISMATCH));
+            }
+            if (Long.compareUnsigned(claim.claimSequence(), claimSequenceHighWater) > 0) {
+                conflicts.add(conflict(
+                        entry.key(),
+                        "CLAIM",
+                        sourcePosition,
+                        ConflictReason.CLAIM_SEQUENCE_AFTER_CHECKPOINT_HIGH_WATER));
             }
             if (!matchesClaimLane(claim, lane)) {
                 final ConflictReason reason = matchesClaimLaneIdentity(claim, lane)
@@ -1161,6 +1179,7 @@ public final class LegacyCheckpointStateInventory {
         CLAIM_RECORD_KEY_VALUE_MISMATCH,
         CLAIM_RECORD_STORE_INCARNATION_MISMATCH,
         CLAIM_ID_DERIVATION_MISMATCH,
+        CLAIM_SEQUENCE_AFTER_CHECKPOINT_HIGH_WATER,
         CLAIM_LANE_STATE_MISMATCH,
         CLAIM_LANE_RUNTIME_VERSION_AFTER_CURRENT,
         CLAIM_DEADLINE_AFTER_MESSAGE_EXPIRY,

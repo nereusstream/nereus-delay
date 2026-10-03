@@ -63,7 +63,7 @@ public final class ShardStore implements AutoCloseable {
     private static final int META_OWNER_EPOCH = 8;
     private static final int META_CLEAN_CLOSE_MARKER = 9;
     private static final int META_CONTROL_SNAPSHOT = 10;
-    private static final int META_CLAIM_SEQUENCE = 11;
+    static final int META_CLAIM_SEQUENCE = 11;
     private static final int META_PAYLOAD_PROOF_CONTROL_STATE = 12;
     private static final int META_PROFILE_CONTROL_STATE = 13;
     private static final int META_PROTOCOL_ACTIVATION_STATE = 14;
