@@ -156,3 +156,20 @@ Command:
 Result: `PulsarNativeProductionCompositionTest` 8 tests and `NativeSubmissionAdapterTest` 14 tests, 0 failures/errors/skips; `compileJava`, `compileTestJava`, and `checkstyleTest` passed.
 
 Scope: the change closes one check-order gap when credential resolution delays the Producer boundary. It does not establish a production current-policy/Oxia provider or eliminate concurrent revocation after the final gate returns but before the transport call. E3 and central validation remain open.
+
+
+E3 focused prerequisite gate revocation after Admission enqueue
+Date: 2026-10-03
+
+Source lock:
+- Delay base HEAD: 81e9ec5c88092ef933fd97c082289922278e7e01
+- `PublishAdmissionWorkClassExecutorTest.java` SHA-256: 6bac5bb5e035ac735f2053a9ec4a1751ce628e13dffdd1aac736a3a96d17932a
+
+Regression: `deferralRetainsExactReservationThenPreparesSignsAndAppends` now submits Admission while the injected prerequisite gate is available, revokes it before the queued WorkClass action runs, and verifies `PREREQUISITE_UNAVAILABLE`, zero appends, and the same ACTIVE Claim reservation. Restoring the gate and submitting again persists once. This exercises live gate re-reading across the enqueue boundary; it does not establish production policy-provider wiring.
+
+Command:
+`./gradlew test --tests com.nereusstream.delay.ownership.PublishAdmissionWorkClassExecutorTest checkstyleTest`
+
+Result: `PublishAdmissionWorkClassExecutorTest` 2 tests, 0 failures/errors/skips; `compileJava`, `compileTestJava`, and `checkstyleTest` passed.
+
+Scope: this closes one deterministic enqueue-to-execute prerequisite-gate revocation case under the injected test gate only. Store incarnation drift, production policy/provider refresh, credential renewal, other async stale-token paths, and E3 central validation remain open.

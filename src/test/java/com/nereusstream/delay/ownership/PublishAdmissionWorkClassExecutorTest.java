@@ -260,8 +260,7 @@ class PublishAdmissionWorkClassExecutorTest {
                     .reservation();
 
             final AtomicReference<PublishAdmissionWorkClassExecutor.PrerequisiteDecision> gate =
-                    new AtomicReference<>(PublishAdmissionWorkClassExecutor.PrerequisiteDecision.unavailable(
-                            PublishAdmissionWorkClassExecutor.PrerequisiteRejection.CHANNEL_OR_CREDENTIAL_UNAVAILABLE));
+                    new AtomicReference<>(PublishAdmissionWorkClassExecutor.PrerequisiteDecision.available());
             final AtomicReference<SystemMutation> appended = new AtomicReference<>();
             final AtomicInteger appendCalls = new AtomicInteger();
             final KafkaSourcePosition admissionPosition =
@@ -345,6 +344,8 @@ class PublishAdmissionWorkClassExecutorTest {
 
             final PublishAdmissionWorkClassExecutor.Submission deferred = executor.submit(
                     claim, reservation, descriptor, certificate, decision, 2_500, 1, keyPair.getPrivate(), () -> 101);
+            gate.set(PublishAdmissionWorkClassExecutor.PrerequisiteDecision.unavailable(
+                    PublishAdmissionWorkClassExecutor.PrerequisiteRejection.CHANNEL_OR_CREDENTIAL_UNAVAILABLE));
             workClasses.runTurn(new com.nereusstream.delay.scheduler.SchedulerBudget(1, 1_000_000, 1_000));
 
             final PublishAdmissionWorkClassExecutor.AdmissionHandoffResult deferredResult =
