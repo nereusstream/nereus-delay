@@ -207,3 +207,20 @@ Command:
 Result: `PulsarNativeProductionCompositionTest` 10 tests, 0 failures/errors/skips; `compileJava`, `compileTestJava`, and `checkstyleTest` passed.
 
 Scope: this proves an old no-context Native branch cannot enter this current typed record writer. It does not validate every historic command/frame decoder or the remaining E3 guard matrix; E3 remains open.
+
+
+E3 Native Producer stage failure preserves exact-attempt uncertainty
+Date: 2026-10-03
+
+Source lock:
+- Delay base HEAD: e9a86a3480c0ee86bfe5d3df268b50eb361b7162
+- `PulsarNativeProductionCompositionTest.java` SHA-256: 158e4187a7e81fe267ff2727e50bf3cca4725850ed6ba648f2ecfad3a81184d8
+
+Regression: `nativeProducerStageFailureRemainsUnknownForTheExactAttempt` lets the exact typed Native record pass pre-ownership validation, calls the prepared-record Producer transport once, then completes that stage exceptionally. The outcome is `NATIVE_ENQUEUE_UNCERTAIN/NATIVE_ENQUEUE_RESULT_UNCERTAIN`, binds the original prepared reference and physical attempt ID, and retains `RETRY_EXACT_BYTES`; it is not downgraded to definite non-submission.
+
+Command:
+`./gradlew test --tests com.nereusstream.delay.submission.PulsarNativeProductionCompositionTest checkstyleTest`
+
+Result: `PulsarNativeProductionCompositionTest` 11 tests, 0 failures/errors/skips; `compileJava`, `compileTestJava`, and `checkstyleTest` passed.
+
+Scope: this closes one asynchronous failed-completion bridge case after Producer ownership. It does not cover all callback-registration/bridge failures, Broker response loss or recovery, nor the remaining E3 stale-token/Store matrix.

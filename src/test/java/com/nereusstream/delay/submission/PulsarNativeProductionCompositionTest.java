@@ -413,6 +413,56 @@ class PulsarNativeProductionCompositionTest {
     }
 
     @Test
+    void nativeProducerStageFailureRemainsUnknownForTheExactAttempt() throws Exception {
+        final Fixture fixture = fixture();
+        final AtomicInteger sends = new AtomicInteger();
+        final byte[] attempt = bytes(16, 98);
+        final PinnedPulsarNativeSubmissionAdapter.PulsarNativeSendTransport sender =
+                new PinnedPulsarNativeSubmissionAdapter.PulsarNativeSendTransport() {
+                    @Override
+                    public CompletableFuture<PulsarSendResult> send(final PulsarNativeSendRequest request) {
+                        return CompletableFuture.failedFuture(
+                                new AssertionError("envelope-only native sender must remain unused"));
+                    }
+
+                    @Override
+                    public CompletableFuture<PulsarSendResult> sendPreparedRecord(
+                            final PulsarPreparedRecord record, final ArtifactGenerationSet artifacts) {
+                        sends.incrementAndGet();
+                        return CompletableFuture.failedFuture(
+                                new IllegalStateException("Producer result became unavailable after send"));
+                    }
+                };
+        try (PinnedPulsarNativeSubmissionAdapter adapter = new PinnedPulsarNativeSubmissionAdapter(
+                fixture.resource,
+                fixture.capabilityKeys.getPublic(),
+                Clock.fixed(Instant.ofEpochMilli(3_000), ZoneOffset.UTC),
+                sender,
+                null,
+                true,
+                fixture.activationGate,
+                (snapshot, artifacts, now) -> {
+                    assertEquals(fixture.artifacts, artifacts);
+                    assertEquals(3_000, now);
+                })) {
+            final var outcome = adapter.submitPreparedSubmission(fixture.submission, attempt)
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(SubmissionOutcomeKind.NATIVE_ENQUEUE_UNCERTAIN, outcome.kind());
+            assertEquals(
+                    fixture.prepared.preparedRef(), outcome.nativeUncertain().nativePrepared());
+            assertArrayEquals(attempt, outcome.nativeUncertain().physicalEnqueueAttemptId());
+            assertEquals(
+                    com.nereusstream.delay.protocol.StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN,
+                    outcome.nativeUncertain().error().code());
+            assertEquals(
+                    com.nereusstream.delay.protocol.Retryability.RETRY_EXACT_BYTES,
+                    outcome.nativeUncertain().error().retryability());
+        }
+        assertEquals(1, sends.get());
+    }
+
+    @Test
     void handoffAuthorityRevocationAfterRecordPreparationBlocksProducerOwnership() throws Exception {
         final Fixture fixture = fixture();
         final AtomicBoolean handoffAllowed = new AtomicBoolean(true);
