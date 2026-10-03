@@ -111,13 +111,6 @@ public final class PulsarNativePreparedRecordValidator {
         Objects.requireNonNull(prepared, "prepared");
         Objects.requireNonNull(record, "record");
         Objects.requireNonNull(artifacts, "artifacts");
-        final long nowEpochMs;
-        try {
-            nowEpochMs = clock.millis();
-            activationGate.requirePhysicalSend(artifacts, nowEpochMs);
-        } catch (RuntimeException unavailable) {
-            return StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE;
-        }
         if (!prepared.isCurrentGeneration()
                 || prepared.nativeDeliveryPolicy() != NativeDeliveryPolicy.ALLOW_AUTO_FAST_AND_MANAGED_HANDOFF
                 || prepared.deliveryContract() != DeliveryContract.PULSAR_NATIVE_DELIVERY
@@ -147,19 +140,10 @@ public final class PulsarNativePreparedRecordValidator {
         final boolean signatureValid;
         try {
             signatureValid = prepared.capabilitySnapshot().verifySignature(capabilityIssuerKey);
-            handoffPolicyGate.require(prepared.handoffPolicySnapshot(), artifacts, nowEpochMs);
         } catch (RuntimeException invalid) {
             return StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE;
         }
         if (!signatureValid) {
-            return StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE;
-        }
-        if (nowEpochMs < 0
-                || nowEpochMs >= prepared.capabilityExpiryEpochMs()
-                || nowEpochMs < prepared.handoffPolicySnapshot().validFromEpochMs()
-                || nowEpochMs >= prepared.handoffPolicySnapshot().validUntilEpochMs()
-                || !prepared.handoffPolicySnapshot().allows(HandoffPath.AUTO_FAST)
-                || prepared.handoffPolicySnapshot().mode() != HandoffPolicyMode.ENABLED) {
             return StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE;
         }
         if (credentialFingerprintProvider != null) {
@@ -177,6 +161,22 @@ public final class PulsarNativePreparedRecordValidator {
                     resolvedFingerprint, prepared.capabilitySnapshot().resolvedCredentialFingerprintDigest())) {
                 return StableCode.CREDENTIAL_BINDING_DRIFT;
             }
+        }
+        final long nowEpochMs;
+        try {
+            nowEpochMs = clock.millis();
+            activationGate.requirePhysicalSend(artifacts, nowEpochMs);
+            handoffPolicyGate.require(prepared.handoffPolicySnapshot(), artifacts, nowEpochMs);
+        } catch (RuntimeException unavailable) {
+            return StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE;
+        }
+        if (nowEpochMs < 0
+                || nowEpochMs >= prepared.capabilityExpiryEpochMs()
+                || nowEpochMs < prepared.handoffPolicySnapshot().validFromEpochMs()
+                || nowEpochMs >= prepared.handoffPolicySnapshot().validUntilEpochMs()
+                || !prepared.handoffPolicySnapshot().allows(HandoffPath.AUTO_FAST)
+                || prepared.handoffPolicySnapshot().mode() != HandoffPolicyMode.ENABLED) {
+            return StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE;
         }
         return null;
     }

@@ -136,3 +136,23 @@ Command:
 Result: `WorkerManagedPulsarNativePublishTest` 6 tests, 0 failures/errors/skips; `compileJava`, `compileTestJava`, and `checkstyleTest` passed.
 
 Scope: this verifies no resend after `OWNERSHIP_STARTED` in one replacement-owner path. Persistent Journal reopen and Broker sequence reconciliation, concurrent first-send races, other asynchronous token invalidation, and E3 central validation remain open.
+
+
+E3 focused Native policy recheck after credential resolution
+Date: 2026-10-03
+
+Source lock:
+- Delay base HEAD: b0123cef3b7ec6640bd97c3ea8ecde21bb160f3e
+- `PulsarNativePreparedRecordValidator.java` SHA-256: 906b66bfc835c7616bb2a6849dd29bf15a016984248ad3721c09b8d6a1712185
+- `PulsarNativeProductionCompositionTest.java` SHA-256: d8ba9254a82ccd1ff9684e4320ef9c97c1fd9b84ac086f9fd38ad10e0da8c934
+
+Finding and change: Native prepared-record validation captured time and ran activation/Handoff gates before the external credential resolver. The resolver could block while current policy changed, leaving the earlier gate result stale at the Producer edge. Immutable record/binding/signature checks now run first; credential fingerprint resolution runs next; only then does the validator read current time and check activation, current Handoff authority and capability/policy validity. A definite credential fingerprint mismatch still returns `CREDENTIAL_BINDING_DRIFT` before Handoff resolution.
+
+Regression: `nativeSubmissionRechecksHandoffAuthorityAfterCredentialResolution` revokes a mutable test Handoff authority inside the credential resolver. Submission returns local `AUTO_FAST_PREREQUISITE_UNAVAILABLE`, with zero envelope and prepared-record sends. The existing credential-drift case remains local `CREDENTIAL_BINDING_DRIFT` with zero sends.
+
+Command:
+`./gradlew test --tests com.nereusstream.delay.submission.PulsarNativeProductionCompositionTest --tests com.nereusstream.delay.adapter.NativeSubmissionAdapterTest checkstyleTest`
+
+Result: `PulsarNativeProductionCompositionTest` 8 tests and `NativeSubmissionAdapterTest` 14 tests, 0 failures/errors/skips; `compileJava`, `compileTestJava`, and `checkstyleTest` passed.
+
+Scope: the change closes one check-order gap when credential resolution delays the Producer boundary. It does not establish a production current-policy/Oxia provider or eliminate concurrent revocation after the final gate returns but before the transport call. E3 and central validation remain open.
