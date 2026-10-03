@@ -224,3 +224,21 @@ Command:
 Result: `PulsarNativeProductionCompositionTest` 11 tests, 0 failures/errors/skips; `compileJava`, `compileTestJava`, and `checkstyleTest` passed.
 
 Scope: this closes one asynchronous failed-completion bridge case after Producer ownership. It does not cover all callback-registration/bridge failures, Broker response loss or recovery, nor the remaining E3 stale-token/Store matrix.
+
+
+E3 focused rejection of a Claim from a previous Store incarnation
+Date: 2026-10-03
+
+Source lock:
+- Delay base HEAD: 6fc4d1e2603dd4b4cefc3aa16ae8e6a1b9e48be6
+- `PublishAdmissionWorkClassExecutorTest.java` SHA-256: fbfcced6d4621ad50bf3e937efe57007341b79ebb12d701c4ebc23f5c003dc0e
+
+Regression: `claimFromPreviousStoreCannotEnterReplacementStoreAdmission` persists a real Claim in one RocksDB Store, then submits it through the active `OwnedDelayShard` backed by an independently opened Store for the same Shard and Owner lease. Their Store incarnations differ. Admission rejects before WorkClass registration or appender invocation; the exact reservation remains ACTIVE and is released by the test.
+
+Commands:
+`./gradlew test --tests 'com.nereusstream.delay.ownership.PublishAdmissionWorkClassExecutorTest.claimFromPreviousStoreCannotEnterReplacementStoreAdmission'`
+`./gradlew checkstyleTest`
+
+Results: the targeted JUnit XML reports 1 test, 0 failures/errors/skips. `checkstyleTest` reports `BUILD SUCCESSFUL` (task up-to-date).
+
+Scope: this proves one local RocksDB Store-incarnation mismatch is rejected at the formal Admission boundary before queueing or append, using the in-memory Owner lease authority. It does not establish production policy/provider or Oxia wiring, all Store/policy/credential drift cases, other asynchronous stale-token paths, or E3 central validation; E3 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.

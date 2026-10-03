@@ -2,6 +2,7 @@ package com.nereusstream.delay.ownership;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.ActivationBarrier;
@@ -178,6 +179,130 @@ class PublishAdmissionWorkClassExecutorTest {
                     submission.result().orElseThrow().kind());
             assertEquals(0, appendCalls.get());
             assertEquals(ClaimExecutionAdmission.ReservationState.ACTIVE, reservation.state());
+        }
+    }
+
+    @Test
+    void claimFromPreviousStoreCannotEnterReplacementStoreAdmission() throws Exception {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 33);
+        final UUID sourceTopic = UUID.randomUUID();
+        final SourceAssignment assignment = new SourceAssignment(
+                shardId,
+                Bytes.sha256(Bytes.utf8("replacement-store-assignment")),
+                8,
+                new KafkaActivationBarrier(shardId, "replacement-store-cluster", sourceTopic, 0));
+        final InMemoryOwnerLeaseStore leaseBackend = new InMemoryOwnerLeaseStore();
+        final OwnerLease lease = leaseBackend.acquire(
+                        assignment,
+                        "replacement-store-owner",
+                        Bytes.sha256(Bytes.utf8("replacement-store-session")),
+                        100,
+                        100)
+                .orElseThrow();
+        final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(leaseBackend);
+        final ProfileRef destination = profile(ProfileKind.DESTINATION, "replacement-store-destination");
+        final ProfileRef capability = profile(ProfileKind.DELIVERY_CAPABILITY, "replacement-store-capability");
+        final DestinationLaneId laneId =
+                DestinationLaneId.derive(Bytes.concat(destination.canonicalBytes(), capability.canonicalBytes()));
+        final byte[] payload = Bytes.utf8("replacement-store-payload");
+        final PreparedCommand schedule = PreparedCommand.schedule(
+                shardId,
+                new com.nereusstream.delay.protocol.ScheduleIntent(
+                        laneId, 2_000, 9_000, com.nereusstream.delay.protocol.OrderingMode.BEST_EFFORT, payload),
+                10_000);
+        final KafkaSourcePosition schedulePosition =
+                new KafkaSourcePosition(shardId, "replacement-store-cluster", sourceTopic, 0, null, 1_000);
+        final ShardStoreConfig oldConfig =
+                ShardStoreConfig.defaults(tempDir.resolve("replacement-store-old"));
+        final ShardStoreConfig replacementConfig =
+                ShardStoreConfig.defaults(tempDir.resolve("replacement-store-new"));
+        final KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+
+        try (SharedRocksDbResources oldResources = new SharedRocksDbResources(oldConfig);
+                ShardStore oldStore = ShardStore.open(oldConfig, shardId, oldResources);
+                SharedRocksDbResources replacementResources = new SharedRocksDbResources(replacementConfig);
+                ShardStore replacementStore = ShardStore.open(replacementConfig, shardId, replacementResources)) {
+            final OwnerIdentity owner = new OwnerIdentity(
+                    Bytes.utf8("replacement-store-deployment"),
+                    Bytes.utf8("replacement-store-worker"),
+                    lease.ownerEpoch(),
+                    Bytes.sha256(Bytes.utf8("replacement-store-fence")));
+            final DelayShard oldShard = BoundedHeadReadDelayShard.create(oldStore, DelayShardConfig.defaults());
+            oldShard.apply(schedule, schedulePosition);
+            com.nereusstream.delay.runtime.DelayShardTestSupport.updateLaneReadiness(
+                    oldShard, laneId, RuntimeReadiness.READY);
+
+            final MessageRecord message = oldShard.getMessage(schedule.delayMessageId());
+            final ClaimMaterialization materialization =
+                    materialization(destination, capability, schedule.delayMessageId(), message, payload);
+            final ClaimRecord claim = oldShard.claimForPublish(
+                    schedule.delayMessageId(),
+                    AuthorIdentity.owner(
+                            owner.deploymentId(), owner.workerRunId(), owner.ownerEpoch(), owner.leaseFencingDigest()),
+                    3_000,
+                    materialization,
+                    claimCharge(payload.length));
+            final PreparedPublishDescriptor descriptor = descriptor(claim, materialization);
+            final ReadyCertificate certificate =
+                    certificate(owner, oldStore.metadata().storeIncarnation(), descriptor, sourceTopic);
+            final TrustedUtcIntervalEvidence decision = evidence(2_000, 2_001);
+
+            final DelayShard replacementShard =
+                    BoundedHeadReadDelayShard.create(replacementStore, DelayShardConfig.defaults());
+            replacementShard.apply(schedule, schedulePosition);
+            com.nereusstream.delay.runtime.DelayShardTestSupport.updateLaneReadiness(
+                    replacementShard, laneId, RuntimeReadiness.READY);
+            final OwnedDelayShard replacementOwned = new OwnedDelayShard(replacementShard, lease, owner);
+            replacementOwned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
+            replacementOwned.recordCatchup(schedulePosition);
+            replacementOwned.activateForCommands(authority, 101);
+            assertFalse(Bytes.constantTimeEquals(
+                    oldStore.metadata().storeIncarnation(), replacementStore.metadata().storeIncarnation()));
+
+            final ClaimExecutionAdmission permits = new ClaimExecutionAdmission(1, payload.length);
+            permits.registerShard(new ClaimExecutionAdmission.ShardSpec(shardId, 1, payload.length));
+            permits.registerLane(new ClaimExecutionAdmission.LaneSpec(
+                    shardId, laneId, claim.laneIncarnation(), 0, 0, 1, payload.length));
+            permits.openReady(shardId, laneId, claim.laneIncarnation());
+            final ClaimExecutionAdmission.Reservation reservation = permits.tryAcquire(
+                            shardId,
+                            laneId,
+                            claim.laneIncarnation(),
+                            claim.delayMessageId(),
+                            Integer.toUnsignedLong(claim.generation()),
+                            payload.length)
+                    .reservation();
+            final WorkClassExecutionRegistry workClasses = workClasses();
+            final AtomicInteger appendCalls = new AtomicInteger();
+            final PublishAdmissionWorkClassExecutor executor = new PublishAdmissionWorkClassExecutor(
+                    workClasses,
+                    replacementOwned,
+                    authority,
+                    permits,
+                    mutation -> {
+                        appendCalls.incrementAndGet();
+                        return ShardLogMutationAppender.AppendOutcome.persisted(new KafkaSourcePosition(
+                                shardId, "replacement-store-cluster", sourceTopic, 1, null, 2_100));
+                    },
+                    ignored -> PublishAdmissionWorkClassExecutor.PrerequisiteDecision.available());
+
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> executor.submit(
+                            claim,
+                            reservation,
+                            descriptor,
+                            certificate,
+                            decision,
+                            2_500,
+                            1,
+                            keyPair.getPrivate(),
+                            () -> 101));
+
+            assertEquals(0, workClasses.registeredActions());
+            assertEquals(0, appendCalls.get());
+            assertEquals(ClaimExecutionAdmission.ReservationState.ACTIVE, reservation.state());
+            assertTrue(reservation.release());
         }
     }
 
