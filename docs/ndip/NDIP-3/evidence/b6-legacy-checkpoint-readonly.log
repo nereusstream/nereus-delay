@@ -189,3 +189,27 @@ Commands:
 Result: the two targeted B6 test classes pass 9/9 with zero failures/errors/skips; `checkstyleTest`, `checkDocumentation`, JSON parsing, and `git diff --check` pass. `checkstyleMain` fails only on the two unchanged 123-character lines in `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`.
 
 Scope: this checks only the relation between Claim precondition stateVersion and the current Message version. Lane control state, live Owner lease, other precondition fields, external Admission/Journal joins, source replay/cutover, durable activation, conversion, rollback, reader retirement, and central validation remain open; B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
+
+## 2026-10-04 Claim Lane identity against current Message
+
+Source lock:
+- Base HEAD and origin/main: `4eefe8ee3215202b33dc4cbfb5495da4efda4d40`
+- `LegacyCheckpointStateInventory.java` SHA-256: `20c30a980661f64624a5e68cf7f27059a157463544bc6742d68d0b610067cc04`
+- `LegacyCheckpointClaimInventoryTest.java` SHA-256: `bcc4fd77526fe413e59947033257f2fcf46929a44664b03dc7afb3294e5d88a9`
+
+Verification: a Claim represents the current CLAIMED Message only when `ClaimRecord.laneId == Message.laneId`. The Claim codec already validates its lane against the internal precondition and timeline key. A real RocksDB case writes a canonical version-1 Claim whose Lane and internal projections agree with each other but disagree with the current Message; inventory reports stable Claim and missing-current-Claim conflicts.
+
+Commands:
+`./gradlew test --tests com.nereusstream.delay.store.LegacyCheckpointImageInspectorTest --tests com.nereusstream.delay.store.LegacyCheckpointClaimInventoryTest checkstyleTest`
+
+`./gradlew checkDocumentation`
+
+`jq empty docs/ndip/NDIP-3/progress.json`
+
+`git diff --check`
+
+`./gradlew checkstyleMain`
+
+Result: the two targeted B6 test classes pass 9/9 with zero failures/errors/skips; `checkstyleTest`, `checkDocumentation`, JSON parsing, and `git diff --check` pass. `checkstyleMain` fails only on the two unchanged 123-character lines in `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`.
+
+Scope: this compares only the Claim Lane ID with the current Message. Lane incarnation/control version, live Owner lease, external Admission/Journal and other owner/proof joins, source replay/cutover, durable activation, conversion, rollback, reader retirement, and central validation remain open; B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.

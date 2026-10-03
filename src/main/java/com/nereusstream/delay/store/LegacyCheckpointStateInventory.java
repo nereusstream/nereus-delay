@@ -3,6 +3,7 @@ package com.nereusstream.delay.store;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.ClaimResultBody;
 import com.nereusstream.delay.protocol.DelayMessageId;
+import com.nereusstream.delay.protocol.DestinationLaneId;
 import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
@@ -191,6 +192,7 @@ public final class LegacyCheckpointStateInventory {
                                                     message.generation(),
                                                     message.stateVersion(),
                                                     message.status(),
+                                                    message.laneId(),
                                                     message.runtimeIndex().currentWorkKind(),
                                                     message.runtimeIndex().claimId(),
                                                     message.runtimeIndex().admissionsUsed(),
@@ -589,6 +591,7 @@ public final class LegacyCheckpointStateInventory {
         return message.status() == MessageStatus.CLAIMED
                 && message.workKind() == CurrentSendWorkKind.CLAIMED
                 && message.generation() == claim.generation()
+                && message.laneId().equals(claim.laneId())
                 && Arrays.equals(message.claimId(), claim.claimId())
                 && message.stateVersion() == claim.runtimeRevision()
                 && precondition.stateVersion() != Long.MAX_VALUE
@@ -933,6 +936,7 @@ public final class LegacyCheckpointStateInventory {
             int generation,
             long stateVersion,
             MessageStatus status,
+            DestinationLaneId laneId,
             CurrentSendWorkKind workKind,
             byte[] claimId,
             int admissionsUsed,
