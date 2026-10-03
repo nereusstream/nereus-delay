@@ -11,12 +11,11 @@ import com.nereusstream.delay.protocol.NativeDeliveryPolicy;
 import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.runtime.AttemptLedgerState;
-import com.nereusstream.delay.runtime.AttemptObligationRef;
 import com.nereusstream.delay.runtime.GenerationAggregateState;
 import com.nereusstream.delay.runtime.GenerationRuntimeIndex;
 import com.nereusstream.delay.runtime.MessageRecord;
 import com.nereusstream.delay.runtime.MessageStatus;
+import com.nereusstream.delay.runtime.PublishAttemptLedger;
 import com.nereusstream.delay.runtime.TimelineWorkKind;
 import com.nereusstream.delay.runtime.TimelineWorkRef;
 import com.nereusstream.delay.runtime.UncertainRetryAuthority;
@@ -26,6 +25,7 @@ import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.rocksdb.RocksDBException;
 
 class LegacyCheckpointImageInspectorTest {
     @TempDir
@@ -234,46 +234,19 @@ class LegacyCheckpointImageInspectorTest {
     }
 
     @Test
-    void blocksScheduledUncertainRetryWithOpenAttemptObligation() throws Exception {
+    void checksOpenScheduledAttemptObligationsAgainstTheirInflightLedgers() throws Exception {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 8);
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("uncertain-retry-store"));
         final Path image = tempDir.resolve("uncertain-retry-checkpoint");
         final byte[] checkpointId = bytes(16, 5);
         final KafkaSourcePosition source = new KafkaSourcePosition(
                 shard, "legacy-cluster", UUID.randomUUID(), 31, null, 4_000);
-        final ScheduledFixture scheduled = scheduledFixture(shard, source, "uncertain-retry-lane");
-        final byte[] attemptId = bytes(32, 40);
-        final AttemptObligationRef obligation = new AttemptObligationRef(
-                attemptId,
-                1,
-                AttemptLedgerState.UNCERTAIN,
-                KeyCodec.inflight((byte) 3, 9, attemptId));
-        final TimelineWorkRef retryWork = new TimelineWorkRef(
-                TimelineWorkKind.UNCERTAIN_RETRY,
-                scheduled.timelineKey(),
-                5_000,
-                5_000,
-                2,
-                2,
-                false,
-                UncertainRetryAuthority.PINNED_POLICY,
-                null,
-                null);
-        final GenerationRuntimeIndex runtime = GenerationRuntimeIndex.timeline(
-                GenerationAggregateState.UNCERTAIN, retryWork, List.of(obligation), 1, 0, false, 2);
-        final MessageRecord message = MessageRecord.current(
-                MessageStatus.SCHEDULED,
-                1,
-                2,
-                5_000,
-                8_000,
-                scheduled.message().laneId(),
-                OrderingMode.BEST_EFFORT,
-                Bytes.utf8("payload"),
-                source.canonicalBytes(),
-                null,
-                5_000,
-                runtime);
+        final UncertainRetryFixture present = uncertainRetryFixture(
+                shard, source, "uncertain-retry-present", 40);
+        final KafkaSourcePosition missingSource = new KafkaSourcePosition(
+                shard, "legacy-cluster", source.nativeTopicUuid(), 32, null, 4_001);
+        final UncertainRetryFixture missing = uncertainRetryFixture(
+                shard, missingSource, "uncertain-retry-missing", 60);
         final CheckpointManifest manifest;
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shard, resources)) {
@@ -282,19 +255,22 @@ class LegacyCheckpointImageInspectorTest {
                         ColumnFamily.META,
                         ShardStore.META_FIXED_VALUE_TYPE,
                         KeyCodec.metaFixed(ShardStore.META_APPLIED_SOURCE_POSITION),
-                        source.canonicalBytes());
+                        missingSource.canonicalBytes());
                 batch.putValue(
                         ColumnFamily.META,
                         ShardStore.META_FIXED_VALUE_TYPE,
                         KeyCodec.metaFixed(ShardStore.META_MUTATION_SEQUENCE),
                         Bytes.u64beBits(2));
+                putUncertainRetry(batch, present);
+                putUncertainRetry(batch, missing);
                 batch.putValue(
-                        ColumnFamily.ID, 1, KeyCodec.idMessage(scheduled.messageId()), message.encode());
-                batch.putValue(ColumnFamily.TIMELINE, 1, scheduled.timelineKey(), retryWork.canonicalBytes());
-                batch.putValue(ColumnFamily.TIMELINE, 1, scheduled.expiryKey(), retryWork.canonicalBytes());
+                        ColumnFamily.INFLIGHT,
+                        PublishAttemptLedger.VALUE_TYPE,
+                        present.attempt().encodedKey(),
+                        present.attempt().encode());
             });
             store.createCheckpoint(image, checkpointId);
-            manifest = manifestFor(image, shard, store, checkpointId, source);
+            manifest = manifestFor(image, shard, store, checkpointId, missingSource);
         }
 
         final LegacyCheckpointStateInventory.Inventory inventory = LegacyCheckpointStateInventory.inspect(
@@ -305,15 +281,24 @@ class LegacyCheckpointImageInspectorTest {
                 new LegacyCheckpointStateInventory.ReadLimits(1_000, 1 << 20, 60_000_000_000L));
 
         assertEquals(
-                1,
+                2,
                 inventory.messageDispositions().get(
                         LegacyCheckpointStateInventory.MessageDisposition.BLOCKED_PENDING_OLD_SEND_RECOVERY));
-        assertEquals(1, inventory.conflicts().size());
-        final LegacyCheckpointStateInventory.Conflict conflict = inventory.conflicts().get(0);
         assertEquals(
-                LegacyCheckpointStateInventory.ConflictReason.SCHEDULED_REQUIRES_OLD_SEND_RECOVERY,
-                conflict.reason());
-        assertTrue(Bytes.constantTimeEquals(source.canonicalBytes(), conflict.sourcePosition()));
+                2,
+                inventory.conflicts().stream()
+                        .filter(conflict -> conflict.reason()
+                                == LegacyCheckpointStateInventory.ConflictReason.SCHEDULED_REQUIRES_OLD_SEND_RECOVERY)
+                        .count());
+        final LegacyCheckpointStateInventory.Conflict missingLedger = inventory.conflicts().stream()
+                .filter(conflict -> conflict.reason()
+                        == LegacyCheckpointStateInventory.ConflictReason.ATTEMPT_OBLIGATION_MISSING)
+                .findFirst()
+                .orElseThrow();
+        assertTrue(Bytes.constantTimeEquals(
+                Bytes.sha256(KeyCodec.idMessage(missing.scheduled().messageId())), missingLedger.oldKeyDigest()));
+        assertTrue(Bytes.constantTimeEquals(missingSource.canonicalBytes(), missingLedger.sourcePosition()));
+        assertEquals(3, inventory.conflicts().size());
     }
 
     @Test
@@ -409,12 +394,85 @@ class LegacyCheckpointImageInspectorTest {
         return new ScheduledFixture(messageId, message, work, timelineKey, expiryKey);
     }
 
+    private static UncertainRetryFixture uncertainRetryFixture(
+            final ShardId shard,
+            final KafkaSourcePosition source,
+            final String laneTuple,
+            final int attemptSeed) {
+        final ScheduledFixture scheduled = scheduledFixture(shard, source, laneTuple);
+        final byte[] attemptId = bytes(32, attemptSeed);
+        final PublishAttemptLedger attempt = PublishAttemptLedger.publishing(
+                        scheduled.messageId(),
+                        1,
+                        attemptId,
+                        bytes(32, attemptSeed + 1),
+                        9,
+                        1,
+                        scheduled.message().laneId(),
+                        bytes(16, attemptSeed + 2),
+                        new byte[] {(byte) attemptSeed},
+                        bytes(16, attemptSeed + 3),
+                        bytes(32, attemptSeed + 4),
+                        new byte[] {(byte) (attemptSeed + 5)},
+                        source.canonicalBytes())
+                .withUnknownOutcome(Bytes.utf8("unknown"), Bytes.utf8("evidence"), source.canonicalBytes());
+        final TimelineWorkRef retryWork = new TimelineWorkRef(
+                TimelineWorkKind.UNCERTAIN_RETRY,
+                scheduled.timelineKey(),
+                5_000,
+                5_000,
+                2,
+                2,
+                false,
+                UncertainRetryAuthority.PINNED_POLICY,
+                null,
+                null);
+        final GenerationRuntimeIndex runtime = GenerationRuntimeIndex.timeline(
+                GenerationAggregateState.UNCERTAIN, retryWork, List.of(attempt.obligationRef()), 1, 0, false, 2);
+        final MessageRecord message = MessageRecord.current(
+                MessageStatus.SCHEDULED,
+                1,
+                2,
+                5_000,
+                8_000,
+                scheduled.message().laneId(),
+                OrderingMode.BEST_EFFORT,
+                Bytes.utf8("payload"),
+                source.canonicalBytes(),
+                null,
+                5_000,
+                runtime);
+        return new UncertainRetryFixture(scheduled, message, retryWork, attempt);
+    }
+
+    private static void putUncertainRetry(
+            final ShardStore.Batch batch, final UncertainRetryFixture fixture) throws RocksDBException {
+        batch.putValue(
+                ColumnFamily.ID,
+                1,
+                KeyCodec.idMessage(fixture.scheduled().messageId()),
+                fixture.message().encode());
+        batch.putValue(
+                ColumnFamily.TIMELINE,
+                1,
+                fixture.scheduled().timelineKey(),
+                fixture.work().canonicalBytes());
+        batch.putValue(
+                ColumnFamily.TIMELINE,
+                1,
+                fixture.scheduled().expiryKey(),
+                fixture.work().canonicalBytes());
+    }
+
     private record ScheduledFixture(
             DelayMessageId messageId,
             MessageRecord message,
             TimelineWorkRef work,
             byte[] timelineKey,
             byte[] expiryKey) {}
+
+    private record UncertainRetryFixture(
+            ScheduledFixture scheduled, MessageRecord message, TimelineWorkRef work, PublishAttemptLedger attempt) {}
 
     private static void assertFileInventoriesEqual(
             final List<CheckpointFileInventory> expected, final List<CheckpointFileInventory> actual) {

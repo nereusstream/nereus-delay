@@ -6,9 +6,11 @@ import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.SourcePositionCodec;
+import com.nereusstream.delay.runtime.AttemptObligationRef;
 import com.nereusstream.delay.runtime.GenerationAggregateState;
 import com.nereusstream.delay.runtime.MessageRecord;
 import com.nereusstream.delay.runtime.MessageStatus;
+import com.nereusstream.delay.runtime.PublishAttemptLedger;
 import com.nereusstream.delay.runtime.RetiredMessageIdentityRecord;
 import com.nereusstream.delay.runtime.TimelineEntry;
 import com.nereusstream.delay.runtime.TimelineWorkRef;
@@ -105,6 +107,7 @@ public final class LegacyCheckpointStateInventory {
                 final Map<String, ColumnFamilyHandle> byName =
                         LegacyCheckpointImageInspector.indexHandles(familyNames, handles);
                 final ColumnFamilyHandle timeline = byName.get(ColumnFamily.TIMELINE.rocksName());
+                final ColumnFamilyHandle inflight = byName.get(ColumnFamily.INFLIGHT.rocksName());
                 for (ColumnFamily family : ColumnFamily.values()) {
                     final ColumnFamilyHandle handle = byName.get(family.rocksName());
                     try (RocksIterator iterator = db.newIterator(
@@ -152,6 +155,14 @@ public final class LegacyCheckpointStateInventory {
                                     messageDispositions.compute(
                                             disposition, (ignored, count) -> Math.addExact(count, 1));
                                     final byte[] oldMessageKey = KeyCodec.idMessage(messageId);
+                                    auditAttemptObligations(
+                                            db,
+                                            inflight,
+                                            messageId,
+                                            message,
+                                            schedulePosition,
+                                            budget,
+                                            conflicts);
                                     final ConflictReason blocker = blockerFor(message);
                                     if (blocker != null) {
                                         conflicts.add(conflict(oldMessageKey, schedulePosition, blocker));
@@ -286,6 +297,44 @@ public final class LegacyCheckpointStateInventory {
             throw budget.incomplete();
         }
         return value;
+    }
+
+    private static void auditAttemptObligations(
+            final RocksDB db,
+            final ColumnFamilyHandle inflight,
+            final DelayMessageId messageId,
+            final MessageRecord message,
+            final SourcePosition schedulePosition,
+            final BoundedReadBudget budget,
+            final List<Conflict> conflicts)
+            throws RocksDBException {
+        final byte[] messageKey = KeyCodec.idMessage(messageId);
+        for (AttemptObligationRef obligation : message.runtimeIndex().attemptObligations()) {
+            final byte[] encodedKey = obligation.encodedInflightKey();
+            final byte[] encodedLedger = readPoint(db, inflight, encodedKey, budget);
+            if (encodedLedger == null) {
+                conflicts.add(conflict(messageKey, schedulePosition, ConflictReason.ATTEMPT_OBLIGATION_MISSING));
+            } else if (!matchesAttemptObligation(encodedLedger, messageId, message, obligation)) {
+                conflicts.add(
+                        conflict(messageKey, schedulePosition, ConflictReason.ATTEMPT_OBLIGATION_VALUE_MISMATCH));
+            }
+        }
+    }
+
+    private static boolean matchesAttemptObligation(
+            final byte[] encodedLedger,
+            final DelayMessageId messageId,
+            final MessageRecord message,
+            final AttemptObligationRef expected) {
+        try {
+            final byte[] payload = ValueEnvelope.decode(encodedLedger, PublishAttemptLedger.VALUE_TYPE).payload();
+            final PublishAttemptLedger ledger = PublishAttemptLedger.decode(payload);
+            return ledger.delayMessageId().equals(messageId)
+                    && ledger.generation() == message.generation()
+                    && Arrays.equals(ledger.obligationRef().canonicalBytes(), expected.canonicalBytes());
+        } catch (IllegalArgumentException malformed) {
+            return false;
+        }
     }
 
     private static boolean matchesTimelineValue(
@@ -464,6 +513,8 @@ public final class LegacyCheckpointStateInventory {
         DUE_INDEX_VALUE_MISMATCH,
         EXPIRY_INDEX_MISSING,
         EXPIRY_INDEX_VALUE_MISMATCH,
+        ATTEMPT_OBLIGATION_MISSING,
+        ATTEMPT_OBLIGATION_VALUE_MISMATCH,
         CLAIM_REQUIRES_SOURCE_CUT_RECONCILIATION,
         SCHEDULED_REQUIRES_OLD_SEND_RECOVERY,
         UNRESOLVED_SEND_REQUIRES_OLD_RECOVERY,
