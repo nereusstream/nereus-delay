@@ -119,3 +119,20 @@ Command:
 Result: `PulsarNativeProductionCompositionTest` 7 tests, 0 failures/errors/skips; `compileJava`, `compileTestJava`, and `checkstyleTest` passed. `checkDocumentation` is run after the synchronized progress/doc update.
 
 Scope: this closes one pre-prepare to Producer-boundary gate-revocation case under a test authority only. It does not verify production policy refresh, Store incarnation or credential renewal drift, other async stale tokens, repeated first Producer ownership, or E3 central validation.
+
+
+E3 focused replacement-owner no-repeat after Pulsar ownership starts
+Date: 2026-10-03
+
+Source lock:
+- Delay base HEAD: a8f583d0475277b2625ba5e86e88c4325afe3262
+- `WorkerManagedPulsarNativePublishTest.java` SHA-256: 627c95ccf60f9fe3337f4475a029a6758786d281d7d68ac07c553e2f1b152e2b
+
+Regression: `replacementOwnerNeverRepeatsSendAfterOwnershipStarted` starts an exact managed Pulsar attempt under the first Owner. Its Journal reaches `MAPPED` and durable `OWNERSHIP_STARTED` before the prepared target stage remains unresolved. A higher-epoch replacement Owner then examines the same attempt using a separate local physical-admission pool. It returns `UNKNOWN/RECOVERY_FIRST_SEND_UNCERTAIN`, makes zero replacement target calls, and leaves the Journal at the original two records. The original target stage is then completed as UNKNOWN and the Journal remains at `OWNERSHIP_STARTED`. This exercises the Worker managed-Pulsar recovery branch with an in-process Journal and test Owner context; it is not a persisted Journal restart, real Broker evidence, Oxia takeover, or network failure test.
+
+Command:
+`./gradlew test --tests com.nereusstream.delay.ownership.WorkerManagedPulsarNativePublishTest checkstyleTest`
+
+Result: `WorkerManagedPulsarNativePublishTest` 6 tests, 0 failures/errors/skips; `compileJava`, `compileTestJava`, and `checkstyleTest` passed.
+
+Scope: this verifies no resend after `OWNERSHIP_STARTED` in one replacement-owner path. Persistent Journal reopen and Broker sequence reconciliation, concurrent first-send races, other asynchronous token invalidation, and E3 central validation remain open.

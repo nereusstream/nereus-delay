@@ -278,6 +278,91 @@ class WorkerManagedPulsarNativePublishTest {
         }
     }
 
+    @Test
+    void replacementOwnerNeverRepeatsSendAfterOwnershipStarted() throws Exception {
+        final Fixture fixture = Fixture.create();
+        final AtomicInteger preparedCalls = new AtomicInteger();
+        final AtomicInteger leaseChecks = new AtomicInteger();
+        final CompletableFuture<DestinationPublishResult> unresolvedTargetResult = new CompletableFuture<>();
+        final DestinationPublishAdapter unresolvedAdapter = new DestinationPublishAdapter() {
+            @Override
+            public java.util.concurrent.CompletionStage<DestinationPublishResult> publish(
+                    final DestinationPublishRequest request) {
+                throw new AssertionError("managed Pulsar path used the payload-only transport boundary");
+            }
+
+            @Override
+            public java.util.concurrent.CompletionStage<DestinationPublishResult> publishPreparedRecord(
+                    final PulsarPreparedRecord record, final ArtifactGenerationSet artifacts) {
+                preparedCalls.incrementAndGet();
+                return unresolvedTargetResult;
+            }
+        };
+        final WorkerPhysicalPublishExecutor firstOwner =
+                fixture.executor(unresolvedAdapter, leaseChecks, fixture.validPhysicalTime);
+
+        try (firstOwner) {
+            final WorkerPhysicalPublishExecutor.Submission first = firstOwner.submit(
+                    fixture.attempt,
+                    WorkerPhysicalPublishExecutor.prepareRequest(fixture.attempt, fixture.payload),
+                    () -> 1_950);
+
+            assertEquals(1, preparedCalls.get());
+            assertEquals(
+                    List.of(
+                            PulsarAttemptJournal.RecordKind.MAPPED,
+                            PulsarAttemptJournal.RecordKind.OWNERSHIP_STARTED),
+                    fixture.journal.records().stream()
+                            .map(PulsarAttemptJournal.JournalRecord::kind)
+                            .toList());
+            assertTrue(first.physicalResult().isEmpty());
+
+            final AtomicInteger replacementCalls = new AtomicInteger();
+            final DestinationPublishAdapter replacementAdapter =
+                    preparedAdapter(replacementCalls, new AtomicReference<>());
+            final WorkerPhysicalPublishExecutor replacementOwner = fixture.executor(
+                    replacementAdapter,
+                    new AtomicInteger(),
+                    null,
+                    null,
+                    fixture.owner.ownerEpoch() + 1,
+                    Fixture.admission(fixture.lane, fixture.laneIncarnation));
+
+            try (replacementOwner) {
+                final WorkerPhysicalPublishExecutor.Submission recovery = replacementOwner.submit(
+                        fixture.attempt,
+                        WorkerPhysicalPublishExecutor.prepareRequest(fixture.attempt, fixture.payload),
+                        () -> 1_950);
+
+                assertEquals(
+                        DestinationPublishResult.Disposition.UNKNOWN,
+                        recovery.physicalResult().orElseThrow().disposition());
+                assertEquals(
+                        StableCode.RECOVERY_FIRST_SEND_UNCERTAIN,
+                        recovery.physicalResult().orElseThrow().stableCode());
+                assertTrue(recovery.physicalCall().isEmpty());
+            }
+
+            assertEquals(0, replacementCalls.get());
+            assertEquals(1, preparedCalls.get());
+            assertEquals(
+                    List.of(
+                            PulsarAttemptJournal.RecordKind.MAPPED,
+                            PulsarAttemptJournal.RecordKind.OWNERSHIP_STARTED),
+                    fixture.journal.records().stream()
+                            .map(PulsarAttemptJournal.JournalRecord::kind)
+                            .toList());
+            unresolvedTargetResult.complete(
+                    DestinationPublishResult.unknown(StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN, null));
+            assertEquals(
+                    DestinationPublishResult.Disposition.UNKNOWN,
+                    first.physicalResult().orElseThrow().disposition());
+            assertEquals(
+                    PulsarAttemptJournal.AttemptState.OWNERSHIP_STARTED,
+                    fixture.journal.state(fixture.journal.records().getFirst().mapping().mappingId()));
+        }
+    }
+
     private static DestinationPublishAdapter preparedAdapter(
             final AtomicInteger calls, final AtomicReference<PulsarPreparedRecord> sent) {
         return new DestinationPublishAdapter() {
@@ -509,8 +594,18 @@ class WorkerManagedPulsarNativePublishTest {
                 final TrustedUtcIntervalEvidence physicalTime,
                 final PhysicalSendActivationGate activationGate,
                 final long contextOwnerEpoch) {
+            return executor(adapter, leaseChecks, physicalTime, activationGate, contextOwnerEpoch, admission);
+        }
+
+        private WorkerPhysicalPublishExecutor executor(
+                final DestinationPublishAdapter adapter,
+                final AtomicInteger leaseChecks,
+                final TrustedUtcIntervalEvidence physicalTime,
+                final PhysicalSendActivationGate activationGate,
+                final long contextOwnerEpoch,
+                final DestinationPhysicalAdmission physicalAdmission) {
             final WorkerPhysicalPublishExecutor result = new WorkerPhysicalPublishExecutor(
-                    new BoundedDestinationPublishAdapter(adapter, admission, workClasses(), Runnable::run),
+                    new BoundedDestinationPublishAdapter(adapter, physicalAdmission, workClasses(), Runnable::run),
                     (mutation, ownerClock) -> {},
                     (ignoredAttempt, ignoredRequest, ignoredClock) -> WorkerPhysicalPublishExecutor.Decision.allowed(),
                     (ignoredAttempt, ignoredRequest, ignoredResult) -> mutation(shard),
