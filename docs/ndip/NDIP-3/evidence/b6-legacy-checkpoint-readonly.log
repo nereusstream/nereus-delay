@@ -24,3 +24,27 @@ Commands:
 Result: `LegacyCheckpointImageInspectorTest` 6/6 and `LegacyCheckpointClaimInventoryTest` 1/1 with 0 failures/errors/skips; terminal tests cover matching, missing and mismatched same-generation summaries. `checkstyleTest`, `checkDocumentation`, `git diff --check`, and `jq empty docs/ndip/NDIP-3/progress.json` passed on this revision. `./gradlew checkstyleMain` reports only pre-existing 123-character lines in untouched `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`.
 
 Scope: this proves physical identity and a partial bounded Message/inventory audit. It checks typed SCHEDULED timeline/expiry indexes, reports conservative status dispositions, verifies Message and terminal-summary Attempt forward references, detects unreferenced recognized INFLIGHT Attempt ledgers, checks Claim identity against current Message and Store incarnation, and compares same-generation terminal Message/summary status, obligations and duplicate marker. Historical terminal/Floor/retention relationships, live Owner lease/policy/Claim precondition authority, Admission/Journal or other owner/proof relationships, old TimelineEntry/Profile semantics, Lane control, source replay, the full per-Shard dry-run report, durable activation, conversion, rollback and reader retirement remain outside this slice. B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
+
+## 2026-10-04 canonical Admission-to-Attempt ledger join
+
+Source lock:
+- Base HEAD and origin/main: `58490ebfb7896a771ba1034896dd957868c9758f`
+- `LegacyCheckpointStateInventory.java` SHA-256: `6beb3c32eebf254bd0df44c80168cf688a5f9b5288056e06a41a45549ca2d150`
+- `LegacyCheckpointImageInspectorTest.java` SHA-256: `1e9a995b5f14fcdd07638a45c08f25b2f6f33ce14159dc75dafd9a9912269293`
+
+Verification: the bounded inventory decodes only embedded Admission bytes with the current canonical PUBLISH_ADMISSION marker. It checks the typed Admission against its Attempt ledger for Message/generation/attempt/Claim IDs, Owner epoch, Lane ID/incarnation, Owner identity, Store incarnation, prepared hash, and attempt number. Malformed marked bodies and identity mismatches produce stable ATTEMPT conflicts bound to the encoded key digest and ledger source position; non-marked opaque bytes remain uninterpreted. The real RocksDB regression covers a matching Admission, Claim ID mismatch while the Message-to-Attempt obligation remains valid, and a malformed marked body.
+
+Commands:
+`./gradlew test --tests com.nereusstream.delay.store.LegacyCheckpointImageInspectorTest --tests com.nereusstream.delay.store.LegacyCheckpointClaimInventoryTest checkstyleTest`
+
+`./gradlew checkDocumentation`
+
+`jq empty docs/ndip/NDIP-3/progress.json`
+
+`git diff --check`
+
+`./gradlew checkstyleMain`
+
+Result: the two B6 test classes pass 8/8 with zero failures/errors/skips; `checkstyleTest`, `checkDocumentation`, JSON parsing, and `git diff --check` pass. `checkstyleMain` reports only the two unchanged 123-character lines in `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`.
+
+Scope: this adds only a static join between a currently recognizable embedded Admission and its local Attempt ledger. It does not decode opaque historical Admission bytes, read or reconcile external Pulsar/Kafka Journal records, prove live Owner lease or full nested Claim/Certificate/Channel authority, or close other owners/proof relationships. It creates no READY report, source replay/cutover proof, converter, activation, rollback receipt, or reader retirement authority; B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.

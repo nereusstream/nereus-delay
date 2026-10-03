@@ -3,6 +3,8 @@ package com.nereusstream.delay.store;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.OrderingMode;
+import com.nereusstream.delay.protocol.OwnerIdentity;
+import com.nereusstream.delay.protocol.PublishAdmissionBody;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.SourcePositionCodec;
@@ -307,6 +309,10 @@ public final class LegacyCheckpointStateInventory {
                 proof.appliedSourcePosition(),
                 conflicts);
         for (Map.Entry<String, PublishAttemptLedger> attemptEntry : attemptLedgers.entrySet()) {
+            if (!budget.beforeTimedWork()) {
+                throw budget.incomplete();
+            }
+            auditAttemptAdmission(attemptEntry.getValue(), conflicts);
             if (!referencedAttemptKeys.contains(attemptEntry.getKey())) {
                 final PublishAttemptLedger ledger = attemptEntry.getValue();
                 conflicts.add(conflict(
@@ -327,6 +333,46 @@ public final class LegacyCheckpointStateInventory {
                 totalBytes,
                 budget.chargedBytes(),
                 conflicts);
+    }
+
+    private static void auditAttemptAdmission(
+            final PublishAttemptLedger ledger, final List<Conflict> conflicts) {
+        final byte[] admissionBytes = ledger.admissionBytes();
+        // Older embedded ledgers may retain opaque tokens. Only bytes with the canonical current
+        // PUBLISH_ADMISSION protobuf marker are interpreted; other bytes remain untouched.
+        if (admissionBytes.length == 0 || Byte.toUnsignedInt(admissionBytes[0]) != 0x0a) {
+            return;
+        }
+        final SourcePosition sourcePosition = SourcePositionCodec.decode(ledger.sourcePosition());
+        final PublishAdmissionBody admission;
+        try {
+            admission = PublishAdmissionBody.decode(admissionBytes);
+        } catch (IllegalArgumentException malformed) {
+            conflicts.add(conflict(
+                    ledger.encodedKey(),
+                    "ATTEMPT",
+                    sourcePosition,
+                    ConflictReason.ATTEMPT_ADMISSION_MALFORMED));
+            return;
+        }
+        final OwnerIdentity owner = OwnerIdentity.decode(admission.ownerIdentity());
+        if (!ledger.delayMessageId().equals(new DelayMessageId(admission.messageId()))
+                || ledger.generation() != admission.generation()
+                || !Arrays.equals(ledger.publishAttemptId(), admission.publishAttemptId())
+                || !Arrays.equals(ledger.claimId(), admission.claimId())
+                || ledger.ownerEpoch() != owner.ownerEpoch()
+                || !Arrays.equals(ledger.laneId().bytes(), admission.laneId())
+                || !Arrays.equals(ledger.laneIncarnation(), admission.laneIncarnation())
+                || !Arrays.equals(ledger.ownerIdentity(), admission.ownerIdentity())
+                || !Arrays.equals(ledger.storeIncarnation(), admission.storeIncarnation())
+                || !Arrays.equals(ledger.preparedPublishHash(), admission.preparedPublishHash())
+                || ledger.attemptNo() != admission.descriptor().attemptNo()) {
+            conflicts.add(conflict(
+                    ledger.encodedKey(),
+                    "ATTEMPT",
+                    sourcePosition,
+                    ConflictReason.ATTEMPT_ADMISSION_LEDGER_MISMATCH));
+        }
     }
 
     private static void auditScheduledIndexes(
@@ -784,6 +830,8 @@ public final class LegacyCheckpointStateInventory {
         ATTEMPT_OBLIGATION_VALUE_MISMATCH,
         ATTEMPT_LEDGER_KEY_VALUE_MISMATCH,
         ATTEMPT_LEDGER_UNREFERENCED,
+        ATTEMPT_ADMISSION_MALFORMED,
+        ATTEMPT_ADMISSION_LEDGER_MISMATCH,
         TERMINAL_SUMMARY_VALUE_MISMATCH,
         TERMINAL_SUMMARY_MISSING,
         CLAIM_RECORD_KEY_VALUE_MISMATCH,

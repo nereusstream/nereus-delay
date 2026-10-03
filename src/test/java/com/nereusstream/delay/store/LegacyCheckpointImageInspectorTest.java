@@ -9,6 +9,9 @@ import com.nereusstream.delay.protocol.DestinationLaneId;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.NativeDeliveryPolicy;
 import com.nereusstream.delay.protocol.OrderingMode;
+import com.nereusstream.delay.protocol.OwnerIdentity;
+import com.nereusstream.delay.protocol.PublishAdmissionBody;
+import com.nereusstream.delay.protocol.PublishAdmissionBodyTest;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.StableCode;
@@ -476,6 +479,159 @@ class LegacyCheckpointImageInspectorTest {
                 LegacyCheckpointStateInventory.dispositionForStatus(MessageStatus.PUBLISHED));
     }
 
+    @Test
+    void reportsCanonicalAdmissionAttemptIdentityMismatch() throws Exception {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 9);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("admission-join-store"));
+        final Path matchingImage = tempDir.resolve("admission-join-matching-checkpoint");
+        final Path mismatchedImage = tempDir.resolve("admission-join-mismatched-checkpoint");
+        final byte[] matchingCheckpointId = bytes(16, 6);
+        final byte[] mismatchedCheckpointId = bytes(16, 7);
+        final UUID sourceTopic = UUID.randomUUID();
+        final KafkaSourcePosition source = new KafkaSourcePosition(
+                shard, "legacy-cluster", sourceTopic, 41, null, 4_010);
+        final KafkaSourcePosition malformedSource = new KafkaSourcePosition(
+                shard, "legacy-cluster", sourceTopic, 42, null, 4_011);
+        final UncertainRetryFixture matching = canonicalUncertainRetryFixture(
+                shard, source, "canonical-admission-join", 120);
+        final UncertainRetryFixture opaqueMalformedBase = uncertainRetryFixture(
+                shard, malformedSource, "malformed-admission-join", 124);
+        final PublishAttemptLedger malformedAttempt = PublishAttemptLedger.publishing(
+                        opaqueMalformedBase.attempt().delayMessageId(),
+                        opaqueMalformedBase.attempt().generation(),
+                        opaqueMalformedBase.attempt().publishAttemptId(),
+                        opaqueMalformedBase.attempt().claimId(),
+                        opaqueMalformedBase.attempt().ownerEpoch(),
+                        opaqueMalformedBase.attempt().attemptNo(),
+                        opaqueMalformedBase.attempt().laneId(),
+                        opaqueMalformedBase.attempt().laneIncarnation(),
+                        opaqueMalformedBase.attempt().ownerIdentity(),
+                        opaqueMalformedBase.attempt().storeIncarnation(),
+                        opaqueMalformedBase.attempt().preparedPublishHash(),
+                        new byte[] {0x0a},
+                        opaqueMalformedBase.attempt().sourcePosition())
+                .withUnknownOutcome(
+                        opaqueMalformedBase.attempt().outcomeBytes(),
+                        opaqueMalformedBase.attempt().evidenceBytes(),
+                        opaqueMalformedBase.attempt().sourcePosition());
+        final UncertainRetryFixture malformed = new UncertainRetryFixture(
+                opaqueMalformedBase.scheduled(), opaqueMalformedBase.message(), opaqueMalformedBase.work(),
+                malformedAttempt);
+        final PublishAttemptLedger original = matching.attempt();
+        final PublishAttemptLedger mismatchedAttempt = PublishAttemptLedger.publishing(
+                        original.delayMessageId(),
+                        original.generation(),
+                        original.publishAttemptId(),
+                        bytes(32, 240),
+                        original.ownerEpoch(),
+                        original.attemptNo(),
+                        original.laneId(),
+                        original.laneIncarnation(),
+                        original.ownerIdentity(),
+                        original.storeIncarnation(),
+                        original.preparedPublishHash(),
+                        original.admissionBytes(),
+                        original.sourcePosition())
+                .withUnknownOutcome(original.outcomeBytes(), original.evidenceBytes(), original.sourcePosition());
+        assertTrue(Bytes.constantTimeEquals(
+                original.obligationRef().canonicalBytes(), mismatchedAttempt.obligationRef().canonicalBytes()));
+        final UncertainRetryFixture mismatched = new UncertainRetryFixture(
+                matching.scheduled(), matching.message(), matching.work(), mismatchedAttempt);
+        final CheckpointManifest matchingManifest;
+        final CheckpointManifest mismatchedManifest;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore store = ShardStore.open(config, shard, resources)) {
+            store.write(batch -> {
+                batch.putValue(
+                        ColumnFamily.META,
+                        ShardStore.META_FIXED_VALUE_TYPE,
+                        KeyCodec.metaFixed(ShardStore.META_APPLIED_SOURCE_POSITION),
+                        malformedSource.canonicalBytes());
+                batch.putValue(
+                        ColumnFamily.META,
+                        ShardStore.META_FIXED_VALUE_TYPE,
+                        KeyCodec.metaFixed(ShardStore.META_MUTATION_SEQUENCE),
+                        Bytes.u64beBits(1));
+                putUncertainRetry(batch, mismatched);
+                putUncertainRetry(batch, malformed);
+                batch.putValue(
+                        ColumnFamily.INFLIGHT,
+                        PublishAttemptLedger.VALUE_TYPE,
+                        original.encodedKey(),
+                        original.encode());
+                batch.putValue(
+                        ColumnFamily.INFLIGHT,
+                        PublishAttemptLedger.VALUE_TYPE,
+                        malformedAttempt.encodedKey(),
+                        malformedAttempt.encode());
+            });
+            store.createCheckpoint(matchingImage, matchingCheckpointId);
+            matchingManifest = manifestFor(matchingImage, shard, store, matchingCheckpointId, malformedSource);
+            store.write(batch -> {
+                batch.putValue(
+                        ColumnFamily.META,
+                        ShardStore.META_FIXED_VALUE_TYPE,
+                        KeyCodec.metaFixed(ShardStore.META_MUTATION_SEQUENCE),
+                        Bytes.u64beBits(2));
+                batch.putValue(
+                        ColumnFamily.INFLIGHT,
+                        PublishAttemptLedger.VALUE_TYPE,
+                        mismatchedAttempt.encodedKey(),
+                        mismatchedAttempt.encode());
+            });
+            store.createCheckpoint(mismatchedImage, mismatchedCheckpointId);
+            mismatchedManifest = manifestFor(mismatchedImage, shard, store, mismatchedCheckpointId, malformedSource);
+        }
+
+        final LegacyCheckpointStateInventory.Inventory matchingInventory = LegacyCheckpointStateInventory.inspect(
+                matchingImage,
+                shard,
+                matchingManifest,
+                finiteLimits(),
+                new LegacyCheckpointStateInventory.ReadLimits(1_000, 1 << 20, 60_000_000_000L));
+        assertEquals(
+                0,
+                matchingInventory.conflicts().stream()
+                        .filter(conflict -> conflict.reason()
+                                == LegacyCheckpointStateInventory.ConflictReason.ATTEMPT_ADMISSION_LEDGER_MISMATCH)
+                        .count());
+        assertEquals(
+                1,
+                matchingInventory.conflicts().stream()
+                        .filter(conflict -> conflict.reason()
+                                == LegacyCheckpointStateInventory.ConflictReason.ATTEMPT_ADMISSION_MALFORMED)
+                        .count());
+
+        final LegacyCheckpointStateInventory.Inventory mismatchedInventory = LegacyCheckpointStateInventory.inspect(
+                mismatchedImage,
+                shard,
+                mismatchedManifest,
+                finiteLimits(),
+                new LegacyCheckpointStateInventory.ReadLimits(1_000, 1 << 20, 60_000_000_000L));
+
+        final LegacyCheckpointStateInventory.Conflict mismatch = mismatchedInventory.conflicts().stream()
+                .filter(conflict -> conflict.reason()
+                        == LegacyCheckpointStateInventory.ConflictReason.ATTEMPT_ADMISSION_LEDGER_MISMATCH)
+                .findFirst()
+                .orElseThrow();
+        assertEquals("ATTEMPT", mismatch.recordKind());
+        assertTrue(Bytes.constantTimeEquals(
+                Bytes.sha256(mismatchedAttempt.encodedKey()), mismatch.oldKeyDigest()));
+        assertTrue(Bytes.constantTimeEquals(source.canonicalBytes(), mismatch.sourcePosition()));
+        assertEquals(
+                0,
+                mismatchedInventory.conflicts().stream()
+                        .filter(conflict -> conflict.reason()
+                                == LegacyCheckpointStateInventory.ConflictReason.ATTEMPT_OBLIGATION_VALUE_MISMATCH)
+                        .count());
+        assertEquals(
+                1,
+                mismatchedInventory.conflicts().stream()
+                        .filter(conflict -> conflict.reason()
+                                == LegacyCheckpointStateInventory.ConflictReason.ATTEMPT_ADMISSION_MALFORMED)
+                        .count());
+    }
+
     private static CheckpointManifest manifestFor(
             final Path image,
             final ShardId shard,
@@ -527,16 +683,24 @@ class LegacyCheckpointImageInspectorTest {
 
     private static ScheduledFixture scheduledFixture(
             final ShardId shard, final KafkaSourcePosition source, final String laneTuple) {
+        return scheduledFixture(shard, source, laneTuple, 1);
+    }
+
+    private static ScheduledFixture scheduledFixture(
+            final ShardId shard,
+            final KafkaSourcePosition source,
+            final String laneTuple,
+            final int generation) {
         final DelayMessageId messageId = DelayMessageId.random(shard);
         final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8(laneTuple));
         final byte[] timelineKey = KeyCodec.timelineDue(
-                lane, 5_000, source.sourceOrderToken(), messageId, 1);
+                lane, 5_000, source.sourceOrderToken(), messageId, generation);
         final TimelineWorkRef work = TimelineWorkRef.initial(timelineKey, 5_000, 1);
         final GenerationRuntimeIndex runtime = GenerationRuntimeIndex.timeline(
                 GenerationAggregateState.SCHEDULED, work, 1);
         final MessageRecord message = MessageRecord.current(
                 MessageStatus.SCHEDULED,
-                1,
+                generation,
                 1,
                 5_000,
                 8_000,
@@ -549,7 +713,7 @@ class LegacyCheckpointImageInspectorTest {
                 null,
                 5_000,
                 runtime);
-        final byte[] expiryKey = KeyCodec.timelineExpiry(8_000, lane, messageId, 1);
+        final byte[] expiryKey = KeyCodec.timelineExpiry(8_000, lane, messageId, generation);
         return new ScheduledFixture(messageId, message, work, timelineKey, expiryKey);
     }
 
@@ -575,6 +739,53 @@ class LegacyCheckpointImageInspectorTest {
                         new byte[] {(byte) (attemptSeed + 5)},
                         source.canonicalBytes())
                 .withUnknownOutcome(Bytes.utf8("unknown"), Bytes.utf8("evidence"), source.canonicalBytes());
+        return uncertainRetryFixture(scheduled, attempt, source);
+    }
+
+    private static UncertainRetryFixture canonicalUncertainRetryFixture(
+            final ShardId shard,
+            final KafkaSourcePosition source,
+            final String laneTuple,
+            final int attemptSeed) {
+        final ScheduledFixture scheduled = scheduledFixture(shard, source, laneTuple, 0);
+        final byte[] laneIncarnation = bytes(16, attemptSeed + 2);
+        final PublishAdmissionBodyTest.Fixture bodyFixture = PublishAdmissionBodyTest.Fixture.createForSourceWithLane(
+                shard,
+                scheduled.messageId(),
+                laneIncarnation,
+                scheduled.timelineKey(),
+                TimelineWorkKind.UNCERTAIN_RETRY.wireValue(),
+                2,
+                2,
+                Bytes.sha256(Bytes.utf8("canonical-admission-obligations")),
+                Bytes.sha256(Bytes.utf8("canonical-admission-semantics")),
+                scheduled.message().laneId().bytes());
+        final PublishAdmissionBody admission = PublishAdmissionBody.decode(bodyFixture.body());
+        final PublishAttemptLedger attempt = PublishAttemptLedger.publishing(
+                        scheduled.messageId(),
+                        admission.generation(),
+                        admission.publishAttemptId(),
+                        admission.claimId(),
+                        OwnerIdentity.decode(admission.ownerIdentity()).ownerEpoch(),
+                        admission.descriptor().attemptNo(),
+                        new DestinationLaneId(admission.laneId()),
+                        admission.laneIncarnation(),
+                        admission.ownerIdentity(),
+                        admission.storeIncarnation(),
+                        admission.preparedPublishHash(),
+                        bodyFixture.body(),
+                        source.canonicalBytes())
+                .withUnknownOutcome(
+                        Bytes.utf8("canonical-unknown"),
+                        Bytes.utf8("canonical-evidence"),
+                        source.canonicalBytes());
+        return uncertainRetryFixture(scheduled, attempt, source);
+    }
+
+    private static UncertainRetryFixture uncertainRetryFixture(
+            final ScheduledFixture scheduled,
+            final PublishAttemptLedger attempt,
+            final KafkaSourcePosition source) {
         final TimelineWorkRef retryWork = new TimelineWorkRef(
                 TimelineWorkKind.UNCERTAIN_RETRY,
                 scheduled.timelineKey(),
@@ -590,7 +801,7 @@ class LegacyCheckpointImageInspectorTest {
                 GenerationAggregateState.UNCERTAIN, retryWork, List.of(attempt.obligationRef()), 1, 0, false, 2);
         final MessageRecord message = MessageRecord.current(
                 MessageStatus.SCHEDULED,
-                1,
+                scheduled.message().generation(),
                 2,
                 5_000,
                 8_000,
