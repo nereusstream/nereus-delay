@@ -257,6 +257,79 @@ class LegacyCheckpointImageInspectorTest {
                 shard, "legacy-cluster", source.nativeTopicUuid(), 34, null, 4_003);
         final UncertainRetryFixture orphan = uncertainRetryFixture(
                 shard, orphanSource, "uncertain-retry-orphan", 100);
+        final KafkaSourcePosition missingTerminalSource = new KafkaSourcePosition(
+                shard, "legacy-cluster", source.nativeTopicUuid(), 35, null, 4_004);
+        final ScheduledFixture missingTerminal =
+                scheduledFixture(shard, missingTerminalSource, "terminal-without-summary");
+        final GenerationRuntimeIndex publishedRuntime = GenerationRuntimeIndex.none(
+                GenerationAggregateState.PUBLISHED,
+                List.of(terminal.attempt().obligationRef()),
+                1,
+                0,
+                false,
+                2);
+        final MessageRecord terminalMessage = MessageRecord.current(
+                MessageStatus.PUBLISHED,
+                1,
+                2,
+                terminal.scheduled().message().deliverAtEpochMs(),
+                terminal.scheduled().message().expireAtEpochMs(),
+                terminal.scheduled().message().retryEligibilityAtEpochMs(),
+                terminal.scheduled().message().laneId(),
+                OrderingMode.BEST_EFFORT,
+                NativeDeliveryPolicy.FORBID,
+                Bytes.utf8("terminal-payload"),
+                terminalSource.canonicalBytes(),
+                null,
+                terminal.scheduled().message().earliestNativeCandidateAtEpochMs(),
+                publishedRuntime);
+        final GenerationRuntimeIndex canceledRuntime = GenerationRuntimeIndex.none(
+                GenerationAggregateState.CANCELED, List.of(), 1, 0, false, 2);
+        final MessageRecord canceledWithoutSummary = MessageRecord.current(
+                MessageStatus.CANCELED,
+                1,
+                2,
+                missingTerminal.message().deliverAtEpochMs(),
+                missingTerminal.message().expireAtEpochMs(),
+                missingTerminal.message().retryEligibilityAtEpochMs(),
+                missingTerminal.message().laneId(),
+                OrderingMode.BEST_EFFORT,
+                NativeDeliveryPolicy.FORBID,
+                Bytes.utf8("canceled-payload"),
+                missingTerminalSource.canonicalBytes(),
+                null,
+                missingTerminal.message().earliestNativeCandidateAtEpochMs(),
+                canceledRuntime);
+        final KafkaSourcePosition mismatchedTerminalSource = new KafkaSourcePosition(
+                shard, "legacy-cluster", source.nativeTopicUuid(), 36, null, 4_005);
+        final ScheduledFixture mismatchedTerminal =
+                scheduledFixture(shard, mismatchedTerminalSource, "terminal-summary-mismatch");
+        final GenerationRuntimeIndex mismatchedPublishedRuntime = GenerationRuntimeIndex.none(
+                GenerationAggregateState.PUBLISHED, List.of(), 1, 0, false, 2);
+        final MessageRecord mismatchedPublishedMessage = MessageRecord.current(
+                MessageStatus.PUBLISHED,
+                1,
+                2,
+                mismatchedTerminal.message().deliverAtEpochMs(),
+                mismatchedTerminal.message().expireAtEpochMs(),
+                mismatchedTerminal.message().retryEligibilityAtEpochMs(),
+                mismatchedTerminal.message().laneId(),
+                OrderingMode.BEST_EFFORT,
+                NativeDeliveryPolicy.FORBID,
+                Bytes.utf8("mismatched-terminal-payload"),
+                mismatchedTerminalSource.canonicalBytes(),
+                null,
+                mismatchedTerminal.message().earliestNativeCandidateAtEpochMs(),
+                mismatchedPublishedRuntime);
+        final TerminalGenerationRecord mismatchedTerminalSummary = new TerminalGenerationRecord(
+                mismatchedTerminal.messageId(),
+                1,
+                MessageStatus.PUBLISHED,
+                StableCode.ALREADY_PUBLISHED,
+                2,
+                mismatchedTerminalSource.canonicalBytes(),
+                true,
+                List.of());
         final TerminalGenerationRecord terminalSummary = new TerminalGenerationRecord(
                 terminal.scheduled().messageId(),
                 1,
@@ -274,7 +347,7 @@ class LegacyCheckpointImageInspectorTest {
                         ColumnFamily.META,
                         ShardStore.META_FIXED_VALUE_TYPE,
                         KeyCodec.metaFixed(ShardStore.META_APPLIED_SOURCE_POSITION),
-                        orphanSource.canonicalBytes());
+                        mismatchedTerminalSource.canonicalBytes());
                 batch.putValue(
                         ColumnFamily.META,
                         ShardStore.META_FIXED_VALUE_TYPE,
@@ -283,10 +356,30 @@ class LegacyCheckpointImageInspectorTest {
                 putUncertainRetry(batch, present);
                 putUncertainRetry(batch, missing);
                 batch.putValue(
+                        ColumnFamily.ID,
+                        1,
+                        KeyCodec.idMessage(terminal.scheduled().messageId()),
+                        terminalMessage.encode());
+                batch.putValue(
+                        ColumnFamily.ID,
+                        1,
+                        KeyCodec.idMessage(missingTerminal.messageId()),
+                        canceledWithoutSummary.encode());
+                batch.putValue(
+                        ColumnFamily.ID,
+                        1,
+                        KeyCodec.idMessage(mismatchedTerminal.messageId()),
+                        mismatchedPublishedMessage.encode());
+                batch.putValue(
                         ColumnFamily.TERMINAL,
                         1,
                         KeyCodec.terminalGeneration(terminal.scheduled().messageId(), 1),
                         terminalSummary.encode());
+                batch.putValue(
+                        ColumnFamily.TERMINAL,
+                        1,
+                        KeyCodec.terminalGeneration(mismatchedTerminal.messageId(), 1),
+                        mismatchedTerminalSummary.encode());
                 batch.putValue(
                         ColumnFamily.INFLIGHT,
                         PublishAttemptLedger.VALUE_TYPE,
@@ -304,7 +397,7 @@ class LegacyCheckpointImageInspectorTest {
                         orphan.attempt().encode());
             });
             store.createCheckpoint(image, checkpointId);
-            manifest = manifestFor(image, shard, store, checkpointId, orphanSource);
+            manifest = manifestFor(image, shard, store, checkpointId, mismatchedTerminalSource);
         }
 
         final LegacyCheckpointStateInventory.Inventory inventory = LegacyCheckpointStateInventory.inspect(
@@ -342,7 +435,29 @@ class LegacyCheckpointImageInspectorTest {
         assertTrue(Bytes.constantTimeEquals(
                 Bytes.sha256(orphan.attempt().encodedKey()), orphanLedger.oldKeyDigest()));
         assertTrue(Bytes.constantTimeEquals(orphanSource.canonicalBytes(), orphanLedger.sourcePosition()));
-        assertEquals(4, inventory.conflicts().size());
+        final LegacyCheckpointStateInventory.Conflict missingTerminalSummary = inventory.conflicts().stream()
+                .filter(conflict -> conflict.reason()
+                        == LegacyCheckpointStateInventory.ConflictReason.TERMINAL_SUMMARY_MISSING)
+                .findFirst()
+                .orElseThrow();
+        assertEquals("MESSAGE", missingTerminalSummary.recordKind());
+        assertTrue(Bytes.constantTimeEquals(
+                Bytes.sha256(KeyCodec.idMessage(missingTerminal.messageId())),
+                missingTerminalSummary.oldKeyDigest()));
+        assertTrue(Bytes.constantTimeEquals(
+                missingTerminalSource.canonicalBytes(), missingTerminalSummary.sourcePosition()));
+        final LegacyCheckpointStateInventory.Conflict terminalMismatch = inventory.conflicts().stream()
+                .filter(conflict -> conflict.reason()
+                        == LegacyCheckpointStateInventory.ConflictReason.TERMINAL_SUMMARY_VALUE_MISMATCH)
+                .findFirst()
+                .orElseThrow();
+        assertEquals("TERMINAL", terminalMismatch.recordKind());
+        assertTrue(Bytes.constantTimeEquals(
+                Bytes.sha256(KeyCodec.terminalGeneration(mismatchedTerminal.messageId(), 1)),
+                terminalMismatch.oldKeyDigest()));
+        assertTrue(Bytes.constantTimeEquals(
+                mismatchedTerminalSource.canonicalBytes(), terminalMismatch.sourcePosition()));
+        assertEquals(9, inventory.conflicts().size());
     }
 
     @Test

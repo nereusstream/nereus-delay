@@ -95,7 +95,8 @@ public final class LegacyCheckpointStateInventory {
         final List<Conflict> conflicts = new ArrayList<>();
         final Set<String> referencedAttemptKeys = new HashSet<>();
         final TreeMap<String, PublishAttemptLedger> attemptLedgers = new TreeMap<>();
-        final TreeMap<String, MessageClaimState> messageClaims = new TreeMap<>();
+        final TreeMap<String, CurrentMessageState> messages = new TreeMap<>();
+        final TreeMap<String, TerminalSummaryEntry> terminalSummaries = new TreeMap<>();
         final List<ClaimRecordEntry> claimRecords = new ArrayList<>();
         try (Options listOptions = new Options()) {
             final List<byte[]> familyNames = RocksDB.listColumnFamilies(listOptions, image.toString());
@@ -159,14 +160,17 @@ public final class LegacyCheckpointStateInventory {
                                                 "legacy Message source position belongs to another Shard");
                                     }
                                     final byte[] oldMessageKey = KeyCodec.idMessage(messageId);
-                                    messageClaims.put(
+                                    messages.put(
                                             Bytes.hex(messageId.bytes()),
-                                            new MessageClaimState(
+                                            new CurrentMessageState(
+                                                    messageId,
                                                     oldMessageKey,
                                                     message.generation(),
                                                     message.status(),
                                                     message.runtimeIndex().currentWorkKind(),
                                                     message.runtimeIndex().claimId(),
+                                                    message.runtimeIndex().attemptObligations(),
+                                                    message.runtimeIndex().possibleDestinationDuplicate(),
                                                     schedulePosition));
                                     messageStatuses.compute(
                                             message.status(), (ignored, count) -> Math.addExact(count, 1));
@@ -219,6 +223,12 @@ public final class LegacyCheckpointStateInventory {
                                 }
                                 final SourcePosition terminalPosition = SourcePositionCodec.decode(
                                         terminal.appliedSourcePosition());
+                                if (terminalSummaries.put(
+                                                terminalIdentityKey(terminal.messageId(), terminal.generation()),
+                                                new TerminalSummaryEntry(key, terminal))
+                                        != null) {
+                                    throw new IllegalArgumentException("duplicate legacy terminal generation key");
+                                }
                                 auditAttemptObligations(
                                         db,
                                         inflight,
@@ -289,8 +299,9 @@ public final class LegacyCheckpointStateInventory {
         } catch (RocksDBException failure) {
             throw new IllegalArgumentException("cannot enumerate legacy checkpoint column families", failure);
         }
+        auditTerminalSummaries(messages, terminalSummaries, conflicts);
         auditClaimRecords(
-                messageClaims,
+                messages,
                 claimRecords,
                 proof.metadata().storeIncarnation(),
                 proof.appliedSourcePosition(),
@@ -430,7 +441,7 @@ public final class LegacyCheckpointStateInventory {
     }
 
     private static void auditClaimRecords(
-            final Map<String, MessageClaimState> messageClaims,
+            final Map<String, CurrentMessageState> messages,
             final List<ClaimRecordEntry> claimRecords,
             final byte[] storeIncarnation,
             final SourcePosition appliedSourcePosition,
@@ -440,7 +451,7 @@ public final class LegacyCheckpointStateInventory {
             final ClaimRecord claim = entry.claim();
             final String messageId = Bytes.hex(claim.delayMessageId().bytes());
             claimsByMessage.computeIfAbsent(messageId, ignored -> new ArrayList<>()).add(entry);
-            final MessageClaimState message = messageClaims.get(messageId);
+            final CurrentMessageState message = messages.get(messageId);
             final SourcePosition sourcePosition =
                     message == null ? appliedSourcePosition : message.sourcePosition();
             if (!entry.keyMatches()) {
@@ -465,8 +476,8 @@ public final class LegacyCheckpointStateInventory {
                         ConflictReason.CLAIM_NOT_REPRESENTED_BY_CURRENT_MESSAGE));
             }
         }
-        for (Map.Entry<String, MessageClaimState> messageEntry : messageClaims.entrySet()) {
-            final MessageClaimState message = messageEntry.getValue();
+        for (Map.Entry<String, CurrentMessageState> messageEntry : messages.entrySet()) {
+            final CurrentMessageState message = messageEntry.getValue();
             if (message.status() != MessageStatus.CLAIMED && message.workKind() != CurrentSendWorkKind.CLAIMED) {
                 continue;
             }
@@ -486,11 +497,52 @@ public final class LegacyCheckpointStateInventory {
         }
     }
 
-    private static boolean representsCurrentClaim(final MessageClaimState message, final ClaimRecord claim) {
+    private static boolean representsCurrentClaim(final CurrentMessageState message, final ClaimRecord claim) {
         return message.status() == MessageStatus.CLAIMED
                 && message.workKind() == CurrentSendWorkKind.CLAIMED
                 && message.generation() == claim.generation()
                 && Arrays.equals(message.claimId(), claim.claimId());
+    }
+
+    private static void auditTerminalSummaries(
+            final Map<String, CurrentMessageState> messages,
+            final Map<String, TerminalSummaryEntry> terminalSummaries,
+            final List<Conflict> conflicts) {
+        for (TerminalSummaryEntry entry : terminalSummaries.values()) {
+            final TerminalGenerationRecord summary = entry.summary();
+            final CurrentMessageState message = messages.get(Bytes.hex(summary.messageId().bytes()));
+            if (message != null
+                    && message.generation() == summary.generation()
+                    && (message.status() != summary.status()
+                            || !message.attemptObligations().equals(summary.openObligations())
+                            || message.possibleDestinationDuplicate() != summary.possibleDestinationDuplicate())) {
+                conflicts.add(conflict(
+                        entry.key(),
+                        "TERMINAL",
+                        message.sourcePosition(),
+                        ConflictReason.TERMINAL_SUMMARY_VALUE_MISMATCH));
+            }
+        }
+        for (CurrentMessageState message : messages.values()) {
+            if (isTerminalStatus(message.status())
+                    && !terminalSummaries.containsKey(terminalIdentityKey(message.messageId(), message.generation()))) {
+                conflicts.add(conflict(
+                        message.key(), message.sourcePosition(), ConflictReason.TERMINAL_SUMMARY_MISSING));
+            }
+        }
+    }
+
+    private static boolean isTerminalStatus(final MessageStatus status) {
+        return status == MessageStatus.CANCELED
+                || status == MessageStatus.SUPERSEDED
+                || status == MessageStatus.PUBLISHED
+                || status == MessageStatus.HANDED_OFF
+                || status == MessageStatus.EXPIRED
+                || status == MessageStatus.DEAD_LETTER;
+    }
+
+    private static String terminalIdentityKey(final DelayMessageId messageId, final int generation) {
+        return Bytes.hex(messageId.bytes()) + ":" + Integer.toUnsignedString(generation);
     }
 
     private static boolean matchesAttemptObligation(
@@ -732,6 +784,8 @@ public final class LegacyCheckpointStateInventory {
         ATTEMPT_OBLIGATION_VALUE_MISMATCH,
         ATTEMPT_LEDGER_KEY_VALUE_MISMATCH,
         ATTEMPT_LEDGER_UNREFERENCED,
+        TERMINAL_SUMMARY_VALUE_MISMATCH,
+        TERMINAL_SUMMARY_MISSING,
         CLAIM_RECORD_KEY_VALUE_MISMATCH,
         CLAIM_RECORD_STORE_INCARNATION_MISMATCH,
         CLAIM_NOT_REPRESENTED_BY_CURRENT_MESSAGE,
@@ -771,13 +825,18 @@ public final class LegacyCheckpointStateInventory {
         }
     }
 
-    private record MessageClaimState(
+    private record CurrentMessageState(
+            DelayMessageId messageId,
             byte[] key,
             int generation,
             MessageStatus status,
             CurrentSendWorkKind workKind,
             byte[] claimId,
+            List<AttemptObligationRef> attemptObligations,
+            boolean possibleDestinationDuplicate,
             SourcePosition sourcePosition) {}
 
     private record ClaimRecordEntry(byte[] key, ClaimRecord claim, boolean keyMatches) {}
+
+    private record TerminalSummaryEntry(byte[] key, TerminalGenerationRecord summary) {}
 }
