@@ -551,3 +551,28 @@ Commands:
 Result: the image-inspector and Claim-inventory classes pass 20/20 with zero failures/errors/skips; `checkstyleTest`, `checkDocumentation`, JSON parsing, and `git diff --check` pass.
 
 Scope: this handles only malformed Claim-sequence high-water metadata. The emitted conflict still blocks migration. Full Claim/live Owner and external Admission/Journal proof, remaining runtime metadata, source replay/cutover, activation, conversion, rollback, reader retirement, and central validation remain open; B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
+
+## 2026-10-04 Runtime metadata fields remain migration blockers until mapped
+
+Source lock:
+- Base HEAD: `395f068c7d0ba6b5ce3c1d4312e47cd925ec6d4d`
+- Observed origin/main: `0a4b5d13e3fef9a19359b61dfac0f976a8118cd7`
+- `LegacyCheckpointStateInventory.java` SHA-256: `21ea99c20770b477ae00811fdc7951c2d5c5fe1f8c27039784dfdfea52d27415`
+- `LegacyCheckpointImageInspectorTest.java` SHA-256: `a436a38a7c64a7b656e2b071525c052d023ba3c1d2b5fa95f92d297921648b40`
+
+Verification: recognized format-1 fixed META kinds 4, 6, 8, and 9 (ingress fence, evidence cursors, owner epoch, and clean-close) now emit source-cut-bound `RUNTIME_METADATA` / `LEGACY_NAMESPACE_UNAUDITED` conflicts instead of being silently treated as audited. A real RocksDB checkpoint regression covers the persisted evidence-cursor, owner-epoch, and clean-close rows while confirming inventory continues to report the valid SCHEDULED Message. Existing conflict-count checks now isolate these orthogonal runtime-metadata blockers from the specific corruption under test.
+
+Commands:
+`./gradlew test --tests '*LegacyCheckpointImageInspectorTest' --tests '*LegacyCheckpointClaimInventoryTest' checkstyleTest`
+
+`./gradlew checkDocumentation`
+
+`./gradlew checkstyleMain`
+
+`jq empty docs/ndip/NDIP-3/progress.json`
+
+`git diff --check`
+
+Result: the image-inspector and Claim-inventory classes pass 20/20 with zero failures/errors/skips; `checkstyleTest`, `checkDocumentation`, JSON parsing, and `git diff --check` pass. `checkstyleMain` reports only the two unchanged 123-character lines in `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`.
+
+Scope: this detects but does not decode or migrate these fixed metadata values. Complete runtime metadata mapping, source-tail replay/cutover, activation, conversion, rollback, reader retirement, and central validation remain open; B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.

@@ -108,7 +108,7 @@ class LegacyCheckpointImageInspectorTest {
                 finiteLimits(),
                 new LegacyCheckpointStateInventory.ReadLimits(1_000, 1 << 20, 60_000_000_000L));
         assertEquals(1, state.messageStatuses().get(MessageStatus.SCHEDULED));
-        assertOnlyRecoveryInstallBlocker(state, source);
+        assertRecoveryInstallIsOnlyNonRuntimeBlocker(state, source);
         assertEquals(1, state.retiredMessageIdentities());
         assertEquals(
                 1,
@@ -244,8 +244,11 @@ class LegacyCheckpointImageInspectorTest {
                 manifest,
                 finiteLimits(),
                 new LegacyCheckpointStateInventory.ReadLimits(1_000, 1 << 20, 60_000_000_000L));
-        assertEquals(2, inventory.conflicts().size());
-        final LegacyCheckpointStateInventory.Conflict conflict = inventory.conflicts().get(0);
+        assertConflictCountExcludingRuntimeMetadata(inventory, 2);
+        final LegacyCheckpointStateInventory.Conflict conflict = inventory.conflicts().stream()
+                .filter(item -> item.reason() == LegacyCheckpointStateInventory.ConflictReason.EXPIRY_INDEX_MISSING)
+                .findFirst()
+                .orElseThrow();
         assertEquals(LegacyCheckpointStateInventory.ConflictReason.EXPIRY_INDEX_MISSING, conflict.reason());
         assertEquals("MESSAGE", conflict.recordKind());
         assertTrue(Bytes.constantTimeEquals(
@@ -298,8 +301,12 @@ class LegacyCheckpointImageInspectorTest {
                 manifest,
                 finiteLimits(),
                 new LegacyCheckpointStateInventory.ReadLimits(1_000, 1 << 20, 60_000_000_000L));
-        assertEquals(2, inventory.conflicts().size());
-        final LegacyCheckpointStateInventory.Conflict conflict = inventory.conflicts().get(0);
+        assertConflictCountExcludingRuntimeMetadata(inventory, 2);
+        final LegacyCheckpointStateInventory.Conflict conflict = inventory.conflicts().stream()
+                .filter(item -> item.reason()
+                        == LegacyCheckpointStateInventory.ConflictReason.TERMINAL_GENERATION_KEY_MALFORMED)
+                .findFirst()
+                .orElseThrow();
         assertEquals(
                 LegacyCheckpointStateInventory.ConflictReason.TERMINAL_GENERATION_KEY_MALFORMED,
                 conflict.reason());
@@ -358,7 +365,7 @@ class LegacyCheckpointImageInspectorTest {
                 finiteLimits(),
                 new LegacyCheckpointStateInventory.ReadLimits(1_000, 1 << 20, 60_000_000_000L));
         assertEquals(1, inventory.messageStatuses().get(MessageStatus.SCHEDULED));
-        assertEquals(3, inventory.conflicts().size());
+        assertConflictCountExcludingRuntimeMetadata(inventory, 3);
         for (byte[] malformedKey : List.of(malformedLengthKey, malformedIdentityKey)) {
             final LegacyCheckpointStateInventory.Conflict conflict = inventory.conflicts().stream()
                     .filter(item -> Bytes.constantTimeEquals(Bytes.sha256(malformedKey), item.oldKeyDigest()))
@@ -420,7 +427,7 @@ class LegacyCheckpointImageInspectorTest {
                 finiteLimits(),
                 new LegacyCheckpointStateInventory.ReadLimits(1_000, 1 << 20, 60_000_000_000L));
         assertEquals(1, inventory.messageStatuses().get(MessageStatus.SCHEDULED));
-        assertEquals(3, inventory.conflicts().size());
+        assertConflictCountExcludingRuntimeMetadata(inventory, 3);
         final LegacyCheckpointStateInventory.Conflict malformedKeyConflict = inventory.conflicts().stream()
                 .filter(item -> Bytes.constantTimeEquals(Bytes.sha256(malformedKey), item.oldKeyDigest()))
                 .findFirst()
@@ -505,7 +512,7 @@ class LegacyCheckpointImageInspectorTest {
                     finiteLimits(),
                     new LegacyCheckpointStateInventory.ReadLimits(1_000, 1 << 20, 60_000_000_000L));
             assertEquals(1, inventory.messageStatuses().get(MessageStatus.SCHEDULED));
-            assertEquals(2, inventory.conflicts().size());
+            assertConflictCountExcludingRuntimeMetadata(inventory, 2);
             final LegacyCheckpointStateInventory.Conflict malformedSequence = inventory.conflicts().stream()
                     .filter(item -> Bytes.constantTimeEquals(Bytes.sha256(claimSequenceKey), item.oldKeyDigest()))
                     .findFirst()
@@ -622,6 +629,18 @@ class LegacyCheckpointImageInspectorTest {
                 new ExpectedLegacyBlocker(
                         KeyCodec.metaRecovery(4),
                         "RECOVERY_METADATA",
+                        LegacyCheckpointStateInventory.ConflictReason.LEGACY_NAMESPACE_UNAUDITED),
+                new ExpectedLegacyBlocker(
+                        KeyCodec.metaFixed(6),
+                        "RUNTIME_METADATA",
+                        LegacyCheckpointStateInventory.ConflictReason.LEGACY_NAMESPACE_UNAUDITED),
+                new ExpectedLegacyBlocker(
+                        KeyCodec.metaFixed(8),
+                        "RUNTIME_METADATA",
+                        LegacyCheckpointStateInventory.ConflictReason.LEGACY_NAMESPACE_UNAUDITED),
+                new ExpectedLegacyBlocker(
+                        KeyCodec.metaFixed(9),
+                        "RUNTIME_METADATA",
                         LegacyCheckpointStateInventory.ConflictReason.LEGACY_NAMESPACE_UNAUDITED));
         assertEquals(expected.size(), inventory.conflicts().size());
         for (ExpectedLegacyBlocker blocker : expected) {
@@ -678,7 +697,7 @@ class LegacyCheckpointImageInspectorTest {
                 manifest,
                 finiteLimits(),
                 new LegacyCheckpointStateInventory.ReadLimits(1_000, 1 << 20, 60_000_000_000L));
-        assertOnlyRecoveryInstallBlocker(inventory, source);
+        assertRecoveryInstallIsOnlyNonRuntimeBlocker(inventory, source);
         assertEquals(1, inventory.messageStatuses().get(MessageStatus.SCHEDULED));
     }
 
@@ -727,7 +746,7 @@ class LegacyCheckpointImageInspectorTest {
                 manifest,
                 finiteLimits(),
                 new LegacyCheckpointStateInventory.ReadLimits(1_000, 1 << 20, 60_000_000_000L));
-        assertEquals(2, inventory.conflicts().size());
+        assertConflictCountExcludingRuntimeMetadata(inventory, 2);
         final LegacyCheckpointStateInventory.Conflict conflict = inventory.conflicts().stream()
                 .filter(item -> item.reason()
                         == LegacyCheckpointStateInventory.ConflictReason.TIMELINE_INDEX_ORPHANED_OR_STALE)
@@ -1033,7 +1052,7 @@ class LegacyCheckpointImageInspectorTest {
                 terminalSourceConflict.oldKeyDigest()));
         assertTrue(Bytes.constantTimeEquals(
                 futureRetiredSource.canonicalBytes(), terminalSourceConflict.sourcePosition()));
-        assertEquals(14, inventory.conflicts().size());
+        assertConflictCountExcludingRuntimeMetadata(inventory, 14);
     }
 
     @Test
@@ -1432,15 +1451,27 @@ class LegacyCheckpointImageInspectorTest {
         }
     }
 
-    private static void assertOnlyRecoveryInstallBlocker(
+    private static void assertRecoveryInstallIsOnlyNonRuntimeBlocker(
             final LegacyCheckpointStateInventory.Inventory inventory, final KafkaSourcePosition source) {
-        assertEquals(1, inventory.conflicts().size());
-        final LegacyCheckpointStateInventory.Conflict conflict = inventory.conflicts().get(0);
+        assertConflictCountExcludingRuntimeMetadata(inventory, 1);
+        final LegacyCheckpointStateInventory.Conflict conflict = inventory.conflicts().stream()
+                .filter(item -> item.recordKind().equals("RECOVERY_METADATA"))
+                .findFirst()
+                .orElseThrow();
         assertEquals("RECOVERY_METADATA", conflict.recordKind());
         assertEquals(
                 LegacyCheckpointStateInventory.ConflictReason.LEGACY_NAMESPACE_UNAUDITED, conflict.reason());
         assertTrue(Bytes.constantTimeEquals(Bytes.sha256(KeyCodec.metaRecovery(4)), conflict.oldKeyDigest()));
         assertTrue(Bytes.constantTimeEquals(source.canonicalBytes(), conflict.sourcePosition()));
+    }
+
+    private static void assertConflictCountExcludingRuntimeMetadata(
+            final LegacyCheckpointStateInventory.Inventory inventory, final long expected) {
+        assertEquals(
+                expected,
+                inventory.conflicts().stream()
+                        .filter(conflict -> !conflict.recordKind().equals("RUNTIME_METADATA"))
+                        .count());
     }
 
     private static byte[] bytes(final int length, final int seed) {

@@ -1266,6 +1266,9 @@ public final class LegacyCheckpointStateInventory {
                         if (fixedKind < 1 || fixedKind > 14) {
                             return unknownKeyBlocker("LEGACY_META_KEY");
                         }
+                        if (fixedKind == 4 || fixedKind == 6 || fixedKind == 8 || fixedKind == 9) {
+                            return namespaceBlocker("RUNTIME_METADATA");
+                        }
                         return fixedKind == 10 || fixedKind >= 12
                                 ? new LegacyNamespaceBlocker(
                                         "CONTROL_METADATA", ConflictReason.LEGACY_CONTROL_METADATA_UNAUDITED)
@@ -1447,6 +1450,7 @@ public final class LegacyCheckpointStateInventory {
                     && !checkedRecordKind.equals("DLQ_EXPORT")
                     && !checkedRecordKind.equals("GC")
                     && !checkedRecordKind.equals("CONTROL_METADATA")
+                    && !checkedRecordKind.equals("RUNTIME_METADATA")
                     && !checkedRecordKind.equals("QUOTA")
                     && !checkedRecordKind.equals("PRODUCER")
                     && !checkedRecordKind.equals("SCHEDULER")
