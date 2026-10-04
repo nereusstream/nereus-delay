@@ -151,9 +151,18 @@ public final class LegacyCheckpointStateInventory {
                             keyKinds.merge(keyKind, 1L, Math::addExact);
                             boolean claimRecordKey = false;
                             boolean attemptLedgerKey = false;
+                            boolean messageKey = false;
+                            boolean malformedMessageKey = false;
                             boolean malformedInflightKey = false;
                             boolean terminalGenerationKey = false;
                             boolean malformedTerminalGenerationKey = false;
+                            if (family == ColumnFamily.ID) {
+                                try {
+                                    messageKey = isMessageKey(key);
+                                } catch (IllegalArgumentException malformedKey) {
+                                    malformedMessageKey = true;
+                                }
+                            }
                             if (family == ColumnFamily.INFLIGHT) {
                                 try {
                                     claimRecordKey = isClaimRecordKey(key);
@@ -184,7 +193,13 @@ public final class LegacyCheckpointStateInventory {
                                             ConflictReason.TIMELINE_INDEX_KEY_MALFORMED));
                                 }
                             }
-                            if (family == ColumnFamily.ID && isMessageKey(key)) {
+                            if (malformedMessageKey) {
+                                conflicts.add(conflict(
+                                        key,
+                                        "MESSAGE",
+                                        proof.appliedSourcePosition(),
+                                        ConflictReason.MESSAGE_KEY_MALFORMED));
+                            } else if (family == ColumnFamily.ID && messageKey) {
                                 final DelayMessageId messageId = messageId(key);
                                 if (!messageId.routingId().shardId().equals(proof.metadata().shardId())) {
                                     throw new IllegalArgumentException("legacy Message key belongs to another Shard");
@@ -1231,6 +1246,7 @@ public final class LegacyCheckpointStateInventory {
         EXPIRY_INDEX_VALUE_MISMATCH,
         TIMELINE_INDEX_KEY_MALFORMED,
         TIMELINE_INDEX_ORPHANED_OR_STALE,
+        MESSAGE_KEY_MALFORMED,
         ATTEMPT_OBLIGATION_MISSING,
         ATTEMPT_OBLIGATION_VALUE_MISMATCH,
         ATTEMPT_LEDGER_KEY_VALUE_MISMATCH,

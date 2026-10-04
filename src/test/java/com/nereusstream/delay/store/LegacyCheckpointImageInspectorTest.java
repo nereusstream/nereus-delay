@@ -308,6 +308,70 @@ class LegacyCheckpointImageInspectorTest {
     }
 
     @Test
+    void reportsMalformedMessageKeysAsStableConflictsAndContinuesInventory() throws Exception {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 8);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("malformed-message-key-store"));
+        final Path image = tempDir.resolve("malformed-message-key-checkpoint");
+        final byte[] checkpointId = bytes(16, 25);
+        final KafkaSourcePosition source = new KafkaSourcePosition(
+                shard, "legacy-cluster", UUID.randomUUID(), 31, null, 4_000);
+        final ScheduledFixture scheduled = scheduledFixture(shard, source, "malformed-message-key-lane");
+        final byte[] malformedLengthKey = new byte[] {1, 1, 1};
+        final byte[] malformedIdentityKey = new byte[2 + DelayMessageId.LENGTH];
+        malformedIdentityKey[0] = 1;
+        malformedIdentityKey[1] = 1;
+        final CheckpointManifest manifest;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore store = ShardStore.open(config, shard, resources)) {
+            store.write(batch -> {
+                batch.putValue(
+                        ColumnFamily.META,
+                        ShardStore.META_FIXED_VALUE_TYPE,
+                        KeyCodec.metaFixed(ShardStore.META_APPLIED_SOURCE_POSITION),
+                        source.canonicalBytes());
+                batch.putValue(
+                        ColumnFamily.META,
+                        ShardStore.META_FIXED_VALUE_TYPE,
+                        KeyCodec.metaFixed(ShardStore.META_MUTATION_SEQUENCE),
+                        Bytes.u64beBits(1));
+                batch.putValue(
+                        ColumnFamily.ID,
+                        1,
+                        KeyCodec.idMessage(scheduled.messageId()),
+                        scheduled.message().encode());
+                batch.putValue(
+                        ColumnFamily.TIMELINE, 1, scheduled.timelineKey(), scheduled.work().canonicalBytes());
+                batch.putValue(
+                        ColumnFamily.TIMELINE, 1, scheduled.expiryKey(), scheduled.work().canonicalBytes());
+                batch.put(ColumnFamily.ID, malformedLengthKey, Bytes.utf8("malformed message key length"));
+                batch.put(ColumnFamily.ID, malformedIdentityKey, Bytes.utf8("malformed message identity"));
+            });
+            store.createCheckpoint(image, checkpointId);
+            manifest = manifestFor(image, shard, store, checkpointId, source);
+        }
+
+        final LegacyCheckpointStateInventory.Inventory inventory = LegacyCheckpointStateInventory.inspect(
+                image,
+                shard,
+                manifest,
+                finiteLimits(),
+                new LegacyCheckpointStateInventory.ReadLimits(1_000, 1 << 20, 60_000_000_000L));
+        assertEquals(1, inventory.messageStatuses().get(MessageStatus.SCHEDULED));
+        assertEquals(2, inventory.conflicts().size());
+        for (byte[] malformedKey : List.of(malformedLengthKey, malformedIdentityKey)) {
+            final LegacyCheckpointStateInventory.Conflict conflict = inventory.conflicts().stream()
+                    .filter(item -> Bytes.constantTimeEquals(Bytes.sha256(malformedKey), item.oldKeyDigest()))
+                    .findFirst()
+                    .orElseThrow();
+            assertEquals(
+                    LegacyCheckpointStateInventory.ConflictReason.MESSAGE_KEY_MALFORMED,
+                    conflict.reason());
+            assertEquals("MESSAGE", conflict.recordKind());
+            assertTrue(Bytes.constantTimeEquals(source.canonicalBytes(), conflict.sourcePosition()));
+        }
+    }
+
+    @Test
     void acceptsLegacyTimelinePointersForScheduledCheckpointMessages() throws Exception {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 7);
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("legacy-timeline-store"));
