@@ -383,3 +383,27 @@ Commands:
 Result: the targeted Claim and image-inspector classes pass 14/14 total (5 and 9 respectively), with zero failures/errors/skips; `checkstyleTest`, `checkDocumentation`, progress JSON parsing, and `git diff --check` pass. `checkstyleMain` reports only the two unchanged 123-character lines in `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`.
 
 Scope: this checks only the persisted Claim sequence against the checkpoint-local high-water. It does not establish live Owner authority, full Claim policy/materialization/certificate, external Admission/Journal, source replay/cutover, migration activation/conversion/rollback, reader retirement, or central validation; B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
+
+## 2026-10-04 Unknown format-1 INFLIGHT key kind
+
+Source lock:
+- Base HEAD and origin/main: `7314bc03fefbd99a34207f15c9cd84bd0281a0e7`
+- `LegacyCheckpointStateInventory.java` SHA-256: `4dc0fd166e0ed1f34c50e81943d19a610114221fb6cf5d12e176be682a93bd9a`
+- `LegacyCheckpointClaimInventoryTest.java` SHA-256: `50f35de1ca80295a67b9467d4bff9819e55bd5a51c8da887ff2edb55301295ac`
+
+Verification: the format-1 inventory now emits `INFLIGHT_KEY_KIND_UNRECOGNIZED` for an INFLIGHT key outside the recognized Claim and PublishAttemptLedger namespaces, binding the old key digest, `INFLIGHT` record kind, and checkpoint applied source position. A real RocksDB checkpoint regression retains a runtime-created Claim and adds an opaque INFLIGHT key; the inventory returns the stable conflict. The first test attempt used an unregistered value-envelope type and was rejected by the write helper before inventory ran; the fixture now uses the raw batch write API and the same targeted suite passes.
+
+Commands:
+`./gradlew test --tests com.nereusstream.delay.store.LegacyCheckpointClaimInventoryTest --tests com.nereusstream.delay.store.LegacyCheckpointImageInspectorTest checkstyleTest`
+
+`./gradlew checkDocumentation`
+
+`jq empty docs/ndip/NDIP-3/progress.json`
+
+`git diff --check`
+
+`./gradlew checkstyleMain`
+
+Result: the Claim and image-inspector test classes pass 15/15 total with zero failures/errors/skips; `checkstyleTest`, `checkDocumentation`, progress JSON parsing, and `git diff --check` pass. `checkstyleMain` fails only on the two unchanged 123-character lines in `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`.
+
+Scope: this detects unknown format-1 INFLIGHT key namespaces only. It does not close all relations for recognized records, unknown namespaces in other Column Families, full state dispositions, historical Terminal/Floor/retention/GC, source replay/cutover, activation, conversion, rollback, reader retirement, or central validation; B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.

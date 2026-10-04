@@ -782,6 +782,52 @@ class LegacyCheckpointClaimInventoryTest {
         assertTrue(Bytes.constantTimeEquals(source.canonicalBytes(), conflict.sourcePosition()));
     }
 
+    @Test
+    void reportsUnrecognizedInflightKeyAsConflict() throws Exception {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 11);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("unknown-inflight-store"));
+        final Path image = tempDir.resolve("unknown-inflight-checkpoint");
+        final byte[] checkpointId = bytes(16, 55);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("unknown-inflight"));
+        final PreparedCommand schedule = PreparedCommand.schedule(
+                shard,
+                new ScheduleIntent(
+                        lane, 3_000, 9_000, OrderingMode.BEST_EFFORT, Bytes.utf8("unknown-inflight")),
+                10_000);
+        final KafkaSourcePosition source = new KafkaSourcePosition(
+                shard, "legacy-cluster", UUID.randomUUID(), 55, null, 4_100);
+        final AuthorIdentity owner = AuthorIdentity.owner(
+                Bytes.utf8("unknown-inflight-deployment"),
+                Bytes.utf8("unknown-inflight-worker"),
+                Long.MIN_VALUE,
+                Bytes.sha256(Bytes.utf8("unknown-inflight-fence")));
+        final byte[] unknownKey = new byte[] {0x7f, 1, 1};
+        final CheckpointManifest manifest;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore store = ShardStore.open(config, shard, resources)) {
+            ClaimRecordTestSupport.claimScheduled(store, schedule, source, lane, owner, 4_000, chargeVector());
+            store.write(batch -> batch.put(
+                    ColumnFamily.INFLIGHT, unknownKey, Bytes.utf8("opaque legacy obligation")));
+            store.createCheckpoint(image, checkpointId);
+            manifest = manifestFor(image, shard, store, checkpointId, source);
+        }
+
+        final LegacyCheckpointStateInventory.Inventory inventory = LegacyCheckpointStateInventory.inspect(
+                image,
+                shard,
+                manifest,
+                finiteLimits(),
+                new LegacyCheckpointStateInventory.ReadLimits(1_000, 1 << 20, 60_000_000_000L));
+        final LegacyCheckpointStateInventory.Conflict conflict = inventory.conflicts().stream()
+                .filter(item -> item.reason()
+                        == LegacyCheckpointStateInventory.ConflictReason.INFLIGHT_KEY_KIND_UNRECOGNIZED)
+                .filter(item -> Bytes.constantTimeEquals(Bytes.sha256(unknownKey), item.oldKeyDigest()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals("INFLIGHT", conflict.recordKind());
+        assertTrue(Bytes.constantTimeEquals(source.canonicalBytes(), conflict.sourcePosition()));
+    }
+
     private static CheckpointManifest manifestFor(
             final Path image,
             final ShardId shard,

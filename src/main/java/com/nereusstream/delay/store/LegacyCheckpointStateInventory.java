@@ -149,6 +149,10 @@ public final class LegacyCheckpointStateInventory {
                             totalBytes = Math.addExact(totalBytes, (long) key.length + value.length);
                             final String keyKind = keyKind(family, key);
                             keyKinds.merge(keyKind, 1L, Math::addExact);
+                            final boolean claimRecordKey =
+                                    family == ColumnFamily.INFLIGHT && isClaimRecordKey(key);
+                            final boolean attemptLedgerKey =
+                                    family == ColumnFamily.INFLIGHT && isAttemptLedgerKey(key);
                             if (family == ColumnFamily.TIMELINE && hasMessageTimelineIndexTag(key)) {
                                 try {
                                     final TimelineIndexIdentity identity = decodeMessageTimelineIndexIdentity(key);
@@ -338,7 +342,7 @@ public final class LegacyCheckpointStateInventory {
                                         conflicts,
                                         referencedAttemptKeys);
                             }
-                            if (family == ColumnFamily.INFLIGHT && isClaimRecordKey(key)) {
+                            if (claimRecordKey) {
                                 final byte[] payload = ValueEnvelope.decode(value, ClaimRecord.VALUE_TYPE).payload();
                                 final ClaimRecord claim = ClaimRecord.decode(payload);
                                 if (!claim.delayMessageId().routingId().shardId().equals(proof.metadata().shardId())) {
@@ -347,7 +351,7 @@ public final class LegacyCheckpointStateInventory {
                                 claimRecords.add(
                                         new ClaimRecordEntry(key, claim, Arrays.equals(key, claim.encodedKey())));
                             }
-                            if (family == ColumnFamily.INFLIGHT && isAttemptLedgerKey(key)) {
+                            if (attemptLedgerKey) {
                                 final byte[] payload = ValueEnvelope.decode(value, PublishAttemptLedger.VALUE_TYPE)
                                         .payload();
                                 final PublishAttemptLedger ledger = PublishAttemptLedger.decode(payload);
@@ -375,6 +379,13 @@ public final class LegacyCheckpointStateInventory {
                                 } else if (attemptLedgers.put(Bytes.hex(key), ledger) != null) {
                                     throw new IllegalArgumentException("duplicate legacy publish attempt key");
                                 }
+                            }
+                            if (family == ColumnFamily.INFLIGHT && !claimRecordKey && !attemptLedgerKey) {
+                                conflicts.add(conflict(
+                                        key,
+                                        "INFLIGHT",
+                                        proof.appliedSourcePosition(),
+                                        ConflictReason.INFLIGHT_KEY_KIND_UNRECOGNIZED));
                             }
                             iterator.next();
                         }
@@ -1180,6 +1191,7 @@ public final class LegacyCheckpointStateInventory {
         CLAIM_RECORD_STORE_INCARNATION_MISMATCH,
         CLAIM_ID_DERIVATION_MISMATCH,
         CLAIM_SEQUENCE_AFTER_CHECKPOINT_HIGH_WATER,
+        INFLIGHT_KEY_KIND_UNRECOGNIZED,
         CLAIM_LANE_STATE_MISMATCH,
         CLAIM_LANE_RUNTIME_VERSION_AFTER_CURRENT,
         CLAIM_DEADLINE_AFTER_MESSAGE_EXPIRY,
@@ -1206,6 +1218,7 @@ public final class LegacyCheckpointStateInventory {
                     && !checkedRecordKind.equals("CLAIM")
                     && !checkedRecordKind.equals("LANE")
                     && !checkedRecordKind.equals("TIMELINE")
+                    && !checkedRecordKind.equals("INFLIGHT")
                     && !checkedRecordKind.equals("ATTEMPT")) {
                 throw new IllegalArgumentException("legacy index conflict record kind is not registered");
             }
