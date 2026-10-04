@@ -233,7 +233,8 @@ public final class TargetWorkerOrdinaryDrr {
     private int freezeCursor;
     private long freezeEpochMs = -1;
     private boolean firstPassReady;
-    private long lastClockNanos = -1;
+    private long lastClockNanos;
+    private boolean clockObserved;
 
     TargetWorkerOrdinaryDrr(
             final TargetWorkerHostRuntime host,
@@ -1304,10 +1305,11 @@ public final class TargetWorkerOrdinaryDrr {
 
     private long clock() {
         final long now = monotonicClock.getAsLong();
-        if (now < 0 || now < lastClockNanos) {
-            throw new IllegalStateException("Target DRR monotonic clock moved backwards or returned negative time");
+        if (clockObserved && now - lastClockNanos < 0) {
+            throw new IllegalStateException("Target DRR monotonic clock moved backwards");
         }
         lastClockNanos = now;
+        clockObserved = true;
         return now;
     }
 

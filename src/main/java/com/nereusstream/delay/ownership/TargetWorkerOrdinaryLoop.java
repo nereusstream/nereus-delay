@@ -353,7 +353,8 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
         boolean recoveryReady = false;
         boolean inventoryRefreshPending = true;
         final Set<TargetPartitionId> pendingTargetRefresh = new LinkedHashSet<>();
-        long lastMonotonic = -1;
+        long lastMonotonic = 0;
+        boolean monotonicClockObserved = false;
         try {
             schedule:
             while (!closed) {
@@ -418,10 +419,11 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
                         }
                     }
                     final long creditCycleStarted = monotonicClock.getAsLong();
-                    if (creditCycleStarted < 0 || creditCycleStarted < lastMonotonic) {
+                    if (monotonicClockObserved && creditCycleStarted - lastMonotonic < 0) {
                         throw new IllegalStateException("Target ordinary monotonic clock moved backwards");
                     }
                     lastMonotonic = creditCycleStarted;
+                    monotonicClockObserved = true;
                     int ordinaryPassVisits = 0;
                     boolean ordinaryPassSawCandidate = false;
                     boolean ordinaryPassClear = false;
@@ -456,7 +458,7 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
                             ordinaryPassSawCandidate = false;
                         }
                         final long now = monotonicClock.getAsLong();
-                        if (now < 0 || now < lastMonotonic) {
+                        if (now - lastMonotonic < 0) {
                             throw new IllegalStateException("Target ordinary monotonic clock moved backwards");
                         }
                         lastMonotonic = now;
@@ -491,7 +493,7 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
                                 break;
                             }
                             final long now = monotonicClock.getAsLong();
-                            if (now < 0 || now < lastMonotonic) {
+                            if (now - lastMonotonic < 0) {
                                 throw new IllegalStateException("Target ordinary monotonic clock moved backwards");
                             }
                             lastMonotonic = now;

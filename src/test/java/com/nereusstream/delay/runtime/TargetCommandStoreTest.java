@@ -1874,6 +1874,9 @@ class TargetCommandStoreTest {
                                     schedulerEpoch::get,
                                     System::nanoTime,
                                     ignored -> {}));
+                    final long monotonicAnchor = System.nanoTime();
+                    final java.util.function.LongSupplier negativeMonotonicClock =
+                            () -> -1_000_000_000_000L + (System.nanoTime() - monotonicAnchor);
                     final var ordinaryLoop = claimHost.startOrdinaryScheduling(
                             ordinaryInventoryLimits,
                             ordinaryDrrLimits,
@@ -1892,7 +1895,7 @@ class TargetCommandStoreTest {
                             },
                             schedulerOwnerEpoch::get,
                             schedulerEpoch::get,
-                            System::nanoTime,
+                            negativeMonotonicClock,
                             ignored -> {});
                     final long waitDeadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
                     while (!ordinaryLoop.isWaitingForQueueChange() && System.nanoTime() < waitDeadline) {

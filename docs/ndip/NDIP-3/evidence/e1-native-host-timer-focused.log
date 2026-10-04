@@ -89,3 +89,20 @@ deployment_authority=false
 BUILD SUCCESSFUL in 1m 30s
 20 actionable tasks: 10 executed, 10 up-to-date
 Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+
+Date: 2026-10-04
+Base revision: 2b647b19e6c692982da413f29b0cfb8445f0966f
+Source/test state: working tree file hashes below.
+Command 1: ./gradlew test --tests 'com.nereusstream.delay.runtime.TargetCommandStoreTest.modifiesActualTimelineOrClaimWithHistoryAndFirstResults' --no-daemon --console=plain
+Result 1: PASS; all 5 @CsvSource cases passed with a negative-origin monotonic supplier in the real Worker/Store/Host-loop scenario.
+Command 2: ./gradlew test --tests 'com.nereusstream.delay.ownership.TargetWorkerOrdinaryDrrTest' --tests 'com.nereusstream.delay.ownership.TargetWorkerShardFleetRuntimeTest.wholeHostDrainStopsTheOrdinaryQueueWaiterBeforeOwnerDrain' checkstyleTest --no-daemon --console=plain
+Result 2: PASS; 29 tests, zero failures/errors/skips; checkstyleTest passed.
+Combined focused tests: 34 cases across 3 classes.
+Source/test SHA-256:
+10ba3cd539924d46fe88add89237ab5ff20a988cbf7bb955461094ce40fef365  src/main/java/com/nereusstream/delay/ownership/TargetWorkerOrdinaryLoop.java
+1c4775d1a9ad0a077c434b2635f86e9fdd862b9686bcd123d3fa91e5e453257d  src/main/java/com/nereusstream/delay/ownership/TargetWorkerOrdinaryDrr.java
+8ef0189a7b51cc36466b2bffecc09cd66e2a5fe505c898a063ed6568fa2355a2  src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java
+dd0e74e351707364a54025372b50f0634afc288f7b512bde8936c9ae957c8191  src/test/java/com/nereusstream/delay/ownership/TargetWorkerOrdinaryDrrTest.java
+2307836a53d47635e58163f77c30633181bab6ca72ed28a810daaf4feb8df751  src/test/java/com/nereusstream/delay/ownership/TargetWorkerShardFleetRuntimeTest.java
+Remaining: no real Oxia notification restart through the Host safety-recheck timer, full invalidation matrix, or production authority assembly is claimed.
+Additional check: ./gradlew checkstyleMain --no-daemon --console=plain FAILED on only two pre-existing 123-character lines: src/main/java/com/nereusstream/delay/scheduler/PersistentLaneScheduler.java:1327 and src/main/java/com/nereusstream/delay/ownership/TargetWorkerHostRuntime.java:347. Neither file is modified by this change; checkstyleTest passes.
