@@ -149,10 +149,19 @@ public final class LegacyCheckpointStateInventory {
                             totalBytes = Math.addExact(totalBytes, (long) key.length + value.length);
                             final String keyKind = keyKind(family, key);
                             keyKinds.merge(keyKind, 1L, Math::addExact);
-                            final boolean claimRecordKey =
-                                    family == ColumnFamily.INFLIGHT && isClaimRecordKey(key);
-                            final boolean attemptLedgerKey =
-                                    family == ColumnFamily.INFLIGHT && isAttemptLedgerKey(key);
+                            boolean claimRecordKey = false;
+                            boolean attemptLedgerKey = false;
+                            boolean malformedInflightKey = false;
+                            if (family == ColumnFamily.INFLIGHT) {
+                                try {
+                                    claimRecordKey = isClaimRecordKey(key);
+                                    if (!claimRecordKey) {
+                                        attemptLedgerKey = isAttemptLedgerKey(key);
+                                    }
+                                } catch (IllegalArgumentException malformedKey) {
+                                    malformedInflightKey = true;
+                                }
+                            }
                             if (family == ColumnFamily.TIMELINE && hasMessageTimelineIndexTag(key)) {
                                 try {
                                     final TimelineIndexIdentity identity = decodeMessageTimelineIndexIdentity(key);
@@ -380,7 +389,13 @@ public final class LegacyCheckpointStateInventory {
                                     throw new IllegalArgumentException("duplicate legacy publish attempt key");
                                 }
                             }
-                            if (family == ColumnFamily.INFLIGHT && !claimRecordKey && !attemptLedgerKey) {
+                            if (malformedInflightKey) {
+                                conflicts.add(conflict(
+                                        key,
+                                        "INFLIGHT",
+                                        proof.appliedSourcePosition(),
+                                        ConflictReason.INFLIGHT_KEY_KIND_MALFORMED));
+                            } else if (family == ColumnFamily.INFLIGHT && !claimRecordKey && !attemptLedgerKey) {
                                 conflicts.add(conflict(
                                         key,
                                         "INFLIGHT",
@@ -1192,6 +1207,7 @@ public final class LegacyCheckpointStateInventory {
         CLAIM_ID_DERIVATION_MISMATCH,
         CLAIM_SEQUENCE_AFTER_CHECKPOINT_HIGH_WATER,
         INFLIGHT_KEY_KIND_UNRECOGNIZED,
+        INFLIGHT_KEY_KIND_MALFORMED,
         CLAIM_LANE_STATE_MISMATCH,
         CLAIM_LANE_RUNTIME_VERSION_AFTER_CURRENT,
         CLAIM_DEADLINE_AFTER_MESSAGE_EXPIRY,

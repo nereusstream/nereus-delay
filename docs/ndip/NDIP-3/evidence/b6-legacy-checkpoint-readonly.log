@@ -407,3 +407,27 @@ Commands:
 Result: the Claim and image-inspector test classes pass 15/15 total with zero failures/errors/skips; `checkstyleTest`, `checkDocumentation`, progress JSON parsing, and `git diff --check` pass. `checkstyleMain` fails only on the two unchanged 123-character lines in `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`.
 
 Scope: this detects unknown format-1 INFLIGHT key namespaces only. It does not close all relations for recognized records, unknown namespaces in other Column Families, full state dispositions, historical Terminal/Floor/retention/GC, source replay/cutover, activation, conversion, rollback, reader retirement, or central validation; B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
+
+## 2026-10-04 Malformed recognized INFLIGHT key prefixes
+
+Source lock:
+- Base HEAD and origin/main: `eea8b12e0fef79b3cf115ae673f6d902811fa241`
+- `LegacyCheckpointStateInventory.java` SHA-256: `e6c949f366871420b2317c20e284000f0a6db2b02475b19bfbe54595f0d09e2b`
+- `LegacyCheckpointClaimInventoryTest.java` SHA-256: `205f06cc9dee89461587f4833c8b045e2c2a6df1ff3c87970b1060c01e5eaab2`
+
+Verification: INFLIGHT keys with the recognized Claim or PublishAttemptLedger tag/format prefix but invalid canonical length now emit `INFLIGHT_KEY_KIND_MALFORMED`; unrelated key namespaces emit `INFLIGHT_KEY_KIND_UNRECOGNIZED`. A real RocksDB checkpoint regression inserts one opaque unknown key and malformed Claim and Attempt keys, and checks each stable conflict against its key digest and the checkpoint source cut.
+
+Commands:
+`./gradlew test --tests com.nereusstream.delay.store.LegacyCheckpointClaimInventoryTest --tests com.nereusstream.delay.store.LegacyCheckpointImageInspectorTest checkstyleTest`
+
+`./gradlew checkDocumentation`
+
+`jq empty docs/ndip/NDIP-3/progress.json`
+
+`git diff --check`
+
+`./gradlew checkstyleMain`
+
+Result: the Claim and image-inspector test classes pass 15/15 with zero failures/errors/skips; `checkstyleTest`, `checkDocumentation`, progress JSON parsing, and `git diff --check` pass. `checkstyleMain` reports only the two unchanged 123-character lines in `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`.
+
+Scope: this covers format-1 INFLIGHT key kind classification only. It does not close other Column Family namespaces, full state dispositions, historical Terminal/Floor/retention/GC, source replay/cutover, activation, conversion, rollback, reader retirement, or central validation; B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.

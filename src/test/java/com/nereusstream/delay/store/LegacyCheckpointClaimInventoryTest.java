@@ -783,7 +783,7 @@ class LegacyCheckpointClaimInventoryTest {
     }
 
     @Test
-    void reportsUnrecognizedInflightKeyAsConflict() throws Exception {
+    void reportsUnrecognizedAndMalformedInflightKeyKindsAsConflicts() throws Exception {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 11);
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("unknown-inflight-store"));
         final Path image = tempDir.resolve("unknown-inflight-checkpoint");
@@ -802,12 +802,17 @@ class LegacyCheckpointClaimInventoryTest {
                 Long.MIN_VALUE,
                 Bytes.sha256(Bytes.utf8("unknown-inflight-fence")));
         final byte[] unknownKey = new byte[] {0x7f, 1, 1};
+        final byte[] malformedClaimKey = new byte[] {1, 1, 1};
+        final byte[] malformedAttemptKey = new byte[] {2, 1, 1};
         final CheckpointManifest manifest;
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shard, resources)) {
             ClaimRecordTestSupport.claimScheduled(store, schedule, source, lane, owner, 4_000, chargeVector());
-            store.write(batch -> batch.put(
-                    ColumnFamily.INFLIGHT, unknownKey, Bytes.utf8("opaque legacy obligation")));
+            store.write(batch -> {
+                batch.put(ColumnFamily.INFLIGHT, unknownKey, Bytes.utf8("opaque legacy obligation"));
+                batch.put(ColumnFamily.INFLIGHT, malformedClaimKey, Bytes.utf8("malformed Claim key"));
+                batch.put(ColumnFamily.INFLIGHT, malformedAttemptKey, Bytes.utf8("malformed Attempt key"));
+            });
             store.createCheckpoint(image, checkpointId);
             manifest = manifestFor(image, shard, store, checkpointId, source);
         }
@@ -826,6 +831,17 @@ class LegacyCheckpointClaimInventoryTest {
                 .orElseThrow();
         assertEquals("INFLIGHT", conflict.recordKind());
         assertTrue(Bytes.constantTimeEquals(source.canonicalBytes(), conflict.sourcePosition()));
+
+        for (byte[] malformedKey : new byte[][] {malformedClaimKey, malformedAttemptKey}) {
+            final LegacyCheckpointStateInventory.Conflict malformedConflict = inventory.conflicts().stream()
+                    .filter(item -> item.reason()
+                            == LegacyCheckpointStateInventory.ConflictReason.INFLIGHT_KEY_KIND_MALFORMED)
+                    .filter(item -> Bytes.constantTimeEquals(Bytes.sha256(malformedKey), item.oldKeyDigest()))
+                    .findFirst()
+                    .orElseThrow();
+            assertEquals("INFLIGHT", malformedConflict.recordKind());
+            assertTrue(Bytes.constantTimeEquals(source.canonicalBytes(), malformedConflict.sourcePosition()));
+        }
     }
 
     private static CheckpointManifest manifestFor(
