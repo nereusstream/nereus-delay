@@ -200,9 +200,9 @@ public final class DelayShard {
         if (!headReadPolicy.hasFiniteLimits()) {
             throw new IllegalStateException("active Owner requires an explicit finite head-read policy");
         }
-        if (!headReadPolicy.canReadMaximumMutationPlanRecords()) {
+        if (!headReadPolicy.canReadMaximumMutationPlanRecords(config)) {
             throw new IllegalStateException(
-                    "active Owner head-read record limit cannot cover one complete mutation plan");
+                    "active Owner head-read record limit cannot cover configured legacy head reads");
         }
     }
 
@@ -10243,14 +10243,18 @@ public final class DelayShard {
                 && includedMessage.status() == MessageStatus.SCHEDULED
                 && includedMessageId != null
                 && includedMessage.laneId().equals(laneId)) {
+            final long actionAt = actionAtFor(includedMessageId, includedMessage);
+            final boolean ordered = includedMessage.orderingMode()
+                    == com.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO;
+            final long headEligibilityAt = Math.max(actionAt, includedMessage.retryEligibilityAtEpochMs());
             selected = new TimelineCandidate(
                     includedMessageId,
                     includedMessage.generation(),
-                    timelineEligibilityAt(includedMessageId, includedMessage),
-                    headEligibilityAt(includedMessageId, includedMessage),
-                    actionAtFor(includedMessageId, includedMessage),
-                    timelineKey(includedMessageId, includedMessage),
-                    includedMessage.orderingMode() == com.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO);
+                    ordered ? includedMessage.deliverAtEpochMs() : headEligibilityAt,
+                    headEligibilityAt,
+                    actionAt,
+                    timelineKey(includedMessageId, includedMessage, actionAt),
+                    ordered);
         }
         final byte[] removedKey = excludedMessageId != null
                         && excludedMessage != null
@@ -10438,7 +10442,8 @@ public final class DelayShard {
                 || !message.laneId().equals(expectedLane)) {
             throw new IllegalStateException("timeline points to a non-current scheduled message");
         }
-        if (!Arrays.equals(key, timelineKey(messageId, message))) {
+        final long actionAt = actionAtFor(messageId, message);
+        if (!Arrays.equals(key, timelineKey(messageId, message, actionAt))) {
             throw new IllegalStateException("timeline key does not match the current scheduled message");
         }
         validateTimelineValue(
@@ -10457,15 +10462,10 @@ public final class DelayShard {
                 messageId,
                 generation,
                 eligibleAt,
-                headEligibilityAt(messageId, message),
-                actionAtFor(messageId, message),
+                Math.max(actionAt, message.retryEligibilityAtEpochMs()),
+                actionAt,
                 key,
                 ordered);
-    }
-
-    private long headEligibilityAt(final DelayMessageId messageId, final MessageRecord message) {
-        final long actionAt = actionAtFor(messageId, message);
-        return Math.max(actionAt, message.retryEligibilityAtEpochMs());
     }
 
     private static byte[] prefixUpperBound(final byte[] prefix) {
@@ -11610,13 +11610,6 @@ public final class DelayShard {
     private static boolean isLegacyTimelineEntry(final byte[] encodedValue) {
         return encodedValue.length >= Integer.BYTES
                 && ByteBuffer.wrap(encodedValue, 0, Integer.BYTES).getInt() == 1;
-    }
-
-    private long timelineEligibilityAt(final DelayMessageId messageId, final MessageRecord message) {
-        if (message.orderingMode() == com.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO) {
-            return message.deliverAtEpochMs();
-        }
-        return Math.max(actionAtFor(messageId, message), message.retryEligibilityAtEpochMs());
     }
 
     private byte[] expiryKey(final DelayMessageId messageId, final MessageRecord message) {

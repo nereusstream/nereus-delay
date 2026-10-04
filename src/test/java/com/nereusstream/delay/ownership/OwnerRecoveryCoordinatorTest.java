@@ -205,7 +205,10 @@ class OwnerRecoveryCoordinatorTest {
         final AtomicLong clock = new AtomicLong();
         final java.util.concurrent.atomic.AtomicBoolean exhausted = new java.util.concurrent.atomic.AtomicBoolean(true);
         final var policy = new com.nereusstream.delay.runtime.HeadReadPolicy(
-                100, 1_000_000, 10, () -> exhausted.get() ? clock.addAndGet(100) : clock.get());
+                Integer.MAX_VALUE - 1,
+                1_000_000,
+                10,
+                () -> exhausted.get() ? clock.addAndGet(100) : clock.get());
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             store.recordControlSnapshot(snapshot);

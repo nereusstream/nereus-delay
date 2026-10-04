@@ -325,7 +325,11 @@ class SourceApplyCoordinatorTest {
         final java.util.concurrent.atomic.AtomicLong clock = new java.util.concurrent.atomic.AtomicLong();
         final java.util.concurrent.atomic.AtomicBoolean exhausted = new java.util.concurrent.atomic.AtomicBoolean(true);
         final HeadReadPolicy policy =
-                new HeadReadPolicy(100, 1_000_000, 10, () -> exhausted.get() ? clock.addAndGet(100) : clock.get());
+                new HeadReadPolicy(
+                        Integer.MAX_VALUE - 1,
+                        1_000_000,
+                        10,
+                        () -> exhausted.get() ? clock.addAndGet(100) : clock.get());
         try (Fixture fixture = new Fixture(tempDir.resolve("head-read-retry"), policy)) {
             final SourceReplayRecord entry = fixture.entry("read-retry");
             final AtomicInteger acknowledgements = new AtomicInteger();
@@ -366,7 +370,11 @@ class SourceApplyCoordinatorTest {
         final java.util.concurrent.atomic.AtomicBoolean exhausted = new java.util.concurrent.atomic.AtomicBoolean(true);
         try (Fixture fixture = new Fixture(
                 tempDir.resolve("head-read-owner-loss"),
-                new HeadReadPolicy(100, 1_000_000, 10, () -> exhausted.get() ? clock.addAndGet(100) : clock.get()))) {
+                new HeadReadPolicy(
+                        Integer.MAX_VALUE - 1,
+                        1_000_000,
+                        10,
+                        () -> exhausted.get() ? clock.addAndGet(100) : clock.get()))) {
             final SourceReplayRecord entry = fixture.entry("read-owner-loss");
             final AtomicInteger acknowledgements = new AtomicInteger();
             final SourceApplyCoordinator coordinator = fixture.coordinator(entry, (ignored, outcome) -> {
@@ -395,7 +403,7 @@ class SourceApplyCoordinatorTest {
         final java.util.concurrent.atomic.AtomicLong clock = new java.util.concurrent.atomic.AtomicLong();
         try (Fixture fixture = new Fixture(
                 tempDir.resolve("head-read-dispatch-failure"),
-                new HeadReadPolicy(100, 1_000_000, 10, () -> clock.addAndGet(100)))) {
+                new HeadReadPolicy(Integer.MAX_VALUE - 1, 1_000_000, 10, () -> clock.addAndGet(100)))) {
             final SourceReplayRecord entry = fixture.entry("dispatch-failure");
             final AtomicInteger acknowledgements = new AtomicInteger();
             final SourceApplyCoordinator coordinator = fixture.coordinator(entry, (ignored, outcome) -> {

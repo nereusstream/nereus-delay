@@ -1,46 +1,66 @@
-NDIP-3 A2 mutation-plan record envelope
+NDIP-3 A2 mutation-plan record envelope correction
 Date: 2026-10-04
-Base commit: 0e37d38317ba131d6ace7a4b7f70ff7ea8440f63
+Base commit: 8e6da8cf4245f43203f699665c53f83da16e9e82
 
 Source-derived bound:
-  readyProjections considers the union of the prior Message Lane, replacement
-  Message Lane, and reservation Lane (at most 3). Each projected Lane reads
-  its Lane value twice. Each of DUE, ORDERED, and NATIVE can visit at most one
-  excluded old head and one retained successor, and validates at most one
-  candidate by point-reading its Message. The shared head plan therefore reads
-  at most 3 * (2 + 3 * (2 + 1)) = 33 Store records.
+  readyProjections considers at most 3 affected Lanes and reads each Lane value
+  twice. For each Lane, DUE and ORDERED each visit at most one removed Timeline
+  row and one retained row, and validate at most one candidate Message. For a
+  legacy Message without TimelineWorkRef, actionAtFor may additionally scan
+  L = max(maxPendingMessages, maxOutcomeReserveRecords) open Attempt records,
+  then read its ScheduleBinding and the Message referenced by that binding.
+  NATIVE visits at most 2 Timeline rows and reads one candidate Message.
+  Thus the stored candidates and Lane reads use at most
+  3 * (2 + 2 * (L + 5) + 3) = 6L + 45 records.
+
+  The included replacement Message and excluded prior Message can each require
+  one additional legacy actionAt lookup, each bounded by L Attempt records plus
+  2 ScheduleBinding/Message reads. The full plan bound is therefore
+  6L + 45 + 2 * (L + 2) = 8L + 49 records. Default config has L=4,000,000,
+  so activation requires at least 32,000,049 records. The initial 33-record
+  calculation omitted legacy scans; the intermediate 7L+47 calculation also
+  omitted the included replacement lookup. Both were incomplete.
 
 Change:
-  Authoritative Owner activation rejects a finite head-read policy whose
-  maxRecords is below 33. This closes only the records dimension; it does not
-  certify a byte/allocation envelope or production policy assembly.
+  HeadReadPolicy derives the record allowance from DelayShardConfig with
+  overflow-safe arithmetic. Active Owner activation rejects policies below this
+  bound. DelayShard reuses actionAt for each stored candidate's key and
+  projection. The activation regression checks the default derived value and
+  rejects one record below it. This covers only the record dimension; variable
+  value bytes/allocation, production byte/time policy assembly, and central
+  validation remain open. A2 remains IN_PROGRESS.
 
 Focused command:
   ./gradlew test --tests com.nereusstream.delay.runtime.DelayShardHeadBudgetTest
-    --tests com.nereusstream.delay.ownership.OwnerLeaseTest checkstyleTest
-    --no-daemon --console=plain
-Result: PASS (61 tests, 0 failures, 0 errors, 0 skipped; BUILD SUCCESSFUL)
-Regression:
-  DelayShardHeadBudgetTest.ownerActivationRequiresMaximumMutationPlanRecordBudget
+    --tests com.nereusstream.delay.ownership.OwnerLeaseTest
+    --tests com.nereusstream.delay.ownership.SourceApplyCoordinatorTest
+    --tests com.nereusstream.delay.ownership.OwnerRecoveryCoordinatorTest
+    --tests com.nereusstream.delay.ownership.ClaimHandoffWorkClassExecutorTest
+    checkstyleTest --no-daemon --console=plain
+Result: PASS (78 tests, 0 failures, 0 errors, 0 skipped; checkstyleTest passed).
+JUnit XML results:
+  DelayShardHeadBudgetTest: 8 tests, 0 failures/errors/skips
+  OwnerLeaseTest: 53 tests, 0 failures/errors/skips
+  SourceApplyCoordinatorTest: 12 tests, 0 failures/errors/skips
+  OwnerRecoveryCoordinatorTest: 4 tests, 0 failures/errors/skips
+  ClaimHandoffWorkClassExecutorTest: 1 test, 0 failures/errors/skips
 
 Source SHA-256:
-  src/main/java/com/nereusstream/delay/runtime/HeadReadPolicy.java b763897450e73896427969bad7d84fea318a79ffa17888acc63977cb58f16e31
-  src/main/java/com/nereusstream/delay/runtime/DelayShard.java abcc46149e45619887cbc8d9cdec05fee2b49c388f2bf1ed1d5bb809d8b570e5
-  src/test/java/com/nereusstream/delay/runtime/DelayShardHeadBudgetTest.java 58e78622714684ef48bd22a89f89d69838ba41fd8b76249391f2a160eeee17d8
+  src/main/java/com/nereusstream/delay/runtime/HeadReadPolicy.java 127af2cb658b68f88eb871657e65a7c378cdb01ae9536a2e4fbe0e48d5f41f92
+  src/main/java/com/nereusstream/delay/runtime/DelayShard.java e246a88c1bb50d509f74791a2360a69bcf5bca948193ed65d6ba27843f1a08ef
+  src/test/java/com/nereusstream/delay/runtime/DelayShardHeadBudgetTest.java b462fc74d9b965c933eddaa3d1e27ed7b384375d1a55c715db7c03354de3714a
 JUnit XML SHA-256:
-  build/test-results/test/TEST-com.nereusstream.delay.runtime.DelayShardHeadBudgetTest.xml b067bdc1cc3f5b2b99b645e7061270737ee2055db1455198e047fec91b0c53e5
-  build/test-results/test/TEST-com.nereusstream.delay.ownership.OwnerLeaseTest.xml 25435102ece644d60ee36739c800be9ecb169c004b12ef6a7f32461f395b7317
+  build/test-results/test/TEST-com.nereusstream.delay.runtime.DelayShardHeadBudgetTest.xml 33092a3a88f6424c52ae77bb112f6b6a804b32867acc9207682504023d391128
+  build/test-results/test/TEST-com.nereusstream.delay.ownership.OwnerLeaseTest.xml b5a3c4cc336eaec8421fbbeeaba36fa39d4171d813f41cb06cc2b856b368b74c
+  build/test-results/test/TEST-com.nereusstream.delay.ownership.SourceApplyCoordinatorTest.xml efa0925944d72d54e9942280cb08b26a61f41133ecb12702b69106c0d4ee888b
+  build/test-results/test/TEST-com.nereusstream.delay.ownership.OwnerRecoveryCoordinatorTest.xml dd80bf10b0ebbe8f8d822eef11987b5e5266822143715b6b2dd44c898340acd0
+  build/test-results/test/TEST-com.nereusstream.delay.ownership.ClaimHandoffWorkClassExecutorTest.xml 7cf5bc1a5305e3ec24282cfa81cbab5eb5f1e6d78290429dbbc9f12466aab59b
 
 Additional validation:
   checkstyleTest: PASS.
-  checkstyleMain: fails only on unchanged baseline lines in
+  checkstyleMain: fails only on pre-existing 123-character lines in
     PersistentLaneScheduler.java:1327 and TargetWorkerHostRuntime.java:347
-    (123 characters; 120 maximum). The added source lines pass.
+    (120-character maximum); no new violation was reported.
+  checkDocumentation: PASS (./gradlew checkDocumentation --no-daemon --console=plain).
   jq empty docs/ndip/NDIP-3/progress.json: PASS.
   git diff --check: PASS.
-  ./gradlew checkDocumentation --no-daemon --console=plain: PASS.
-
-Scope:
-  The 33-record calculation covers the head plan's Store reads. Maximum legal
-  variable-value bytes/allocation, production finite HeadReadPolicy assembly,
-  and central validation remain open; A2 remains IN_PROGRESS.

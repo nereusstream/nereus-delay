@@ -7,7 +7,8 @@ import com.nereusstream.delay.store.ShardStore;
 
 /** Finite test fixture policy for strict Owner activation; not a production envelope certificate. */
 final class BoundedHeadReadDelayShard {
-    private static final HeadReadPolicy POLICY = new HeadReadPolicy(4096, 64L << 20, 60_000_000_000L);
+    private static final HeadReadPolicy POLICY =
+            new HeadReadPolicy(Integer.MAX_VALUE - 1, 64L << 20, 60_000_000_000L);
 
     private BoundedHeadReadDelayShard() {}
 

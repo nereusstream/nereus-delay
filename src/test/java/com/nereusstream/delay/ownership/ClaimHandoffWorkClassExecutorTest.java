@@ -138,7 +138,10 @@ class ClaimHandoffWorkClassExecutorTest {
             final java.util.concurrent.atomic.AtomicBoolean exhaustHead =
                     new java.util.concurrent.atomic.AtomicBoolean();
             final var headPolicy = new com.nereusstream.delay.runtime.HeadReadPolicy(
-                    100, 1_000_000, 10, () -> exhaustHead.get() ? headClock.addAndGet(100) : headClock.get());
+                    Integer.MAX_VALUE - 1,
+                    1_000_000,
+                    10,
+                    () -> exhaustHead.get() ? headClock.addAndGet(100) : headClock.get());
             final DelayShard shard = new DelayShard(
                     store,
                     DelayShardConfig.defaults(),
