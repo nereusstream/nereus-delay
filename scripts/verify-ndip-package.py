@@ -421,9 +421,9 @@ def verify_repository_status(
             raise VerificationError(
                 f"cannot verify proposal status in {path_text}: {exc}"
             ) from exc
-        if marker not in text:
+        if not any(line.startswith(marker) for line in text.splitlines()):
             raise VerificationError(
-                f"proposal status marker is missing from {path_text}: {marker}"
+                f"proposal status line is missing from {path_text}: {marker}"
             )
 
 

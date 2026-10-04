@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import copy
 import importlib.util
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -81,6 +82,31 @@ class VerifyNdipPackageTest(unittest.TestCase):
         self.assertIs(False, candidate["authority"])
         self.assertIs(False, candidate["authorization"]["implementationAuthorized"])
         self.assertIs(False, candidate["authorization"]["deploymentAuthority"])
+
+    def test_repository_status_must_be_a_status_line(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            checks = {
+                "docs/proposals/0002-register-ndip-governance.md": "- Status: Accepted"
+            }
+            checks.update(
+                {
+                    path: marker.format(status="Draft")
+                    for path, marker in VERIFIER.STATUS_MARKERS["NDIP-3"].items()
+                }
+            )
+            for path, marker in checks.items():
+                document = root / path
+                document.parent.mkdir(parents=True, exist_ok=True)
+                document.write_text(
+                    f"Historical prose mentions {marker} but does not set status.\n",
+                    encoding="utf-8",
+                )
+
+            with self.assertRaisesRegex(
+                VERIFIER.VerificationError, "proposal status line is missing"
+            ):
+                VERIFIER.verify_repository_status("NDIP-3", "CANDIDATE", 4, root)
 
     def test_ndip3_candidate_cannot_claim_implementation_or_deployment_authority(self) -> None:
         package_dir = ROOT / "docs/ndip/NDIP-3"
