@@ -484,6 +484,14 @@ public final class LegacyCheckpointStateInventory {
                                         proof.appliedSourcePosition(),
                                         ConflictReason.INFLIGHT_KEY_KIND_UNRECOGNIZED));
                             }
+                            final LegacyNamespaceBlocker namespaceBlocker = uninspectedNamespace(family, key);
+                            if (namespaceBlocker != null) {
+                                conflicts.add(conflict(
+                                        key,
+                                        namespaceBlocker.recordKind(),
+                                        proof.appliedSourcePosition(),
+                                        namespaceBlocker.reason()));
+                            }
                             iterator.next();
                         }
                         iterator.status();
@@ -1189,6 +1197,92 @@ public final class LegacyCheckpointStateInventory {
         return family.rocksName() + ":" + tag + ":" + format;
     }
 
+    private static LegacyNamespaceBlocker uninspectedNamespace(final ColumnFamily family, final byte[] key) {
+        if (family == ColumnFamily.INFLIGHT) {
+            return null;
+        }
+        if (key.length >= 2 && key[1] == 1) {
+            final int tag = Byte.toUnsignedInt(key[0]);
+            switch (family) {
+                case ID -> {
+                    if (tag == 1) {
+                        return null;
+                    }
+                    return switch (tag) {
+                        case 2 -> namespaceBlocker("RESERVATION");
+                        case 3 -> namespaceBlocker("PAYLOAD_REFERENCE");
+                        case 4 -> namespaceBlocker("SCHEDULE_BINDING");
+                        default -> unknownKeyBlocker("LEGACY_ID_KEY");
+                    };
+                }
+                case TIMELINE -> {
+                    return switch (tag) {
+                        case 1, 2, 4 -> null;
+                        case 3 -> namespaceBlocker("READY");
+                        case 5 -> namespaceBlocker("RESERVATION_EXPIRY");
+                        case 6 -> namespaceBlocker("SYSTEM_WORK");
+                        case 7 -> namespaceBlocker("NATIVE_CANDIDATE");
+                        default -> unknownKeyBlocker("LEGACY_TIMELINE_KEY");
+                    };
+                }
+                case DEDUPE -> {
+                    if (tag >= 1 && tag <= 5) {
+                        return namespaceBlocker("DEDUPE");
+                    }
+                    return unknownKeyBlocker("LEGACY_DEDUPE_KEY");
+                }
+                case TERMINAL -> {
+                    return switch (tag) {
+                        case 1 -> null;
+                        case 2 -> namespaceBlocker("DLQ_EXPORT");
+                        default -> unknownKeyBlocker("LEGACY_TERMINAL_KEY");
+                    };
+                }
+                case GC -> {
+                    if (tag == 1 || tag == 2) {
+                        return namespaceBlocker("GC");
+                    }
+                    return unknownKeyBlocker("LEGACY_GC_KEY");
+                }
+                case META -> {
+                    if (tag == 1) {
+                        if (key.length != 3) {
+                            return unknownKeyBlocker("LEGACY_META_KEY");
+                        }
+                        final int fixedKind = Byte.toUnsignedInt(key[2]);
+                        if (fixedKind < 1 || fixedKind > 14) {
+                            return unknownKeyBlocker("LEGACY_META_KEY");
+                        }
+                        return fixedKind == 10 || fixedKind >= 12
+                                ? new LegacyNamespaceBlocker(
+                                        "CONTROL_METADATA", ConflictReason.LEGACY_CONTROL_METADATA_UNAUDITED)
+                                : null;
+                    }
+                    return switch (tag) {
+                        case 2 -> null;
+                        case 3 -> namespaceBlocker("QUOTA");
+                        case 4 -> namespaceBlocker("PRODUCER");
+                        case 5 -> namespaceBlocker("SCHEDULER");
+                        case 6 -> namespaceBlocker("CONTROL_RESERVE");
+                        case 7 -> namespaceBlocker("RECOVERY_METADATA");
+                        case 8 -> namespaceBlocker("SLO_OUTBOX");
+                        default -> unknownKeyBlocker("LEGACY_META_KEY");
+                    };
+                }
+                case INFLIGHT -> throw new AssertionError("handled before namespace classification");
+            }
+        }
+        return unknownKeyBlocker("LEGACY_KEY");
+    }
+
+    private static LegacyNamespaceBlocker namespaceBlocker(final String recordKind) {
+        return new LegacyNamespaceBlocker(recordKind, ConflictReason.LEGACY_NAMESPACE_UNAUDITED);
+    }
+
+    private static LegacyNamespaceBlocker unknownKeyBlocker(final String recordKind) {
+        return new LegacyNamespaceBlocker(recordKind, ConflictReason.LEGACY_KEY_KIND_UNRECOGNIZED);
+    }
+
     private static boolean samePhysicalProof(
             final LegacyCheckpointImageInspector.ImageProof left,
             final LegacyCheckpointImageInspector.ImageProof right) {
@@ -1300,6 +1394,9 @@ public final class LegacyCheckpointStateInventory {
         LANE_KEY_MALFORMED,
         LANE_RECORD_MALFORMED,
         LANE_RECORD_KEY_VALUE_MISMATCH,
+        LEGACY_NAMESPACE_UNAUDITED,
+        LEGACY_KEY_KIND_UNRECOGNIZED,
+        LEGACY_CONTROL_METADATA_UNAUDITED,
         CLAIM_NOT_REPRESENTED_BY_CURRENT_MESSAGE,
         CLAIM_RECORD_MISSING,
         CLAIM_MULTIPLE_FOR_MESSAGE,
@@ -1323,7 +1420,31 @@ public final class LegacyCheckpointStateInventory {
                     && !checkedRecordKind.equals("LANE")
                     && !checkedRecordKind.equals("TIMELINE")
                     && !checkedRecordKind.equals("INFLIGHT")
-                    && !checkedRecordKind.equals("ATTEMPT")) {
+                    && !checkedRecordKind.equals("ATTEMPT")
+                    && !checkedRecordKind.equals("RESERVATION")
+                    && !checkedRecordKind.equals("PAYLOAD_REFERENCE")
+                    && !checkedRecordKind.equals("SCHEDULE_BINDING")
+                    && !checkedRecordKind.equals("READY")
+                    && !checkedRecordKind.equals("RESERVATION_EXPIRY")
+                    && !checkedRecordKind.equals("SYSTEM_WORK")
+                    && !checkedRecordKind.equals("NATIVE_CANDIDATE")
+                    && !checkedRecordKind.equals("DEDUPE")
+                    && !checkedRecordKind.equals("DLQ_EXPORT")
+                    && !checkedRecordKind.equals("GC")
+                    && !checkedRecordKind.equals("CONTROL_METADATA")
+                    && !checkedRecordKind.equals("QUOTA")
+                    && !checkedRecordKind.equals("PRODUCER")
+                    && !checkedRecordKind.equals("SCHEDULER")
+                    && !checkedRecordKind.equals("CONTROL_RESERVE")
+                    && !checkedRecordKind.equals("RECOVERY_METADATA")
+                    && !checkedRecordKind.equals("SLO_OUTBOX")
+                    && !checkedRecordKind.equals("LEGACY_ID_KEY")
+                    && !checkedRecordKind.equals("LEGACY_TIMELINE_KEY")
+                    && !checkedRecordKind.equals("LEGACY_DEDUPE_KEY")
+                    && !checkedRecordKind.equals("LEGACY_TERMINAL_KEY")
+                    && !checkedRecordKind.equals("LEGACY_GC_KEY")
+                    && !checkedRecordKind.equals("LEGACY_META_KEY")
+                    && !checkedRecordKind.equals("LEGACY_KEY")) {
                 throw new IllegalArgumentException("legacy index conflict record kind is not registered");
             }
             sourcePosition = SourcePositionCodec.decode(sourcePosition).canonicalBytes();
@@ -1394,6 +1515,8 @@ public final class LegacyCheckpointStateInventory {
     }
 
     private record TimelineIndexIdentity(int kind, DelayMessageId messageId, int generation) {}
+
+    private record LegacyNamespaceBlocker(String recordKind, ConflictReason reason) {}
 
     private record TerminalSummaryEntry(byte[] key, TerminalGenerationRecord summary) {}
 }
