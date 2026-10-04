@@ -106,3 +106,22 @@ dd0e74e351707364a54025372b50f0634afc288f7b512bde8936c9ae957c8191  src/test/java/
 2307836a53d47635e58163f77c30633181bab6ca72ed28a810daaf4feb8df751  src/test/java/com/nereusstream/delay/ownership/TargetWorkerShardFleetRuntimeTest.java
 Remaining: no real Oxia notification restart through the Host safety-recheck timer, full invalidation matrix, or production authority assembly is claimed.
 Additional check: ./gradlew checkstyleMain --no-daemon --console=plain FAILED on only two pre-existing 123-character lines: src/main/java/com/nereusstream/delay/scheduler/PersistentLaneScheduler.java:1327 and src/main/java/com/nereusstream/delay/ownership/TargetWorkerHostRuntime.java:347. Neither file is modified by this change; checkstyleTest passes.
+
+Date: 2026-10-04
+Base revision: 921d999d9236d17a42e23d67d2cbebd69e432473
+Command: ./gradlew test --tests 'com.nereusstream.delay.runtime.TargetMessageStoreTest.nonHeadInsertionPreservesRevisionAndTerminalRemovalUpdatesExactHeads' --tests 'com.nereusstream.delay.store.TargetStoreBackendTest.targetWakeRegistrationsCoalesceAndFallBackToBoundedInventoryDiscovery' --tests 'com.nereusstream.delay.runtime.TargetQuotaGrantStoreTest.membershipIssueAndClosePreserveFirstSourceAndAtomicResults' --tests 'com.nereusstream.delay.ownership.TargetWorkerShardFleetRuntimeTest.nativePolicyAuthorityWakeSubscriptionsFollowActiveDomainSlots' --tests 'com.nereusstream.delay.semantic.OxiaSyncTargetNativePolicyAuthorityTest' checkstyleTest --no-daemon --console=plain
+Result: PASS; 8 tests across 5 classes, zero failures/errors/skips; checkstyleTest passed.
+Coverage: TargetMessageStore non-head/head revision; coalesced TargetStoreBackend wake registration and bounded fallback; actual Worker/Store/Host Native timer path; Host Native authority slot lifecycle; Oxia current-head key/range notification filtering.
+Source/test SHA-256:
+77b5e70c89ebcbd2795d179f154cb7dce0c8fc6e6ff5ab3e24e6fa5cb8d1b4dd  src/main/java/com/nereusstream/delay/runtime/TargetMessageStore.java
+d78eba7fb656250e58cc127ad7bc8e785186faca197521653c812fb5ac074e05  src/main/java/com/nereusstream/delay/runtime/TargetQueueHeadUpdater.java
+17a6a4d3194175c36aca5ffbd14df4dcb91e92f52ddd01c7bfeb1ac42e7f4338  src/main/java/com/nereusstream/delay/store/TargetStoreBackend.java
+10ba3cd539924d46fe88add89237ab5ff20a988cbf7bb955461094ce40fef365  src/main/java/com/nereusstream/delay/ownership/TargetWorkerOrdinaryLoop.java
+1c4775d1a9ad0a077c434b2635f86e9fdd862b9686bcd123d3fa91e5e453257d  src/main/java/com/nereusstream/delay/ownership/TargetWorkerOrdinaryDrr.java
+eec22ff9c70d9dee3ecf6a57d7e65fd1f21104b0c3413a87c3c82059e7aa7cf7  src/main/java/com/nereusstream/delay/semantic/OxiaSyncTargetNativePolicyAuthority.java
+a46e43d98d390ec56dc1d02b568ae83f6f8e377bdd10c3233b2fb9ebce5b2217  src/test/java/com/nereusstream/delay/runtime/TargetMessageStoreTest.java
+507be173e00d76624cb551925fe9e51152be0ec37b6fc221e4ace7b0ebbbf526  src/test/java/com/nereusstream/delay/store/TargetStoreBackendTest.java
+5b6e2be93f78131eb5f9de49a772698c5eeda17aae29ff918339c5b1cd92e286  src/test/java/com/nereusstream/delay/runtime/TargetQuotaGrantStoreTest.java
+2307836a53d47635e58163f77c30633181bab6ca72ed28a810daaf4feb8df751  src/test/java/com/nereusstream/delay/ownership/TargetWorkerShardFleetRuntimeTest.java
+ebbe876c1a7a5ac65983626ddf6a6fb723eb991f9eacd2f6aef41354fdcd5f6d  src/test/java/com/nereusstream/delay/semantic/OxiaSyncTargetNativePolicyAuthorityTest.java
+Remaining: no real Oxia restart notification gap exercised through the Host safety-recheck loop, complete invalidation matrix, or production authority assembly is claimed.
