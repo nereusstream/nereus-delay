@@ -42,6 +42,21 @@ class DelayShardHeadBudgetTest {
     }
 
     @Test
+    void ownerActivationRequiresMaximumMutationPlanRecordBudget() {
+        try (Fixture fixture = new Fixture(tempDir.resolve("activation-record-envelope"))) {
+            final DelayShard undersized = boundedShard(
+                    fixture.store,
+                    new HeadReadPolicy(HeadReadPolicy.MAX_MUTATION_PLAN_RECORDS - 1, 1_000_000, 1_000, () -> 0));
+            assertThrows(IllegalStateException.class, undersized::requireExplicitFiniteHeadReadPolicy);
+
+            final DelayShard complete = boundedShard(
+                    fixture.store,
+                    new HeadReadPolicy(HeadReadPolicy.MAX_MUTATION_PLAN_RECORDS, 1_000_000, 1_000, () -> 0));
+            complete.requireExplicitFiniteHeadReadPolicy();
+        }
+    }
+
+    @Test
     void deletingHeadCannotPartiallyCommitAtAnyRequiredReadBoundary() {
         try (Fixture fixture = new Fixture(tempDir.resolve("record-boundaries"))) {
             final PreparedCommand cancel =

@@ -200,6 +200,10 @@ public final class DelayShard {
         if (!headReadPolicy.hasFiniteLimits()) {
             throw new IllegalStateException("active Owner requires an explicit finite head-read policy");
         }
+        if (!headReadPolicy.canReadMaximumMutationPlanRecords()) {
+            throw new IllegalStateException(
+                    "active Owner head-read record limit cannot cover one complete mutation plan");
+        }
     }
 
     private long claimSequence;

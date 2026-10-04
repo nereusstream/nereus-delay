@@ -1,0 +1,46 @@
+NDIP-3 A2 mutation-plan record envelope
+Date: 2026-10-04
+Base commit: 0e37d38317ba131d6ace7a4b7f70ff7ea8440f63
+
+Source-derived bound:
+  readyProjections considers the union of the prior Message Lane, replacement
+  Message Lane, and reservation Lane (at most 3). Each projected Lane reads
+  its Lane value twice. Each of DUE, ORDERED, and NATIVE can visit at most one
+  excluded old head and one retained successor, and validates at most one
+  candidate by point-reading its Message. The shared head plan therefore reads
+  at most 3 * (2 + 3 * (2 + 1)) = 33 Store records.
+
+Change:
+  Authoritative Owner activation rejects a finite head-read policy whose
+  maxRecords is below 33. This closes only the records dimension; it does not
+  certify a byte/allocation envelope or production policy assembly.
+
+Focused command:
+  ./gradlew test --tests com.nereusstream.delay.runtime.DelayShardHeadBudgetTest
+    --tests com.nereusstream.delay.ownership.OwnerLeaseTest checkstyleTest
+    --no-daemon --console=plain
+Result: PASS (61 tests, 0 failures, 0 errors, 0 skipped; BUILD SUCCESSFUL)
+Regression:
+  DelayShardHeadBudgetTest.ownerActivationRequiresMaximumMutationPlanRecordBudget
+
+Source SHA-256:
+  src/main/java/com/nereusstream/delay/runtime/HeadReadPolicy.java b763897450e73896427969bad7d84fea318a79ffa17888acc63977cb58f16e31
+  src/main/java/com/nereusstream/delay/runtime/DelayShard.java abcc46149e45619887cbc8d9cdec05fee2b49c388f2bf1ed1d5bb809d8b570e5
+  src/test/java/com/nereusstream/delay/runtime/DelayShardHeadBudgetTest.java 58e78622714684ef48bd22a89f89d69838ba41fd8b76249391f2a160eeee17d8
+JUnit XML SHA-256:
+  build/test-results/test/TEST-com.nereusstream.delay.runtime.DelayShardHeadBudgetTest.xml b067bdc1cc3f5b2b99b645e7061270737ee2055db1455198e047fec91b0c53e5
+  build/test-results/test/TEST-com.nereusstream.delay.ownership.OwnerLeaseTest.xml 25435102ece644d60ee36739c800be9ecb169c004b12ef6a7f32461f395b7317
+
+Additional validation:
+  checkstyleTest: PASS.
+  checkstyleMain: fails only on unchanged baseline lines in
+    PersistentLaneScheduler.java:1327 and TargetWorkerHostRuntime.java:347
+    (123 characters; 120 maximum). The added source lines pass.
+  jq empty docs/ndip/NDIP-3/progress.json: PASS.
+  git diff --check: PASS.
+  ./gradlew checkDocumentation --no-daemon --console=plain: PASS.
+
+Scope:
+  The 33-record calculation covers the head plan's Store reads. Maximum legal
+  variable-value bytes/allocation, production finite HeadReadPolicy assembly,
+  and central validation remain open; A2 remains IN_PROGRESS.
