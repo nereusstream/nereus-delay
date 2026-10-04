@@ -112,9 +112,10 @@ class ShardStoreTest {
             final AtomicLong clock = new AtomicLong();
             assertTrue(store.scan(ColumnFamily.META, firstKey, null, 2, Long.MAX_VALUE, 1, clock::getAndIncrement)
                     .isEmpty());
-            assertThrows(
-                    IllegalStateException.class,
-                    () -> store.scan(ColumnFamily.META, firstKey, null, 1, Long.MAX_VALUE, 100, () -> -1));
+            assertEquals(
+                    1,
+                    store.scan(ColumnFamily.META, firstKey, secondKey, 1, Long.MAX_VALUE, 100, () -> -1)
+                            .size());
             final AtomicLong backwardsClock = new AtomicLong(5);
             assertThrows(
                     IllegalStateException.class,
@@ -122,7 +123,7 @@ class ShardStoreTest {
                             ColumnFamily.META,
                             firstKey,
                             null,
-                            1,
+                            2,
                             Long.MAX_VALUE,
                             100,
                             () -> backwardsClock.getAndDecrement()));
