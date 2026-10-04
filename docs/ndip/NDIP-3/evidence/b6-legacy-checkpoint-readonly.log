@@ -431,3 +431,27 @@ Commands:
 Result: the Claim and image-inspector test classes pass 15/15 with zero failures/errors/skips; `checkstyleTest`, `checkDocumentation`, progress JSON parsing, and `git diff --check` pass. `checkstyleMain` reports only the two unchanged 123-character lines in `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`.
 
 Scope: this covers format-1 INFLIGHT key kind classification only. It does not close other Column Family namespaces, full state dispositions, historical Terminal/Floor/retention/GC, source replay/cutover, activation, conversion, rollback, reader retirement, or central validation; B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
+
+## 2026-10-04 Malformed TERMINAL generation-summary key
+
+Source lock:
+- Base HEAD and origin/main: `de7ae0eca09160ffad6de08f9c863d293a1ae3e3`
+- `LegacyCheckpointStateInventory.java` SHA-256: `011c5fc9ac6d093f0f8240cc1b2f5afb2cb1bce59ea54ff5a58388fac2bb85c4`
+- `LegacyCheckpointImageInspectorTest.java` SHA-256: `d23374522493f74faefd160c4effd996c11c8eebe8d162e377714668d96ae3c5`
+
+Verification: a TERMINAL key carrying the known generation-summary tag/format prefix but invalid canonical length now emits stable `TERMINAL_GENERATION_KEY_MALFORMED`, bound to the old key digest, `TERMINAL` record kind, and checkpoint applied source position. A real RocksDB checkpoint test preserves a valid scheduled Message and its indexes while adding one malformed generation-summary key. The check intentionally does not reclassify other TERMINAL namespaces, including DLQ export keys.
+
+Commands:
+`./gradlew test --tests com.nereusstream.delay.store.LegacyCheckpointClaimInventoryTest --tests com.nereusstream.delay.store.LegacyCheckpointImageInspectorTest checkstyleTest`
+
+`./gradlew checkDocumentation`
+
+`jq empty docs/ndip/NDIP-3/progress.json`
+
+`git diff --check`
+
+`./gradlew checkstyleMain`
+
+Result: the Claim and image-inspector test classes pass 16/16 total with zero failures/errors/skips; `checkstyleTest`, `checkDocumentation`, progress JSON parsing, and `git diff --check` pass. `checkstyleMain` reports only the two unchanged 123-character lines in `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`.
+
+Scope: this checks only the malformed format-1 generation-summary key prefix. It does not audit DLQ export identity/reference relationships, other unknown Column Family namespaces, historical Terminal/Floor/retention/GC closure, source replay/cutover, activation, conversion, rollback, reader retirement, or central validation; B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.

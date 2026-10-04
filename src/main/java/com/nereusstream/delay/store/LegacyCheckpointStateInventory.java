@@ -152,6 +152,8 @@ public final class LegacyCheckpointStateInventory {
                             boolean claimRecordKey = false;
                             boolean attemptLedgerKey = false;
                             boolean malformedInflightKey = false;
+                            boolean terminalGenerationKey = false;
+                            boolean malformedTerminalGenerationKey = false;
                             if (family == ColumnFamily.INFLIGHT) {
                                 try {
                                     claimRecordKey = isClaimRecordKey(key);
@@ -160,6 +162,13 @@ public final class LegacyCheckpointStateInventory {
                                     }
                                 } catch (IllegalArgumentException malformedKey) {
                                     malformedInflightKey = true;
+                                }
+                            }
+                            if (family == ColumnFamily.TERMINAL) {
+                                try {
+                                    terminalGenerationKey = isTerminalGenerationKey(key);
+                                } catch (IllegalArgumentException malformedKey) {
+                                    malformedTerminalGenerationKey = true;
                                 }
                             }
                             if (family == ColumnFamily.TIMELINE && hasMessageTimelineIndexTag(key)) {
@@ -306,7 +315,14 @@ public final class LegacyCheckpointStateInventory {
                                     throw new IllegalArgumentException("duplicate legacy Lane identity");
                                 }
                             }
-                            if (family == ColumnFamily.TERMINAL && isTerminalGenerationKey(key)) {
+                            if (malformedTerminalGenerationKey) {
+                                conflicts.add(conflict(
+                                        key,
+                                        "TERMINAL",
+                                        proof.appliedSourcePosition(),
+                                        ConflictReason.TERMINAL_GENERATION_KEY_MALFORMED));
+                            }
+                            if (terminalGenerationKey) {
                                 final DelayMessageId terminalMessageId = terminalMessageId(key);
                                 if (!terminalMessageId.routingId().shardId().equals(proof.metadata().shardId())) {
                                     throw new IllegalArgumentException(
@@ -1217,6 +1233,7 @@ public final class LegacyCheckpointStateInventory {
         CLAIM_RECORD_MISSING,
         CLAIM_MULTIPLE_FOR_MESSAGE,
         CLAIM_REQUIRES_SOURCE_CUT_RECONCILIATION,
+        TERMINAL_GENERATION_KEY_MALFORMED,
         SCHEDULED_REQUIRES_OLD_SEND_RECOVERY,
         UNRESOLVED_SEND_REQUIRES_OLD_RECOVERY,
         HANDOFF_REQUIRES_OLD_BROKER_RESPONSIBILITY,

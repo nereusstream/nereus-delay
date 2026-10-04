@@ -253,6 +253,61 @@ class LegacyCheckpointImageInspectorTest {
     }
 
     @Test
+    void reportsMalformedTerminalGenerationKeyAsAStableConflict() throws Exception {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 7);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("malformed-terminal-key-store"));
+        final Path image = tempDir.resolve("malformed-terminal-key-checkpoint");
+        final byte[] checkpointId = bytes(16, 24);
+        final KafkaSourcePosition source = new KafkaSourcePosition(
+                shard, "legacy-cluster", UUID.randomUUID(), 31, null, 4_000);
+        final ScheduledFixture scheduled = scheduledFixture(shard, source, "malformed-terminal-key-lane");
+        final byte[] malformedKey = new byte[] {1, 1, 1};
+        final CheckpointManifest manifest;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore store = ShardStore.open(config, shard, resources)) {
+            store.write(batch -> {
+                batch.putValue(
+                        ColumnFamily.META,
+                        ShardStore.META_FIXED_VALUE_TYPE,
+                        KeyCodec.metaFixed(ShardStore.META_APPLIED_SOURCE_POSITION),
+                        source.canonicalBytes());
+                batch.putValue(
+                        ColumnFamily.META,
+                        ShardStore.META_FIXED_VALUE_TYPE,
+                        KeyCodec.metaFixed(ShardStore.META_MUTATION_SEQUENCE),
+                        Bytes.u64beBits(1));
+                batch.putValue(
+                        ColumnFamily.ID,
+                        1,
+                        KeyCodec.idMessage(scheduled.messageId()),
+                        scheduled.message().encode());
+                batch.putValue(
+                        ColumnFamily.TIMELINE, 1, scheduled.timelineKey(), scheduled.work().canonicalBytes());
+                batch.putValue(
+                        ColumnFamily.TIMELINE, 1, scheduled.expiryKey(), scheduled.work().canonicalBytes());
+                batch.put(ColumnFamily.TERMINAL, malformedKey, Bytes.utf8("malformed terminal key"));
+            });
+            store.createCheckpoint(image, checkpointId);
+            manifest = manifestFor(image, shard, store, checkpointId, source);
+        }
+
+        final LegacyCheckpointStateInventory.Inventory inventory = LegacyCheckpointStateInventory.inspect(
+                image,
+                shard,
+                manifest,
+                finiteLimits(),
+                new LegacyCheckpointStateInventory.ReadLimits(1_000, 1 << 20, 60_000_000_000L));
+        assertEquals(1, inventory.conflicts().size());
+        final LegacyCheckpointStateInventory.Conflict conflict = inventory.conflicts().get(0);
+        assertEquals(
+                LegacyCheckpointStateInventory.ConflictReason.TERMINAL_GENERATION_KEY_MALFORMED,
+                conflict.reason());
+        assertEquals("TERMINAL", conflict.recordKind());
+        assertTrue(Bytes.constantTimeEquals(Bytes.sha256(malformedKey), conflict.oldKeyDigest()));
+        assertTrue(Bytes.constantTimeEquals(source.canonicalBytes(), conflict.sourcePosition()));
+    }
+
+    @Test
     void acceptsLegacyTimelinePointersForScheduledCheckpointMessages() throws Exception {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 7);
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("legacy-timeline-store"));
