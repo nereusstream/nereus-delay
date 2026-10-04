@@ -8,6 +8,7 @@ import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Callable
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -83,7 +84,29 @@ class VerifyNdipPackageTest(unittest.TestCase):
         self.assertIs(False, candidate["authorization"]["implementationAuthorized"])
         self.assertIs(False, candidate["authorization"]["deploymentAuthority"])
 
-    def test_repository_status_must_be_a_status_line(self) -> None:
+    def test_repository_status_ignores_fenced_examples(self) -> None:
+        self._assert_ndip3_status_documents_rejected(
+            lambda marker: f"```text\n{marker}\n```\n", "found=0"
+        )
+
+    def test_repository_status_rejects_duplicate_status_lines(self) -> None:
+        self._assert_ndip3_status_documents_rejected(
+            lambda marker: f"{marker}\n{marker}\n", "found=2"
+        )
+
+    def test_repository_status_rejects_conflicting_status_lines(self) -> None:
+        self._assert_ndip3_status_documents_rejected(
+            self._opposite_status_line, "found=2"
+        )
+
+    def test_repository_status_rejects_wrong_single_status_line(self) -> None:
+        self._assert_ndip3_status_documents_rejected(
+            self._wrong_status_line, "status field does not match expected status"
+        )
+
+    def _assert_ndip3_status_documents_rejected(
+        self, content_for_marker: Callable[[str], str], error: str
+    ) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             checks = {
@@ -98,15 +121,22 @@ class VerifyNdipPackageTest(unittest.TestCase):
             for path, marker in checks.items():
                 document = root / path
                 document.parent.mkdir(parents=True, exist_ok=True)
-                document.write_text(
-                    f"Historical prose mentions {marker} but does not set status.\n",
-                    encoding="utf-8",
-                )
+                document.write_text(content_for_marker(marker), encoding="utf-8")
 
-            with self.assertRaisesRegex(
-                VERIFIER.VerificationError, "proposal status line is missing"
-            ):
+            with self.assertRaisesRegex(VERIFIER.VerificationError, error):
                 VERIFIER.verify_repository_status("NDIP-3", "CANDIDATE", 4, root)
+
+    @staticmethod
+    def _opposite_status_line(marker: str) -> str:
+        current_status = "Draft" if "Draft" in marker else "Accepted"
+        wrong_status = "Accepted" if current_status == "Draft" else "Draft"
+        return f"{marker}\n{marker.replace(current_status, wrong_status)}\n"
+
+    @staticmethod
+    def _wrong_status_line(marker: str) -> str:
+        current_status = "Draft" if "Draft" in marker else "Accepted"
+        wrong_status = "Accepted" if current_status == "Draft" else "Draft"
+        return f"{marker.replace(current_status, wrong_status)}\n"
 
     def test_ndip3_candidate_cannot_claim_implementation_or_deployment_authority(self) -> None:
         package_dir = ROOT / "docs/ndip/NDIP-3"

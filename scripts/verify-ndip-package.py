@@ -397,6 +397,32 @@ def git_file_bytes(root: Path, source_commit: str, path_text: str) -> bytes:
     return process.stdout
 
 
+def status_field_lines(text: str, field_prefix: str) -> list[str]:
+    status_lines: list[str] = []
+    fence_character: str | None = None
+    fence_length = 0
+    for line in text.splitlines():
+        fence_match = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+        if fence_character is None and fence_match is not None:
+            fence = fence_match.group(1)
+            fence_character = fence[0]
+            fence_length = len(fence)
+            continue
+        if fence_character is not None:
+            if (
+                fence_match is not None
+                and fence_match.group(1)[0] == fence_character
+                and len(fence_match.group(1)) >= fence_length
+                and not fence_match.group(2).strip()
+            ):
+                fence_character = None
+                fence_length = 0
+            continue
+        if line.startswith(field_prefix):
+            status_lines.append(line)
+    return status_lines
+
+
 def verify_repository_status(
     proposal_id: str,
     receipt_status: str,
@@ -406,10 +432,16 @@ def verify_repository_status(
 ) -> None:
     expected_status = "Draft" if receipt_status == "CANDIDATE" else "Accepted"
     ndp_status = expected_status if generation == 2 else "Accepted"
-    checks = {"docs/proposals/0002-register-ndip-governance.md": f"- Status: {ndp_status}"}
-    for path_text, marker in STATUS_MARKERS[proposal_id].items():
-        checks[path_text] = marker.format(status=expected_status)
-    for path_text, marker in checks.items():
+    checks = {
+        "docs/proposals/0002-register-ndip-governance.md": (
+            "- Status: ",
+            f"- Status: {ndp_status}",
+        )
+    }
+    for path_text, marker_template in STATUS_MARKERS[proposal_id].items():
+        field_prefix = marker_template.split("{status}", 1)[0]
+        checks[path_text] = (field_prefix, marker_template.format(status=expected_status))
+    for path_text, (field_prefix, marker) in checks.items():
         try:
             data = (
                 (root / path_text).read_bytes()
@@ -421,9 +453,15 @@ def verify_repository_status(
             raise VerificationError(
                 f"cannot verify proposal status in {path_text}: {exc}"
             ) from exc
-        if not any(line.startswith(marker) for line in text.splitlines()):
+        status_lines = status_field_lines(text, field_prefix)
+        if len(status_lines) != 1:
             raise VerificationError(
-                f"proposal status line is missing from {path_text}: {marker}"
+                f"proposal status line must occur exactly once outside code fences in "
+                f"{path_text}: {field_prefix}; found={len(status_lines)}"
+            )
+        if not status_lines[0].startswith(marker):
+            raise VerificationError(
+                f"proposal status field does not match expected status in {path_text}: {marker}"
             )
 
 
