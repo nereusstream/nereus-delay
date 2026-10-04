@@ -19,6 +19,7 @@ import com.nereusstream.delay.runtime.ClaimRecordTestSupport;
 import com.nereusstream.delay.runtime.GenerationRuntimeIndex;
 import com.nereusstream.delay.runtime.LaneRecord;
 import com.nereusstream.delay.runtime.MessageRecord;
+import com.nereusstream.delay.runtime.PublishAttemptLedger;
 import com.nereusstream.delay.runtime.TimelineWorkRef;
 import java.nio.file.Path;
 import java.util.List;
@@ -783,7 +784,7 @@ class LegacyCheckpointClaimInventoryTest {
     }
 
     @Test
-    void reportsUnrecognizedAndMalformedInflightKeyKindsAsConflicts() throws Exception {
+    void reportsUnknownMalformedInflightKeysAndRecordsAsConflicts() throws Exception {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 11);
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("unknown-inflight-store"));
         final Path image = tempDir.resolve("unknown-inflight-checkpoint");
@@ -804,6 +805,8 @@ class LegacyCheckpointClaimInventoryTest {
         final byte[] unknownKey = new byte[] {0x7f, 1, 1};
         final byte[] malformedClaimKey = new byte[] {1, 1, 1};
         final byte[] malformedAttemptKey = new byte[] {2, 1, 1};
+        final byte[] malformedClaimValueKey = KeyCodec.inflight((byte) 1, Long.MIN_VALUE, bytes(32, 56));
+        final byte[] malformedAttemptValueKey = KeyCodec.inflight((byte) 2, Long.MIN_VALUE, bytes(32, 57));
         final CheckpointManifest manifest;
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shard, resources)) {
@@ -812,6 +815,12 @@ class LegacyCheckpointClaimInventoryTest {
                 batch.put(ColumnFamily.INFLIGHT, unknownKey, Bytes.utf8("opaque legacy obligation"));
                 batch.put(ColumnFamily.INFLIGHT, malformedClaimKey, Bytes.utf8("malformed Claim key"));
                 batch.put(ColumnFamily.INFLIGHT, malformedAttemptKey, Bytes.utf8("malformed Attempt key"));
+                batch.put(ColumnFamily.INFLIGHT, malformedClaimValueKey, Bytes.utf8("malformed Claim value"));
+                batch.putValue(
+                        ColumnFamily.INFLIGHT,
+                        PublishAttemptLedger.VALUE_TYPE,
+                        malformedAttemptValueKey,
+                        Bytes.utf8("malformed Attempt value"));
             });
             store.createCheckpoint(image, checkpointId);
             manifest = manifestFor(image, shard, store, checkpointId, source);
@@ -840,6 +849,22 @@ class LegacyCheckpointClaimInventoryTest {
                     .findFirst()
                     .orElseThrow();
             assertEquals("INFLIGHT", malformedConflict.recordKind());
+            assertTrue(Bytes.constantTimeEquals(source.canonicalBytes(), malformedConflict.sourcePosition()));
+        }
+
+        for (byte[] malformedValueKey : new byte[][] {malformedClaimValueKey, malformedAttemptValueKey}) {
+            final String expectedKind = Bytes.constantTimeEquals(malformedValueKey, malformedClaimValueKey)
+                    ? "CLAIM"
+                    : "ATTEMPT";
+            final LegacyCheckpointStateInventory.Conflict malformedConflict = inventory.conflicts().stream()
+                    .filter(item -> item.reason()
+                            == (expectedKind.equals("CLAIM")
+                                    ? LegacyCheckpointStateInventory.ConflictReason.CLAIM_RECORD_MALFORMED
+                                    : LegacyCheckpointStateInventory.ConflictReason.ATTEMPT_LEDGER_MALFORMED))
+                    .filter(item -> Bytes.constantTimeEquals(Bytes.sha256(malformedValueKey), item.oldKeyDigest()))
+                    .findFirst()
+                    .orElseThrow();
+            assertEquals(expectedKind, malformedConflict.recordKind());
             assertTrue(Bytes.constantTimeEquals(source.canonicalBytes(), malformedConflict.sourcePosition()));
         }
     }

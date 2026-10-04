@@ -455,3 +455,51 @@ Commands:
 Result: the Claim and image-inspector test classes pass 16/16 total with zero failures/errors/skips; `checkstyleTest`, `checkDocumentation`, progress JSON parsing, and `git diff --check` pass. `checkstyleMain` reports only the two unchanged 123-character lines in `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`.
 
 Scope: this checks only the malformed format-1 generation-summary key prefix. It does not audit DLQ export identity/reference relationships, other unknown Column Family namespaces, historical Terminal/Floor/retention/GC closure, source replay/cutover, activation, conversion, rollback, reader retirement, or central validation; B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
+
+## 2026-10-04 Malformed recognized INFLIGHT Claim and Attempt values
+
+Source lock:
+- Base HEAD and origin/main: `003621e005a73d9b20d9f696e01c02cc5b8a7651`
+- `LegacyCheckpointStateInventory.java` SHA-256: `440c0136ddf1d979031773442051d446b233626167bc01232c9004317ab4102d`
+- `LegacyCheckpointClaimInventoryTest.java` SHA-256: `e7ff87e269e87313a753d29f3e737fc634c0544b96c7bec5efad1fe254ee5df4`
+
+Verification: decoding failures for recognized Claim and PublishAttemptLedger values now emit stable `CLAIM_RECORD_MALFORMED` and `ATTEMPT_LEDGER_MALFORMED` conflicts bound to the checkpoint applied source position. The real RocksDB checkpoint regression includes a malformed Claim envelope and a valid Attempt envelope containing an invalid record body; both are reported while the valid runtime-created Claim remains inspectable.
+
+Commands:
+`./gradlew test --tests com.nereusstream.delay.store.LegacyCheckpointClaimInventoryTest --tests com.nereusstream.delay.store.LegacyCheckpointImageInspectorTest checkstyleTest`
+
+`./gradlew checkDocumentation`
+
+`jq empty docs/ndip/NDIP-3/progress.json`
+
+`git diff --check`
+
+`./gradlew checkstyleMain`
+
+Result: the Claim and image-inspector test classes pass 16/16 with zero failures/errors/skips; `checkstyleTest`, `checkDocumentation`, progress JSON parsing, and `git diff --check` pass. `checkstyleMain` reports only the two unchanged 123-character lines in `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`.
+
+Scope: this covers malformed recognized format-1 INFLIGHT Claim/Attempt values only. It does not establish complete Claim/Owner/Journal proof, cross-Shard identity handling, external Admission history, Terminal/Floor/retention/GC closure, source replay/cutover, activation, conversion, rollback, reader retirement, or central validation; B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
+
+## 2026-10-04 Stable conflicts for malformed recognized INFLIGHT values
+
+Source lock:
+- Base HEAD and origin/main: `003621e005a73d9b20d9f696e01c02cc5b8a7651`
+- `LegacyCheckpointStateInventory.java` SHA-256: `5679e4edee8202b3da0b0baffd628792eee52f81787379af36f77600af31a778`
+- `LegacyCheckpointClaimInventoryTest.java` SHA-256: `e7ff87e269e87313a753d29f3e737fc634c0544b96c7bec5efad1fe254ee5df4`
+
+Verification: for recognized canonical Claim and PublishAttemptLedger keys, envelope or record-body decode failures emit `CLAIM_RECORD_MALFORMED` or `ATTEMPT_LEDGER_MALFORMED` with the record key digest and checkpoint applied source position; scanning continues so other records remain represented. The real RocksDB case writes one Claim key with malformed envelope bytes and one Attempt key with a valid envelope around an invalid body, alongside a valid runtime-created Claim.
+
+Commands:
+`./gradlew test --tests com.nereusstream.delay.store.LegacyCheckpointClaimInventoryTest --tests com.nereusstream.delay.store.LegacyCheckpointImageInspectorTest checkstyleTest`
+
+`./gradlew checkDocumentation`
+
+`jq empty docs/ndip/NDIP-3/progress.json`
+
+`git diff --check`
+
+`./gradlew checkstyleMain`
+
+Result: the Claim and image-inspector classes pass 16/16 with zero failures/errors/skips; `checkstyleTest`, `checkDocumentation`, progress JSON parsing, and `git diff --check` pass. `checkstyleMain` reports only the two unchanged 123-character lines in `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`.
+
+Scope: this addresses malformed values under recognized format-1 INFLIGHT Claim/Attempt key namespaces. It does not close source/Owner/Journal authority, other Column Family corrupt-record reporting, full disposition, Terminal/Floor/retention/GC, source replay/cutover, activation, conversion, rollback, reader retirement, or central validation; B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.

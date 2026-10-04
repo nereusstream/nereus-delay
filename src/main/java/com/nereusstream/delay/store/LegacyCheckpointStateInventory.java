@@ -368,41 +368,66 @@ public final class LegacyCheckpointStateInventory {
                                         referencedAttemptKeys);
                             }
                             if (claimRecordKey) {
-                                final byte[] payload = ValueEnvelope.decode(value, ClaimRecord.VALUE_TYPE).payload();
-                                final ClaimRecord claim = ClaimRecord.decode(payload);
-                                if (!claim.delayMessageId().routingId().shardId().equals(proof.metadata().shardId())) {
-                                    throw new IllegalArgumentException("legacy Claim belongs to another Shard");
+                                ClaimRecord claim = null;
+                                try {
+                                    final byte[] payload =
+                                            ValueEnvelope.decode(value, ClaimRecord.VALUE_TYPE).payload();
+                                    claim = ClaimRecord.decode(payload);
+                                } catch (IllegalArgumentException malformedRecord) {
+                                    conflicts.add(conflict(
+                                            key,
+                                            "CLAIM",
+                                            proof.appliedSourcePosition(),
+                                            ConflictReason.CLAIM_RECORD_MALFORMED));
                                 }
-                                claimRecords.add(
-                                        new ClaimRecordEntry(key, claim, Arrays.equals(key, claim.encodedKey())));
+                                if (claim != null) {
+                                    if (!claim.delayMessageId().routingId().shardId()
+                                            .equals(proof.metadata().shardId())) {
+                                        throw new IllegalArgumentException("legacy Claim belongs to another Shard");
+                                    }
+                                    claimRecords.add(
+                                            new ClaimRecordEntry(key, claim, Arrays.equals(key, claim.encodedKey())));
+                                }
                             }
                             if (attemptLedgerKey) {
-                                final byte[] payload = ValueEnvelope.decode(value, PublishAttemptLedger.VALUE_TYPE)
-                                        .payload();
-                                final PublishAttemptLedger ledger = PublishAttemptLedger.decode(payload);
-                                final SourcePosition attemptPosition =
-                                        SourcePositionCodec.decode(ledger.sourcePosition());
-                                if (!ledger.delayMessageId().routingId().shardId().equals(proof.metadata().shardId())
-                                        || !attemptPosition.shardId().equals(proof.metadata().shardId())) {
-                                    throw new IllegalArgumentException(
-                                            "legacy publish attempt belongs to another Shard");
-                                }
-                                if (!attemptPosition.sameSourceIdentity(proof.appliedSourcePosition())
-                                        || attemptPosition.compareTo(proof.appliedSourcePosition()) > 0) {
+                                PublishAttemptLedger ledger = null;
+                                SourcePosition attemptPosition = null;
+                                try {
+                                    final byte[] payload = ValueEnvelope.decode(value, PublishAttemptLedger.VALUE_TYPE)
+                                            .payload();
+                                    ledger = PublishAttemptLedger.decode(payload);
+                                    attemptPosition = SourcePositionCodec.decode(ledger.sourcePosition());
+                                } catch (IllegalArgumentException malformedRecord) {
                                     conflicts.add(conflict(
                                             key,
                                             "ATTEMPT",
-                                            attemptPosition,
-                                            ConflictReason.ATTEMPT_SOURCE_AFTER_CHECKPOINT));
+                                            proof.appliedSourcePosition(),
+                                            ConflictReason.ATTEMPT_LEDGER_MALFORMED));
                                 }
-                                if (!Arrays.equals(key, ledger.encodedKey())) {
-                                    conflicts.add(conflict(
-                                            key,
-                                            "ATTEMPT",
-                                            attemptPosition,
-                                            ConflictReason.ATTEMPT_LEDGER_KEY_VALUE_MISMATCH));
-                                } else if (attemptLedgers.put(Bytes.hex(key), ledger) != null) {
-                                    throw new IllegalArgumentException("duplicate legacy publish attempt key");
+                                if (ledger != null && attemptPosition != null) {
+                                    if (!ledger.delayMessageId().routingId().shardId()
+                                                    .equals(proof.metadata().shardId())
+                                            || !attemptPosition.shardId().equals(proof.metadata().shardId())) {
+                                        throw new IllegalArgumentException(
+                                                "legacy publish attempt belongs to another Shard");
+                                    }
+                                    if (!attemptPosition.sameSourceIdentity(proof.appliedSourcePosition())
+                                            || attemptPosition.compareTo(proof.appliedSourcePosition()) > 0) {
+                                        conflicts.add(conflict(
+                                                key,
+                                                "ATTEMPT",
+                                                attemptPosition,
+                                                ConflictReason.ATTEMPT_SOURCE_AFTER_CHECKPOINT));
+                                    }
+                                    if (!Arrays.equals(key, ledger.encodedKey())) {
+                                        conflicts.add(conflict(
+                                                key,
+                                                "ATTEMPT",
+                                                attemptPosition,
+                                                ConflictReason.ATTEMPT_LEDGER_KEY_VALUE_MISMATCH));
+                                    } else if (attemptLedgers.put(Bytes.hex(key), ledger) != null) {
+                                        throw new IllegalArgumentException("duplicate legacy publish attempt key");
+                                    }
                                 }
                             }
                             if (malformedInflightKey) {
@@ -1209,6 +1234,7 @@ public final class LegacyCheckpointStateInventory {
         ATTEMPT_OBLIGATION_MISSING,
         ATTEMPT_OBLIGATION_VALUE_MISMATCH,
         ATTEMPT_LEDGER_KEY_VALUE_MISMATCH,
+        ATTEMPT_LEDGER_MALFORMED,
         ATTEMPT_LEDGER_UNREFERENCED,
         ATTEMPT_ADMISSION_MALFORMED,
         ATTEMPT_ADMISSION_LEDGER_MISMATCH,
@@ -1219,6 +1245,7 @@ public final class LegacyCheckpointStateInventory {
         TERMINAL_SUMMARY_VALUE_MISMATCH,
         TERMINAL_SUMMARY_MISSING,
         CLAIM_RECORD_KEY_VALUE_MISMATCH,
+        CLAIM_RECORD_MALFORMED,
         CLAIM_RECORD_STORE_INCARNATION_MISMATCH,
         CLAIM_ID_DERIVATION_MISMATCH,
         CLAIM_SEQUENCE_AFTER_CHECKPOINT_HIGH_WATER,
