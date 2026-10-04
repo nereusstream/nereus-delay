@@ -1,6 +1,7 @@
 package com.nereusstream.delay.store;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.Bytes;
@@ -438,6 +439,87 @@ class LegacyCheckpointImageInspectorTest {
                 malformedRecordConflict.reason());
         assertEquals("LANE", malformedRecordConflict.recordKind());
         assertTrue(Bytes.constantTimeEquals(source.canonicalBytes(), malformedRecordConflict.sourcePosition()));
+    }
+
+    @Test
+    void reportsMalformedClaimSequenceMetadataAndContinuesInventory() throws Exception {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 10);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("malformed-claim-sequence-store"));
+        final Path malformedEnvelopeImage = tempDir.resolve("malformed-claim-sequence-envelope-checkpoint");
+        final Path malformedPayloadImage = tempDir.resolve("malformed-claim-sequence-payload-checkpoint");
+        final byte[] checkpointId = bytes(16, 28);
+        final byte[] secondCheckpointId = bytes(16, 29);
+        final byte[] claimSequenceKey = KeyCodec.metaFixed(ShardStore.META_CLAIM_SEQUENCE);
+        final KafkaSourcePosition source = new KafkaSourcePosition(
+                shard, "legacy-cluster", UUID.randomUUID(), 31, null, 4_000);
+        final ScheduledFixture scheduled = scheduledFixture(shard, source, "malformed-claim-sequence-lane");
+        final CheckpointManifest malformedEnvelopeManifest;
+        final CheckpointManifest malformedPayloadManifest;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore store = ShardStore.open(config, shard, resources)) {
+            store.write(batch -> {
+                batch.putValue(
+                        ColumnFamily.META,
+                        ShardStore.META_FIXED_VALUE_TYPE,
+                        KeyCodec.metaFixed(ShardStore.META_APPLIED_SOURCE_POSITION),
+                        source.canonicalBytes());
+                batch.putValue(
+                        ColumnFamily.META,
+                        ShardStore.META_FIXED_VALUE_TYPE,
+                        KeyCodec.metaFixed(ShardStore.META_MUTATION_SEQUENCE),
+                        Bytes.u64beBits(1));
+                batch.putValue(
+                        ColumnFamily.ID,
+                        1,
+                        KeyCodec.idMessage(scheduled.messageId()),
+                        scheduled.message().encode());
+                batch.putValue(
+                        ColumnFamily.TIMELINE, 1, scheduled.timelineKey(), scheduled.work().canonicalBytes());
+                batch.putValue(
+                        ColumnFamily.TIMELINE, 1, scheduled.expiryKey(), scheduled.work().canonicalBytes());
+                batch.put(ColumnFamily.META, claimSequenceKey, Bytes.utf8("malformed sequence envelope"));
+            });
+            store.createCheckpoint(malformedEnvelopeImage, checkpointId);
+            malformedEnvelopeManifest =
+                    manifestFor(malformedEnvelopeImage, shard, store, checkpointId, source);
+            store.write(batch -> {
+                batch.putValue(ColumnFamily.META, 1, claimSequenceKey, Bytes.u32be(7));
+                batch.putValue(
+                        ColumnFamily.META,
+                        ShardStore.META_FIXED_VALUE_TYPE,
+                        KeyCodec.metaFixed(ShardStore.META_MUTATION_SEQUENCE),
+                        Bytes.u64beBits(2));
+            });
+            store.createCheckpoint(malformedPayloadImage, secondCheckpointId);
+            malformedPayloadManifest =
+                    manifestFor(malformedPayloadImage, shard, store, secondCheckpointId, source);
+        }
+
+        for (ExpectedCheckpoint checkpoint : List.of(
+                new ExpectedCheckpoint(malformedEnvelopeImage, malformedEnvelopeManifest),
+                new ExpectedCheckpoint(malformedPayloadImage, malformedPayloadManifest))) {
+            final LegacyCheckpointStateInventory.Inventory inventory = LegacyCheckpointStateInventory.inspect(
+                    checkpoint.image(),
+                    shard,
+                    checkpoint.manifest(),
+                    finiteLimits(),
+                    new LegacyCheckpointStateInventory.ReadLimits(1_000, 1 << 20, 60_000_000_000L));
+            assertEquals(1, inventory.messageStatuses().get(MessageStatus.SCHEDULED));
+            assertEquals(2, inventory.conflicts().size());
+            final LegacyCheckpointStateInventory.Conflict malformedSequence = inventory.conflicts().stream()
+                    .filter(item -> Bytes.constantTimeEquals(Bytes.sha256(claimSequenceKey), item.oldKeyDigest()))
+                    .findFirst()
+                    .orElseThrow();
+            assertEquals("CLAIM_SEQUENCE", malformedSequence.recordKind());
+            assertEquals(
+                    LegacyCheckpointStateInventory.ConflictReason.CLAIM_SEQUENCE_METADATA_MALFORMED,
+                    malformedSequence.reason());
+            assertTrue(Bytes.constantTimeEquals(source.canonicalBytes(), malformedSequence.sourcePosition()));
+            assertTrue(inventory.conflicts().stream().anyMatch(item -> item.reason()
+                    == LegacyCheckpointStateInventory.ConflictReason.LEGACY_NAMESPACE_UNAUDITED));
+            assertFalse(inventory.conflicts().stream().anyMatch(item -> item.reason()
+                    == LegacyCheckpointStateInventory.ConflictReason.CLAIM_SEQUENCE_AFTER_CHECKPOINT_HIGH_WATER));
+        }
     }
 
     @Test
@@ -1334,6 +1416,8 @@ class LegacyCheckpointImageInspectorTest {
 
     private record ExpectedLegacyBlocker(
             byte[] key, String recordKind, LegacyCheckpointStateInventory.ConflictReason reason) {}
+
+    private record ExpectedCheckpoint(Path image, CheckpointManifest manifest) {}
 
     private record UncertainRetryFixture(
             ScheduledFixture scheduled, MessageRecord message, TimelineWorkRef work, PublishAttemptLedger attempt) {}

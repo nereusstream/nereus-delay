@@ -100,6 +100,7 @@ public final class LegacyCheckpointStateInventory {
         }
         long retiredMessageIdentities = 0;
         long claimSequenceHighWater = 0;
+        boolean claimSequenceHighWaterReadable = true;
         long scannedRecords = 0;
         long totalBytes = 0;
         final List<Conflict> conflicts = new ArrayList<>();
@@ -319,11 +320,20 @@ public final class LegacyCheckpointStateInventory {
                             }
                             if (family == ColumnFamily.META
                                     && Arrays.equals(key, KeyCodec.metaFixed(ShardStore.META_CLAIM_SEQUENCE))) {
-                                final byte[] sequence = ValueEnvelope.decode(value, 1).payload();
-                                if (sequence.length != Long.BYTES) {
-                                    throw new IllegalArgumentException("invalid persisted Claim sequence");
+                                try {
+                                    final byte[] sequence = ValueEnvelope.decode(value, 1).payload();
+                                    if (sequence.length != Long.BYTES) {
+                                        throw new IllegalArgumentException("invalid persisted Claim sequence");
+                                    }
+                                    claimSequenceHighWater = java.nio.ByteBuffer.wrap(sequence).getLong();
+                                } catch (IllegalArgumentException malformedSequence) {
+                                    claimSequenceHighWaterReadable = false;
+                                    conflicts.add(conflict(
+                                            key,
+                                            "CLAIM_SEQUENCE",
+                                            proof.appliedSourcePosition(),
+                                            ConflictReason.CLAIM_SEQUENCE_METADATA_MALFORMED));
                                 }
-                                claimSequenceHighWater = java.nio.ByteBuffer.wrap(sequence).getLong();
                             }
                             if (malformedLaneRecordKey) {
                                 conflicts.add(conflict(
@@ -527,6 +537,7 @@ public final class LegacyCheckpointStateInventory {
                 claimRecords,
                 proof.metadata().storeIncarnation(),
                 claimSequenceHighWater,
+                claimSequenceHighWaterReadable,
                 proof.appliedSourcePosition(),
                 conflicts);
         for (Map.Entry<String, PublishAttemptLedger> attemptEntry : attemptLedgers.entrySet()) {
@@ -713,6 +724,7 @@ public final class LegacyCheckpointStateInventory {
             final List<ClaimRecordEntry> claimRecords,
             final byte[] storeIncarnation,
             final long claimSequenceHighWater,
+            final boolean claimSequenceHighWaterReadable,
             final SourcePosition appliedSourcePosition,
             final List<Conflict> conflicts) {
         final TreeMap<String, List<ClaimRecordEntry>> claimsByMessage = new TreeMap<>();
@@ -742,7 +754,8 @@ public final class LegacyCheckpointStateInventory {
                 conflicts.add(conflict(
                         entry.key(), "CLAIM", sourcePosition, ConflictReason.CLAIM_ID_DERIVATION_MISMATCH));
             }
-            if (Long.compareUnsigned(claim.claimSequence(), claimSequenceHighWater) > 0) {
+            if (claimSequenceHighWaterReadable
+                    && Long.compareUnsigned(claim.claimSequence(), claimSequenceHighWater) > 0) {
                 conflicts.add(conflict(
                         entry.key(),
                         "CLAIM",
@@ -1385,6 +1398,7 @@ public final class LegacyCheckpointStateInventory {
         CLAIM_RECORD_STORE_INCARNATION_MISMATCH,
         CLAIM_ID_DERIVATION_MISMATCH,
         CLAIM_SEQUENCE_AFTER_CHECKPOINT_HIGH_WATER,
+        CLAIM_SEQUENCE_METADATA_MALFORMED,
         INFLIGHT_KEY_KIND_UNRECOGNIZED,
         INFLIGHT_KEY_KIND_MALFORMED,
         CLAIM_LANE_STATE_MISMATCH,
@@ -1421,6 +1435,7 @@ public final class LegacyCheckpointStateInventory {
                     && !checkedRecordKind.equals("TIMELINE")
                     && !checkedRecordKind.equals("INFLIGHT")
                     && !checkedRecordKind.equals("ATTEMPT")
+                    && !checkedRecordKind.equals("CLAIM_SEQUENCE")
                     && !checkedRecordKind.equals("RESERVATION")
                     && !checkedRecordKind.equals("PAYLOAD_REFERENCE")
                     && !checkedRecordKind.equals("SCHEDULE_BINDING")

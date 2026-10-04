@@ -527,3 +527,27 @@ Commands:
 Result: the image-inspector and Claim-inventory classes pass 19/19 with zero failures/errors/skips; `checkstyleTest`, `checkDocumentation`, JSON parsing, and `git diff --check` pass.
 
 Scope: this explicitly blocks recognized namespaces whose migration semantics are still unsupported; it does not decode or migrate their values. Fixed ingress/evidence/owner/clean-close metadata, complete historical disposition and cross-generation Terminal/Floor/retention/GC closure, full Claim/live Owner and external Admission/Journal proof, source replay/cutover, activation, conversion, rollback, reader retirement, and central validation remain open. B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
+
+## 2026-10-04 Malformed Claim-sequence metadata remains a blocker without aborting inventory
+
+Source lock:
+- Base HEAD: `5dbd548b9dfd0cbdd38cd28b786d2746ee026dba`
+- Observed origin/main: `0a4b5d13e3fef9a19359b61dfac0f976a8118cd7`
+- `LegacyCheckpointStateInventory.java` SHA-256: `08c45cad07d4ad2bcc52b7f03ddd8309e1b48f7c2b5d77e7c523e87676bc5954`
+- `LegacyCheckpointImageInspectorTest.java` SHA-256: `f7c4da61402222c8f9b413a2bd7a92acd6fa8619cfb0cdad192a2a574c369ca9`
+- `LegacyCheckpointClaimInventoryTest.java` SHA-256: `e7ff87e269e87313a753d29f3e737fc634c0544b96c7bec5efad1fe254ee5df4`
+
+Verification: malformed `META_CLAIM_SEQUENCE` envelopes and valid envelopes with a non-uint64 payload now emit source-cut-bound `CLAIM_SEQUENCE_METADATA_MALFORMED`; the inventory continues to report valid scheduled work. The Claim-to-high-water bound is skipped only when that high-water cannot be decoded, so the damaged value does not create a misleading sequence-after-zero result; other Claim checks remain active. Two real RocksDB checkpoint images exercise the envelope and payload failures.
+
+Commands:
+`./gradlew test --tests '*LegacyCheckpointImageInspectorTest' --tests '*LegacyCheckpointClaimInventoryTest' checkstyleTest`
+
+`./gradlew checkDocumentation`
+
+`jq empty docs/ndip/NDIP-3/progress.json`
+
+`git diff --check`
+
+Result: the image-inspector and Claim-inventory classes pass 20/20 with zero failures/errors/skips; `checkstyleTest`, `checkDocumentation`, JSON parsing, and `git diff --check` pass.
+
+Scope: this handles only malformed Claim-sequence high-water metadata. The emitted conflict still blocks migration. Full Claim/live Owner and external Admission/Journal proof, remaining runtime metadata, source replay/cutover, activation, conversion, rollback, reader retirement, and central validation remain open; B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
