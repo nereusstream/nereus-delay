@@ -153,6 +153,8 @@ public final class LegacyCheckpointStateInventory {
                             boolean attemptLedgerKey = false;
                             boolean messageKey = false;
                             boolean malformedMessageKey = false;
+                            boolean laneRecordKey = false;
+                            boolean malformedLaneRecordKey = false;
                             boolean malformedInflightKey = false;
                             boolean terminalGenerationKey = false;
                             boolean malformedTerminalGenerationKey = false;
@@ -161,6 +163,13 @@ public final class LegacyCheckpointStateInventory {
                                     messageKey = isMessageKey(key);
                                 } catch (IllegalArgumentException malformedKey) {
                                     malformedMessageKey = true;
+                                }
+                            }
+                            if (family == ColumnFamily.META) {
+                                try {
+                                    laneRecordKey = isLaneKey(key);
+                                } catch (IllegalArgumentException malformedKey) {
+                                    malformedLaneRecordKey = true;
                                 }
                             }
                             if (family == ColumnFamily.INFLIGHT) {
@@ -316,18 +325,35 @@ public final class LegacyCheckpointStateInventory {
                                 }
                                 claimSequenceHighWater = java.nio.ByteBuffer.wrap(sequence).getLong();
                             }
-                            if (family == ColumnFamily.META && isLaneKey(key)) {
+                            if (malformedLaneRecordKey) {
+                                conflicts.add(conflict(
+                                        key,
+                                        "LANE",
+                                        proof.appliedSourcePosition(),
+                                        ConflictReason.LANE_KEY_MALFORMED));
+                            } else if (family == ColumnFamily.META && laneRecordKey) {
                                 final DestinationLaneId keyLaneId = laneId(key);
-                                final byte[] payload = ValueEnvelope.decode(value, 2).payload();
-                                final LaneStateSnapshot lane = decodeLaneState(payload);
-                                if (!keyLaneId.equals(lane.laneId())) {
+                                LaneStateSnapshot lane = null;
+                                try {
+                                    final byte[] payload = ValueEnvelope.decode(value, 2).payload();
+                                    lane = decodeLaneState(payload);
+                                } catch (IllegalArgumentException malformedRecord) {
                                     conflicts.add(conflict(
                                             key,
                                             "LANE",
                                             proof.appliedSourcePosition(),
-                                            ConflictReason.LANE_RECORD_KEY_VALUE_MISMATCH));
-                                } else if (laneStates.put(Bytes.hex(keyLaneId.bytes()), lane) != null) {
-                                    throw new IllegalArgumentException("duplicate legacy Lane identity");
+                                            ConflictReason.LANE_RECORD_MALFORMED));
+                                }
+                                if (lane != null) {
+                                    if (!keyLaneId.equals(lane.laneId())) {
+                                        conflicts.add(conflict(
+                                                key,
+                                                "LANE",
+                                                proof.appliedSourcePosition(),
+                                                ConflictReason.LANE_RECORD_KEY_VALUE_MISMATCH));
+                                    } else if (laneStates.put(Bytes.hex(keyLaneId.bytes()), lane) != null) {
+                                        throw new IllegalArgumentException("duplicate legacy Lane identity");
+                                    }
                                 }
                             }
                             if (malformedTerminalGenerationKey) {
@@ -1271,6 +1297,8 @@ public final class LegacyCheckpointStateInventory {
         CLAIM_LANE_RUNTIME_VERSION_AFTER_CURRENT,
         CLAIM_DEADLINE_AFTER_MESSAGE_EXPIRY,
         CLAIM_SOURCE_TIMELINE_MISMATCH,
+        LANE_KEY_MALFORMED,
+        LANE_RECORD_MALFORMED,
         LANE_RECORD_KEY_VALUE_MISMATCH,
         CLAIM_NOT_REPRESENTED_BY_CURRENT_MESSAGE,
         CLAIM_RECORD_MISSING,
