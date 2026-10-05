@@ -1,0 +1,29 @@
+E4 current SLO hook classification source audit
+Date: 2026-10-06
+
+Source lock:
+- Local HEAD: `e535e26389a5d5ccbbf3d09caa93459f8447969e`
+- `origin/main`: `09bfc5e25ded46cfefebb056dfaa69af7cf60385`
+
+Inspection:
+- `DelayShard.persistCommandAppliedStart` constructs the optional `COMMAND_APPLIED_LATENCY` Start from the exact source position and appends it to the caller-owned batch through `persistSloStart`. Exact source replay repair invokes `ensureCommandAppliedStart` with that same position after prior source apply is recognized.
+- `DelayShard.dueAdmissionStart` constructs the optional `DUE_ADMISSION_LAG/ALL_ACCEPTED` Start from the canonical Admission descriptor. Successful publish admission writes the Start with its PUBLISHING ledger, reserve and source position. The capacity-gated path writes it with the stable rejection result and source position. Both paths preserve atomic source apply; SLO materialization failure propagates before ACK.
+- `SloObservationOutboxStore.usage()` reads capacity state; it does not export a runtime metric. `scan()` is the bounded export-side reader. `SloObservationOutboxDelivery` has no production call site under the runtime/ownership packages.
+- `opentelemetry-api:1.63.0` is declared, but a source scan found no OpenTelemetry Meter/provider/exporter API use under `src/main/java`. No ordinary scan-count, queue-size, duration-histogram or service-interval exporter is currently assembled.
+
+Searches:
+`rg -n 'persistCommandAppliedStart\(|dueAdmissionStart\(|persistSloStart\(|repairCommandAppliedStartAfterExistingApply\(' src/main/java/com/nereusstream/delay/runtime/DelayShard.java`
+
+`rg -n 'public synchronized Usage usage\(|public synchronized List<SloObservationOutbox> scan\(' src/main/java/com/nereusstream/delay/store/SloObservationOutboxStore.java`
+
+Python source scan for `io.opentelemetry`, `GlobalOpenTelemetry`, `MeterProvider`, `LongCounter`, `LongHistogram`, and `DoubleHistogram` under `src/main/java`.
+
+`rg -n 'opentelemetry-api|opentelemetry-sdk|opentelemetry-exporter' build.gradle`
+
+Result: classification is recorded in design §17.5 and the E4 handoff. This is static source evidence only; no ordinary metrics path, mode/generation control, production exporter/Host assembly, or runtime behavior was added or verified by this audit.
+
+SHA-256:
+- `src/main/java/com/nereusstream/delay/runtime/DelayShard.java`: `2b1ae6b63d3f28395349eeb7315dbddc1696d330491b216edb3d70e029ec97ff`
+- `src/main/java/com/nereusstream/delay/store/SloObservationOutboxStore.java`: `82def6c5c3dc819e1e982a6c05834fc7f4a0db7a636ea516c3c44114f9da4f74`
+- `src/main/java/com/nereusstream/delay/store/SloObservationOutboxDelivery.java`: `b58155648f8d3836527a8dc750897253ee7a638e7f41418e031f82395d93a919`
+- `docs/ndip/NDIP-3/01-目标分区队列与调度热路径设计.md`: `af0f6e8fc5e2fbaed7bb13ed3c6459a71b4ec1606de61aebe5c4c71dbd1db662`
