@@ -153,8 +153,13 @@ public record WorkerResourceEnvelope(
         if (observation.maxFilesystemBytes() < maxFilesystemBytes) {
             throw new IllegalArgumentException("certified filesystem capacity exceeds runtime capacity");
         }
-        if (observation.usableFilesystemBytes() < physicalDiskSafetyWatermarkBytes) {
-            throw new IllegalArgumentException("filesystem usable space is below the safety watermark");
+        // validate(config) already proves this sum fits within maxFilesystemBytes.
+        final long requiredUsableFilesystemBytes = physicalDiskSafetyWatermarkBytes
+                + checkpointRestoreTempHeadroomBytes
+                + compactionTempHeadroomBytes;
+        if (observation.usableFilesystemBytes() < requiredUsableFilesystemBytes) {
+            throw new IllegalArgumentException(
+                    "filesystem usable space is below the safety watermark and temporary headroom envelope");
         }
     }
 

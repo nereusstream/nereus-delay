@@ -51,6 +51,34 @@ class WorkerResourceEnvelopeTest {
     }
 
     @Test
+    void runtimeFilesystemMustRetainSafetyWatermarkAndTemporaryHeadroom() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("runtime-disk"));
+        final WorkerResourceEnvelope envelope = new WorkerResourceEnvelope(
+                256L * 1024 * 1024,
+                128L * 1024 * 1024,
+                128L * 1024 * 1024,
+                64L * 1024 * 1024,
+                64L * 1024 * 1024,
+                640L * 1024 * 1024,
+                64L * 1024 * 1024,
+                1024L * 1024 * 1024,
+                10_000,
+                1_000,
+                10L * 1024 * 1024 * 1024,
+                2L * 1024 * 1024 * 1024,
+                256L * 1024 * 1024,
+                256L * 1024 * 1024,
+                16L * 1024 * 1024,
+                10_000);
+        final long requiredUsableFilesystemBytes = 2L * 1024 * 1024 * 1024 + 512L * 1024 * 1024;
+
+        assertDoesNotThrow(() -> envelope.validate(config, runtimeObservation(requiredUsableFilesystemBytes)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> envelope.validate(config, runtimeObservation(requiredUsableFilesystemBytes - 1)));
+    }
+
+    @Test
     void rejectsSharedRocksDbBudgetsOutsideTheCertifiedNativeBucket() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("native-budget"));
         final WorkerResourceEnvelope envelope = new WorkerResourceEnvelope(
@@ -72,5 +100,17 @@ class WorkerResourceEnvelopeTest {
                 10_000);
 
         assertThrows(IllegalArgumentException.class, () -> envelope.validate(config));
+    }
+
+    private static WorkerRuntimeResourceObservation runtimeObservation(final long usableFilesystemBytes) {
+        return new WorkerRuntimeResourceObservation(
+                128L * 1024 * 1024,
+                64L * 1024 * 1024,
+                640L * 1024 * 1024,
+                1024L * 1024 * 1024,
+                10_000,
+                1,
+                10L * 1024 * 1024 * 1024,
+                usableFilesystemBytes);
     }
 }
