@@ -23,6 +23,7 @@ import com.nereusstream.delay.protocol.PulsarSourcePosition;
 import com.nereusstream.delay.protocol.RetryPolicyRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
+import com.nereusstream.delay.store.PulsarLegacyCheckpointReplaySmoke;
 import java.net.http.HttpClient;
 import java.net.http.HttpResponse;
 import java.util.Arrays;
@@ -62,6 +63,7 @@ public final class PulsarClientArtifactSourceSmoke {
             final PreparedCommand secondCommand = command(shard, "source-two");
             send(client, guard, physicalTopic, firstCommand, "producer-first");
             send(client, guard, physicalTopic, secondCommand, "producer-second");
+            verifyLegacyCheckpointReplay(client, admin, adminUrl, guard, shard);
 
             final String recoverySubscription = "nereus-delay-recovery-" + UUID.randomUUID();
             final GuardedConsumer<byte[]> recoveryNative = PulsarClientArtifactSourceConsumerFactory.create(
@@ -226,6 +228,30 @@ public final class PulsarClientArtifactSourceSmoke {
                     + ", secondLedger=" + secondPosition.ledgerId() + ", secondEntry=" + secondPosition.entryId()
                     + ", firstConnectionGeneration=" + firstGeneration
                     + ", secondConnectionGeneration=" + secondGeneration);
+        } finally {
+            deleteTopicIfPresent(admin, adminUrl, topic);
+        }
+    }
+
+    private static void verifyLegacyCheckpointReplay(
+            final PulsarClient client,
+            final HttpClient admin,
+            final String adminUrl,
+            final TopicResourceGuard guard,
+            final ShardId shard)
+            throws Exception {
+        final String topic = "nereus-delay-b6-" + UUID.randomUUID();
+        final String physicalTopic = "persistent://public/default/" + topic;
+        createTopic(admin, adminUrl, topic);
+        try {
+            final PreparedCommand checkpointCommand = command(shard, "b6-checkpoint");
+            final PreparedCommand cutCommand = command(shard, "b6-cut");
+            final PreparedCommand postCutCommand = command(shard, "b6-post-cut");
+            send(client, guard, physicalTopic, checkpointCommand, "b6-producer-checkpoint");
+            send(client, guard, physicalTopic, cutCommand, "b6-producer-cut");
+            send(client, guard, physicalTopic, postCutCommand, "b6-producer-post-cut");
+            PulsarLegacyCheckpointReplaySmoke.run(
+                    client, guard, physicalTopic, shard, checkpointCommand, cutCommand, postCutCommand);
         } finally {
             deleteTopicIfPresent(admin, adminUrl, topic);
         }

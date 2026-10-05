@@ -1,0 +1,27 @@
+B6 Pulsar same-ledger exact-cut legacy checkpoint replay smoke
+Date: 2026-10-05
+
+Locked Pulsar source and artifacts:
+- P1 checkout HEAD: 0a2536484cd3932801a98dc88ff112b2df88a1c7
+- P1 distribution SHA-256: 373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3
+- pulsar-client-original-5.0.0-M1.jar SHA-256: 57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c
+- pulsar-client-api-5.0.0-M1.jar SHA-256: f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394
+- pulsar-common-5.0.0-M1.jar SHA-256: 94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8
+- Runtime: one local P1 5.0.0-M1 standalone Broker with embedded BookKeeper.
+
+Validation commands:
+`./gradlew compileRealPulsar checkstyleRealPulsar -PpulsarClientClasspath=<P1 client.jar>:<P1 api.jar>:<P1 common.jar> --no-daemon --console=plain`
+Result: BUILD SUCCESSFUL.
+
+`./gradlew runRealPulsarSourceSmoke -PpulsarClientClasspath=<P1 client.jar>:<P1 api.jar>:<P1 common.jar> -PpulsarRuntimeDir=<P1 distribution/lib> -PpulsarServiceUrl=pulsar://127.0.0.1:6650 -PpulsarAdminUrl=http://127.0.0.1:8080 -PpulsarTopic=b6-exact-cut-202610051428 --no-daemon --console=plain`
+Result: BUILD SUCCESSFUL in 42s.
+
+Observed output:
+`Pulsar B6 legacy checkpoint replay passed: checkpoint=10/0, sourceCut=10/1, postCut=10/2, recordsApplied=1`
+`Pulsar source ACK smoke passed: physicalTopic=persistent://public/default/b6-exact-cut-202610051428-source-5ae83ce4-2b68-4015-8bfb-c00ced355120, firstLedger=9, firstEntry=0, secondLedger=9, secondEntry=1, firstConnectionGeneration=10, secondConnectionGeneration=11`
+
+The B6 path applied and ACKed the checkpoint record, created a format-1 checkpoint, then applied and ACKed the cut record through the active source adapter and retained its current protected cut. A separate no-ACK recovery cursor sought after the checkpoint and replayed into an isolated Store copy under an 8-record, 1 MiB, 30-second turn budget. It reached the protected cut after exactly one applied tail record. The original checkpoint still reported 10/0 and its original ACTIVE pointer was byte-for-byte unchanged. A fresh no-ACK cursor then observed the post-cut record at 10/2; replay did not apply it.
+
+The smoke's successor accepts only the immediate next entry or batch member within one Pulsar ledger. It rejects ledger changes and therefore does not prove cross-ledger continuity. This run covers one local standalone Broker and one same-ledger path. Full legacy-state dispositions/readiness report, cross-ledger successor proof, durable cutover/activation, rollback, legacy reader retirement, central validation, and production authority remain open. B6 remains IN_PROGRESS / PENDING_CENTRAL_VALIDATION.
+
+Cleanup: the standalone process exited; ports 6650 and 8080 had no listening processes. The temporary extracted P1 runtime was removed.
