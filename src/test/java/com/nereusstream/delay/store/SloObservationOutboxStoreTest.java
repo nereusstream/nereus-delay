@@ -106,6 +106,55 @@ class SloObservationOutboxStoreTest {
     }
 
     @Test
+    void outboxDeliveryReplaysDurableCollectorMergeBeforeAcknowledgingSource() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("slo-outbox-delivery"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 16);
+        final SloSampleStart sample = startWith(16);
+        final SloObservationOutbox observation = SloObservationOutbox.open(sample);
+        final int encodedBytes = ValueEnvelope.encode(
+                        SloObservationOutboxStore.VALUE_TYPE, observation.canonicalBytes())
+                .length;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final SloObservationOutboxStore outbox = new SloObservationOutboxStore(store);
+            outbox.ensureStart(sample);
+            final var firstCollector = new PersistentSloObservationCollector(tempDir.resolve("slo-collector-state"));
+            firstCollector.merge(observation, sample.objective().requiredDirection());
+
+            final var reopenedCollector = new PersistentSloObservationCollector(tempDir.resolve("slo-collector-state"));
+            final SloObservationOutboxDelivery delivery = new SloObservationOutboxDelivery(outbox, reopenedCollector);
+
+            assertEquals(1, delivery.deliverPage(10, encodedBytes));
+            assertEquals(observation, reopenedCollector.get(sample.sampleId()));
+            assertNull(outbox.get(sample.sampleId()));
+            assertEquals(0, delivery.deliverPage(10, encodedBytes));
+        }
+    }
+
+    @Test
+    void outboxDeliveryRetainsDurableSourceWhenCollectorCannotAdmitObservation() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("slo-outbox-delivery-capacity"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 17);
+        final SloSampleStart sample = startWith(17);
+        final SloObservationOutbox observation = SloObservationOutbox.open(sample);
+        final int encodedBytes = ValueEnvelope.encode(
+                        SloObservationOutboxStore.VALUE_TYPE, observation.canonicalBytes())
+                .length;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final SloObservationOutboxStore outbox = new SloObservationOutboxStore(store);
+            outbox.ensureStart(sample);
+            final var collector = new PersistentSloObservationCollector(
+                    tempDir.resolve("slo-collector-small"), new SloObservationCollectorLimits(1, 1));
+            final SloObservationOutboxDelivery delivery = new SloObservationOutboxDelivery(outbox, collector);
+
+            assertThrows(IllegalStateException.class, () -> delivery.deliverPage(10, encodedBytes));
+            assertEquals(observation, outbox.get(sample.sampleId()));
+            assertNull(collector.get(sample.sampleId()));
+        }
+    }
+
+    @Test
     void excludedFinalRequiresPairedHealthyObjectiveAtDurableBoundary() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("slo-outbox-healthy-pair"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 2);

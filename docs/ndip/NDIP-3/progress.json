@@ -802,12 +802,13 @@
       "title": "指标与 durable 证据分层",
       "status": "IN_PROGRESS",
       "evidence": [
-        "evidence/e4-slo-outbox-value-bounded-scan-focused.log"
+        "evidence/e4-slo-outbox-value-bounded-scan-focused.log",
+        "evidence/e4-slo-outbox-durable-delivery-focused.log"
       ],
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
       "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
-      "progress": "SloObservationOutboxStore.scan now pages through ShardStore.visitResult with a value-only byte budget, preserving encoded ValueEnvelope byte semantics while probing lengths before full value arrays. RocksDB scan regression, exact-fit/oversize cases, and ShardReadPlanTest pass; checkstyleTest passes. This is one local outbox-read bound only. The required bounded async metrics exporter/gap accounting, certification mode/coverage consumer, production configuration/assembly, restart/overflow integration, and central validation remain open."
+      "progress": "SloObservationOutboxStore.scan now pages through ShardStore.visitResult with a value-only byte budget, preserving encoded ValueEnvelope byte semantics while probing lengths before full value arrays. RocksDB scan regression, exact-fit/oversize cases, and ShardReadPlanTest pass; checkstyleTest passes. This is one local outbox-read bound only. The required bounded async metrics exporter/gap accounting, certification mode/coverage consumer, production configuration/assembly, restart/overflow integration, and central validation remain open. 2026-10-06: SloObservationOutboxDelivery now reads a bounded outbox page, durably merges each observation into PersistentSloObservationCollector, then deletes only the exact source digest. A RocksDB regression reopens the collector state after a prior durable merge and verifies idempotent replay plus source deletion; a capacity rejection keeps the source record. SloObservationOutboxStoreTest passes 15/15 and checkstyleTest passes. checkstyleMain still reports only the two untouched existing line-length violations at PersistentLaneScheduler.java:1327 and TargetWorkerHostRuntime.java:347. This is a same-JVM state-file reopen, not process-kill evidence, and the adapter is not an assembled async exporter. Queue/gap accounting, certification mode/coverage, production assembly, process restart/overflow integration and central validation remain open; E4 stays IN_PROGRESS."
     },
     {
       "id": "E5",

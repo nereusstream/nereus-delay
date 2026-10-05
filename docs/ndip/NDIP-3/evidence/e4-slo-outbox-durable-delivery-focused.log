@@ -1,0 +1,41 @@
+E4 durable SLO outbox local collector delivery
+Date: 2026-10-06
+
+Source lock:
+- Base HEAD: `09bfc5e25ded46cfefebb056dfaa69af7cf60385`
+- Observed origin/main: `09bfc5e25ded46cfefebb056dfaa69af7cf60385`
+
+Change:
+- `SloObservationOutboxDelivery` reads one record/value-byte bounded page and, for each item, durably merges into `PersistentSloObservationCollector` before deleting the exact source record by its digest.
+- Collector admission or persistence failure propagates and leaves that observation in the durable Shard outbox. A crash after collector persistence but before source deletion leaves the record available for idempotent replay.
+- The adapter is a local delivery seam for a future exporter worker. It does not add an async worker/queue, ordinary metric exporter, gap accounting, certification mode, production authorization, or production assembly.
+- The RocksDB regression writes a Start to the outbox, persists its collector merge, opens a second collector on the same state file, then delivers the source record and checks the projection, exact outbox deletion, and empty follow-up page. This simulates the persisted crash window by same-JVM state-file reopen; it is not a process-kill test. A capacity-rejection regression verifies the source remains while the collector has no observation.
+
+Validation:
+`./gradlew test --tests com.nereusstream.delay.store.SloObservationOutboxStoreTest checkstyleTest --no-daemon --console=plain`
+
+Result: BUILD SUCCESSFUL. `SloObservationOutboxStoreTest` reports 15 tests, zero failures/errors/skips; `checkstyleTest` passed.
+
+`./gradlew checkstyleMain --no-daemon --console=plain`
+
+Result: BUILD FAILED only on the two pre-existing, untouched 123-character lines at `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`. No violation was reported for the new main source.
+
+`./gradlew checkDocumentation --no-daemon --console=plain`
+
+Result: BUILD SUCCESSFUL, including the NDIP documentation/package checks.
+
+`jq empty docs/ndip/NDIP-3/progress.json`
+
+`git diff --check`
+
+Result: both passed.
+
+SHA-256:
+- `src/main/java/com/nereusstream/delay/store/SloObservationOutboxDelivery.java`: `b58155648f8d3836527a8dc750897253ee7a638e7f41418e031f82395d93a919`
+- `src/test/java/com/nereusstream/delay/store/SloObservationOutboxStoreTest.java`: `c72babb2b1b8e7530f54cfc423281d7911f4356f4d3fd318db42bd8416e68f2c`
+- `TEST-com.nereusstream.delay.store.SloObservationOutboxStoreTest.xml`: `57148198752e8e3b0f825f57b84631208db8c6ad5caf406ab5fecc92006899b5`
+- `docs/ndip/NDIP-3/progress.json`: `87f6eb074b1ab46905ce2708d6d09ae2404ac5338f14128db0736d4cacb69e3b`
+- `docs/ndip/NDIP-3/04-执行记录.md`: `76a7b6f3109055c77043158be26c9127d0a82afe490d030946a49bbfdbc1e7cd`
+- `docs/ndip/NDIP-3/12-集中验证交接清单.md`: `e078340b183fb299151a705155f23d1f2296c96f555ef8ae6c5cb46d17bb38b1`
+
+This closes only the local durable merge-before-ack delivery seam. The bounded asynchronous metrics path, queue/export failure and overflow gap records, certification mode/coverage consumer, production limits/configuration/assembly, process-level restart/overflow integration, and central validation remain open. E4 stays `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
