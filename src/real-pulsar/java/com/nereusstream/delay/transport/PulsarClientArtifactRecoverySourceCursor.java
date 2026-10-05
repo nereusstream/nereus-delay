@@ -2,8 +2,11 @@ package com.nereusstream.delay.transport;
 
 import com.nereusstream.delay.ownership.SourceAssignment;
 import com.nereusstream.delay.ownership.SourceReplayEntry;
+import com.nereusstream.delay.ownership.SourceReplaySuccessor;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.PulsarActivationBarrier;
+import com.nereusstream.delay.protocol.PulsarSourcePosition;
+import com.nereusstream.delay.protocol.SourcePosition;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Iterator;
@@ -36,6 +39,10 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
     private final int receiveTimeoutMs;
     private Message<byte[]> buffered;
     private SourceReplayEntry current;
+    private PulsarSourcePosition successorAnchor;
+    private PulsarSourcePosition successorPrevious;
+    private PulsarSourcePosition successorCurrent;
+    private boolean hasDelivered;
     private boolean closed;
 
     public PulsarClientArtifactRecoverySourceCursor(
@@ -64,6 +71,41 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
         }
         this.receiveTimeoutMs = (int) timeoutMs;
         requireProof();
+    }
+
+    /**
+     * Binds an exact successor proof to this cursor's native delivery sequence after a seek.
+     *
+     * <p>The caller must have positioned this consumer with
+     * {@link PulsarClientArtifactRecoverySourcePositioner#seekAfter} at {@code resumeAfter}.
+     * The proof accepts only the pair most recently delivered by this same guarded,
+     * single-topic consumer. Ledger IDs are ordered positions, not arithmetic sequence
+     * numbers, so ledger rollover is proven by the consumer's ordered delivery rather than
+     * by guessing that the next ledger ID differs by one. The proof does not establish
+     * retention of source records deleted before this recovery subscription was opened.</p>
+     */
+    public synchronized SourceReplaySuccessor successorAfter(final PulsarSourcePosition resumeAfter) {
+        ensureOpen();
+        final PulsarSourcePosition anchor = Objects.requireNonNull(resumeAfter, "resumeAfter");
+        if (successorAnchor != null
+                || successorCurrent != null
+                || hasDelivered
+                || buffered != null
+                || current != null) {
+            throw new IllegalStateException("Pulsar successor proof must be bound before cursor delivery");
+        }
+        if (!assignment.shardId().equals(anchor.shardId())
+                || !physicalTopic.equals(anchor.physicalTopic())
+                || !Arrays.equals(expectedGuard.resourceIncarnation(), anchor.brokerResourceIncarnation())
+                || anchor.ledgerId() < 0
+                || anchor.entryId() < 0) {
+            throw new IllegalArgumentException("Pulsar resume position does not match this recovery cursor");
+        }
+        barrier.validatePosition(anchor);
+        requireProof();
+        successorAnchor = anchor;
+        successorPrevious = anchor;
+        return this::isLastDeliveredSuccessor;
     }
 
     @Override
@@ -112,6 +154,14 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
             throw new NoSuchElementException("Pulsar recovery source is exhausted");
         }
         final SourceReplayEntry result = current;
+        if (successorAnchor != null) {
+            if (!(result.position() instanceof PulsarSourcePosition position)) {
+                throw new IllegalStateException("Pulsar recovery cursor produced a foreign position kind");
+            }
+            successorPrevious = successorCurrent == null ? successorAnchor : successorCurrent;
+            successorCurrent = position;
+        }
+        hasDelivered = true;
         current = null;
         return result;
     }
@@ -152,6 +202,22 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
             throw new IllegalStateException("Pulsar guarded recovery proof differs from activation barrier");
         }
         return new SourceProof(generation, attestation, digest);
+    }
+
+    private synchronized boolean isLastDeliveredSuccessor(
+            final SourcePosition previous, final SourcePosition next) {
+        if (successorAnchor == null || successorCurrent == null) {
+            return false;
+        }
+        requireProof();
+        return sameCanonicalPosition(successorPrevious, previous)
+                && sameCanonicalPosition(successorCurrent, next);
+    }
+
+    private static boolean sameCanonicalPosition(final SourcePosition left, final SourcePosition right) {
+        return left != null
+                && right != null
+                && Bytes.constantTimeEquals(left.canonicalBytes(), right.canonicalBytes());
     }
 
     private static String requirePhysicalTopic(final String physicalTopic) {

@@ -1,0 +1,28 @@
+B6 Pulsar cross-ledger exact-cut legacy checkpoint replay smoke
+Date: 2026-10-05
+
+Locked Pulsar source and artifacts:
+- P1 checkout HEAD: 0a2536484cd3932801a98dc88ff112b2df88a1c7 (worktree clean)
+- P1 distribution SHA-256: 373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3
+- pulsar-client-original-5.0.0-M1.jar SHA-256: 57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c
+- pulsar-client-api-5.0.0-M1.jar SHA-256: f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394
+- pulsar-common-5.0.0-M1.jar SHA-256: 94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8
+- Runtime: one local P1 standalone Broker with embedded BookKeeper.
+- Temporary standalone.conf overrides: managedLedgerMaxEntriesPerLedger=1 and managedLedgerMinLedgerRolloverTimeMinutes=0; Broker timestamp/index interceptors enabled and entry metadata exposed to the client.
+
+Validation commands:
+`./gradlew compileRealPulsar checkstyleRealPulsar -PpulsarClientClasspath=<P1 client.jar>:<P1 api.jar>:<P1 common.jar> --no-daemon --console=plain`
+Result: BUILD SUCCESSFUL in 20s.
+
+`./gradlew runRealPulsarSourceSmoke -PpulsarClientClasspath=<P1 client.jar>:<P1 api.jar>:<P1 common.jar> -PpulsarRuntimeDir=<P1 distribution/lib> -PpulsarServiceUrl=pulsar://127.0.0.1:6650 -PpulsarAdminUrl=http://127.0.0.1:8080 -PpulsarTopic=b6-exact-cut-cross-ledger-20261005 --no-daemon --console=plain`
+Result: BUILD SUCCESSFUL in 44s.
+
+Observed output:
+`Pulsar B6 legacy checkpoint replay passed: checkpoint=43/0, sourceCut=44/0, postCut=45/0, recordsApplied=1`
+`Pulsar source ACK smoke passed: physicalTopic=persistent://public/default/b6-exact-cut-cross-ledger-20261005-source-b82e0417-4744-4d64-b9e3-c009b573e5fe, firstLedger=40, firstEntry=0, secondLedger=41, secondEntry=0, firstConnectionGeneration=32, secondConnectionGeneration=33`
+
+The B6 active and recovery subscriptions were created with Earliest initial position before the three records were published. After applying/ACKing 43/0 and creating the format-1 checkpoint, the recovery subscription sought after that checkpoint before the active source ACKed cut 44/0. Its no-ACK recovery cursor supplied the successor proof from the exact pair most recently delivered by that same guarded single-topic cursor; no arithmetic relation between ledger IDs was assumed. The isolated replay copy applied one record through 44/0, left 45/0 after the cut, and did not alter the original checkpoint or ACTIVE pointer.
+
+This proves one cross-ledger transition in the ordered delivery stream of a retained P1 subscription and exercises one-entry ledgers. It does not prove recovery when required source records were deleted before the recovery subscription was opened, nor does it establish complete migration readiness, durable cutover/activation, rollback, old-reader retirement, central validation, or production authority. B6 remains IN_PROGRESS / PENDING_CENTRAL_VALIDATION.
+
+Cleanup: the standalone process exited; ports 6650 and 8080 had no listening processes. The temporary extracted P1 runtime was removed.

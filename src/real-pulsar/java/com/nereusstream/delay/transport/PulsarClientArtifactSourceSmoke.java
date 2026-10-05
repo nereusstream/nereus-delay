@@ -55,9 +55,15 @@ public final class PulsarClientArtifactSourceSmoke {
         final String physicalTopic = "persistent://public/default/" + topic;
         final HttpClient admin = HttpClient.newHttpClient();
         createTopic(admin, adminUrl, topic);
+        final TopicResourceGuard guard = new TopicResourceGuard(CLUSTER, INCARNATION, CREATION_TIMESTAMP);
         try (PulsarClient client =
-                PulsarClientArtifactClientBuilder.builder(serviceUrl).build()) {
-            final TopicResourceGuard guard = new TopicResourceGuard(CLUSTER, INCARNATION, CREATION_TIMESTAMP);
+                        PulsarClientArtifactClientBuilder.builder(serviceUrl).build();
+                // Keep source entries retained while the independent ACK/recovery cursors are opened.
+                GuardedConsumer<byte[]> sourceRetention = PulsarClientArtifactSourceConsumerFactory.create(
+                        client, guard, physicalTopic, "nereus-delay-source-retention-" + UUID.randomUUID())) {
+            if (!sourceRetention.isConnected()) {
+                throw new IllegalStateException("Pulsar source retention consumer is not connected");
+            }
             final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
             final PreparedCommand firstCommand = command(shard, "source-one");
             final PreparedCommand secondCommand = command(shard, "source-two");
@@ -247,11 +253,15 @@ public final class PulsarClientArtifactSourceSmoke {
             final PreparedCommand checkpointCommand = command(shard, "b6-checkpoint");
             final PreparedCommand cutCommand = command(shard, "b6-cut");
             final PreparedCommand postCutCommand = command(shard, "b6-post-cut");
-            send(client, guard, physicalTopic, checkpointCommand, "b6-producer-checkpoint");
-            send(client, guard, physicalTopic, cutCommand, "b6-producer-cut");
-            send(client, guard, physicalTopic, postCutCommand, "b6-producer-post-cut");
             PulsarLegacyCheckpointReplaySmoke.run(
-                    client, guard, physicalTopic, shard, checkpointCommand, cutCommand, postCutCommand);
+                    client,
+                    guard,
+                    physicalTopic,
+                    shard,
+                    checkpointCommand,
+                    cutCommand,
+                    postCutCommand,
+                    (command, producerName) -> send(client, guard, physicalTopic, command, producerName));
         } finally {
             deleteTopicIfPresent(admin, adminUrl, topic);
         }

@@ -31,6 +31,7 @@ import java.time.Duration;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -52,9 +53,11 @@ public final class PulsarLegacyCheckpointReplaySmoke {
             final ShardId shard,
             final PreparedCommand checkpointCommand,
             final PreparedCommand cutCommand,
-            final PreparedCommand postCutCommand)
+            final PreparedCommand postCutCommand,
+            final CommandSender commandSender)
             throws Exception {
         final String activeSubscription = "nereus-delay-b6-active-" + UUID.randomUUID();
+        final String recoverySubscription = "nereus-delay-b6-recovery-" + UUID.randomUUID();
         final Path temporaryRoot = Files.createTempDirectory("nereus-delay-b6-pulsar-replay-");
         try {
             final ShardStoreConfig config = ShardStoreConfig.defaults(temporaryRoot.resolve("store-root"));
@@ -79,37 +82,43 @@ public final class PulsarLegacyCheckpointReplaySmoke {
                                     shard,
                                     physicalTopic,
                                     Duration.ofMillis(250))) {
-                final DelayShard applier = new DelayShard(originalStore, DelayShardConfig.defaults());
-                final SourceRecordConsumer.PolledSourceRecord checkpointRecord =
-                        pollExpected(activeSource, checkpointCommand);
-                checkpointPosition = position(sourceRecord(checkpointRecord));
-                applyThenAcknowledge(applier, checkpointRecord, "Pulsar B6 checkpoint record");
-                originalStore.createCheckpoint(checkpointPath, checkpointId);
-                manifest = manifestFor(checkpointPath, shard, originalStore, checkpointId, checkpointPosition);
-                activePointerBefore = Files.readAllBytes(activePointer);
+                final GuardedConsumer<byte[]> recoveryNative = PulsarClientArtifactSourceConsumerFactory.create(
+                        client, guard, physicalTopic, recoverySubscription);
+                boolean recoveryNativeTransferred = false;
+                try {
+                    final CommandSender sender = Objects.requireNonNull(commandSender, "commandSender");
+                    sender.send(checkpointCommand, "b6-producer-checkpoint");
+                    sender.send(cutCommand, "b6-producer-cut");
+                    sender.send(postCutCommand, "b6-producer-post-cut");
 
-                final SourceRecordConsumer.PolledSourceRecord cutRecord = pollExpected(activeSource, cutCommand);
-                sourceCutPosition = position(sourceRecord(cutRecord));
-                final SourceReplaySuccessor successor = strictSameLedgerSuccessor();
-                successor.validate(checkpointPosition, sourceCutPosition);
-                applyThenAcknowledge(applier, cutRecord, "Pulsar B6 source cut record");
-                final SourceRecordConsumer.CheckpointCut protectedCut = activeSource.checkpointCut(sourceCutPosition);
-                protectedCut.requireCurrent();
+                    final DelayShard applier = new DelayShard(originalStore, DelayShardConfig.defaults());
+                    final SourceRecordConsumer.PolledSourceRecord checkpointRecord =
+                            pollExpected(activeSource, checkpointCommand);
+                    checkpointPosition = position(sourceRecord(checkpointRecord));
+                    applyThenAcknowledge(applier, checkpointRecord, "Pulsar B6 checkpoint record");
+                    originalStore.createCheckpoint(checkpointPath, checkpointId);
+                    manifest = manifestFor(checkpointPath, shard, originalStore, checkpointId, checkpointPosition);
+                    activePointerBefore = Files.readAllBytes(activePointer);
 
-                replayToCut(
-                        client,
-                        guard,
-                        physicalTopic,
-                        shard,
-                        checkpointPath,
-                        manifest,
-                        config,
-                        resources,
-                        checkpointPosition,
-                        sourceCutPosition,
-                        successor,
-                        protectedCut);
-                activeSource.checkpointCut(sourceCutPosition).requireCurrent();
+                    recoveryNativeTransferred = true;
+                    sourceCutPosition = captureCutAndReplay(
+                            recoveryNative,
+                            guard,
+                            physicalTopic,
+                            shard,
+                            activeSource,
+                            applier,
+                            cutCommand,
+                            checkpointPath,
+                            manifest,
+                            config,
+                            resources,
+                            checkpointPosition);
+                } finally {
+                    if (!recoveryNativeTransferred) {
+                        closeNative(recoveryNative);
+                    }
+                }
             }
 
             final LegacyCheckpointImageInspector.ImageProof imageProof =
@@ -133,22 +142,20 @@ public final class PulsarLegacyCheckpointReplaySmoke {
         }
     }
 
-    private static void replayToCut(
-            final PulsarClient client,
+    private static PulsarSourcePosition captureCutAndReplay(
+            final GuardedConsumer<byte[]> recoveryNative,
             final TopicResourceGuard guard,
             final String physicalTopic,
             final ShardId shard,
+            final PulsarClientArtifactSourceRecordConsumer activeSource,
+            final DelayShard activeApplier,
+            final PreparedCommand cutCommand,
             final Path checkpointPath,
             final CheckpointManifest manifest,
             final ShardStoreConfig config,
             final SharedRocksDbResources resources,
-            final PulsarSourcePosition checkpointPosition,
-            final PulsarSourcePosition sourceCutPosition,
-            final SourceReplaySuccessor successor,
-            final SourceRecordConsumer.CheckpointCut protectedCut)
+            final PulsarSourcePosition checkpointPosition)
             throws Exception {
-        final GuardedConsumer<byte[]> recoveryNative = PulsarClientArtifactSourceConsumerFactory.create(
-                client, guard, physicalTopic, "nereus-delay-b6-recovery-" + UUID.randomUUID());
         boolean cursorOwnsNative = false;
         try {
             final PulsarClientArtifactRecoverySourcePositioner.PositionedGuardProof positionedProof =
@@ -169,36 +176,73 @@ public final class PulsarLegacyCheckpointReplaySmoke {
                             physicalTopic,
                             positionedProof.connectionGeneration(),
                             positionedProof.attestationDigest()));
-            try (ShardStore.LegacyCheckpointReplayCopy replayCopy = ShardStore.openLegacyCheckpointReplayCopy(
-                            config, shard, resources, checkpointPath, manifest, MANIFEST_LIMITS);
-                    PulsarClientArtifactRecoverySourceCursor recovery =
-                            new PulsarClientArtifactRecoverySourceCursor(
-                                    recoveryNative, guard, assignment, physicalTopic, Duration.ofMillis(250))) {
+            try (PulsarClientArtifactRecoverySourceCursor recovery = new PulsarClientArtifactRecoverySourceCursor(
+                    recoveryNative, guard, assignment, physicalTopic, Duration.ofMillis(250))) {
                 cursorOwnsNative = true;
-                final var result = LegacyCheckpointTailReplayer.replay(
-                        replayCopy,
+                final SourceReplaySuccessor successor = recovery.successorAfter(checkpointPosition);
+
+                final SourceRecordConsumer.PolledSourceRecord cutRecord = pollExpected(activeSource, cutCommand);
+                final PulsarSourcePosition sourceCutPosition = position(sourceRecord(cutRecord));
+                applyThenAcknowledge(activeApplier, cutRecord, "Pulsar B6 source cut record");
+                final SourceRecordConsumer.CheckpointCut protectedCut = activeSource.checkpointCut(sourceCutPosition);
+                protectedCut.requireCurrent();
+
+                replayToCut(
+                        shard,
+                        checkpointPath,
+                        manifest,
+                        config,
+                        resources,
+                        checkpointPosition,
+                        sourceCutPosition,
                         assignment,
                         successor,
                         protectedCut,
-                        recovery,
-                        store -> new DelayShard(store, DelayShardConfig.defaults()),
-                        KeyPairGenerator.getInstance("Ed25519").generateKeyPair().getPublic(),
-                        System::currentTimeMillis,
-                        new ReplayTurnBudget(8, 1 << 20, TimeUnit.SECONDS.toNanos(30)));
-                if (result.status() != LegacyCheckpointTailReplayer.Status.EXACT_CUT_REACHED
-                        || result.recordsApplied() != 1
-                        || !samePosition(result.checkpointPosition(), checkpointPosition)
-                        || !samePosition(result.sourceCut(), sourceCutPosition)
-                        || !samePosition(result.appliedThrough(), sourceCutPosition)
-                        || !samePosition(replayCopy.store().appliedShardLogPosition(), sourceCutPosition)) {
-                    throw new IllegalStateException("Pulsar B6 replay did not reach the exact protected cut");
-                }
-                protectedCut.requireCurrent();
+                        recovery);
+                activeSource.checkpointCut(sourceCutPosition).requireCurrent();
+                return sourceCutPosition;
             }
         } finally {
             if (!cursorOwnsNative) {
                 closeNative(recoveryNative);
             }
+        }
+    }
+
+    private static void replayToCut(
+            final ShardId shard,
+            final Path checkpointPath,
+            final CheckpointManifest manifest,
+            final ShardStoreConfig config,
+            final SharedRocksDbResources resources,
+            final PulsarSourcePosition checkpointPosition,
+            final PulsarSourcePosition sourceCutPosition,
+            final SourceAssignment assignment,
+            final SourceReplaySuccessor successor,
+            final SourceRecordConsumer.CheckpointCut protectedCut,
+            final PulsarClientArtifactRecoverySourceCursor recovery)
+            throws Exception {
+        try (ShardStore.LegacyCheckpointReplayCopy replayCopy = ShardStore.openLegacyCheckpointReplayCopy(
+                config, shard, resources, checkpointPath, manifest, MANIFEST_LIMITS)) {
+            final var result = LegacyCheckpointTailReplayer.replay(
+                    replayCopy,
+                    assignment,
+                    successor,
+                    protectedCut,
+                    recovery,
+                    store -> new DelayShard(store, DelayShardConfig.defaults()),
+                    KeyPairGenerator.getInstance("Ed25519").generateKeyPair().getPublic(),
+                    System::currentTimeMillis,
+                    new ReplayTurnBudget(8, 1 << 20, TimeUnit.SECONDS.toNanos(30)));
+            if (result.status() != LegacyCheckpointTailReplayer.Status.EXACT_CUT_REACHED
+                    || result.recordsApplied() != 1
+                    || !samePosition(result.checkpointPosition(), checkpointPosition)
+                    || !samePosition(result.sourceCut(), sourceCutPosition)
+                    || !samePosition(result.appliedThrough(), sourceCutPosition)
+                    || !samePosition(replayCopy.store().appliedShardLogPosition(), sourceCutPosition)) {
+                throw new IllegalStateException("Pulsar B6 replay did not reach the exact protected cut");
+            }
+            protectedCut.requireCurrent();
         }
     }
 
@@ -246,27 +290,6 @@ public final class PulsarLegacyCheckpointReplaySmoke {
                 closeNative(nativeConsumer);
             }
         }
-    }
-
-    private static SourceReplaySuccessor strictSameLedgerSuccessor() {
-        return (previous, current) -> {
-            if (!(previous instanceof PulsarSourcePosition previousPulsar)
-                    || !(current instanceof PulsarSourcePosition currentPulsar)
-                    || previousPulsar.ledgerId() != currentPulsar.ledgerId()) {
-                return false;
-            }
-            if (previousPulsar.entryId() == currentPulsar.entryId()) {
-                return previousPulsar.entryKind() == PulsarSourcePosition.EntryKind.BATCH
-                        && currentPulsar.entryKind() == PulsarSourcePosition.EntryKind.BATCH
-                        && previousPulsar.batchSize() == currentPulsar.batchSize()
-                        && previousPulsar.normalizedBatchIndex() != previousPulsar.batchSize() - 1
-                        && currentPulsar.normalizedBatchIndex() == previousPulsar.normalizedBatchIndex() + 1;
-            }
-            return previousPulsar.entryId() != Long.MAX_VALUE
-                    && currentPulsar.entryId() == previousPulsar.entryId() + 1
-                    && previousPulsar.normalizedBatchIndex() == previousPulsar.batchSize() - 1
-                    && currentPulsar.normalizedBatchIndex() == 0;
-        };
     }
 
     private static SourceRecordConsumer.PolledSourceRecord pollExpected(
@@ -384,6 +407,11 @@ public final class PulsarLegacyCheckpointReplaySmoke {
 
     private static byte[] randomBytes(final int length) {
         return Arrays.copyOf(uuidBytes(UUID.randomUUID()), length);
+    }
+
+    @FunctionalInterface
+    public interface CommandSender {
+        void send(PreparedCommand command, String producerName) throws Exception;
     }
 
 }
