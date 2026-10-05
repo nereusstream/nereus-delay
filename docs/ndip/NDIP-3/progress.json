@@ -840,17 +840,22 @@
         "evidence/e6-runtime-filesystem-headroom-focused.log",
         "evidence/e6-shared-filesystem-floor-focused.log",
         "evidence/e6-control-reserve-hard-cap-binding-focused.log",
-        "evidence/e6-worker-native-memory-hard-cap-binding-focused.log"
+        "evidence/e6-worker-native-memory-hard-cap-binding-focused.log",
+        "evidence/e6-worker-runtime-probed-envelope-gate-focused.log"
       ],
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
       "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
-      "progress": "2026-10-06: WorkerResourceEnvelope runtime validation now requires usable filesystem bytes to cover the safety watermark plus checkpoint-restore and compaction temporary headroom. A focused test accepts the exact 2.5 GiB configured boundary and rejects one byte below it. The RocksDB physical-usage monitor combines its configured floor with the active/staged Worker envelope floor, retaining the stricter value and fencing the shared Worker below it. WorkerCapacityAdmission has a composed overload that binds control-reserve bytes/records to hard-cap dimensions 54/55 and a later extension binds RocksDB native/direct/other memory to dimensions 56/57/58 before checked aggregate admission. No main-source caller currently invokes the composed overload. The unified Target/resource configuration and loader, quota/backpressure integration, bounded Broker backlog and system-writer progress, production Worker activation wiring, and central validation remain open; E6 stays IN_PROGRESS / PENDING_CENTRAL_VALIDATION.",
+      "progress": "2026-10-06: WorkerResourceEnvelope runtime validation requires usable filesystem bytes to cover the safety watermark plus checkpoint-restore and compaction temporary headroom; the exact 2.5 GiB boundary passes and one byte below fails. The RocksDB physical-usage monitor combines its configured floor with the active/staged Worker floor and fences the shared Worker below the stricter bound. WorkerCapacityAdmission's composed overload binds control-reserve bytes/records to dimensions 54/55 and RocksDB native/direct/other memory to dimensions 56/57/58 before checked aggregate admission. WorkerShardRuntime and TargetWorkerShardRuntime now require an ACTIVE shared-resource gate with a runtime observation before composition; their integration tests use explicit synthetic observations. No in-repo main-source assembly currently constructs these Worker runtimes or invokes the composed capacity admission overload. The unified Target/resource config loader, quota/backpressure integration, Broker backlog/system-writer progress, production host assembly, and central validation remain open; E6 stays IN_PROGRESS / PENDING_CENTRAL_VALIDATION.",
       "implementationFiles": [
         "src/main/java/com/nereusstream/delay/store/WorkerResourceEnvelope.java",
         "src/main/java/com/nereusstream/delay/store/WorkerCapacityAdmission.java",
+        "src/main/java/com/nereusstream/delay/store/SharedRocksDbResources.java",
+        "src/main/java/com/nereusstream/delay/ownership/WorkerShardRuntime.java",
+        "src/main/java/com/nereusstream/delay/ownership/TargetWorkerShardRuntime.java",
         "src/test/java/com/nereusstream/delay/store/WorkerResourceEnvelopeTest.java",
-        "src/test/java/com/nereusstream/delay/store/WorkerCapacityAdmissionTest.java"
+        "src/test/java/com/nereusstream/delay/store/WorkerCapacityAdmissionTest.java",
+        "src/test/java/com/nereusstream/delay/store/WorkerRuntimeTestSupport.java"
       ],
       "validationHandoff": "12-集中验证交接清单.md"
     },

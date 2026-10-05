@@ -1,0 +1,46 @@
+NDIP-3 E6 production Worker runtime envelope gate evidence
+Date: 2026-10-06 (Asia/Shanghai)
+Repository: nereus-delay
+Source commit: 3575b0509ee954e226c7bf01d07052a11e8d1d7f
+
+Source files at the locked commit:
+  src/main/java/com/nereusstream/delay/store/SharedRocksDbResources.java
+    SHA-256: 641795a98b7a525ccd0f0f6171dda2ca9b8e740fbdcb4645bd8821853ac0074c
+  src/main/java/com/nereusstream/delay/ownership/WorkerShardRuntime.java
+    SHA-256: bb3b3d04060feea2be95381da694310c0b1b272105c34d2ea5fe8d4f299ecaf5
+  src/main/java/com/nereusstream/delay/ownership/TargetWorkerShardRuntime.java
+    SHA-256: 583524bb71fe67488e5cd614a0f75c0f82e76da9bd1752f1ca6938c56475e952
+  src/test/java/com/nereusstream/delay/store/WorkerRuntimeTestSupport.java
+    SHA-256: adea89b3e507c700821cb8790c12c760a42b3b275be5ed1d7a81b5e82326e046
+  src/test/java/com/nereusstream/delay/store/WorkerResourceEnvelopeTest.java
+    SHA-256: 181a5cb0dbca5a6e251f9557513aef708dbcd1bbacdc8c0f4a54b5ef2626fd3a
+  src/test/java/com/nereusstream/delay/ownership/WorkerShardRuntimePhysicalLookupTest.java
+    SHA-256: b2cce99b4ac94389a5db9c2f07b896a364ad169d3ffc1897aff37411a8344a2c
+
+Change:
+  SharedRocksDbResources.requireWorkerActivationReady now rejects missing
+  runtime observations and non-ACTIVE shared resource gates. Both Lane and
+  Target Worker shard compositions call it before binding/creating their source
+  loops, so the legacy unprobed resource constructor cannot silently disable
+  production Worker safety fencing. Embedded callers may still use that
+  constructor without composing a production Worker.
+
+Validation:
+  Command: ./gradlew test --tests 'com.nereusstream.delay.store.WorkerResourceEnvelopeTest' --tests 'com.nereusstream.delay.ownership.WorkerShardRuntimePhysicalLookupTest' --tests 'com.nereusstream.delay.ownership.SourceApplyCoordinatorTest' --tests 'com.nereusstream.delay.ownership.WorkerShardFleetRuntimeTest' --tests 'com.nereusstream.delay.ownership.ClaimHandoffWorkClassExecutorTest' --tests 'com.nereusstream.delay.ownership.DueSchedulerWorkClassExecutorTest' --tests 'com.nereusstream.delay.runtime.TargetCommandStoreTest.modifiesActualTimelineOrClaimWithHistoryAndFirstResults' --tests 'com.nereusstream.delay.runtime.TargetQuotaGrantStoreTest.membershipIssueAndClosePreserveFirstSourceAndAtomicResults' checkstyleTest --console=plain
+  Result: test task passed, 29 tests across the selected classes; 0 skipped,
+  0 failures, 0 errors. The combined invocation first reported test success;
+  checkstyleTest was rerun independently after correcting two test import-order
+  issues and passed: ./gradlew checkstyleTest --console=plain.
+  ./gradlew checkstyleMain --console=plain remains blocked by two unchanged
+  lines: PersistentLaneScheduler.java:1327 and TargetWorkerHostRuntime.java:347,
+  both over the repository's 120-character limit.
+  git diff --check passed before the source commit.
+
+Scope boundary:
+  Worker integration tests use an explicitly synthetic resource observation;
+  this is not evidence from a production host probe. The repository still has
+  no main-source Worker activation caller, no production SourceRecordConsumer
+  adapter, and no system-writer append integration. Configuration loading,
+  source ingress/backpressure, Broker backlog progress, same-log ordering,
+  production host assembly, and central validation remain open. E6 remains
+  IN_PROGRESS / PENDING_CENTRAL_VALIDATION.
