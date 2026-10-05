@@ -1,0 +1,17 @@
+NDIP-3 D1 focused real Pulsar Target Worker source revalidation
+Date: 2026-10-06
+Nereus Delay source commit: 52e677956370fa091d5e43ef712664d6bd748a70
+P1 checkout commit: 0a2536484cd3932801a98dc88ff112b2df88a1c7
+P1 distribution SHA-256: 373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3
+P1 client SHA-256: 57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c
+P1 client API SHA-256: f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394
+P1 common SHA-256: 94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8
+P1 Broker image: sha256:6d3485378abd04d00ffd6c0d340a66e7eca8120bd6f89bd25fab45363f245cc3
+Broker fixture: isolated P1 standalone Compose project; script removed its container and volumes on exit.
+
+Command:
+NEREUS_DELAY_PULSAR_TARGET_WORKER_SOURCE_ONLY=1 NEREUS_DELAY_PULSAR_CHECKOUT=<locked-P1-checkout> ./e2e/run-pulsar-real-client-e2e.sh
+
+Result: runRealPulsarTargetWorkerSourceSmoke and the E2E script passed. The smoke applied the first grant at entry 0, applied Cancel at entry 1, verified the RocksDB source frontier advanced before the receipt-confirmed Pulsar ACK, and checked the guarded source proof.
+
+The real Broker and source adapter were exercised. Start/Commit/grant/Owner authorities remain test fixtures. The smoke opens its RocksDB resources with an explicit synthetic Worker envelope so it can exercise the source runtime gate; this is not a runtime host probe or E6 capacity evidence. D1 remains IN_PROGRESS / PENDING_CENTRAL_VALIDATION; this run does not establish production authority assembly, the complete Broker capability matrix, or centralized validation.

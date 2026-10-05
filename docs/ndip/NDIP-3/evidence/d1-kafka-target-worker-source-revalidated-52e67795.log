@@ -1,0 +1,20 @@
+NDIP-3 D1 focused real Kafka Target Worker source revalidation
+Date: 2026-10-06
+Nereus Delay source commit: 52e677956370fa091d5e43ef712664d6bd748a70
+K1 checkout commit: 05849884ca81fad767fda058444d1e17c7f9cbf9
+Kafka client SHA-256: 1c83ae777c364be833f7c8ff31f1fdeb28dafd5eb3998f0246e7d226a543cbe0
+K1 Broker image: sha256:62b964515672c2f1cedf552bec49ad6757c7058ee54a7bfc8ded1fad41f216ef
+Broker fixture: isolated three-broker KRaft Compose project; script removed its containers and volumes on exit.
+
+Command:
+NEREUS_DELAY_KAFKA_TARGET_WORKER_SOURCE_ONLY=1 NEREUS_DELAY_KAFKA_CHECKOUT=<locked-K1-checkout> ./e2e/run-kafka-real-client-e2e.sh
+
+Result: all seven Gradle smoke invocations and the E2E script passed:
+- Target source apply/ACK with TopicId/partition and committed-offset checks.
+- No-injection Host lifecycle, maintenance tick, and exact Owner/Store drain.
+- RocksDB write-response UNKNOWN followed by replacement-Owner exact replay without a second Store write.
+- EXPIRE_GENERATION NOT_FOUND application, in-process ACK response loss, and replacement-Owner replay.
+- EXPIRE_GENERATION ACK UNKNOWN/reopen and duplicate-source replay.
+- Scheduled Message expiry producing EXPIRE_GENERATION in the same source log.
+
+The real Broker and source adapter were exercised. Start/Commit/grant/Owner/time authorities remain test fixtures. The smoke opens its RocksDB resources with an explicit synthetic Worker envelope so it can exercise the source runtime gate; this is not a runtime host probe or E6 capacity evidence. D1 remains IN_PROGRESS / PENDING_CENTRAL_VALIDATION; this run does not establish production authority assembly, the complete Broker capability matrix, or centralized validation.
