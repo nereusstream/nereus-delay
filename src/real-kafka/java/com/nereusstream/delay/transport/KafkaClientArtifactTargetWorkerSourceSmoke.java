@@ -59,7 +59,6 @@ import com.nereusstream.delay.scheduler.WorkClassRuntimeConfig;
 import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.ShardStore;
 import com.nereusstream.delay.store.ShardStoreConfig;
-import com.nereusstream.delay.store.SharedRocksDbResources;
 import com.nereusstream.delay.store.TargetStoreBackend;
 import com.nereusstream.delay.store.TargetStoreBackendFailureSmokeBridge;
 import java.lang.reflect.InvocationTargetException;
@@ -564,7 +563,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
         final OwnerLease[] activeHolder = new OwnerLease[1];
         final AtomicBoolean activeLeaseReleased = new AtomicBoolean();
         final TargetExpiryFixture[] expiryFixtureAfterTurn = new TargetExpiryFixture[1];
-        try (var resources = new SharedRocksDbResources(config);
+        try (var resources = KafkaSmokeWorkerResources.open(config);
                 var store = ShardStore.openTarget(config, scope.shard(), resources)) {
             final var prepared = TargetStoreBootstrap.prepare(
                     store,
@@ -1088,7 +1087,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                         60_000)
                 .orElseThrow(() -> new IllegalStateException("replacement Target Owner lease acquisition failed"));
         final OwnerLease[] ownerHolder = {replayAcquiring};
-        try (var resources = new SharedRocksDbResources(config);
+        try (var resources = KafkaSmokeWorkerResources.open(config);
                 var store = ShardStore.openTarget(config, scope.shard(), resources)) {
             if (Long.compareUnsigned(
                             replayAcquiring.ownerEpoch(), store.runtimeMetadata().lastOpenedOwnerEpoch())
@@ -1245,7 +1244,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                         60_000)
                 .orElseThrow(() -> new IllegalStateException("replacement expiry Owner lease acquisition failed"));
         final OwnerLease[] ownerHolder = {acquiring};
-        try (var resources = new SharedRocksDbResources(config);
+        try (var resources = KafkaSmokeWorkerResources.open(config);
                 var store = ShardStore.openTarget(config, scope.shard(), resources)) {
             if (Long.compareUnsigned(acquiring.ownerEpoch(), store.runtimeMetadata().lastOpenedOwnerEpoch()) <= 0) {
                 throw new IllegalStateException("replacement expiry Owner epoch did not advance past the Store");

@@ -80,7 +80,6 @@ import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.store.ColumnFamily;
 import com.nereusstream.delay.store.ShardStore;
 import com.nereusstream.delay.store.ShardStoreConfig;
-import com.nereusstream.delay.store.SharedRocksDbResources;
 import com.nereusstream.delay.store.TargetKeyCodec;
 import com.nereusstream.delay.store.TargetStoreBackend;
 import com.nereusstream.delay.store.TargetValueEnvelope;
@@ -291,7 +290,7 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
                 .orElseThrow(() -> new IllegalStateException("Target expiry test Owner acquisition failed"));
         final var config = ShardStoreConfig.defaults(storeRoot);
         try {
-            try (var resources = new SharedRocksDbResources(config);
+            try (var resources = KafkaSmokeWorkerResources.open(config);
                     var store = ShardStore.openTarget(config, shard, resources)) {
                 final var rootAuthority = grantAuthority(
                         registrations, keys, actor, rootPosition, rootGrant, null);

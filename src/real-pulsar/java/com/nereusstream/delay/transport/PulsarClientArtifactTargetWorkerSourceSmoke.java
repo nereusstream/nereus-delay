@@ -54,7 +54,6 @@ import com.nereusstream.delay.scheduler.WorkClassRuntimeConfig;
 import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.ShardStore;
 import com.nereusstream.delay.store.ShardStoreConfig;
-import com.nereusstream.delay.store.SharedRocksDbResources;
 import com.nereusstream.delay.store.TargetStoreBackend;
 import java.net.http.HttpClient;
 import java.net.http.HttpResponse;
@@ -246,7 +245,7 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                 actor,
                 prepared -> true);
         final var workerClasses = workClasses();
-        try (var resources = new SharedRocksDbResources(config);
+        try (var resources = PulsarSmokeWorkerResources.open(config);
                 var store = ShardStore.openTarget(config, scope.shard(), resources)) {
             final var prepared = TargetStoreBootstrap.prepare(
                     store,
