@@ -1,0 +1,34 @@
+NDIP-3 E6 runtime filesystem headroom focused evidence
+Date: 2026-10-06 (Asia/Shanghai)
+Repository: nereus-delay
+Source commit: cb2ed43109d95c2f337471774ba29382e32b5db2
+
+Source files at the locked commit:
+  src/main/java/com/nereusstream/delay/store/WorkerResourceEnvelope.java
+    SHA-256: 0db23ec79c050162355a33c176b4dc4db16d901f6744eef9ab479395a0f23eac
+  src/test/java/com/nereusstream/delay/store/WorkerResourceEnvelopeTest.java
+    SHA-256: a73def67408d4b4397de8788a8e32a4a9a278d92b08cc226457ed5ded1330191
+
+Change:
+  Runtime resource validation now requires usable filesystem bytes to cover
+  the declared physical disk safety watermark, checkpoint-restore temporary
+  headroom, and compaction temporary headroom. Startup envelope validation
+  already constrains their checked sum to maxFilesystemBytes.
+
+Focused regression:
+  WorkerResourceEnvelopeTest.runtimeFilesystemMustRetainSafetyWatermarkAndTemporaryHeadroom
+  With 2 GiB watermark and 256 MiB for each temporary bucket, exactly 2.5 GiB
+  usable space is accepted and 2.5 GiB minus 1 byte is rejected.
+
+Validation:
+  Command: ./gradlew test --tests 'com.nereusstream.delay.store.WorkerResourceEnvelopeTest' checkstyleTest --console=plain
+  Result: BUILD SUCCESSFUL. WorkerResourceEnvelopeTest: 4 tests, 0 skipped,
+  0 failures, 0 errors. checkstyleTest passed.
+
+Scope boundary:
+  This is local evidence for the runtime filesystem lower-bound check only.
+  It does not complete a unified Target/resource configuration schema or
+  loader, quota/backpressure wiring, RSS or physical-capacity integration,
+  bounded source backlog/system-writer/control progress, same-log ordering,
+  real Worker admission, or NDIP-3 central validation. E6 remains IN_PROGRESS /
+  PENDING_CENTRAL_VALIDATION.

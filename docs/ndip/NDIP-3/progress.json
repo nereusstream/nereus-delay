@@ -835,11 +835,19 @@
     {
       "id": "E6",
       "title": "配额背压运行配置统一",
-      "status": "PLANNED",
-      "evidence": [],
-      "implementationStatus": "NOT_STARTED",
+      "status": "IN_PROGRESS",
+      "evidence": [
+        "evidence/e6-runtime-filesystem-headroom-focused.log"
+      ],
+      "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
-      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
+      "progress": "2026-10-06: WorkerResourceEnvelope runtime validation now requires usable filesystem bytes to cover the safety watermark plus checkpoint-restore and compaction temporary headroom. A focused test accepts the exact 2.5 GiB configured boundary and rejects one byte below it. The unified Target/resource configuration and loader, quota/backpressure integration, bounded backlog and system-writer progress, and central validation remain open; E6 stays IN_PROGRESS / PENDING_CENTRAL_VALIDATION.",
+      "implementationFiles": [
+        "src/main/java/com/nereusstream/delay/store/WorkerResourceEnvelope.java",
+        "src/test/java/com/nereusstream/delay/store/WorkerResourceEnvelopeTest.java"
+      ],
+      "validationHandoff": "12-集中验证交接清单.md"
     },
     {
       "id": "E7",
