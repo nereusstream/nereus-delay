@@ -1,6 +1,8 @@
 package com.nereusstream.delay.store;
 
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.CapacityDimension;
+import com.nereusstream.delay.protocol.CapacityVector;
 import java.nio.ByteBuffer;
 import java.util.Objects;
 
@@ -165,6 +167,14 @@ public record WorkerResourceEnvelope(
         return physicalDiskSafetyWatermarkBytes
                 + checkpointRestoreTempHeadroomBytes
                 + compactionTempHeadroomBytes;
+    }
+
+    void validateControlCapacity(final CapacityVector workerHardCaps) {
+        Objects.requireNonNull(workerHardCaps, "workerHardCaps");
+        if (workerHardCaps.amount(CapacityDimension.CONTROL_RESERVE_BYTES) != controlReserveBytes
+                || workerHardCaps.amount(CapacityDimension.CONTROL_RESERVE_RECORDS) != controlReserveRecords) {
+            throw new IllegalArgumentException("Worker control reserve differs from its capacity hard caps");
+        }
     }
 
     /** Stable digest for placement/configuration identity and audit evidence. */

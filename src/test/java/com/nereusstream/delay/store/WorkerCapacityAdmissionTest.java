@@ -20,6 +20,7 @@ class WorkerCapacityAdmissionTest {
         final CapacityVector fixed = vector(CapacityDimension.DB_INSTANCES, 2);
         final CapacityVector transition = vector(CapacityDimension.CHECKPOINT_CREATE_TEMP_BYTES, 4);
         final CapacityVector hardCaps = vector(CapacityDimension.CONTROL_RESERVE_BYTES, 7)
+                .add(vector(CapacityDimension.CONTROL_RESERVE_RECORDS, 3))
                 .add(vector(CapacityDimension.DB_INSTANCES, 5))
                 .add(vector(CapacityDimension.CHECKPOINT_CREATE_TEMP_BYTES, 4));
 
@@ -27,7 +28,31 @@ class WorkerCapacityAdmissionTest {
                 7,
                 WorkerCapacityAdmission.sumCommitted(List.of(envelope))
                         .amount(CapacityDimension.CONTROL_RESERVE_BYTES));
-        WorkerCapacityAdmission.requireFits(hardCaps, List.of(envelope), fixed, transition);
+        WorkerCapacityAdmission.requireFits(workerResources(7, 3), hardCaps, List.of(envelope), fixed, transition);
+    }
+
+    @Test
+    void rejectsWorkerControlReserveThatDiffersFromCapacityHardCaps() {
+        final CapacityVector hardCaps = vector(CapacityDimension.CONTROL_RESERVE_BYTES, 7)
+                .add(vector(CapacityDimension.CONTROL_RESERVE_RECORDS, 3));
+        final ShardCapacityEnvelope shardEnvelope = envelope("control-reserve-binding", 7, 0);
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> WorkerCapacityAdmission.requireFits(
+                        workerResources(8, 3),
+                        hardCaps,
+                        List.of(shardEnvelope),
+                        CapacityVector.empty(),
+                        CapacityVector.empty()));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> WorkerCapacityAdmission.requireFits(
+                        workerResources(7, 2),
+                        hardCaps,
+                        List.of(shardEnvelope),
+                        CapacityVector.empty(),
+                        CapacityVector.empty()));
     }
 
     @Test
@@ -82,5 +107,11 @@ class WorkerCapacityAdmissionTest {
         final long[] amounts = new long[CapacityDimension.COUNT];
         amounts[dimension.wireValue() - 1] = amount;
         return new CapacityVector(amounts);
+    }
+
+    private static WorkerResourceEnvelope workerResources(
+            final long controlReserveBytes, final long controlReserveRecords) {
+        return new WorkerResourceEnvelope(
+                1, 1, 1, 1, 0, 4, 0, 4, 10, 1, 10, 1, 1, 1, controlReserveBytes, controlReserveRecords);
     }
 }

@@ -60,4 +60,15 @@ public final class WorkerCapacityAdmission {
             throw new IllegalArgumentException("Worker capacity envelopes exceed hard caps");
         }
     }
+
+    /** Fails closed unless the control reserve in the runtime envelope matches the typed Worker hard caps. */
+    public static void requireFits(
+            final WorkerResourceEnvelope workerResources,
+            final CapacityVector hardCaps,
+            final List<ShardCapacityEnvelope> shardEnvelopes,
+            final CapacityVector workerFixedCost,
+            final CapacityVector transitionTemporaryDemand) {
+        Objects.requireNonNull(workerResources, "workerResources").validateControlCapacity(hardCaps);
+        requireFits(hardCaps, shardEnvelopes, workerFixedCost, transitionTemporaryDemand);
+    }
 }
