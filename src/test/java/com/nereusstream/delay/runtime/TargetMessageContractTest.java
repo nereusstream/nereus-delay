@@ -187,6 +187,37 @@ class TargetMessageContractTest {
     }
 
     @Test
+    void targetRuntimeBoundsOpenObligationsByUncertainRetryAdmissions() {
+        final var first = ref(0x21, 2, AttemptLedgerState.UNCERTAIN);
+        final var second = ref(0x22, 2, AttemptLedgerState.UNCERTAIN);
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> index(
+                        GenerationAggregateState.UNCERTAIN,
+                        CurrentSendWorkKind.NONE,
+                        null,
+                        null,
+                        null,
+                        List.of(first, second),
+                        2,
+                        0,
+                        false,
+                        9));
+        final var bounded = index(
+                GenerationAggregateState.UNCERTAIN,
+                CurrentSendWorkKind.NONE,
+                null,
+                null,
+                null,
+                List.of(first, second),
+                2,
+                1,
+                false,
+                9);
+        assertEquals(bounded, TargetGenerationRuntimeIndex.decode(bounded.canonicalBytes()));
+    }
+
+    @Test
     void aNewClaimOrPublisherCannotHideTheEarlierUncertainAttempt() {
         final var unresolved = ref(0x77, 2, AttemptLedgerState.UNCERTAIN);
         final var publisher = ref(0x88, 2, AttemptLedgerState.PUBLISHING);

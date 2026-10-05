@@ -239,6 +239,29 @@ class GenerationRuntimeIndexTest {
     }
 
     @Test
+    void runtimeIndexBoundsOpenObligationsByUncertainRetryAdmissions() {
+        final List<AttemptObligationRef> obligations = new java.util.ArrayList<>();
+        for (int sequence = 1; sequence <= 2; sequence++) {
+            final byte[] id = new byte[32];
+            id[31] = (byte) sequence;
+            obligations.add(new AttemptObligationRef(
+                    id, 0, AttemptLedgerState.UNCERTAIN, KeyCodec.inflight((byte) 3, sequence, id)));
+        }
+
+        final GenerationRuntimeIndex bounded = GenerationRuntimeIndex.none(
+                GenerationAggregateState.UNCERTAIN, obligations, 2, 1, false, 9);
+        assertEquals(bounded, GenerationRuntimeIndex.decode(bounded.canonicalBytes()));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> GenerationRuntimeIndex.none(
+                        GenerationAggregateState.UNCERTAIN, obligations, 2, 0, false, 9));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> GenerationRuntimeIndex.none(
+                        GenerationAggregateState.UNCERTAIN, List.of(obligations.getFirst()), 1, 1, false, 9));
+    }
+
+    @Test
     void attemptObligationPreservesUnsignedGenerationBits() {
         final byte[] attemptId = Bytes.sha256(Bytes.utf8("attempt-high-bit-generation"));
         final AttemptObligationRef reference = new AttemptObligationRef(

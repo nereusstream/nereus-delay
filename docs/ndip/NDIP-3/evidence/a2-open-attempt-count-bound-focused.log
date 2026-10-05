@@ -1,0 +1,16 @@
+A2 open-attempt count bound
+Date: 2026-10-05
+
+Change:
+- GenerationRuntimeIndex and TargetGenerationRuntimeIndex reject a retained open-obligation count greater than uncertainRetryAdmissionsUsed + 1.
+- Both indexes reject a nonzero uncertainRetryAdmissionsUsed count that is not strictly less than total admissionsUsed.
+- The initial attempt may remain open; each counted uncertain retry admission may add at most one additional open attempt. Invalid retained projections fail closed during construction/decode.
+
+Validation command:
+`./gradlew test --tests com.nereusstream.delay.runtime.GenerationRuntimeIndexTest --tests com.nereusstream.delay.runtime.TargetMessageContractTest checkstyleTest --no-daemon --console=plain`
+Result: BUILD SUCCESSFUL in 27s. GenerationRuntimeIndexTest: 9 tests, 0 skipped/failures/errors. TargetMessageContractTest: 16 tests, 0 skipped/failures/errors. checkstyleTest passed.
+
+`./gradlew checkstyleMain --no-daemon --console=plain`
+Result: BUILD FAILED only on two untouched 123-character lines: PersistentLaneScheduler.java:1327 and TargetWorkerHostRuntime.java:347 (maximum 120). The changed main sources passed after their new exception lines were shortened; `compileJava` passed.
+
+This proves the persisted obligation-count relation for the tested codecs. It does not prove the full GenerationRuntimeIndex byte ceiling, legacy MessageRecord/PayloadReference/SourcePosition limits, the complete mutation envelope, production finite policy assembly, or centralized A2 validation. A2 remains IN_PROGRESS / PENDING_CENTRAL_VALIDATION.

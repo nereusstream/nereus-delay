@@ -78,12 +78,17 @@ public final class GenerationRuntimeIndex {
         if (admissionsUsed < 0
                 || uncertainRetryAdmissionsUsed < 0
                 || uncertainRetryAdmissionsUsed > admissionsUsed
+                || (uncertainRetryAdmissionsUsed > 0 && uncertainRetryAdmissionsUsed >= admissionsUsed)
                 || runtimeRevision <= 0) {
             throw new IllegalArgumentException("invalid generation runtime counters/revision");
         }
         // Each open obligation belongs to one distinct Publish Admission.
         if (this.attemptObligations.size() > admissionsUsed) {
             throw new IllegalArgumentException("attempt obligations exceed publish admissions used");
+        }
+        // The initial admission may leave one open attempt; each uncertain retry may add one more.
+        if ((long) this.attemptObligations.size() > (long) uncertainRetryAdmissionsUsed + 1L) {
+            throw new IllegalArgumentException("attempt obligations exceed retry admissions plus initial attempt");
         }
         this.admissionsUsed = admissionsUsed;
         this.uncertainRetryAdmissionsUsed = uncertainRetryAdmissionsUsed;

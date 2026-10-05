@@ -68,9 +68,14 @@ public final class TargetGenerationRuntimeIndex {
         if (admissionsUsed < 0
                 || uncertainRetryAdmissionsUsed < 0
                 || uncertainRetryAdmissionsUsed > admissionsUsed
+                || (uncertainRetryAdmissionsUsed > 0 && uncertainRetryAdmissionsUsed >= admissionsUsed)
                 || admissionsUsed < obligations.size()
                 || runtimeRevision == 0) {
             throw new IllegalArgumentException("invalid Target runtime counters/revision");
+        }
+        // The initial admission may leave one open attempt; each uncertain retry may add one more.
+        if ((long) obligations.size() > (long) uncertainRetryAdmissionsUsed + 1L) {
+            throw new IllegalArgumentException("Target obligations exceed retry admissions plus initial attempt");
         }
         this.admissionsUsed = admissionsUsed;
         this.uncertainRetryAdmissionsUsed = uncertainRetryAdmissionsUsed;
