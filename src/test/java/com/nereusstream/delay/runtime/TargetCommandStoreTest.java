@@ -437,8 +437,8 @@ class TargetCommandStoreTest {
                         dispatch.digest(),
                         controls.digest(),
                         membership.digest(),
-                        nativeScope.digest(),
-                        null);
+                        strictOrderExpiry ? null : nativeScope.digest(),
+                        strictOrderExpiry ? bytes(32, 0x67) : null);
                 return new TargetCommandStore.ScheduleAdmission(
                         StableCode.OK,
                         new TargetScheduleRegistration.Authority(
@@ -498,6 +498,98 @@ class TargetCommandStoreTest {
                             store.get(ColumnFamily.ID, TargetKeyCodec.message(messageId)),
                             TargetMessageRecord.VALUE_TYPE)
                     .payload());
+            if (strictOrderExpiry) {
+                final byte[] orderKey = TargetKeyCodec.orderState(
+                        message.locator().target(), message.locator().orderingDomain());
+                final var originalOrder = TargetOrderState.decode(TargetValueEnvelope.decode(
+                                store.get(ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE)
+                        .payload());
+                final var admittedWork = message.runtime().timeline();
+                final var watermarkedOrder = new TargetOrderState(
+                        originalOrder.target(),
+                        originalOrder.orderingDomain(),
+                        originalOrder.sourceShard(),
+                        originalOrder.executionDomain(),
+                        originalOrder.accountingIncarnation(),
+                        originalOrder.orderingContract(),
+                        TargetQueueState.nextRevision(originalOrder.stateRevision()),
+                        originalOrder.controlVersion(),
+                        originalOrder.gate(),
+                        admittedWork.ordinaryKey(),
+                        originalOrder.serviceableHead(),
+                        originalOrder.barrier());
+                watermarkedOrder.requireSuccessorOf(originalOrder);
+                store.write(batch -> batch.put(
+                        ColumnFamily.META,
+                        orderKey,
+                        TargetValueEnvelope.encode(TargetOrderState.VALUE_TYPE, watermarkedOrder.canonicalBytes())));
+
+                final var lateSource = source(
+                        scheduleAt,
+                        scheduleAt.offset() + 1,
+                        scheduleAt.brokerLogAppendTimeEpochMs() + 1);
+                final long lateDeliverAt = message.deliverAtEpochMs() - 1;
+                final var lateIntent = CanonicalScheduleIntent.create(
+                        destination.ref(),
+                        intent.retryPolicy(),
+                        lateDeliverAt,
+                        lateSource.brokerLogAppendTimeEpochMs() + 2000,
+                        intent.deliveryMode(),
+                        intent.orderingMode(),
+                        intent.orderingKey(),
+                        model.inlinePayload(),
+                        null,
+                        intent.adapterMetadata(),
+                        intent.businessKey(),
+                        intent.eventTimeEpochMs(),
+                        NativeDeliveryPolicy.FORBID);
+                final var lateMessageId = new DelayMessageId(cancel(messageId, lateSource, 11).commandId().bytes());
+                final var lateBody = new ScheduleCommandBody(
+                        lateMessageId, lateSource.brokerLogAppendTimeEpochMs() + 1000, lateIntent);
+                final var lateCommandId = cancel(lateMessageId, lateSource, 12).commandId();
+                final var lateCommand = new PreparedCommand(
+                        scope.shard(),
+                        lateCommandId,
+                        lateMessageId,
+                        CommandType.SCHEDULE,
+                        ProtocolTuple.managedCommand(),
+                        lateBody.retryUntilEpochMs(),
+                        lateBody.canonicalBytes(),
+                        CommandHash.compute(
+                                ProtocolTuple.managedCommand(),
+                                CommandType.SCHEDULE,
+                                lateCommandId,
+                                lateMessageId,
+                                lateBody.retryUntilEpochMs(),
+                                lateBody.canonicalBytes()));
+                final long sourceSequenceBeforeLateSchedule = store.shardMutationSequence();
+                final var lateResult = initialCommands.commit(
+                        initialCommands.prepareFirst(
+                                budget(),
+                                lateCommand,
+                                lateSource,
+                                initialPolicy,
+                                (reader, bound, source) -> false,
+                                (reader, bound) -> java.util.Optional.empty(),
+                                scheduleProvider,
+                                noProofs()),
+                        (a, b, c) -> guard());
+                assertEquals(StableCode.ORDER_BEFORE_ADMISSION_WATERMARK, lateResult.stableCode());
+                assertEquals(sourceSequenceBeforeLateSchedule + 1, store.shardMutationSequence());
+                assertNull(store.get(ColumnFamily.ID, TargetKeyCodec.message(lateMessageId)));
+                final var actualOrder = TargetOrderState.decode(TargetValueEnvelope.decode(
+                                store.get(ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE)
+                        .payload());
+                assertArrayEquals(watermarkedOrder.canonicalBytes(), actualOrder.canonicalBytes());
+                final long afterLateSchedule = store.latestSequenceNumber();
+                final var replay = new TargetCommandReplayStore(backend, scope, lineage, 16, 1);
+                final var replayedLateResult = replay.commit(
+                        replay.prepareReplayOrExpired(budget(), lateCommand, lateSource).orElseThrow(),
+                        (a, b, c) -> guard(),
+                        (a, b) -> guard());
+                assertEquals(StableCode.ORDER_BEFORE_ADMISSION_WATERMARK, replayedLateResult.stableCode());
+                assertEquals(afterLateSchedule, store.latestSequenceNumber());
+            }
             final long claimExecutionBytes = originalGrant
                     .accounting()
                     .accountedPublishBytes(
@@ -534,7 +626,7 @@ class TargetCommandStoreTest {
                     null,
                     null);
             final var emptyGrantAt =
-                    source(scheduleAt, scheduleAt.offset() + 1, scheduleAt.brokerLogAppendTimeEpochMs() + 1);
+                    source(scheduleAt, scheduleAt.offset() + 2, scheduleAt.brokerLogAppendTimeEpochMs() + 2);
             final var emptyGrant = signed(emptyGrantRequest, bytes(32, 0x62), actor, keys);
             registrations.register(emptyGrant.control());
             assertEquals(
