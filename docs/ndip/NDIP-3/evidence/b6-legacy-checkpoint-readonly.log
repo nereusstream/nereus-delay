@@ -597,3 +597,27 @@ Commands:
 Result: `LegacyCheckpointImageInspectorTest` passes 15/15; `checkstyleTest` passes; `git diff --check` passes. `checkstyleMain` fails only on the two unchanged 123-character lines at `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`.
 
 Scope: this provides only an isolated writable-copy substrate. It does not replay checkpoint-tail records to an exact captured source cut, produce the complete disposition/readiness report, establish durable cutover, activate a Target Store, roll back, retire legacy readers, or complete central validation. B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
+
+## 2026-10-05 bounded source-tail replay to a protected cut
+
+Source lock:
+- Base HEAD: `b856f1aab2854757e67c0b5ab0688b35f19544be`
+- Observed origin/main: `0a4b5d13e3fef9a19359b61dfac0f976a8118cd7`
+- `LegacyCheckpointTailReplayer.java` SHA-256: `1caaddee5ed27ca2fb7bbe3c189a678d3ffac81d83e70275baa1c282509001eb`
+- `DelayShard.java` SHA-256: `2b1ae6b63d3f28395349eeb7315dbddc1696d330491b216edb3d70e029ec97ff`
+- `LegacyCheckpointImageInspectorTest.java` SHA-256: `827d41d5e2aa0d6811e3d388c921163a51a764ecf53133471ed975e831d76e4d`
+
+Verification: one real format-1 RocksDB checkpoint is opened through the isolated writable replay-copy API. The old applier runs only against that exact Store handle and receives the accepted SourceAssignment, adapter-provided SourceReplaySuccessor, protected CheckpointCut, and one finite ReplayTurnBudget. The regression replays offsets 32 and 33 through cut 33 while proving offset 34 was not read; a one-record budget returns `BLOCKED / REPLAY_BUDGET_EXHAUSTED` at offset 32. Both cases preserve the original checkpoint files, original applied position, and ACTIVE pointer. Exact-cut arrival is local replay evidence only and is not migration READY.
+
+Commands:
+`./gradlew checkstyleMain checkstyleTest test --tests '*LegacyCheckpointImageInspectorTest' --no-daemon`
+
+`./gradlew checkDocumentation --no-daemon`
+
+`jq empty docs/ndip/NDIP-3/progress.json`
+
+`git diff --check`
+
+Result: `LegacyCheckpointImageInspectorTest` passes 16/16 with zero failures/errors/skips; `checkstyleTest`, `checkDocumentation`, JSON parsing, and `git diff --check` pass. `checkstyleMain` reports only the two pre-existing 123-character lines in `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`.
+
+Scope: the source cursor and accepted assignment/successor are caller-supplied; no Kafka/Pulsar no-ACK read-only tail adapter or captured-cut assembly is implemented. Complete old-state disposition, migration report, durable cutover, activation, rollback, reader retirement, and central validation remain open. B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.

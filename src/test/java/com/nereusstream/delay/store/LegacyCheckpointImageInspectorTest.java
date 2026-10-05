@@ -5,18 +5,30 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import com.nereusstream.delay.ownership.LegacyCheckpointTailReplayer;
+import com.nereusstream.delay.ownership.ReplayTurnBudget;
+import com.nereusstream.delay.ownership.SourceAssignment;
+import com.nereusstream.delay.ownership.SourceRecordConsumer;
+import com.nereusstream.delay.ownership.SourceReplayCursor;
+import com.nereusstream.delay.ownership.SourceReplayEntry;
+import com.nereusstream.delay.ownership.SourceReplayRecord;
+import com.nereusstream.delay.ownership.SourceReplaySuccessor;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.DestinationLaneId;
+import com.nereusstream.delay.protocol.KafkaActivationBarrier;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.NativeDeliveryPolicy;
 import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.OwnerIdentity;
+import com.nereusstream.delay.protocol.PreparedCommand;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
 import com.nereusstream.delay.protocol.PublishAdmissionBodyTest;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.StableCode;
+import com.nereusstream.delay.runtime.DelayShard;
+import com.nereusstream.delay.runtime.DelayShardConfig;
 import com.nereusstream.delay.runtime.GenerationAggregateState;
 import com.nereusstream.delay.runtime.GenerationRuntimeIndex;
 import com.nereusstream.delay.runtime.MessageRecord;
@@ -30,8 +42,11 @@ import com.nereusstream.delay.runtime.TimelineWorkRef;
 import com.nereusstream.delay.runtime.UncertainRetryAuthority;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.KeyPairGenerator;
+import java.util.Iterator;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.rocksdb.RocksDBException;
@@ -188,6 +203,145 @@ class LegacyCheckpointImageInspectorTest {
             assertEquals(registeredStores, resources.registeredPhysicalUsageSources());
             assertFileInventoriesEqual(sourceFiles, CheckpointFileInventory.collect(image, finiteLimits()));
         }
+    }
+
+    @Test
+    void replaysLegacyTailOnlyThroughTheProtectedCutAndBlocksWhenBudgetStopsEarly() throws Exception {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 15);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("tail-replay-store"));
+        final Path image = tempDir.resolve("tail-replay-checkpoint");
+        final byte[] checkpointId = bytes(16, 17);
+        final UUID topicId = UUID.randomUUID();
+        final KafkaSourcePosition checkpointPosition =
+                new KafkaSourcePosition(shard, "legacy-tail-cluster", topicId, 31, null, 4_000);
+        final KafkaSourcePosition firstTail =
+                new KafkaSourcePosition(shard, "legacy-tail-cluster", topicId, 32, null, 4_100);
+        final KafkaSourcePosition cutPosition =
+                new KafkaSourcePosition(shard, "legacy-tail-cluster", topicId, 33, null, 4_200);
+        final KafkaSourcePosition afterCut =
+                new KafkaSourcePosition(shard, "legacy-tail-cluster", topicId, 34, null, 4_300);
+        final CheckpointManifest manifest;
+        final Path activePointer = config.rootPath()
+                .resolve("shards")
+                .resolve(shard.routeIncarnation().uuid().toString())
+                .resolve(Integer.toUnsignedString(shard.partition()))
+                .resolve("ACTIVE");
+        final SourceAssignment assignment = new SourceAssignment(
+                shard,
+                bytes(32, 61),
+                1,
+                new KafkaActivationBarrier(shard, "legacy-tail-cluster", topicId, 0));
+        final SourceRecordConsumer.CheckpointCut protectedCut = new SourceRecordConsumer.CheckpointCut() {
+            @Override
+            public com.nereusstream.delay.protocol.SourcePosition position() {
+                return cutPosition;
+            }
+
+            @Override
+            public void requireCurrent() {
+                // This fixture represents a still-valid source-side cut capability.
+            }
+        };
+        final List<SourceReplayEntry> sourceEntries = List.of(
+                new SourceReplayRecord(PreparedCommand.cancel(shard, DelayMessageId.random(shard), 0, 10_000),
+                        firstTail, null, null),
+                new SourceReplayRecord(PreparedCommand.cancel(shard, DelayMessageId.random(shard), 0, 10_000),
+                        cutPosition, null, null),
+                new SourceReplayRecord(PreparedCommand.cancel(shard, DelayMessageId.random(shard), 0, 10_000),
+                        afterCut, null, null));
+        final var verificationKeys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final List<CheckpointFileInventory> filesBefore;
+        final byte[] activeBefore;
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore original = ShardStore.open(config, shard, resources)) {
+            original.write(batch -> {
+                batch.putValue(
+                        ColumnFamily.META,
+                        ShardStore.META_FIXED_VALUE_TYPE,
+                        KeyCodec.metaFixed(ShardStore.META_APPLIED_SOURCE_POSITION),
+                        checkpointPosition.canonicalBytes());
+                batch.putValue(
+                        ColumnFamily.META,
+                        ShardStore.META_FIXED_VALUE_TYPE,
+                        KeyCodec.metaFixed(ShardStore.META_MUTATION_SEQUENCE),
+                        Bytes.u64beBits(0));
+            });
+            original.createCheckpoint(image, checkpointId);
+            manifest = manifestFor(image, shard, original, checkpointId, checkpointPosition);
+            filesBefore = CheckpointFileInventory.collect(image, finiteLimits());
+            activeBefore = Files.readAllBytes(activePointer);
+
+            final AtomicInteger exactIteratorReads = new AtomicInteger();
+            final SourceReplayCursor<SourceReplayEntry> exactCursor = trackedCursor(sourceEntries, exactIteratorReads);
+            try (ShardStore.LegacyCheckpointReplayCopy replayCopy = ShardStore.openLegacyCheckpointReplayCopy(
+                    config, shard, resources, image, manifest, finiteLimits())) {
+                final LegacyCheckpointTailReplayer.Result result = LegacyCheckpointTailReplayer.replay(
+                        replayCopy,
+                        assignment,
+                        SourceReplaySuccessor.strictKafka(),
+                        protectedCut,
+                        exactCursor,
+                        store -> new DelayShard(store, DelayShardConfig.defaults()),
+                        verificationKeys.getPublic(),
+                        () -> 5_000,
+                        new ReplayTurnBudget(8, 1 << 20, 60_000_000_000L));
+                assertEquals(LegacyCheckpointTailReplayer.Status.EXACT_CUT_REACHED, result.status());
+                assertEquals(LegacyCheckpointTailReplayer.BlockReason.NONE, result.blockReason());
+                assertEquals(2, result.recordsApplied());
+                assertEquals(2, result.commandsApplied());
+                assertEquals(0, result.systemMutationsApplied());
+                assertEquals(cutPosition, result.appliedThrough());
+                assertEquals(2, exactIteratorReads.get());
+                assertEquals(checkpointPosition, original.appliedShardLogPosition());
+            }
+
+            final AtomicInteger boundedIteratorReads = new AtomicInteger();
+            final SourceReplayCursor<SourceReplayEntry> boundedCursor =
+                    trackedCursor(sourceEntries, boundedIteratorReads);
+            try (ShardStore.LegacyCheckpointReplayCopy replayCopy = ShardStore.openLegacyCheckpointReplayCopy(
+                    config, shard, resources, image, manifest, finiteLimits())) {
+                final LegacyCheckpointTailReplayer.Result result = LegacyCheckpointTailReplayer.replay(
+                        replayCopy,
+                        assignment,
+                        SourceReplaySuccessor.strictKafka(),
+                        protectedCut,
+                        boundedCursor,
+                        store -> new DelayShard(store, DelayShardConfig.defaults()),
+                        verificationKeys.getPublic(),
+                        () -> 5_000,
+                        new ReplayTurnBudget(1, 1 << 20, 60_000_000_000L));
+                assertEquals(LegacyCheckpointTailReplayer.Status.BLOCKED, result.status());
+                assertEquals(
+                        LegacyCheckpointTailReplayer.BlockReason.REPLAY_BUDGET_EXHAUSTED, result.blockReason());
+                assertEquals(1, result.recordsApplied());
+                assertEquals(firstTail, result.appliedThrough());
+                assertTrue(boundedIteratorReads.get() <= 2);
+            }
+
+            assertEquals(checkpointPosition, original.appliedShardLogPosition());
+            assertArrayEquals(activeBefore, Files.readAllBytes(activePointer));
+            assertFileInventoriesEqual(filesBefore, CheckpointFileInventory.collect(image, finiteLimits()));
+        }
+    }
+
+    private static SourceReplayCursor<SourceReplayEntry> trackedCursor(
+            final List<SourceReplayEntry> entries, final AtomicInteger nextCalls) {
+        final Iterator<SourceReplayEntry> iterator = new Iterator<>() {
+            private int index;
+
+            @Override
+            public boolean hasNext() {
+                return index < entries.size();
+            }
+
+            @Override
+            public SourceReplayEntry next() {
+                nextCalls.incrementAndGet();
+                return entries.get(index++);
+            }
+        };
+        return SourceReplayCursor.of(iterator);
     }
 
     @Test

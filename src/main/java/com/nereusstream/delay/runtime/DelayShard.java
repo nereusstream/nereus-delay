@@ -8015,6 +8015,11 @@ public final class DelayShard {
         return store.shardId();
     }
 
+    /** Returns whether this applier is bound to the exact Store handle supplied by its caller. */
+    public boolean isBackedBy(final ShardStore candidate) {
+        return store == Objects.requireNonNull(candidate, "candidate");
+    }
+
     /** Binds owner-side work execution to this shard Store's exact Worker resource graph. */
     public void bindWorkClassExecutionRegistry(final WorkClassExecutionRegistry registry) {
         store.sharedResources().bindWorkClassExecutionRegistry(registry);
