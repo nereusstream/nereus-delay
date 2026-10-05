@@ -26,6 +26,7 @@ import com.nereusstream.delay.scheduler.WorkClassTask;
 import com.nereusstream.delay.store.ShardStore;
 import com.nereusstream.delay.store.ShardStoreConfig;
 import com.nereusstream.delay.store.SharedRocksDbResources;
+import com.nereusstream.delay.store.WorkerRuntimeTestSupport;
 import java.lang.reflect.Modifier;
 import java.nio.file.Path;
 import java.security.KeyPairGenerator;
@@ -474,7 +475,7 @@ class SourceApplyCoordinatorTest {
                             assignment, "coordinator-owner", Bytes.sha256(Bytes.utf8("coordinator-session")), 100, 100)
                     .orElseThrow();
             final ShardStoreConfig config = ShardStoreConfig.defaults(root);
-            resources = new SharedRocksDbResources(config);
+            resources = WorkerRuntimeTestSupport.openWithSyntheticObservation(config);
             store = ShardStore.open(config, shard, resources);
             final DelayShard delegate = headReadPolicy == null
                     ? BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults())

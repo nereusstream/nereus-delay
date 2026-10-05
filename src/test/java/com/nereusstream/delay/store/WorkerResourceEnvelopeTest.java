@@ -51,6 +51,17 @@ class WorkerResourceEnvelopeTest {
     }
 
     @Test
+    void productionWorkerActivationRequiresAProbedActiveEnvelope() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("activation-envelope"));
+        try (SharedRocksDbResources unprobed = new SharedRocksDbResources(config)) {
+            assertThrows(IllegalStateException.class, unprobed::requireWorkerActivationReady);
+        }
+        try (SharedRocksDbResources probed = WorkerRuntimeTestSupport.openWithSyntheticObservation(config)) {
+            assertDoesNotThrow(probed::requireWorkerActivationReady);
+        }
+    }
+
+    @Test
     void runtimeFilesystemMustRetainSafetyWatermarkAndTemporaryHeadroom() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("runtime-disk"));
         final WorkerResourceEnvelope envelope = new WorkerResourceEnvelope(

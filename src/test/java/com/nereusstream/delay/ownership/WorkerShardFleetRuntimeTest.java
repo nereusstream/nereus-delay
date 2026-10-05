@@ -22,6 +22,7 @@ import com.nereusstream.delay.store.ShardStore;
 import com.nereusstream.delay.store.ShardStoreConfig;
 import com.nereusstream.delay.store.SharedRocksDbResources;
 import com.nereusstream.delay.store.WorkerCheckpointRuntime;
+import com.nereusstream.delay.store.WorkerRuntimeTestSupport;
 import java.nio.file.Path;
 import java.util.EnumMap;
 import java.util.List;
@@ -42,7 +43,7 @@ class WorkerShardFleetRuntimeTest {
         final InMemoryOwnerLeaseStore backend = new InMemoryOwnerLeaseStore();
         final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
 
-        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+        try (SharedRocksDbResources resources = WorkerRuntimeTestSupport.openWithSyntheticObservation(config);
                 Fixture first = new Fixture(config, resources, workClasses, authority, backend, 1, "first", true);
                 Fixture second = new Fixture(config, resources, workClasses, authority, backend, 2, "second", false)) {
             final WorkerShardFleetRuntime fleet =
@@ -88,7 +89,7 @@ class WorkerShardFleetRuntimeTest {
         final InMemoryOwnerLeaseStore backend = new InMemoryOwnerLeaseStore();
         final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
 
-        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+        try (SharedRocksDbResources resources = WorkerRuntimeTestSupport.openWithSyntheticObservation(config);
                 Fixture first =
                         new Fixture(config, resources, workClasses, authority, backend, 1, "close-first", false);
                 Fixture second =

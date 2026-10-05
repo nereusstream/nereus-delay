@@ -194,6 +194,7 @@ public final class WorkerShardRuntime implements AutoCloseable {
         this.workClasses = Objects.requireNonNull(workClasses, "workClasses");
         this.ownedShard = Objects.requireNonNull(ownedShard, "ownedShard");
         this.resources = Objects.requireNonNull(resources, "resources");
+        this.resources.requireWorkerActivationReady();
         this.resources.bindWorkClassExecutionRegistry(this.workClasses);
         if (schedulingRuntime != null) {
             schedulingRuntime.requireWorkClassExecutionRegistry(this.workClasses);

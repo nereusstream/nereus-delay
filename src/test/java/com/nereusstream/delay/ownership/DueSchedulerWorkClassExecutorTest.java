@@ -42,6 +42,7 @@ import com.nereusstream.delay.store.KeyCodec;
 import com.nereusstream.delay.store.ShardStore;
 import com.nereusstream.delay.store.ShardStoreConfig;
 import com.nereusstream.delay.store.SharedRocksDbResources;
+import com.nereusstream.delay.store.WorkerRuntimeTestSupport;
 import java.io.ByteArrayOutputStream;
 import java.nio.file.Path;
 import java.security.KeyPairGenerator;
@@ -124,7 +125,7 @@ class DueSchedulerWorkClassExecutorTest {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("due-work-store"));
         final ShardStoreConfig foreignConfig = ShardStoreConfig.defaults(tempDir.resolve("due-work-foreign-store"));
 
-        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+        try (SharedRocksDbResources resources = WorkerRuntimeTestSupport.openWithSyntheticObservation(config);
                 SharedRocksDbResources foreignResources = new SharedRocksDbResources(foreignConfig);
                 ShardStore store = ShardStore.open(config, shard, resources);
                 ShardStore foreignStore = ShardStore.open(foreignConfig, shard, foreignResources)) {

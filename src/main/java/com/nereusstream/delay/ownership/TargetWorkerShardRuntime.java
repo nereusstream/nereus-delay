@@ -106,6 +106,7 @@ public final class TargetWorkerShardRuntime
         final var exactStore = Objects.requireNonNull(store, "store");
         this.store = exactStore;
         this.resources = Objects.requireNonNull(resources, "resources");
+        this.resources.requireWorkerActivationReady();
         final var exactTarget = Objects.requireNonNull(target, "target");
         this.target = exactTarget;
         final var inputs = Objects.requireNonNull(maintenanceInputs, "maintenanceInputs");

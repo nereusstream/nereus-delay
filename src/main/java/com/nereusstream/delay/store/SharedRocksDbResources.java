@@ -350,6 +350,18 @@ public final class SharedRocksDbResources implements AutoCloseable {
         return runtimeSafetyGate == null ? null : runtimeSafetyGate.state();
     }
 
+    /**
+     * Requires a probed, currently active process/container envelope before a production Worker is composed.
+     * Legacy unprobed resources remain usable by embedded callers but cannot silently disable Worker fencing.
+     */
+    public synchronized void requireWorkerActivationReady() {
+        ensureOpen();
+        if (runtimeSafetyGate == null || runtimeSafetyGate.lastObservation() == null) {
+            throw new IllegalStateException("Worker activation requires a runtime-probed resource envelope");
+        }
+        runtimeSafetyGate.requireActive("Worker activation");
+    }
+
     /** Fences a new Claim/Admission attempt after a shared runtime breach. */
     public synchronized void requireRuntimeBusinessAdmission() {
         ensureOpen();

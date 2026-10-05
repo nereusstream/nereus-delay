@@ -53,6 +53,7 @@ import com.nereusstream.delay.store.KeyCodec;
 import com.nereusstream.delay.store.ShardStore;
 import com.nereusstream.delay.store.ShardStoreConfig;
 import com.nereusstream.delay.store.SharedRocksDbResources;
+import com.nereusstream.delay.store.WorkerRuntimeTestSupport;
 import java.io.ByteArrayOutputStream;
 import java.nio.file.Path;
 import java.security.KeyPair;
@@ -127,7 +128,7 @@ class ClaimHandoffWorkClassExecutorTest {
         final TrustedUtcIntervalEvidence evidence = evidence();
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("claim-work-store"));
 
-        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+        try (SharedRocksDbResources resources = WorkerRuntimeTestSupport.openWithSyntheticObservation(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnerIdentity owner = new OwnerIdentity(
                     Bytes.utf8("claim-work-deployment"),

@@ -144,6 +144,7 @@ import com.nereusstream.delay.store.TargetCheckpointRootVerifier;
 import com.nereusstream.delay.store.TargetKeyCodec;
 import com.nereusstream.delay.store.TargetStoreBackend;
 import com.nereusstream.delay.store.TargetValueEnvelope;
+import com.nereusstream.delay.store.WorkerRuntimeTestSupport;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyPair;
@@ -230,7 +231,7 @@ class TargetQuotaGrantStoreTest {
             final var acquiring = leases.acquire(
                             firstAssignment, "target-root-a", first.sessionIdentity(), now, 60_000)
                     .orElseThrow();
-            try (var resources = new SharedRocksDbResources(config);
+            try (var resources = WorkerRuntimeTestSupport.openWithSyntheticObservation(config);
                     var store = ShardStore.openTarget(config, scope.shard(), resources)) {
                 final var initialized = TargetStoreBootstrap.commit(
                         TargetStoreBootstrap.prepare(
@@ -368,7 +369,7 @@ class TargetQuotaGrantStoreTest {
 
         try (var second = OxiaSyncOwnerLeaseBackend.connect(
                 endpoint, namespace, "target-root-owner-b-" + UUID.randomUUID(), Duration.ofSeconds(15), prefix);
-                var resources = new SharedRocksDbResources(config);
+                var resources = WorkerRuntimeTestSupport.openWithSyntheticObservation(config);
                 var reopened = ShardStore.openTarget(config, scope.shard(), resources)) {
             final var leases = new OxiaOwnerLeaseStore(second.backend());
             assertTrue(leases.current(scope.shard()).isEmpty());
@@ -1823,7 +1824,7 @@ class TargetQuotaGrantStoreTest {
         final byte[] grantBytes;
         final byte[] closureKey;
         final byte[] closureBytes;
-        try (var resources = new SharedRocksDbResources(config);
+        try (var resources = WorkerRuntimeTestSupport.openWithSyntheticObservation(config);
                 var store = ShardStore.openTarget(config, scope.shard(), resources)) {
             physicalDb = store.dbPath();
             final var initialized = TargetStoreBootstrap.commit(

@@ -132,6 +132,7 @@ import com.nereusstream.delay.store.TargetKeyCodec;
 import com.nereusstream.delay.store.TargetStoreBackend;
 import com.nereusstream.delay.store.TargetStoreBackendFailureTestBridge;
 import com.nereusstream.delay.store.TargetValueEnvelope;
+import com.nereusstream.delay.store.WorkerRuntimeTestSupport;
 import java.nio.file.Path;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -196,7 +197,7 @@ class TargetCommandStoreTest {
         final ReopenOwner[] reopenOwner = new ReopenOwner[1];
         final SourceReplayMutation[] uncertainEntryForRecovery = new SourceReplayMutation[1];
         final Path physicalDb;
-        try (var resources = new SharedRocksDbResources(config);
+        try (var resources = WorkerRuntimeTestSupport.openWithSyntheticObservation(config);
                 var store = ShardStore.openTarget(config, scope.shard(), resources)) {
             physicalDb = store.dbPath();
             final var initialized = TargetStoreBootstrap.commit(
@@ -1047,7 +1048,7 @@ class TargetCommandStoreTest {
                                 claimRuntime,
                                 maintenance));
                 assertFalse(wrongSourceClosed.get());
-                try (var wrongResources = new SharedRocksDbResources(config)) {
+                try (var wrongResources = WorkerRuntimeTestSupport.openWithSyntheticObservation(config)) {
                     assertThrows(
                             IllegalArgumentException.class,
                             () -> TargetWorkerShardFactory.create(
@@ -5493,7 +5494,7 @@ class TargetCommandStoreTest {
                 var restored = ShardStore.openTarget(config, scope.shard(), resources)) {
             restored.write(batch -> batch.put(ColumnFamily.ID, retainedBindingKey, retainedBindingRaw));
         }
-        try (var resources = new SharedRocksDbResources(config);
+        try (var resources = WorkerRuntimeTestSupport.openWithSyntheticObservation(config);
                 var reopened = ShardStore.openTarget(config, scope.shard(), resources)) {
             final var priorOwner = reopenOwner[0];
             final var activeReopened = priorOwner

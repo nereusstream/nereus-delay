@@ -19,6 +19,7 @@ import com.nereusstream.delay.scheduler.WorkClassRuntimeConfig;
 import com.nereusstream.delay.store.ShardStore;
 import com.nereusstream.delay.store.ShardStoreConfig;
 import com.nereusstream.delay.store.SharedRocksDbResources;
+import com.nereusstream.delay.store.WorkerRuntimeTestSupport;
 import java.nio.file.Path;
 import java.security.KeyPairGenerator;
 import java.util.EnumMap;
@@ -48,7 +49,7 @@ class WorkerShardRuntimePhysicalLookupTest {
                         assignment, "lookup-owner", Bytes.sha256(Bytes.utf8("lookup-session")), 100, 100)
                 .orElseThrow();
 
-        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+        try (SharedRocksDbResources resources = WorkerRuntimeTestSupport.openWithSyntheticObservation(config);
                 ShardStore store = ShardStore.open(config, shard, resources)) {
             final OwnerIdentity owner = new OwnerIdentity(
                     Bytes.utf8("lookup-deployment"),
@@ -60,6 +61,19 @@ class WorkerShardRuntimePhysicalLookupTest {
                             BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease, owner);
             owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
             owned.activateForCommands(authority, 101);
+            final var verificationKey = KeyPairGenerator.getInstance("Ed25519").generateKeyPair().getPublic();
+            try (SharedRocksDbResources unprobedResources = new SharedRocksDbResources(config)) {
+                assertThrows(
+                        IllegalStateException.class,
+                        () -> new WorkerShardRuntime(
+                                () -> Optional.empty(),
+                                workClasses,
+                                owned,
+                                store,
+                                unprobedResources,
+                                authority,
+                                verificationKey));
+            }
             final OutcomeWorkClassExecutor outcomes = new OutcomeWorkClassExecutor(
                     workClasses, owned, authority, ignored -> ShardLogMutationAppender.AppendOutcome.unknown());
             final WorkerPhysicalPublishExecutor physical = new WorkerPhysicalPublishExecutor(
@@ -84,9 +98,7 @@ class WorkerShardRuntimePhysicalLookupTest {
                         store,
                         resources,
                         authority,
-                        KeyPairGenerator.getInstance("Ed25519")
-                                .generateKeyPair()
-                                .getPublic(),
+                        verificationKey,
                         null,
                         null,
                         null,
@@ -118,7 +130,7 @@ class WorkerShardRuntimePhysicalLookupTest {
                         assignment, "source-bound-owner", Bytes.sha256(Bytes.utf8("source-bound-session")), 100, 100)
                 .orElseThrow();
 
-        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+        try (SharedRocksDbResources resources = WorkerRuntimeTestSupport.openWithSyntheticObservation(config);
                 ShardStore store = ShardStore.open(config, shard, resources)) {
             final OwnerIdentity owner = new OwnerIdentity(
                     Bytes.utf8("source-bound-deployment"),
