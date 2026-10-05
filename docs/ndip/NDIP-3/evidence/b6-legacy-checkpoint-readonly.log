@@ -576,3 +576,24 @@ Commands:
 Result: the image-inspector and Claim-inventory classes pass 20/20 with zero failures/errors/skips; `checkstyleTest`, `checkDocumentation`, JSON parsing, and `git diff --check` pass. `checkstyleMain` reports only the two unchanged 123-character lines in `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`.
 
 Scope: this detects but does not decode or migrate these fixed metadata values. Complete runtime metadata mapping, source-tail replay/cutover, activation, conversion, rollback, reader retirement, and central validation remain open; B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
+
+## 2026-10-05 Isolated writable checkpoint copy for legacy replay
+
+Source lock:
+- Implementation commit: `c76a6f01c532637ebe23fc17a2d712a6793141bf`
+- Observed origin/main: `0a4b5d13e3fef9a19359b61dfac0f976a8118cd7`
+- `ShardStore.java` SHA-256: `82393362fc9e30673f8d1336e70c4bbcac287de0f1f9417f286850e64164072d`
+- `LegacyCheckpointImageInspectorTest.java` SHA-256: `51949115e5b65b888e5027ca2f7d457249ef81cf4db6f5adb00e18cb806191bf`
+
+Verification: `ShardStore.openLegacyCheckpointReplayCopy` requires finite physical manifest limits and an exact format-1 Shard manifest. It verifies the source checkpoint and private copy with `LegacyCheckpointImageInspector` before opening the copy. Open preserves the old DB identity and Store Incarnation, publishes no ACTIVE/open markers, and skips Worker physical-usage registration while still consuming shared RocksDB acquire/DB capacity. Close removes only its verified private workspace after `ShardStore.isClosed()` confirms native teardown and slot release; uncertain teardown retains the workspace.
+
+A real RocksDB checkpoint test performs a write through the writable copy and reads it back, while confirming the source checkpoint inventory and existing ACTIVE pointer are unchanged, the copy does not replace the active physical-usage registration, and successful close removes the scratch workspace.
+
+Commands:
+`./gradlew test --tests '*LegacyCheckpointImageInspectorTest' checkstyleTest checkstyleMain`
+
+`git diff --check`
+
+Result: `LegacyCheckpointImageInspectorTest` passes 15/15; `checkstyleTest` passes; `git diff --check` passes. `checkstyleMain` fails only on the two unchanged 123-character lines at `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`.
+
+Scope: this provides only an isolated writable-copy substrate. It does not replay checkpoint-tail records to an exact captured source cut, produce the complete disposition/readiness report, establish durable cutover, activate a Target Store, roll back, retire legacy readers, or complete central validation. B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
