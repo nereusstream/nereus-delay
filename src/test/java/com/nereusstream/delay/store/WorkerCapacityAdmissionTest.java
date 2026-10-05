@@ -1,5 +1,6 @@
 package com.nereusstream.delay.store;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.nereusstream.delay.protocol.Bytes;
@@ -19,8 +20,7 @@ class WorkerCapacityAdmissionTest {
         final ShardCapacityEnvelope envelope = envelope("one", 7, 3);
         final CapacityVector fixed = vector(CapacityDimension.DB_INSTANCES, 2);
         final CapacityVector transition = vector(CapacityDimension.CHECKPOINT_CREATE_TEMP_BYTES, 4);
-        final CapacityVector hardCaps = vector(CapacityDimension.CONTROL_RESERVE_BYTES, 7)
-                .add(vector(CapacityDimension.CONTROL_RESERVE_RECORDS, 3))
+        final CapacityVector hardCaps = workerHardCaps(7, 3, 1, 1, 1)
                 .add(vector(CapacityDimension.DB_INSTANCES, 5))
                 .add(vector(CapacityDimension.CHECKPOINT_CREATE_TEMP_BYTES, 4));
 
@@ -28,19 +28,19 @@ class WorkerCapacityAdmissionTest {
                 7,
                 WorkerCapacityAdmission.sumCommitted(List.of(envelope))
                         .amount(CapacityDimension.CONTROL_RESERVE_BYTES));
-        WorkerCapacityAdmission.requireFits(workerResources(7, 3), hardCaps, List.of(envelope), fixed, transition);
+        WorkerCapacityAdmission.requireFits(
+                workerResources(7, 3, 1, 1, 1), hardCaps, List.of(envelope), fixed, transition);
     }
 
     @Test
     void rejectsWorkerControlReserveThatDiffersFromCapacityHardCaps() {
-        final CapacityVector hardCaps = vector(CapacityDimension.CONTROL_RESERVE_BYTES, 7)
-                .add(vector(CapacityDimension.CONTROL_RESERVE_RECORDS, 3));
+        final CapacityVector hardCaps = workerHardCaps(7, 3, 1, 1, 1);
         final ShardCapacityEnvelope shardEnvelope = envelope("control-reserve-binding", 7, 0);
 
         assertThrows(
                 IllegalArgumentException.class,
                 () -> WorkerCapacityAdmission.requireFits(
-                        workerResources(8, 3),
+                        workerResources(8, 3, 1, 1, 1),
                         hardCaps,
                         List.of(shardEnvelope),
                         CapacityVector.empty(),
@@ -48,11 +48,38 @@ class WorkerCapacityAdmissionTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> WorkerCapacityAdmission.requireFits(
-                        workerResources(7, 2),
+                        workerResources(7, 2, 1, 1, 1),
                         hardCaps,
                         List.of(shardEnvelope),
                         CapacityVector.empty(),
                         CapacityVector.empty()));
+    }
+
+    @Test
+    void rejectsNativeMemoryHardCapsThatDifferFromWorkerEnvelope() {
+        final ShardCapacityEnvelope shardEnvelope = envelope("native-memory-binding", 7, 0);
+        final var resources = workerResources(7, 3, 11, 13, 17);
+        final List<CapacityVector> mismatchedHardCaps = List.of(
+                workerHardCaps(7, 3, 10, 13, 17),
+                workerHardCaps(7, 3, 11, 12, 17),
+                workerHardCaps(7, 3, 11, 13, 16));
+
+        for (CapacityVector hardCaps : mismatchedHardCaps) {
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> WorkerCapacityAdmission.requireFits(
+                            resources,
+                            hardCaps,
+                            List.of(shardEnvelope),
+                            CapacityVector.empty(),
+                            CapacityVector.empty()));
+        }
+        assertDoesNotThrow(() -> WorkerCapacityAdmission.requireFits(
+                resources,
+                workerHardCaps(7, 3, 11, 13, 17),
+                List.of(shardEnvelope),
+                CapacityVector.empty(),
+                CapacityVector.empty()));
     }
 
     @Test
@@ -110,8 +137,41 @@ class WorkerCapacityAdmissionTest {
     }
 
     private static WorkerResourceEnvelope workerResources(
-            final long controlReserveBytes, final long controlReserveRecords) {
+            final long controlReserveBytes,
+            final long controlReserveRecords,
+            final long rocksDbNativeBytes,
+            final long directBufferBytes,
+            final long otherNativeBytes) {
         return new WorkerResourceEnvelope(
-                1, 1, 1, 1, 0, 4, 0, 4, 10, 1, 10, 1, 1, 1, controlReserveBytes, controlReserveRecords);
+                1,
+                directBufferBytes,
+                rocksDbNativeBytes,
+                otherNativeBytes,
+                0,
+                4,
+                0,
+                4,
+                10,
+                1,
+                10,
+                1,
+                1,
+                1,
+                controlReserveBytes,
+                controlReserveRecords);
     }
+
+    private static CapacityVector workerHardCaps(
+            final long controlReserveBytes,
+            final long controlReserveRecords,
+            final long rocksDbNativeBytes,
+            final long directBufferBytes,
+            final long otherNativeBytes) {
+        return vector(CapacityDimension.CONTROL_RESERVE_BYTES, controlReserveBytes)
+                .add(vector(CapacityDimension.CONTROL_RESERVE_RECORDS, controlReserveRecords))
+                .add(vector(CapacityDimension.ROCKSDB_NATIVE_BYTES, rocksDbNativeBytes))
+                .add(vector(CapacityDimension.DIRECT_BUFFER_BYTES, directBufferBytes))
+                .add(vector(CapacityDimension.OTHER_NATIVE_BYTES, otherNativeBytes));
+    }
+
 }

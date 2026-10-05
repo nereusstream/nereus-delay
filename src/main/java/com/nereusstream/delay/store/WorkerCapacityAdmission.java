@@ -61,14 +61,14 @@ public final class WorkerCapacityAdmission {
         }
     }
 
-    /** Fails closed unless the control reserve in the runtime envelope matches the typed Worker hard caps. */
+    /** Fails closed unless typed Worker resource hard caps match the runtime envelope. */
     public static void requireFits(
             final WorkerResourceEnvelope workerResources,
             final CapacityVector hardCaps,
             final List<ShardCapacityEnvelope> shardEnvelopes,
             final CapacityVector workerFixedCost,
             final CapacityVector transitionTemporaryDemand) {
-        Objects.requireNonNull(workerResources, "workerResources").validateControlCapacity(hardCaps);
+        Objects.requireNonNull(workerResources, "workerResources").validateCapacityHardCaps(hardCaps);
         requireFits(hardCaps, shardEnvelopes, workerFixedCost, transitionTemporaryDemand);
     }
 }
