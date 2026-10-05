@@ -839,15 +839,18 @@
       "evidence": [
         "evidence/e6-runtime-filesystem-headroom-focused.log",
         "evidence/e6-shared-filesystem-floor-focused.log",
-        "evidence/e6-control-reserve-hard-cap-binding-focused.log"
+        "evidence/e6-control-reserve-hard-cap-binding-focused.log",
+        "evidence/e6-worker-native-memory-hard-cap-binding-focused.log"
       ],
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
       "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
-      "progress": "2026-10-06: WorkerResourceEnvelope runtime validation now requires usable filesystem bytes to cover the safety watermark plus checkpoint-restore and compaction temporary headroom. A focused test accepts the exact 2.5 GiB configured boundary and rejects one byte below it. The RocksDB physical-usage monitor combines its configured floor with the active/staged Worker envelope floor, retaining the stricter value and fencing the shared Worker below it. WorkerCapacityAdmission also has a composed overload that requires control-reserve bytes and records to exactly match CapacityDimension 54/55 hard caps before checked aggregate admission. The unified Target/resource configuration and loader, quota/backpressure integration, bounded backlog and system-writer progress, production Worker activation wiring, and central validation remain open; E6 stays IN_PROGRESS / PENDING_CENTRAL_VALIDATION.",
+      "progress": "2026-10-06: WorkerResourceEnvelope runtime validation now requires usable filesystem bytes to cover the safety watermark plus checkpoint-restore and compaction temporary headroom. A focused test accepts the exact 2.5 GiB configured boundary and rejects one byte below it. The RocksDB physical-usage monitor combines its configured floor with the active/staged Worker envelope floor, retaining the stricter value and fencing the shared Worker below it. WorkerCapacityAdmission has a composed overload that binds control-reserve bytes/records to hard-cap dimensions 54/55 and a later extension binds RocksDB native/direct/other memory to dimensions 56/57/58 before checked aggregate admission. No main-source caller currently invokes the composed overload. The unified Target/resource configuration and loader, quota/backpressure integration, bounded Broker backlog and system-writer progress, production Worker activation wiring, and central validation remain open; E6 stays IN_PROGRESS / PENDING_CENTRAL_VALIDATION.",
       "implementationFiles": [
         "src/main/java/com/nereusstream/delay/store/WorkerResourceEnvelope.java",
-        "src/test/java/com/nereusstream/delay/store/WorkerResourceEnvelopeTest.java"
+        "src/main/java/com/nereusstream/delay/store/WorkerCapacityAdmission.java",
+        "src/test/java/com/nereusstream/delay/store/WorkerResourceEnvelopeTest.java",
+        "src/test/java/com/nereusstream/delay/store/WorkerCapacityAdmissionTest.java"
       ],
       "validationHandoff": "12-集中验证交接清单.md"
     },

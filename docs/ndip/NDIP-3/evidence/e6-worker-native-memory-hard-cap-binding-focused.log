@@ -1,0 +1,35 @@
+NDIP-3 E6 Worker native-memory hard-cap binding evidence
+Date: 2026-10-06 (Asia/Shanghai)
+Repository: nereus-delay
+Source commit: 518bd1a720c3e5ac1dcc297b3782705bf61ecee4
+
+Source files at the locked commit:
+  src/main/java/com/nereusstream/delay/store/WorkerResourceEnvelope.java
+    SHA-256: fac347663d2644e28c7d5c43fab52d6bb8c0237de52f59c20f8238e0353e0607
+  src/main/java/com/nereusstream/delay/store/WorkerCapacityAdmission.java
+    SHA-256: bfb063d34444dbe3c08e067978f238da54bb94f558756f0d1df9b64ad0bee998
+  src/test/java/com/nereusstream/delay/store/WorkerCapacityAdmissionTest.java
+    SHA-256: 5dd89bfc69539ba782cd020598e3466ffeeff92765d21c675dba441b5b5a32e0
+
+Change:
+  The composed WorkerCapacityAdmission.requireFits overload now binds the
+  WorkerResourceEnvelope control reserve to CapacityVector dimensions 54/55,
+  RocksDB native memory to dimension 56, direct memory to dimension 57, and
+  other native memory to dimension 58 before checked aggregate admission.
+  Each memory bucket rejects an independently mismatched hard cap; exact
+  bindings pass. The arithmetic-only overload is unchanged.
+
+Validation:
+  Command: ./gradlew test --tests 'com.nereusstream.delay.store.WorkerCapacityAdmissionTest' --tests 'com.nereusstream.delay.store.WorkerResourceEnvelopeTest' checkstyleTest --console=plain
+  Result: BUILD SUCCESSFUL. WorkerCapacityAdmissionTest: 4 tests and
+  WorkerResourceEnvelopeTest: 4 tests; 0 skipped, 0 failures, 0 errors.
+  checkstyleTest passed.
+  git diff --check passed before the source commit.
+
+Scope boundary:
+  This is local configuration cross-validation only. No main-source caller
+  currently invokes the composed overload, so this does not prove production
+  placement or Worker activation wiring. Unified Target/resource loading,
+  source ingress/backpressure, Broker backlog/control progress, system-writer
+  append integration, same-log ordering, and central validation remain open.
+  E6 remains IN_PROGRESS / PENDING_CENTRAL_VALIDATION.
