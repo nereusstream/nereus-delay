@@ -92,6 +92,7 @@ public final class ShardStore implements AutoCloseable {
     private final Map<ColumnFamily, ColumnFamilyHandle> handles;
     private final StoreMetadata metadata;
     private final boolean ownsShardSlot;
+    private final boolean registersPhysicalUsage;
     private final Supplier<RocksDbUsageSnapshot> physicalUsageSource;
     private final AtomicBoolean closed = new AtomicBoolean();
     /** First close fences all Store operations; native teardown may be retried. */
@@ -169,6 +170,7 @@ public final class ShardStore implements AutoCloseable {
             final Map<ColumnFamily, ColumnFamilyHandle> handles,
             final StoreMetadata metadata,
             final boolean ownsShardSlot,
+            final boolean registersPhysicalUsage,
             final StoreRuntimeMetadata runtimeMetadata,
             final StoreRecoveryMetadata recoveryMetadata,
             final CompatibleControlSnapshot controlSnapshot,
@@ -184,6 +186,7 @@ public final class ShardStore implements AutoCloseable {
         this.handles = handles;
         this.metadata = metadata;
         this.ownsShardSlot = ownsShardSlot;
+        this.registersPhysicalUsage = registersPhysicalUsage;
         this.physicalUsageSource = this::physicalUsage;
         this.closedColumnFamilyOptions = new boolean[columnFamilyOptions.size()];
         this.runtimeMetadata = runtimeMetadata;
@@ -204,6 +207,180 @@ public final class ShardStore implements AutoCloseable {
     public static ShardStore openTarget(
             final ShardStoreConfig config, final ShardId shardId, final SharedRocksDbResources resources) {
         return openFormat(config, shardId, resources, 2);
+    }
+
+    /**
+     * Opens an isolated writable copy of an authenticated format-1 checkpoint
+     * for bounded legacy replay. The checkpoint is verified before and after
+     * copying, and this method never publishes an ACTIVE pointer or registers
+     * the copy as a Worker-owned Shard. The caller must close the returned
+     * handle before the private copy is removed.
+     */
+    public static LegacyCheckpointReplayCopy openLegacyCheckpointReplayCopy(
+            final ShardStoreConfig config,
+            final ShardId shardId,
+            final SharedRocksDbResources resources,
+            final Path checkpointPath,
+            final CheckpointManifest manifest,
+            final CheckpointManifestLimits limits) {
+        Objects.requireNonNull(config, "config");
+        Objects.requireNonNull(shardId, "shardId");
+        Objects.requireNonNull(resources, "resources");
+        Objects.requireNonNull(checkpointPath, "checkpointPath");
+        final CheckpointManifest exactManifest = Objects.requireNonNull(manifest, "manifest");
+        final CheckpointManifestLimits exactLimits = Objects.requireNonNull(limits, "limits");
+        resources.requireConfig(config);
+        TargetCheckpointRootVerifier.requireFinitePhysicalLimits(exactLimits);
+        if (!shardId.equals(exactManifest.shardId()) || exactManifest.storeFormatVersion() != 1) {
+            throw new IllegalArgumentException("legacy replay requires a format-1 manifest for the exact Shard");
+        }
+
+        Path workspace = null;
+        ShardStore opened = null;
+        try {
+            final LegacyCheckpointImageInspector.ImageProof sourceProof =
+                    LegacyCheckpointImageInspector.inspect(checkpointPath, shardId, exactManifest, exactLimits);
+            final Path shardRoot = prepareShardRoot(config, shardId);
+            final Path replayRoot = shardRoot.resolve("legacy-replay-tmp");
+            ensureRealDirectory(replayRoot);
+            final Path createdWorkspace = replayRoot.resolve(UUID.randomUUID().toString());
+            Files.createDirectory(createdWorkspace);
+            workspace = createdWorkspace;
+            final Path replayDb = workspace.resolve("db");
+            copyTree(checkpointPath, replayDb);
+
+            // Recheck the exact immutable image before RocksDB opens the copy.
+            // A source mutation or incomplete copy must not turn into a replay
+            // workspace merely because RocksDB can open the resulting files.
+            final LegacyCheckpointImageInspector.ImageProof replayProof =
+                    LegacyCheckpointImageInspector.inspect(replayDb, shardId, exactManifest, exactLimits);
+            requireSameLegacyCheckpointProof(sourceProof, replayProof);
+
+            opened = openAtPath(config, shardId, replayDb, resources, null, false, false, 1, false);
+            if (!opened.shardId().equals(shardId)
+                    || !java.util.Arrays.equals(opened.metadata().dbIdentity(), sourceProof.metadata().dbIdentity())
+                    || !opened.metadata().storeIncarnationUuid().equals(sourceProof.metadata().storeIncarnationUuid())
+                    || !Bytes.constantTimeEquals(
+                            opened.runtimeMetadata().lastCheckpointId(), sourceProof.checkpointId())
+                    || !Bytes.constantTimeEquals(
+                            opened.appliedShardLogPosition().canonicalBytes(),
+                            sourceProof.appliedSourcePosition().canonicalBytes())
+                    || opened.shardMutationSequence() != sourceProof.mutationSequence()) {
+                throw new IOException("legacy replay copy identity changed while opening");
+            }
+            return new LegacyCheckpointReplayCopy(opened, workspace);
+        } catch (IOException | RocksDBException failure) {
+            cleanupFailedLegacyReplayCopy(config, shardId, workspace, opened, failure);
+            throw new IllegalStateException("cannot open isolated legacy checkpoint replay copy", failure);
+        } catch (RuntimeException | Error failure) {
+            cleanupFailedLegacyReplayCopy(config, shardId, workspace, opened, failure);
+            throw failure;
+        }
+    }
+
+    private static void requireSameLegacyCheckpointProof(
+            final LegacyCheckpointImageInspector.ImageProof left,
+            final LegacyCheckpointImageInspector.ImageProof right) throws IOException {
+        if (!java.util.Arrays.equals(left.metadata().dbIdentity(), right.metadata().dbIdentity())
+                || !left.metadata().storeIncarnationUuid().equals(right.metadata().storeIncarnationUuid())
+                || !Bytes.constantTimeEquals(left.checkpointId(), right.checkpointId())
+                || left.mutationSequence() != right.mutationSequence()
+                || !Bytes.constantTimeEquals(
+                        left.appliedSourcePosition().canonicalBytes(), right.appliedSourcePosition().canonicalBytes())
+                || left.physicalBytes() != right.physicalBytes()) {
+            throw new IOException("legacy replay copy does not match its source checkpoint proof");
+        }
+    }
+
+    private static void cleanupFailedLegacyReplayCopy(
+            final ShardStoreConfig config,
+            final ShardId shardId,
+            final Path workspace,
+            final ShardStore opened,
+            final Throwable failure) {
+        boolean safeToDelete = opened == null;
+        if (opened != null) {
+            for (int attempt = 0; attempt < 2 && !opened.isClosed(); attempt++) {
+                try {
+                    opened.close();
+                } catch (RuntimeException | Error closeFailure) {
+                    if (closeFailure != failure) {
+                        failure.addSuppressed(closeFailure);
+                    }
+                }
+            }
+            safeToDelete = opened.isClosed();
+            if (!safeToDelete) {
+                failure.addSuppressed(new IllegalStateException(
+                        "legacy replay copy retained because RocksDB native teardown is incomplete: "
+                                + opened.dbPath()));
+            }
+        }
+        if (workspace != null && safeToDelete) {
+            try {
+                final Path replayRoot = requireLegacyReplayWorkspace(config, shardId, workspace);
+                deleteTree(workspace);
+                forceDirectory(replayRoot);
+            } catch (IOException | RuntimeException | Error cleanupFailure) {
+                failure.addSuppressed(cleanupFailure);
+            }
+        }
+    }
+
+    private static Path requireLegacyReplayWorkspace(
+            final ShardStoreConfig config, final ShardId shardId, final Path workspace) throws IOException {
+        final Path shardRoot = prepareShardRoot(config, shardId);
+        final Path replayRoot = shardRoot.resolve("legacy-replay-tmp");
+        final boolean workspaceExists = Files.exists(workspace, java.nio.file.LinkOption.NOFOLLOW_LINKS);
+        if (!workspace.getParent().equals(replayRoot)
+                || Files.isSymbolicLink(replayRoot)
+                || !Files.isDirectory(replayRoot, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+                || (workspaceExists
+                        && (Files.isSymbolicLink(workspace)
+                                || !Files.isDirectory(workspace, java.nio.file.LinkOption.NOFOLLOW_LINKS)))) {
+            throw new IOException("legacy replay workspace is no longer a real private directory");
+        }
+        return replayRoot;
+    }
+
+    /** Private writable checkpoint copy used only for legacy source-tail replay. */
+    public static final class LegacyCheckpointReplayCopy implements AutoCloseable {
+        private final ShardStore store;
+        private final Path workspace;
+        private boolean closed;
+
+        private LegacyCheckpointReplayCopy(final ShardStore store, final Path workspace) {
+            this.store = store;
+            this.workspace = workspace;
+        }
+
+        public synchronized ShardStore store() {
+            if (closed) {
+                throw new IllegalStateException("legacy replay copy is closed");
+            }
+            return store;
+        }
+
+        @Override
+        public synchronized void close() {
+            if (closed) {
+                return;
+            }
+            if (!store.isClosed()) {
+                store.close();
+            }
+            if (!store.isClosed()) {
+                throw new IllegalStateException("legacy replay Store has not released all native resources");
+            }
+            try {
+                final Path replayRoot = requireLegacyReplayWorkspace(store.config, store.shardId, workspace);
+                deleteTree(workspace);
+                forceDirectory(replayRoot);
+                closed = true;
+            } catch (IOException failure) {
+                throw new IllegalStateException("cannot remove isolated legacy replay copy", failure);
+            }
+        }
     }
 
     private static ShardStore openFormat(
@@ -1151,6 +1328,29 @@ public final class ShardStore implements AutoCloseable {
             final boolean publishOpenMarkers,
             final int expectedFormat)
             throws IOException, RocksDBException {
+        return openAtPath(
+                config,
+                shardId,
+                dbPath,
+                resources,
+                restoreStoreIncarnation,
+                acquireOwnedSlot,
+                publishOpenMarkers,
+                expectedFormat,
+                true);
+    }
+
+    private static ShardStore openAtPath(
+            final ShardStoreConfig config,
+            final ShardId shardId,
+            final Path dbPath,
+            final SharedRocksDbResources resources,
+            final UUID restoreStoreIncarnation,
+            final boolean acquireOwnedSlot,
+            final boolean publishOpenMarkers,
+            final int expectedFormat,
+            final boolean registerPhysicalUsage)
+            throws IOException, RocksDBException {
         resources.requireConfig(config);
         boolean acquireSlotAcquired = false;
         boolean ownedSlotAcquired = false;
@@ -1173,7 +1373,8 @@ public final class ShardStore implements AutoCloseable {
                     restoreStoreIncarnation,
                     acquireOwnedSlot,
                     publishOpenMarkers,
-                    expectedFormat);
+                    expectedFormat,
+                    registerPhysicalUsage);
             resources.releaseShardAcquireSlot();
             acquireSlotAcquired = false;
             return opened;
@@ -1244,7 +1445,8 @@ public final class ShardStore implements AutoCloseable {
             final UUID restoreStoreIncarnation,
             final boolean ownsShardSlot,
             final boolean publishOpenMarkers,
-            final int expectedFormat)
+            final int expectedFormat,
+            final boolean registerPhysicalUsage)
             throws IOException, RocksDBException {
         // Files.createDirectories(dbPath) follows a symlink in any missing
         // parent component. That would let a raced or pre-planted
@@ -1424,11 +1626,14 @@ public final class ShardStore implements AutoCloseable {
                     handles,
                     metadata,
                     ownsShardSlot,
+                    registerPhysicalUsage,
                     runtimeMetadata,
                     recoveryMetadata,
                     controlSnapshot,
                     closedIngressDeadlineThrough);
-            resources.registerPhysicalUsage(shardId, result.physicalUsageSource);
+            if (registerPhysicalUsage) {
+                resources.registerPhysicalUsage(shardId, result.physicalUsageSource);
+            }
             keepOpen = true;
             return result;
         } catch (IOException | RocksDBException | RuntimeException | Error exception) {
@@ -2838,10 +3043,12 @@ public final class ShardStore implements AutoCloseable {
         // when an earlier JNI close reports a runtime failure. Losing the
         // release in that path would permanently consume maxOpenShardDbs or
         // maxOwnedShards and make a healthy worker reject future ownership.
-        try {
-            resources.unregisterPhysicalUsage(shardId, physicalUsageSource);
-        } catch (RuntimeException | Error failure) {
-            closeFailure = appendCloseFailure(closeFailure, failure);
+        if (registersPhysicalUsage) {
+            try {
+                resources.unregisterPhysicalUsage(shardId, physicalUsageSource);
+            } catch (RuntimeException | Error failure) {
+                closeFailure = appendCloseFailure(closeFailure, failure);
+            }
         }
         if (!defaultColumnFamilyClosed) {
             try {

@@ -1,5 +1,6 @@
 package com.nereusstream.delay.store;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -128,6 +129,65 @@ class LegacyCheckpointImageInspectorTest {
                         manifest,
                         finiteLimits(),
                         new LegacyCheckpointStateInventory.ReadLimits(1, 1 << 20, 60_000_000_000L)));
+    }
+
+    @Test
+    void opensWritableReplayOnlyOnAnIsolatedCopyAndRemovesItAfterNativeClose() throws Exception {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 14);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("replay-copy-store"));
+        final Path image = tempDir.resolve("replay-copy-checkpoint");
+        final byte[] checkpointId = bytes(16, 16);
+        final KafkaSourcePosition source = new KafkaSourcePosition(
+                shard, "legacy-cluster", UUID.randomUUID(), 31, null, 4_000);
+        final CheckpointManifest manifest;
+        final Path activePointer = config.rootPath()
+                .resolve("shards")
+                .resolve(shard.routeIncarnation().uuid().toString())
+                .resolve(Integer.toUnsignedString(shard.partition()))
+                .resolve("ACTIVE");
+        final List<CheckpointFileInventory> sourceFiles;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore store = ShardStore.open(config, shard, resources)) {
+            store.write(batch -> {
+                batch.putValue(
+                        ColumnFamily.META,
+                        ShardStore.META_FIXED_VALUE_TYPE,
+                        KeyCodec.metaFixed(ShardStore.META_APPLIED_SOURCE_POSITION),
+                        source.canonicalBytes());
+                batch.putValue(
+                        ColumnFamily.META,
+                        ShardStore.META_FIXED_VALUE_TYPE,
+                        KeyCodec.metaFixed(ShardStore.META_MUTATION_SEQUENCE),
+                        Bytes.u64beBits(3));
+            });
+            store.createCheckpoint(image, checkpointId);
+            manifest = manifestFor(image, shard, store, checkpointId, source);
+            sourceFiles = CheckpointFileInventory.collect(image, finiteLimits());
+            final byte[] activeBefore = Files.readAllBytes(activePointer);
+            final int registeredStores = resources.registeredPhysicalUsageSources();
+            Path workspace;
+            try (ShardStore.LegacyCheckpointReplayCopy replayCopy = ShardStore.openLegacyCheckpointReplayCopy(
+                    config, shard, resources, image, manifest, finiteLimits())) {
+                final ShardStore copy = replayCopy.store();
+                workspace = copy.dbPath().getParent();
+                assertEquals(shard, copy.shardId());
+                assertArrayEquals(store.metadata().dbIdentity(), copy.metadata().dbIdentity());
+                assertEquals(store.metadata().storeIncarnationUuid(), copy.metadata().storeIncarnationUuid());
+                assertEquals(manifest.sourceStoreIncarnation(), copy.metadata().storeIncarnationUuid());
+                assertEquals(source, copy.appliedShardLogPosition());
+                assertFalse(Files.exists(workspace.resolve("ACTIVE")));
+                assertEquals(registeredStores, resources.registeredPhysicalUsageSources());
+
+                final byte[] scratchKey = KeyCodec.idMessage(DelayMessageId.random(shard));
+                final byte[] scratchPayload = Bytes.utf8("private replay mutation");
+                copy.write(batch -> batch.putValue(ColumnFamily.ID, 1, scratchKey, scratchPayload));
+                assertArrayEquals(scratchPayload, copy.getValue(ColumnFamily.ID, scratchKey, 1).payload());
+                assertArrayEquals(activeBefore, Files.readAllBytes(activePointer));
+            }
+            assertFalse(Files.exists(workspace));
+            assertEquals(registeredStores, resources.registeredPhysicalUsageSources());
+            assertFileInventoriesEqual(sourceFiles, CheckpointFileInventory.collect(image, finiteLimits()));
+        }
     }
 
     @Test
