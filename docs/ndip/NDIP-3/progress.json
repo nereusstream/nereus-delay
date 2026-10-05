@@ -708,11 +708,13 @@
     {
       "id": "D3",
       "title": "N 与 L 分组测量",
-      "status": "PLANNED",
-      "evidence": [],
-      "implementationStatus": "NOT_STARTED",
+      "status": "IN_PROGRESS",
+      "evidence": [
+        "evidence/d3-target-scheduler-component.log"
+      ],
+      "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
-      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
+      "validationScope": "Source-bound component-only measurement of the production ordinary DRR selection seam with synthetic one-Shard queues. It does not measure persistent Store I/O, Native/Profile mixes, quota work, multiple Shards, Broker behavior, or the full D3 matrix."
     },
     {
       "id": "E1",
