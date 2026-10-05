@@ -42,12 +42,21 @@ import com.nereusstream.delay.runtime.UncertainRetryAuthority;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyPairGenerator;
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.rocksdb.ColumnFamilyDescriptor;
+import org.rocksdb.ColumnFamilyHandle;
+import org.rocksdb.ColumnFamilyOptions;
+import org.rocksdb.DBOptions;
+import org.rocksdb.FlushOptions;
+import org.rocksdb.Options;
+import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
 
 class LegacyCheckpointImageInspectorTest {
@@ -795,6 +804,7 @@ class LegacyCheckpointImageInspectorTest {
                 batch.put(ColumnFamily.META, schedulerKey, Bytes.utf8("opaque scheduler state"));
                 batch.putValue(ColumnFamily.META, 1, controlMetadataKey, Bytes.utf8("opaque control snapshot"));
             });
+            store.recordLastIngressFenceProofId(bytes(32, 40));
             store.createCheckpoint(image, checkpointId);
             manifest = manifestFor(image, shard, store, checkpointId, source);
         }
@@ -848,6 +858,10 @@ class LegacyCheckpointImageInspectorTest {
                         "RUNTIME_METADATA",
                         LegacyCheckpointStateInventory.ConflictReason.LEGACY_NAMESPACE_UNAUDITED),
                 new ExpectedLegacyBlocker(
+                        KeyCodec.metaFixed(4),
+                        "RUNTIME_METADATA",
+                        LegacyCheckpointStateInventory.ConflictReason.LEGACY_NAMESPACE_UNAUDITED),
+                new ExpectedLegacyBlocker(
                         KeyCodec.metaFixed(8),
                         "RUNTIME_METADATA",
                         LegacyCheckpointStateInventory.ConflictReason.LEGACY_NAMESPACE_UNAUDITED),
@@ -864,6 +878,68 @@ class LegacyCheckpointImageInspectorTest {
             assertEquals(blocker.recordKind(), actual.recordKind());
             assertEquals(blocker.reason(), actual.reason());
             assertTrue(Bytes.constantTimeEquals(source.canonicalBytes(), actual.sourcePosition()));
+        }
+    }
+
+    @Test
+    void reportsMalformedFixedRuntimeMetadataAndContinuesInventory() throws Exception {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 11);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("malformed-runtime-inventory"));
+        final Path image = tempDir.resolve("malformed-runtime-inventory-checkpoint");
+        final byte[] checkpointId = bytes(16, 41);
+        final KafkaSourcePosition source = new KafkaSourcePosition(
+                shard, "legacy-cluster", UUID.randomUUID(), 31, null, 4_000);
+        final ScheduledFixture scheduled = scheduledFixture(shard, source, "malformed-runtime-inventory-lane");
+        final CheckpointManifest manifest;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore store = ShardStore.open(config, shard, resources)) {
+            store.write(batch -> {
+                batch.putValue(
+                        ColumnFamily.META,
+                        ShardStore.META_FIXED_VALUE_TYPE,
+                        KeyCodec.metaFixed(ShardStore.META_APPLIED_SOURCE_POSITION),
+                        source.canonicalBytes());
+                batch.putValue(
+                        ColumnFamily.META,
+                        ShardStore.META_FIXED_VALUE_TYPE,
+                        KeyCodec.metaFixed(ShardStore.META_MUTATION_SEQUENCE),
+                        Bytes.u64beBits(1));
+                batch.putValue(
+                        ColumnFamily.ID, 1, KeyCodec.idMessage(scheduled.messageId()), scheduled.message().encode());
+                batch.putValue(
+                        ColumnFamily.TIMELINE, 1, scheduled.timelineKey(), scheduled.work().canonicalBytes());
+                batch.putValue(
+                        ColumnFamily.TIMELINE, 1, scheduled.expiryKey(), scheduled.work().canonicalBytes());
+            });
+            store.createCheckpoint(image, checkpointId);
+            overwriteCheckpointMetadata(
+                    image,
+                    Map.of(
+                            4, ValueEnvelope.encode(1, new byte[] {(byte) 0x80}),
+                            6, ValueEnvelope.encode(1, new byte[] {0x0a, 0}),
+                            8, ValueEnvelope.encode(1, new byte[Long.BYTES - 1]),
+                            9, ValueEnvelope.encode(1, new byte[] {2})));
+            manifest = manifestFor(image, shard, store, checkpointId, source);
+        }
+
+        final LegacyCheckpointStateInventory.Inventory inventory = LegacyCheckpointStateInventory.inspect(
+                image,
+                shard,
+                manifest,
+                finiteLimits(),
+                new LegacyCheckpointStateInventory.ReadLimits(1_000, 1 << 20, 60_000_000_000L));
+        assertEquals(1, inventory.messageStatuses().get(MessageStatus.SCHEDULED));
+        for (int fixedKind : List.of(4, 6, 8, 9)) {
+            final byte[] key = KeyCodec.metaFixed(fixedKind);
+            final List<LegacyCheckpointStateInventory.Conflict> matching = inventory.conflicts().stream()
+                    .filter(item -> Bytes.constantTimeEquals(Bytes.sha256(key), item.oldKeyDigest()))
+                    .toList();
+            assertEquals(1, matching.size(), "one conflict for fixed META kind " + fixedKind);
+            assertEquals("RUNTIME_METADATA", matching.get(0).recordKind());
+            assertEquals(
+                    LegacyCheckpointStateInventory.ConflictReason.RUNTIME_METADATA_MALFORMED,
+                    matching.get(0).reason());
+            assertTrue(Bytes.constantTimeEquals(source.canonicalBytes(), matching.get(0).sourcePosition()));
         }
     }
 
@@ -1480,6 +1556,42 @@ class LegacyCheckpointImageInspectorTest {
                 bytes(32, 15),
                 List.of(),
                 files);
+    }
+
+    private static void overwriteCheckpointMetadata(final Path image, final Map<Integer, byte[]> values)
+            throws Exception {
+        RocksDB.loadLibrary();
+        final List<byte[]> names;
+        try (Options listOptions = new Options()) {
+            names = RocksDB.listColumnFamilies(listOptions, image.toString());
+        }
+        final List<ColumnFamilyOptions> columnFamilyOptions = names.stream()
+                .map(ignored -> new ColumnFamilyOptions())
+                .toList();
+        final List<ColumnFamilyDescriptor> descriptors = new ArrayList<>();
+        for (int index = 0; index < names.size(); index++) {
+            descriptors.add(new ColumnFamilyDescriptor(names.get(index), columnFamilyOptions.get(index)));
+        }
+        final List<ColumnFamilyHandle> handles = new ArrayList<>();
+        try (DBOptions dbOptions = new DBOptions().setCreateIfMissing(false).setCreateMissingColumnFamilies(false);
+                RocksDB db = RocksDB.open(dbOptions, image.toString(), descriptors, handles)) {
+            final List<String> familyNames = names.stream()
+                    .map(name -> new String(name, java.nio.charset.StandardCharsets.UTF_8))
+                    .toList();
+            final int metaIndex = familyNames.indexOf(ColumnFamily.META.rocksName());
+            if (metaIndex < 0) {
+                throw new AssertionError("legacy checkpoint is missing the META column family");
+            }
+            for (Map.Entry<Integer, byte[]> entry : values.entrySet()) {
+                db.put(handles.get(metaIndex), KeyCodec.metaFixed(entry.getKey()), entry.getValue());
+            }
+            try (FlushOptions flushOptions = new FlushOptions().setWaitForFlush(true)) {
+                db.flush(flushOptions);
+            }
+        } finally {
+            handles.forEach(ColumnFamilyHandle::close);
+            columnFamilyOptions.forEach(ColumnFamilyOptions::close);
+        }
     }
 
     private static CheckpointManifestLimits finiteLimits() {

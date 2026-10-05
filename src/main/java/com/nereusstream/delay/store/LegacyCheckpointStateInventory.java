@@ -51,6 +51,11 @@ public final class LegacyCheckpointStateInventory {
     private static final int MESSAGE_KEY_TAG = 1;
     private static final int MESSAGE_KEY_FORMAT = 1;
     private static final int MESSAGE_VALUE_TYPE = 1;
+    private static final int META_FIXED_VALUE_TYPE = 1;
+    private static final int META_INGRESS_FENCE_STATE = 4;
+    private static final int META_EVIDENCE_CURSORS = 6;
+    private static final int META_OWNER_EPOCH = 8;
+    private static final int META_CLEAN_CLOSE_MARKER = 9;
 
     private LegacyCheckpointStateInventory() {}
 
@@ -494,7 +499,7 @@ public final class LegacyCheckpointStateInventory {
                                         proof.appliedSourcePosition(),
                                         ConflictReason.INFLIGHT_KEY_KIND_UNRECOGNIZED));
                             }
-                            final LegacyNamespaceBlocker namespaceBlocker = uninspectedNamespace(family, key);
+                            final LegacyNamespaceBlocker namespaceBlocker = uninspectedNamespace(family, key, value);
                             if (namespaceBlocker != null) {
                                 conflicts.add(conflict(
                                         key,
@@ -1210,7 +1215,8 @@ public final class LegacyCheckpointStateInventory {
         return family.rocksName() + ":" + tag + ":" + format;
     }
 
-    private static LegacyNamespaceBlocker uninspectedNamespace(final ColumnFamily family, final byte[] key) {
+    private static LegacyNamespaceBlocker uninspectedNamespace(
+            final ColumnFamily family, final byte[] key, final byte[] value) {
         if (family == ColumnFamily.INFLIGHT) {
             return null;
         }
@@ -1266,8 +1272,11 @@ public final class LegacyCheckpointStateInventory {
                         if (fixedKind < 1 || fixedKind > 14) {
                             return unknownKeyBlocker("LEGACY_META_KEY");
                         }
-                        if (fixedKind == 4 || fixedKind == 6 || fixedKind == 8 || fixedKind == 9) {
-                            return namespaceBlocker("RUNTIME_METADATA");
+                        if (fixedKind == META_INGRESS_FENCE_STATE
+                                || fixedKind == META_EVIDENCE_CURSORS
+                                || fixedKind == META_OWNER_EPOCH
+                                || fixedKind == META_CLEAN_CLOSE_MARKER) {
+                            return runtimeMetadataBlocker(fixedKind, value);
                         }
                         return fixedKind == 10 || fixedKind >= 12
                                 ? new LegacyNamespaceBlocker(
@@ -1289,6 +1298,31 @@ public final class LegacyCheckpointStateInventory {
             }
         }
         return unknownKeyBlocker("LEGACY_KEY");
+    }
+
+    private static LegacyNamespaceBlocker runtimeMetadataBlocker(final int fixedKind, final byte[] encodedValue) {
+        try {
+            final byte[] payload = ValueEnvelope.decode(encodedValue, META_FIXED_VALUE_TYPE).payload();
+            switch (fixedKind) {
+                case META_INGRESS_FENCE_STATE -> IngressFenceState.decode(payload);
+                case META_EVIDENCE_CURSORS -> StoreRuntimeMetadata.decodeEvidenceCursors(payload);
+                case META_OWNER_EPOCH -> {
+                    if (payload.length != Long.BYTES) {
+                        throw new IllegalArgumentException("legacy Owner epoch has an invalid length");
+                    }
+                    Bytes.readU64be(payload, 0);
+                }
+                case META_CLEAN_CLOSE_MARKER -> {
+                    if (payload.length != 1 || (payload[0] != 0 && payload[0] != 1)) {
+                        throw new IllegalArgumentException("legacy clean-close marker is invalid");
+                    }
+                }
+                default -> throw new IllegalArgumentException("legacy runtime metadata kind is not registered");
+            }
+            return namespaceBlocker("RUNTIME_METADATA");
+        } catch (IllegalArgumentException malformed) {
+            return new LegacyNamespaceBlocker("RUNTIME_METADATA", ConflictReason.RUNTIME_METADATA_MALFORMED);
+        }
     }
 
     private static LegacyNamespaceBlocker namespaceBlocker(final String recordKind) {
@@ -1412,6 +1446,7 @@ public final class LegacyCheckpointStateInventory {
         LANE_RECORD_MALFORMED,
         LANE_RECORD_KEY_VALUE_MISMATCH,
         LEGACY_NAMESPACE_UNAUDITED,
+        RUNTIME_METADATA_MALFORMED,
         LEGACY_KEY_KIND_UNRECOGNIZED,
         LEGACY_CONTROL_METADATA_UNAUDITED,
         CLAIM_NOT_REPRESENTED_BY_CURRENT_MESSAGE,

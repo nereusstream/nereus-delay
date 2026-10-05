@@ -638,3 +638,26 @@ Commands:
 `checkstyleTest` and the selected test task pass; `checkstyleMain` reports only the pre-existing 123-character lines at `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`. `LegacyCheckpointImageInspectorTest` passes 16/16 with zero failures/errors/skips.
 
 Scope: no real Kafka/Pulsar source-set compile or Broker run was performed. Native cursor assembly, protected cut acquisition/revalidation, cross-ledger Pulsar successor proof, complete migration report, and durable cutover remain open.
+
+
+## 2026-10-05 fixed runtime META envelope and payload shape validation
+
+Source lock:
+- Base HEAD: `b233a2490cbb8dd275098d7899ee8dd9e28ae87a`
+- `LegacyCheckpointStateInventory.java` SHA-256: `88978aacfae6454fbf1a23c09ec4189db6e841dc6f70cac0a58efc49ede6977a`
+- `LegacyCheckpointImageInspectorTest.java` SHA-256: `8a3c00f8b811907a02529a8ef130d543fa566b3d44ba53e4481e1351860731d3`
+
+Verification: format-1 fixed META kinds 4, 6, 8, and 9 validate the type-1 `ValueEnvelope` and the existing payload contracts: canonical `IngressFenceState`, canonical evidence-cursor array, an 8-byte owner epoch, and a single-byte 0/1 clean-close marker. Malformed values produce a stable `RUNTIME_METADATA_MALFORMED` conflict bound to the checkpoint applied source position, and inventory continues. Well-formed rows remain `RUNTIME_METADATA/LEGACY_NAMESPACE_UNAUDITED`; this change deliberately does not decide migration or activation semantics. A real RocksDB checkpoint regression covers malformed payloads for all four kinds and confirms a valid SCHEDULED Message remains inventoried.
+
+Commands:
+`./gradlew test --tests '*LegacyCheckpointImageInspectorTest' checkstyleTest --no-daemon --console=plain`
+
+`./gradlew checkDocumentation --no-daemon --console=plain`
+
+`jq empty docs/ndip/NDIP-3/progress.json`
+
+`git diff --check`
+
+Result: `LegacyCheckpointImageInspectorTest` passes 17/17 with zero failures/errors/skips; `checkstyleTest`, `checkDocumentation`, JSON parsing, and `git diff --check` pass.
+
+Scope: this is bounded read-only shape validation. It does not map valid runtime metadata into Target state, establish migration readiness, or change cutover/activation behavior. B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
