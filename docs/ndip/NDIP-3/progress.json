@@ -817,15 +817,18 @@
       "id": "E5",
       "title": "严格 barrier 和迟到契约",
       "status": "IN_PROGRESS",
-      "evidence": [],
+      "evidence": [
+        "evidence/e5-strict-watermark-schedule-focused.log"
+      ],
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
       "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
-      "progress": "Actual TargetMessageStore generates complete Message/live Expiry/current work differences, recomputes strict serviceable and Target queue heads through bounded exact overlays, then passes the final business write set into accounting and guarded Store commit. Full production semantic/accounting authority, strict late/control behavior and Worker source/Claim/Admission/Producer integration remain unfinished. One development smoke only; centralized validation remains pending.",
+      "progress": "Actual TargetMessageStore generates complete Message/live Expiry/current work differences, recomputes strict serviceable and Target queue heads through bounded exact overlays, then passes the final business write set into accounting and guarded Store commit. Full production semantic/accounting authority, strict late/control behavior and Worker source/Claim/Admission/Producer integration remain unfinished. One development smoke only; centralized validation remains pending. 2026-10-06: Added a strict-domain real format-2 RocksDB regression. A test fixture directly seeds a structurally valid ADMISSION_WATERMARK from the first Message ORDERED key; this does not execute a Target PUBLISH_ADMISSION source mutation or establish a production watermark writer. A later lower-deliverAt Schedule persists ORDER_BEFORE_ADMISSION_WATERMARK without creating a Message or changing the exact OrderState bytes; same-position replay returns the stored result without another RocksDB sequence. The five-case TargetCommandStoreTest and checkstyleTest pass. Target PUBLISH_ADMISSION/PUBLISH_OUTCOME source handling, durable watermark advancement, strict barrier and late Reschedule/cancel/UNKNOWN/recovery behavior, full Owner/Producer integration, and central validation remain open; E5 stays IN_PROGRESS / PENDING_CENTRAL_VALIDATION.",
       "implementationFiles": [
         "src/main/java/com/nereusstream/delay/runtime/TargetMessageStore.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetQueueHeadUpdater.java",
-        "src/main/java/com/nereusstream/delay/store/TargetStoreBackend.java"
+        "src/main/java/com/nereusstream/delay/store/TargetStoreBackend.java",
+        "src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java"
       ],
       "validationHandoff": "12-集中验证交接清单.md"
     },

@@ -1,0 +1,25 @@
+E5 strict admission-watermark late Schedule regression
+Date: 2026-10-06
+
+Source lock:
+- Commit: 354ae907debc06356d70ae4641677128d917bdc6
+- Test source SHA-256: 25b1b62d92cc340602898703a80869ec3cdf60a9bf47ad2996ec37a82a6be084
+
+Scenario:
+- The strict-order branch uses the existing format-2 RocksDB Target Schedule fixture.
+- The test directly writes a structurally valid ADMISSION_WATERMARK OrderState using the first Message's ordinary ORDERED key. This is synthetic test setup; it does not execute a Target PUBLISH_ADMISSION source mutation or prove a production watermark writer.
+- A later source Schedule with a lower delivery-time key receives ORDER_BEFORE_ADMISSION_WATERMARK. The Message remains absent and the exact OrderState bytes remain unchanged.
+- Replaying the same physical source position through TargetCommandReplayStore returns the stored first result without increasing the RocksDB sequence.
+
+Validation:
+./gradlew test --tests 'com.nereusstream.delay.runtime.TargetCommandStoreTest.modifiesActualTimelineOrClaimWithHistoryAndFirstResults' --console=plain
+
+Result: BUILD SUCCESSFUL. Five parameter cases passed with zero failures/errors/skips. Only the strictOrderExpiry=true case exercises this added late Schedule branch.
+
+./gradlew checkstyleTest --console=plain
+
+Result: BUILD SUCCESSFUL.
+
+XML SHA-256: 824847b98f3c1ba648a26567b1705fdec0d72bbf4aa449a3393a527adafcdd00
+
+This verifies the current TargetCommandStore late-Schedule guard and same-position result replay over RocksDB. Target PUBLISH_ADMISSION/PUBLISH_OUTCOME source handling, durable watermark advancement, strict barrier transitions, late Reschedule, cancellation/UNKNOWN/recovery and full Owner/Producer integration remain open; E5 and D1 are not complete.
