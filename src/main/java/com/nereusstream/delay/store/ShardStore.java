@@ -86,6 +86,8 @@ public final class ShardStore implements AutoCloseable {
     private final Path dbPath;
     private final SharedRocksDbResources resources;
     private final RocksDB db;
+    /** One-byte output reused to inspect bounded-read value sizes without allocating the full value. */
+    private final byte[] boundedReadValueProbe = new byte[1];
     private final ColumnFamilyHandle defaultColumnFamilyHandle;
     private final DBOptions dbOptions;
     private final List<ColumnFamilyOptions> columnFamilyOptions;
@@ -2464,16 +2466,44 @@ public final class ShardStore implements AutoCloseable {
 
     public synchronized byte[] get(final ColumnFamily family, final byte[] key) {
         ensureOpen();
-        if (activeReadBudget != null && !activeReadBudget.beforeRead()) {
-            throw activeReadBudget.incomplete();
+        final BoundedReadBudget budget = activeReadBudget;
+        if (budget != null && !budget.beforeRead()) {
+            throw budget.incomplete();
         }
         try {
-            final byte[] value = db.get(handles.get(family), key);
-            if (value != null && family == ColumnFamily.TIMELINE && key.length >= 2 && key[0] == 3 && key[1] == 1) {
-                readyEntriesRead++;
-            }
-            if (activeReadBudget != null && !activeReadBudget.tryCharge(key.length, value == null ? 0 : value.length)) {
-                throw activeReadBudget.incomplete();
+            final byte[] value;
+            if (budget != null && budget.maxBytes() < Long.MAX_VALUE) {
+                final int valueLength = db.get(handles.get(family), key, boundedReadValueProbe);
+                if (valueLength < -1) {
+                    throw new IllegalStateException("RocksDB point read returned an invalid value length");
+                }
+                if (valueLength == -1) {
+                    if (!budget.tryCharge(key.length, 0)) {
+                        throw budget.incomplete();
+                    }
+                    return null;
+                }
+                if (family == ColumnFamily.TIMELINE && key.length >= 2 && key[0] == 3 && key[1] == 1) {
+                    readyEntriesRead++;
+                }
+                if (!budget.tryCharge(key.length, valueLength)) {
+                    throw budget.incomplete();
+                }
+                if (!budget.beforeTimedWork()) {
+                    throw budget.incomplete();
+                }
+                value = db.get(handles.get(family), key);
+                if (value == null || value.length != valueLength) {
+                    throw new IllegalStateException("RocksDB point read changed between bounded size and value reads");
+                }
+            } else {
+                value = db.get(handles.get(family), key);
+                if (value != null && family == ColumnFamily.TIMELINE && key.length >= 2 && key[0] == 3 && key[1] == 1) {
+                    readyEntriesRead++;
+                }
+                if (budget != null && !budget.tryCharge(key.length, value == null ? 0 : value.length)) {
+                    throw budget.incomplete();
+                }
             }
             return value;
         } catch (RocksDBException exception) {
@@ -2617,13 +2647,37 @@ public final class ShardStore implements AutoCloseable {
                     if (upperExclusive != null && compareUnsigned(key, upperExclusive) >= 0) {
                         break;
                     }
-                    final byte[] value = iterator.value();
-                    if (family == ColumnFamily.TIMELINE && key.length >= 2 && key[0] == 3 && key[1] == 1) {
-                        readyEntriesRead++;
-                    }
-                    if (!readBudget.tryCharge(key.length, value.length)) {
-                        stop = VisitStop.INCOMPLETE;
-                        break;
+                    final byte[] value;
+                    if (readBudget.maxBytes() < Long.MAX_VALUE) {
+                        final int valueLength = iterator.value(boundedReadValueProbe);
+                        if (valueLength < 0) {
+                            throw new IllegalStateException("RocksDB iterator returned an invalid value length");
+                        }
+                        if (family == ColumnFamily.TIMELINE && key.length >= 2 && key[0] == 3 && key[1] == 1) {
+                            readyEntriesRead++;
+                        }
+                        if (!readBudget.tryCharge(key.length, valueLength)) {
+                            stop = VisitStop.INCOMPLETE;
+                            break;
+                        }
+                        if (!readBudget.beforeTimedWork()) {
+                            stop = VisitStop.INCOMPLETE;
+                            break;
+                        }
+                        value = iterator.value();
+                        if (value.length != valueLength) {
+                            throw new IllegalStateException(
+                                    "RocksDB iterator value changed between bounded size and value reads");
+                        }
+                    } else {
+                        value = iterator.value();
+                        if (family == ColumnFamily.TIMELINE && key.length >= 2 && key[0] == 3 && key[1] == 1) {
+                            readyEntriesRead++;
+                        }
+                        if (!readBudget.tryCharge(key.length, value.length)) {
+                            stop = VisitStop.INCOMPLETE;
+                            break;
+                        }
                     }
                     visited++;
                     final boolean continueVisit;

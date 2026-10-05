@@ -156,9 +156,9 @@ class DelayShardHeadBudgetTest {
         try (Fixture fixture = new Fixture(tempDir.resolve("native-deadline"))) {
             final AtomicLong clock = new AtomicLong();
             final AtomicBoolean ticking = new AtomicBoolean(true);
-            final DelayShard shard = boundedShard(
-                    fixture.store,
-                    new HeadReadPolicy(100, 1_000_000, 8, () -> ticking.get() ? clock.getAndIncrement() : clock.get()));
+            final HeadReadPolicy policy =
+                    new HeadReadPolicy(100, 1_000_000, 12, () -> ticking.get() ? clock.getAndIncrement() : clock.get());
+            final DelayShard shard = boundedShard(fixture.store, policy);
             final PreparedCommand cancel =
                     PreparedCommand.cancel(fixture.shardId, fixture.first.delayMessageId(), 0, 30_000);
             final List<String> before = snapshot(fixture.store);
@@ -186,12 +186,11 @@ class DelayShardHeadBudgetTest {
     void completedHeadProjectionThatCrossesDeadlineCannotCommit() {
         try (Fixture fixture = new Fixture(tempDir.resolve("completion-deadline"))) {
             final AtomicLong clock = new AtomicLong();
-            // The completed read path observes times 0..8: one Lane point read,
-            // the removed DUE head and its successor, the successor Message,
-            // and the empty ORDERED and Native range probes. The final plan
-            // completion check must observe time 9 and yield before any write.
+            // The completed read path observes times 0..9 while reading the Lane,
+            // DUE, ORDERED, and Native inputs. The final plan completion check
+            // must observe time 10 and yield before any write.
             final DelayShard shard = boundedShard(
-                    fixture.store, new HeadReadPolicy(100, 1_000_000, 9, clock::getAndIncrement));
+                    fixture.store, new HeadReadPolicy(100, 1_000_000, 10, clock::getAndIncrement));
             final PreparedCommand cancel =
                     PreparedCommand.cancel(fixture.shardId, fixture.first.delayMessageId(), 0, 30_000);
             final List<String> before = snapshot(fixture.store);
@@ -202,7 +201,7 @@ class DelayShardHeadBudgetTest {
                     HeadReadIncompleteException.class, () -> shard.apply(cancel, fixture.position(2)));
 
             assertEquals(BoundedReadBudget.Exhaustion.ELAPSED, incomplete.reason());
-            assertEquals(10, clock.get());
+            assertEquals(11, clock.get());
             assertEquals(4, shard.headPlanReadStatistics().actualRecords());
             assertEquals(1, shard.headPlanReadStatistics().consecutiveElapsedYields());
             assertEquals(before, snapshot(fixture.store));

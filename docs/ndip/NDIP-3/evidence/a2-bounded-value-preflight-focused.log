@@ -1,0 +1,23 @@
+A2 bounded-read value-size preflight
+Date: 2026-10-05
+
+Change:
+- With a finite active byte budget, ShardStore point reads and iterator visits ask RocksJava 10.1.3 for the value length using a reusable one-byte output buffer before requesting the full Java value array.
+- The shared budget charges the key and full logical value length before full-value materialization. A later value that exceeds the remaining aggregate allowance stops the read plan; the unbounded-byte path remains unchanged.
+- The RocksDB regression stores two 16-byte values. With a 35-byte budget, both point and iterator paths observe 36 actual logical bytes, charge 18, deny the second row, and deliver only the first row. This also verifies the pinned JNI API reports the full value length when given a one-byte output array.
+
+Validation:
+`./gradlew test --tests com.nereusstream.delay.store.ShardReadPlanTest --tests com.nereusstream.delay.runtime.DelayShardHeadBudgetTest --no-daemon --console=plain`
+Result: BUILD SUCCESSFUL. ShardReadPlanTest: 10 tests; DelayShardHeadBudgetTest: 8 tests; zero skipped, failures, or errors.
+
+`./gradlew checkstyleTest --no-daemon --console=plain`
+Result: BUILD SUCCESSFUL.
+
+Source SHA-256:
+- `src/main/java/com/nereusstream/delay/store/ShardStore.java`: `f7ee847e1dd78166ebaf91658d825a47e06a5ad0c1e802944edf180cce5fc004`
+- `src/test/java/com/nereusstream/delay/store/ShardReadPlanTest.java`: `e4fe3493b493db54356949f745fff53c3922198f352291ee99c8e9d53c7f9338`
+- `src/test/java/com/nereusstream/delay/runtime/DelayShardHeadBudgetTest.java`: `eb4f1ef059e1bc710a17abfb7b548e5b4fb5f367ce04347316ed66c88c42044d`
+- `TEST-com.nereusstream.delay.store.ShardReadPlanTest.xml`: `aaf4096c99b2a404249e63af9f90a264222b3dbaafc8bcc2269859948b2e8a65`
+- `TEST-com.nereusstream.delay.runtime.DelayShardHeadBudgetTest.xml`: `a0ded12d02ae6a9b9150dc9e377b1af65697ef3364c14e274998ef12294fa22c`
+
+This only avoids materializing a full Java value array when the known logical value length cannot fit the remaining byte allowance. Iterator keys are still materialized before charging; this does not bound RocksDB native work/RSS, visitor/projection allocations, the legacy Message/PayloadReference/SourcePosition fields, the complete mutation envelope, or production policy assembly. No legacy row cap or compatibility behavior is selected. A2 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.

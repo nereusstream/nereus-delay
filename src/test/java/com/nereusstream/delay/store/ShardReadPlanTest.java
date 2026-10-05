@@ -68,6 +68,56 @@ class ShardReadPlanTest {
     }
 
     @Test
+    void byteBudgetAccountsForFullValueSizeBeforeFinishingPointAndIteratorReads() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("value-size-probe"));
+        final byte[] firstKey = {99, 0};
+        final byte[] secondKey = {99, 1};
+        final byte[] firstValue = new byte[16];
+        final byte[] secondValue = new byte[16];
+        java.util.Arrays.fill(firstValue, (byte) 3);
+        java.util.Arrays.fill(secondValue, (byte) 7);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore store = ShardStore.open(config, shard(), resources)) {
+            store.write(batch -> {
+                batch.put(ColumnFamily.ID, firstKey, firstValue);
+                batch.put(ColumnFamily.ID, secondKey, secondValue);
+            });
+
+            final BoundedReadBudget pointBudget = new BoundedReadBudget(2, 35, 1_000, () -> 0);
+            final ReadIncompleteException pointIncomplete = assertThrows(
+                    ReadIncompleteException.class,
+                    () -> store.readWithBudget(pointBudget, () -> {
+                        assertArrayEquals(firstValue, store.get(ColumnFamily.ID, firstKey));
+                        return store.get(ColumnFamily.ID, secondKey);
+                    }));
+            assertEquals(BoundedReadBudget.Exhaustion.BYTES, pointIncomplete.reason());
+            assertEquals(36, pointBudget.actualBytes());
+            assertEquals(18, pointBudget.chargedBytes());
+            assertEquals(2, pointBudget.actualRecords());
+            assertEquals(1, pointBudget.deniedReads());
+
+            final BoundedReadBudget iteratorBudget = new BoundedReadBudget(2, 35, 1_000, () -> 0);
+            final var iteratorResult = store.visitResult(
+                    ColumnFamily.ID,
+                    firstKey,
+                    null,
+                    3,
+                    iteratorBudget,
+                    (entry, ignored) -> {
+                        assertArrayEquals(firstValue, entry.value());
+                        return true;
+                    });
+            assertEquals(ShardStore.VisitStop.INCOMPLETE, iteratorResult.stop());
+            assertEquals(BoundedReadBudget.Exhaustion.BYTES, iteratorResult.reason());
+            assertEquals(1, iteratorResult.visited());
+            assertEquals(36, iteratorBudget.actualBytes());
+            assertEquals(18, iteratorBudget.chargedBytes());
+            assertEquals(2, iteratorBudget.actualRecords());
+            assertEquals(1, iteratorBudget.deniedReads());
+        }
+    }
+
+    @Test
     void recordBudgetStopsBeforeTheNextPointReadAndNestedBudgetResetIsRejected() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("records"));
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
