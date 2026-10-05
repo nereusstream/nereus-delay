@@ -1,0 +1,37 @@
+NDIP-3 E6 control-reserve hard-cap binding evidence
+Date: 2026-10-06 (Asia/Shanghai)
+Repository: nereus-delay
+Source commit: f0a04f26224772078cf3c69d87abf70cbca68244
+
+Source files at the locked commit:
+  src/main/java/com/nereusstream/delay/store/WorkerResourceEnvelope.java
+    SHA-256: f0bcfca10918e15505fe2905b45f155f6f376388211cae8378fe71b716435060
+  src/main/java/com/nereusstream/delay/store/WorkerCapacityAdmission.java
+    SHA-256: 80f449003ae8320f3847a62d1fc3f046e7f0a2bc44db726787118f5a72971412
+  src/test/java/com/nereusstream/delay/store/WorkerCapacityAdmissionTest.java
+    SHA-256: f0cabc93545e6e93605f4a757f4b7bb4c923ca86c79c222b33bfa4e361128fc3
+
+Change:
+  The composed WorkerCapacityAdmission.requireFits overload now validates
+  that WorkerResourceEnvelope.controlReserveBytes and controlReserveRecords
+  exactly match CapacityVector CONTROL_RESERVE_BYTES (dimension 54) and
+  CONTROL_RESERVE_RECORDS (dimension 55), then performs the existing checked
+  sum of distinct committed Shard envelopes, fixed Worker cost, and transition
+  demand. The original arithmetic-only overload remains available and does
+  not claim to be a complete runtime configuration/activation validator.
+
+Validation:
+  Command: ./gradlew test --tests 'com.nereusstream.delay.store.WorkerCapacityAdmissionTest' --tests 'com.nereusstream.delay.store.WorkerResourceEnvelopeTest' checkstyleTest --console=plain
+  Result: BUILD SUCCESSFUL. WorkerCapacityAdmissionTest: 3 tests and
+  WorkerResourceEnvelopeTest: 4 tests; 0 skipped, 0 failures, 0 errors.
+  checkstyleTest passed.
+  Mismatched bytes and records are each rejected; aligned hard caps pass the
+  Worker aggregate arithmetic.
+
+Scope boundary:
+  This is local configuration cross-validation only. It does not prove that
+  production Worker placement or activation calls the composed overload, nor
+  that a remote system-writer quota is provisioned. Unified Target/resource
+  config loading, source ingress/backpressure, bounded backlog/control progress,
+  same-log ordering, and NDIP-3 central validation remain open. E6 remains
+  IN_PROGRESS / PENDING_CENTRAL_VALIDATION.
