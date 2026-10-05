@@ -1,0 +1,9 @@
+B6 locked real client source-set compilation and focused validation
+Date: 2026-10-05
+
+Commands and results:
+- `./gradlew compileRealKafka -PkafkaClientJar=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1/clients/build/libs/kafka-clients-4.4.0-SNAPSHOT.jar --no-daemon --console=plain` — BUILD SUCCESSFUL.
+- `./gradlew compileRealPulsar -PpulsarClientClasspath=/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-client/build/libs/pulsar-client-original-5.0.0-M1.jar:/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-client-api/build/libs/pulsar-client-api-5.0.0-M1.jar:/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-common/build/libs/pulsar-common-5.0.0-M1.jar --no-daemon --console=plain` — BUILD SUCCESSFUL.
+- `./gradlew test --tests '*LegacyCheckpointImageInspectorTest' --tests '*LegacyCheckpointClaimInventoryTest' checkstyleTest checkstyleRealKafka checkstyleRealPulsar checkDocumentation --no-daemon --console=plain` — BUILD SUCCESSFUL.
+
+Scope: this proves current real Kafka 4.4.0-SNAPSHOT and Pulsar 5.0.0-M1 source-set compilation and the named local RocksDB tests/style/documentation checks. It does not run a Broker, connect the live source consumer's protected cut to a native recovery cursor, produce a migration readiness report, or certify cutover/activation/rollback/reader retirement. B6 remains IN_PROGRESS / PENDING_CENTRAL_VALIDATION; productionAuthority remains false.
