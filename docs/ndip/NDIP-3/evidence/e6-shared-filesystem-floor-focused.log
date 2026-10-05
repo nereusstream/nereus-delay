@@ -1,0 +1,48 @@
+NDIP-3 E6 shared Worker/RocksDB filesystem floor evidence
+Date: 2026-10-06 (Asia/Shanghai)
+Repository: nereus-delay
+Source commit: f43be05d63a7b1249282550a633c6b9a34d9938e
+
+Source files at the locked commit:
+  src/main/java/com/nereusstream/delay/store/WorkerResourceEnvelope.java
+    SHA-256: 64f6ba4095fb6e8e8b9b550ce0e6b22efd24c06432df0678e7cfb4cac7910ced
+  src/main/java/com/nereusstream/delay/store/WorkerRuntimeSafetyGate.java
+    SHA-256: ef1310de4475d6d07f568d9b32a0c0d33d7ad12d537614ef09d0776430c4bb73
+  src/main/java/com/nereusstream/delay/store/RocksDbUsageLimits.java
+    SHA-256: 2626f56d09133c99766cf44da022934774b635a703625789e96cba31bead754c
+  src/main/java/com/nereusstream/delay/store/SharedRocksDbResources.java
+    SHA-256: 8ab8c021ae2877f805cea80428d57a87b3f9cfd93e0eb9cc455d2b045663e791
+  src/test/java/com/nereusstream/delay/store/WorkerResourceEnvelopeTest.java
+    SHA-256: a73def67408d4b4397de8788a8e32a4a9a278d92b08cc226457ed5ded1330191
+  src/test/java/com/nereusstream/delay/store/WorkerRuntimeSafetyGateTest.java
+    SHA-256: 8553f229d7d00e1903146b1bc01650abcd32dec46e4932059394b3bd6fb9ee43
+  src/test/java/com/nereusstream/delay/store/RocksDbUsageLimitsTest.java
+    SHA-256: a1d39b5a417f398f1a0ebb07e03ac5086a9cbdf4f33e45007ba666a2ad2953bd
+  src/test/java/com/nereusstream/delay/store/WorkerRocksDbUsageMonitorTest.java
+    SHA-256: 5c4061cb9735334db8eca111992af89c69d150c0f119d2f9608a9a55fb410756
+
+Change:
+  WorkerResourceEnvelope provides the checked configuration-level filesystem
+  floor: disk safety watermark + checkpoint-restore temp headroom + compaction
+  temp headroom. WorkerRuntimeSafetyGate supplies the stricter of its certified
+  and staged envelope floors. SharedRocksDbResources passes that current floor
+  to RocksDbUsageLimits on each physical-usage collection; the configured
+  RocksDB floor remains active when it is stricter. A failed check from the
+  owner-managed usage monitor is recorded by the existing shared safety gate.
+
+Focused validation:
+  Command: ./gradlew test --tests 'com.nereusstream.delay.store.WorkerResourceEnvelopeTest' --tests 'com.nereusstream.delay.store.RocksDbUsageLimitsTest' --tests 'com.nereusstream.delay.store.WorkerRuntimeSafetyGateTest' --tests 'com.nereusstream.delay.store.WorkerRocksDbUsageMonitorTest' checkstyleTest --console=plain
+  Result: BUILD SUCCESSFUL. Four suites: 18 tests, 0 skipped, 0 failures,
+  0 errors. checkstyleTest passed.
+  Covered exact/under-boundary envelope validation, configured-versus-Worker
+  floor composition, stricter staged floor through activation, and a real
+  temporary-directory FileStore observation below a synthetic startup
+  envelope floor that drives the shared gate to DRAIN_OR_MIGRATE.
+
+Scope boundary:
+  This is focused local evidence for filesystem-floor composition and Worker
+  gate fencing. It does not complete a unified Target/resource configuration
+  loader, quota/backpressure wiring, RSS integration, bounded source backlog,
+  system-writer/control progress or same-log ordering, real Worker admission,
+  or NDIP-3 central validation. E6 remains IN_PROGRESS /
+  PENDING_CENTRAL_VALIDATION.
