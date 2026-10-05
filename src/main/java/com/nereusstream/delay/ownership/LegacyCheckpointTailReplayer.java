@@ -17,8 +17,11 @@ import java.util.function.LongSupplier;
  * does not inspect or convert the resulting state, publish an ACTIVE pointer,
  * or authorize activation. The supplied cursor must read the accepted source
  * assignment without acknowledging or otherwise advancing the broker. The
- * call consumes the cursor; if it returns {@link Status#BLOCKED}, discard both
- * the cursor and the partially replayed copy.</p>
+ * caller passes a read-only native recovery cursor as an {@link Iterator};
+ * this excludes the ACK-capable {@link SourceRecordConsumer} API from the
+ * replay boundary. The caller owns and closes the cursor. The call consumes
+ * it; if it returns {@link Status#BLOCKED}, discard both the cursor and the
+ * partially replayed copy.</p>
  */
 public final class LegacyCheckpointTailReplayer {
     private LegacyCheckpointTailReplayer() {}
@@ -29,7 +32,7 @@ public final class LegacyCheckpointTailReplayer {
             final SourceAssignment assignment,
             final SourceReplaySuccessor successor,
             final SourceRecordConsumer.CheckpointCut sourceCut,
-            final SourceReplayCursor<? extends SourceReplayEntry> sourceTail,
+            final Iterator<? extends SourceReplayEntry> sourceTail,
             final LegacyApplierFactory applierFactory,
             final PublicKey systemMutationVerificationKey,
             final LongSupplier replayClock,
@@ -38,8 +41,7 @@ public final class LegacyCheckpointTailReplayer {
         final SourceAssignment exactAssignment = Objects.requireNonNull(assignment, "assignment");
         final SourceReplaySuccessor exactSuccessor = Objects.requireNonNull(successor, "successor");
         final SourceRecordConsumer.CheckpointCut exactCut = Objects.requireNonNull(sourceCut, "sourceCut");
-        final SourceReplayCursor<? extends SourceReplayEntry> exactTail =
-                Objects.requireNonNull(sourceTail, "sourceTail");
+        final Iterator<? extends SourceReplayEntry> exactTail = Objects.requireNonNull(sourceTail, "sourceTail");
         final LegacyApplierFactory exactFactory = Objects.requireNonNull(applierFactory, "applierFactory");
         final PublicKey verificationKey = Objects.requireNonNull(
                 systemMutationVerificationKey, "systemMutationVerificationKey");
@@ -84,7 +86,8 @@ public final class LegacyCheckpointTailReplayer {
         final OwnedDelayShard owned = new OwnedDelayShard(applier, replayLease);
         owned.markCatchingUp(exactAssignment, exactSuccessor);
 
-        final CutBoundIterator boundedTail = new CutBoundIterator(exactTail, exactCut, cutPosition);
+        final CutBoundIterator boundedTail = new CutBoundIterator(
+                SourceReplayCursor.of(exactTail), exactCut, cutPosition);
         final SourceReplayTurn<SourceReplayOutcome> turn = owned.replayTurn(
                 SourceReplayCursor.of(boundedTail), verificationKey, clock, budget);
         requireCurrentCut(exactCut, cutPosition);

@@ -621,3 +621,20 @@ Commands:
 Result: `LegacyCheckpointImageInspectorTest` passes 16/16 with zero failures/errors/skips; `checkstyleTest`, `checkDocumentation`, JSON parsing, and `git diff --check` pass. `checkstyleMain` reports only the two pre-existing 123-character lines in `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`.
 
 Scope: the source cursor and accepted assignment/successor are caller-supplied; no Kafka/Pulsar no-ACK read-only tail adapter or captured-cut assembly is implemented. Complete old-state disposition, migration report, durable cutover, activation, rollback, reader retirement, and central validation remain open. B6 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
+
+
+## 2026-10-05 direct no-ACK source iterator boundary
+
+Source lock:
+- Base HEAD: `cb98d1208d9812d498abcdca64ce9fdaac870658`
+- `LegacyCheckpointTailReplayer.java` SHA-256: `a2bdcb40d6e8268abf08d1e622eae2deaf5e1af2d4455927d453f09f2f5099ff`
+- `LegacyCheckpointImageInspectorTest.java` SHA-256: `47cc848abe565471d23a9918872d78dbbde17955e71ec491f8be56ef06fb9b2e`
+
+Verification: `LegacyCheckpointTailReplayer.replay` now accepts a source `Iterator<? extends SourceReplayEntry>` directly. Static inspection confirms the existing real Kafka and Pulsar recovery cursors implement the iterator shape and expose no acknowledgement method; `SourceRecordConsumer` is not accepted by this API. The replayer still bounds one invocation and enforces exact canonical cut equality. This proves only the Java input boundary and local copy behavior, not that either Broker adapter reaches the captured cut.
+
+Commands:
+`./gradlew checkstyleMain checkstyleTest test --tests '*LegacyCheckpointImageInspectorTest' --no-daemon`
+
+`checkstyleTest` and the selected test task pass; `checkstyleMain` reports only the pre-existing 123-character lines at `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`. `LegacyCheckpointImageInspectorTest` passes 16/16 with zero failures/errors/skips.
+
+Scope: no real Kafka/Pulsar source-set compile or Broker run was performed. Native cursor assembly, protected cut acquisition/revalidation, cross-ledger Pulsar successor proof, complete migration report, and durable cutover remain open.

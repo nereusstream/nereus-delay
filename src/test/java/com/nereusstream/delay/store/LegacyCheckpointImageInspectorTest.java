@@ -9,7 +9,6 @@ import com.nereusstream.delay.ownership.LegacyCheckpointTailReplayer;
 import com.nereusstream.delay.ownership.ReplayTurnBudget;
 import com.nereusstream.delay.ownership.SourceAssignment;
 import com.nereusstream.delay.ownership.SourceRecordConsumer;
-import com.nereusstream.delay.ownership.SourceReplayCursor;
 import com.nereusstream.delay.ownership.SourceReplayEntry;
 import com.nereusstream.delay.ownership.SourceReplayRecord;
 import com.nereusstream.delay.ownership.SourceReplaySuccessor;
@@ -273,7 +272,7 @@ class LegacyCheckpointImageInspectorTest {
             activeBefore = Files.readAllBytes(activePointer);
 
             final AtomicInteger exactIteratorReads = new AtomicInteger();
-            final SourceReplayCursor<SourceReplayEntry> exactCursor = trackedCursor(sourceEntries, exactIteratorReads);
+            final Iterator<SourceReplayEntry> exactCursor = trackedCursor(sourceEntries, exactIteratorReads);
             try (ShardStore.LegacyCheckpointReplayCopy replayCopy = ShardStore.openLegacyCheckpointReplayCopy(
                     config, shard, resources, image, manifest, finiteLimits())) {
                 final LegacyCheckpointTailReplayer.Result result = LegacyCheckpointTailReplayer.replay(
@@ -297,7 +296,7 @@ class LegacyCheckpointImageInspectorTest {
             }
 
             final AtomicInteger boundedIteratorReads = new AtomicInteger();
-            final SourceReplayCursor<SourceReplayEntry> boundedCursor =
+            final Iterator<SourceReplayEntry> boundedCursor =
                     trackedCursor(sourceEntries, boundedIteratorReads);
             try (ShardStore.LegacyCheckpointReplayCopy replayCopy = ShardStore.openLegacyCheckpointReplayCopy(
                     config, shard, resources, image, manifest, finiteLimits())) {
@@ -325,7 +324,7 @@ class LegacyCheckpointImageInspectorTest {
         }
     }
 
-    private static SourceReplayCursor<SourceReplayEntry> trackedCursor(
+    private static Iterator<SourceReplayEntry> trackedCursor(
             final List<SourceReplayEntry> entries, final AtomicInteger nextCalls) {
         final Iterator<SourceReplayEntry> iterator = new Iterator<>() {
             private int index;
@@ -341,7 +340,7 @@ class LegacyCheckpointImageInspectorTest {
                 return entries.get(index++);
             }
         };
-        return SourceReplayCursor.of(iterator);
+        return iterator;
     }
 
     @Test
