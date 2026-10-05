@@ -40,6 +40,7 @@ worker_destination_response_loss_only="${NEREUS_DELAY_KAFKA_WORKER_DESTINATION_R
 source_ack_response_loss="${NEREUS_DELAY_KAFKA_SOURCE_ACK_RESPONSE_LOSS:-0}"
 source_ack_response_loss_only="${NEREUS_DELAY_KAFKA_SOURCE_ACK_RESPONSE_LOSS_ONLY:-0}"
 target_worker_source_only="${NEREUS_DELAY_KAFKA_TARGET_WORKER_SOURCE_ONLY:-0}"
+b6_legacy_replay_only="${NEREUS_DELAY_KAFKA_B6_LEGACY_REPLAY_ONLY:-0}"
 source_ack_network_loss_only="${NEREUS_DELAY_KAFKA_TARGET_SOURCE_ACK_NETWORK_LOSS_ONLY:-0}"
 source_ack_process_crash_only="${NEREUS_DELAY_KAFKA_TARGET_SOURCE_ACK_PROCESS_CRASH_ONLY:-0}"
 fetch_response_loss_only="${NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_ONLY:-0}"
@@ -131,6 +132,10 @@ if [[ "${source_ack_response_loss_only}" != "0" && "${source_ack_response_loss_o
 fi
 if [[ "${target_worker_source_only}" != "0" && "${target_worker_source_only}" != "1" ]]; then
   echo "NEREUS_DELAY_KAFKA_TARGET_WORKER_SOURCE_ONLY must be 0 or 1" >&2
+  exit 1
+fi
+if [[ "${b6_legacy_replay_only}" != "0" && "${b6_legacy_replay_only}" != "1" ]]; then
+  echo "NEREUS_DELAY_KAFKA_B6_LEGACY_REPLAY_ONLY must be 0 or 1" >&2
   exit 1
 fi
 if [[ "${source_ack_network_loss_only}" != "0" && "${source_ack_network_loss_only}" != "1" ]]; then
@@ -983,6 +988,18 @@ echo "Broker advertised ports: ${broker_1_port},${broker_2_port},${broker_3_port
 echo "Broker bind ports: ${broker_1_bind_port},${broker_2_bind_port},${broker_3_bind_port}"
 
 "${compose[@]}" up -d
+if [[ "${b6_legacy_replay_only}" == "1" ]]; then
+  wait_for_broker kafka-1
+  wait_for_broker kafka-2
+  wait_for_broker kafka-3
+  GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaSourceSmoke \
+    "-PkafkaClientJar=${client_jar}" \
+    "-PkafkaBootstrap=${bootstrap_all}" \
+    "-PkafkaSourceTopic=${source_topic}-b6-legacy-replay" \
+    --no-daemon --console=plain
+  echo "Kafka B6 legacy checkpoint exact-cut replay passed against the locked three-Broker K1 fixture."
+  exit 0
+fi
 if [[ "${broker_tcp_cut_only}" == "1" ]]; then
   start_broker_tcp_fault_proxy
 fi

@@ -1,0 +1,14 @@
+B6 Kafka exact-cut legacy checkpoint replay smoke
+Date: 2026-10-05
+
+Implementation:
+- `runRealKafkaSourceSmoke` now invokes `KafkaLegacyCheckpointReplaySmoke` from the real Kafka source set.
+- The smoke writes three uniquely identified records and retains producer-reported offsets. It applies and acknowledges the first record on a format-1 RocksDB Store, snapshots that Store, applies/acknowledges the second record, and captures a protected cut from the still-open source adapter.
+- A separate no-ACK `KafkaClientArtifactRecoverySourceCursor` starts after the checkpoint and feeds `LegacyCheckpointTailReplayer` with a finite budget. It shares the already committed active group ID under manual assignment; the smoke checks the group offset stays at the protected cut after replay, the copied Store reaches that cut, the original checkpoint still identifies the earlier position, and the original `ACTIVE` pointer is unchanged. A third Broker record remains beyond the cut and is excluded from the reported applied frontier.
+
+Validation:
+- `./gradlew compileRealKafka checkstyleRealKafka -PkafkaClientJar=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1/clients/build/libs/kafka-clients-4.4.0-SNAPSHOT.jar --no-daemon --console=plain` — BUILD SUCCESSFUL.
+- `bash -n e2e/run-kafka-real-client-e2e.sh` and `git diff --check` — passed.
+- The dedicated `NEREUS_DELAY_KAFKA_B6_LEGACY_REPLAY_ONLY=1` three-Broker harness was attempted with the explicit locked K1 checkout. Docker remained in the first pull of `eclipse-temurin:21-jre`; after more than six minutes without useful layer progress, the build was stopped before any Broker container started. The cleanup trap ran, and no matching Kafka containers remained.
+
+Boundary: the smoke is implemented and compiled but has not been executed against a Broker. B6 remains IN_PROGRESS / PENDING_CENTRAL_VALIDATION; this is not exact-cut Broker evidence, a complete migration report, a cutover/activation receipt, or production authority.

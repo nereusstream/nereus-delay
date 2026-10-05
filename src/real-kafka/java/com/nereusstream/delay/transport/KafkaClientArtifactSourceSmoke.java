@@ -21,6 +21,7 @@ import com.nereusstream.delay.protocol.ProfileRef;
 import com.nereusstream.delay.protocol.RetryPolicyRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
+import com.nereusstream.delay.store.KafkaLegacyCheckpointReplaySmoke;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
@@ -155,6 +156,7 @@ public final class KafkaClientArtifactSourceSmoke {
                 afterRestart.close();
                 throw new IllegalStateException("Kafka source replay returned a record after both ACKs");
             }
+            KafkaLegacyCheckpointReplaySmoke.run(bootstrap, admin, clusterId, shard);
             System.out.println("Kafka source ACK smoke passed: topicId=" + topicId
                     + ", firstOffset=" + firstOffset + ", secondOffset=" + secondOffset
                     + ", committedAfterRestart=empty");

@@ -818,6 +818,11 @@ The shared Gradle build never puts upstream Kafka or Pulsar classes on the
 normal `main` source set. The real bindings are explicit source sets and fail
 closed when their artifact paths are omitted:
 
+Set `NEREUS_DELAY_KAFKA_B6_LEGACY_REPLAY_ONLY=1` when running
+`e2e/run-kafka-real-client-e2e.sh` to start the locked three-Broker fixture and
+run only `runRealKafkaSourceSmoke`, including the B6 legacy checkpoint replay
+to a protected source cut. The harness removes its Compose resources on exit.
+
 ```text
 ./gradlew compileRealKafka \
   -PkafkaClientJar=/absolute/path/to/kafka-clients-4.4.0-SNAPSHOT.jar
