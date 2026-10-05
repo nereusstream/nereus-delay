@@ -1,0 +1,26 @@
+E4 SLO outbox value-byte bounded scan
+Date: 2026-10-05
+
+Change:
+- SloObservationOutboxStore.scan now visits the META key range through ShardStore.visitResult rather than materializing the whole record-limited page before checking its byte allowance.
+- The scan uses a value-only BoundedReadBudget to preserve its existing contract: maxBytes counts encoded ValueEnvelope bytes, not the fixed key. ShardStore's finite-byte iterator path obtains a value length before requesting the full Java array. A later record that does not fit leaves the already completed prefix for the next export turn; a first record larger than the allowance fails closed.
+- A real RocksDB regression stores two same-sized Starts and sets the page limit one byte below their combined encoded value size; scan returns the first Start only. Existing exact-fit and first-record-too-large cases remain covered.
+
+Validation command:
+`./gradlew test --tests com.nereusstream.delay.store.SloObservationOutboxStoreTest --tests com.nereusstream.delay.store.ShardReadPlanTest checkstyleTest --no-daemon --console=plain`
+Result: BUILD SUCCESSFUL. SloObservationOutboxStoreTest: 13 tests; ShardReadPlanTest: 10 tests; zero skipped, failures, or errors. checkstyleTest passed.
+
+`./gradlew checkstyleMain --no-daemon --console=plain`
+Result: BUILD FAILED only on the two existing untouched 123-character lines at PersistentLaneScheduler.java:1327 and TargetWorkerHostRuntime.java:347. No violation was reported in the changed main sources.
+
+`./gradlew checkDocumentation --no-daemon --console=plain`
+Result: BUILD SUCCESSFUL. The implementation and package documentation verifiers passed, including NDIP progress JSON validation.
+
+Source SHA-256:
+- `src/main/java/com/nereusstream/delay/store/BoundedReadBudget.java`: `27afb3ebb20eba610ed38e0ecacb4f8524007e81b064c9ba0d940161bc51f6ec`
+- `src/main/java/com/nereusstream/delay/store/SloObservationOutboxStore.java`: `82def6c5c3dc819e1e982a6c05834fc7f4a0db7a636ea516c3c44114f9da4f74`
+- `src/test/java/com/nereusstream/delay/store/SloObservationOutboxStoreTest.java`: `4458fa97483d9477d39983cdaaad653d969fb46c23d9c1ca5be5cacfac989cd9`
+- `TEST-com.nereusstream.delay.store.SloObservationOutboxStoreTest.xml`: `e8f711cd931cf5db646f04f3e1d09c3a185e3f36cc0feb8e9c6d9148a9f2aafb`
+- `TEST-com.nereusstream.delay.store.ShardReadPlanTest.xml`: `81be7903391b525eecddb6aeaac7496d09d13e0ee4282d870b12618fcec297f1`
+
+This closes only byte-preflight and page construction for the local outbox scan. E4 remains in progress: ordinary asynchronous metric export/gap accounting, certification mode and coverage consumer, production limits/configuration/assembly, and end-to-end restart/overflow behavior have not been completed or centrally validated.

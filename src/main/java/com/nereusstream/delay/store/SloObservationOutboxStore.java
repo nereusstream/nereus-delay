@@ -336,26 +336,34 @@ public final class SloObservationOutboxStore {
         if (limits != null && maxBytes > limits.maxBytes()) {
             throw new IllegalArgumentException("SLO outbox scan exceeds the configured byte budget");
         }
-        final List<ShardStore.KeyValue> entries =
-                store.scan(ColumnFamily.META, new byte[] {8, 1}, new byte[] {8, 2}, limit);
-        final List<SloObservationOutbox> result = new ArrayList<>(entries.size());
-        long totalBytes = 0;
-        for (ShardStore.KeyValue entry : entries) {
-            final long encodedBytes = entry.value().length;
-            if (encodedBytes > maxBytes - totalBytes) {
-                if (result.isEmpty()) {
-                    throw new IllegalStateException("SLO outbox record exceeds the export byte budget");
-                }
-                break;
+        final BoundedReadBudget budget = BoundedReadBudget.forValueBytes(
+                limit, maxBytes, Long.MAX_VALUE, System::nanoTime);
+        final List<SloObservationOutbox> result = new ArrayList<>(Math.min(limit, 16));
+        final long[] totalBytes = {0};
+        final ShardStore.VisitResult visitResult = store.visitResult(
+                ColumnFamily.META,
+                new byte[] {8, 1},
+                new byte[] {8, 2},
+                limit,
+                budget,
+                (entry, ignored) -> {
+                    try {
+                        totalBytes[0] = Math.addExact(totalBytes[0], entry.value().length);
+                    } catch (ArithmeticException exception) {
+                        throw new IllegalStateException("SLO outbox export byte usage overflow", exception);
+                    }
+                    result.add(decodeEntry(entry));
+                    return true;
+                });
+        if (visitResult.stop() == ShardStore.VisitStop.INCOMPLETE) {
+            if (visitResult.reason() != BoundedReadBudget.Exhaustion.BYTES || result.isEmpty()) {
+                throw new IllegalStateException("SLO outbox scan did not complete within its read budget");
             }
-            try {
-                totalBytes = Math.addExact(totalBytes, encodedBytes);
-            } catch (ArithmeticException exception) {
-                throw new IllegalStateException("SLO outbox export byte usage overflow", exception);
-            }
-            result.add(decodeEntry(entry));
+        } else if (visitResult.stop() != ShardStore.VisitStop.RANGE_END
+                && visitResult.stop() != ShardStore.VisitStop.RECORD_LIMIT) {
+            throw new IllegalStateException("SLO outbox scan stopped unexpectedly");
         }
-        if (exportRate != null && !result.isEmpty() && !exportRate.tryAcquire(result.size(), totalBytes)) {
+        if (exportRate != null && !result.isEmpty() && !exportRate.tryAcquire(result.size(), totalBytes[0])) {
             throw new IllegalStateException("SLO outbox export rate budget exceeded");
         }
         return List.copyOf(result);

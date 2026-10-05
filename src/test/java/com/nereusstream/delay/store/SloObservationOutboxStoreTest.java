@@ -79,6 +79,33 @@ class SloObservationOutboxStoreTest {
     }
 
     @Test
+    void scanStopsBeforeTheFirstValueThatExceedsTheRemainingEncodedValueBudget() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("slo-outbox-byte-page"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 15);
+        final SloSampleStart first = startWith(1);
+        final SloSampleStart second = startWith(2);
+        final int firstEncodedBytes = ValueEnvelope.encode(
+                        SloObservationOutboxStore.VALUE_TYPE,
+                        SloObservationOutbox.open(first).canonicalBytes())
+                .length;
+        final int secondEncodedBytes = ValueEnvelope.encode(
+                        SloObservationOutboxStore.VALUE_TYPE,
+                        SloObservationOutbox.open(second).canonicalBytes())
+                .length;
+        final long pageByteBudget = (long) firstEncodedBytes + secondEncodedBytes - 1;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final SloObservationOutboxStore outbox = new SloObservationOutboxStore(store);
+            outbox.reconcileDurableStarts(List.of(first, second));
+
+            final List<SloObservationOutbox> page = outbox.scan(10, pageByteBudget);
+
+            assertEquals(1, page.size());
+            assertEquals(first, page.get(0).start());
+        }
+    }
+
+    @Test
     void excludedFinalRequiresPairedHealthyObjectiveAtDurableBoundary() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("slo-outbox-healthy-pair"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 2);

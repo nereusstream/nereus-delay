@@ -800,11 +800,14 @@
     {
       "id": "E4",
       "title": "指标与 durable 证据分层",
-      "status": "PLANNED",
-      "evidence": [],
-      "implementationStatus": "NOT_STARTED",
+      "status": "IN_PROGRESS",
+      "evidence": [
+        "evidence/e4-slo-outbox-value-bounded-scan-focused.log"
+      ],
+      "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
-      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
+      "progress": "SloObservationOutboxStore.scan now pages through ShardStore.visitResult with a value-only byte budget, preserving encoded ValueEnvelope byte semantics while probing lengths before full value arrays. RocksDB scan regression, exact-fit/oversize cases, and ShardReadPlanTest pass; checkstyleTest passes. This is one local outbox-read bound only. The required bounded async metrics exporter/gap accounting, certification mode/coverage consumer, production configuration/assembly, restart/overflow integration, and central validation remain open."
     },
     {
       "id": "E5",

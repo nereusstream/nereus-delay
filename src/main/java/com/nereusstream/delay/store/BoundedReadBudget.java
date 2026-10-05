@@ -9,6 +9,7 @@ public final class BoundedReadBudget {
     private final int maxRecords;
     private final long maxElapsedNanos;
     private final LongSupplier monotonicClockNanos;
+    private final boolean includeKeyBytes;
     private final long startedNanos;
     private long lastObservedNanos;
     private long chargedBytes;
@@ -32,6 +33,21 @@ public final class BoundedReadBudget {
             final long maxBytes,
             final long maxElapsedNanos,
             final LongSupplier monotonicClockNanos) {
+        this(maxRecords, maxBytes, maxElapsedNanos, monotonicClockNanos, true);
+    }
+
+    /** Creates a budget for stores whose established byte limit counts encoded values, not keys. */
+    static BoundedReadBudget forValueBytes(
+            final int maxRecords, final long maxBytes, final long maxElapsedNanos, final LongSupplier clockNanos) {
+        return new BoundedReadBudget(maxRecords, maxBytes, maxElapsedNanos, clockNanos, false);
+    }
+
+    private BoundedReadBudget(
+            final int maxRecords,
+            final long maxBytes,
+            final long maxElapsedNanos,
+            final LongSupplier monotonicClockNanos,
+            final boolean includeKeyBytes) {
         if (maxRecords <= 0 || maxBytes <= 0 || maxElapsedNanos <= 0) {
             throw new IllegalArgumentException("bounded read limits must be positive");
         }
@@ -39,6 +55,7 @@ public final class BoundedReadBudget {
         this.maxBytes = maxBytes;
         this.maxElapsedNanos = maxElapsedNanos;
         this.monotonicClockNanos = Objects.requireNonNull(monotonicClockNanos, "monotonicClockNanos");
+        this.includeKeyBytes = includeKeyBytes;
         startedNanos = readClock();
         lastObservedNanos = startedNanos;
     }
@@ -96,10 +113,14 @@ public final class BoundedReadBudget {
             throw new IllegalArgumentException("bounded read byte lengths must be non-negative");
         }
         final long entryBytes;
-        try {
-            entryBytes = Math.addExact((long) keyBytes, valueBytes);
-        } catch (ArithmeticException overflow) {
-            throw new IllegalStateException("bounded read entry byte charge overflow", overflow);
+        if (includeKeyBytes) {
+            try {
+                entryBytes = Math.addExact((long) keyBytes, valueBytes);
+            } catch (ArithmeticException overflow) {
+                throw new IllegalStateException("bounded read entry byte charge overflow", overflow);
+            }
+        } else {
+            entryBytes = valueBytes;
         }
         actualBytes = Math.addExact(actualBytes, entryBytes);
         actualRecords = Math.addExact(actualRecords, 1);
@@ -125,7 +146,7 @@ public final class BoundedReadBudget {
         return maxBytes;
     }
 
-    /** Includes a key/value returned by the store even when it did not fit the remaining allowance. */
+    /** Includes the attempted byte charge even when it did not fit the remaining allowance. */
     public long actualBytes() {
         return actualBytes;
     }
