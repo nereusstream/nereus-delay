@@ -117,6 +117,48 @@ class WorkerRocksDbUsageMonitorTest {
     }
 
     @Test
+    void physicalUsageMonitorFencesBelowTheCertifiedWorkerFilesystemFloor() throws Exception {
+        final Path root = tempDir.resolve("certified-filesystem-floor");
+        Files.createDirectories(root);
+        final long requiredFreeBytes = Math.addExact(Files.getFileStore(root).getUsableSpace(), 1L << 30);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(root);
+        final WorkerResourceEnvelope envelope = new WorkerResourceEnvelope(
+                256L * 1024 * 1024,
+                128L * 1024 * 1024,
+                128L * 1024 * 1024,
+                64L * 1024 * 1024,
+                64L * 1024 * 1024,
+                640L * 1024 * 1024,
+                64L * 1024 * 1024,
+                1024L * 1024 * 1024,
+                10_000,
+                1_000,
+                Long.MAX_VALUE,
+                requiredFreeBytes,
+                0,
+                0,
+                16L * 1024 * 1024,
+                10_000);
+        final WorkerRuntimeResourceObservation observation = new WorkerRuntimeResourceObservation(
+                128L * 1024 * 1024,
+                64L * 1024 * 1024,
+                640L * 1024 * 1024,
+                1024L * 1024 * 1024,
+                10_000,
+                1,
+                Long.MAX_VALUE,
+                Long.MAX_VALUE);
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config, envelope, observation)) {
+            final WorkerRocksDbUsageMonitor monitor =
+                    resources.startRocksDbUsageMonitor(limits(), Duration.ofHours(1));
+            monitor.pollNow();
+            assertNotNull(monitor.lastFailure());
+            assertEquals(WorkerRuntimeSafetyGate.State.DRAIN_OR_MIGRATE, resources.runtimeSafetyState());
+        }
+    }
+
+    @Test
     void overCapacityObservationFencesTheSharedSafetyGate() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("over-capacity"));
         final WorkerResourceEnvelope envelope = envelope(700L * 1024 * 1024);

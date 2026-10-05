@@ -260,7 +260,13 @@ public final class SharedRocksDbResources implements AutoCloseable {
                 throw failure;
             }
         }
-        limits.validate(snapshots, config.rootPath());
+        final long workerEnvelopeMinimumFilesystemFreeBytes;
+        synchronized (this) {
+            workerEnvelopeMinimumFilesystemFreeBytes = runtimeSafetyGate == null
+                    ? 0
+                    : runtimeSafetyGate.minimumRuntimeUsableFilesystemBytes();
+        }
+        limits.validate(snapshots, config.rootPath(), workerEnvelopeMinimumFilesystemFreeBytes);
         return List.copyOf(snapshots);
     }
 

@@ -61,8 +61,18 @@ public record RocksDbUsageLimits(
      * backing {@code rootPath}.
      */
     public void validate(final List<RocksDbUsageSnapshot> snapshots, final Path rootPath) {
+        validate(snapshots, rootPath, 0);
+    }
+
+    void validate(
+            final List<RocksDbUsageSnapshot> snapshots,
+            final Path rootPath,
+            final long workerEnvelopeMinimumFilesystemFreeBytes) {
         Objects.requireNonNull(snapshots, "snapshots");
         Objects.requireNonNull(rootPath, "rootPath");
+        if (workerEnvelopeMinimumFilesystemFreeBytes < 0) {
+            throw new IllegalArgumentException("Worker envelope filesystem floor cannot be negative");
+        }
         final Set<ShardId> identities = new HashSet<>();
         long walBytes = 0;
         long manifestBytes = 0;
@@ -122,8 +132,15 @@ public record RocksDbUsageLimits(
         } catch (IOException exception) {
             throw new IllegalStateException("cannot inspect filesystem capacity for " + rootPath, exception);
         }
-        if (usableBytes < minimumFilesystemFreeBytes) {
-            throw new IllegalArgumentException("filesystem free space is below the RocksDB safety floor");
+        validateUsableFilesystemBytes(usableBytes, workerEnvelopeMinimumFilesystemFreeBytes);
+    }
+
+    void validateUsableFilesystemBytes(final long usableBytes, final long workerEnvelopeMinimumFilesystemFreeBytes) {
+        if (usableBytes < 0 || workerEnvelopeMinimumFilesystemFreeBytes < 0) {
+            throw new IllegalArgumentException("filesystem free-space values cannot be negative");
+        }
+        if (usableBytes < Math.max(minimumFilesystemFreeBytes, workerEnvelopeMinimumFilesystemFreeBytes)) {
+            throw new IllegalArgumentException("filesystem free space is below the Worker/RocksDB safety floor");
         }
     }
 

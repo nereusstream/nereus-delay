@@ -41,6 +41,20 @@ class RocksDbUsageLimitsTest {
                 () -> limits.validate(List.of(value, sameShardWithDifferentCounters), tempDir));
     }
 
+    @Test
+    void combinesConfiguredAndWorkerEnvelopeFilesystemFloors() {
+        final RocksDbUsageLimits limits = limits(
+                30, 50, 4, 8, 30, 50, 4, 8, 30, 50, 4, 8, 200, 10, 30, 50, 4);
+
+        assertDoesNotThrow(() -> limits.validateUsableFilesystemBytes(20, 20));
+        assertThrows(IllegalArgumentException.class, () -> limits.validateUsableFilesystemBytes(19, 20));
+
+        final RocksDbUsageLimits stricterLimits = limits(
+                30, 50, 4, 8, 30, 50, 4, 8, 30, 50, 4, 8, 200, 30, 30, 50, 4);
+        assertDoesNotThrow(() -> stricterLimits.validateUsableFilesystemBytes(30, 20));
+        assertThrows(IllegalArgumentException.class, () -> stricterLimits.validateUsableFilesystemBytes(29, 20));
+    }
+
     private static RocksDbUsageSnapshot snapshot(
             final long walBytes,
             final long manifestBytes,

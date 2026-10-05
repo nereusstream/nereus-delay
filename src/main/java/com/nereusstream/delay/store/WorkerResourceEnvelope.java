@@ -153,14 +153,18 @@ public record WorkerResourceEnvelope(
         if (observation.maxFilesystemBytes() < maxFilesystemBytes) {
             throw new IllegalArgumentException("certified filesystem capacity exceeds runtime capacity");
         }
-        // validate(config) already proves this sum fits within maxFilesystemBytes.
-        final long requiredUsableFilesystemBytes = physicalDiskSafetyWatermarkBytes
-                + checkpointRestoreTempHeadroomBytes
-                + compactionTempHeadroomBytes;
-        if (observation.usableFilesystemBytes() < requiredUsableFilesystemBytes) {
+        if (observation.usableFilesystemBytes() < minimumRuntimeUsableFilesystemBytes()) {
             throw new IllegalArgumentException(
                     "filesystem usable space is below the safety watermark and temporary headroom envelope");
         }
+    }
+
+    /** Minimum free space shared with Worker physical-usage limits. */
+    long minimumRuntimeUsableFilesystemBytes() {
+        // validate(config) proves this sum fits within maxFilesystemBytes.
+        return physicalDiskSafetyWatermarkBytes
+                + checkpointRestoreTempHeadroomBytes
+                + compactionTempHeadroomBytes;
     }
 
     /** Stable digest for placement/configuration identity and audit evidence. */

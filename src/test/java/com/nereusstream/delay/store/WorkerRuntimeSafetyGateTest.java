@@ -47,6 +47,22 @@ class WorkerRuntimeSafetyGateTest {
     }
 
     @Test
+    void stagedEnvelopeRaisesTheSharedPhysicalFilesystemFloorUntilActivation() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("staged-filesystem-floor"));
+        final WorkerRuntimeResourceObservation healthy = observation(128L * 1024 * 1024);
+        final WorkerRuntimeSafetyGate gate = new WorkerRuntimeSafetyGate(config, envelope(700L * 1024 * 1024), healthy);
+        final long stagedDiskWatermarkBytes = 4L * 1024 * 1024 * 1024 + 512L * 1024 * 1024;
+        final WorkerResourceEnvelope staged = envelope(640L * 1024 * 1024, stagedDiskWatermarkBytes);
+
+        gate.stage(staged, healthy);
+        assertEquals(5L * 1024 * 1024 * 1024, gate.minimumRuntimeUsableFilesystemBytes());
+
+        gate.beginDrainOrMigrate();
+        gate.activateAfterDrain(0, 0, false, healthy);
+        assertEquals(5L * 1024 * 1024 * 1024, gate.minimumRuntimeUsableFilesystemBytes());
+    }
+
+    @Test
     void sharedResourcesFenceNewOwnershipAfterRuntimeShrink() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("resources"));
         final WorkerResourceEnvelope envelope = envelope(700L * 1024 * 1024);
@@ -64,6 +80,11 @@ class WorkerRuntimeSafetyGateTest {
     }
 
     private static WorkerResourceEnvelope envelope(final long maxProcessRssBytes) {
+        return envelope(maxProcessRssBytes, 2L * 1024 * 1024 * 1024);
+    }
+
+    private static WorkerResourceEnvelope envelope(
+            final long maxProcessRssBytes, final long physicalDiskSafetyWatermarkBytes) {
         return new WorkerResourceEnvelope(
                 256L * 1024 * 1024,
                 128L * 1024 * 1024,
@@ -76,7 +97,7 @@ class WorkerRuntimeSafetyGateTest {
                 10_000,
                 1_000,
                 10L * 1024 * 1024 * 1024,
-                2L * 1024 * 1024 * 1024,
+                physicalDiskSafetyWatermarkBytes,
                 256L * 1024 * 1024,
                 256L * 1024 * 1024,
                 16L * 1024 * 1024,

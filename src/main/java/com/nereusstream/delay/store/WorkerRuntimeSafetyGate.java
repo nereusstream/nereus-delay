@@ -160,6 +160,13 @@ public final class WorkerRuntimeSafetyGate {
         return certifiedEnvelope.digest();
     }
 
+    synchronized long minimumRuntimeUsableFilesystemBytes() {
+        final long certifiedMinimum = certifiedEnvelope.minimumRuntimeUsableFilesystemBytes();
+        return stagedEnvelope == null
+                ? certifiedMinimum
+                : Math.max(certifiedMinimum, stagedEnvelope.minimumRuntimeUsableFilesystemBytes());
+    }
+
     public synchronized byte[] stagedEnvelopeDigest() {
         return stagedEnvelope == null ? null : stagedEnvelope.digest();
     }
