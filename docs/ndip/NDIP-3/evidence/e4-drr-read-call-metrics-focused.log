@@ -1,0 +1,28 @@
+# E4 Target DRR refresh/probe call histograms focused evidence
+
+Date: 2026-10-06
+Base revision: ba3ec7310f14c891b89383c45888b0d9468b574f
+
+Command:
+`./gradlew test --tests com.nereusstream.delay.ownership.TargetWorkerOrdinaryDrrTest --tests com.nereusstream.delay.scheduler.OpenTelemetryMetricExporterTest checkstyleTest --no-daemon --console=plain`
+
+Result: `BUILD SUCCESSFUL`; `TargetWorkerOrdinaryDrrTest` passed 29/29 and `OpenTelemetryMetricExporterTest` passed 1/1, with no skips, failures, or errors. `checkstyleTest` passed. The DRR regression performs two successful ordinary Claims and verifies one queue-refresh and one selected-head probe invocation in each turn without changing either Claim result. The OTel SDK `InMemoryMetricReader` verifies both histogram values, unit `1`, and empty attributes.
+
+Each ordinary DRR turn now records aggregate counts for calls to `Reads.refresh` and `Reads.probe`, including refresh retry after a stale probe. The counters are allocated only when metrics are enabled. `Reads.refresh` can hit the Worker head cache, so these events count seam invocations, not physical RocksDB scans, read bytes, or queue depth. Recovery freeze and Native turns are outside this instrumentation. Events use the existing bounded asynchronous queue and OpenTelemetry Meter adapter; no Store write or Claim-selection behavior changed.
+
+Additional checks: `./gradlew checkDocumentation --no-daemon --console=plain` passed; `jq empty docs/ndip/NDIP-3/progress.json` and `git diff --check` passed. `./gradlew checkstyleMain --no-daemon --console=plain` reports only the two unchanged 123-character lines in `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:376`; no changed source file is reported.
+
+Still open: physical page-scan counts/bytes, actual queue depth, physical-send latency, application SDK/provider/exporter configuration, restart and overflow gap coverage, certification mode/generation/coverage, and central validation. E4 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
+
+Source SHA-256:
+- `src/main/java/com/nereusstream/delay/ownership/TargetWorkerOrdinaryDrr.java`: a4eee395ad9d183e242c02d5264b65daa3a1f95fd1a21ce531708e4ce6a9b9fa
+- `src/main/java/com/nereusstream/delay/scheduler/BoundedAsyncMetricExporter.java`: 6b482fa8a28f78b2e6cd470015e2dc4e1a3506d6a099d4b8577dc4a7c53f45ec
+- `src/main/java/com/nereusstream/delay/scheduler/OpenTelemetryMetricExporter.java`: 22a48300b00d0815b570ac0f0fa45b71783e21f9ef314e2ffe6b8034786c114e
+- `src/test/java/com/nereusstream/delay/ownership/TargetWorkerOrdinaryDrrTest.java`: d5e321b9b283700ed20ce74f3aaa7eaa468642e6a6e11fa1c79282cf19be435d
+- `src/test/java/com/nereusstream/delay/scheduler/OpenTelemetryMetricExporterTest.java`: 0184fa54ffde6b4992b5f778d6f5ed9e89bb8250d847bddbc734ab5b8380aad7
+- `docs/ndip/NDIP-3/01-目标分区队列与调度热路径设计.md`: dec4eea5d90e869db69227c39f27d28622d15d3f705b133439b1f911c99b3e72
+- `docs/ndip/NDIP-3/12-集中验证交接清单.md`: eeadbeee7b70042e31ea72c6f597a68e5d4ca93b7483979d8973e397ac44b2e2
+- `docs/ndip/NDIP-3/04-执行记录.md`: b933ec08f906448fbeff7bf11575edb4a1517f79ed735c2c38c06cf4a6da3878
+- `docs/ndip/NDIP-3/progress.json`: a0d4b12e3ba2fd09aa3212b00b71814adccff0f563a19b90065295916ff500fc
+- `build/test-results/test/TEST-com.nereusstream.delay.ownership.TargetWorkerOrdinaryDrrTest.xml`: c559a40a5dcb9ed29e64a9d03b6882c3fb7abb3fa1595f026d16c64cd740b2b0
+- `build/test-results/test/TEST-com.nereusstream.delay.scheduler.OpenTelemetryMetricExporterTest.xml`: 26e6f5711c5e5f95b39ae1885b8071205d45a643a496e10ae03712743a08ca75

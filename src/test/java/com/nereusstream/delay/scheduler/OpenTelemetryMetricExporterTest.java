@@ -33,9 +33,15 @@ class OpenTelemetryMetricExporterTest {
             assertEquals(
                     BoundedAsyncMetricExporter.OfferResult.ACCEPTED,
                     metrics.record(new MetricEvent(Metric.TARGET_DRR_TARGET_SERVICE_INTERVAL_NANOS, 17)));
+            assertEquals(
+                    BoundedAsyncMetricExporter.OfferResult.ACCEPTED,
+                    metrics.record(new MetricEvent(Metric.TARGET_DRR_TURN_QUEUE_REFRESH_CALLS, 2)));
+            assertEquals(
+                    BoundedAsyncMetricExporter.OfferResult.ACCEPTED,
+                    metrics.record(new MetricEvent(Metric.TARGET_DRR_TURN_HEAD_PROBE_CALLS, 1)));
             metrics.stopAccepting();
             assertTrue(metrics.awaitTermination(Duration.ofSeconds(5)));
-            assertEquals(4, metrics.snapshot().exported());
+            assertEquals(6, metrics.snapshot().exported());
 
             final Map<String, MetricData> observed = reader.collectAllMetrics().stream()
                     .collect(Collectors.toMap(MetricData::getName, Function.identity()));
@@ -75,6 +81,24 @@ class OpenTelemetryMetricExporterTest {
             assertEquals(1, interval.getCount());
             assertEquals(17.0, interval.getSum(), 0.0);
             assertTrue(interval.getAttributes().isEmpty());
+
+            final var refreshCalls = observed.get("nereus.target.drr.turn.queue_refresh.calls");
+            assertEquals("1", refreshCalls.getUnit());
+            final var refreshCallPoint = refreshCalls.getHistogramData().getPoints().stream()
+                    .findFirst()
+                    .orElseThrow();
+            assertEquals(1, refreshCallPoint.getCount());
+            assertEquals(2.0, refreshCallPoint.getSum(), 0.0);
+            assertTrue(refreshCallPoint.getAttributes().isEmpty());
+
+            final var headProbeCalls = observed.get("nereus.target.drr.turn.head_probe.calls");
+            assertEquals("1", headProbeCalls.getUnit());
+            final var headProbeCallPoint = headProbeCalls.getHistogramData().getPoints().stream()
+                    .findFirst()
+                    .orElseThrow();
+            assertEquals(1, headProbeCallPoint.getCount());
+            assertEquals(1.0, headProbeCallPoint.getSum(), 0.0);
+            assertTrue(headProbeCallPoint.getAttributes().isEmpty());
         }
     }
 }

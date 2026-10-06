@@ -86,6 +86,20 @@ class TargetWorkerOrdinaryDrrTest {
             assertTrue(events.stream().anyMatch(event -> event.metric()
                     == BoundedAsyncMetricExporter.Metric.TARGET_DRR_TURN_SCHEDULING_BYTES
                     && event.value() == 50));
+            assertEquals(
+                    2,
+                    events.stream()
+                            .filter(event -> event.metric()
+                                    == BoundedAsyncMetricExporter.Metric.TARGET_DRR_TURN_QUEUE_REFRESH_CALLS
+                                    && event.value() == 1)
+                            .count());
+            assertEquals(
+                    2,
+                    events.stream()
+                            .filter(event -> event.metric()
+                                    == BoundedAsyncMetricExporter.Metric.TARGET_DRR_TURN_HEAD_PROBE_CALLS
+                                    && event.value() == 1)
+                            .count());
             assertTrue(events.stream().anyMatch(event -> event.metric()
                     == BoundedAsyncMetricExporter.Metric.TARGET_DRR_CLAIM_TURNS && event.value() == 1));
             assertEquals(

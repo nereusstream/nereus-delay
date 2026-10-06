@@ -38,7 +38,9 @@ public final class BoundedAsyncMetricExporter implements AutoCloseable {
         TARGET_DRR_STOP_CREDIT_WAIT(7, Instrument.COUNTER, "nereus.target.drr.stop.credit_wait"),
         TARGET_DRR_STOP_BUDGET_WAIT(8, Instrument.COUNTER, "nereus.target.drr.stop.budget_wait"),
         TARGET_DRR_TARGET_SERVICE_INTERVAL_NANOS(
-                9, Instrument.HISTOGRAM, "nereus.target.drr.target.service.interval.nanos");
+                9, Instrument.HISTOGRAM, "nereus.target.drr.target.service.interval.nanos"),
+        TARGET_DRR_TURN_QUEUE_REFRESH_CALLS(10, Instrument.HISTOGRAM, "nereus.target.drr.turn.queue_refresh.calls"),
+        TARGET_DRR_TURN_HEAD_PROBE_CALLS(11, Instrument.HISTOGRAM, "nereus.target.drr.turn.head_probe.calls");
 
         private final int wireValue;
         private final Instrument instrument;

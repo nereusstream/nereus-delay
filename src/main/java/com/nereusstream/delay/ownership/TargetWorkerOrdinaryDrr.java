@@ -204,6 +204,11 @@ public final class TargetWorkerOrdinaryDrr {
     private record Selection<T>(
             Optional<Candidate<T>> candidate, boolean due, boolean budgetBlocked, Long nextWakeEpochMs) {}
 
+    private static final class TurnReadCounts {
+        private long queueRefreshCalls;
+        private long headProbeCalls;
+    }
+
     private enum VisitKind {
         CLAIMED,
         CREDIT_WAIT,
@@ -912,7 +917,7 @@ public final class TargetWorkerOrdinaryDrr {
             final TargetState target = ring.get(freezeCursor);
             final Selection<T> selection;
             try {
-                selection = selectCandidate(target, nowEpochMs, limits.sendEnvelopeBytes(), selector);
+                selection = selectCandidate(target, nowEpochMs, limits.sendEnvelopeBytes(), selector, null);
             } catch (ReadIncompleteException incomplete) {
                 return new FreezeTurn(FreezeStop.READ_INCOMPLETE, visits, firstPassPending.size());
             }
@@ -957,6 +962,7 @@ public final class TargetWorkerOrdinaryDrr {
         }
         final long started = clock();
         final long metricsStarted = metrics == null ? 0L : System.nanoTime();
+        final TurnReadCounts readCounts = metrics == null ? null : new TurnReadCounts();
         final List<T> claims = new ArrayList<>();
         long bytes = 0;
         int visits = 0;
@@ -978,10 +984,10 @@ public final class TargetWorkerOrdinaryDrr {
             }
             final Visit<T> visit;
             try {
-                visit = visit(target, nowEpochMs, budget.maxBytes() - bytes, selector);
+                visit = visit(target, nowEpochMs, budget.maxBytes() - bytes, selector, readCounts);
             } catch (ReadIncompleteException incomplete) {
                 return reportOrdinaryTurn(
-                        new Turn<>(claims, visits, bytes, Stop.READ_INCOMPLETE), metricsStarted);
+                        new Turn<>(claims, visits, bytes, Stop.READ_INCOMPLETE), metricsStarted, readCounts);
             }
             if (visit.kind() == VisitKind.UNAVAILABLE || visit.kind() == VisitKind.CLAIMED) {
                 firstPassPending.remove(target.id);
@@ -997,7 +1003,7 @@ public final class TargetWorkerOrdinaryDrr {
             }
         }
         final Stop stop = creditWait ? Stop.CREDIT_WAIT : budgetWait ? Stop.BUDGET_WAIT : Stop.NORMAL;
-        return reportOrdinaryTurn(new Turn<>(claims, visits, bytes, stop), metricsStarted);
+        return reportOrdinaryTurn(new Turn<>(claims, visits, bytes, stop), metricsStarted, readCounts);
     }
 
     private void recordOrdinaryTargetServiceInterval(final TargetState target) {
@@ -1014,7 +1020,8 @@ public final class TargetWorkerOrdinaryDrr {
         target.ordinaryServiceObserved = true;
     }
 
-    private <T> Turn<T> reportOrdinaryTurn(final Turn<T> turn, final long metricsStarted) {
+    private <T> Turn<T> reportOrdinaryTurn(
+            final Turn<T> turn, final long metricsStarted, final TurnReadCounts readCounts) {
         if (metrics == null) {
             return turn;
         }
@@ -1025,6 +1032,10 @@ public final class TargetWorkerOrdinaryDrr {
         metrics.record(new BoundedAsyncMetricExporter.MetricEvent(
                 BoundedAsyncMetricExporter.Metric.TARGET_DRR_TURN_DURATION_NANOS,
                 Math.max(0L, System.nanoTime() - metricsStarted)));
+        metrics.record(new BoundedAsyncMetricExporter.MetricEvent(
+                BoundedAsyncMetricExporter.Metric.TARGET_DRR_TURN_QUEUE_REFRESH_CALLS, readCounts.queueRefreshCalls));
+        metrics.record(new BoundedAsyncMetricExporter.MetricEvent(
+                BoundedAsyncMetricExporter.Metric.TARGET_DRR_TURN_HEAD_PROBE_CALLS, readCounts.headProbeCalls));
         if (!turn.claims().isEmpty()) {
             metrics.record(new BoundedAsyncMetricExporter.MetricEvent(
                     BoundedAsyncMetricExporter.Metric.TARGET_DRR_CLAIM_TURNS, 1));
@@ -1148,8 +1159,12 @@ public final class TargetWorkerOrdinaryDrr {
     }
 
     private <T> Visit<T> visit(
-            final TargetState target, final long nowEpochMs, final long remainingBytes, final Selector<T> selector) {
-        final Selection<T> selection = selectCandidate(target, nowEpochMs, remainingBytes, selector);
+            final TargetState target,
+            final long nowEpochMs,
+            final long remainingBytes,
+            final Selector<T> selector,
+            final TurnReadCounts readCounts) {
+        final Selection<T> selection = selectCandidate(target, nowEpochMs, remainingBytes, selector, readCounts);
         if (selection.candidate().isPresent()) {
             final Candidate<T> candidate = selection.candidate().orElseThrow();
             final long credited = addQuantum(target.credit);
@@ -1201,13 +1216,20 @@ public final class TargetWorkerOrdinaryDrr {
     }
 
     private <T> Selection<T> selectCandidate(
-            final TargetState target, final long nowEpochMs, final long remainingBytes, final Selector<T> selector) {
+            final TargetState target,
+            final long nowEpochMs,
+            final long remainingBytes,
+            final Selector<T> selector,
+            final TurnReadCounts readCounts) {
         boolean due = false;
         boolean budgetBlocked = false;
         sources:
         for (int offset = 0; offset < target.sources.size(); offset++) {
             final int sourceIndex = (target.sourceCursor + offset) % target.sources.size();
             final SourceState source = target.sources.get(sourceIndex);
+            if (readCounts != null) {
+                readCounts.queueRefreshCalls++;
+            }
             final Optional<TargetQueueSnapshotReader.Entry> current = reads.refresh(source.shard, target.id);
             if (current.isEmpty()) {
                 continue;
@@ -1234,8 +1256,14 @@ public final class TargetWorkerOrdinaryDrr {
                 due = true;
                 final TargetHeadCostProbe.Cost cost;
                 try {
+                    if (readCounts != null) {
+                        readCounts.headProbeCalls++;
+                    }
                     cost = reads.probe(source.shard, head);
                 } catch (IllegalStateException staleOrInvalid) {
+                    if (readCounts != null) {
+                        readCounts.queueRefreshCalls++;
+                    }
                     final var latest = reads.refresh(source.shard, target.id);
                     if (latest.isEmpty()
                             || !Arrays.equals(
