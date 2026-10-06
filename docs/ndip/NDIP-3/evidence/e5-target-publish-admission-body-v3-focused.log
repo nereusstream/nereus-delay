@@ -67,8 +67,10 @@ Focused command:
 Result: BUILD SUCCESSFUL; checkstyleTest passed; TargetCommandStoreTest 5/5, zero skips, failures or errors. After
 actual Admission advances the strict watermark, a lower-watermark Reschedule against a later Message runs through
 the same Worker source path and returns ORDER_BEFORE_ADMISSION_WATERMARK. It preserves the exact Message and
-OrderState bytes while persisting the rejection and advancing the source frontier. This verifies first source
-application only; Reschedule replay/recovery and cancel remain untested. The ACK callback is not real Broker loss.
+OrderState bytes while persisting the rejection and advancing the source frontier. A following source Cancel writes
+the later Message as CANCELED terminal while preserving the Admission watermark and PUBLISHING barrier; the
+serviceable head remains empty. Reschedule and Cancel are verified only on first source application; replay and
+recovery remain untested. The ACK callback is not real Broker loss.
 
 Scope limit: accepted Target Admission, Claim consumption, strict watermark/barrier, late Schedule/Reschedule
 first-application rejection, and Worker ACK-unknown retry are now verified on this actual RocksDB path. Production
@@ -92,5 +94,5 @@ a7d00c0819ac701e79dccbc91ade779bbd6a1dd386cc2628f71bf8901e95c10e  src/test/java/
 3f0bf8777101e1d2cc847f826da1424d41c07105f8bb878f885a078d31b4275d  build/test-results/test/TEST-com.nereusstream.delay.protocol.TargetPublishAdmissionBodyTest.xml
 433975a450d9cfe9a83e55de69d9c083e46b8f1197b08bfd27cc4c9009fb8895  build/test-results/test/TEST-com.nereusstream.delay.protocol.PublishAdmissionBodyTest.xml
 fc5e918aa36772ba0c77d05860285c6d446f00510c3c6e2580fcf2cc59816fcf  src/main/java/com/nereusstream/delay/ownership/TargetSourceApplyRuntime.java
-5f94cd28008079f0c2066073085fb62c25e1a4bd4f289ba519c6caf0180c007b  src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java
-fde5040d27b3dd086575bfd3449bb6b79abfa996d54e78e7b7750de624872172  build/test-results/test/TEST-com.nereusstream.delay.runtime.TargetCommandStoreTest.xml
+bf16b39501b70c23e7bc0f8e72352c92440e46f45e19560f890cc3131146e7a3  src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java
+43c2d35ccbb2862983f1037a3e39aa7cbe0ec5c01171282b8403b564453504e8  build/test-results/test/TEST-com.nereusstream.delay.runtime.TargetCommandStoreTest.xml

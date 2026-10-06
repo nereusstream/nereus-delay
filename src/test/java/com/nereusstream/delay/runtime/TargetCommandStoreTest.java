@@ -2699,6 +2699,72 @@ class TargetCommandStoreTest {
                             assertArrayEquals(
                                     admittedOrderState, replacementStore.get(ColumnFamily.META, admittedOrderKey));
 
+                            final var lateCancelBefore =
+                                    (KafkaSourcePosition) replacementStore.appliedShardLogPosition();
+                            final var lateCancelAt = source(
+                                    lateCancelBefore,
+                                    lateCancelBefore.offset() + 1,
+                                    lateCancelBefore.brokerLogAppendTimeEpochMs() + 1);
+                            final var lateCancel = cancel(
+                                    otherFollowerSchedule.delayMessageId(), lateCancelAt, 47);
+                            expectedLateCommand.set(lateCancel);
+                            final var lateCancelEntry = new SourceReplayRecord(lateCancel, lateCancelAt, null, null);
+                            final var lateCancelAcknowledgements = new java.util.concurrent.atomic.AtomicInteger();
+                            replacementNextSourceRecord.set(new SourceRecordConsumer.PolledSourceRecord(
+                                    lateCancelEntry,
+                                    (entry, outcome) -> {
+                                        assertEquals(lateCancelEntry, entry);
+                                        assertEquals(lateCancelAt, outcome.position());
+                                        assertEquals(StableCode.CANCELED, outcome.commandResult().stableCode());
+                                        assertEquals(1, lateCancelAcknowledgements.incrementAndGet());
+                                        return SourceAcknowledgement.AcknowledgementResult.acked();
+                                    }));
+                            final long beforeLateCancelMutation = replacementStore.shardMutationSequence();
+                            final long beforeLateCancelVersion = replacementStore.latestSequenceNumber();
+                            final var lateCancelTurn = replacementWorker.runSourceTurn(
+                                    new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 101);
+                            assertEquals(
+                                    SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                                    lateCancelTurn.status(),
+                                    () -> String.valueOf(lateCancelTurn.failure()));
+                            assertEquals(lateCancelEntry, lateCancelTurn.entry());
+                            assertEquals(1, lateCancelAcknowledgements.get());
+                            assertTrue(replacementWorker.pendingSourceEntry().isEmpty());
+                            assertEquals(beforeLateCancelMutation + 1, replacementStore.shardMutationSequence());
+                            assertTrue(replacementStore.latestSequenceNumber() > beforeLateCancelVersion);
+                            assertEquals(lateCancelAt, replacementStore.appliedShardLogPosition());
+                            final var canceledFollower = TargetMessageRecord.decodeForStore(
+                                    followerMessageKey,
+                                    TargetValueEnvelope.decode(
+                                                    replacementStore.get(ColumnFamily.ID, followerMessageKey),
+                                                    TargetMessageRecord.VALUE_TYPE)
+                                            .payload(),
+                                    otherShard);
+                            assertEquals(GenerationAggregateState.CANCELED, canceledFollower.aggregateState());
+                            assertEquals(CurrentSendWorkKind.NONE, canceledFollower.runtime().currentWorkKind());
+                            final var canceledTerminal = TargetTerminalGenerationRecord.decode(
+                                    TargetValueEnvelope.decode(
+                                                    replacementStore.get(
+                                                            ColumnFamily.TERMINAL,
+                                                            TargetTerminalGenerationRecord.key(
+                                                                    canceledFollower.locator())),
+                                                    TargetTerminalGenerationRecord.VALUE_TYPE)
+                                            .payload());
+                            assertEquals(canceledFollower.locator(), canceledTerminal.locator());
+                            assertEquals(StableCode.CANCELED, canceledTerminal.terminalCode());
+                            final var orderAfterCancel = TargetOrderState.decode(TargetValueEnvelope.decode(
+                                            replacementStore.get(ColumnFamily.META, admittedOrderKey),
+                                            TargetOrderState.VALUE_TYPE)
+                                    .payload());
+                            orderAfterCancel.requireSuccessorOf(admittedOrder);
+                            assertArrayEquals(
+                                    admittedOrder.lastAdmittedOrder().encodedKey(),
+                                    orderAfterCancel.lastAdmittedOrder().encodedKey());
+                            assertArrayEquals(
+                                    admittedOrder.barrier().canonicalBytes(),
+                                    orderAfterCancel.barrier().canonicalBytes());
+                            assertNull(orderAfterCancel.serviceableHead());
+
                             final var replacementBeforeReplay =
                                     (KafkaSourcePosition) replacementStore.appliedShardLogPosition();
                             final var replayAt = source(
