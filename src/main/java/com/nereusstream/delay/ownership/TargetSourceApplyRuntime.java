@@ -967,6 +967,17 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                     throw new ReadYield(incomplete);
                 }
                 result = expiries.commit(first, writes(control.commit(), entry, clock));
+            } else if (mutation.mutation().type() == SystemMutationType.TARGET_PUBLISH_ADMISSION) {
+                final var control = Objects.requireNonNull(
+                        authorities.admissions().resolve(mutation), "Target Publish Admission authority");
+                final TargetPublishAdmissionStore.Prepared first;
+                try {
+                    first = targetAdmissions.prepareFirst(
+                            budget, mutation.mutation(), entry.position(), control.authority());
+                } catch (ReadIncompleteException incomplete) {
+                    throw new ReadYield(incomplete);
+                }
+                result = targetAdmissions.commit(first, writes(control.commit(), entry, clock));
             } else if (isTargetClose(mutation.mutation())) {
                 final var control =
                         Objects.requireNonNull(authorities.closes().resolve(mutation), "Target Close control");
@@ -1005,17 +1016,6 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                     throw new ReadYield(incomplete);
                 }
                 result = nativePolicyControls.commit(first, writes(control.commit(), entry, clock));
-            } else if (mutation.mutation().type() == SystemMutationType.TARGET_PUBLISH_ADMISSION) {
-                final var control = Objects.requireNonNull(
-                        authorities.admissions().resolve(mutation), "Target Publish Admission authority");
-                final TargetPublishAdmissionStore.Prepared first;
-                try {
-                    first = targetAdmissions.prepareFirst(
-                            budget, mutation.mutation(), entry.position(), control.authority());
-                } catch (ReadIncompleteException incomplete) {
-                    throw new ReadYield(incomplete);
-                }
-                result = targetAdmissions.commit(first, writes(control.commit(), entry, clock));
             } else {
                 final var control = Objects.requireNonNull(authorities.grants().resolve(mutation), "grant control");
                 final TargetQuotaGrantStore.Prepared first;

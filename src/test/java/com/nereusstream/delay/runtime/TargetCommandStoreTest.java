@@ -103,8 +103,10 @@ import com.nereusstream.delay.protocol.TargetNativePolicyScope;
 import com.nereusstream.delay.protocol.TargetPartitionHashInput;
 import com.nereusstream.delay.protocol.TargetPartitionId;
 import com.nereusstream.delay.protocol.TargetPartitionPolicy;
+import com.nereusstream.delay.protocol.TargetPublishAdmissionBody;
 import com.nereusstream.delay.protocol.TargetQueueState;
 import com.nereusstream.delay.protocol.TargetQuotaAggregate;
+import com.nereusstream.delay.protocol.TargetQuotaAttemptBudget;
 import com.nereusstream.delay.protocol.TargetQuotaGrant;
 import com.nereusstream.delay.protocol.TargetQuotaGrantActivation;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlBody;
@@ -124,6 +126,7 @@ import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.CheckpointManifestLimits;
 import com.nereusstream.delay.store.CheckpointUploadIntentStore;
 import com.nereusstream.delay.store.ColumnFamily;
+import com.nereusstream.delay.store.KeyCodec;
 import com.nereusstream.delay.store.ShardStore;
 import com.nereusstream.delay.store.ShardStoreConfig;
 import com.nereusstream.delay.store.SharedRocksDbResources;
@@ -2301,7 +2304,32 @@ class TargetCommandStoreTest {
                                             replacementOwnerReads,
                                             entry -> {
                                                 throw new AssertionError("replacement Shard resolved a command");
-                                            }),
+                                            },
+                                            entry -> {
+                                                throw new AssertionError(
+                                                        "replacement Shard resolved a Native policy control");
+                                            },
+                                            entry -> new TargetSourceApplyRuntime.AdmissionControl(
+                                                    (actualScope, writer, mutation, source) -> {
+                                                        assertEquals(otherScope, actualScope);
+                                                        final var writerOwner = replacementOwnerIdentity[0];
+                                                        assertArrayEquals(
+                                                                AuthorIdentity.owner(
+                                                                                writerOwner.deploymentId(),
+                                                                                writerOwner.workerRunId(),
+                                                                                writerOwner.ownerEpoch(),
+                                                                                writerOwner.leaseFencingDigest())
+                                                                        .canonicalBytes(),
+                                                                writer.canonicalBytes());
+                                                        return new TargetPublishAdmissionVerifier.Authorization(
+                                                                keys.getPublic(),
+                                                                ProtocolTuple.targetPublishAdmission(),
+                                                                10,
+                                                                10,
+                                                                100,
+                                                                (boundScope, boundWriter, position, evidence) -> true);
+                                                    },
+                                                    (a, b, c) -> guard())),
                                     new TargetSourceApplyRuntime.Limits(
                                             4096, 32L << 20, 60_000_000_000L, 16, 1),
                                     System::nanoTime);
@@ -2392,6 +2420,56 @@ class TargetCommandStoreTest {
                             schedulerEpoch.set(0);
                             schedulerClaimGate.release();
                             ordinaryLoop.close();
+
+                            final var admissionBefore =
+                                    (KafkaSourcePosition) replacementStore.appliedShardLogPosition();
+                            final var admissionAt = source(
+                                    admissionBefore,
+                                    admissionBefore.offset() + 1,
+                                    admissionBefore.brokerLogAppendTimeEpochMs() + 1);
+                            final var admission = targetAdmission(
+                                    replacementStore,
+                                    replacementLoopClaim,
+                                    replacementOwnerIdentity[0],
+                                    keys,
+                                    admissionAt);
+                            final var admissionAcknowledgements = new java.util.concurrent.atomic.AtomicInteger();
+                            replacementNextSourceRecord.set(new SourceRecordConsumer.PolledSourceRecord(
+                                    admission.entry(),
+                                    (entry, outcome) -> {
+                                        assertEquals(admission.entry(), entry);
+                                        assertEquals(admissionAt, outcome.position());
+                                        assertEquals(StableCode.OK, outcome.systemMutationResult().stableCode());
+                                        assertEquals(ApplyStatus.APPLIED, outcome.systemMutationResult().applyStatus());
+                                        return admissionAcknowledgements.incrementAndGet() == 1
+                                                ? SourceAcknowledgement.AcknowledgementResult.unknown(null)
+                                                : SourceAcknowledgement.AcknowledgementResult.acked();
+                                    }));
+                            final long beforeAdmissionMutation = replacementStore.shardMutationSequence();
+                            final long beforeAdmissionVersion = replacementStore.latestSequenceNumber();
+                            final var admissionUnknownAck = replacementWorker.runSourceTurn(
+                                    new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 101);
+                            assertEquals(
+                                    SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN,
+                                    admissionUnknownAck.status(),
+                                    () -> String.valueOf(admissionUnknownAck.failure()));
+                            assertEquals(admission.entry(), replacementWorker.pendingSourceEntry().orElseThrow());
+                            assertEquals(1, admissionAcknowledgements.get());
+                            assertEquals(beforeAdmissionMutation + 1, replacementStore.shardMutationSequence());
+                            assertTrue(replacementStore.latestSequenceNumber() > beforeAdmissionVersion);
+                            assertEquals(admissionAt, replacementStore.appliedShardLogPosition());
+                            assertTargetAdmissionCommitted(replacementStore, replacementLoopClaim, admission);
+
+                            final long versionAfterAdmission = replacementStore.latestSequenceNumber();
+                            final var admissionAcked = replacementWorker.runSourceTurn(
+                                    new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 101);
+                            assertEquals(SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED, admissionAcked.status());
+                            assertEquals(admission.entry(), admissionAcked.entry());
+                            assertEquals(2, admissionAcknowledgements.get());
+                            assertTrue(replacementWorker.pendingSourceEntry().isEmpty());
+                            assertEquals(beforeAdmissionMutation + 1, replacementStore.shardMutationSequence());
+                            assertEquals(versionAfterAdmission, replacementStore.latestSequenceNumber());
+                            assertEquals(admissionAt, replacementStore.appliedShardLogPosition());
 
                             final var replacementBeforeReplay =
                                     (KafkaSourcePosition) replacementStore.appliedShardLogPosition();
@@ -5977,6 +6055,122 @@ class TargetCommandStoreTest {
                 }
             }
         }
+    }
+
+    private record TargetAdmissionFixture(SourceReplayMutation entry, byte[] attemptId) {
+        private TargetAdmissionFixture {
+            attemptId = Bytes.copy(attemptId);
+        }
+
+        @Override
+        public byte[] attemptId() {
+            return Bytes.copy(attemptId);
+        }
+    }
+
+    private static TargetAdmissionFixture targetAdmission(
+            ShardStore store,
+            TargetClaimRecord claim,
+            OwnerIdentity owner,
+            KeyPair keys,
+            KafkaSourcePosition at) {
+        final byte[] messageKey = TargetKeyCodec.message(claim.work().locator().messageId());
+        final var claimed = TargetMessageRecord.decode(TargetValueEnvelope.decode(
+                        store.get(ColumnFamily.ID, messageKey), TargetMessageRecord.VALUE_TYPE)
+                .payload());
+        assertEquals(CurrentSendWorkKind.CLAIMED, claimed.runtime().currentWorkKind());
+        assertArrayEquals(claim.claimId(), claimed.runtime().claimId());
+        final long retryUntil = Math.addExact(at.brokerPersistenceTimeEpochMs(), 10_000);
+        final long decisionEarliest =
+                Math.max(at.brokerPersistenceTimeEpochMs(), claim.work().retryEligibilityAtEpochMs());
+        assertTrue(decisionEarliest + 1 < claimed.expireAtEpochMs());
+        final var decisionTime = new TrustedUtcIntervalEvidence(
+                decisionEarliest,
+                decisionEarliest + 1,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                bytes(32, 0x96),
+                1,
+                1,
+                1,
+                bytes(32, 0x97),
+                0,
+                new byte[0]);
+        final int attemptNo = claim.work().candidateAttemptNo();
+        final byte[] attemptId = SystemMutation.computePublishAttemptLogicalIdentity(
+                claim.claimId(),
+                claim.work().locator().messageId(),
+                Integer.toUnsignedLong(claim.work().locator().generation()),
+                Integer.toUnsignedLong(attemptNo));
+        final var obligation = new AttemptObligationRef(
+                attemptId,
+                claim.work().locator().generation(),
+                AttemptLedgerState.PUBLISHING,
+                KeyCodec.inflight((byte) 2, owner.ownerEpoch(), attemptId));
+        final long[] reserved = new long[CapacityDimension.COUNT];
+        reserved[CapacityDimension.RESULT_BYTES.wireValue() - 1] = 128;
+        final var body = new TargetPublishAdmissionBody(
+                at.shardId(),
+                retryUntil,
+                owner,
+                claim.storeIncarnation(),
+                claim.claimId(),
+                claim.work().locator(),
+                attemptNo,
+                attemptId,
+                obligation,
+                claim.executionBytes(),
+                new CapacityVector(reserved),
+                CapacityVector.empty(),
+                decisionTime);
+        final var author = AuthorIdentity.owner(
+                owner.deploymentId(), owner.workerRunId(), owner.ownerEpoch(), owner.leaseFencingDigest());
+        final var mutation = SystemMutation.signed(
+                at.shardId(),
+                SystemMutationType.TARGET_PUBLISH_ADMISSION,
+                retryUntil,
+                attemptId,
+                body.canonicalBytes(),
+                author.canonicalBytes(),
+                1,
+                keys.getPrivate());
+        return new TargetAdmissionFixture(new SourceReplayMutation(mutation, at, null, null), attemptId);
+    }
+
+    private static void assertTargetAdmissionCommitted(
+            ShardStore store, TargetClaimRecord claim, TargetAdmissionFixture admission) {
+        final var entry = admission.entry();
+        final byte[] messageKey = TargetKeyCodec.message(claim.work().locator().messageId());
+        final var admitted = TargetMessageRecord.decode(TargetValueEnvelope.decode(
+                        store.get(ColumnFamily.ID, messageKey), TargetMessageRecord.VALUE_TYPE)
+                .payload());
+        assertEquals(CurrentSendWorkKind.PUBLISHING, admitted.runtime().currentWorkKind());
+        assertArrayEquals(admission.attemptId(), admitted.runtime().publishAttemptId());
+        assertNull(store.get(ColumnFamily.INFLIGHT, claim.key()));
+        assertNull(store.get(ColumnFamily.META, claim.chargeKey()));
+        final byte[] attemptBudgetKey = Bytes.concat(
+                new byte[] {
+                    (byte) TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG,
+                    TargetKeyCodec.KEY_FORMAT
+                },
+                admission.attemptId());
+        final var attemptBudget = TargetQuotaAttemptBudget.decode(TargetValueEnvelope.decode(
+                        store.get(ColumnFamily.META, attemptBudgetKey), TargetQuotaAttemptBudget.VALUE_TYPE)
+                .payload());
+        assertEquals(TargetQuotaAttemptBudget.Phase.ADMITTED, attemptBudget.phase());
+        assertEquals(claim.work().locator(), attemptBudget.locator());
+        final var first = TargetResultRecord.decode(TargetValueEnvelope.decode(
+                        store.get(ColumnFamily.DEDUPE, systemKey(entry.mutation())), TargetResultRecord.VALUE_TYPE)
+                .payload());
+        final var firstResult = SystemMutationResult.decode(first.typedPayload());
+        assertEquals(ApplyStatus.APPLIED, firstResult.applyStatus());
+        assertEquals(StableCode.OK, firstResult.stableCode());
+        final byte[] positionKey = Bytes.concat(
+                new byte[] {TargetKeyCodec.RESULT_POSITION_TAG, TargetKeyCodec.KEY_FORMAT},
+                entry.position().canonicalBytes());
+        final var position = TargetResultRecord.decode(TargetValueEnvelope.decode(
+                        store.get(ColumnFamily.DEDUPE, positionKey), TargetResultRecord.VALUE_TYPE)
+                .payload());
+        position.requireFirst(first);
     }
 
     private static Signed signedClose(

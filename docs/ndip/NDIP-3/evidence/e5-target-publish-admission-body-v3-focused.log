@@ -1,6 +1,6 @@
-E5 Target Publish Admission type/body/tuple and source-first rejection slice
+E5 Target Publish Admission type/body/tuple, source application and ACK uncertainty
 
-Source lock: main@28ddb7d40b07f9c2750369e4176ffdeb529a9095
+Original body/rejection source lock: main@28ddb7d40b07f9c2750369e4176ffdeb529a9095
 
 The closed type-5 PUBLISH_ADMISSION body and shared System Mutation body v2 tuple remain unchanged. Type 13
 TARGET_PUBLISH_ADMISSION carries its own operation body version 3 and requires the exact activated tuple
@@ -28,9 +28,29 @@ PersistentLaneScheduler.java:1327 and TargetWorkerHostRuntime.java:377.
 Result: BUILD SUCCESSFUL; package/implementation verifier suites (10 and 14 tests), historical closure and
 documentation checks passed.
 
-Scope limit: only Target Admission body's first-apply route and the unauthorized rejection transaction were
-verified here. Successful Claim consumption plus source ACK, Target Outcome, missing-Claim recovery, production
-Owner/tuple-history authority wiring, Producer integration and central E5 validation remain open; E5 remains
+The original source lock above covered only the body/type/tuple and unauthorized rejection slice. The following
+follow-up extends this evidence to an accepted first application through the actual RocksDB-backed Target Worker.
+
+Follow-up source base: main@31e916693801fa2d440eb400644699ca4908e15a; changed source and test files are identified
+by their SHA-256 values below.
+
+Focused command:
+./gradlew test --tests com.nereusstream.delay.runtime.TargetCommandStoreTest --no-daemon --console=plain
+
+Result: BUILD SUCCESSFUL; TargetCommandStoreTest 5/5, zero skips, failures or errors. The new case starts from a
+live replacement-Worker Claim and applies a signed type-13 Admission. The actual Store batch moves Message from
+CLAIMED to PUBLISHING, removes Claim and ClaimCharge, stores an ADMITTED AttemptBudget, persists first system and
+source-position results, and advances the source frontier. The test ACK callback returns UNKNOWN once; retry
+ACKs the same pending entry without another Store mutation or RocksDB sequence. This is the Worker ACK-uncertainty
+path with a deterministic test callback, not a real Broker/network response-loss test.
+
+The regression exposed that legacy Target Control field discrimination decoded the v3 nested Owner field before
+the type-13 route. Target Admission now routes before that legacy discriminator; old control routing and type-5
+PUBLISH_ADMISSION v1 remain unchanged.
+
+Scope limit: accepted Target Admission first application, Claim consumption and Worker ACK-unknown retry are now
+verified on this actual RocksDB path. Production Owner/tuple-history authority assembly, real Broker ACK loss,
+Target Outcome, missing-Claim recovery, Producer integration and central E5 validation remain open. E5 remains
 IN_PROGRESS / PENDING_CENTRAL_VALIDATION.
 
 SHA-256:
@@ -49,3 +69,6 @@ a7d00c0819ac701e79dccbc91ade779bbd6a1dd386cc2628f71bf8901e95c10e  src/test/java/
 408f082ae4ee3a20e04aaf63db808ac8b084fac8233d0d7ae3ec58330c1b6553  build/test-results/test/TEST-com.nereusstream.delay.runtime.TargetQuotaStoreGateTest.xml
 3f0bf8777101e1d2cc847f826da1424d41c07105f8bb878f885a078d31b4275d  build/test-results/test/TEST-com.nereusstream.delay.protocol.TargetPublishAdmissionBodyTest.xml
 433975a450d9cfe9a83e55de69d9c083e46b8f1197b08bfd27cc4c9009fb8895  build/test-results/test/TEST-com.nereusstream.delay.protocol.PublishAdmissionBodyTest.xml
+fc5e918aa36772ba0c77d05860285c6d446f00510c3c6e2580fcf2cc59816fcf  src/main/java/com/nereusstream/delay/ownership/TargetSourceApplyRuntime.java
+8997d9ed18ba9f220ad0679ea20c5a368e016467d229ec2321062337edcfe469  src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java
+d073f181fc5ad4a0d32b7347cae8114edfc43356d1c741700bdb643b85ff6045  build/test-results/test/TEST-com.nereusstream.delay.runtime.TargetCommandStoreTest.xml
