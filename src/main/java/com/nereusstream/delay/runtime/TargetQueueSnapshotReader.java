@@ -14,6 +14,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 /** Reads bounded, validated Target head summaries for one active source Shard. */
 public final class TargetQueueSnapshotReader {
@@ -104,6 +105,22 @@ public final class TargetQueueSnapshotReader {
                     final Cut cut = cut(reader);
                     reader.requireWithinElapsedBudget();
                     return cut;
+                },
+                Objects.requireNonNull(authority, "authority"));
+    }
+
+    /** Reads the persisted active-message total in a separate bounded view for optional queue-depth telemetry. */
+    public OptionalLong readActiveMessages(
+            final BoundedReadBudget budget,
+            final TargetPartitionId target,
+            final TargetStoreBackend.ReadAuthority authority) {
+        Objects.requireNonNull(target, "target");
+        return backend.guardedRead(
+                Objects.requireNonNull(budget, "budget"),
+                reader -> {
+                    final OptionalLong count = reader.activeTargetMessages(target);
+                    reader.requireWithinElapsedBudget();
+                    return count;
                 },
                 Objects.requireNonNull(authority, "authority"));
     }

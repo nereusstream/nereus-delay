@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
@@ -471,6 +472,17 @@ public final class TargetWorkerHostRuntime {
             final TargetPartitionId targetId,
             final LongSupplier ownerClock) {
         return withShardAdmission(expectedShard, () -> expectedShard.readTargetQueue(budget, targetId, ownerClock));
+    }
+
+    /** Reads one bounded persisted active-message total through the exact admitted source Shard. */
+    public OptionalLong readTargetActiveMessages(
+            final TargetWorkerShardRuntime expectedShard,
+            final BoundedReadBudget budget,
+            final TargetPartitionId targetId,
+            final LongSupplier ownerClock) {
+        return withShardAdmission(
+                expectedShard,
+                () -> expectedShard.readTargetActiveMessages(budget, targetId, ownerClock));
     }
 
     /** Fences a completed page sequence on the same exact source Shard. */

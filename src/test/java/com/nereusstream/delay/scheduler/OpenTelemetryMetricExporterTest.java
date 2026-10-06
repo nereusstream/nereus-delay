@@ -51,9 +51,15 @@ class OpenTelemetryMetricExporterTest {
             assertEquals(
                     BoundedAsyncMetricExporter.OfferResult.ACCEPTED,
                     metrics.record(new MetricEvent(Metric.TARGET_INVENTORY_REBUILD_DURATION_NANOS, 21)));
+            assertEquals(
+                    BoundedAsyncMetricExporter.OfferResult.ACCEPTED,
+                    metrics.record(new MetricEvent(Metric.TARGET_INVENTORY_ACTIVE_MESSAGE_DEPTH, 17)));
+            assertEquals(
+                    BoundedAsyncMetricExporter.OfferResult.ACCEPTED,
+                    metrics.record(new MetricEvent(Metric.TARGET_INVENTORY_ACTIVE_MESSAGE_DEPTH_UNAVAILABLE, 2)));
             metrics.stopAccepting();
             assertTrue(metrics.awaitTermination(Duration.ofSeconds(5)));
-            assertEquals(10, metrics.snapshot().exported());
+            assertEquals(12, metrics.snapshot().exported());
 
             final Map<String, MetricData> observed = reader.collectAllMetrics().stream()
                     .collect(Collectors.toMap(MetricData::getName, Function.identity()));
@@ -147,6 +153,23 @@ class OpenTelemetryMetricExporterTest {
             assertEquals(1, rebuildDurationPoint.getCount());
             assertEquals(21.0, rebuildDurationPoint.getSum(), 0.0);
             assertTrue(rebuildDurationPoint.getAttributes().isEmpty());
+
+            final var depthMetric = observed.get("nereus.target.inventory.active.message.depth");
+            assertEquals("1", depthMetric.getUnit());
+            final var depthPoint = depthMetric.getHistogramData().getPoints().stream()
+                    .findFirst()
+                    .orElseThrow();
+            assertEquals(1, depthPoint.getCount());
+            assertEquals(17.0, depthPoint.getSum(), 0.0);
+            assertTrue(depthPoint.getAttributes().isEmpty());
+
+            final var unavailableMetric = observed.get("nereus.target.inventory.active.message.depth.unavailable");
+            assertEquals("1", unavailableMetric.getUnit());
+            final var unavailablePoint = unavailableMetric.getLongSumData().getPoints().stream()
+                    .findFirst()
+                    .orElseThrow();
+            assertEquals(2, unavailablePoint.getValue());
+            assertTrue(unavailablePoint.getAttributes().isEmpty());
         }
     }
 }

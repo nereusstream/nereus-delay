@@ -65,6 +65,7 @@ import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.function.LongSupplier;
 
 /** Active Target source execution over the existing bounded poll/apply/ACK loop. */
@@ -594,6 +595,14 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         requireGcOwner(clock);
         return new TargetQueueSnapshotReader(backend, limits.domains(), targetQueueHeadCache)
                 .readTarget(budget, target, workerReads(clock));
+    }
+
+    synchronized OptionalLong readTargetActiveMessages(
+            final BoundedReadBudget budget, final TargetPartitionId target, final LongSupplier ownerClock) {
+        final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
+        requireGcOwner(clock);
+        return new TargetQueueSnapshotReader(backend, limits.domains())
+                .readActiveMessages(budget, target, workerReads(clock));
     }
 
     synchronized TargetQueueSnapshotReader.Cut readTargetQueueCut(

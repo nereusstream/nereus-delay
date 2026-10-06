@@ -6,12 +6,18 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.CanonicalTargetPartition;
+import com.nereusstream.delay.protocol.CapacityDimension;
+import com.nereusstream.delay.protocol.CapacityVector;
 import com.nereusstream.delay.protocol.KafkaBrokerResourceIdentity;
+import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.TargetPartitionId;
 import com.nereusstream.delay.protocol.TargetQueueState;
+import com.nereusstream.delay.protocol.TargetQuotaMutation;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
+import com.nereusstream.delay.protocol.TargetQuotaTotal;
+import com.nereusstream.delay.protocol.TargetQuotaUsage;
 import com.nereusstream.delay.runtime.TargetQueueSnapshotReader;
 import com.nereusstream.delay.scheduler.BoundedAsyncMetricExporter;
 import com.nereusstream.delay.store.BoundedReadBudget;
@@ -27,6 +33,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.OptionalLong;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.Test;
@@ -51,10 +58,10 @@ class TargetWorkerTargetInventoryTest {
                 var firstStore = ShardStore.openTarget(config, firstShard, resources);
                 var secondStore = ShardStore.openTarget(config, secondShard, resources);
                 var metrics = new BoundedAsyncMetricExporter(
-                        new BoundedAsyncMetricExporter.Limits(4, 36), metricEvents::add)) {
-            seedQueue(firstStore, firstTarget, 1);
-            seedQueue(firstStore, secondTarget, 1);
-            seedQueue(secondStore, firstTarget, 1);
+                        new BoundedAsyncMetricExporter.Limits(8, 72), metricEvents::add)) {
+            seedQueue(firstStore, firstTarget, 1, 2);
+            seedQueue(firstStore, secondTarget, 1, 3);
+            seedQueue(secondStore, firstTarget, 1, 5);
             final var firstSource = storeSource(firstStore);
             final var secondSource = storeSource(secondStore);
             final var complete = TargetWorkerTargetInventory.rebuild(
@@ -76,7 +83,7 @@ class TargetWorkerTargetInventoryTest {
                     secondSource.readCut(budget()), complete.snapshot().cuts().get(secondShard));
             metrics.stopAccepting();
             assertTrue(metrics.awaitTermination(Duration.ofSeconds(5)));
-            assertEquals(4, metrics.snapshot().exported());
+            assertEquals(6, metrics.snapshot().exported());
             assertEquals(
                     1,
                     metricEvents.stream()
@@ -92,6 +99,16 @@ class TargetWorkerTargetInventoryTest {
                     && event.value() > 0));
             assertTrue(metricEvents.stream().anyMatch(event -> event.metric()
                     == BoundedAsyncMetricExporter.Metric.TARGET_INVENTORY_REBUILD_DURATION_NANOS));
+            assertEquals(
+                    List.of(3L, 7L),
+                    metricEvents.stream()
+                            .filter(event -> event.metric()
+                                    == BoundedAsyncMetricExporter.Metric.TARGET_INVENTORY_ACTIVE_MESSAGE_DEPTH)
+                            .map(BoundedAsyncMetricExporter.MetricEvent::value)
+                            .sorted()
+                            .toList());
+            assertTrue(metricEvents.stream().noneMatch(event -> event.metric()
+                    == BoundedAsyncMetricExporter.Metric.TARGET_INVENTORY_ACTIVE_MESSAGE_DEPTH_UNAVAILABLE));
 
             final var beforeWrite = firstSource.readCut(budget());
             final var changed = new TargetWorkerTargetInventory.ShardSource() {
@@ -108,7 +125,7 @@ class TargetWorkerTargetInventoryTest {
                     final var page = firstSource.scan(budget, after, pageTargets);
                     if (!written) {
                         written = true;
-                        seedQueue(firstStore, firstTarget, 2);
+                        seedQueue(firstStore, firstTarget, 2, 8);
                     }
                     return page;
                 }
@@ -211,14 +228,123 @@ class TargetWorkerTargetInventoryTest {
         assertNull(membershipResult.snapshot());
     }
 
+    @Test
+    void incompleteChangedOrOverflowedDepthObservationDoesNotRejectTheQueueInventory() {
+        final var physical = target(0);
+        final var stableCut = cut(1, 7);
+        final var changedCut = cut(1, 8);
+        final var events = new CopyOnWriteArrayList<BoundedAsyncMetricExporter.MetricEvent>();
+        try (var metrics = new BoundedAsyncMetricExporter(
+                new BoundedAsyncMetricExporter.Limits(20, 180), events::add)) {
+            final var incompleteDepth = new FakeSource(
+                    shard(1),
+                    List.of(page(
+                            List.of(entry(physical)), TargetQueueSnapshotReader.Stop.RANGE_END, stableCut)),
+                    stableCut) {
+                @Override
+                public OptionalLong readActiveMessages(
+                        final BoundedReadBudget budget, final TargetPartitionId target) {
+                    for (int index = 0; index <= 10; index++) {
+                        budget.tryCharge(1, 1);
+                    }
+                    throw budget.incomplete();
+                }
+            };
+            final var unavailable = TargetWorkerTargetInventory.rebuild(
+                    List.of(incompleteDepth), LIMITS, this::budget, () -> true, metrics);
+            assertEquals(TargetWorkerTargetInventory.Stop.COMPLETE, unavailable.stop());
+            assertEquals(1, unavailable.snapshot().targets().size());
+
+            final var changedDuringDepthRead = new FakeSource(
+                    shard(1),
+                    List.of(page(
+                            List.of(entry(physical)), TargetQueueSnapshotReader.Stop.RANGE_END, stableCut)),
+                    stableCut) {
+                private int cuts;
+
+                @Override
+                public TargetQueueSnapshotReader.Cut readCut(final BoundedReadBudget budget) {
+                    return ++cuts == 1 ? stableCut : changedCut;
+                }
+
+                @Override
+                public OptionalLong readActiveMessages(
+                        final BoundedReadBudget budget, final TargetPartitionId target) {
+                    return OptionalLong.of(4);
+                }
+            };
+            final var staleObservation = TargetWorkerTargetInventory.rebuild(
+                    List.of(changedDuringDepthRead), LIMITS, this::budget, () -> true, metrics);
+            assertEquals(TargetWorkerTargetInventory.Stop.COMPLETE, staleObservation.stop());
+            assertEquals(1, staleObservation.snapshot().targets().size());
+
+            final var firstOverflowShard = new FakeSource(
+                    shard(1),
+                    List.of(page(
+                            List.of(entry(physical)), TargetQueueSnapshotReader.Stop.RANGE_END, stableCut)),
+                    stableCut) {
+                @Override
+                public OptionalLong readActiveMessages(
+                        final BoundedReadBudget budget, final TargetPartitionId target) {
+                    return OptionalLong.of(Long.MAX_VALUE);
+                }
+            };
+            final var secondOverflowShard = new FakeSource(
+                    shard(2),
+                    List.of(page(
+                            List.of(entry(physical)), TargetQueueSnapshotReader.Stop.RANGE_END, cut(2, 11))),
+                    cut(2, 11)) {
+                @Override
+                public OptionalLong readActiveMessages(
+                        final BoundedReadBudget budget, final TargetPartitionId target) {
+                    return OptionalLong.of(1);
+                }
+            };
+            final var overflowedDepth = TargetWorkerTargetInventory.rebuild(
+                    List.of(firstOverflowShard, secondOverflowShard), LIMITS, this::budget, () -> true, metrics);
+            assertEquals(TargetWorkerTargetInventory.Stop.COMPLETE, overflowedDepth.stop());
+            assertEquals(1, overflowedDepth.snapshot().targets().size());
+
+            metrics.stopAccepting();
+            assertTrue(metrics.awaitTermination(Duration.ofSeconds(5)));
+            assertEquals(15, metrics.snapshot().exported());
+            final var unavailableMetric =
+                    BoundedAsyncMetricExporter.Metric.TARGET_INVENTORY_ACTIVE_MESSAGE_DEPTH_UNAVAILABLE;
+            assertTrue(events.stream().noneMatch(event -> event.metric()
+                    == BoundedAsyncMetricExporter.Metric.TARGET_INVENTORY_ACTIVE_MESSAGE_DEPTH));
+            assertEquals(
+                    List.of(1L, 1L, 1L),
+                    events.stream()
+                            .filter(event -> event.metric() == unavailableMetric)
+                            .map(BoundedAsyncMetricExporter.MetricEvent::value)
+                            .toList());
+        }
+    }
+
     private BoundedReadBudget budget() {
         return new BoundedReadBudget(10, 1 << 20, 1_000_000_000L, () -> 0);
     }
 
     private static void seedQueue(
-            final ShardStore store, final CanonicalTargetPartition physical, final long headRevision) {
+            final ShardStore store,
+            final CanonicalTargetPartition physical,
+            final long headRevision,
+            final long activeMessages) {
         final var queue = new TargetQueueState(
                 physical.id(), headRevision, 1, TargetQueueState.AdmissionState.OPEN, bytes(16, 3), 0, List.of());
+        final var shardScope = new TargetQuotaScope(store.shardId(), bytes(32, 5), null);
+        final var amounts = new long[CapacityDimension.COUNT];
+        amounts[CapacityDimension.ACTIVE_MESSAGES.wireValue() - 1] = activeMessages;
+        final var mutation = new TargetQuotaMutation(
+                1,
+                new KafkaSourcePosition(
+                        store.shardId(), "inventory-metrics", new UUID(11, 22), 0, null, 1),
+                bytes(32, 9));
+        final var total = new TargetQuotaTotal(
+                shardScope.forTarget(physical.id()),
+                new TargetQuotaUsage(new CapacityVector(amounts), 0, 0, 0, 0),
+                1,
+                mutation);
         store.write(batch -> {
             batch.put(
                     ColumnFamily.META,
@@ -228,6 +354,10 @@ class TargetWorkerTargetInventoryTest {
                     ColumnFamily.META,
                     TargetKeyCodec.state(physical.id()),
                     TargetValueEnvelope.encode(TargetQueueState.VALUE_TYPE, queue.canonicalBytes()));
+            batch.put(
+                    ColumnFamily.META,
+                    total.key(),
+                    TargetValueEnvelope.encode(TargetQuotaTotal.VALUE_TYPE, total.canonicalBytes()));
         });
     }
 
@@ -262,6 +392,12 @@ class TargetWorkerTargetInventoryTest {
             @Override
             public TargetQueueSnapshotReader.Cut readCut(final BoundedReadBudget budget) {
                 return reader.readCut(budget, authority);
+            }
+
+            @Override
+            public OptionalLong readActiveMessages(
+                    final BoundedReadBudget budget, final TargetPartitionId target) {
+                return reader.readActiveMessages(budget, target, authority);
             }
         };
     }
@@ -300,7 +436,7 @@ class TargetWorkerTargetInventoryTest {
         return result;
     }
 
-    private static final class FakeSource implements TargetWorkerTargetInventory.ShardSource {
+    private static class FakeSource implements TargetWorkerTargetInventory.ShardSource {
         private final ShardId shard;
         private final List<TargetQueueSnapshotReader.Page> pages;
         private final TargetQueueSnapshotReader.Cut endCut;

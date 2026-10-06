@@ -1,0 +1,35 @@
+# E4 Target inventory active-message depth focused evidence
+
+Date: 2026-10-06
+Base revision: `7d400a1a7d003d4f172deb87c7ef64cc3af1e082`
+
+Latest focused command (after the sum-overflow guard):
+`./gradlew test --tests com.nereusstream.delay.ownership.TargetWorkerTargetInventoryTest --tests com.nereusstream.delay.scheduler.OpenTelemetryMetricExporterTest`
+
+Result: `BUILD SUCCESSFUL`. `TargetWorkerTargetInventoryTest` reports 5 tests, 0 skipped/failures/errors; `OpenTelemetryMetricExporterTest` reports 1/1, 0 skipped/failures/errors. `./gradlew checkstyleTest` passed. A separate invocation selected `TargetQuotaGrantStoreTest.realOxiaOwnerTakeoverReopensTargetRootAndCompletesCloseGc`; it reported 1 skipped because `NEREUS_DELAY_OXIA_ENDPOINT` is not configured.
+
+The real two-RocksDB inventory regression persists per-Target `TargetQuotaTotal.ACTIVE_MESSAGES` values on two Shards and observes a shared physical Target depth of `2 + 5 = 7` and another Target depth of `3`. The telemetry path uses one independently bounded point read per `(source Shard, Target)` after a complete inventory, then rechecks every source Store cut. A missing total, incomplete point read, or changed cut omits the depth sample and adds the number of unavailable Target samples to `TARGET_INVENTORY_ACTIVE_MESSAGE_DEPTH_UNAVAILABLE`; it does not reject an already completed inventory. No message, timeline, or head-prefix scan is used. The histogram has no Target/Shard attributes and reports the distribution of active payload-owner messages, including messages that are not currently ready heads. The per-Shard totals are summed without a cross-Shard atomic timestamp.
+
+The incomplete-read, changed-cut, and cross-Shard sum-overflow regression verifies that depth telemetry can be unavailable while the inventory remains complete and no stale or unrepresentable depth histogram is emitted. `OpenTelemetryMetricExporterTest` verifies the depth histogram and unavailable counter values, units, and empty attributes. These tests exercise the persisted quota-total read and multi-Shard sum; they do not substitute for a real-source message lifecycle test or Host-loop integration.
+
+Host-loop integration assertion was added to `TargetQuotaGrantStoreTest.realOxiaOwnerTakeoverReopensTargetRootAndCompletesCloseGc`, but this turn could not execute it. Dockerized command:
+`NEREUS_DELAY_OXIA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/oxia NEREUS_DELAY_E2E_GRADLE_USER_HOME=/Users/liusinan/.gradle bash e2e/run-oxia-real-service.sh`
+
+Result: failed before Gradle tests while Docker attempted to pull `alpine:3.22`; `registry-1.docker.io` DNS lookup failed (`no such host`). This is an environment block, not a test failure or pass. Earlier successful Oxia Host-loop validation covers scan-page event export only and is recorded separately in `evidence/e4-target-inventory-scan-metrics-focused.log`.
+
+Other checks: `./gradlew checkDocumentation` passed; `jq empty docs/ndip/NDIP-3/progress.json` and `git diff --check` passed. `./gradlew checkstyleMain` failed only on the two pre-existing 123-character lines `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:377`; neither line was changed in this slice. E4 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
+
+Source SHA-256:
+- `src/main/java/com/nereusstream/delay/store/TargetStoreBackend.java`: 9393770efcc6c8c883a30f43fe86e069ad03a708c8113cb3ce84f313d2b97a9b
+- `src/main/java/com/nereusstream/delay/runtime/TargetQueueSnapshotReader.java`: e9658e62546c4c52bd542267820a5e413703fa2581c2b8d79e7fabc0ffe061f2
+- `src/main/java/com/nereusstream/delay/ownership/TargetSourceApplyRuntime.java`: ded772ab74433cbf7e622137348dd65eb7568ff080a4dfc99aae06d3c5b23700
+- `src/main/java/com/nereusstream/delay/ownership/TargetWorkerShardRuntime.java`: d1fb611fd370bc874b5e81a8c955fc6691df2b783ee6789714c2376faf4bb17c
+- `src/main/java/com/nereusstream/delay/ownership/TargetWorkerHostRuntime.java`: e1bc5b161788d13c83d5bb7a4bb5b276b165e2c302e60486ed5e90afdc6ddf83
+- `src/main/java/com/nereusstream/delay/ownership/TargetWorkerTargetInventory.java`: e462aa02472f5b5d203abab9f855f917093a076fc9d295d790cb99f22962a718
+- `src/main/java/com/nereusstream/delay/scheduler/BoundedAsyncMetricExporter.java`: b55686c76335cbd06e7ee7672dca03dcc981687c3d0cc00b7739516eadaa2540
+- `src/main/java/com/nereusstream/delay/scheduler/OpenTelemetryMetricExporter.java`: 9e65aeb9a4189f229d05b5e6711d8cae1a0c36dcf2c54c7d184c9eb3259e920c
+- `src/test/java/com/nereusstream/delay/ownership/TargetWorkerTargetInventoryTest.java`: 1d8ce75c193eb54bb1fc2444a09ebf41824fe6b5aa44c77a9c8b83838e733520
+- `src/test/java/com/nereusstream/delay/scheduler/OpenTelemetryMetricExporterTest.java`: abc3f68400b23f79b1d300c4da322a2afd7303267f8fe744ea10f6a5508ace56
+- `src/test/java/com/nereusstream/delay/runtime/TargetQuotaGrantStoreTest.java`: 94544f94082c61fdf0dc78c9f35ef447757eaa8b18ba5e3942c8fe9a69715a0d
+- `build/test-results/test/TEST-com.nereusstream.delay.ownership.TargetWorkerTargetInventoryTest.xml`: 48e64668aebb4104de042e6d383d31a5fa2c67021c765bbf0086999181220ab4
+- `build/test-results/test/TEST-com.nereusstream.delay.scheduler.OpenTelemetryMetricExporterTest.xml`: d25f2c19c766fa581d4ca9ecfbf5f41ddfb9ff4f6b26d50fbb0394ffac6abd69

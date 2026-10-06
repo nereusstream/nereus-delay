@@ -14,6 +14,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.OptionalLong;
 import java.util.TreeMap;
 import java.util.function.BooleanSupplier;
 import java.util.function.LongSupplier;
@@ -95,6 +96,12 @@ public final class TargetWorkerTargetInventory {
         TargetQueueSnapshotReader.Page scan(BoundedReadBudget budget, TargetPartitionId after, int pageTargets);
 
         TargetQueueSnapshotReader.Cut readCut(BoundedReadBudget budget);
+
+        default OptionalLong readActiveMessages(BoundedReadBudget budget, TargetPartitionId target) {
+            Objects.requireNonNull(budget, "budget");
+            Objects.requireNonNull(target, "target");
+            return OptionalLong.empty();
+        }
     }
 
     private static final Comparator<TargetPartitionId> TARGET_ORDER =
@@ -140,6 +147,12 @@ public final class TargetWorkerTargetInventory {
                 public TargetQueueSnapshotReader.Cut readCut(final BoundedReadBudget budget) {
                     return host.readTargetQueueCut(exact, budget, ownerClock);
                 }
+
+                @Override
+                public OptionalLong readActiveMessages(
+                        final BoundedReadBudget budget, final TargetPartitionId target) {
+                    return host.readTargetActiveMessages(exact, budget, target, ownerClock);
+                }
             });
         }
         final Supplier<BoundedReadBudget> budgets = () -> new BoundedReadBudget(
@@ -172,7 +185,11 @@ public final class TargetWorkerTargetInventory {
         final ScanCounts counts = metrics == null ? null : new ScanCounts();
         final long started = metrics == null ? 0L : System.nanoTime();
         try {
-            return rebuildPages(sources, limits, budgets, membershipCurrent, counts);
+            final Result result = rebuildPages(sources, limits, budgets, membershipCurrent, counts);
+            if (metrics != null && result.snapshot() != null) {
+                recordActiveMessageDepth(result.snapshot(), sources, budgets, metrics);
+            }
+            return result;
         } finally {
             if (metrics != null) {
                 metrics.record(new BoundedAsyncMetricExporter.MetricEvent(
@@ -185,6 +202,75 @@ public final class TargetWorkerTargetInventory {
                         BoundedAsyncMetricExporter.Metric.TARGET_INVENTORY_REBUILD_DURATION_NANOS,
                         Math.max(0L, System.nanoTime() - started)));
             }
+        }
+    }
+
+    /** Samples per-Target totals outside the ring-building budgets; an incomplete sample never rejects a ring. */
+    private static void recordActiveMessageDepth(
+            final Snapshot snapshot,
+            final List<? extends ShardSource> sources,
+            final Supplier<BoundedReadBudget> budgets,
+            final BoundedAsyncMetricExporter metrics) {
+        final Map<ShardId, ShardSource> byShard = new LinkedHashMap<>();
+        for (ShardSource source : sources) {
+            byShard.put(source.shardId(), source);
+        }
+        final Map<TargetPartitionId, Long> samples = new TreeMap<>(TARGET_ORDER);
+        long unavailable = 0;
+        for (Target target : snapshot.targets()) {
+            long depth = 0;
+            boolean complete = true;
+            for (Source source : target.sources()) {
+                final OptionalLong count;
+                try {
+                    count = Objects.requireNonNull(
+                            Objects.requireNonNull(byShard.get(source.shard()), "inventory source")
+                                    .readActiveMessages(budgets.get(), target.id()),
+                            "active-message count");
+                } catch (ReadIncompleteException incomplete) {
+                    complete = false;
+                    break;
+                }
+                if (count.isEmpty()) {
+                    complete = false;
+                    break;
+                }
+                try {
+                    depth = Math.addExact(depth, count.getAsLong());
+                } catch (ArithmeticException overflow) {
+                    complete = false;
+                    break;
+                }
+            }
+            if (complete) {
+                samples.put(target.id(), depth);
+            } else {
+                unavailable++;
+            }
+        }
+        for (ShardSource source : sources) {
+            final TargetQueueSnapshotReader.Cut current;
+            try {
+                current = source.readCut(budgets.get());
+            } catch (ReadIncompleteException incomplete) {
+                samples.clear();
+                unavailable = snapshot.targets().size();
+                break;
+            }
+            if (!snapshot.cuts().get(source.shardId()).equals(current)) {
+                samples.clear();
+                unavailable = snapshot.targets().size();
+                break;
+            }
+        }
+        for (long depth : samples.values()) {
+            metrics.record(new BoundedAsyncMetricExporter.MetricEvent(
+                    BoundedAsyncMetricExporter.Metric.TARGET_INVENTORY_ACTIVE_MESSAGE_DEPTH, depth));
+        }
+        if (unavailable > 0) {
+            metrics.record(new BoundedAsyncMetricExporter.MetricEvent(
+                    BoundedAsyncMetricExporter.Metric.TARGET_INVENTORY_ACTIVE_MESSAGE_DEPTH_UNAVAILABLE,
+                    unavailable));
         }
     }
 

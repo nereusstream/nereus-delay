@@ -2987,6 +2987,9 @@ class TargetQuotaGrantStoreTest {
                         == BoundedAsyncMetricExporter.Metric.TARGET_DRR_TURN_VISITS));
                 assertTrue(hostMetricEvents.stream().anyMatch(event -> event.metric()
                         == BoundedAsyncMetricExporter.Metric.TARGET_INVENTORY_SCAN_PAGES && event.value() > 0));
+                assertTrue(hostMetricEvents.stream().anyMatch(event -> event.metric()
+                                == BoundedAsyncMetricExporter.Metric.TARGET_INVENTORY_ACTIVE_MESSAGE_DEPTH
+                        && event.value() > 0));
                 sourceHostWorker.revokeClaim(
                         budget(),
                         sourceCreatedClaim,

@@ -1,6 +1,7 @@
 package com.nereusstream.delay.store;
 
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.CapacityDimension;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.TargetPartitionId;
 import com.nereusstream.delay.protocol.TargetQuotaAggregate;
@@ -20,6 +21,7 @@ import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -434,6 +436,16 @@ public final class TargetStoreBackend {
         public TargetQuotaTotal total(final TargetQuotaScope targetScope) {
             requireActive();
             return readTotal(targetScope);
+        }
+
+        /** Reads the durable active-message count for one exact Target without enumerating its records. */
+        public OptionalLong activeTargetMessages(final TargetPartitionId target) {
+            requireActive();
+            final TargetQuotaTotal total = readTotal(scope.forTarget(Objects.requireNonNull(target, "target")));
+            if (total == null) {
+                return OptionalLong.empty();
+            }
+            return OptionalLong.of(total.usage().resources().amount(CapacityDimension.ACTIVE_MESSAGES));
         }
 
         public Edit replace(final ColumnFamily family, final byte[] key, final int type, final byte[] payload) {

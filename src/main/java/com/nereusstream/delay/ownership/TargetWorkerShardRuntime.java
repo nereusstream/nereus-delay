@@ -30,6 +30,7 @@ import java.nio.file.Path;
 import java.security.PrivateKey;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 
@@ -236,6 +237,14 @@ public final class TargetWorkerShardRuntime
         requireNewTurnsAdmitted();
         resources.requireRuntimeBusinessAdmission();
         return target.readTargetQueue(budget, targetId, ownerClock);
+    }
+
+    /** Reads one bounded persisted active-message total for optional queue-depth telemetry. */
+    public synchronized OptionalLong readTargetActiveMessages(
+            final BoundedReadBudget budget, final TargetPartitionId targetId, final LongSupplier ownerClock) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        return target.readTargetActiveMessages(budget, targetId, ownerClock);
     }
 
     /** Rechecks this source Shard's Store revision after paged head enumeration. */

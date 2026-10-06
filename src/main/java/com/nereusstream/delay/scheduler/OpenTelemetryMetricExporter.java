@@ -67,6 +67,8 @@ public final class OpenTelemetryMetricExporter implements Exporter {
                     TARGET_DRR_TURN_HEAD_PROBE_CALLS,
                     TARGET_INVENTORY_SCAN_PAGES,
                     TARGET_INVENTORY_SCAN_BUDGET_RECORDS,
+                    TARGET_INVENTORY_ACTIVE_MESSAGE_DEPTH,
+                    TARGET_INVENTORY_ACTIVE_MESSAGE_DEPTH_UNAVAILABLE,
                     TARGET_DRR_CLAIM_TURNS,
                     TARGET_DRR_STOP_NORMAL,
                     TARGET_DRR_STOP_READ_INCOMPLETE,
