@@ -716,6 +716,7 @@
       ],
       "implementationStatus": "IN_PROGRESS",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
+      "progress": "2026-10-06: Re-ran the existing Target ordinary DRR component benchmark at main@9d8c209d4667b897c28f391d331baa653ace50d0. Six fixed-L/fixed-N groups completed with five timed samples each and stable operation counts; current-source results and Drr source hash are recorded in evidence/d3-target-scheduler-component.log. This remains synthetic one-Shard component evidence, not a before/after comparison or full D3 matrix.",
       "validationScope": "Source-bound component-only measurement of the production ordinary DRR selection seam with synthetic one-Shard queues. It does not measure persistent Store I/O, Native/Profile mixes, quota work, multiple Shards, Broker behavior, or the full D3 matrix."
     },
     {

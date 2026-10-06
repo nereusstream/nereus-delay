@@ -29,3 +29,30 @@ Validation:
 Source SHA-256:
 build.gradle d3a970b4d05d90f9e650f13c4b00dc3001995f5f8e6a91f0757b98ca8feadb41
 src/test/java/com/nereusstream/delay/ownership/TargetSchedulerComponentBenchmark.java cadaf0a220fa0c655a914d3aad1761ac784bed084e8bc72da3b36218fd03f68b
+
+## 2026-10-06 current-source re-run
+
+Base revision: `9d8c209d4667b897c28f391d331baa653ace50d0`
+Runtime: Amazon Corretto 21.0.10, macOS 23.6.0 arm64, 10 logical CPUs
+
+Command:
+`./gradlew runTargetSchedulerComponentBenchmark --no-daemon --console=plain`
+
+Result: exit 0, `BUILD SUCCESSFUL in 22s`. The opt-in harness warmed the production DRR path and reported the median of five timed samples per case. Operation counters matched across each case's five samples.
+
+```csv
+scope,N_backlog,L_targets,payload_bytes,delivered,refresh_calls,head_probe_calls,target_visits,scheduler_bytes,max_service_gap_turns,median_elapsed_ns,median_thread_allocated_bytes,median_gc_pause_ms,timed_samples
+component-only-synthetic,1000,10,1024,1000,1000,1000,1000,1152000,10,8391625,20495016,0,5
+component-only-synthetic,10000,10,1024,10000,10000,10000,10000,11520000,10,44552375,200226816,1,5
+component-only-synthetic,100000,10,1024,100000,100000,100000,100000,115200000,10,303615375,1958298536,3,5
+component-only-synthetic,100000,1,1024,100000,100000,100000,100000,115200000,1,291078250,1952795000,2,5
+component-only-synthetic,100000,100,1024,100000,100000,100000,100000,115200000,100,294617166,1951740056,2,5
+component-only-synthetic,100000,1000,1024,100000,100000,100000,100000,115200000,1000,376022667,1941925656,3,5
+```
+
+Scope: current-source component-only evidence for `TargetWorkerOrdinaryDrr.runOrdinary`, using synthetic one-Shard in-memory heads. The fixed-L group uses L=10 with N=1k/10k/100k; the fixed-N group uses N=100k with L=1/10/100/1000. This is not a before/after comparison and does not measure persisted Store I/O, payload allocation/read cost, Native/Profile mixes, quota work, multiple Shards, bad-target progress, due lag, or Broker end-to-end behavior. D3 remains open.
+
+Source SHA-256:
+build.gradle d3a970b4d05d90f9e650f13c4b00dc3001995f5f8e6a91f0757b98ca8feadb41
+src/test/java/com/nereusstream/delay/ownership/TargetSchedulerComponentBenchmark.java cadaf0a220fa0c655a914d3aad1761ac784bed084e8bc72da3b36218fd03f68b
+src/main/java/com/nereusstream/delay/ownership/TargetWorkerOrdinaryDrr.java 315c244897c5c3d62d66f81ebeb264b97825f6214478d955204035d79be0a82f
