@@ -1,0 +1,47 @@
+Date: 2026-10-06
+Delay base HEAD: eaad26f21894588b9f1418b01bd32cd635829fe6
+Oxia source revision: 37a17bef17202d5fd6e23282da5fd26d94865484
+
+Focused command:
+
+```bash
+./gradlew test --tests 'com.nereusstream.delay.runtime.TargetQuotaGrantStoreTest.membershipIssueAndClosePreserveFirstSourceAndAtomicResults' checkstyleTest --no-daemon --console=plain
+```
+
+Result: `BUILD SUCCESSFUL`. JUnit reported one selected test, zero skipped, zero
+failures, and zero errors. `checkstyleTest` passed.
+
+Real-service command:
+
+```bash
+NEREUS_DELAY_OXIA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/oxia \
+NEREUS_DELAY_OXIA_E2E_PORT=16650 \
+NEREUS_DELAY_E2E_GRADLE_USER_HOME=/Users/liusinan/.gradle \
+NEREUS_DELAY_OXIA_NATIVE_POLICY_RESTART=1 \
+NEREUS_DELAY_OXIA_ROUTE_RESTART=1 \
+NEREUS_DELAY_OXIA_ROUTE_RESTART_ONLY=1 \
+./e2e/run-oxia-real-service.sh
+```
+
+Result: the Dockerized Oxia harness restarted the service while the same Target
+Worker Host loop and subscriber client remained live. The Host had subscribed
+to the real current-head authority and entered its bounded wait before the
+restart. A replacement publisher then committed revision 2. The test observed
+no post-restart policy notification callback, counted a Host authority read of
+revision 2, and observed the Host submit a durable Native Claim. Gradle and the
+real-service script both exited successfully.
+
+This covers one lost-notification/restart competition through the real
+RocksDB/Worker/Host loop. Source trust, publisher-scope authorization, Owner,
+trusted time, and physical permit inputs remain test fixtures. Production
+authority assembly, other external-event invalidation, the complete
+Owner/Store/head invalidation matrix, and centralized validation remain open.
+
+Current source hashes:
+
+```text
+5ee0d93b49957e4f7c553dd5d0154f36edb2cef0ce4e22a11b19788c290f69a9  src/test/java/com/nereusstream/delay/runtime/TargetQuotaGrantStoreTest.java
+28a44767a90d6c054eb6ba01baa130c244b05f47fe2e34c37e13ebaf1cfcb794  e2e/run-oxia-real-service.sh
+```
+
+Additional checks: `bash -n e2e/run-oxia-real-service.sh` passed.

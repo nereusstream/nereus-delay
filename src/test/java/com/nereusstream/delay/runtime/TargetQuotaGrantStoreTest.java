@@ -27,6 +27,7 @@ import com.nereusstream.delay.ownership.TargetReservationGcRuntime;
 import com.nereusstream.delay.ownership.TargetSourceApplyRuntime;
 import com.nereusstream.delay.ownership.TargetWorkerHostTestBridge;
 import com.nereusstream.delay.ownership.TargetWorkerOrdinaryDrr;
+import com.nereusstream.delay.ownership.TargetWorkerOrdinaryLoop;
 import com.nereusstream.delay.ownership.TargetWorkerOwnerActivation;
 import com.nereusstream.delay.ownership.TargetWorkerShardFactory;
 import com.nereusstream.delay.ownership.TargetWorkerShardRuntime;
@@ -126,6 +127,7 @@ import com.nereusstream.delay.scheduler.WorkClass;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import com.nereusstream.delay.scheduler.WorkClassPolicy;
 import com.nereusstream.delay.scheduler.WorkClassRuntimeConfig;
+import com.nereusstream.delay.semantic.OxiaSyncTargetNativePolicyAuthority;
 import com.nereusstream.delay.semantic.TargetNativePolicyAuthority;
 import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.CheckpointFileInventory;
@@ -1690,6 +1692,7 @@ class TargetQuotaGrantStoreTest {
     }
 
     @Test
+    @Tag("real-service")
     void membershipIssueAndClosePreserveFirstSourceAndAtomicResults() throws Exception {
         final var template = TargetQuotaGrantActivation.decode(raw("target.initial.activation"));
         final var base = (KafkaSourcePosition) template.mutation().source();
@@ -2680,8 +2683,11 @@ class TargetQuotaGrantStoreTest {
                     new TargetNativePolicyAuthority.Publication(1, TargetNativePolicyHead.next(null, snapshot)));
             final var policyWakeup = new java.util.concurrent.atomic.AtomicReference<Runnable>();
             final var policyWakeupCalls = new java.util.concurrent.atomic.AtomicInteger();
+            final var policyAuthorityReads = new java.util.concurrent.atomic.AtomicInteger();
+            final var generationTwoPolicyReads = new java.util.concurrent.atomic.AtomicInteger();
+            final var realOxiaSubscriptionRegistered = new java.util.concurrent.atomic.AtomicBoolean();
             final var nativeContextResolutions = new java.util.concurrent.atomic.AtomicInteger();
-            final var hostPolicyAuthority = new TargetNativePolicyAuthority() {
+            final var inMemoryHostPolicyAuthority = new TargetNativePolicyAuthority() {
                 @Override
                 public java.util.Optional<Publication> current(final byte[] scopeDigest) {
                     return Arrays.equals(scopeDigest, nativeScope.digest())
@@ -2706,6 +2712,9 @@ class TargetQuotaGrantStoreTest {
                     return () -> {};
                 }
             };
+            final var hostPolicyAuthority =
+                    new java.util.concurrent.atomic.AtomicReference<TargetNativePolicyAuthority>(
+                            inMemoryHostPolicyAuthority);
             final var hostRequests = new TargetWorkerOrdinaryDrr.Requests() {
                 @Override
                 public java.util.Optional<TargetWorkerOrdinaryDrr.Request> resolve(
@@ -2734,7 +2743,7 @@ class TargetQuotaGrantStoreTest {
                     }
                     nativeContextResolutions.incrementAndGet();
                     return java.util.Optional.of(new TargetWorkerOrdinaryDrr.NativePolicyContext(
-                            hostPolicyAuthority,
+                            hostPolicyAuthority.get(),
                             store::appliedShardLogPosition,
                             () -> {
                                 final long now = schedulerEpoch.get();
@@ -2754,7 +2763,69 @@ class TargetQuotaGrantStoreTest {
                             }));
                 }
             };
-            final var hostLoop = sourceHost.startOrdinaryScheduling(
+            final boolean realOxiaHostTimerRestart = "1".equals(System.getenv("NEREUS_DELAY_OXIA_HOST_TIMER_RESTART"));
+            final String oxiaEndpoint = System.getenv("NEREUS_DELAY_OXIA_ENDPOINT");
+            final String configuredOxiaNamespace = System.getenv("NEREUS_DELAY_OXIA_NAMESPACE");
+            final String oxiaNamespace = configuredOxiaNamespace == null || configuredOxiaNamespace.isBlank()
+                    ? "default"
+                    : configuredOxiaNamespace;
+            final String oxiaPrefix = "nereus-delay-native-host-timer/" + UUID.randomUUID();
+            if (realOxiaHostTimerRestart) {
+                assertTrue(oxiaEndpoint != null && !oxiaEndpoint.isBlank(), "real Oxia endpoint is required");
+            }
+            OxiaSyncTargetNativePolicyAuthority.ClientHandle oxiaSubscriber = null;
+            TargetWorkerOrdinaryLoop hostLoop = null;
+            boolean hostLoopClosed = false;
+            try {
+                if (realOxiaHostTimerRestart) {
+                    oxiaSubscriber = OxiaSyncTargetNativePolicyAuthority.connect(
+                            oxiaEndpoint,
+                            oxiaNamespace,
+                            "nereus-delay-native-host-subscriber-" + UUID.randomUUID(),
+                            java.time.Duration.ofSeconds(10),
+                            oxiaPrefix,
+                            sourceHostWorker.nativePolicyTrustStore(() -> 100),
+                            (publisher, controlActor, at) -> true);
+                    final var policyTrust = sourceHostWorker.nativePolicyTrustStore(() -> 100);
+                    final var publisherPermission = policyTrust
+                            .publisher(nativeScope.digest(), 9, nativeActivationAt)
+                            .orElseThrow();
+                    final var initialPublication = oxiaSubscriber.authority().publish(
+                            publisherPermission, actor, nativeActivationAt, 0, snapshot);
+                    assertEquals(1, initialPublication.revision());
+                    final var oxiaReadAuthority = oxiaSubscriber.authority().readAuthority();
+                    hostPolicyAuthority.set(new TargetNativePolicyAuthority() {
+                        @Override
+                        public java.util.Optional<Publication> current(final byte[] scopeDigest) {
+                            final var current = oxiaReadAuthority.current(scopeDigest);
+                            if (Arrays.equals(scopeDigest, nativeScope.digest())) {
+                                policyAuthorityReads.incrementAndGet();
+                                if (current.isPresent() && current.orElseThrow().revision() >= 2) {
+                                    generationTwoPolicyReads.incrementAndGet();
+                                }
+                            }
+                            return current;
+                        }
+
+                        @Override
+                        public Publication compareAndSet(
+                                final byte[] scopeDigest,
+                                final long expectedRevision,
+                                final TargetNativePolicyHead next) {
+                            throw new UnsupportedOperationException("real Oxia Host policy reader is read-only");
+                        }
+
+                        @Override
+                        public java.io.Closeable subscribeCurrentHeadChanges(final Runnable listener) {
+                            realOxiaSubscriptionRegistered.set(true);
+                            return oxiaReadAuthority.subscribeCurrentHeadChanges(() -> {
+                                policyWakeupCalls.incrementAndGet();
+                                listener.run();
+                            });
+                        }
+                    });
+                }
+                hostLoop = sourceHost.startOrdinaryScheduling(
                     new TargetWorkerTargetInventory.Limits(2, 16, 4, 8, 4096, 32L << 20, 60_000_000_000L),
                     new TargetWorkerOrdinaryDrr.Limits(
                             32L << 20, 32L << 20, 32L << 20, 16, 4096, 32L << 20, 60_000_000_000L),
@@ -2766,8 +2837,6 @@ class TargetQuotaGrantStoreTest {
                     schedulerEpoch::get,
                     System::nanoTime,
                     hostFailure::set);
-            boolean hostLoopClosed = false;
-            try {
                 final long idleDeadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
                 while (!hostLoop.isWaitingForQueueChange() && System.nanoTime() < idleDeadline) {
                     Thread.sleep(1);
@@ -2798,7 +2867,12 @@ class TargetQuotaGrantStoreTest {
                 }
                 assertTrue(nativeContextResolutions.get() > 0);
                 assertTrue(hostLoop.isWaitingForQueueChange());
-                assertNotNull(policyWakeup.get());
+                if (realOxiaHostTimerRestart) {
+                    assertTrue(realOxiaSubscriptionRegistered.get());
+                    assertTrue(policyAuthorityReads.get() > 0);
+                } else {
+                    assertNotNull(policyWakeup.get());
+                }
 
                 final var earlierPolicy = TargetNativePolicySnapshot.create(
                         nativeScope,
@@ -2850,15 +2924,47 @@ class TargetQuotaGrantStoreTest {
                 assertTrue(nativeContextResolutions.get() > resolutionsBeforeActivation);
                 assertTrue(hostLoop.isWaitingForQueueChange());
 
-                schedulerEpoch.set(firstScheduleTime);
-                final var previousPublication = publication.get();
-                publication.set(new TargetNativePolicyAuthority.Publication(
-                        previousPublication.revision() + 1,
-                        TargetNativePolicyHead.next(previousPublication.head(), earlierPolicy)));
-                assertEquals(0, policyWakeupCalls.get(), "the current-policy notification is intentionally lost");
+                if (realOxiaHostTimerRestart) {
+                    awaitOxiaRestartGate();
+                    final var policyTrust = sourceHostWorker.nativePolicyTrustStore(() -> 100);
+                    final var publisherPermission = policyTrust
+                            .publisher(nativeScope.digest(), 9, secondNativeActivationAt)
+                            .orElseThrow();
+                    try (var replacementPublisher = OxiaSyncTargetNativePolicyAuthority.connect(
+                            oxiaEndpoint,
+                            oxiaNamespace,
+                            "nereus-delay-native-publisher-" + UUID.randomUUID(),
+                            java.time.Duration.ofSeconds(10),
+                            oxiaPrefix,
+                            policyTrust,
+                            (publisher, controlActor, at) -> true)) {
+                        final var updated = replacementPublisher.authority().publish(
+                                publisherPermission,
+                                actor,
+                                secondNativeActivationAt,
+                                1,
+                                earlierPolicy);
+                        assertEquals(2, updated.revision());
+                    }
+                    schedulerEpoch.set(firstScheduleTime);
+                } else {
+                    schedulerEpoch.set(firstScheduleTime);
+                    final var previousPublication = publication.get();
+                    publication.set(new TargetNativePolicyAuthority.Publication(
+                            previousPublication.revision() + 1,
+                            TargetNativePolicyHead.next(previousPublication.head(), earlierPolicy)));
+                }
                 final var sourceCreatedClaim = hostClaims.poll(5, java.util.concurrent.TimeUnit.SECONDS);
                 assertNotNull(
                         sourceCreatedClaim, () -> "Host missed the source-created Target: " + hostFailure.get());
+                if (realOxiaHostTimerRestart) {
+                    assertTrue(
+                            generationTwoPolicyReads.get() > 0,
+                            "Host safety recheck did not reread Oxia revision 2");
+                    assertEquals(0, policyWakeupCalls.get(), "the post-restart Oxia policy notification is lost");
+                } else {
+                    assertEquals(0, policyWakeupCalls.get(), "the current-policy notification is intentionally lost");
+                }
                 assertEquals(physical.id(), sourceCreatedClaim.selected().target());
                 assertTrue(sourceCreatedClaim.selected().nativeCandidate());
                 assertEquals(hostOwner, sourceCreatedClaim.owner());
@@ -2879,10 +2985,19 @@ class TargetQuotaGrantStoreTest {
                         () -> 100);
                 assertNull(store.get(ColumnFamily.INFLIGHT, sourceCreatedClaim.key()));
             } finally {
-                if (!hostLoopClosed) {
-                    hostLoop.close();
+                try {
+                    if (!hostLoopClosed && hostLoop != null) {
+                        hostLoop.close();
+                    }
+                } finally {
+                    try {
+                        if (oxiaSubscriber != null) {
+                            oxiaSubscriber.close();
+                        }
+                    } finally {
+                        sourceHostWorker.closeSource();
+                    }
                 }
-                sourceHostWorker.closeSource();
             }
             final var firstQueue = TargetQueueState.decode(TargetValueEnvelope.decode(
                             store.get(ColumnFamily.META, TargetKeyCodec.state(physical.id())),
@@ -3593,6 +3708,23 @@ class TargetQuotaGrantStoreTest {
             @Override
             public void close() {}
         };
+    }
+
+    private static void awaitOxiaRestartGate() throws Exception {
+        final String ready = System.getenv("NEREUS_DELAY_OXIA_ROUTE_RESTART_READY");
+        final String gate = System.getenv("NEREUS_DELAY_OXIA_ROUTE_RESTART_GATE");
+        if (ready == null || ready.isBlank() || gate == null || gate.isBlank()) {
+            throw new IllegalStateException("real Oxia Host restart requires the configured restart gate");
+        }
+        Files.writeString(Path.of(ready), "ready\n");
+        final Path release = Path.of(gate);
+        final long deadline = System.nanoTime() + java.time.Duration.ofSeconds(90).toNanos();
+        while (!Files.exists(release) && System.nanoTime() < deadline) {
+            Thread.sleep(50);
+        }
+        if (!Files.exists(release)) {
+            throw new IllegalStateException("Oxia Host timer restart gate was not released: " + release);
+        }
     }
 
     private static TargetStoreBackend.CommitGuard ownerGuard(
