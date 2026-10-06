@@ -86,7 +86,8 @@ public final class ShardStore implements AutoCloseable {
     private final Path dbPath;
     private final SharedRocksDbResources resources;
     private final RocksDB db;
-    /** One-byte output reused to inspect bounded-read value sizes without allocating the full value. */
+    /** Small output reused to inspect bounded-read key prefixes and value sizes before full allocation. */
+    private final byte[] boundedReadKeyProbe = new byte[2];
     private final byte[] boundedReadValueProbe = new byte[1];
     private final ColumnFamilyHandle defaultColumnFamilyHandle;
     private final DBOptions dbOptions;
@@ -2643,25 +2644,37 @@ public final class ShardStore implements AutoCloseable {
                         stop = VisitStop.INCOMPLETE;
                         break;
                     }
-                    final byte[] key = iterator.key();
-                    if (upperExclusive != null && compareUnsigned(key, upperExclusive) >= 0) {
-                        break;
-                    }
                     final byte[] value;
+                    final byte[] key;
                     if (readBudget.maxBytes() < Long.MAX_VALUE) {
+                        final int keyLength = iterator.key(boundedReadKeyProbe);
+                        if (keyLength < 0) {
+                            throw new IllegalStateException("RocksDB iterator returned an invalid key length");
+                        }
                         final int valueLength = iterator.value(boundedReadValueProbe);
                         if (valueLength < 0) {
                             throw new IllegalStateException("RocksDB iterator returned an invalid value length");
                         }
-                        if (family == ColumnFamily.TIMELINE && key.length >= 2 && key[0] == 3 && key[1] == 1) {
+                        if (family == ColumnFamily.TIMELINE
+                                && keyLength >= 2
+                                && boundedReadKeyProbe[0] == 3
+                                && boundedReadKeyProbe[1] == 1) {
                             readyEntriesRead++;
                         }
-                        if (!readBudget.tryCharge(key.length, valueLength)) {
+                        if (!readBudget.tryCharge(keyLength, valueLength)) {
                             stop = VisitStop.INCOMPLETE;
                             break;
                         }
                         if (!readBudget.beforeTimedWork()) {
                             stop = VisitStop.INCOMPLETE;
+                            break;
+                        }
+                        key = iterator.key();
+                        if (key.length != keyLength) {
+                            throw new IllegalStateException(
+                                    "RocksDB iterator key changed between bounded size and key reads");
+                        }
+                        if (upperExclusive != null && compareUnsigned(key, upperExclusive) >= 0) {
                             break;
                         }
                         value = iterator.value();
@@ -2670,6 +2683,10 @@ public final class ShardStore implements AutoCloseable {
                                     "RocksDB iterator value changed between bounded size and value reads");
                         }
                     } else {
+                        key = iterator.key();
+                        if (upperExclusive != null && compareUnsigned(key, upperExclusive) >= 0) {
+                            break;
+                        }
                         value = iterator.value();
                         if (family == ColumnFamily.TIMELINE && key.length >= 2 && key[0] == 3 && key[1] == 1) {
                             readyEntriesRead++;

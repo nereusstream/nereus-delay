@@ -118,6 +118,45 @@ class ShardReadPlanTest {
     }
 
     @Test
+    void byteBudgetPreflightsIteratorKeyBeforeMaterializingARejectedEntry() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("key-size-probe"));
+        final byte[] firstKey = {99, 0};
+        final byte[] secondKey = new byte[32];
+        secondKey[0] = 99;
+        secondKey[1] = 1;
+        final byte[] firstValue = new byte[30];
+        final byte[] secondValue = {7};
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore store = ShardStore.open(config, shard(), resources)) {
+            store.write(batch -> {
+                batch.put(ColumnFamily.ID, firstKey, firstValue);
+                batch.put(ColumnFamily.ID, secondKey, secondValue);
+            });
+
+            final BoundedReadBudget budget = new BoundedReadBudget(2, 50, 1_000, () -> 0);
+            final var result = store.visitResult(
+                    ColumnFamily.ID,
+                    firstKey,
+                    null,
+                    3,
+                    budget,
+                    (entry, ignored) -> {
+                        assertArrayEquals(firstKey, entry.key());
+                        assertArrayEquals(firstValue, entry.value());
+                        return true;
+                    });
+
+            assertEquals(ShardStore.VisitStop.INCOMPLETE, result.stop());
+            assertEquals(BoundedReadBudget.Exhaustion.BYTES, result.reason());
+            assertEquals(1, result.visited());
+            assertEquals(65, budget.actualBytes());
+            assertEquals(32, budget.chargedBytes());
+            assertEquals(2, budget.actualRecords());
+            assertEquals(1, budget.deniedReads());
+        }
+    }
+
+    @Test
     void recordBudgetStopsBeforeTheNextPointReadAndNestedBudgetResetIsRejected() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("records"));
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);

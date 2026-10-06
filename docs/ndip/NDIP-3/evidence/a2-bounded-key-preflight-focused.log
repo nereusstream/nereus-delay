@@ -1,0 +1,27 @@
+A2 bounded-read iterator key-length preflight
+Date: 2026-10-06
+
+Change:
+- Under a finite byte budget, ShardStore.visitResult probes the RocksDB iterator key into a reusable two-byte array to learn its complete logical length without allocating a complete Java key array.
+- The key and value lengths are charged together before requesting full key/value arrays. A row that would exceed the remaining aggregate allowance is yielded without full Java key/value materialization.
+- The real RocksDB regression uses a 2-byte key / 30-byte value followed by a 32-byte key / 1-byte value under a 50-byte budget. The first row is delivered; the second is denied. Actual bytes are 65, charged bytes are 32, visited rows are 1, and denied reads are 1.
+
+Validation:
+`./gradlew test --tests com.nereusstream.delay.store.ShardReadPlanTest --no-daemon --console=plain`
+Result: BUILD SUCCESSFUL. 11 tests, 0 skipped, failures, or errors.
+
+`./gradlew test --tests com.nereusstream.delay.runtime.DelayShardHeadBudgetTest --no-daemon --console=plain`
+Result: BUILD SUCCESSFUL. 8 tests, 0 skipped, failures, or errors.
+
+`./gradlew checkstyleMain checkstyleTest checkDocumentation --no-daemon --console=plain`
+Result: BUILD FAILED because checkstyleMain reports two 123-character lines in untouched files: PersistentLaneScheduler.java:1327 and TargetWorkerHostRuntime.java:377. checkstyleTest passed; the combined invocation did not provide a separate checkDocumentation result.
+
+`./gradlew checkDocumentation --no-daemon --console=plain`
+Result: BUILD SUCCESSFUL.
+
+Source SHA-256:
+- `src/main/java/com/nereusstream/delay/store/ShardStore.java`: `fa428afd093f44c30c3509633f64f1845077c1842e12ba8e0d05a15fb7de1ef4`
+- `src/test/java/com/nereusstream/delay/store/ShardReadPlanTest.java`: `1e839a247e243fdaada613973760da93a6db9c4e49976ab6efb563069b7aea14`
+- `TEST-com.nereusstream.delay.runtime.DelayShardHeadBudgetTest.xml`: `36402d8699a0343f68738b87d3ec4fdd7bc4ece822f281f549daaa9f7bb804c0`
+
+This only avoids full Java key/value array materialization for a row rejected by the remaining aggregate byte allowance. It does not bound RocksDB native work or RSS, iterator/index access, later visitor/projection allocations, legacy field limits, the full mutation envelope, production finite policy, or compatibility behavior. A2 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
