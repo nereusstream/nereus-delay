@@ -1,0 +1,22 @@
+Target checkpoint attempt-budget recovery audit
+
+Base: main at 60490fdfa72b4ed98b02cb095b0edae0db363b4f
+
+Command:
+./gradlew test --tests 'com.nereusstream.delay.runtime.TargetSourceAccountingTest' --tests 'com.nereusstream.delay.store.TargetCheckpointRootVerifierTest' checkstyleTest checkDocumentation --console=plain
+
+Result: BUILD SUCCESSFUL. TargetSourceAccountingTest 1/1 and TargetCheckpointRootVerifierTest 3/3; no skips, failures or errors. checkstyleTest and checkDocumentation passed.
+
+The real RocksDB source-accounting test persisted an ADMITTED TargetQuotaAttemptBudget with its quota delta and source frontier, but without a Message/Terminal open reference. The independent checkpoint ledger audit rejected the accounted Store as an orphan open budget. The focused projection test also covered matching ADMITTED/PUBLISHING and UNKNOWN/UNCERTAIN pairs, missing budget, orphan open budget, phase mismatch, resolved budget still referenced, duplicate identical Message/Terminal projection, and conflicting same-generation runtime snapshots.
+
+./gradlew checkstyleMain --console=plain
+Result: FAILED only on existing 123-character lines in unmodified PersistentLaneScheduler.java:1327 and TargetWorkerHostRuntime.java:377. No violation was reported in the changed production file.
+
+Scope limit: this verifies checkpoint recovery consistency only. Target PUBLISH_ADMISSION/PUBLISH_OUTCOME source application, a new wire body and activation tuple, atomic source result/ACK, live Owner/Producer authority and Broker recovery remain unverified.
+
+SHA-256:
+16b57a0275cccc42e7b2edf0fc90369bc20a5aaa6c746d1121367c8ef7932304  src/main/java/com/nereusstream/delay/store/TargetCheckpointLedgerAudit.java
+5d181d7e6984eb461a5f55500a920f2fe3beaf07c2cba701fcdff9aa7a3c585d  src/test/java/com/nereusstream/delay/runtime/TargetSourceAccountingTest.java
+fd5c15c5acfd5de90ba51f6b57a421d575f9d90aae93499e16f7e4e81392fbf3  src/test/java/com/nereusstream/delay/store/TargetCheckpointRootVerifierTest.java
+8e79fba86c85a41720a0fb1d79b179ef77dce76451f8cf60b127d9ea59f8a796  build/test-results/test/TEST-com.nereusstream.delay.runtime.TargetSourceAccountingTest.xml
+31e17f0c978cbdf10ea15bfb168a6fb26fd1cf9105611d516ce8ad9632de7da6  build/test-results/test/TEST-com.nereusstream.delay.store.TargetCheckpointRootVerifierTest.xml

@@ -1,9 +1,16 @@
 package com.nereusstream.delay.store;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
+import com.nereusstream.delay.protocol.TargetQuotaAttemptBudget;
+import com.nereusstream.delay.runtime.AttemptLedgerState;
+import com.nereusstream.delay.runtime.AttemptObligationRef;
+import com.nereusstream.delay.runtime.CurrentSendWorkKind;
+import com.nereusstream.delay.runtime.GenerationAggregateState;
+import com.nereusstream.delay.runtime.TargetGenerationRuntimeIndex;
 import com.nereusstream.delay.runtime.TargetMessageRecord;
 import com.nereusstream.delay.runtime.TargetOrderState;
 import com.nereusstream.delay.runtime.TargetRecordAccounting;
@@ -136,10 +143,92 @@ class TargetCheckpointRootVerifierTest {
         }
     }
 
+    @Test
+    void unresolvedAttemptBudgetsMustMatchOpenMessageObligations() throws Exception {
+        final var admitted = TargetQuotaAttemptBudget.decode(quotaVector("admitted.budget"));
+        final var unknown = TargetQuotaAttemptBudget.decode(quotaVector("unknown.budget"));
+        final var resolved = TargetQuotaAttemptBudget.decode(quotaVector("resolved.budget"));
+        final var publishing = attemptProjection(admitted, AttemptLedgerState.PUBLISHING);
+        final var changedPublishing = attemptProjection(admitted, AttemptLedgerState.PUBLISHING, 3);
+        final var uncertain = attemptProjection(unknown, AttemptLedgerState.UNCERTAIN);
+
+        assertDoesNotThrow(() -> TargetCheckpointLedgerAudit.auditAttemptBudgetReferences(
+                List.of(admitted), List.of(publishing, publishing)));
+        assertDoesNotThrow(() -> TargetCheckpointLedgerAudit.auditAttemptBudgetReferences(
+                List.of(unknown), List.of(uncertain)));
+        assertDoesNotThrow(() -> TargetCheckpointLedgerAudit.auditAttemptBudgetReferences(
+                List.of(resolved), List.of()));
+
+        assertTrue(assertThrows(
+                        IllegalStateException.class,
+                        () -> TargetCheckpointLedgerAudit.auditAttemptBudgetReferences(List.of(), List.of(publishing)))
+                .getMessage()
+                .contains("lacks its quota budget"));
+        assertTrue(assertThrows(
+                        IllegalStateException.class,
+                        () -> TargetCheckpointLedgerAudit.auditAttemptBudgetReferences(List.of(admitted), List.of()))
+                .getMessage()
+                .contains("lacks its attempt reference"));
+        assertTrue(assertThrows(
+                        IllegalStateException.class,
+                        () -> TargetCheckpointLedgerAudit.auditAttemptBudgetReferences(
+                                List.of(admitted), List.of(uncertain)))
+                .getMessage()
+                .contains("contradicts its quota budget"));
+        assertTrue(assertThrows(
+                        IllegalStateException.class,
+                        () -> TargetCheckpointLedgerAudit.auditAttemptBudgetReferences(
+                                List.of(resolved), List.of(publishing)))
+                .getMessage()
+                .contains("contradicts its quota budget"));
+        assertTrue(assertThrows(
+                        IllegalStateException.class,
+                        () -> TargetCheckpointLedgerAudit.auditAttemptBudgetReferences(
+                                List.of(admitted), List.of(publishing, changedPublishing)))
+                .getMessage()
+                .contains("Message and Terminal runtime disagree"));
+    }
+
+    private static TargetCheckpointLedgerAudit.AttemptProjection attemptProjection(
+            final TargetQuotaAttemptBudget budget, final AttemptLedgerState state) {
+        return attemptProjection(budget, state, 2);
+    }
+
+    private static TargetCheckpointLedgerAudit.AttemptProjection attemptProjection(
+            final TargetQuotaAttemptBudget budget, final AttemptLedgerState state, final long runtimeRevision) {
+        final byte[] attemptId = budget.publishAttemptId();
+        final byte[] key = KeyCodec.inflight((byte) (state == AttemptLedgerState.PUBLISHING ? 2 : 3), 1, attemptId);
+        final var reference = new AttemptObligationRef(attemptId, budget.locator().generation(), state, key);
+        final boolean publishing = state == AttemptLedgerState.PUBLISHING;
+        final var runtime = new TargetGenerationRuntimeIndex(
+                budget.locator().generation(),
+                publishing ? GenerationAggregateState.PUBLISHING : GenerationAggregateState.UNCERTAIN,
+                publishing ? CurrentSendWorkKind.PUBLISHING : CurrentSendWorkKind.NONE,
+                null,
+                null,
+                publishing ? attemptId : null,
+                List.of(reference),
+                1,
+                0,
+                false,
+                runtimeRevision);
+        return new TargetCheckpointLedgerAudit.AttemptProjection(budget.locator(), runtime);
+    }
+
     private static byte[] vector(final String key) throws Exception {
         final var properties = new Properties();
         final var resource = TargetCheckpointRootVerifierTest.class
                 .getResourceAsStream("/ndip3/target-identity-vectors.properties");
+        try (var stream = Objects.requireNonNull(resource)) {
+            properties.load(stream);
+        }
+        return HexFormat.of().parseHex(Objects.requireNonNull(properties.getProperty(key)));
+    }
+
+    private static byte[] quotaVector(final String key) throws Exception {
+        final var properties = new Properties();
+        final var resource = TargetCheckpointRootVerifierTest.class
+                .getResourceAsStream("/ndip3/target-quota-accounting-vectors.properties");
         try (var stream = Objects.requireNonNull(resource)) {
             properties.load(stream);
         }

@@ -2,11 +2,21 @@ package com.nereusstream.delay.runtime;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import com.nereusstream.delay.protocol.CapacityDimension;
 import com.nereusstream.delay.protocol.CapacityVector;
+import com.nereusstream.delay.protocol.DelayMessageId;
+import com.nereusstream.delay.protocol.KafkaSourcePosition;
+import com.nereusstream.delay.protocol.OrderingMode;
+import com.nereusstream.delay.protocol.SelfRoutingId;
+import com.nereusstream.delay.protocol.TargetMessageLocator;
 import com.nereusstream.delay.protocol.TargetQuotaAggregate;
+import com.nereusstream.delay.protocol.TargetQuotaAttemptBudget;
 import com.nereusstream.delay.protocol.TargetQuotaBookkeeping;
 import com.nereusstream.delay.protocol.TargetQuotaCounter;
 import com.nereusstream.delay.protocol.TargetQuotaIncarnation;
+import com.nereusstream.delay.protocol.TargetQuotaMutation;
 import com.nereusstream.delay.protocol.TargetQuotaTotal;
 import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.CheckpointManifestLimits;
@@ -22,6 +32,7 @@ import java.nio.file.Path;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Properties;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -156,6 +167,77 @@ class TargetSourceAccountingTest {
                 new TargetCheckpointRootVerifier.LedgerAuditLimits(10_000, 64L << 20, 100_000, 64L << 20);
         TargetCheckpointRootVerifier.auditIndependentLedger(
                 physicalDb, scope.shard(), physicalLimits, quotaLimits, ledgerLimits);
+
+        final var priorSource = (KafkaSourcePosition) command.mutation().source();
+        final var budgetSource = new KafkaSourcePosition(
+                priorSource.shardId(),
+                priorSource.authenticatedClusterId(),
+                priorSource.nativeTopicUuid(),
+                priorSource.offset() + 1,
+                priorSource.leaderEpoch(),
+                priorSource.brokerLogAppendTimeEpochMs() + 1);
+        final byte[] admissionDigest = repeated(32, 0x71);
+        final TargetQuotaAttemptBudget attemptBudget;
+        try (var resources = new SharedRocksDbResources(config);
+                var store = ShardStore.openTarget(config, scope.shard(), resources)) {
+            final var mutation = new TargetQuotaMutation(
+                    store.shardMutationSequence() + 1, budgetSource, admissionDigest);
+            final var locator = new TargetMessageLocator(
+                    new DelayMessageId(SelfRoutingId.fromLogicalUuid(
+                                    scope.shard(), UUID.fromString("00000000-0064-7000-8000-000000000099"))
+                            .bytes()),
+                    1,
+                    target.identity().target(),
+                    new TargetKeyCodec.Domain(0, 1),
+                    target.identity().accountingIncarnation(),
+                    OrderingMode.BEST_EFFORT,
+                    null,
+                    repeated(32, 0x72));
+            final long[] reserve = new long[CapacityDimension.COUNT];
+            reserve[CapacityDimension.RESULT_BYTES.wireValue() - 1] = 1;
+            attemptBudget = TargetQuotaAttemptBudget.admit(
+                    locator,
+                    target.tenantScope(),
+                    repeated(32, 0x73),
+                    admissionDigest,
+                    target.accounting(),
+                    1,
+                    new CapacityVector(reserve),
+                    CapacityVector.empty(),
+                    mutation,
+                    target.recoveryLineage());
+            final var backend = new TargetStoreBackend(
+                    store,
+                    scope,
+                    shard.identity().accountingIncarnation(),
+                    shard.recoveryLineage(),
+                    new TargetStoreBackend.WriteLimits(64, 1 << 20));
+            final var next = new TargetSourceAccounting(
+                    scope,
+                    shard.recoveryLineage(),
+                    budgetSource,
+                    admissionDigest,
+                    16,
+                    4,
+                    1);
+            backend.commit(
+                    backend.prepare(
+                            budget(),
+                            reader -> next.assemble(
+                                    reader,
+                                    List.of(reader.replace(
+                                            ColumnFamily.META,
+                                            attemptBudget.key(),
+                                            TargetQuotaAttemptBudget.VALUE_TYPE,
+                                            attemptBudget.canonicalBytes())))),
+                    (a, b, c) -> guard());
+        }
+        assertTrue(assertThrows(
+                        IllegalStateException.class,
+                        () -> TargetCheckpointRootVerifier.auditIndependentLedger(
+                                physicalDb, scope.shard(), physicalLimits, quotaLimits, ledgerLimits))
+                .getMessage()
+                .contains("open quota budget lacks its attempt reference"));
     }
 
     private static TargetQuotaCounter counter(final ShardStore store, final byte[] key) {
@@ -179,6 +261,12 @@ class TargetSourceAccountingTest {
 
     private static byte[] raw(final Properties values, final String key) {
         return HexFormat.of().parseHex(values.getProperty(key));
+    }
+
+    private static byte[] repeated(final int length, final int value) {
+        final byte[] result = new byte[length];
+        java.util.Arrays.fill(result, (byte) value);
+        return result;
     }
 
     private static TargetStoreBackend.CommitGuard guard() {

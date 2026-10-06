@@ -10,9 +10,11 @@ import com.nereusstream.delay.protocol.RecoveryInstallState;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutationType;
+import com.nereusstream.delay.protocol.TargetMessageLocator;
 import com.nereusstream.delay.protocol.TargetQueueState;
 import com.nereusstream.delay.protocol.TargetQuotaAccounting;
 import com.nereusstream.delay.protocol.TargetQuotaAggregate;
+import com.nereusstream.delay.protocol.TargetQuotaAttemptBudget;
 import com.nereusstream.delay.protocol.TargetQuotaBookkeeping;
 import com.nereusstream.delay.protocol.TargetQuotaCounter;
 import com.nereusstream.delay.protocol.TargetQuotaGrantActivation;
@@ -21,14 +23,18 @@ import com.nereusstream.delay.protocol.TargetQuotaTotal;
 import com.nereusstream.delay.protocol.TargetQuotaUsage;
 import com.nereusstream.delay.protocol.TargetScheduleBinding;
 import com.nereusstream.delay.runtime.ApplyStatus;
+import com.nereusstream.delay.runtime.AttemptLedgerState;
+import com.nereusstream.delay.runtime.AttemptObligationRef;
 import com.nereusstream.delay.runtime.SystemMutationResult;
 import com.nereusstream.delay.runtime.TargetExpiryRef;
+import com.nereusstream.delay.runtime.TargetGenerationRuntimeIndex;
 import com.nereusstream.delay.runtime.TargetMessageRecord;
 import com.nereusstream.delay.runtime.TargetOrderState;
 import com.nereusstream.delay.runtime.TargetQuotaDelta;
 import com.nereusstream.delay.runtime.TargetRecordAccounting;
 import com.nereusstream.delay.runtime.TargetResultLedgerAudit;
 import com.nereusstream.delay.runtime.TargetResultRecord;
+import com.nereusstream.delay.runtime.TargetTerminalGenerationRecord;
 import com.nereusstream.delay.runtime.TargetTimelineWorkRef;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -98,6 +104,8 @@ final class TargetCheckpointLedgerAudit {
         final Map<TargetQuotaIdentity, CapacityVector> resultContributions = new HashMap<>();
         final List<TargetResultLedgerAudit.Stored> resultRows = new ArrayList<>();
         final List<TargetQuotaGrantActivation> grantActivations = new ArrayList<>();
+        final List<TargetQuotaAttemptBudget> attemptBudgets = new ArrayList<>();
+        final List<AttemptProjection> attemptProjections = new ArrayList<>();
         final List<TargetQuotaCounter> counters = new ArrayList<>();
         final List<TargetQuotaTotal> totals = new ArrayList<>();
         final var recovery = new RecoveryMetadata();
@@ -113,13 +121,25 @@ final class TargetCheckpointLedgerAudit {
                     if (family == ColumnFamily.DEDUPE) {
                         resultRows.add(new TargetResultLedgerAudit.Stored(key, type, payload));
                     } else if (family == ColumnFamily.ID && type == TargetMessageRecord.VALUE_TYPE) {
-                        auditMessageDependencies(
-                                TargetMessageRecord.decodeForStore(key, payload, proof.metadata().shardId()), view);
+                        final var message =
+                                TargetMessageRecord.decodeForStore(key, payload, proof.metadata().shardId());
+                        attemptProjections.add(new AttemptProjection(message.locator(), message.runtime()));
+                        auditMessageDependencies(message, view);
                     } else if (family == ColumnFamily.META && type == TargetOrderState.VALUE_TYPE) {
                         auditOrderStateDependencies(TargetOrderState.decode(payload), view);
                     } else if (family == ColumnFamily.META && type == TargetQuotaGrantActivation.VALUE_TYPE) {
                         grantActivations.add(TargetQuotaGrantActivation.decodeForStore(
                                 key, payload, proof.metadata().shardId(), proof.bookkeeping().tenantScope()));
+                    } else if (family == ColumnFamily.META && type == TargetQuotaAttemptBudget.VALUE_TYPE) {
+                        attemptBudgets.add(TargetQuotaAttemptBudget.decodeForStore(
+                                key, payload, proof.metadata().shardId()));
+                    } else if (family == ColumnFamily.TERMINAL
+                            && type == TargetTerminalGenerationRecord.VALUE_TYPE) {
+                        final var terminal = TargetTerminalGenerationRecord.decode(payload);
+                        if (!Arrays.equals(key, terminal.key())) {
+                            throw new IllegalArgumentException("Target checkpoint terminal key mismatch");
+                        }
+                        attemptProjections.add(new AttemptProjection(terminal.locator(), terminal.runtime()));
                     }
                     final var charge = accounting.charge(family, key, raw);
                     if (charge != null) {
@@ -142,6 +162,7 @@ final class TargetCheckpointLedgerAudit {
         if (auditQuotaRecords) {
             TargetCheckpointRootVerifier.auditQuotaRecords(proof, counters, totals, grantActivations);
         }
+        auditAttemptBudgetReferences(attemptBudgets, attemptProjections);
         recovery.verify(proof);
         final long resultBytes = limits.maxKeyValueBytes() > Long.MAX_VALUE - limits.maxPointReadBytes()
                 ? Long.MAX_VALUE
@@ -181,6 +202,75 @@ final class TargetCheckpointLedgerAudit {
 
         void scan(ColumnFamily family, Budget budget, EntryVisitor visitor);
     }
+
+    static record AttemptProjection(TargetMessageLocator locator, TargetGenerationRuntimeIndex runtime) {
+        AttemptProjection {
+            if (locator == null || runtime == null) {
+                throw new IllegalArgumentException("Target attempt projection is incomplete");
+            }
+            runtime.requireMessageProjection(locator);
+        }
+    }
+
+    /** Checks that every unresolved durable attempt reserve has exactly its matching open Message obligation. */
+    static void auditAttemptBudgetReferences(
+            final List<TargetQuotaAttemptBudget> budgets, final List<AttemptProjection> projections) {
+        final Map<String, TargetQuotaAttemptBudget> byAttempt = new HashMap<>();
+        for (TargetQuotaAttemptBudget budget : budgets) {
+            final String id = HexFormat.of().formatHex(budget.publishAttemptId());
+            if (byAttempt.putIfAbsent(id, budget) != null) {
+                throw new IllegalStateException("Target checkpoint repeats an attempt budget identity");
+            }
+        }
+        final Map<String, AttemptProjectionRef> referenced = new HashMap<>();
+        final Map<TargetMessageLocator, byte[]> generationRuntimes = new HashMap<>();
+        for (AttemptProjection projection : projections) {
+            final byte[] runtimeDigest = projection.runtime().runtimeDigest();
+            final byte[] priorRuntimeDigest = generationRuntimes.putIfAbsent(projection.locator(), runtimeDigest);
+            if (priorRuntimeDigest != null && !Arrays.equals(priorRuntimeDigest, runtimeDigest)) {
+                throw new IllegalStateException("Target checkpoint Message and Terminal runtime disagree");
+            }
+            for (AttemptObligationRef obligation : projection.runtime().attemptObligations()) {
+                final String id = HexFormat.of().formatHex(obligation.publishAttemptId());
+                final var next = new AttemptProjectionRef(projection.locator(), obligation);
+                final AttemptProjectionRef prior = referenced.putIfAbsent(id, next);
+                if (prior != null
+                        && (!prior.locator().equals(next.locator())
+                                || !Arrays.equals(
+                                        prior.obligation().canonicalBytes(), next.obligation().canonicalBytes()))) {
+                    throw new IllegalStateException("Target checkpoint attempt reference identity conflicts");
+                }
+            }
+        }
+        for (Map.Entry<String, AttemptProjectionRef> entry : referenced.entrySet()) {
+            final TargetQuotaAttemptBudget budget = byAttempt.get(entry.getKey());
+            if (budget == null) {
+                throw new IllegalStateException("Target checkpoint open attempt lacks its quota budget");
+            }
+            final AttemptProjectionRef reference = entry.getValue();
+            final boolean matches = budget.locator().equals(reference.locator())
+                    && switch (budget.phase()) {
+                        case ADMITTED -> reference.obligation().ledgerState()
+                                == AttemptLedgerState.PUBLISHING;
+                        case UNKNOWN -> reference.obligation().ledgerState()
+                                == AttemptLedgerState.UNCERTAIN;
+                        case RESOLVED_AWAITING_FLOOR, RETAINED, RELEASED -> false;
+                    };
+            if (!matches) {
+                throw new IllegalStateException("Target checkpoint attempt reference contradicts its quota budget");
+            }
+        }
+        for (Map.Entry<String, TargetQuotaAttemptBudget> entry : byAttempt.entrySet()) {
+            final var phase = entry.getValue().phase();
+            final boolean open = phase == TargetQuotaAttemptBudget.Phase.ADMITTED
+                    || phase == TargetQuotaAttemptBudget.Phase.UNKNOWN;
+            if (open != referenced.containsKey(entry.getKey())) {
+                throw new IllegalStateException("Target checkpoint open quota budget lacks its attempt reference");
+            }
+        }
+    }
+
+    private record AttemptProjectionRef(TargetMessageLocator locator, AttemptObligationRef obligation) {}
 
     private static final class ImageSource implements LedgerSource {
         private final RocksDB db;
