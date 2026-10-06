@@ -1,0 +1,28 @@
+E4 Target DRR process-local ordinary service intervals
+Date: 2026-10-06
+
+Source lock:
+- Delay base HEAD: `dc0f11bfdc0e70e79c4e64ac20b673b61fd5e446`
+- New changes are local to this focused interval-metric slice.
+- The pre-existing `.gitignore` modification remained outside this slice.
+
+Change:
+- Added fixed-cardinality `TARGET_DRR_TARGET_SERVICE_INTERVAL_NANOS` histogram samples.
+- Each live physical `TargetState` retains the process-local monotonic time of its last successful ordinary Claim. A later successful Claim for the same state reports the elapsed nanoseconds; its first Claim emits no interval sample. The event contains no Target identity or high-cardinality label.
+- The sample measures only intervals observed while this `TargetState` instance remains live. Rebuilding the state resets the baseline; this is neither a durable fairness receipt nor restart-coverage evidence.
+- Metrics stay on the existing bounded asynchronous exporter path and do not add a Store write or change Claim selection/results.
+
+Validation:
+`./gradlew test --tests com.nereusstream.delay.ownership.TargetWorkerOrdinaryDrrTest checkstyleTest --no-daemon --console=plain`
+
+Result: `TargetWorkerOrdinaryDrrTest` passed 29/29 with 0 skipped, failures, or errors; `checkstyleTest` passed. The focused regression performs two successful selections for one Target, asserts both Claim results remain unchanged, and observes exactly one interval sample.
+
+`./gradlew checkstyleMain --no-daemon --console=plain` reports only the same two existing line-length violations: `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:376`. No violation is reported in the changed metrics or DRR implementation. `git diff --check` passed.
+
+Still open: scan/queue/physical-send metrics; exporter/configuration production assembly; process restart or state-rebuild coverage gaps; certification mode, generation, and sample coverage; queue-overflow/restart integration; central validation. E4 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
+
+SHA-256:
+- `src/main/java/com/nereusstream/delay/scheduler/BoundedAsyncMetricExporter.java`: `ecde7048725590333eed5b4002dbc394c81b972e249ad769b02ab91370f7e53c`
+- `src/main/java/com/nereusstream/delay/ownership/TargetWorkerOrdinaryDrr.java`: `315c244897c5c3d62d66f81ebeb264b97825f6214478d955204035d79be0a82f`
+- `src/test/java/com/nereusstream/delay/ownership/TargetWorkerOrdinaryDrrTest.java`: `65cf31e5e9f59a8d32cea77cfb81ff361f7ff4fa4c3ea903de8cc1cef7fd9f0c`
+- `build/test-results/test/TEST-com.nereusstream.delay.ownership.TargetWorkerOrdinaryDrrTest.xml`: `b91948cefad3890afc845e27caa898952f67f54e570d06ac33e68d8d3129e368`

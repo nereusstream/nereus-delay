@@ -58,7 +58,7 @@ class TargetWorkerOrdinaryDrrTest {
         final var reads = new FakeReads(head);
         final var events = new CopyOnWriteArrayList<BoundedAsyncMetricExporter.MetricEvent>();
         try (var metrics = new BoundedAsyncMetricExporter(
-                new BoundedAsyncMetricExporter.Limits(8, 72), events::add)) {
+                new BoundedAsyncMetricExporter.Limits(16, 144), events::add)) {
             final var drr = new TargetWorkerOrdinaryDrr(
                     new TargetWorkerTargetInventory.Snapshot(List.of(targetState(physical, head)), reads.cuts()),
                     ONE_VISIT,
@@ -73,6 +73,11 @@ class TargetWorkerOrdinaryDrrTest {
             assertEquals(List.of(head.ref()), turn.claims());
             assertEquals(1, turn.targetVisits());
             assertEquals(50, turn.schedulingBytes());
+            final var nextTurn = drr.runOrdinary(
+                    100,
+                    new SchedulerBudget(1, 200, 1_000_000_000L),
+                    (source, cost) -> Optional.of(() -> cost.head()));
+            assertEquals(List.of(head.ref()), nextTurn.claims());
 
             metrics.stopAccepting();
             assertTrue(metrics.awaitTermination(Duration.ofSeconds(5)));
@@ -83,6 +88,12 @@ class TargetWorkerOrdinaryDrrTest {
                     && event.value() == 50));
             assertTrue(events.stream().anyMatch(event -> event.metric()
                     == BoundedAsyncMetricExporter.Metric.TARGET_DRR_CLAIM_TURNS && event.value() == 1));
+            assertEquals(
+                    1,
+                    events.stream()
+                            .filter(event -> event.metric()
+                                    == BoundedAsyncMetricExporter.Metric.TARGET_DRR_TARGET_SERVICE_INTERVAL_NANOS)
+                            .count());
             final var expectedStop = switch (turn.stop()) {
                 case NORMAL -> BoundedAsyncMetricExporter.Metric.TARGET_DRR_STOP_NORMAL;
                 case READ_INCOMPLETE -> BoundedAsyncMetricExporter.Metric.TARGET_DRR_STOP_READ_INCOMPLETE;

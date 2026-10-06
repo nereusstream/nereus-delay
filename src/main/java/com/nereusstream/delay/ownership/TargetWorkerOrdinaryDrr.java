@@ -989,6 +989,7 @@ public final class TargetWorkerOrdinaryDrr {
             if (visit.kind() == VisitKind.CLAIMED) {
                 claims.add(visit.claimed().value());
                 bytes = Math.addExact(bytes, visit.claimed().cost());
+                recordOrdinaryTargetServiceInterval(target);
             } else if (visit.kind() == VisitKind.CREDIT_WAIT) {
                 creditWait = true;
             } else if (visit.kind() == VisitKind.BUDGET_WAIT) {
@@ -997,6 +998,20 @@ public final class TargetWorkerOrdinaryDrr {
         }
         final Stop stop = creditWait ? Stop.CREDIT_WAIT : budgetWait ? Stop.BUDGET_WAIT : Stop.NORMAL;
         return reportOrdinaryTurn(new Turn<>(claims, visits, bytes, stop), metricsStarted);
+    }
+
+    private void recordOrdinaryTargetServiceInterval(final TargetState target) {
+        if (metrics == null) {
+            return;
+        }
+        final long now = System.nanoTime();
+        if (target.ordinaryServiceObserved) {
+            metrics.record(new BoundedAsyncMetricExporter.MetricEvent(
+                    BoundedAsyncMetricExporter.Metric.TARGET_DRR_TARGET_SERVICE_INTERVAL_NANOS,
+                    Math.max(0L, now - target.lastOrdinaryServiceNanos)));
+        }
+        target.lastOrdinaryServiceNanos = now;
+        target.ordinaryServiceObserved = true;
     }
 
     private <T> Turn<T> reportOrdinaryTurn(final Turn<T> turn, final long metricsStarted) {
@@ -1396,6 +1411,8 @@ public final class TargetWorkerOrdinaryDrr {
         private int sourceCursor;
         private long credit;
         private Long nextOrdinaryWakeEpochMs;
+        private long lastOrdinaryServiceNanos;
+        private boolean ordinaryServiceObserved;
 
         private TargetState(
                 final TargetWorkerTargetInventory.Target target,
