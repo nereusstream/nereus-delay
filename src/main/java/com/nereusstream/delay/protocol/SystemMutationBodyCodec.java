@@ -29,6 +29,10 @@ public final class SystemMutationBodyCodec {
             throw new IllegalArgumentException("unknown or out-of-order System Mutation body field "
                     + fields.get(fieldIndex).number());
         }
+        if (type == SystemMutationType.TARGET_PUBLISH_ADMISSION
+                && fields.get(3).unsignedValue() != TargetPublishAdmissionBody.BODY_VERSION) {
+            throw new IllegalArgumentException("unsupported Target Publish Admission body version");
+        }
     }
 
     /** Returns the already-validated canonical body fields for an operation applier. */
@@ -106,6 +110,21 @@ public final class SystemMutationBodyCodec {
                     nested(23),
                     nested(24),
                     nested(25)
+                };
+            case TARGET_PUBLISH_ADMISSION ->
+                new Spec[] {
+                    varint(10),
+                    nested(11),
+                    fixed(12, 16, true),
+                    fixed(13, 32, true),
+                    nested(14),
+                    varint(15),
+                    fixed(16, 32, true),
+                    nested(17),
+                    varint(18),
+                    nested(19),
+                    nested(20),
+                    nested(21)
                 };
             case PUBLISH_OUTCOME ->
                 new Spec[] {
@@ -193,7 +212,9 @@ public final class SystemMutationBodyCodec {
                 throw new IllegalArgumentException(
                         "nested System Mutation body field " + spec.number() + " must not be empty");
             }
-            readAll(new CanonicalProtobuf.Reader(value));
+            final boolean repeatedCanonicalFields = type == SystemMutationType.TARGET_PUBLISH_ADMISSION
+                    && (field.number() == 19 || field.number() == 20);
+            readAll(new CanonicalProtobuf.Reader(value, repeatedCanonicalFields));
         }
     }
 

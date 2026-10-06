@@ -13,7 +13,8 @@ public enum SystemMutationType {
     RESOURCE_RETIRE_INTENT(9),
     RESOURCE_DELETE_CONFIRMED(10),
     CLAIM_RESULT(11),
-    DLQ_EXPORT_RESULT(12);
+    DLQ_EXPORT_RESULT(12),
+    TARGET_PUBLISH_ADMISSION(13);
 
     private final int wireValue;
 

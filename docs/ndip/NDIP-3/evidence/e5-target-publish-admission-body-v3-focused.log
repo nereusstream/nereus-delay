@@ -1,0 +1,51 @@
+E5 Target Publish Admission type/body/tuple and source-first rejection slice
+
+Source lock: main@28ddb7d40b07f9c2750369e4176ffdeb529a9095
+
+The closed type-5 PUBLISH_ADMISSION body and shared System Mutation body v2 tuple remain unchanged. Type 13
+TARGET_PUBLISH_ADMISSION carries its own operation body version 3 and requires the exact activated tuple
+(1,1,SYSTEM_MUTATION,1,3). The Target source runtime routes first application through historical Owner/key and
+tuple authority, then the Target Store batch. An unauthorized first application is persisted with both first
+system and source-position results plus source accounting, without consuming Claim/Message/AttemptBudget or
+writing Target quota deltas.
+
+Focused command:
+./gradlew test --tests com.nereusstream.delay.runtime.TargetQuotaStoreGateTest --tests com.nereusstream.delay.protocol.TargetPublishAdmissionBodyTest --tests com.nereusstream.delay.protocol.PublishAdmissionBodyTest --no-daemon --console=plain
+
+Result: BUILD SUCCESSFUL; 24 tests total (TargetQuotaStoreGateTest 1/1, TargetPublishAdmissionBodyTest 4/4,
+legacy PublishAdmissionBodyTest 19/19); zero skips, failures or errors. The RocksDB case verifies the rejected
+first result, source position/frontier and absence of Message, Claim and AttemptBudget writes.
+
+An earlier broader protocol run including ProtocolCodecTest had 69 tests with one unrelated existing failure:
+stableCodeRegistryIsClosedAndRoundTripsEveryValue expects 108 StableCode values while this checkout has 109.
+StableCode was not changed. No assertion was weakened or skipped.
+
+./gradlew checkstyleTest checkstyleMain checkDocumentation --no-daemon --console=plain
+Result: checkstyleTest passed. checkstyleMain failed only on existing 123-character lines in unmodified
+PersistentLaneScheduler.java:1327 and TargetWorkerHostRuntime.java:377.
+
+./gradlew checkDocumentation --no-daemon --console=plain
+Result: BUILD SUCCESSFUL; package/implementation verifier suites (10 and 14 tests), historical closure and
+documentation checks passed.
+
+Scope limit: only Target Admission body's first-apply route and the unauthorized rejection transaction were
+verified here. Successful Claim consumption plus source ACK, Target Outcome, missing-Claim recovery, production
+Owner/tuple-history authority wiring, Producer integration and central E5 validation remain open; E5 remains
+IN_PROGRESS / PENDING_CENTRAL_VALIDATION.
+
+SHA-256:
+95ada41ad30d6cf832d5ac3cfe27a231401d98ff6a4a1ac510c70f3d648277be  src/main/java/com/nereusstream/delay/protocol/TargetPublishAdmissionBody.java
+a814daac918882038ebabb04dce2cad1f1bb33619c37ebec17b5133a45cbc9b2  src/main/java/com/nereusstream/delay/runtime/TargetPublishAdmissionStore.java
+6b0b91e0dae11c07f7aa7dac47e1241602cac529064430c5bfbe635f04d9210b  src/main/java/com/nereusstream/delay/runtime/TargetPublishAdmissionVerifier.java
+d62fd6e8bd58856f3d974b0e12049407c21d6fe4a6984e93f173c92cc2c3144b  src/main/java/com/nereusstream/delay/ownership/TargetSourceApplyRuntime.java
+a01dd5bcd855ac34f270109721e4b365f0439e4a3c6d28d134a9ca203da37ddb  src/main/java/com/nereusstream/delay/protocol/AuthorIdentity.java
+d467dfc3ef33281aab052e0eaea506684fd76bcbebbcb07f4bccde7b0b95eec2  src/main/java/com/nereusstream/delay/protocol/ProtocolTuple.java
+10f02ec7c2324512e8554f458f059fb82bfff1d930010a9da7324fe56e26cb30  src/main/java/com/nereusstream/delay/protocol/SystemMutationBodyCodec.java
+5a215da5cfb15b996c13b79890948d59fcf5a0a2730b3dc4afe7878d4acfb4e4  src/main/java/com/nereusstream/delay/protocol/SystemMutationIdentity.java
+f84dc8f788d58bbd3f60f53f32d31ebc24bea1959732768cd1539139467929e3  src/main/java/com/nereusstream/delay/protocol/SystemMutationType.java
+e587543a60792c45fa87c30fec02a24d0bd21f9a96fab3e4baa6bb58d8e30433  src/main/java/com/nereusstream/delay/runtime/TargetQuotaStoreGate.java
+a7d00c0819ac701e79dccbc91ade779bbd6a1dd386cc2628f71bf8901e95c10e  src/test/java/com/nereusstream/delay/protocol/TargetPublishAdmissionBodyTest.java
+1831d2fdfcbaad47018b6e757eef489f790df0bbe65fb83049613280a1449f26  src/test/java/com/nereusstream/delay/runtime/TargetQuotaStoreGateTest.java
+408f082ae4ee3a20e04aaf63db808ac8b084fac8233d0d7ae3ec58330c1b6553  build/test-results/test/TEST-com.nereusstream.delay.runtime.TargetQuotaStoreGateTest.xml
+3f0bf8777101e1d2cc847f826da1424d41c07105f8bb878f885a078d31b4275d  build/test-results/test/TEST-com.nereusstream.delay.protocol.TargetPublishAdmissionBodyTest.xml
+433975a450d9cfe9a83e55de69d9c083e46b8f1197b08bfd27cc4c9009fb8895  build/test-results/test/TEST-com.nereusstream.delay.protocol.PublishAdmissionBodyTest.xml

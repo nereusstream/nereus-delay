@@ -35,6 +35,7 @@ public final class SystemMutationIdentity {
                 ResolveUncertainBody.decode(body).controlRef().logicalOperationIdentity(mutationType);
             case TIME_FENCE -> fixed(field(fields, 12), 12, SystemMutation.HASH_LENGTH);
             case PUBLISH_ADMISSION -> PublishAdmissionBody.decode(body).publishAttemptId();
+            case TARGET_PUBLISH_ADMISSION -> TargetPublishAdmissionBody.decode(body).publishAttemptId();
             case PUBLISH_OUTCOME -> PublishOutcomeBody.decode(body).initialLogicalOperationIdentity();
             case EXPIRE_GENERATION -> {
                 final DelayMessageId messageId =

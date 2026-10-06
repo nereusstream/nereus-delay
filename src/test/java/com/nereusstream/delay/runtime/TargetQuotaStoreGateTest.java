@@ -1,27 +1,44 @@
 package com.nereusstream.delay.runtime;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import com.nereusstream.delay.protocol.AuthorIdentity;
+import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CapacityDimension;
 import com.nereusstream.delay.protocol.CapacityVector;
 import com.nereusstream.delay.protocol.ControlRef;
+import com.nereusstream.delay.protocol.DelayMessageId;
+import com.nereusstream.delay.protocol.KafkaSourcePosition;
+import com.nereusstream.delay.protocol.OrderingMode;
+import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.PreparedControlOperation;
+import com.nereusstream.delay.protocol.ProtocolTuple;
+import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
+import com.nereusstream.delay.protocol.TargetMessageLocator;
+import com.nereusstream.delay.protocol.TargetPublishAdmissionBody;
 import com.nereusstream.delay.protocol.TargetQuotaGrant;
 import com.nereusstream.delay.protocol.TargetQuotaGrantActivation;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlRequest;
 import com.nereusstream.delay.protocol.TargetQuotaIncarnation;
 import com.nereusstream.delay.protocol.TargetQuotaMutation;
 import com.nereusstream.delay.protocol.TargetQuotaUsage;
+import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.ColumnFamily;
+import com.nereusstream.delay.store.KeyCodec;
 import com.nereusstream.delay.store.ShardStore;
 import com.nereusstream.delay.store.ShardStoreConfig;
 import com.nereusstream.delay.store.SharedRocksDbResources;
+import com.nereusstream.delay.store.TargetKeyCodec;
 import com.nereusstream.delay.store.TargetStoreBackend;
+import com.nereusstream.delay.store.TargetValueEnvelope;
 import java.nio.file.Path;
+import java.security.KeyPairGenerator;
 import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.List;
@@ -128,7 +145,129 @@ class TargetQuotaStoreGateTest {
                     (a, b, c) -> guard());
             assertThrows(IllegalStateException.class, () -> backend.commit(oldPlan, (a, b, c) -> guard()));
             assertNull(store.get(ColumnFamily.DEDUPE, command.key()));
+            applyRejectedTargetAdmission(backend, store, shard, target);
         }
+    }
+
+    private static void applyRejectedTargetAdmission(
+            TargetStoreBackend backend, ShardStore store, TargetQuotaIncarnation shard, TargetQuotaIncarnation target)
+            throws java.security.GeneralSecurityException {
+        final var previous = (KafkaSourcePosition) store.appliedShardLogPosition();
+        final var source = new KafkaSourcePosition(
+                previous.shardId(),
+                previous.authenticatedClusterId(),
+                previous.nativeTopicUuid(),
+                previous.offset() + 1,
+                previous.leaderEpoch(),
+                previous.brokerLogAppendTimeEpochMs() + 1);
+        final var owner = new OwnerIdentity(
+                Bytes.utf8("target-deployment"), Bytes.utf8("target-worker"), 7, bytes(32, 0x42));
+        final byte[] claimId = bytes(32, 0x43);
+        final var messageId = DelayMessageId.random(shard.identity().shard());
+        final var locator = new TargetMessageLocator(
+                messageId,
+                0,
+                target.identity().target(),
+                new TargetKeyCodec.Domain(0, 1),
+                target.identity().accountingIncarnation(),
+                OrderingMode.BEST_EFFORT,
+                null,
+                bytes(32, 0x44));
+        final byte[] attemptId = SystemMutation.computePublishAttemptLogicalIdentity(claimId, messageId, 0, 1);
+        final var obligation = new AttemptObligationRef(
+                attemptId,
+                0,
+                AttemptLedgerState.PUBLISHING,
+                KeyCodec.inflight((byte) 2, owner.ownerEpoch(), attemptId));
+        final long[] reserve = new long[CapacityDimension.COUNT];
+        reserve[CapacityDimension.RESULT_BYTES.wireValue() - 1] = 128;
+        final var proof = new TrustedUtcIntervalEvidence(
+                source.brokerPersistenceTimeEpochMs(),
+                source.brokerPersistenceTimeEpochMs() + 1,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                Bytes.utf8("store-gate-test-clock"),
+                1,
+                1,
+                1,
+                Bytes.sha256(Bytes.utf8("store-gate-test-proof")),
+                0,
+                null);
+        final long retryUntil = source.brokerPersistenceTimeEpochMs() + 10_000;
+        final var body = new TargetPublishAdmissionBody(
+                shard.identity().shard(),
+                retryUntil,
+                owner,
+                bytes(16, 0x45),
+                claimId,
+                locator,
+                1,
+                attemptId,
+                obligation,
+                8,
+                new CapacityVector(reserve),
+                CapacityVector.empty(),
+                proof);
+        final var keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final var mutation = SystemMutation.signed(
+                shard.identity().shard(),
+                SystemMutationType.TARGET_PUBLISH_ADMISSION,
+                retryUntil,
+                body.publishAttemptId(),
+                body.canonicalBytes(),
+                AuthorIdentity.owner(
+                                owner.deploymentId(),
+                                owner.workerRunId(),
+                                owner.ownerEpoch(),
+                                owner.leaseFencingDigest())
+                        .canonicalBytes(),
+                1,
+                keys.getPrivate());
+        final var admissionStore = new TargetPublishAdmissionStore(
+                backend, shard.scope(), shard.recoveryLineage(), 16, 1, 1);
+        final long beforeSequence = store.shardMutationSequence();
+        final long beforeVersion = store.latestSequenceNumber();
+        final var result = admissionStore.commit(
+                admissionStore.prepareFirst(
+                        budget(),
+                        mutation,
+                        source,
+                        (actualScope, writer, entry, position) -> new TargetPublishAdmissionVerifier.Authorization(
+                                keys.getPublic(),
+                                ProtocolTuple.currentSystemMutation(),
+                                10,
+                                10,
+                                100,
+                                (a, b, c, evidence) -> true)),
+                (a, b, c) -> guard());
+        assertEquals(ApplyStatus.REJECTED, result.applyStatus());
+        assertEquals(StableCode.UNAUTHORIZED_SYSTEM_MUTATION, result.stableCode());
+        assertEquals(beforeSequence + 1, store.shardMutationSequence());
+        assertTrue(store.latestSequenceNumber() > beforeVersion);
+        assertEquals(source, store.appliedShardLogPosition());
+        final byte[] systemKey = Bytes.concat(
+                new byte[] {TargetKeyCodec.RESULT_SYSTEM_TAG, TargetKeyCodec.KEY_FORMAT},
+                mutation.systemMutationId());
+        final var first = TargetResultRecord.decode(TargetValueEnvelope.decode(
+                        store.get(ColumnFamily.DEDUPE, systemKey), TargetResultRecord.VALUE_TYPE)
+                .payload());
+        assertArrayEquals(result.encode(), SystemMutationResult.decode(first.typedPayload()).encode());
+        final byte[] positionKey = Bytes.concat(
+                new byte[] {TargetKeyCodec.RESULT_POSITION_TAG, TargetKeyCodec.KEY_FORMAT},
+                source.canonicalBytes());
+        final var positionRecord = TargetResultRecord.decode(TargetValueEnvelope.decode(
+                        store.get(ColumnFamily.DEDUPE, positionKey), TargetResultRecord.VALUE_TYPE)
+                .payload());
+        positionRecord.requireFirst(first);
+        assertNull(store.get(ColumnFamily.ID, TargetKeyCodec.message(messageId)));
+        assertNull(store.get(ColumnFamily.INFLIGHT, TargetClaimRecord.key(claimId)));
+        assertNull(store.get(
+                ColumnFamily.META,
+                Bytes.concat(
+                        new byte[] {
+                            (byte) TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG,
+                            TargetKeyCodec.KEY_FORMAT
+                        },
+                        attemptId)));
     }
 
     private static TargetSourceAccounting accounting(TargetQuotaIncarnation shard, TargetQuotaMutation mutation) {

@@ -48,6 +48,11 @@ public final class ProtocolTuple {
         return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, 2);
     }
 
+    /** Target-specific Publish Admission body generation, activated independently from the shared v2 set. */
+    public static ProtocolTuple targetPublishAdmission() {
+        return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, TargetPublishAdmissionBody.BODY_VERSION);
+    }
+
     public long framingVersion() {
         return framingVersion;
     }

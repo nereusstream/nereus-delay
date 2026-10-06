@@ -138,7 +138,8 @@ public final class AuthorIdentity {
                 switch (Objects.requireNonNull(mutationType, "mutationType")) {
                     case APPLY_SHARD_CONTROL, REPLAY_DEAD_LETTER, RESOLVE_UNCERTAIN -> Kind.CONTROL;
                     case TIME_FENCE -> Kind.FENCE;
-                    case PUBLISH_ADMISSION, PUBLISH_OUTCOME, EXPIRE_GENERATION, CLAIM_RESULT -> Kind.OWNER;
+                    case PUBLISH_ADMISSION, PUBLISH_OUTCOME, EXPIRE_GENERATION, CLAIM_RESULT,
+                            TARGET_PUBLISH_ADMISSION -> Kind.OWNER;
                     case EVIDENCE_RESOLUTION, RESOURCE_RETIRE_INTENT, RESOURCE_DELETE_CONFIRMED, DLQ_EXPORT_RESULT ->
                         Kind.SERVICE;
                 };

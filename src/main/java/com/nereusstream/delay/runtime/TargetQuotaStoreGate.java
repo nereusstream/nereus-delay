@@ -76,7 +76,8 @@ public final class TargetQuotaStoreGate {
                 || mutation.business().size() > reader.maximumWriteRecords()
                 || (quota.changes().isEmpty()
                         && operation != TargetQuotaGrantGate.Operation.CANCEL
-                        && operation != TargetQuotaGrantGate.Operation.RESCHEDULE)
+                        && operation != TargetQuotaGrantGate.Operation.RESCHEDULE
+                        && operation != TargetQuotaGrantGate.Operation.ADMISSION)
                 || quota.changes().size() > maximumTargets) {
             throw new IllegalArgumentException("logical Store gate requires its bounded affected Target set");
         }
