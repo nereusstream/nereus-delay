@@ -20,7 +20,7 @@ class OpenTelemetryMetricExporterTest {
         final InMemoryMetricReader reader = InMemoryMetricReader.create();
         try (var provider = SdkMeterProvider.builder().registerMetricReader(reader).build();
                 var metrics = new BoundedAsyncMetricExporter(
-                        new Limits(12, 108), new OpenTelemetryMetricExporter(provider.get("nereus-delay")))) {
+                        new Limits(14, 126), new OpenTelemetryMetricExporter(provider.get("nereus-delay")))) {
             assertEquals(
                     BoundedAsyncMetricExporter.OfferResult.ACCEPTED,
                     metrics.record(new MetricEvent(Metric.TARGET_DRR_CLAIM_TURNS, 3)));
@@ -57,9 +57,15 @@ class OpenTelemetryMetricExporterTest {
             assertEquals(
                     BoundedAsyncMetricExporter.OfferResult.ACCEPTED,
                     metrics.record(new MetricEvent(Metric.TARGET_INVENTORY_ACTIVE_MESSAGE_DEPTH_UNAVAILABLE, 2)));
+            assertEquals(
+                    BoundedAsyncMetricExporter.OfferResult.ACCEPTED,
+                    metrics.record(new MetricEvent(Metric.TARGET_PHYSICAL_PUBLISH_STAGE_DURATION_NANOS, 37)));
+            assertEquals(
+                    BoundedAsyncMetricExporter.OfferResult.ACCEPTED,
+                    metrics.record(new MetricEvent(Metric.TARGET_PHYSICAL_PUBLISH_STAGE_UNAVAILABLE, 1)));
             metrics.stopAccepting();
             assertTrue(metrics.awaitTermination(Duration.ofSeconds(5)));
-            assertEquals(12, metrics.snapshot().exported());
+            assertEquals(14, metrics.snapshot().exported());
 
             final Map<String, MetricData> observed = reader.collectAllMetrics().stream()
                     .collect(Collectors.toMap(MetricData::getName, Function.identity()));
@@ -170,6 +176,29 @@ class OpenTelemetryMetricExporterTest {
                     .orElseThrow();
             assertEquals(2, unavailablePoint.getValue());
             assertTrue(unavailablePoint.getAttributes().isEmpty());
+
+            final var physicalPublishDuration = observed.get("nereus.target.physical.publish.stage.duration");
+            assertEquals("ns", physicalPublishDuration.getUnit());
+            final var physicalPublishDurationPoint = physicalPublishDuration
+                    .getHistogramData()
+                    .getPoints()
+                    .stream()
+                    .findFirst()
+                    .orElseThrow();
+            assertEquals(1, physicalPublishDurationPoint.getCount());
+            assertEquals(37.0, physicalPublishDurationPoint.getSum(), 0.0);
+            assertTrue(physicalPublishDurationPoint.getAttributes().isEmpty());
+
+            final var physicalPublishUnavailable = observed.get("nereus.target.physical.publish.stage.unavailable");
+            assertEquals("1", physicalPublishUnavailable.getUnit());
+            final var physicalPublishUnavailablePoint = physicalPublishUnavailable
+                    .getLongSumData()
+                    .getPoints()
+                    .stream()
+                    .findFirst()
+                    .orElseThrow();
+            assertEquals(1, physicalPublishUnavailablePoint.getValue());
+            assertTrue(physicalPublishUnavailablePoint.getAttributes().isEmpty());
         }
     }
 }

@@ -6,6 +6,9 @@ import com.nereusstream.delay.protocol.DestinationLaneId;
 import com.nereusstream.delay.protocol.PulsarPreparedRecord;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.StableCode;
+import com.nereusstream.delay.scheduler.BoundedAsyncMetricExporter;
+import com.nereusstream.delay.scheduler.BoundedAsyncMetricExporter.Metric;
+import com.nereusstream.delay.scheduler.BoundedAsyncMetricExporter.MetricEvent;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
@@ -32,6 +35,7 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
     private final DestinationPhysicalAdmission admission;
     private final Executor executor;
     private final ExecutorService ownedExecutor;
+    private final BoundedAsyncMetricExporter metrics;
     private final CloseGuard closeGuard = new CloseGuard();
 
     BoundedDestinationPublishAdapter(
@@ -61,7 +65,18 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
             final DestinationPhysicalAdmission admission,
             final WorkClassExecutionRegistry workClasses,
             final Executor executor) {
-        this(delegate, admission, executor, false);
+        this(delegate, admission, executor, false, null);
+        this.admission.bindWorkClassExecutionRegistry(Objects.requireNonNull(workClasses, "workClasses"));
+    }
+
+    /** Production composition with optional caller-owned process metrics. */
+    public BoundedDestinationPublishAdapter(
+            final DestinationPublishAdapter delegate,
+            final DestinationPhysicalAdmission admission,
+            final WorkClassExecutionRegistry workClasses,
+            final Executor executor,
+            final BoundedAsyncMetricExporter metrics) {
+        this(delegate, admission, executor, false, metrics);
         this.admission.bindWorkClassExecutionRegistry(Objects.requireNonNull(workClasses, "workClasses"));
     }
 
@@ -70,10 +85,20 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
             final DestinationPhysicalAdmission admission,
             final Executor executor,
             final boolean ownsExecutor) {
+        this(delegate, admission, executor, ownsExecutor, null);
+    }
+
+    private BoundedDestinationPublishAdapter(
+            final DestinationPublishAdapter delegate,
+            final DestinationPhysicalAdmission admission,
+            final Executor executor,
+            final boolean ownsExecutor,
+            final BoundedAsyncMetricExporter metrics) {
         this.delegate = Objects.requireNonNull(delegate, "delegate");
         this.admission = Objects.requireNonNull(admission, "admission");
         this.executor = Objects.requireNonNull(executor, "executor");
         this.ownedExecutor = ownsExecutor ? (ExecutorService) executor : null;
+        this.metrics = metrics;
     }
 
     /**
@@ -350,10 +375,13 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
                     () -> {
                         final DestinationPublishResult preflightResult = preflight.check();
                         if (preflightResult != null) {
-                            return new DelegateInvocation(CompletableFuture.completedFuture(preflightResult), false);
+                            return new DelegateInvocation(
+                                    CompletableFuture.completedFuture(preflightResult), false, false, 0);
                         }
                         try {
-                            return new DelegateInvocation(delegateCall.publish(), false);
+                            final long delegateStartedNanos = System.nanoTime();
+                            return new DelegateInvocation(
+                                    delegateCall.publish(), false, true, delegateStartedNanos);
                         } catch (RuntimeException exception) {
                             // A synchronous transport exception does not
                             // prove that the request stopped before
@@ -361,10 +389,11 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
                             // unobserved marker used by the pinned adapters
                             // so the physical charge is retained until
                             // certified completion or teardown.
-                            return new DelegateInvocation(UnobservedDestinationPublishStage.unknown(), false);
+                            return new DelegateInvocation(
+                                    UnobservedDestinationPublishStage.unknown(), false, true, 0);
                         }
                     },
-                    () -> new DelegateInvocation(null, true));
+                    () -> new DelegateInvocation(null, true, false, 0));
         } catch (Error fatalFailure) {
             // An asynchronous JVM/native failure must not strand the logical
             // caller behind an incomplete PublishCall. It is still not a
@@ -389,6 +418,9 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
             retainPhysicalCharge.set(true);
             reservation.markZombie();
             outcome.complete(completedUnknownValue());
+            if (invocation.delegateInvoked()) {
+                recordUnavailablePhysicalPublishStage();
+            }
             return;
         }
         if (raw instanceof UnobservedDestinationPublishStage) {
@@ -398,6 +430,9 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
             retainPhysicalCharge.set(true);
             reservation.markZombie();
             outcome.complete(completedUnknownValue());
+            if (invocation.delegateInvoked()) {
+                recordUnavailablePhysicalPublishStage();
+            }
             return;
         }
         try {
@@ -411,8 +446,14 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
                 // is idempotent, so this also closes the race where callback
                 // registration threw after installing the callback and the
                 // outcome observer is still armed.
+                final long elapsedNanos = invocation.delegateInvoked()
+                        ? Math.max(0, System.nanoTime() - invocation.delegateStartedNanos())
+                        : 0;
                 reservation.release();
                 outcome.complete(error == null && value != null ? value : completedUnknownValue());
+                if (invocation.delegateInvoked()) {
+                    recordPhysicalPublishStageDuration(elapsedNanos);
+                }
             });
         } catch (RuntimeException registrationFailure) {
             // A custom CompletionStage may reject both callback-registration
@@ -424,6 +465,9 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
             if (!completionObserved.get()) {
                 retainPhysicalCharge.set(true);
                 reservation.markZombie();
+                if (invocation.delegateInvoked()) {
+                    recordUnavailablePhysicalPublishStage();
+                }
             }
             outcome.complete(completedUnknownValue());
             if (completionObserved.get()) {
@@ -437,11 +481,26 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
             if (!completionObserved.get()) {
                 retainPhysicalCharge.set(true);
                 reservation.markZombie();
+                if (invocation.delegateInvoked()) {
+                    recordUnavailablePhysicalPublishStage();
+                }
                 outcome.complete(completedUnknownValue());
             } else {
                 reservation.release();
             }
             throw registrationFailure;
+        }
+    }
+
+    private void recordPhysicalPublishStageDuration(final long elapsedNanos) {
+        if (metrics != null) {
+            metrics.record(new MetricEvent(Metric.TARGET_PHYSICAL_PUBLISH_STAGE_DURATION_NANOS, elapsedNanos));
+        }
+    }
+
+    private void recordUnavailablePhysicalPublishStage() {
+        if (metrics != null) {
+            metrics.record(new MetricEvent(Metric.TARGET_PHYSICAL_PUBLISH_STAGE_UNAVAILABLE, 1));
         }
     }
 
@@ -487,7 +546,11 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
         return call;
     }
 
-    private record DelegateInvocation(CompletionStage<DestinationPublishResult> stage, boolean closed) {}
+    private record DelegateInvocation(
+            CompletionStage<DestinationPublishResult> stage,
+            boolean closed,
+            boolean delegateInvoked,
+            long delegateStartedNanos) {}
 
     @FunctionalInterface
     private interface DelegateCall {

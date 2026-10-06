@@ -48,7 +48,11 @@ public final class BoundedAsyncMetricExporter implements AutoCloseable {
         TARGET_INVENTORY_ACTIVE_MESSAGE_DEPTH(
                 16, Instrument.HISTOGRAM, "nereus.target.inventory.active.message.depth"),
         TARGET_INVENTORY_ACTIVE_MESSAGE_DEPTH_UNAVAILABLE(
-                17, Instrument.COUNTER, "nereus.target.inventory.active.message.depth.unavailable");
+                17, Instrument.COUNTER, "nereus.target.inventory.active.message.depth.unavailable"),
+        TARGET_PHYSICAL_PUBLISH_STAGE_DURATION_NANOS(
+                18, Instrument.HISTOGRAM, "nereus.target.physical.publish.stage.duration"),
+        TARGET_PHYSICAL_PUBLISH_STAGE_UNAVAILABLE(
+                19, Instrument.COUNTER, "nereus.target.physical.publish.stage.unavailable");
 
         private final int wireValue;
         private final Instrument instrument;

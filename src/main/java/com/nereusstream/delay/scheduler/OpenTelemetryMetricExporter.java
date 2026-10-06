@@ -60,7 +60,8 @@ public final class OpenTelemetryMetricExporter implements Exporter {
             case TARGET_DRR_TURN_SCHEDULING_BYTES -> "By";
             case TARGET_DRR_TURN_DURATION_NANOS,
                     TARGET_DRR_TARGET_SERVICE_INTERVAL_NANOS,
-                    TARGET_INVENTORY_REBUILD_DURATION_NANOS -> "ns";
+                    TARGET_INVENTORY_REBUILD_DURATION_NANOS,
+                    TARGET_PHYSICAL_PUBLISH_STAGE_DURATION_NANOS -> "ns";
             case TARGET_INVENTORY_SCAN_BUDGET_BYTES -> "By";
             case TARGET_DRR_TURN_VISITS,
                     TARGET_DRR_TURN_QUEUE_REFRESH_CALLS,
@@ -69,6 +70,7 @@ public final class OpenTelemetryMetricExporter implements Exporter {
                     TARGET_INVENTORY_SCAN_BUDGET_RECORDS,
                     TARGET_INVENTORY_ACTIVE_MESSAGE_DEPTH,
                     TARGET_INVENTORY_ACTIVE_MESSAGE_DEPTH_UNAVAILABLE,
+                    TARGET_PHYSICAL_PUBLISH_STAGE_UNAVAILABLE,
                     TARGET_DRR_CLAIM_TURNS,
                     TARGET_DRR_STOP_NORMAL,
                     TARGET_DRR_STOP_READ_INCOMPLETE,

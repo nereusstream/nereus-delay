@@ -26,6 +26,7 @@ import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.runtime.AttemptLedgerState;
 import com.nereusstream.delay.runtime.PublishAttemptLedger;
+import com.nereusstream.delay.scheduler.BoundedAsyncMetricExporter;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import java.util.Arrays;
 import java.util.Objects;
@@ -97,11 +98,37 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
             final Runnable fenceOnFailure,
             final PhysicalSendActivationGate physicalSendActivationGate) {
         this(
+                delegate,
+                physicalAdmission,
+                workClasses,
+                physicalExecutor,
+                outcomeExecutor,
+                physicalGate,
+                outcomeFactory,
+                fenceOnFailure,
+                physicalSendActivationGate,
+                null);
+    }
+
+    /** Production composition with optional caller-owned process metrics. */
+    public WorkerPhysicalPublishExecutor(
+            final DestinationPublishAdapter delegate,
+            final DestinationPhysicalAdmission physicalAdmission,
+            final WorkClassExecutionRegistry workClasses,
+            final Executor physicalExecutor,
+            final OutcomeWorkClassExecutor outcomeExecutor,
+            final PhysicalPublishGate physicalGate,
+            final PublishOutcomeMutationFactory outcomeFactory,
+            final Runnable fenceOnFailure,
+            final PhysicalSendActivationGate physicalSendActivationGate,
+            final BoundedAsyncMetricExporter metrics) {
+        this(
                 new BoundedDestinationPublishAdapter(
                         Objects.requireNonNull(delegate, "delegate"),
                         Objects.requireNonNull(physicalAdmission, "physicalAdmission"),
                         Objects.requireNonNull(workClasses, "workClasses"),
-                        Objects.requireNonNull(physicalExecutor, "physicalExecutor")),
+                        Objects.requireNonNull(physicalExecutor, "physicalExecutor"),
+                        metrics),
                 (mutation, ownerClock) -> Objects.requireNonNull(outcomeExecutor, "outcomeExecutor")
                         .submit(mutation, ownerClock),
                 physicalGate,

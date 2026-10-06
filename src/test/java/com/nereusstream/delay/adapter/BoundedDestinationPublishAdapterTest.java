@@ -27,15 +27,21 @@ import com.nereusstream.delay.protocol.ResolvedPayload;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.StableCode;
+import com.nereusstream.delay.scheduler.BoundedAsyncMetricExporter;
+import com.nereusstream.delay.scheduler.BoundedAsyncMetricExporter.Limits;
+import com.nereusstream.delay.scheduler.BoundedAsyncMetricExporter.Metric;
+import com.nereusstream.delay.scheduler.BoundedAsyncMetricExporter.MetricEvent;
 import com.nereusstream.delay.scheduler.WorkClass;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import com.nereusstream.delay.scheduler.WorkClassPolicy;
 import com.nereusstream.delay.scheduler.WorkClassRuntimeConfig;
 import java.lang.reflect.Modifier;
+import java.time.Duration;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -46,6 +52,61 @@ import java.util.function.BiConsumer;
 import org.junit.jupiter.api.Test;
 
 class BoundedDestinationPublishAdapterTest {
+    @Test
+    void recordsOnlyObservedDestinationStageLatencyAndCountsUnavailableStages() {
+        final DestinationLaneId lane = lane("physical-publish-metrics");
+        final DestinationPhysicalAdmission admission = admission(lane, 3, 100, 2, 100);
+        admission.openReady(lane);
+        final CompletableFuture<DestinationPublishResult> pending = new CompletableFuture<>();
+        final AtomicInteger calls = new AtomicInteger();
+        final DestinationPublishAdapter delegate = request -> switch (calls.getAndIncrement()) {
+            case 0 -> pending;
+            default -> null;
+        };
+        final List<MetricEvent> events = new CopyOnWriteArrayList<>();
+
+        try (var metrics = new BoundedAsyncMetricExporter(new Limits(4, 36), events::add)) {
+            final BoundedDestinationPublishAdapter adapter = new BoundedDestinationPublishAdapter(
+                    delegate, admission, workClasses(), Runnable::run, metrics);
+            final DestinationPublishResult fenced = adapter.submit(
+                            request(lane, 10), ignored -> DestinationPublishResult.definitelyNotPublished(
+                                    StableCode.CAPABILITY_UNAVAILABLE, null))
+                    .outcome()
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(DestinationPublishResult.Disposition.DEFINITIVELY_NOT_PUBLISHED, fenced.disposition());
+            assertEquals(0, calls.get());
+
+            final BoundedDestinationPublishAdapter.PublishCall observed = adapter.submit(request(lane, 10));
+            assertTrue(events.isEmpty());
+            pending.complete(published());
+            assertEquals(
+                    DestinationPublishResult.Disposition.PUBLISHED,
+                    observed.outcome().toCompletableFuture().join().disposition());
+
+            final DestinationPublishResult missingStage = adapter.submit(request(lane, 10))
+                    .outcome()
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(DestinationPublishResult.Disposition.UNKNOWN, missingStage.disposition());
+            metrics.stopAccepting();
+            assertTrue(metrics.awaitTermination(Duration.ofSeconds(5)));
+
+            assertEquals(2, events.size());
+            assertEquals(1, events.stream()
+                    .filter(event -> event.metric() == Metric.TARGET_PHYSICAL_PUBLISH_STAGE_DURATION_NANOS)
+                    .count());
+            assertEquals(1, events.stream()
+                    .filter(event -> event.metric() == Metric.TARGET_PHYSICAL_PUBLISH_STAGE_UNAVAILABLE)
+                    .count());
+            assertTrue(events.stream()
+                    .filter(event -> event.metric() == Metric.TARGET_PHYSICAL_PUBLISH_STAGE_DURATION_NANOS)
+                    .findFirst()
+                    .orElseThrow()
+                    .value() >= 0);
+        }
+    }
+
     @Test
     void preparedRecordUsesLaneAdmissionAndCannotBypassIt() {
         final DestinationLaneId lane = lane("prepared-record");

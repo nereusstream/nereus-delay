@@ -1,0 +1,28 @@
+# E4 destination adapter stage timing focused evidence
+
+Date: 2026-10-06
+Base revision: `5185b42dc903e0790d748a851fc1b0e58d2f08a0`
+
+Focused command:
+`./gradlew test --tests com.nereusstream.delay.adapter.BoundedDestinationPublishAdapterTest --tests com.nereusstream.delay.ownership.WorkerPhysicalPublishExecutorTest --tests com.nereusstream.delay.scheduler.OpenTelemetryMetricExporterTest`
+
+Result: `BUILD SUCCESSFUL`. `BoundedDestinationPublishAdapterTest`: 20 tests, 0 skipped/failures/errors; `WorkerPhysicalPublishExecutorTest`: 9 tests, 0 skipped/failures/errors; `OpenTelemetryMetricExporterTest`: 1 test, 0 skipped/failures/errors. `./gradlew checkstyleTest` passed. `./gradlew checkDocumentation` passed. `git diff --check` and `jq empty docs/ndip/NDIP-3/progress.json` passed.
+
+`BoundedDestinationPublishAdapter` starts its monotonic timer after the final bounded preflight allows the request and immediately before invoking the destination delegate. The sample ends when the delegate-returned `CompletionStage<DestinationPublishResult>` completes. It includes synchronous adapter preparation/validation and result-stage mapping; it excludes physical admission/adapter-executor wait, final preflight work, and the subsequent Worker Outcome handoff. Completion means the adapter result became observable; it does not independently certify an authoritative business result. Preflight rejection emits no send-stage sample. Missing or explicitly unobserved stages, or failed completion callback registration, increment `TARGET_PHYSICAL_PUBLISH_STAGE_UNAVAILABLE`. Both events have fixed cardinality and no Target/Shard attributes, and are offered to the optional caller-owned bounded async metrics queue. `WorkerPhysicalPublishExecutor` and `BoundedDestinationPublishAdapter` expose optional composition overloads; existing constructors keep metrics disabled.
+
+The adapter regression verifies preflight rejection does not call the delegate, an observed asynchronous result yields one duration event, and a null delegate stage yields unavailable. The OTel SDK `InMemoryMetricReader` verifies both new instrument values, units, and empty attributes. This is local adapter-stage instrumentation evidence. No production `WorkerPhysicalPublishExecutor` construction/provider configuration caller was found, so this does not prove runtime enablement or real Broker latency.
+
+`./gradlew checkstyleMain` failed only on the existing untouched line-length findings: `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:377` (123 characters each). No new source violation was reported.
+
+E4 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`; device I/O/WAL, remaining read paths, production provider/config, certification mode/generation/coverage, restart/gap coverage, and central validation remain open.
+
+Source SHA-256:
+- `src/main/java/com/nereusstream/delay/adapter/BoundedDestinationPublishAdapter.java`: 21c1fc595e675112754c15c6679c10ae434d83be006ea2746634262d40c8922d
+- `src/main/java/com/nereusstream/delay/ownership/WorkerPhysicalPublishExecutor.java`: a9c21bb8012ab1f747e5edab201a5b7077d1183854310ca15672ec621f558094
+- `src/main/java/com/nereusstream/delay/scheduler/BoundedAsyncMetricExporter.java`: ceb32c94cbf75b744f2148bcd4cd6244c7656f932394f4f7a6316bb070d31a7b
+- `src/main/java/com/nereusstream/delay/scheduler/OpenTelemetryMetricExporter.java`: 6b567029bcdd4ef9cf4c925bcf1605c60afee486baeca72f9be90ba6ad341932
+- `src/test/java/com/nereusstream/delay/adapter/BoundedDestinationPublishAdapterTest.java`: 542d729067a5c2390cac42584b963ef3d8d22e9efc580a9e40edceee3ba81533
+- `src/test/java/com/nereusstream/delay/scheduler/OpenTelemetryMetricExporterTest.java`: bb5e42e9c919eae81626754da6241bfe63c260073ca397264d4bf3e2833b0d6d
+- `build/test-results/test/TEST-com.nereusstream.delay.adapter.BoundedDestinationPublishAdapterTest.xml`: db83138f489105d7d5e0bae8423b9dad4ca6f29d1c51595328d052261d94ad58
+- `build/test-results/test/TEST-com.nereusstream.delay.ownership.WorkerPhysicalPublishExecutorTest.xml`: 6b16eaf495eb562afeea9ac975f2b34b1b7202b997333827c9026948b1cc8918
+- `build/test-results/test/TEST-com.nereusstream.delay.scheduler.OpenTelemetryMetricExporterTest.xml`: 10010f67e049f6f1e2d3d22cd59d94d6963ded1ec00f7e8b2abf0da8e461429e
