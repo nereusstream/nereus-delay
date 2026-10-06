@@ -6158,6 +6158,18 @@ class TargetCommandStoreTest {
                 .payload());
         assertEquals(TargetQuotaAttemptBudget.Phase.ADMITTED, attemptBudget.phase());
         assertEquals(claim.work().locator(), attemptBudget.locator());
+        if (admitted.locator().orderingMode() == OrderingMode.DELIVERY_TIME_FIFO) {
+            final byte[] orderKey = TargetKeyCodec.orderState(
+                    admitted.locator().target(), admitted.locator().orderingDomain());
+            final var order = TargetOrderState.decode(TargetValueEnvelope.decode(
+                            store.get(ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE)
+                    .payload());
+            final var barrier = TargetOrderBarrier.fromMessage(admitted);
+            assertEquals(TargetOrderState.OrderingContract.ADMISSION_WATERMARK, order.orderingContract());
+            assertArrayEquals(barrier.order().encodedKey(), order.lastAdmittedOrder().encodedKey());
+            assertEquals(barrier, order.barrier());
+            assertNull(order.serviceableHead());
+        }
         final var first = TargetResultRecord.decode(TargetValueEnvelope.decode(
                         store.get(ColumnFamily.DEDUPE, systemKey(entry.mutation())), TargetResultRecord.VALUE_TYPE)
                 .payload());

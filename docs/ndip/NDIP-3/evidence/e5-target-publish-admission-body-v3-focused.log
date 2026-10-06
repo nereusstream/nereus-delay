@@ -43,6 +43,8 @@ CLAIMED to PUBLISHING, removes Claim and ClaimCharge, stores an ADMITTED Attempt
 source-position results, and advances the source frontier. The test ACK callback returns UNKNOWN once; retry
 ACKs the same pending entry without another Store mutation or RocksDB sequence. This is the Worker ACK-uncertainty
 path with a deterministic test callback, not a real Broker/network response-loss test.
+For DELIVERY_TIME_FIFO, the same case reads the committed OrderState and checks the exact PUBLISHING barrier,
+matching ADMISSION_WATERMARK key, and absent serviceable head.
 
 The regression exposed that legacy Target Control field discrimination decoded the v3 nested Owner field before
 the type-13 route. Target Admission now routes before that legacy discriminator; old control routing and type-5
@@ -70,5 +72,5 @@ a7d00c0819ac701e79dccbc91ade779bbd6a1dd386cc2628f71bf8901e95c10e  src/test/java/
 3f0bf8777101e1d2cc847f826da1424d41c07105f8bb878f885a078d31b4275d  build/test-results/test/TEST-com.nereusstream.delay.protocol.TargetPublishAdmissionBodyTest.xml
 433975a450d9cfe9a83e55de69d9c083e46b8f1197b08bfd27cc4c9009fb8895  build/test-results/test/TEST-com.nereusstream.delay.protocol.PublishAdmissionBodyTest.xml
 fc5e918aa36772ba0c77d05860285c6d446f00510c3c6e2580fcf2cc59816fcf  src/main/java/com/nereusstream/delay/ownership/TargetSourceApplyRuntime.java
-8997d9ed18ba9f220ad0679ea20c5a368e016467d229ec2321062337edcfe469  src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java
-d073f181fc5ad4a0d32b7347cae8114edfc43356d1c741700bdb643b85ff6045  build/test-results/test/TEST-com.nereusstream.delay.runtime.TargetCommandStoreTest.xml
+3edb9ae52db8fd6d0bf0157c44b5cf5ead5a131ac312c1deb6d69e026bc35978  src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java
+17b021eea41071994e2f49dcdf41db4696b8ec1bec1c0010b0d7d2e0e84008e4  build/test-results/test/TEST-com.nereusstream.delay.runtime.TargetCommandStoreTest.xml
