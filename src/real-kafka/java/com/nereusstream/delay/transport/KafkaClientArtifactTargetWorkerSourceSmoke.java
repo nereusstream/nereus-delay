@@ -113,10 +113,12 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                     + "[no-injection | store-write-response-unknown | target-expire-not-found | "
                     + "target-expire-not-found-ack-loss | target-expire-not-found-ack-loss-reopen | "
                     + "target-expire-not-found-network-ack-loss | target-expire-scheduled-message | "
+                    + "target-expire-scheduled-message-network-ack-loss | "
                     + "network-response-loss "
                     + "<hold-file> <release-file> <dropped-response-file>] "
                     + "[network-expiry-response-loss <hold-file> <release-file> <dropped-response-file> "
-                    + "target-expire-not-found-network-ack-loss] "
+                    + "target-expire-not-found-network-ack-loss | "
+                    + "target-expire-scheduled-message-network-ack-loss] "
                     + "[network-response-loss-process-crash <phase> <hold-file> <release-file> "
                     + "<dropped-response-file> <state-file> <store-root> <ready-file>]");
         }
@@ -130,17 +132,21 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                 targetExpiryAckResponseLoss
                         || "target-expire-not-found".equals(scenario)
                         || "target-expire-not-found-network-ack-loss".equals(scenario);
-        final boolean targetScheduledMessageExpiry = "target-expire-scheduled-message".equals(scenario);
+        final boolean targetScheduledMessageExpiry = "target-expire-scheduled-message".equals(scenario)
+                || "target-expire-scheduled-message-network-ack-loss".equals(scenario);
         final boolean targetExpiryNetworkAckResponseLoss = arguments.length == 7
                 && "network-expiry-response-loss".equals(arguments[2]);
+        final boolean networkExpiryScenario = "target-expire-not-found-network-ack-loss".equals(scenario)
+                || "target-expire-scheduled-message-network-ack-loss".equals(scenario);
         final AckInjection ackInjection = targetExpiryAckResponseLossReopen
                 ? AckInjection.withExpiryAckResponseLossReopen()
                 : targetExpiryAckResponseLoss ? AckInjection.withExpiryAckResponseLoss()
-                : (targetExpiryNotFound && !targetExpiryNetworkAckResponseLoss) || targetScheduledMessageExpiry
-                        ? AckInjection.acked()
-                        : AckInjection.from(arguments);
-        if (targetExpiryNetworkAckResponseLoss
-                != "target-expire-not-found-network-ack-loss".equals(scenario)) {
+                : targetExpiryNetworkAckResponseLoss
+                        ? AckInjection.from(arguments)
+                        : targetExpiryNotFound || targetScheduledMessageExpiry
+                                ? AckInjection.acked()
+                                : AckInjection.from(arguments);
+        if (targetExpiryNetworkAckResponseLoss != networkExpiryScenario) {
             throw new IllegalArgumentException("expiry network ACK loss requires its dedicated Target scenario");
         }
         if (ackInjection.crashPhase() == CrashPhase.RESUME) {
@@ -178,9 +184,17 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
             if (topicId == null || topicId.equals(Uuid.ZERO_UUID)) {
                 throw new IllegalStateException("Kafka did not return the exact source TopicId");
             }
-            if ("target-expire-scheduled-message".equals(scenario)) {
+            if (targetScheduledMessageExpiry) {
                 KafkaClientArtifactTargetScheduledExpirySmoke.run(
-                        admin, bootstrap, topic, clusterId, topicId);
+                        admin,
+                        bootstrap,
+                        topic,
+                        clusterId,
+                        topicId,
+                        ackInjection.mode(),
+                        ackInjection.holdFile(),
+                        ackInjection.releaseFile(),
+                        ackInjection.droppedResponseFile());
                 return;
             }
 
@@ -1557,7 +1571,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
         throw new IllegalStateException("real Kafka Target source record did not apply before the deadline");
     }
 
-    private static SourceApplyCoordinator.TurnResult runUntilAckUnknownByHost(final TargetWorkerHostRuntime host) {
+    static SourceApplyCoordinator.TurnResult runUntilAckUnknownByHost(final TargetWorkerHostRuntime host) {
         final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
         SourceApplyCoordinator.TurnResult result;
         do {
@@ -1916,7 +1930,8 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
             }
             if (arguments.length == 7
                     && "network-expiry-response-loss".equals(arguments[2])
-                    && "target-expire-not-found-network-ack-loss".equals(arguments[6])) {
+                    && ("target-expire-not-found-network-ack-loss".equals(arguments[6])
+                            || "target-expire-scheduled-message-network-ack-loss".equals(arguments[6]))) {
                 return new AckInjection(
                         AckMode.EXPIRY_NETWORK_RESPONSE_LOSS,
                         Path.of(arguments[3]),

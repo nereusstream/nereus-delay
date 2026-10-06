@@ -96,6 +96,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.producer.GuardedProducer;
@@ -116,12 +117,21 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
             final String bootstrap,
             final String topic,
             final String clusterId,
-            final Uuid topicId)
+            final Uuid topicId,
+            final KafkaClientArtifactTargetWorkerSourceSmoke.AckMode ackMode,
+            final Path ackHoldFile,
+            final Path ackReleaseFile,
+            final Path droppedResponseFile)
             throws Exception {
         final ShardId shard = new ShardId(com.nereusstream.delay.protocol.RouteIncarnation.random(), 0);
         final var scope = new TargetQuotaScope(
                 shard, Bytes.sha256(Bytes.utf8("target-scheduled-expiry-tenant")), null);
         final String groupId = "nereus-delay-target-expiry-" + UUID.randomUUID();
+        final boolean expiryNetworkAckLoss =
+                ackMode == KafkaClientArtifactTargetWorkerSourceSmoke.AckMode.EXPIRY_NETWORK_RESPONSE_LOSS;
+        if (expiryNetworkAckLoss != (ackHoldFile != null && ackReleaseFile != null && droppedResponseFile != null)) {
+            throw new IllegalArgumentException("scheduled Target expiry ACK gate paths do not match the ACK mode");
+        }
         final long signingTime = System.currentTimeMillis();
         final KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         final var actor = new ControlAuthorizationContext(
@@ -419,6 +429,7 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
                 final var active = TargetWorkerOwnerActivation.activate(
                         initialized, store, assignment, acquiring, leases, System::currentTimeMillis);
                 final var expiryProof = new AtomicReference<TrustedUtcIntervalEvidence>();
+                final var expiryAuthorityResolutions = new AtomicInteger();
                 final var closeControls = new TargetCloseStore(backend, scope, LINEAGE, 16, 1)
                         .reservationControls((reader, binding) -> Optional.empty());
                 final var sourceRuntime = new TargetSourceApplyRuntime(
@@ -441,7 +452,8 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
                                         active,
                                         keys,
                                         leases,
-                                        expiryProof),
+                                        expiryProof,
+                                        expiryAuthorityResolutions),
                                 entry -> { throw new AssertionError("expiry did not resolve Target Close"); },
                                 entry -> { throw new AssertionError("expiry did not resolve membership"); },
                                 KafkaClientArtifactTargetWorkerSourceSmoke.ownerCommitAuthority(leases, active),
@@ -456,7 +468,7 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
                         topic,
                         toUuid(topicId),
                         shard,
-                        KafkaClientArtifactTargetWorkerSourceSmoke.AckMode.NO_INJECTION);
+                        ackMode);
                 final var producerConfig = Map.<String, Object>of(
                         ProducerConfig.BOOTSTRAP_SERVERS_CONFIG,
                         bootstrap,
@@ -469,6 +481,10 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
                 TargetWorkerHostRuntime host = null;
                 Throwable primaryFailure = null;
                 final CountDownLatch expiryRequest = new CountDownLatch(1);
+                final CountDownLatch expiryAppendFinished = new CountDownLatch(1);
+                final AtomicReference<com.nereusstream.delay.ownership.ShardLogMutationAppender.AppendOutcome>
+                        expiryAppendOutcome = new AtomicReference<>();
+                final AtomicReference<Throwable> expiryAppendFailure = new AtomicReference<>();
                 try (var producer = new KafkaProducer<byte[], byte[]>(producerConfig);
                         var appender = new KafkaClientArtifactShardLogMutationAppender(
                                 (GuardedProducer<byte[], byte[]>) producer,
@@ -499,8 +515,20 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
                             resources,
                             sourceRuntime,
                             maintenance);
+                    final com.nereusstream.delay.ownership.ShardLogMutationAppender observedAppender = mutation -> {
+                        try {
+                            final var outcome = appender.append(mutation);
+                            expiryAppendOutcome.set(outcome);
+                            return outcome;
+                        } catch (RuntimeException | Error failure) {
+                            expiryAppendFailure.set(failure);
+                            throw failure;
+                        } finally {
+                            expiryAppendFinished.countDown();
+                        }
+                    };
                     worker.configureMessageExpiryMaintenance(
-                            appender,
+                            observedAppender,
                             () -> {
                                 final long now = System.currentTimeMillis();
                                 final var evidence = expiryEvidence(now);
@@ -522,6 +550,21 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
                     if (remaining > 0) {
                         TimeUnit.MILLISECONDS.sleep(remaining);
                     }
+                    if (expiryNetworkAckLoss) {
+                        final var candidate = worker.discoverMessageExpiry(
+                                        KafkaClientArtifactTargetWorkerSourceSmoke.budget(),
+                                        null,
+                                        expiryEvidence(System.currentTimeMillis()),
+                                        System::currentTimeMillis)
+                                .candidate()
+                                .orElseThrow(() -> new IllegalStateException(
+                                        "scheduled Target Message was not discoverable before Host startup"));
+                        if (!schedule.delayMessageId().equals(candidate.locator().messageId())
+                                || candidate.expireAtEpochMs() != scheduledMessage.expireAtEpochMs()) {
+                            throw new IllegalStateException(
+                                    "scheduled Target expiry discovery selected another Message generation");
+                        }
+                    }
                     host = TargetWorkerHostRuntime.start(
                             workerClasses,
                             resources,
@@ -532,7 +575,86 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
                     if (!expiryRequest.await(10, TimeUnit.SECONDS)) {
                         throw new IllegalStateException("Target Host did not request expiry discovery");
                     }
-                    final var turn = KafkaClientArtifactTargetWorkerSourceSmoke.runUntilAppliedByHost(host);
+                    // Source polling holds the selected Worker turn lock; let its maintenance append finish first.
+                    if (!expiryAppendFinished.await(20, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException(
+                                "Target Host did not append the scheduled expiry through its maintenance work class",
+                                expiryAppendFailure.get());
+                    }
+                    final var expiryAppend = expiryAppendOutcome.get();
+                    if (expiryAppend == null
+                            || expiryAppend.disposition()
+                                    != com.nereusstream.delay.ownership.ShardLogMutationAppender.AppendDisposition
+                                            .PERSISTED
+                            || !(expiryAppend.sourcePosition() instanceof KafkaSourcePosition appendedPosition)
+                            || appendedPosition.offset() != barrierOffset
+                            || !rootPosition.sameSourceIdentity(appendedPosition)) {
+                        throw new IllegalStateException(
+                                "Target Host did not persist the scheduled expiry at the exact next source offset: "
+                                        + expiryAppend,
+                                expiryAppendFailure.get());
+                    }
+                    final SourceApplyCoordinator.TurnResult turn;
+                    if (expiryNetworkAckLoss) {
+                        Files.writeString(ackHoldFile, "hold\n");
+                        final var ackUnknown =
+                                KafkaClientArtifactTargetWorkerSourceSmoke.runUntilAckUnknownByHost(host);
+                        if (ackUnknown.status() != SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN
+                                || !(ackUnknown.entry() instanceof SourceReplayMutation unknownExpiry)
+                                || unknownExpiry.mutation().type() != SystemMutationType.EXPIRE_GENERATION
+                                || !(unknownExpiry.position() instanceof KafkaSourcePosition unknownPosition)
+                                || unknownPosition.offset() != barrierOffset
+                                || ackUnknown.appliedOutcome() != null) {
+                            throw new IllegalStateException(
+                                    "scheduled Target expiry did not retain its exact entry at ACK_UNKNOWN: "
+                                            + ackUnknown.status() + ", entry=" + ackUnknown.entry());
+                        }
+                        final String dropped = Files.exists(droppedResponseFile)
+                                ? Files.readString(droppedResponseFile)
+                                : "";
+                        if (!dropped.contains("apiKey=8")
+                                || !dropped.contains("brokerResponseReceived=true forwarded=false")) {
+                            throw new IllegalStateException(
+                                    "TCP proxy did not withhold the scheduled expiry Broker ACK response: "
+                                            + dropped);
+                        }
+                        final var appliedUnknown = store.appliedShardLogPosition();
+                        if (!(appliedUnknown instanceof KafkaSourcePosition unknownApplied)
+                                || unknownApplied.offset() != barrierOffset
+                                || !rootPosition.sameSourceIdentity(unknownApplied)) {
+                            throw new IllegalStateException(
+                                    "scheduled expiry was not durably applied before TCP ACK response loss");
+                        }
+                        final var committedUnknown = admin.listConsumerGroupOffsets(groupId)
+                                .partitionsToOffsetAndMetadata()
+                                .get(10, TimeUnit.SECONDS)
+                                .get(new TopicPartition(topic, shard.partition()));
+                        if (committedUnknown == null || committedUnknown.offset() != barrierOffset + 1) {
+                            throw new IllegalStateException(
+                                    "Broker did not commit the scheduled expiry before its ACK response was lost");
+                        }
+                        final long sequenceAfterUnknown = store.latestSequenceNumber();
+                        final long mutationsAfterUnknown = store.shardMutationSequence();
+                        Files.writeString(ackReleaseFile, "release\n");
+                        turn = KafkaClientArtifactTargetWorkerSourceSmoke.runUntilAppliedByHost(host);
+                        if (turn.status() != SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED
+                                || !unknownExpiry.equals(turn.entry())
+                                || turn.appliedOutcome() == null
+                                || turn.appliedOutcome().systemMutationResult().stableCode() != StableCode.OK
+                                || store.latestSequenceNumber() != sequenceAfterUnknown
+                                || store.shardMutationSequence() != mutationsAfterUnknown
+                                || expiryAuthorityResolutions.get() != 1) {
+                            throw new IllegalStateException(
+                                    "scheduled expiry ACK retry changed Store state or re-resolved authority");
+                        }
+                        System.out.println(
+                                "Kafka Target scheduled EXPIRE_GENERATION TCP ACK-loss recovery passed: Broker "
+                                        + "committed offset " + barrierOffset
+                                        + " before response loss; same Host retried only ACK without another "
+                                        + "Store mutation.");
+                    } else {
+                        turn = KafkaClientArtifactTargetWorkerSourceSmoke.runUntilAppliedByHost(host);
+                    }
                     if (turn.status() != SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED
                             || !(turn.entry() instanceof SourceReplayMutation expiryEntry)
                             || expiryEntry.mutation().type() != SystemMutationType.EXPIRE_GENERATION
@@ -584,7 +706,8 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
                             + ", and generated EXPIRE_GENERATION offset " + barrierOffset
                             + " terminalized it with Store/group frontiers " + appliedExpiry.offset() + "/"
                             + committed.offset() + ". Grant, membership, Owner, signing and time authorities"
-                            + " are explicit test fixtures.");
+                            + " are explicit test fixtures. expiryAuthorityResolutions="
+                            + expiryAuthorityResolutions.get() + ".");
                 } catch (Exception | Error failure) {
                     primaryFailure = failure;
                     throw failure;
@@ -641,7 +764,8 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
             final com.nereusstream.delay.ownership.OwnerLease active,
             final KeyPair keys,
             final OxiaOwnerLeaseStore leases,
-            final AtomicReference<TrustedUtcIntervalEvidence> expectedEvidence) {
+            final AtomicReference<TrustedUtcIntervalEvidence> expectedEvidence,
+            final AtomicInteger expiryAuthorityResolutions) {
         final var mutation = entry.mutation();
         final var body = TargetExpireGenerationBody.decode(mutation.canonicalBody());
         final var expectedAuthor = AuthorIdentity.owner(
@@ -667,6 +791,7 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
                             || !toUuid(topicId).equals(((KafkaSourcePosition) source).nativeTopicUuid())) {
                         throw new IllegalStateException("expiry verifier authority received another source record");
                     }
+                    expiryAuthorityResolutions.incrementAndGet();
                     return new TargetExpireGenerationVerifier.Authorization(
                             keys.getPublic(),
                             1,

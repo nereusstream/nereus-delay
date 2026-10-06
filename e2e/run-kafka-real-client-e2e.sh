@@ -783,6 +783,47 @@ start_offset_commit_response_loss_proxy() {
   return 1
 }
 
+run_target_expiry_network_response_loss_smoke() {
+  local topic_suffix="$1"
+  local scenario="$2"
+  start_offset_commit_response_loss_proxy
+  rm -f "${offset_commit_proxy_hold_file}"
+  local target_expiry_source_command=(./gradlew runRealKafkaTargetWorkerSourceSmoke \
+    "-PkafkaClientJar=${client_jar}" \
+    "-PkafkaBootstrap=${bootstrap_all}" \
+    "-PkafkaTargetSourceTopic=${target_worker_source_topic}-${topic_suffix}" \
+    -PkafkaTargetAckMode=network-expiry-response-loss \
+    "-PkafkaTargetAckHoldFile=${offset_commit_proxy_hold_file}" \
+    "-PkafkaTargetAckReleaseFile=${offset_commit_proxy_release_file}" \
+    "-PkafkaTargetAckDroppedFile=${offset_commit_proxy_dropped_file}" \
+    "-PkafkaTargetScenario=${scenario}")
+  if [[ "${with_oxia}" == "1" ]]; then
+    NEREUS_DELAY_OXIA_ENDPOINT="${oxia_endpoint}" \
+    NEREUS_DELAY_OXIA_NAMESPACE=default \
+    NEREUS_DELAY_TARGET_SOURCE_OWNER_OXIA=1 \
+    GRADLE_USER_HOME="${gradle_user_home}" "${target_expiry_source_command[@]}" \
+      --no-daemon --console=plain
+  else
+    GRADLE_USER_HOME="${gradle_user_home}" "${target_expiry_source_command[@]}" \
+      --no-daemon --console=plain
+  fi
+  if ! rg -q 'apiKey=8 .*brokerResponseReceived=true forwarded=false' \
+      "${offset_commit_proxy_dropped_file}"; then
+    cat "${offset_commit_proxy_log}" >&2
+    cat "${offset_commit_proxy_dropped_file}" >&2 || true
+    echo "Kafka Target expiry ACK path did not record a real Broker response drop" >&2
+    exit 1
+  fi
+  touch "${offset_commit_proxy_stop_file}"
+  if ! wait "${offset_commit_proxy_pid}"; then
+    cat "${offset_commit_proxy_log}" >&2
+    echo "Kafka Target expiry OffsetCommit response-loss proxy exited unsuccessfully" >&2
+    exit 1
+  fi
+  offset_commit_proxy_pid=""
+  cat "${offset_commit_proxy_log}"
+}
+
 probe_broker_tcp_pre_cut_forward() {
   local deadline=$((SECONDS + 10))
   while (( SECONDS < deadline )); do
@@ -1144,43 +1185,11 @@ if [[ "${source_ack_network_loss_only}" == "1" ]]; then
   fi
   offset_commit_proxy_pid=""
   cat "${offset_commit_proxy_log}"
-  start_offset_commit_response_loss_proxy
-  rm -f "${offset_commit_proxy_hold_file}"
-  target_expiry_source_command=(./gradlew runRealKafkaTargetWorkerSourceSmoke \
-    "-PkafkaClientJar=${client_jar}" \
-    "-PkafkaBootstrap=${bootstrap_all}" \
-    "-PkafkaTargetSourceTopic=${target_worker_source_topic}-expiry-network-loss" \
-    -PkafkaTargetAckMode=network-expiry-response-loss \
-    "-PkafkaTargetAckHoldFile=${offset_commit_proxy_hold_file}" \
-    "-PkafkaTargetAckReleaseFile=${offset_commit_proxy_release_file}" \
-    "-PkafkaTargetAckDroppedFile=${offset_commit_proxy_dropped_file}" \
-    -PkafkaTargetScenario=target-expire-not-found-network-ack-loss)
-  if [[ "${with_oxia}" == "1" ]]; then
-    NEREUS_DELAY_OXIA_ENDPOINT="${oxia_endpoint}" \
-    NEREUS_DELAY_OXIA_NAMESPACE=default \
-    NEREUS_DELAY_TARGET_SOURCE_OWNER_OXIA=1 \
-    GRADLE_USER_HOME="${gradle_user_home}" "${target_expiry_source_command[@]}" \
-      --no-daemon --console=plain
-  else
-    GRADLE_USER_HOME="${gradle_user_home}" "${target_expiry_source_command[@]}" \
-      --no-daemon --console=plain
-  fi
-  if ! rg -q 'apiKey=8 .*brokerResponseReceived=true forwarded=false' \
-      "${offset_commit_proxy_dropped_file}"; then
-    cat "${offset_commit_proxy_log}" >&2
-    cat "${offset_commit_proxy_dropped_file}" >&2 || true
-    echo "Kafka Target expiry ACK path did not record a real Broker response drop" >&2
-    exit 1
-  fi
-  touch "${offset_commit_proxy_stop_file}"
-  if ! wait "${offset_commit_proxy_pid}"; then
-    cat "${offset_commit_proxy_log}" >&2
-    echo "Kafka Target expiry OffsetCommit response-loss proxy exited unsuccessfully" >&2
-    exit 1
-  fi
-  offset_commit_proxy_pid=""
-  cat "${offset_commit_proxy_log}"
-  echo "Kafka Target source and EXPIRE_GENERATION ACK network-response-loss E2Es passed against the locked K1 Broker/client fixture."
+  run_target_expiry_network_response_loss_smoke \
+    expiry-network-loss target-expire-not-found-network-ack-loss
+  run_target_expiry_network_response_loss_smoke \
+    scheduled-expiry-network-loss target-expire-scheduled-message-network-ack-loss
+  echo "Kafka Target source, missing-Message expiry, and scheduled-Message expiry ACK network-response-loss E2Es passed against the locked K1 Broker/client fixture."
   exit 0
 fi
 

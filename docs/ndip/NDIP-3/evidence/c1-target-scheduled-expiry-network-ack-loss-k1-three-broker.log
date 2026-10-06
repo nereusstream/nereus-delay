@@ -1,0 +1,28 @@
+# C1 scheduled Target Message expiry TCP ACK response-loss evidence
+
+Date: 2026-10-06 (Asia/Shanghai)
+
+Delay source baseline: `63d5a23f7043231af4d1ad15605569e874803134` (`main`) with the working-tree changes listed below. The successful E2E run preceded removal of failure-only diagnostic code; the scheduled append and ACK success path was unchanged. Current working-tree SHA-256 values when this record was written:
+
+- `src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetWorkerSourceSmoke.java`: `507370f3b27fe9e6c96d25ef0eaf2d3e39234e05cc703b6a1e45dca2bbadcd96`
+- `src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetScheduledExpirySmoke.java`: `a4ae5941529d5813e78b463ae994ecce4b96f7bbc909e56c6e31700c189b7122`
+- `build.gradle`: `735ddc85cd823363850f8e946b3076fda1a982be0fee68dad2f2cd183a860482`
+- `e2e/run-kafka-real-client-e2e.sh`: `ed35ace1b8209e84d7692ec9a66adbade096de4d928757af87d65b64e4f29294`
+
+K1 checkout: `05849884ca81fad767fda058444d1e17c7f9cbf9`, clean at execution. Client SHA-256: `1c83ae777c364be833f7c8ff31f1fdeb28dafd5eb3998f0246e7d226a543cbe0`. Broker image ID: `sha256:62b964515672c2f1cedf552bec49ad6757c7058ee54a7bfc8ded1fad41f216ef`. Broker artifact SHA-256: `9a24f15ab08482fcd99464e735622dc7413f390716bd1e57c95f3879283e603a`. Server artifact SHA-256: `638582eb0241e6e06330e617cd948a50532d42e9cc763470a4301864f29ce3c7`.
+
+Command:
+
+```sh
+NEREUS_DELAY_KAFKA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1 \
+NEREUS_DELAY_KAFKA_CLIENT_JAR=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1/clients/build/libs/kafka-clients-4.4.0-SNAPSHOT.jar \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/Users/liusinan/.gradle \
+NEREUS_DELAY_KAFKA_TARGET_SOURCE_ACK_NETWORK_LOSS_ONLY=1 \
+./e2e/run-kafka-real-client-e2e.sh
+```
+
+Result: the focused runner passed against three disposable Kafka 4.4.0-SNAPSHOT KRaft Brokers through the TCP OffsetCommit response-loss proxy. The generic Source ACK-loss case and the missing-Message expiry case passed. In the scheduled-Message case, the real Host maintenance path discovered the persisted Schedule at offset 3 and appended its signed `EXPIRE_GENERATION` at offset 4. The proxy received and withheld the Broker OffsetCommit response after the Broker advanced the consumer-group next offset to 5. The Host returned `ACK_UNKNOWN` for offset 4, retained that exact applied entry, and retried only its ACK; the Store mutation sequence did not increase on retry. Source Apply terminalized the scheduled Message as `EXPIRED`, removed its expiry index, and left the Store frontier at offset 4 and Broker group frontier at 5. Expiry authority resolved once. The host drained as `RELEASED`. The proxy reported 7 dropped Broker responses in the generic case, 8 in the missing-Message expiry case, and 7 in the scheduled-Message expiry case; each dedicated smoke verified a real API key 8 Broker response was received and withheld.
+
+Validation after the success run: `compileRealKafka` and `checkstyleRealKafka` passed. `bash -n e2e/run-kafka-real-client-e2e.sh` and `git diff --check` also passed for the final working tree.
+
+Scope: the three-Broker/client path, RocksDB Store transitions, Host expiry maintenance, guarded Kafka append, Source Apply, ACK retry, and Host drain use the actual implementations. Grant, membership, Owner, signing-key, and trusted-time authorities are explicit test fixtures. This does not certify production authority assembly, live Oxia Owner takeover, process-crash recovery at this expiry boundary, migration, or central C1 acceptance. C1 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
