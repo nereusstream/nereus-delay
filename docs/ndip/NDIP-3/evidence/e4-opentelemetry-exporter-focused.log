@@ -1,0 +1,21 @@
+# E4 OpenTelemetry metric adapter focused evidence
+
+Date: 2026-10-06
+Base revision: d6bd1ccfd0959d7dddabcba9565f4b48c76f4471
+
+Command:
+`./gradlew test --tests com.nereusstream.delay.scheduler.OpenTelemetryMetricExporterTest checkstyleTest --no-daemon --console=plain`
+
+Result: exit 0, `BUILD SUCCESSFUL in 23s`. JUnit reports 1 test, 0 skipped, 0 failures, 0 errors. The test uses the OpenTelemetry SDK `InMemoryMetricReader` and a real `SdkMeterProvider`; it sends four events through `BoundedAsyncMetricExporter`, awaits queue termination, then verifies a Counter and Histograms, their sums and units (`1`, `By`, `ns`), and empty attributes on every point.
+
+`OpenTelemetryMetricExporter` creates instruments from the fixed `BoundedAsyncMetricExporter.Metric` enum and records events without attributes. Passing it to the existing bounded queue keeps Meter calls on the queue worker, outside scheduler turns. Its public constructor accepts `Meter`, so `opentelemetry-api` is exposed through the library API dependency; the SDK and in-memory reader remain test-only dependencies. The existing Host API accepts that bounded queue. This test does not exercise an OTLP/network exporter or an application-owned SDK/provider configuration.
+
+`./gradlew checkstyleMain --no-daemon --console=plain` was also run and fails on two unchanged 123-character lines: `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:376`. The report lists no violation in the new `OpenTelemetryMetricExporter` class. The focused `checkstyleTest` task in the successful command passes.
+
+Scope: this proves the fixed Target DRR events can be recorded into a caller-provided OpenTelemetry SDK Meter through the bounded asynchronous queue. It does not add scan, real queue-depth, physical-send latency, certification mode/generation/coverage, restart coverage, or a production app's SDK/exporter wiring. E4 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
+
+Source SHA-256:
+build.gradle 2682665bf33bb41cf719fda0ec71fd62cd1b829e3723c07241652f333d8fde26
+src/main/java/com/nereusstream/delay/scheduler/BoundedAsyncMetricExporter.java ecde7048725590333eed5b4002dbc394c81b972e249ad769b02ab91370f7e53c
+src/main/java/com/nereusstream/delay/scheduler/OpenTelemetryMetricExporter.java dbcdd2c035cc8447aa33237f4427ebc9c0b15d18e2d54adb1abc8b74857330e2
+src/test/java/com/nereusstream/delay/scheduler/OpenTelemetryMetricExporterTest.java 679f797b2c1f68f05b400199810e0aaaffb18b0e98944289be48b49ed0dff7cd

@@ -29,7 +29,7 @@ dependencies {
     compileOnly 'javax.annotation:javax.annotation-api:1.3.2'
     implementation platform('io.opentelemetry:opentelemetry-bom:1.63.0')
     implementation platform('io.opentelemetry:opentelemetry-bom-alpha:1.63.0-alpha')
-    implementation 'io.opentelemetry:opentelemetry-api:1.63.0'
+    api 'io.opentelemetry:opentelemetry-api:1.63.0'
 
     // The opt-in real Kafka/Pulsar client smokes load upstream client jars
     // directly, so their SLF4J API must be present on the JavaExec classpath.
@@ -38,6 +38,8 @@ dependencies {
 
     testImplementation platform('org.junit:junit-bom:5.13.4')
     testImplementation 'org.junit.jupiter:junit-jupiter'
+    testImplementation 'io.opentelemetry:opentelemetry-sdk'
+    testImplementation 'io.opentelemetry:opentelemetry-sdk-testing'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     // Oxia's structured logger discovers a backend only when a real client is opened.
     // Keep the default library surface backend-neutral, but make the opt-in real-service
