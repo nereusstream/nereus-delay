@@ -122,6 +122,7 @@ import com.nereusstream.delay.protocol.TargetQuotaUsage;
 import com.nereusstream.delay.protocol.TargetScheduleBinding;
 import com.nereusstream.delay.protocol.TargetTimeFenceBody;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
+import com.nereusstream.delay.scheduler.BoundedAsyncMetricExporter;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClass;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
@@ -158,6 +159,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Properties;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Tag;
@@ -2776,7 +2778,9 @@ class TargetQuotaGrantStoreTest {
             OxiaSyncTargetNativePolicyAuthority.ClientHandle oxiaSubscriber = null;
             TargetWorkerOrdinaryLoop hostLoop = null;
             boolean hostLoopClosed = false;
-            try {
+            final var hostMetricEvents = new CopyOnWriteArrayList<BoundedAsyncMetricExporter.MetricEvent>();
+            try (var hostMetrics = new BoundedAsyncMetricExporter(
+                    new BoundedAsyncMetricExporter.Limits(128, 1_152), hostMetricEvents::add)) {
                 if (realOxiaHostTimerRestart) {
                     oxiaSubscriber = OxiaSyncTargetNativePolicyAuthority.connect(
                             oxiaEndpoint,
@@ -2836,6 +2840,7 @@ class TargetQuotaGrantStoreTest {
                     () -> 100,
                     schedulerEpoch::get,
                     System::nanoTime,
+                    hostMetrics,
                     hostFailure::set);
                 final long idleDeadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
                 while (!hostLoop.isWaitingForQueueChange() && System.nanoTime() < idleDeadline) {
@@ -2976,6 +2981,10 @@ class TargetQuotaGrantStoreTest {
                 assertEquals(0, cacheHitRead.actualRecords());
                 hostLoop.close();
                 hostLoopClosed = true;
+                hostMetrics.stopAccepting();
+                assertTrue(hostMetrics.awaitTermination(Duration.ofSeconds(5)));
+                assertTrue(hostMetricEvents.stream().anyMatch(event -> event.metric()
+                        == BoundedAsyncMetricExporter.Metric.TARGET_DRR_TURN_VISITS));
                 sourceHostWorker.revokeClaim(
                         budget(),
                         sourceCreatedClaim,

@@ -5,6 +5,7 @@ import com.nereusstream.delay.protocol.TargetNativePolicyScope;
 import com.nereusstream.delay.protocol.TargetPartitionId;
 import com.nereusstream.delay.protocol.TargetQueueState;
 import com.nereusstream.delay.runtime.TargetClaimRecord;
+import com.nereusstream.delay.scheduler.BoundedAsyncMetricExporter;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.semantic.TargetNativePolicyAuthority;
 import com.nereusstream.delay.store.TargetKeyCodec;
@@ -45,6 +46,7 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
     private final LongSupplier ownerClock;
     private final LongSupplier schedulerClock;
     private final LongSupplier monotonicClock;
+    private final BoundedAsyncMetricExporter metrics;
     private final Consumer<Throwable> failureConsumer;
     private final long maximumRecoveryTurns;
     private final long maximumCreditTurns;
@@ -65,6 +67,7 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
             final LongSupplier ownerClock,
             final LongSupplier schedulerClock,
             final LongSupplier monotonicClock,
+            final BoundedAsyncMetricExporter metrics,
             final Consumer<Throwable> failureConsumer) {
         validateStartConfiguration(
                 inventoryLimits,
@@ -88,6 +91,7 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
                 ownerClock,
                 schedulerClock,
                 monotonicClock,
+                metrics,
                 failureConsumer);
     }
 
@@ -141,6 +145,7 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
             final LongSupplier ownerClock,
             final LongSupplier schedulerClock,
             final LongSupplier monotonicClock,
+            final BoundedAsyncMetricExporter metrics,
             final Consumer<Throwable> failureConsumer) {
         this.host = Objects.requireNonNull(host, "host");
         this.inventoryLimits = Objects.requireNonNull(inventoryLimits, "inventoryLimits");
@@ -151,6 +156,7 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
         this.ownerClock = Objects.requireNonNull(ownerClock, "ownerClock");
         this.schedulerClock = Objects.requireNonNull(schedulerClock, "schedulerClock");
         this.monotonicClock = Objects.requireNonNull(monotonicClock, "monotonicClock");
+        this.metrics = metrics;
         this.failureConsumer = Objects.requireNonNull(failureConsumer, "failureConsumer");
         final var exactRecheckInterval = Objects.requireNonNull(recheckInterval, "recheckInterval");
         recheckNanos = exactRecheckInterval.toNanos();
@@ -376,7 +382,8 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
                         }
                         nativePolicySubscriptions.reset();
                         if (scheduler == null) {
-                            scheduler = host.newOrdinaryDrr(inventory, drrLimits, ownerClock, monotonicClock);
+                            scheduler = host.newOrdinaryDrr(
+                                    inventory, drrLimits, ownerClock, monotonicClock, metrics);
                             recoveryReady = false;
                         } else {
                             scheduler.refreshInventory(inventory);

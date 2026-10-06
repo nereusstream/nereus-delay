@@ -279,6 +279,33 @@ public final class TargetWorkerHostRuntime {
             final LongSupplier schedulerClock,
             final LongSupplier monotonicClock,
             final Consumer<Throwable> failureConsumer) {
+        return startOrdinaryScheduling(
+                inventoryLimits,
+                drrLimits,
+                turnBudget,
+                recheckInterval,
+                requests,
+                claimConsumer,
+                ownerClock,
+                schedulerClock,
+                monotonicClock,
+                null,
+                failureConsumer);
+    }
+
+    /** Starts the ordinary-first loop with optional caller-owned bounded, best-effort process metrics. */
+    public synchronized TargetWorkerOrdinaryLoop startOrdinaryScheduling(
+            final TargetWorkerTargetInventory.Limits inventoryLimits,
+            final TargetWorkerOrdinaryDrr.Limits drrLimits,
+            final SchedulerBudget turnBudget,
+            final Duration recheckInterval,
+            final TargetWorkerOrdinaryDrr.Requests requests,
+            final TargetWorkerOrdinaryLoop.ClaimConsumer claimConsumer,
+            final LongSupplier ownerClock,
+            final LongSupplier schedulerClock,
+            final LongSupplier monotonicClock,
+            final BoundedAsyncMetricExporter metrics,
+            final Consumer<Throwable> failureConsumer) {
         if (stopping) {
             throw new IllegalStateException("Target host ordinary admission is stopping");
         }
@@ -307,6 +334,7 @@ public final class TargetWorkerHostRuntime {
                 ownerClock,
                 schedulerClock,
                 monotonicClock,
+                metrics,
                 failureConsumer);
         try {
             targetQueueChangeSignal.configureTargetLimit(inventoryLimits.maximumTargets());

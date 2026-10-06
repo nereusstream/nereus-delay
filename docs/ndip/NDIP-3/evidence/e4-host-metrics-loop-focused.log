@@ -1,0 +1,28 @@
+E4 Target DRR metrics through the real Host scheduling loop
+Date: 2026-10-06
+
+Source lock:
+- Delay base HEAD: `e0873c261ec8c2aecd376c6b14172d748a756bca`
+- Oxia checkout: `/Users/liusinan/apps/ideaproject/nereusstream/oxia@37a17bef17202d5fd6e232da5fd26d94865484`
+- The pre-existing `.gitignore` modification remained outside this slice.
+
+Change:
+- Added a backward-compatible `TargetWorkerHostRuntime.startOrdinaryScheduling` overload with an optional caller-owned `BoundedAsyncMetricExporter`. The existing overload delegates with no exporter.
+- `TargetWorkerOrdinaryLoop` passes that optional exporter to the Host-created `TargetWorkerOrdinaryDrr`. The Host loop does not close or otherwise own the reporter lifecycle.
+- The real Oxia/RocksDB Worker/Host regression now drains the reporter after Host-loop close and observes `TARGET_DRR_TURN_VISITS` emitted by the actual scheduling loop.
+- This does not assemble a production OpenTelemetry provider/exporter or certify durable SLO observations.
+
+Validation:
+`NEREUS_DELAY_OXIA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/oxia NEREUS_DELAY_E2E_GRADLE_USER_HOME=/Users/liusinan/.gradle bash e2e/run-oxia-real-service.sh`
+
+Result: Dockerized Oxia `BUILD SUCCESSFUL`; `TargetQuotaGrantStoreTest.realOxiaOwnerTakeoverReopensTargetRootAndCompletesCloseGc` passed with 1 test, 0 skipped, 0 failures, and 0 errors. The test closes the Host loop, stops metric admission, drains the bounded exporter, and asserts that a turn-visits event reached its callback. The script cleaned its Compose container and network. Optional restart-only smokes listed as skipped by the suite were not enabled.
+
+`checkstyleTest` passed. `checkstyleMain` reported only two existing 123-character lines: `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:376`; the latter is byte-for-byte the pre-existing line at base `TargetWorkerHostRuntime.java:348` (line 347 is the preceding closing brace). `checkDocumentation` passed separately after the combined task stopped at that main-source Checkstyle failure. `progress.json` parsed as valid JSON and `git diff --check` passed.
+
+Still open: scan-count/queue-size/send-latency/service-interval metrics; production exporter/configuration assembly; durable certification mode, generation, and coverage consumer; process-restart/overflow gap behavior; central validation. E4 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
+
+SHA-256:
+- `src/main/java/com/nereusstream/delay/ownership/TargetWorkerHostRuntime.java`: `179871d8f40970e193b283b05a5d8aa9efa0fa8ea5df405bdebf83260ad0bb6f`
+- `src/main/java/com/nereusstream/delay/ownership/TargetWorkerOrdinaryLoop.java`: `2bf7c309d85b1904aa08e8cf3cf33e169b2c6e1c40bf1e60ee21b4fc3f2e11b6`
+- `src/test/java/com/nereusstream/delay/runtime/TargetQuotaGrantStoreTest.java`: `de451f71f9e2617c7a8a5f08ef8c208a950110a767e60b2d02d8a8dd2cc9b711`
+- `build/test-results/test/TEST-com.nereusstream.delay.runtime.TargetQuotaGrantStoreTest.xml`: `d6bd31199971036680295b008166dfe869b717ecd85609edf22bcd39be6a80aa`
