@@ -1383,14 +1383,15 @@ class TargetCommandStoreTest {
                             otherMembershipAt,
                             otherMembershipAt.offset() + 1,
                             otherMembershipAt.brokerLogAppendTimeEpochMs() + 1);
+                    final byte[] otherOrderingDomain = bytes(32, 0x8a);
                     final var otherIntent = CanonicalScheduleIntent.create(
                             destination.ref(),
                             priorIntent.retryPolicy(),
                             otherScheduleAt.brokerLogAppendTimeEpochMs() + 100,
                             otherScheduleAt.brokerLogAppendTimeEpochMs() + 2000,
                             priorIntent.deliveryMode(),
-                            priorIntent.orderingMode(),
-                            priorIntent.orderingKey(),
+                            OrderingMode.DELIVERY_TIME_FIFO,
+                            Bytes.utf8("target-admission-order-key"),
                             model.inlinePayload(),
                             null,
                             priorIntent.adapterMetadata(),
@@ -1414,7 +1415,7 @@ class TargetCommandStoreTest {
                             otherControls.digest(),
                             otherMembership.digest(),
                             null,
-                            null);
+                            otherOrderingDomain);
                     final var otherProfiles = ProfileBindingControlState.empty()
                             .activate(destination.ref(), otherSource)
                             .activate(capability.ref(), otherGrantAt);
@@ -2277,6 +2278,8 @@ class TargetCommandStoreTest {
                                     new TargetStoreBackend.WriteLimits(64, 2 << 20),
                                     budget(),
                                     replacementOwnerReads);
+                            final var expectedLateSchedule = new java.util.concurrent.atomic.AtomicReference<
+                                    PreparedCommand>();
                             final var replacementRuntime = new TargetSourceApplyRuntime(
                                     replacementInitialized,
                                     replacementStore,
@@ -2303,7 +2306,51 @@ class TargetCommandStoreTest {
                                             (a, b, c) -> guard(),
                                             replacementOwnerReads,
                                             entry -> {
-                                                throw new AssertionError("replacement Shard resolved a command");
+                                                final var expected = expectedLateSchedule.get();
+                                                if (expected == null || !expected.equals(entry.command())) {
+                                                    throw new AssertionError(
+                                                            "replacement Shard resolved an unexpected command");
+                                                }
+                                                return new TargetSourceApplyRuntime.CommandControl(
+                                                        otherPolicy,
+                                                        (reader, bound, source) -> false,
+                                                        (reader, bound) -> java.util.Optional.empty(),
+                                                        (incoming, source) -> {
+                                                            if (!incoming.equals(expected)) {
+                                                                throw new AssertionError(
+                                                                        "replacement Shard resolved another Schedule");
+                                                            }
+                                                            final var acceptedBinding = new TargetScheduleBinding(
+                                                                    incoming.delayMessageId(),
+                                                                    incoming.type(),
+                                                                    incoming.canonicalBody(),
+                                                                    source,
+                                                                    physical.id(),
+                                                                    initial.domain(),
+                                                                    otherActivation
+                                                                            .allocation()
+                                                                            .identity()
+                                                                            .accountingIncarnation(),
+                                                                    dispatch.digest(),
+                                                                    dispatch.digest(),
+                                                                    otherControls.digest(),
+                                                                    otherMembership.digest(),
+                                                                    null,
+                                                                    otherOrderingDomain);
+                                                            return new TargetCommandStore.ScheduleAdmission(
+                                                                    StableCode.OK,
+                                                                    new TargetScheduleRegistration.Authority(
+                                                                            acceptedBinding,
+                                                                            physical,
+                                                                            destination,
+                                                                            capability,
+                                                                            otherProfiles,
+                                                                            60000),
+                                                                    TargetOrderState.OrderingContract
+                                                                            .ADMISSION_WATERMARK);
+                                                        },
+                                                        noProofs(),
+                                                        (a, b, c) -> guard());
                                             },
                                             entry -> {
                                                 throw new AssertionError(
@@ -2470,6 +2517,69 @@ class TargetCommandStoreTest {
                             assertEquals(beforeAdmissionMutation + 1, replacementStore.shardMutationSequence());
                             assertEquals(versionAfterAdmission, replacementStore.latestSequenceNumber());
                             assertEquals(admissionAt, replacementStore.appliedShardLogPosition());
+
+                            final byte[] admittedOrderKey = TargetKeyCodec.orderState(
+                                    replacementLoopClaim.work().locator().target(),
+                                    replacementLoopClaim.work().locator().orderingDomain());
+                            final byte[] admittedOrderState = replacementStore.get(ColumnFamily.META, admittedOrderKey);
+                            final var admittedOrder = TargetOrderState.decode(TargetValueEnvelope.decode(
+                                            admittedOrderState, TargetOrderState.VALUE_TYPE)
+                                    .payload());
+                            final long lateDeliverAt = admittedOrder.lastAdmittedOrder().deliverAtEpochMs() - 1;
+                            final var lateAt = source(
+                                    admissionAt,
+                                    admissionAt.offset() + 1,
+                                    admissionAt.brokerLogAppendTimeEpochMs() + 1);
+                            final var lateIntent = CanonicalScheduleIntent.create(
+                                    destination.ref(),
+                                    otherIntent.retryPolicy(),
+                                    lateDeliverAt,
+                                    lateAt.brokerLogAppendTimeEpochMs() + 2000,
+                                    otherIntent.deliveryMode(),
+                                    OrderingMode.DELIVERY_TIME_FIFO,
+                                    otherIntent.orderingKey(),
+                                    model.inlinePayload(),
+                                    null,
+                                    otherIntent.adapterMetadata(),
+                                    otherIntent.businessKey(),
+                                    otherIntent.eventTimeEpochMs(),
+                                    NativeDeliveryPolicy.FORBID);
+                            final var lateSchedule = schedule(
+                                    lateIntent, otherSchedule.delayMessageId(), lateAt, 44);
+                            expectedLateSchedule.set(lateSchedule);
+                            final var lateAcknowledgements = new java.util.concurrent.atomic.AtomicInteger();
+                            final var lateEntry = new SourceReplayRecord(lateSchedule, lateAt, null, null);
+                            replacementNextSourceRecord.set(new SourceRecordConsumer.PolledSourceRecord(
+                                    lateEntry,
+                                    (entry, outcome) -> {
+                                        assertEquals(lateEntry, entry);
+                                        assertEquals(lateAt, outcome.position());
+                                        assertEquals(
+                                                StableCode.ORDER_BEFORE_ADMISSION_WATERMARK,
+                                                outcome.commandResult().stableCode());
+                                        assertEquals(1, lateAcknowledgements.incrementAndGet());
+                                        return SourceAcknowledgement.AcknowledgementResult.acked();
+                                    }));
+                            final long beforeLateScheduleMutation = replacementStore.shardMutationSequence();
+                            final long beforeLateScheduleVersion = replacementStore.latestSequenceNumber();
+                            final var lateScheduleTurn = replacementWorker.runSourceTurn(
+                                    new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 101);
+                            assertEquals(
+                                    SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                                    lateScheduleTurn.status(),
+                                    () -> String.valueOf(lateScheduleTurn.failure()));
+                            assertEquals(lateEntry, lateScheduleTurn.entry());
+                            assertEquals(1, lateAcknowledgements.get());
+                            assertTrue(replacementWorker.pendingSourceEntry().isEmpty());
+                            assertEquals(
+                                    beforeLateScheduleMutation + 1,
+                                    replacementStore.shardMutationSequence());
+                            assertTrue(replacementStore.latestSequenceNumber() > beforeLateScheduleVersion);
+                            assertEquals(lateAt, replacementStore.appliedShardLogPosition());
+                            assertNull(replacementStore.get(
+                                    ColumnFamily.ID, TargetKeyCodec.message(lateSchedule.delayMessageId())));
+                            assertArrayEquals(
+                                    admittedOrderState, replacementStore.get(ColumnFamily.META, admittedOrderKey));
 
                             final var replacementBeforeReplay =
                                     (KafkaSourcePosition) replacementStore.appliedShardLogPosition();
@@ -6158,18 +6268,17 @@ class TargetCommandStoreTest {
                 .payload());
         assertEquals(TargetQuotaAttemptBudget.Phase.ADMITTED, attemptBudget.phase());
         assertEquals(claim.work().locator(), attemptBudget.locator());
-        if (admitted.locator().orderingMode() == OrderingMode.DELIVERY_TIME_FIFO) {
-            final byte[] orderKey = TargetKeyCodec.orderState(
-                    admitted.locator().target(), admitted.locator().orderingDomain());
-            final var order = TargetOrderState.decode(TargetValueEnvelope.decode(
-                            store.get(ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE)
-                    .payload());
-            final var barrier = TargetOrderBarrier.fromMessage(admitted);
-            assertEquals(TargetOrderState.OrderingContract.ADMISSION_WATERMARK, order.orderingContract());
-            assertArrayEquals(barrier.order().encodedKey(), order.lastAdmittedOrder().encodedKey());
-            assertEquals(barrier, order.barrier());
-            assertNull(order.serviceableHead());
-        }
+        assertEquals(OrderingMode.DELIVERY_TIME_FIFO, admitted.locator().orderingMode());
+        final byte[] orderKey =
+                TargetKeyCodec.orderState(admitted.locator().target(), admitted.locator().orderingDomain());
+        final var order = TargetOrderState.decode(TargetValueEnvelope.decode(
+                        store.get(ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE)
+                .payload());
+        final var barrier = TargetOrderBarrier.fromMessage(admitted);
+        assertEquals(TargetOrderState.OrderingContract.ADMISSION_WATERMARK, order.orderingContract());
+        assertArrayEquals(barrier.order().encodedKey(), order.lastAdmittedOrder().encodedKey());
+        assertEquals(barrier, order.barrier());
+        assertNull(order.serviceableHead());
         final var first = TargetResultRecord.decode(TargetValueEnvelope.decode(
                         store.get(ColumnFamily.DEDUPE, systemKey(entry.mutation())), TargetResultRecord.VALUE_TYPE)
                 .payload());
