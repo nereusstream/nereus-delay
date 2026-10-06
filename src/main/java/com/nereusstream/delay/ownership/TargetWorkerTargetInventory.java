@@ -4,6 +4,7 @@ import com.nereusstream.delay.protocol.CanonicalTargetPartition;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.TargetPartitionId;
 import com.nereusstream.delay.runtime.TargetQueueSnapshotReader;
+import com.nereusstream.delay.scheduler.BoundedAsyncMetricExporter;
 import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.ReadIncompleteException;
 import java.util.ArrayList;
@@ -107,6 +108,16 @@ public final class TargetWorkerTargetInventory {
             final Limits limits,
             final LongSupplier ownerClock,
             final LongSupplier monotonicClock) {
+        return rebuild(host, workers, limits, ownerClock, monotonicClock, null);
+    }
+
+    static Result rebuild(
+            final TargetWorkerHostRuntime host,
+            final List<TargetWorkerShardRuntime> workers,
+            final Limits limits,
+            final LongSupplier ownerClock,
+            final LongSupplier monotonicClock,
+            final BoundedAsyncMetricExporter metrics) {
         Objects.requireNonNull(host, "host");
         Objects.requireNonNull(ownerClock, "ownerClock");
         Objects.requireNonNull(monotonicClock, "monotonicClock");
@@ -133,8 +144,7 @@ public final class TargetWorkerTargetInventory {
         }
         final Supplier<BoundedReadBudget> budgets = () -> new BoundedReadBudget(
                 limits.readRecords(), limits.readBytes(), limits.readElapsedNanos(), monotonicClock);
-        return rebuild(
-                sources, limits, budgets, () -> host.currentTargetWorkers().equals(workers));
+        return rebuild(sources, limits, budgets, () -> host.currentTargetWorkers().equals(workers), metrics);
     }
 
     /** Each page is independently guarded; only equal per-Shard cuts and a final recheck publish. */
@@ -143,6 +153,15 @@ public final class TargetWorkerTargetInventory {
             final Limits limits,
             final Supplier<BoundedReadBudget> budgets,
             final BooleanSupplier membershipCurrent) {
+        return rebuild(sources, limits, budgets, membershipCurrent, null);
+    }
+
+    static Result rebuild(
+            final List<? extends ShardSource> sources,
+            final Limits limits,
+            final Supplier<BoundedReadBudget> budgets,
+            final BooleanSupplier membershipCurrent,
+            final BoundedAsyncMetricExporter metrics) {
         Objects.requireNonNull(sources, "sources");
         Objects.requireNonNull(limits, "limits");
         Objects.requireNonNull(budgets, "budgets");
@@ -150,6 +169,31 @@ public final class TargetWorkerTargetInventory {
         if (sources.size() > limits.maximumShards()) {
             throw new IllegalArgumentException("Target inventory exceeds activated Shard limit");
         }
+        final ScanCounts counts = metrics == null ? null : new ScanCounts();
+        final long started = metrics == null ? 0L : System.nanoTime();
+        try {
+            return rebuildPages(sources, limits, budgets, membershipCurrent, counts);
+        } finally {
+            if (metrics != null) {
+                metrics.record(new BoundedAsyncMetricExporter.MetricEvent(
+                        BoundedAsyncMetricExporter.Metric.TARGET_INVENTORY_SCAN_PAGES, counts.pages));
+                metrics.record(new BoundedAsyncMetricExporter.MetricEvent(
+                        BoundedAsyncMetricExporter.Metric.TARGET_INVENTORY_SCAN_BUDGET_RECORDS, counts.records));
+                metrics.record(new BoundedAsyncMetricExporter.MetricEvent(
+                        BoundedAsyncMetricExporter.Metric.TARGET_INVENTORY_SCAN_BUDGET_BYTES, counts.bytes));
+                metrics.record(new BoundedAsyncMetricExporter.MetricEvent(
+                        BoundedAsyncMetricExporter.Metric.TARGET_INVENTORY_REBUILD_DURATION_NANOS,
+                        Math.max(0L, System.nanoTime() - started)));
+            }
+        }
+    }
+
+    private static Result rebuildPages(
+            final List<? extends ShardSource> sources,
+            final Limits limits,
+            final Supplier<BoundedReadBudget> budgets,
+            final BooleanSupplier membershipCurrent,
+            final ScanCounts counts) {
         final Map<ShardId, TargetQueueSnapshotReader.Cut> cuts = new LinkedHashMap<>();
         final Map<TargetPartitionId, MutableTarget> grouped = new TreeMap<>(TARGET_ORDER);
         for (ShardSource source : sources) {
@@ -160,11 +204,20 @@ public final class TargetWorkerTargetInventory {
             TargetPartitionId after = null;
             boolean complete = false;
             for (int pageIndex = 0; pageIndex < limits.maximumPagesPerShard(); pageIndex++) {
+                final BoundedReadBudget pageBudget = budgets.get();
+                if (counts != null) {
+                    counts.pages++;
+                }
                 final TargetQueueSnapshotReader.Page page;
                 try {
-                    page = source.scan(budgets.get(), after, limits.pageTargets());
+                    page = source.scan(pageBudget, after, limits.pageTargets());
                 } catch (ReadIncompleteException incomplete) {
                     return new Result(Stop.READ_BUDGET, null);
+                } finally {
+                    if (counts != null) {
+                        counts.records = saturatedAdd(counts.records, pageBudget.actualRecords());
+                        counts.bytes = saturatedAdd(counts.bytes, pageBudget.actualBytes());
+                    }
                 }
                 final var priorCut = cuts.putIfAbsent(shardId, page.cut());
                 if (priorCut != null && !priorCut.equals(page.cut())) {
@@ -214,6 +267,16 @@ public final class TargetWorkerTargetInventory {
         final List<Target> targets =
                 grouped.values().stream().map(MutableTarget::freeze).toList();
         return new Result(Stop.COMPLETE, new Snapshot(targets, cuts));
+    }
+
+    private static long saturatedAdd(final long current, final long increment) {
+        return current > Long.MAX_VALUE - increment ? Long.MAX_VALUE : current + increment;
+    }
+
+    private static final class ScanCounts {
+        private long pages;
+        private long records;
+        private long bytes;
     }
 
     private static final class MutableTarget {

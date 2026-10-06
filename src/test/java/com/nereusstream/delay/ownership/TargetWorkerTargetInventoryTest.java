@@ -3,6 +3,7 @@ package com.nereusstream.delay.ownership;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.CanonicalTargetPartition;
 import com.nereusstream.delay.protocol.KafkaBrokerResourceIdentity;
@@ -12,6 +13,7 @@ import com.nereusstream.delay.protocol.TargetPartitionId;
 import com.nereusstream.delay.protocol.TargetQueueState;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
 import com.nereusstream.delay.runtime.TargetQueueSnapshotReader;
+import com.nereusstream.delay.scheduler.BoundedAsyncMetricExporter;
 import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.ColumnFamily;
 import com.nereusstream.delay.store.ShardStore;
@@ -21,10 +23,12 @@ import com.nereusstream.delay.store.TargetKeyCodec;
 import com.nereusstream.delay.store.TargetStoreBackend;
 import com.nereusstream.delay.store.TargetValueEnvelope;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -42,16 +46,19 @@ class TargetWorkerTargetInventoryTest {
         final var secondShard = shard(2);
         final var firstTarget = target(0);
         final var secondTarget = target(1);
+        final var metricEvents = new CopyOnWriteArrayList<BoundedAsyncMetricExporter.MetricEvent>();
         try (var resources = new SharedRocksDbResources(config);
                 var firstStore = ShardStore.openTarget(config, firstShard, resources);
-                var secondStore = ShardStore.openTarget(config, secondShard, resources)) {
+                var secondStore = ShardStore.openTarget(config, secondShard, resources);
+                var metrics = new BoundedAsyncMetricExporter(
+                        new BoundedAsyncMetricExporter.Limits(4, 36), metricEvents::add)) {
             seedQueue(firstStore, firstTarget, 1);
             seedQueue(firstStore, secondTarget, 1);
             seedQueue(secondStore, firstTarget, 1);
             final var firstSource = storeSource(firstStore);
             final var secondSource = storeSource(secondStore);
             final var complete = TargetWorkerTargetInventory.rebuild(
-                    List.of(firstSource, secondSource), LIMITS, this::budget, () -> true);
+                    List.of(firstSource, secondSource), LIMITS, this::budget, () -> true, metrics);
             assertEquals(TargetWorkerTargetInventory.Stop.COMPLETE, complete.stop());
             assertEquals(2, complete.snapshot().targets().size());
             final var shared = complete.snapshot().targets().stream()
@@ -67,6 +74,24 @@ class TargetWorkerTargetInventoryTest {
                     firstSource.readCut(budget()), complete.snapshot().cuts().get(firstShard));
             assertEquals(
                     secondSource.readCut(budget()), complete.snapshot().cuts().get(secondShard));
+            metrics.stopAccepting();
+            assertTrue(metrics.awaitTermination(Duration.ofSeconds(5)));
+            assertEquals(4, metrics.snapshot().exported());
+            assertEquals(
+                    1,
+                    metricEvents.stream()
+                            .filter(event -> event.metric()
+                                            == BoundedAsyncMetricExporter.Metric.TARGET_INVENTORY_SCAN_PAGES
+                                    && event.value() == 5)
+                            .count());
+            assertTrue(metricEvents.stream().anyMatch(event -> event.metric()
+                            == BoundedAsyncMetricExporter.Metric.TARGET_INVENTORY_SCAN_BUDGET_RECORDS
+                    && event.value() > 0));
+            assertTrue(metricEvents.stream().anyMatch(event -> event.metric()
+                            == BoundedAsyncMetricExporter.Metric.TARGET_INVENTORY_SCAN_BUDGET_BYTES
+                    && event.value() > 0));
+            assertTrue(metricEvents.stream().anyMatch(event -> event.metric()
+                    == BoundedAsyncMetricExporter.Metric.TARGET_INVENTORY_REBUILD_DURATION_NANOS));
 
             final var beforeWrite = firstSource.readCut(budget());
             final var changed = new TargetWorkerTargetInventory.ShardSource() {

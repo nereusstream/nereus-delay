@@ -20,7 +20,7 @@ class OpenTelemetryMetricExporterTest {
         final InMemoryMetricReader reader = InMemoryMetricReader.create();
         try (var provider = SdkMeterProvider.builder().registerMetricReader(reader).build();
                 var metrics = new BoundedAsyncMetricExporter(
-                        new Limits(8, 72), new OpenTelemetryMetricExporter(provider.get("nereus-delay")))) {
+                        new Limits(12, 108), new OpenTelemetryMetricExporter(provider.get("nereus-delay")))) {
             assertEquals(
                     BoundedAsyncMetricExporter.OfferResult.ACCEPTED,
                     metrics.record(new MetricEvent(Metric.TARGET_DRR_CLAIM_TURNS, 3)));
@@ -39,9 +39,21 @@ class OpenTelemetryMetricExporterTest {
             assertEquals(
                     BoundedAsyncMetricExporter.OfferResult.ACCEPTED,
                     metrics.record(new MetricEvent(Metric.TARGET_DRR_TURN_HEAD_PROBE_CALLS, 1)));
+            assertEquals(
+                    BoundedAsyncMetricExporter.OfferResult.ACCEPTED,
+                    metrics.record(new MetricEvent(Metric.TARGET_INVENTORY_SCAN_PAGES, 5)));
+            assertEquals(
+                    BoundedAsyncMetricExporter.OfferResult.ACCEPTED,
+                    metrics.record(new MetricEvent(Metric.TARGET_INVENTORY_SCAN_BUDGET_RECORDS, 9)));
+            assertEquals(
+                    BoundedAsyncMetricExporter.OfferResult.ACCEPTED,
+                    metrics.record(new MetricEvent(Metric.TARGET_INVENTORY_SCAN_BUDGET_BYTES, 256)));
+            assertEquals(
+                    BoundedAsyncMetricExporter.OfferResult.ACCEPTED,
+                    metrics.record(new MetricEvent(Metric.TARGET_INVENTORY_REBUILD_DURATION_NANOS, 21)));
             metrics.stopAccepting();
             assertTrue(metrics.awaitTermination(Duration.ofSeconds(5)));
-            assertEquals(6, metrics.snapshot().exported());
+            assertEquals(10, metrics.snapshot().exported());
 
             final Map<String, MetricData> observed = reader.collectAllMetrics().stream()
                     .collect(Collectors.toMap(MetricData::getName, Function.identity()));
@@ -99,6 +111,42 @@ class OpenTelemetryMetricExporterTest {
             assertEquals(1, headProbeCallPoint.getCount());
             assertEquals(1.0, headProbeCallPoint.getSum(), 0.0);
             assertTrue(headProbeCallPoint.getAttributes().isEmpty());
+
+            final var scanPages = observed.get("nereus.target.inventory.scan.pages");
+            assertEquals("1", scanPages.getUnit());
+            final var scanPagePoint = scanPages.getHistogramData().getPoints().stream()
+                    .findFirst()
+                    .orElseThrow();
+            assertEquals(1, scanPagePoint.getCount());
+            assertEquals(5.0, scanPagePoint.getSum(), 0.0);
+            assertTrue(scanPagePoint.getAttributes().isEmpty());
+
+            final var budgetRecords = observed.get("nereus.target.inventory.scan.budget.records");
+            assertEquals("1", budgetRecords.getUnit());
+            final var budgetRecordPoint = budgetRecords.getHistogramData().getPoints().stream()
+                    .findFirst()
+                    .orElseThrow();
+            assertEquals(1, budgetRecordPoint.getCount());
+            assertEquals(9.0, budgetRecordPoint.getSum(), 0.0);
+            assertTrue(budgetRecordPoint.getAttributes().isEmpty());
+
+            final var budgetBytes = observed.get("nereus.target.inventory.scan.budget.bytes");
+            assertEquals("By", budgetBytes.getUnit());
+            final var budgetBytePoint = budgetBytes.getHistogramData().getPoints().stream()
+                    .findFirst()
+                    .orElseThrow();
+            assertEquals(1, budgetBytePoint.getCount());
+            assertEquals(256.0, budgetBytePoint.getSum(), 0.0);
+            assertTrue(budgetBytePoint.getAttributes().isEmpty());
+
+            final var rebuildDuration = observed.get("nereus.target.inventory.rebuild.duration");
+            assertEquals("ns", rebuildDuration.getUnit());
+            final var rebuildDurationPoint = rebuildDuration.getHistogramData().getPoints().stream()
+                    .findFirst()
+                    .orElseThrow();
+            assertEquals(1, rebuildDurationPoint.getCount());
+            assertEquals(21.0, rebuildDurationPoint.getSum(), 0.0);
+            assertTrue(rebuildDurationPoint.getAttributes().isEmpty());
         }
     }
 }

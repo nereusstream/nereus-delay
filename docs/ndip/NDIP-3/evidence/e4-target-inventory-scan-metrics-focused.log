@@ -1,0 +1,35 @@
+# E4 Target inventory scan-budget metrics focused evidence
+
+Date: 2026-10-06
+Base revision: 19eca8db50a9f7312bb91fafa697f4646e905486
+
+Focused command:
+`./gradlew test --tests com.nereusstream.delay.ownership.TargetWorkerTargetInventoryTest --tests com.nereusstream.delay.ownership.TargetWorkerOrdinaryDrrTest --tests com.nereusstream.delay.scheduler.OpenTelemetryMetricExporterTest checkstyleTest --no-daemon --console=plain`
+
+Result: `BUILD SUCCESSFUL`; JUnit reports `TargetWorkerTargetInventoryTest` 4/4, `TargetWorkerOrdinaryDrrTest` 29/29, and `OpenTelemetryMetricExporterTest` 1/1, with no skips, failures, or errors. `checkstyleTest` passed. The real two-RocksDB-Store inventory test observes exactly five `ShardSource.scan` page calls across two source Shards and positive `BoundedReadBudget.actualRecords/actualBytes` totals. The OTel SDK in-memory reader verifies the four inventory histograms' sample values, units, and empty attributes.
+
+Dockerized Host-loop command:
+`NEREUS_DELAY_OXIA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/oxia NEREUS_DELAY_E2E_GRADLE_USER_HOME=/Users/liusinan/.gradle bash e2e/run-oxia-real-service.sh`
+
+Result: `Dockerized Oxia real-service smoke passed` against Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`. `TargetQuotaGrantStoreTest.realOxiaOwnerTakeoverReopensTargetRootAndCompletesCloseGc` passed 1/1, 0 skipped/failures/errors. Its real Host loop drains the caller-owned bounded exporter and asserts a positive `TARGET_INVENTORY_SCAN_PAGES` event.
+
+Each full Host inventory rebuild attempt now emits aggregate histograms for `ShardSource.scan` calls, per-page `BoundedReadBudget.actualRecords/actualBytes`, and total rebuild duration. It includes incomplete or exceptional attempts and does not change the inventory result, queue persistence, or Claim semantics. The page counter is an attempted API call count. Records and bytes are logical Store API budget accounting, not RocksDB device I/O, block-cache misses, or WAL traffic. Instrumentation remains optional when no exporter is supplied.
+
+Additional checks: `jq empty docs/ndip/NDIP-3/progress.json` and `git diff --check` passed. `./gradlew checkstyleMain --no-daemon --console=plain` reports only the two unchanged 123-character lines in `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:376`; no changed source is reported.
+
+Still open: actual Target queue depth, device-level I/O/WAL and non-inventory read paths, physical send latency, application SDK/provider/exporter configuration, restart/overflow gap coverage, certification mode/generation/coverage, and central validation. E4 remains `IN_PROGRESS / PENDING_CENTRAL_VALIDATION`.
+
+Source SHA-256:
+- `src/main/java/com/nereusstream/delay/ownership/TargetWorkerTargetInventory.java`: 12ea44bf8fbbf1e74554c69a3e4e3869354bdb3de041b79f619eca442cb87ee2
+- `src/main/java/com/nereusstream/delay/ownership/TargetWorkerHostRuntime.java`: 09b1bc7ba73e37d3d92c90405897fe007056b79227851745af57b0bb5a99014a
+- `src/main/java/com/nereusstream/delay/ownership/TargetWorkerOrdinaryLoop.java`: 2b4fb33c1213590aad3737063bc11d6aa4a59ec3bf8c9b9acfc896a0cdfa3233
+- `src/main/java/com/nereusstream/delay/scheduler/BoundedAsyncMetricExporter.java`: 4b7349b780875a56cbf26d0ebd32ec24e94885e71e4983ef0a72d31b2251358a
+- `src/main/java/com/nereusstream/delay/scheduler/OpenTelemetryMetricExporter.java`: b15dbbd480be5ccd0dfd87e6216f8170153e8b9bcbe391189d1cf8bb649a3ef4
+- `src/test/java/com/nereusstream/delay/ownership/TargetWorkerTargetInventoryTest.java`: c6e2f16daa437ac49c30f9ecb35b79d6fa075462cbbb05fd18245181d8c53d08
+- `src/test/java/com/nereusstream/delay/runtime/TargetQuotaGrantStoreTest.java`: 08453210d699c6e92e7927bfa3bf46a18f76022ae1c1a9f5a099211354b0b972
+- `src/test/java/com/nereusstream/delay/scheduler/OpenTelemetryMetricExporterTest.java`: 7216a6ee3fa6d3d50693adfa2026789cf0634927549e3635804ab71ab8432e84
+- `docs/ndip/NDIP-3/01-目标分区队列与调度热路径设计.md`: 375a38a9424eebb6b432d2bb7981fddda164c6d9fa5818f846aa816933225ef9
+- `docs/ndip/NDIP-3/04-执行记录.md`: b6c54824556d0c35e3f6699c66ed32b82a24aa035783f2a2567629fb7da9bb7b
+- `docs/ndip/NDIP-3/12-集中验证交接清单.md`: 187ad26bc206641ebe08c3625e30c638839fc048f537459e7e879582712f931f
+- `docs/ndip/NDIP-3/progress.json`: 47c07031a4b7da5b195c73d2565a91ab7cf4d23351c91999b8ea444213be307e
+- `build/test-results/test/TEST-com.nereusstream.delay.runtime.TargetQuotaGrantStoreTest.xml`: e0366a47a7fda0b1996b748196ec013ad7678ce22cf742e0a64098278348916e

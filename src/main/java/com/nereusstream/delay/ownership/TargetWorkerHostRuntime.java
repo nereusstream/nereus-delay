@@ -486,11 +486,20 @@ public final class TargetWorkerHostRuntime {
             final TargetWorkerTargetInventory.Limits limits,
             final LongSupplier ownerClock,
             final LongSupplier monotonicClock) {
+        return rebuildTargetInventory(limits, ownerClock, monotonicClock, null);
+    }
+
+    TargetWorkerTargetInventory.Result rebuildTargetInventory(
+            final TargetWorkerTargetInventory.Limits limits,
+            final LongSupplier ownerClock,
+            final LongSupplier monotonicClock,
+            final BoundedAsyncMetricExporter metrics) {
         final var current = currentTargetWorkers();
         synchronized (this) {
             pendingTargetInventory = null;
         }
-        final var result = TargetWorkerTargetInventory.rebuild(this, current, limits, ownerClock, monotonicClock);
+        final var result =
+                TargetWorkerTargetInventory.rebuild(this, current, limits, ownerClock, monotonicClock, metrics);
         synchronized (this) {
             pendingTargetInventory = result.snapshot();
         }

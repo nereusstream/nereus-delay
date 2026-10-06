@@ -375,7 +375,7 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
                 try {
                     if (scheduler == null || inventoryRefreshPending) {
                         final var inventory = host.rebuildTargetInventory(
-                                inventoryLimits, ownerClock, monotonicClock);
+                                inventoryLimits, ownerClock, monotonicClock, metrics);
                         if (inventory.stop() != TargetWorkerTargetInventory.Stop.COMPLETE) {
                             awaitChange(observedRevision);
                             continue;
