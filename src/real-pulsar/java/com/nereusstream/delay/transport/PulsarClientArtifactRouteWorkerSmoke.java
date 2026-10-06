@@ -62,7 +62,6 @@ import com.nereusstream.delay.route.OxiaRouteAuthoritySession;
 import com.nereusstream.delay.route.OxiaSignedRouteSnapshotProvider;
 import com.nereusstream.delay.route.OxiaSignedRouteSnapshotPublisher;
 import com.nereusstream.delay.runtime.DelayShard;
-import com.nereusstream.delay.runtime.DelayShardConfig;
 import com.nereusstream.delay.runtime.ScheduleResolver;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClass;
@@ -230,12 +229,12 @@ public final class PulsarClientArtifactRouteWorkerSmoke {
                         final Path root = Files.createTempDirectory("nereus-delay-pulsar-route-worker-");
                         try {
                             final ShardStoreConfig storeConfig = ShardStoreConfig.defaults(root);
-                            try (SharedRocksDbResources resources = new SharedRocksDbResources(storeConfig);
+                            try (SharedRocksDbResources resources = PulsarSmokeWorkerResources.open(storeConfig);
                                     ShardStore store = ShardStore.open(storeConfig, shard, resources)) {
                                 resources.bindWorkClassExecutionRegistry(workClasses);
                                 store.recordControlSnapshot(controlSnapshot);
-                                final DelayShard delayShard = new DelayShard(
-                                        store, DelayShardConfig.defaults(), null, null, scheduleResolver());
+                                final DelayShard delayShard =
+                                        PulsarSmokeWorkerResources.openDelayShard(store, scheduleResolver());
                                 final OwnedDelayShard ownedShard = new OwnedDelayShard(
                                         delayShard,
                                         lease,
@@ -515,7 +514,7 @@ public final class PulsarClientArtifactRouteWorkerSmoke {
                     boolean drained = false;
                     try {
                         final ShardStoreConfig storeConfig = ShardStoreConfig.defaults(root);
-                        final SharedRocksDbResources resources = new SharedRocksDbResources(storeConfig);
+                        final SharedRocksDbResources resources = PulsarSmokeWorkerResources.open(storeConfig);
                         try {
                             resources.bindWorkClassExecutionRegistry(workClasses);
                             for (int index = 0; index < admissions.size(); index++) {
@@ -526,8 +525,8 @@ public final class PulsarClientArtifactRouteWorkerSmoke {
                                 stores.add(store);
                                 final CompatibleControlSnapshot controlSnapshot = controlSnapshot(shard);
                                 store.recordControlSnapshot(controlSnapshot);
-                                final DelayShard delayShard = new DelayShard(
-                                        store, DelayShardConfig.defaults(), null, null, scheduleResolver());
+                                final DelayShard delayShard =
+                                        PulsarSmokeWorkerResources.openDelayShard(store, scheduleResolver());
                                 final OwnedDelayShard ownedShard = new OwnedDelayShard(
                                         delayShard,
                                         admission.lease(),

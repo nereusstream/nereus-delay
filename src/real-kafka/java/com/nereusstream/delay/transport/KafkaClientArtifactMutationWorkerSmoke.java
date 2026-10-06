@@ -44,8 +44,6 @@ import com.nereusstream.delay.protocol.SystemMutationType;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.runtime.ApplyStatus;
 import com.nereusstream.delay.runtime.DelayShard;
-import com.nereusstream.delay.runtime.DelayShardConfig;
-import com.nereusstream.delay.runtime.HeadReadPolicy;
 import com.nereusstream.delay.runtime.SystemMutationResult;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClass;
@@ -167,14 +165,11 @@ public final class KafkaClientArtifactMutationWorkerSmoke {
                 final Path root = Files.createTempDirectory("nereus-delay-kafka-mutation-worker-");
                 try {
                     final ShardStoreConfig storeConfig = ShardStoreConfig.defaults(root);
-                    try (SharedRocksDbResources resources = new SharedRocksDbResources(storeConfig);
+                    try (SharedRocksDbResources resources = KafkaSmokeWorkerResources.open(storeConfig);
                             ShardStore store = ShardStore.open(storeConfig, shard, resources)) {
                         resources.bindWorkClassExecutionRegistry(workClasses);
                         store.recordControlSnapshot(controlSnapshot);
-                        final DelayShard delayShard = new DelayShard(
-                                store,
-                                DelayShardConfig.defaults(),
-                                new HeadReadPolicy(4096, 64L << 20, TimeUnit.SECONDS.toNanos(60)));
+                        final DelayShard delayShard = KafkaSmokeWorkerResources.openDelayShard(store);
                         final OwnedDelayShard ownedShard = new OwnedDelayShard(
                                 delayShard,
                                 lease,

@@ -84,8 +84,6 @@ import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutationType;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.runtime.DelayShard;
-import com.nereusstream.delay.runtime.DelayShardConfig;
-import com.nereusstream.delay.runtime.HeadReadPolicy;
 import com.nereusstream.delay.runtime.LaneRecord;
 import com.nereusstream.delay.runtime.MessageStatus;
 import com.nereusstream.delay.runtime.ScheduleResolver;
@@ -251,7 +249,7 @@ public final class KafkaClientArtifactWorkerSmoke {
                 final Path root = configuredWorkerRoot();
                 try {
                     final ShardStoreConfig storeConfig = ShardStoreConfig.defaults(root);
-                    try (SharedRocksDbResources resources = new SharedRocksDbResources(storeConfig);
+                    try (SharedRocksDbResources resources = KafkaSmokeWorkerResources.open(storeConfig);
                             ShardStore store = mode.equals("resume") && explicitWorkerRoot
                                     ? ShardStore.openForLocalRecoveryReuse(
                                             storeConfig, shard, resources, localCrashRecoveryAuthority())
@@ -264,7 +262,7 @@ public final class KafkaClientArtifactWorkerSmoke {
                                 mode.equals("resume") && explicitWorkerRoot && persistedPositionBeforeRecovery != null;
                         final DelayShard delayShard = new DelayShard(
                                 store,
-                                DelayShardConfig.defaults(),
+                                KafkaSmokeWorkerResources.delayShardConfig(),
                                 null,
                                 null,
                                 scheduleResolver(clusterId, destinationTopicId, destinationPhysicalTopic),
@@ -276,7 +274,7 @@ public final class KafkaClientArtifactWorkerSmoke {
                                 null,
                                 null,
                                 null,
-                                new HeadReadPolicy(4096, 64L << 20, TimeUnit.SECONDS.toNanos(60)));
+                                KafkaSmokeWorkerResources.headReadPolicy());
                         final OwnerIdentity ownerIdentity = new OwnerIdentity(
                                 bytes(16, 70),
                                 bytes(16, 71),

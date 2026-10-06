@@ -111,8 +111,6 @@ import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.runtime.DelayShard;
-import com.nereusstream.delay.runtime.DelayShardConfig;
-import com.nereusstream.delay.runtime.HeadReadPolicy;
 import com.nereusstream.delay.runtime.LaneRecord;
 import com.nereusstream.delay.runtime.MessageRecord;
 import com.nereusstream.delay.runtime.MessageStatus;
@@ -396,7 +394,7 @@ public final class PulsarClientArtifactWorkerSmoke {
             boolean runtimeDrained = false;
             try {
                 final ShardStoreConfig storeConfig = ShardStoreConfig.defaults(root);
-                try (SharedRocksDbResources resources = new SharedRocksDbResources(storeConfig);
+                try (SharedRocksDbResources resources = PulsarSmokeWorkerResources.open(storeConfig);
                         ShardStore store = ShardStore.open(storeConfig, shard, resources)) {
                     final SourceAckResponseLossProcessCrashContext sourceAckCrashContext =
                             sourceAckResponseLossProcessCrashWait
@@ -407,7 +405,7 @@ public final class PulsarClientArtifactWorkerSmoke {
                     store.recordControlSnapshot(controlSnapshot);
                     final DelayShard delayShard = new DelayShard(
                             store,
-                            DelayShardConfig.defaults(),
+                            PulsarSmokeWorkerResources.delayShardConfig(),
                             null,
                             null,
                             scheduleResolver(destinationPhysicalTopic, managedHandoff),
@@ -419,7 +417,7 @@ public final class PulsarClientArtifactWorkerSmoke {
                             null,
                             null,
                             null,
-                            new HeadReadPolicy(4096, 64L << 20, TimeUnit.SECONDS.toNanos(60)));
+                            PulsarSmokeWorkerResources.headReadPolicy());
                     final OwnerIdentity ownerIdentity = new OwnerIdentity(
                             bytes(16, 70),
                             bytes(16, 71),

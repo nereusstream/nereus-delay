@@ -112,7 +112,6 @@ import com.nereusstream.delay.route.OxiaSignedRouteSnapshotProvider;
 import com.nereusstream.delay.route.OxiaSignedRouteSnapshotPublisher;
 import com.nereusstream.delay.route.RouteHash;
 import com.nereusstream.delay.runtime.DelayShard;
-import com.nereusstream.delay.runtime.DelayShardConfig;
 import com.nereusstream.delay.runtime.InMemoryPayloadProofTrustSetCatalog;
 import com.nereusstream.delay.runtime.LaneRecord;
 import com.nereusstream.delay.runtime.MessageStatus;
@@ -1717,7 +1716,8 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                         new ArrayList<>(shardCount);
                 WorkerShardFleetRuntime fleet = null;
                 boolean assignmentsWithdrawn = false;
-                try (SharedRocksDbResources resources = new SharedRocksDbResources(ShardStoreConfig.defaults(root));
+                try (SharedRocksDbResources resources = PulsarSmokeWorkerResources.open(
+                        ShardStoreConfig.defaults(root));
                         InMemoryCommandTransportRegistry transports = new InMemoryCommandTransportRegistry()) {
                     resources.bindWorkClassExecutionRegistry(workClasses);
                     final InMemoryPayloadProofTrustSetCatalog trustCatalog = new InMemoryPayloadProofTrustSetCatalog();
@@ -1728,13 +1728,9 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                                 ShardStore.open(ShardStoreConfig.defaults(root), probe.shard(), resources);
                         stores.add(store);
                         store.recordControlSnapshot(controlSnapshot(probe.shard(), destinationProfile()));
-                        final DelayShard delayShard = new DelayShard(
+                        final DelayShard delayShard = PulsarSmokeWorkerResources.openDelayShard(
                                 store,
-                                DelayShardConfig.defaults(),
-                                null,
-                                null,
-                                scheduleResolver(
-                                        destinationPhysicalTopic, probe.shard().partition()),
+                                scheduleResolver(destinationPhysicalTopic, probe.shard().partition()),
                                 trustCatalog);
                         delayShards.add(delayShard);
                         final OwnerLease lease = admission.lease();
@@ -2402,7 +2398,7 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                     final Path root = Files.createTempDirectory("nereus-delay-pulsar-large-payload-");
                     boolean assignmentWithdrawn = false;
                     final ShardStoreConfig storeConfig = ShardStoreConfig.defaults(root);
-                    try (SharedRocksDbResources resources = new SharedRocksDbResources(storeConfig);
+                    try (SharedRocksDbResources resources = PulsarSmokeWorkerResources.open(storeConfig);
                             ShardStore store = ShardStore.open(storeConfig, shard, resources);
                             InMemoryCommandTransportRegistry transports = new InMemoryCommandTransportRegistry()) {
                         resources.bindWorkClassExecutionRegistry(workClasses);
@@ -2410,13 +2406,8 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                         final InMemoryPayloadProofTrustSetCatalog trustCatalog =
                                 new InMemoryPayloadProofTrustSetCatalog();
                         trustCatalog.publish(trustSet);
-                        final DelayShard delayShard = new DelayShard(
-                                store,
-                                DelayShardConfig.defaults(),
-                                null,
-                                null,
-                                scheduleResolver(destinationPhysicalTopic),
-                                trustCatalog);
+                        final DelayShard delayShard = PulsarSmokeWorkerResources.openDelayShard(
+                                store, scheduleResolver(destinationPhysicalTopic), trustCatalog);
                         final com.nereusstream.delay.protocol.OwnerIdentity ownerIdentity =
                                 new com.nereusstream.delay.protocol.OwnerIdentity(
                                         bytes(16, 70),
