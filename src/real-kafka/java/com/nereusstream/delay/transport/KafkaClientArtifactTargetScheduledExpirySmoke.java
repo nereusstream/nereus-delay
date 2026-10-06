@@ -56,12 +56,15 @@ import com.nereusstream.delay.protocol.TargetMembershipGrant;
 import com.nereusstream.delay.protocol.TargetMembershipPolicy;
 import com.nereusstream.delay.protocol.TargetPartitionHashInput;
 import com.nereusstream.delay.protocol.TargetPartitionPolicy;
+import com.nereusstream.delay.protocol.TargetPublishAdmissionBody;
+import com.nereusstream.delay.protocol.TargetQuotaAttemptBudget;
 import com.nereusstream.delay.protocol.TargetQuotaGrant;
 import com.nereusstream.delay.protocol.TargetQuotaGrantActivation;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlBody;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlRequest;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
 import com.nereusstream.delay.protocol.TargetQuotaUsage;
+import com.nereusstream.delay.protocol.TargetQueueState;
 import com.nereusstream.delay.protocol.TargetScheduleBinding;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.runtime.ApplyStatus;
@@ -72,12 +75,20 @@ import com.nereusstream.delay.runtime.TargetCommandStore;
 import com.nereusstream.delay.runtime.TargetExpireGenerationVerifier;
 import com.nereusstream.delay.runtime.TargetMembershipControlStore;
 import com.nereusstream.delay.runtime.TargetMembershipControlVerifier;
+import com.nereusstream.delay.runtime.AttemptLedgerState;
+import com.nereusstream.delay.runtime.AttemptObligationRef;
+import com.nereusstream.delay.runtime.TargetClaimRecord;
+import com.nereusstream.delay.runtime.TargetClaimStore;
+import com.nereusstream.delay.runtime.TargetPublishAdmissionVerifier;
+import com.nereusstream.delay.runtime.TargetQuotaDelta;
+import com.nereusstream.delay.runtime.TargetResultRecord;
 import com.nereusstream.delay.runtime.TargetMessageRecord;
 import com.nereusstream.delay.runtime.TargetQuotaGrantControlVerifier;
 import com.nereusstream.delay.runtime.TargetQuotaGrantStore;
 import com.nereusstream.delay.runtime.TargetStoreBootstrap;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.store.ColumnFamily;
+import com.nereusstream.delay.store.KeyCodec;
 import com.nereusstream.delay.store.ShardStore;
 import com.nereusstream.delay.store.ShardStoreConfig;
 import com.nereusstream.delay.store.TargetKeyCodec;
@@ -121,7 +132,8 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
             final KafkaClientArtifactTargetWorkerSourceSmoke.AckMode ackMode,
             final Path ackHoldFile,
             final Path ackReleaseFile,
-            final Path droppedResponseFile)
+            final Path droppedResponseFile,
+            final boolean targetAdmissionScenario)
             throws Exception {
         final ShardId shard = new ShardId(com.nereusstream.delay.protocol.RouteIncarnation.random(), 0);
         final var scope = new TargetQuotaScope(
@@ -249,7 +261,7 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
         final var commandIdentity = com.nereusstream.delay.protocol.SelfRoutingId.random(shard);
         final var messageIdentity = com.nereusstream.delay.protocol.SelfRoutingId.random(shard);
         final long scheduleBuildTime = commandIdentity.logicalTimestampEpochMs();
-        final long expireAt = Math.addExact(scheduleBuildTime, 2_000);
+        final long expireAt = Math.addExact(scheduleBuildTime, targetAdmissionScenario ? 600_000 : 2_000);
         final long retryUntil = Math.addExact(scheduleBuildTime, 600_000);
         final var retryPolicy = new RetryPolicyRef(
                 Bytes.utf8("target-scheduled-expiry-retry"),
@@ -428,8 +440,26 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
 
                 final var active = TargetWorkerOwnerActivation.activate(
                         initialized, store, assignment, acquiring, leases, System::currentTimeMillis);
+                final TargetAdmissionFixture targetAdmission = targetAdmissionScenario
+                        ? appendTargetAdmission(
+                                bootstrap,
+                                topic,
+                                clusterId,
+                                topicId,
+                                store,
+                                backend,
+                                scope,
+                                activation,
+                                intent,
+                                scheduledMessage,
+                                physical,
+                                active,
+                                leases,
+                                keys)
+                        : null;
                 final var expiryProof = new AtomicReference<TrustedUtcIntervalEvidence>();
                 final var expiryAuthorityResolutions = new AtomicInteger();
+                final var admissionAuthorityResolutions = new AtomicInteger();
                 final var closeControls = new TargetCloseStore(backend, scope, LINEAGE, 16, 1)
                         .reservationControls((reader, binding) -> Optional.empty());
                 final var sourceRuntime = new TargetSourceApplyRuntime(
@@ -455,10 +485,51 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
                                         expiryProof,
                                         expiryAuthorityResolutions),
                                 entry -> { throw new AssertionError("expiry did not resolve Target Close"); },
-                                entry -> { throw new AssertionError("expiry did not resolve membership"); },
-                                KafkaClientArtifactTargetWorkerSourceSmoke.ownerCommitAuthority(leases, active),
-                                KafkaClientArtifactTargetWorkerSourceSmoke.ownerReadAuthority(leases, active),
-                                entry -> { throw new AssertionError("expiry source was a Client Command"); }),
+                                        entry -> { throw new AssertionError("expiry did not resolve membership"); },
+                                        KafkaClientArtifactTargetWorkerSourceSmoke.ownerCommitAuthority(leases, active),
+                                        KafkaClientArtifactTargetWorkerSourceSmoke.ownerReadAuthority(leases, active),
+                                        entry -> { throw new AssertionError("expiry source was a Client Command"); },
+                                        entry -> {
+                                            throw new AssertionError("unexpected Target Native policy control");
+                                        },
+                                        entry -> {
+                                            if (targetAdmission == null
+                                                    || !sameAdmissionEntry(targetAdmission.sourceEntry(), entry)) {
+                                                throw new IllegalStateException(
+                                                        "Target Admission source differs from the persisted fixture");
+                                            }
+                                            final var expectedAuthor = AuthorIdentity.owner(
+                                                    Bytes.utf8("kafka-target-worker-deployment"),
+                                                    Bytes.utf8("kafka-target-worker-host-run"),
+                                                    active.ownerEpoch(),
+                                                    Bytes.sha256(active.leaseToken()));
+                                            return new TargetSourceApplyRuntime.AdmissionControl(
+                                                    (actualScope, writer, mutation, source) -> {
+                                                        if (!scope.equals(actualScope)
+                                                        || !Arrays.equals(
+                                                                        expectedAuthor.canonicalBytes(),
+                                                                        writer.canonicalBytes())
+                                                                || !Arrays.equals(
+                                                                        targetAdmission.mutation().canonicalEnvelope(),
+                                                                        mutation.canonicalEnvelope())
+                                                                || !Arrays.equals(
+                                                                        entry.position().canonicalBytes(),
+                                                                        source.canonicalBytes())) {
+                                                            throw new IllegalStateException(
+                                                                    "Target Admission verifier received another Owner or source");
+                                                        }
+                                                        admissionAuthorityResolutions.incrementAndGet();
+                                                        return new TargetPublishAdmissionVerifier.Authorization(
+                                                                keys.getPublic(),
+                                                                ProtocolTuple.targetPublishAdmission(),
+                                                                20_000,
+                                                                10_000,
+                                                                60_000,
+                                                                (boundScope, boundWriter, boundSource, evidence) -> true);
+                                                    },
+                                                    KafkaClientArtifactTargetWorkerSourceSmoke.ownerCommitAuthority(
+                                                            leases, active));
+                                        }),
                         new TargetSourceApplyRuntime.Limits(2048, 16L << 20, 60_000_000_000L, 16, 1),
                         System::nanoTime);
                 final var consumer = KafkaClientArtifactTargetWorkerSourceSmoke.newSourceConsumer(
@@ -527,43 +598,69 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
                             expiryAppendFinished.countDown();
                         }
                     };
-                    worker.configureMessageExpiryMaintenance(
-                            observedAppender,
-                            () -> {
-                                final long now = System.currentTimeMillis();
-                                final var evidence = expiryEvidence(now);
-                                expiryProof.set(evidence);
-                                expiryRequest.countDown();
-                                return new TargetWorkerShardRuntime.MessageExpiryRequest(
-                                        KafkaClientArtifactTargetWorkerSourceSmoke.budget(),
-                                        evidence,
-                                        Math.addExact(now, 600_000),
-                                        new OwnerIdentity(
-                                                Bytes.utf8("kafka-target-worker-deployment"),
-                                                Bytes.utf8("kafka-target-worker-host-run"),
-                                                active.ownerEpoch(),
-                                                Bytes.sha256(active.leaseToken())),
-                                        1,
-                                        keys.getPrivate());
-                            });
-                    final long remaining = scheduledMessage.expireAtEpochMs() - System.currentTimeMillis();
-                    if (remaining > 0) {
-                        TimeUnit.MILLISECONDS.sleep(remaining);
-                    }
-                    if (expiryNetworkAckLoss) {
-                        final var candidate = worker.discoverMessageExpiry(
-                                        KafkaClientArtifactTargetWorkerSourceSmoke.budget(),
-                                        null,
-                                        expiryEvidence(System.currentTimeMillis()),
-                                        System::currentTimeMillis)
-                                .candidate()
-                                .orElseThrow(() -> new IllegalStateException(
-                                        "scheduled Target Message was not discoverable before Host startup"));
-                        if (!schedule.delayMessageId().equals(candidate.locator().messageId())
-                                || candidate.expireAtEpochMs() != scheduledMessage.expireAtEpochMs()) {
-                            throw new IllegalStateException(
-                                    "scheduled Target expiry discovery selected another Message generation");
+                    if (!targetAdmissionScenario) {
+                        worker.configureMessageExpiryMaintenance(
+                                observedAppender,
+                                () -> {
+                                    final long now = System.currentTimeMillis();
+                                    final var evidence = expiryEvidence(now);
+                                    expiryProof.set(evidence);
+                                    expiryRequest.countDown();
+                                    return new TargetWorkerShardRuntime.MessageExpiryRequest(
+                                            KafkaClientArtifactTargetWorkerSourceSmoke.budget(),
+                                            evidence,
+                                            Math.addExact(now, 600_000),
+                                            new OwnerIdentity(
+                                                    Bytes.utf8("kafka-target-worker-deployment"),
+                                                    Bytes.utf8("kafka-target-worker-host-run"),
+                                                    active.ownerEpoch(),
+                                                    Bytes.sha256(active.leaseToken())),
+                                            1,
+                                            keys.getPrivate());
+                                });
+                        final long remaining =
+                                scheduledMessage.expireAtEpochMs() - System.currentTimeMillis();
+                        if (remaining > 0) {
+                            TimeUnit.MILLISECONDS.sleep(remaining);
                         }
+                        if (expiryNetworkAckLoss) {
+                            final var candidate = worker.discoverMessageExpiry(
+                                            KafkaClientArtifactTargetWorkerSourceSmoke.budget(),
+                                            null,
+                                            expiryEvidence(System.currentTimeMillis()),
+                                            System::currentTimeMillis)
+                                    .candidate()
+                                    .orElseThrow(() -> new IllegalStateException(
+                                            "scheduled Target Message was not discoverable before Host startup"));
+                            if (!schedule.delayMessageId().equals(candidate.locator().messageId())
+                                    || candidate.expireAtEpochMs() != scheduledMessage.expireAtEpochMs()) {
+                                throw new IllegalStateException(
+                                        "scheduled Target expiry discovery selected another Message generation");
+                            }
+                        }
+                    } else {
+                        worker.configureMessageExpiryMaintenance(
+                                mutation -> {
+                                    throw new AssertionError(
+                                            "Target Admission ACK smoke unexpectedly appended Message expiry: "
+                                                    + mutation.type());
+                                },
+                                () -> {
+                                    final long now = System.currentTimeMillis();
+                                    final var evidence = expiryEvidence(now);
+                                    return new TargetWorkerShardRuntime.MessageExpiryRequest(
+                                            KafkaClientArtifactTargetWorkerSourceSmoke.budget(),
+                                            evidence,
+                                            Math.addExact(now, 600_000),
+                                            new OwnerIdentity(
+                                                    Bytes.utf8("kafka-target-worker-deployment"),
+                                                    Bytes.utf8("kafka-target-worker-host-run"),
+                                                    active.ownerEpoch(),
+                                                    Bytes.sha256(active.leaseToken())),
+                                            1,
+                                            keys.getPrivate());
+                                });
+                        Files.writeString(ackHoldFile, "hold\n");
                     }
                     host = TargetWorkerHostRuntime.start(
                             workerClasses,
@@ -572,6 +669,20 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
                             new SchedulerBudget(64, 4L << 20, TimeUnit.SECONDS.toNanos(10)),
                             Duration.ofMillis(50),
                             failure -> {});
+                    if (targetAdmissionScenario) {
+                        runTargetAdmissionAckLoss(
+                                admin,
+                                topic,
+                                groupId,
+                                host,
+                                worker,
+                                store,
+                                scope,
+                                targetAdmission,
+                                ackReleaseFile,
+                                droppedResponseFile,
+                                admissionAuthorityResolutions);
+                    } else {
                     if (!expiryRequest.await(10, TimeUnit.SECONDS)) {
                         throw new IllegalStateException("Target Host did not request expiry discovery");
                     }
@@ -708,6 +819,7 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
                             + committed.offset() + ". Grant, membership, Owner, signing and time authorities"
                             + " are explicit test fixtures. expiryAuthorityResolutions="
                             + expiryAuthorityResolutions.get() + ".");
+                    }
                 } catch (Exception | Error failure) {
                     primaryFailure = failure;
                     throw failure;
@@ -752,6 +864,160 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
             leases.current(shard).ifPresent(leases::release);
             KafkaClientArtifactTargetWorkerSourceSmoke.deleteTree(storeRoot);
         }
+    }
+
+    private static boolean sameAdmissionEntry(final SourceReplayMutation expected, final Object candidate) {
+        if (!(candidate instanceof SourceReplayMutation actual)) {
+            return false;
+        }
+        final KafkaSourcePosition expectedPosition = (KafkaSourcePosition) expected.position();
+        final KafkaSourcePosition actualPosition = (KafkaSourcePosition) actual.position();
+        return Arrays.equals(
+                        expected.mutation().canonicalEnvelope(), actual.mutation().canonicalEnvelope())
+                && expectedPosition.shardId().equals(actualPosition.shardId())
+                && expectedPosition.authenticatedClusterId().equals(actualPosition.authenticatedClusterId())
+                && expectedPosition.nativeTopicUuid().equals(actualPosition.nativeTopicUuid())
+                && expectedPosition.offset() == actualPosition.offset()
+                // Producer RecordMetadata has no leader epoch; the consumed Broker record does.
+                && (expectedPosition.leaderEpoch() == null
+                        || expectedPosition.leaderEpoch().equals(actualPosition.leaderEpoch()))
+                && expectedPosition.brokerLogAppendTimeEpochMs() == actualPosition.brokerLogAppendTimeEpochMs()
+                && java.util.Objects.equals(
+                        expected.sourceConnectionGeneration(), actual.sourceConnectionGeneration())
+                && Arrays.equals(expected.guardAttestationDigest(), actual.guardAttestationDigest());
+    }
+
+    private static void runTargetAdmissionAckLoss(
+            final Admin admin,
+            final String topic,
+            final String groupId,
+            final TargetWorkerHostRuntime host,
+            final TargetWorkerShardRuntime worker,
+            final ShardStore store,
+            final TargetQuotaScope scope,
+            final TargetAdmissionFixture fixture,
+            final Path ackReleaseFile,
+            final Path droppedResponseFile,
+            final AtomicInteger authorityResolutions)
+            throws Exception {
+        final var firstTurn = KafkaClientArtifactTargetWorkerSourceSmoke.runUntilAckUnknownByHost(host);
+        if (firstTurn.status() != SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN
+                || !sameAdmissionEntry(fixture.sourceEntry(), firstTurn.entry())
+                || firstTurn.appliedOutcome() != null
+                || worker.pendingSourceEntry()
+                        .filter(entry -> sameAdmissionEntry(fixture.sourceEntry(), entry))
+                        .isEmpty()) {
+            throw new IllegalStateException(
+                    "Target Admission Broker ACK loss did not retain its exact applied source entry: "
+                            + firstTurn.status() + ", entry=" + firstTurn.entry());
+        }
+        final String dropped = Files.exists(droppedResponseFile) ? Files.readString(droppedResponseFile) : "";
+        if (!dropped.contains("apiKey=8")
+                || !dropped.contains("brokerResponseReceived=true forwarded=false")) {
+            throw new IllegalStateException("TCP proxy did not withhold the Target Admission Broker ACK response: "
+                    + dropped);
+        }
+        final var appliedEntry = (SourceReplayMutation) firstTurn.entry();
+        final var applied = store.appliedShardLogPosition();
+        if (!appliedEntry.position().equals(applied) || store.shardMutationSequence() != 5) {
+            throw new IllegalStateException("Target Admission was not durably applied before Broker ACK loss");
+        }
+        final var committedBeforeRetry = admin.listConsumerGroupOffsets(groupId)
+                .partitionsToOffsetAndMetadata()
+                .get(10, TimeUnit.SECONDS)
+                .get(new TopicPartition(topic, scope.shard().partition()));
+        if (committedBeforeRetry == null || committedBeforeRetry.offset() != fixture.position().offset() + 1) {
+            throw new IllegalStateException("Broker did not commit Target Admission before its ACK response was lost");
+        }
+        assertTargetAdmissionApplied(store, fixture, appliedEntry);
+        if (authorityResolutions.get() != 1) {
+            throw new IllegalStateException("Target Admission authority was not resolved exactly once");
+        }
+        final long sequenceAfterUnknown = store.latestSequenceNumber();
+        final long mutationsAfterUnknown = store.shardMutationSequence();
+        Files.writeString(ackReleaseFile, "release\n");
+        final var retry = KafkaClientArtifactTargetWorkerSourceSmoke.runUntilAppliedByHost(host);
+        if (retry.status() != SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED
+                || !sameAdmissionEntry(fixture.sourceEntry(), retry.entry())
+                || retry.appliedOutcome() == null
+                || retry.appliedOutcome().systemMutationResult().applyStatus() != ApplyStatus.APPLIED
+                || retry.appliedOutcome().systemMutationResult().stableCode() != StableCode.OK
+                || worker.pendingSourceEntry().isPresent()
+                || store.latestSequenceNumber() != sequenceAfterUnknown
+                || store.shardMutationSequence() != mutationsAfterUnknown
+                || authorityResolutions.get() != 1) {
+            throw new IllegalStateException("Target Admission retry changed Store state or re-resolved authority: "
+                    + retry.status() + ", entry=" + retry.entry());
+        }
+        final var committedAfterRetry = admin.listConsumerGroupOffsets(groupId)
+                .partitionsToOffsetAndMetadata()
+                .get(10, TimeUnit.SECONDS)
+                .get(new TopicPartition(topic, scope.shard().partition()));
+        if (committedAfterRetry == null || committedAfterRetry.offset() != fixture.position().offset() + 1) {
+            throw new IllegalStateException("Broker frontier changed after the Target Admission ACK retry");
+        }
+        assertTargetAdmissionApplied(store, fixture, appliedEntry);
+        System.out.println("Kafka Target PUBLISH_ADMISSION TCP ACK-loss recovery passed: Broker committed offset "
+                + fixture.position().offset() + " before response loss; same Host retried only ACK without another "
+                + "Store mutation. Claim, AttemptBudget, first result and source frontier remain durable.");
+    }
+
+    private static void assertTargetAdmissionApplied(
+            final ShardStore store,
+            final TargetAdmissionFixture fixture,
+            final SourceReplayMutation appliedEntry) {
+        final var claim = fixture.claim();
+        final var entry = appliedEntry;
+        final var message = TargetMessageRecord.decode(TargetValueEnvelope.decode(
+                        store.get(ColumnFamily.ID, TargetKeyCodec.message(claim.work().locator().messageId())),
+                        TargetMessageRecord.VALUE_TYPE)
+                .payload());
+        final byte[] systemKey = Bytes.concat(
+                new byte[] {(byte) TargetKeyCodec.RESULT_SYSTEM_TAG, TargetKeyCodec.KEY_FORMAT},
+                entry.mutation().systemMutationId());
+        final byte[] rawFirst = store.get(ColumnFamily.DEDUPE, systemKey);
+        final String firstResult = rawFirst == null
+                ? "missing"
+                : com.nereusstream.delay.runtime.SystemMutationResult.decode(TargetResultRecord.decode(
+                                TargetValueEnvelope.decode(rawFirst, TargetResultRecord.VALUE_TYPE).payload())
+                        .typedPayload()).toString();
+        final byte[] rawClaim = store.get(ColumnFamily.INFLIGHT, claim.key());
+        final byte[] rawCharge = store.get(ColumnFamily.META, claim.chargeKey());
+        final boolean publishing = message.runtime().currentWorkKind()
+                == com.nereusstream.delay.runtime.CurrentSendWorkKind.PUBLISHING;
+        final boolean attemptMatches = Arrays.equals(fixture.attemptId(), message.runtime().publishAttemptId());
+        if (!publishing || !attemptMatches || rawClaim != null || rawCharge != null) {
+            throw new IllegalStateException("Target Admission did not atomically consume the exact Claim: work="
+                    + message.runtime().currentWorkKind() + ", attemptMatches=" + attemptMatches
+                    + ", claimPresent=" + (rawClaim != null) + ", chargePresent=" + (rawCharge != null)
+                    + ", result=" + firstResult);
+        }
+        final byte[] budgetKey = Bytes.concat(
+                new byte[] {(byte) TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG, TargetKeyCodec.KEY_FORMAT},
+                fixture.attemptId());
+        final var budget = TargetQuotaAttemptBudget.decode(TargetValueEnvelope.decode(
+                        store.get(ColumnFamily.META, budgetKey), TargetQuotaAttemptBudget.VALUE_TYPE)
+                .payload());
+        if (budget.phase() != TargetQuotaAttemptBudget.Phase.ADMITTED
+                || !claim.work().locator().equals(budget.locator())) {
+            throw new IllegalStateException("Target Admission did not persist the admitted attempt budget");
+        }
+        final var first = TargetResultRecord.decode(TargetValueEnvelope.decode(
+                        store.get(ColumnFamily.DEDUPE, systemKey), TargetResultRecord.VALUE_TYPE)
+                .payload());
+        final var result = com.nereusstream.delay.runtime.SystemMutationResult.decode(first.typedPayload());
+        final byte[] positionKey = Bytes.concat(
+                new byte[] {(byte) TargetKeyCodec.RESULT_POSITION_TAG, TargetKeyCodec.KEY_FORMAT},
+                entry.position().canonicalBytes());
+        final var position = TargetResultRecord.decode(TargetValueEnvelope.decode(
+                        store.get(ColumnFamily.DEDUPE, positionKey), TargetResultRecord.VALUE_TYPE)
+                .payload());
+        if (result.applyStatus() != ApplyStatus.APPLIED
+                || result.stableCode() != StableCode.OK
+                || !Arrays.equals(first.logicalId(), entry.mutation().systemMutationId())) {
+            throw new IllegalStateException("Target Admission immutable first result is missing or incorrect");
+        }
+        position.requireFirst(first);
     }
 
     private static TargetSourceApplyRuntime.ExpiryControl expiryControl(
@@ -965,6 +1231,142 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
                 1,
                 keys.getPrivate());
         return new SignedControl(prepared, mutation);
+    }
+
+    private static TargetAdmissionFixture appendTargetAdmission(
+            final String bootstrap,
+            final String topic,
+            final String clusterId,
+            final Uuid topicId,
+            final ShardStore store,
+            final TargetStoreBackend backend,
+            final TargetQuotaScope scope,
+            final TargetQuotaGrantActivation activation,
+            final CanonicalScheduleIntent intent,
+            final TargetMessageRecord scheduledMessage,
+            final CanonicalTargetPartition physical,
+            final com.nereusstream.delay.ownership.OwnerLease active,
+            final OxiaOwnerLeaseStore leases,
+            final KeyPair keys)
+            throws Exception {
+        final long now = System.currentTimeMillis();
+        if (now >= scheduledMessage.expireAtEpochMs()) {
+            throw new IllegalStateException("Target Admission fixture expired before its Claim was created");
+        }
+        final byte[] queueKey = TargetKeyCodec.state(physical.id());
+        final var queue = TargetQueueState.decode(TargetValueEnvelope.decode(
+                        store.get(ColumnFamily.META, queueKey), TargetQueueState.VALUE_TYPE)
+                .payload());
+        final var head = queue.domains().get(scheduledMessage.locator().domain().slot()).ordinaryHead();
+        if (head == null || !scheduledMessage.locator().messageId().equals(head.messageId())) {
+            throw new IllegalStateException("Target Admission fixture did not select its scheduled Message head");
+        }
+        final long deadline = Math.min(
+                scheduledMessage.expireAtEpochMs() - 1, Math.addExact(now, 30_000));
+        final long executionBytes = activation.allocation().accounting().accountedPublishBytes(
+                AdapterKind.PULSAR,
+                intent.inlinePayload().length,
+                intent.adapterMetadata().canonicalBytes().length);
+        final var owner = new OwnerIdentity(
+                Bytes.utf8("kafka-target-worker-deployment"),
+                Bytes.utf8("kafka-target-worker-host-run"),
+                active.ownerEpoch(),
+                Bytes.sha256(active.leaseToken()));
+        final var claimStore = new TargetClaimStore(
+                backend, scope, LINEAGE, 1, (kind, delta) -> {});
+        final var claimPlan = claimStore.prepareClaim(
+                KafkaClientArtifactTargetWorkerSourceSmoke.budget(),
+                head,
+                owner,
+                now,
+                deadline,
+                executionBytes,
+                Bytes.sha256(Bytes.utf8("kafka-target-publish-admission-local-claim")));
+        claimStore.commit(
+                claimPlan,
+                KafkaClientArtifactTargetWorkerSourceSmoke.ownerCommitAuthority(leases, active));
+        final TargetClaimRecord claim = claimPlan.claim();
+
+        final long retryUntil = Math.addExact(System.currentTimeMillis(), 60_000);
+        final int attemptNo = claim.work().candidateAttemptNo();
+        final byte[] attemptId = SystemMutation.computePublishAttemptLogicalIdentity(
+                claim.claimId(),
+                claim.work().locator().messageId(),
+                Integer.toUnsignedLong(claim.work().locator().generation()),
+                Integer.toUnsignedLong(attemptNo));
+        final var obligation = new AttemptObligationRef(
+                attemptId,
+                claim.work().locator().generation(),
+                AttemptLedgerState.PUBLISHING,
+                KeyCodec.inflight((byte) 2, owner.ownerEpoch(), attemptId));
+        final long evidenceNow = System.currentTimeMillis();
+        final var decisionTime = new TrustedUtcIntervalEvidence(
+                Math.max(claim.work().retryEligibilityAtEpochMs(), Math.max(0, evidenceNow - 10_000)),
+                Math.addExact(evidenceNow, 10_000),
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                Bytes.utf8("kafka-target-publish-admission-clock"),
+                1,
+                1,
+                Math.max(0, System.nanoTime()),
+                Bytes.sha256(Bytes.utf8("kafka-target-publish-admission-clock-evidence")),
+                0,
+                null);
+        final long[] reserved = new long[com.nereusstream.delay.protocol.CapacityDimension.COUNT];
+        reserved[CapacityDimension.RESULT_BYTES.wireValue() - 1] = 128;
+        final var body = new TargetPublishAdmissionBody(
+                scope.shard(),
+                retryUntil,
+                owner,
+                claim.storeIncarnation(),
+                claim.claimId(),
+                claim.work().locator(),
+                attemptNo,
+                attemptId,
+                obligation,
+                claim.executionBytes(),
+                new CapacityVector(reserved),
+                CapacityVector.empty(),
+                decisionTime);
+        final var author = AuthorIdentity.owner(
+                owner.deploymentId(), owner.workerRunId(), owner.ownerEpoch(), owner.leaseFencingDigest());
+        final var mutation = SystemMutation.signed(
+                scope.shard(),
+                SystemMutationType.TARGET_PUBLISH_ADMISSION,
+                retryUntil,
+                attemptId,
+                body.canonicalBytes(),
+                author.canonicalBytes(),
+                1,
+                keys.getPrivate());
+        final var metadata = KafkaClientArtifactTargetWorkerSourceSmoke.produce(
+                bootstrap,
+                topic,
+                scope.shard().partition(),
+                evidenceNow,
+                attemptId,
+                mutation.encodeFrame());
+        requireOffset(metadata.offset(), 4, "Target Publish Admission");
+        final KafkaSourcePosition source = position(metadata, scope.shard(), clusterId, topicId);
+        return new TargetAdmissionFixture(new SourceReplayMutation(mutation, source, null, null), claim, attemptId);
+    }
+
+    private record TargetAdmissionFixture(SourceReplayMutation sourceEntry, TargetClaimRecord claim, byte[] attemptId) {
+        private TargetAdmissionFixture {
+            attemptId = Bytes.copy(attemptId);
+        }
+
+        @Override
+        public byte[] attemptId() {
+            return Bytes.copy(attemptId);
+        }
+
+        private SystemMutation mutation() {
+            return sourceEntry.mutation();
+        }
+
+        private KafkaSourcePosition position() {
+            return (KafkaSourcePosition) sourceEntry.position();
+        }
     }
 
     private static TrustedUtcIntervalEvidence expiryEvidence(final long now) {

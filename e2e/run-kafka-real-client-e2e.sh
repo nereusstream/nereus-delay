@@ -1189,7 +1189,9 @@ if [[ "${source_ack_network_loss_only}" == "1" ]]; then
     expiry-network-loss target-expire-not-found-network-ack-loss
   run_target_expiry_network_response_loss_smoke \
     scheduled-expiry-network-loss target-expire-scheduled-message-network-ack-loss
-  echo "Kafka Target source, missing-Message expiry, and scheduled-Message expiry ACK network-response-loss E2Es passed against the locked K1 Broker/client fixture."
+  run_target_expiry_network_response_loss_smoke \
+    publish-admission-network-loss target-publish-admission-network-ack-loss
+  echo "Kafka Target source, missing-Message expiry, scheduled-Message expiry, and PUBLISH_ADMISSION ACK network-response-loss E2Es passed against the locked K1 Broker/client fixture."
   exit 0
 fi
 

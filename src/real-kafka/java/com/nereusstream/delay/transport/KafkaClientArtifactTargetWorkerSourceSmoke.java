@@ -114,11 +114,13 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                     + "target-expire-not-found-ack-loss | target-expire-not-found-ack-loss-reopen | "
                     + "target-expire-not-found-network-ack-loss | target-expire-scheduled-message | "
                     + "target-expire-scheduled-message-network-ack-loss | "
+                    + "target-publish-admission-network-ack-loss | "
                     + "network-response-loss "
                     + "<hold-file> <release-file> <dropped-response-file>] "
                     + "[network-expiry-response-loss <hold-file> <release-file> <dropped-response-file> "
                     + "target-expire-not-found-network-ack-loss | "
-                    + "target-expire-scheduled-message-network-ack-loss] "
+                    + "target-expire-scheduled-message-network-ack-loss | "
+                    + "target-publish-admission-network-ack-loss] "
                     + "[network-response-loss-process-crash <phase> <hold-file> <release-file> "
                     + "<dropped-response-file> <state-file> <store-root> <ready-file>]");
         }
@@ -134,10 +136,13 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                         || "target-expire-not-found-network-ack-loss".equals(scenario);
         final boolean targetScheduledMessageExpiry = "target-expire-scheduled-message".equals(scenario)
                 || "target-expire-scheduled-message-network-ack-loss".equals(scenario);
+        final boolean targetPublishAdmissionAckResponseLoss =
+                "target-publish-admission-network-ack-loss".equals(scenario);
         final boolean targetExpiryNetworkAckResponseLoss = arguments.length == 7
                 && "network-expiry-response-loss".equals(arguments[2]);
         final boolean networkExpiryScenario = "target-expire-not-found-network-ack-loss".equals(scenario)
-                || "target-expire-scheduled-message-network-ack-loss".equals(scenario);
+                || "target-expire-scheduled-message-network-ack-loss".equals(scenario)
+                || targetPublishAdmissionAckResponseLoss;
         final AckInjection ackInjection = targetExpiryAckResponseLossReopen
                 ? AckInjection.withExpiryAckResponseLossReopen()
                 : targetExpiryAckResponseLoss ? AckInjection.withExpiryAckResponseLoss()
@@ -184,7 +189,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
             if (topicId == null || topicId.equals(Uuid.ZERO_UUID)) {
                 throw new IllegalStateException("Kafka did not return the exact source TopicId");
             }
-            if (targetScheduledMessageExpiry) {
+            if (targetScheduledMessageExpiry || targetPublishAdmissionAckResponseLoss) {
                 KafkaClientArtifactTargetScheduledExpirySmoke.run(
                         admin,
                         bootstrap,
@@ -194,7 +199,8 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                         ackInjection.mode(),
                         ackInjection.holdFile(),
                         ackInjection.releaseFile(),
-                        ackInjection.droppedResponseFile());
+                        ackInjection.droppedResponseFile(),
+                        targetPublishAdmissionAckResponseLoss);
                 return;
             }
 
@@ -1931,7 +1937,8 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
             if (arguments.length == 7
                     && "network-expiry-response-loss".equals(arguments[2])
                     && ("target-expire-not-found-network-ack-loss".equals(arguments[6])
-                            || "target-expire-scheduled-message-network-ack-loss".equals(arguments[6]))) {
+                            || "target-expire-scheduled-message-network-ack-loss".equals(arguments[6])
+                            || "target-publish-admission-network-ack-loss".equals(arguments[6]))) {
                 return new AckInjection(
                         AckMode.EXPIRY_NETWORK_RESPONSE_LOSS,
                         Path.of(arguments[3]),

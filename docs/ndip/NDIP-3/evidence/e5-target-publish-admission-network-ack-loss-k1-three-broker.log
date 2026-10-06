@@ -1,0 +1,31 @@
+# E5 Target PUBLISH_ADMISSION real Kafka OffsetCommit response-loss smoke
+
+Date: 2026-10-06
+Delay repository base: bba92f85ed3a9f653d0057facc5a673883e118c3
+K1 checkout: /Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1
+K1 checkout revision: 05849884ca81fad767fda058444d1e17c7f9cbf9
+K1 client jar: clients/build/libs/kafka-clients-4.4.0-SNAPSHOT.jar
+K1 client jar SHA-256: 1c83ae777c364be833f7c8ff31f1fdeb28dafd5eb3998f0246e7d226a543cbe0
+K1 broker image: sha256:62b964515672c2f1cedf552bec49ad6757c7058ee54a7bfc8ded1fad41f216ef
+
+Command:
+
+```sh
+NEREUS_DELAY_KAFKA_TARGET_SOURCE_ACK_NETWORK_LOSS_ONLY=1 \
+NEREUS_DELAY_KAFKA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1 \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/Users/liusinan/.gradle \
+./e2e/run-kafka-real-client-e2e.sh
+```
+
+Result: exit 0. The script passed the existing source, missing-Message expiry, and scheduled-Message expiry response-loss cases, then passed the new Target Admission case against three KRaft Brokers. The OffsetCommit proxy recorded Broker responses received and withheld in every case.
+
+For `TARGET_PUBLISH_ADMISSION`, the source records were a root grant at offset 0, Target grant at offset 1, membership at offset 2, Schedule at offset 3, and signed Target Admission bodyVersion 3 / tuple `(1,1,SYSTEM_MUTATION,1,3)` at offset 4. The Worker applied Admission to RocksDB before the proxy withheld the Broker OffsetCommit response. The group offset was 5 (the next offset after record 4); the exact pending source entry remained `ACK_UNKNOWN`. The Store contained the PUBLISHING Message and deterministic attempt, an ADMITTED `TargetQuotaAttemptBudget`, and the immutable system-result and source-position records, while the consumed Claim and Claim charge were absent. The same Host retried only ACK after proxy release: the source turn completed as `APPLIED_AND_ACKED`, RocksDB sequence and Shard mutation sequence did not increase, the Broker group offset stayed 5, and Admission authority resolution stayed at one.
+
+This smoke uses explicit test signing, Owner lease, tuple, and time/evidence authorities, plus a test-created Claim. It exercises a real locked K1 Kafka cluster, the real Kafka source client/Worker, and a local RocksDB Store. It does not establish production Owner/history authority assembly, Producer-send integration, Target Outcome handling, process restart/recovery, or centralized E5 validation. Registry PUBLISH_ADMISSION v1 remains unchanged.
+
+Source SHA-256 at this evidence revision:
+
+- `src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetScheduledExpirySmoke.java`: `6191db97ac75791952d14adea28318624e3da77d6714f9aff6ac01620dc3c4d9`
+- `src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetWorkerSourceSmoke.java`: `e006a9f3506f701411876342eadbe680c25c049cde099bc21d66cd04c51bae0b`
+- `build.gradle`: `2c270f1c5284eb6b1fd99267fa0f9751fc747c901cad2676ac8595f5b398a500`
+- `e2e/run-kafka-real-client-e2e.sh`: `e2c59d3584a19c156cef1b18908e1fa8079badf5acdaa37ec878740e8d0c190f`

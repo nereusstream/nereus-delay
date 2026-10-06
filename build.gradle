@@ -258,7 +258,8 @@ tasks.register('runRealKafkaTargetWorkerSourceSmoke', JavaExec) {
         def expiryNetworkAckScenario = findProperty('kafkaTargetAckMode') == 'network-expiry-response-loss'
                 && findProperty('kafkaTargetScenario') in [
                     'target-expire-not-found-network-ack-loss',
-                    'target-expire-scheduled-message-network-ack-loss'
+                    'target-expire-scheduled-message-network-ack-loss',
+                    'target-publish-admission-network-ack-loss'
                 ]
         if ((findProperty('kafkaTargetAckMode') != null && !expiryNetworkAckScenario)
                 || findProperty('kafkaTargetAckCrashPhase') != null
@@ -266,11 +267,13 @@ tasks.register('runRealKafkaTargetWorkerSourceSmoke', JavaExec) {
                     'target-expire-not-found', 'target-expire-not-found-ack-loss',
                     'target-expire-not-found-ack-loss-reopen',
                     'target-expire-not-found-network-ack-loss', 'target-expire-scheduled-message',
-                    'target-expire-scheduled-message-network-ack-loss'
+                    'target-expire-scheduled-message-network-ack-loss',
+                    'target-publish-admission-network-ack-loss'
                 ])
                 || (findProperty('kafkaTargetScenario') in [
                         'target-expire-not-found-network-ack-loss',
-                        'target-expire-scheduled-message-network-ack-loss'
+                        'target-expire-scheduled-message-network-ack-loss',
+                        'target-publish-admission-network-ack-loss'
                 ] && !expiryNetworkAckScenario)) {
             doFirst {
                 throw new GradleException(
@@ -278,6 +281,7 @@ tasks.register('runRealKafkaTargetWorkerSourceSmoke', JavaExec) {
                                 + 'target-expire-not-found-ack-loss and '
                                 + 'target-expire-not-found-ack-loss-reopen and '
                                 + 'target-expire-not-found-network-ack-loss and '
+                                + 'target-publish-admission-network-ack-loss and '
                                 + 'target-expire-scheduled-message-network-ack-loss (with '
                                 + 'network-expiry-response-loss) and target-expire-scheduled-message only')
             }
