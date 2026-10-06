@@ -19,10 +19,12 @@ import com.nereusstream.delay.protocol.TargetQueueState;
 import com.nereusstream.delay.protocol.TargetQuotaAccounting;
 import com.nereusstream.delay.runtime.TargetHeadCostProbe;
 import com.nereusstream.delay.runtime.TargetQueueSnapshotReader;
+import com.nereusstream.delay.scheduler.BoundedAsyncMetricExporter;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.TargetNativePolicyChecks;
 import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.TargetKeyCodec;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -32,6 +34,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.Test;
 
 class TargetWorkerOrdinaryDrrTest {
@@ -45,6 +48,51 @@ class TargetWorkerOrdinaryDrrTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new TargetWorkerOrdinaryDrr.Limits(100, 200, 199, 1, 20, 1 << 20, 1_000_000_000L));
+    }
+
+    @Test
+    void exportsOrdinaryTurnMetricsWithoutChangingTheClaimResult() {
+        final ShardId shard = shard(1);
+        final var physical = target(0);
+        final var head = head(physical, shard, 50);
+        final var reads = new FakeReads(head);
+        final var events = new CopyOnWriteArrayList<BoundedAsyncMetricExporter.MetricEvent>();
+        try (var metrics = new BoundedAsyncMetricExporter(
+                new BoundedAsyncMetricExporter.Limits(8, 72), events::add)) {
+            final var drr = new TargetWorkerOrdinaryDrr(
+                    new TargetWorkerTargetInventory.Snapshot(List.of(targetState(physical, head)), reads.cuts()),
+                    ONE_VISIT,
+                    reads,
+                    () -> 0,
+                    false,
+                    metrics);
+            final var turn = drr.runOrdinary(
+                    100,
+                    new SchedulerBudget(1, 200, 1_000_000_000L),
+                    (source, cost) -> Optional.of(() -> cost.head()));
+            assertEquals(List.of(head.ref()), turn.claims());
+            assertEquals(1, turn.targetVisits());
+            assertEquals(50, turn.schedulingBytes());
+
+            metrics.stopAccepting();
+            assertTrue(metrics.awaitTermination(Duration.ofSeconds(5)));
+            assertTrue(events.stream().anyMatch(event -> event.metric()
+                    == BoundedAsyncMetricExporter.Metric.TARGET_DRR_TURN_VISITS && event.value() == 1));
+            assertTrue(events.stream().anyMatch(event -> event.metric()
+                    == BoundedAsyncMetricExporter.Metric.TARGET_DRR_TURN_SCHEDULING_BYTES
+                    && event.value() == 50));
+            assertTrue(events.stream().anyMatch(event -> event.metric()
+                    == BoundedAsyncMetricExporter.Metric.TARGET_DRR_CLAIM_TURNS && event.value() == 1));
+            final var expectedStop = switch (turn.stop()) {
+                case NORMAL -> BoundedAsyncMetricExporter.Metric.TARGET_DRR_STOP_NORMAL;
+                case READ_INCOMPLETE -> BoundedAsyncMetricExporter.Metric.TARGET_DRR_STOP_READ_INCOMPLETE;
+                case CREDIT_WAIT -> BoundedAsyncMetricExporter.Metric.TARGET_DRR_STOP_CREDIT_WAIT;
+                case BUDGET_WAIT -> BoundedAsyncMetricExporter.Metric.TARGET_DRR_STOP_BUDGET_WAIT;
+            };
+            assertTrue(
+                    events.stream().anyMatch(event -> event.metric() == expectedStop && event.value() == 1),
+                    () -> "missing " + expectedStop + " in " + events);
+        }
     }
 
     @Test

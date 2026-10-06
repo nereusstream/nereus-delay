@@ -1,0 +1,27 @@
+E4 focused bounded asynchronous Target DRR metrics
+Date: 2026-10-06
+
+Source lock:
+- Base HEAD: `69ef41f8a4c01119ed8369a367e61e7c74c35adb`
+- The pre-existing `.gitignore` modification remained unstaged and outside this slice.
+- SHA-256 values below bind this focused receipt to the current modified files.
+
+Implementation:
+- `BoundedAsyncMetricExporter` accepts fixed Worker-scope metric events through a non-blocking queue admission path. Both pending event count and canonical event payload bytes have explicit caps; the count cap also bounds per-object overhead.
+- One daemon worker invokes the injected exporter callback. Queue admission holds a short lock only for in-memory bookkeeping; exporter callbacks run outside that lock. Queue-full, post-close offers, callback failures, and queued records abandoned after an unexpected worker stop are reflected in process-local gap counters.
+- `TargetWorkerOrdinaryDrr` optionally submits per-turn visits, scheduling bytes, elapsed time, Claim-turn count, and the returned stop category. Existing callers that do not inject the reporter keep the prior behavior. Metrics do not enter RocksDB or change Claim authorization.
+- This is an injectable async export seam, not an assembled OpenTelemetry exporter. Gap counters are in-memory only; restart coverage, scan/queue/send metrics, certification mode/generation/coverage, and production Host configuration remain open.
+
+Validation:
+`./gradlew test --tests com.nereusstream.delay.scheduler.BoundedAsyncMetricExporterTest --tests com.nereusstream.delay.ownership.TargetWorkerOrdinaryDrrTest checkstyleTest --no-daemon --console=plain`
+
+Result: 32 tests, 0 failures/errors/skips; `compileJava`, `compileTestJava`, and `checkstyleTest` passed. Tests cover bounded records and bytes including an in-flight export, queue overflow, callback failure with continued delivery, post-close gap accounting, and unchanged DRR Claim results with emitted per-turn events.
+
+A separate `checkstyleMain` invocation reported only the two existing line-length violations at `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:347`. The former is untouched; the latter line is untouched by this slice. No new main-source Checkstyle violation was reported.
+
+SHA-256:
+- `src/main/java/com/nereusstream/delay/scheduler/BoundedAsyncMetricExporter.java`: `2f83c3219edcfcd5602608e4ed936ab61febce25e4a2d644f772f4b744dcb0c7`
+- `src/main/java/com/nereusstream/delay/ownership/TargetWorkerOrdinaryDrr.java`: `89ae884d0b0cdc2c169a4809d18d6459b3b6d8a15f06a8831c4fb7264cc3aea6`
+- `src/main/java/com/nereusstream/delay/ownership/TargetWorkerHostRuntime.java`: `acdc95b3668cb9ee3274095303d8caee82eda5021d9129798eed1a10642e33e3`
+- `src/test/java/com/nereusstream/delay/scheduler/BoundedAsyncMetricExporterTest.java`: `b6270cb7b12ca23d6a10482fe93e4a9f9a8a22c658c614e251ea6be9e8da896d`
+- `src/test/java/com/nereusstream/delay/ownership/TargetWorkerOrdinaryDrrTest.java`: `22f723bc86f80dee26d53d1dcef8e29dbb039aed32ed587c685c608709aac56b`

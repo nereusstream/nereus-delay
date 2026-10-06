@@ -17,6 +17,7 @@ import com.nereusstream.delay.runtime.TargetHeadCostProbe;
 import com.nereusstream.delay.runtime.TargetQueueSnapshotReader;
 import com.nereusstream.delay.runtime.TargetQuotaDelta;
 import com.nereusstream.delay.runtime.TimelineWorkKind;
+import com.nereusstream.delay.scheduler.BoundedAsyncMetricExporter;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.TargetNativePolicyChecks;
 import com.nereusstream.delay.semantic.TargetNativePolicyAuthority;
@@ -216,6 +217,7 @@ public final class TargetWorkerOrdinaryDrr {
     private Map<ShardId, TargetWorkerShardRuntime> workers;
     private final Reads reads;
     private final Limits limits;
+    private final BoundedAsyncMetricExporter metrics;
     private final LongSupplier monotonicClock;
     private final LongSupplier ownerClock;
     private List<TargetState> ring;
@@ -242,9 +244,21 @@ public final class TargetWorkerOrdinaryDrr {
             final Limits limits,
             final LongSupplier ownerClock,
             final LongSupplier monotonicClock) {
+        this(host, inventory, limits, ownerClock, monotonicClock, null);
+    }
+
+    /** Production composition with optional best-effort process metrics. */
+    TargetWorkerOrdinaryDrr(
+            final TargetWorkerHostRuntime host,
+            final TargetWorkerTargetInventory.Snapshot inventory,
+            final Limits limits,
+            final LongSupplier ownerClock,
+            final LongSupplier monotonicClock,
+            final BoundedAsyncMetricExporter metrics) {
         this.host = Objects.requireNonNull(host, "host");
         this.ownerClock = Objects.requireNonNull(ownerClock, "ownerClock");
         this.limits = Objects.requireNonNull(limits, "limits");
+        this.metrics = metrics;
         this.monotonicClock = Objects.requireNonNull(monotonicClock, "monotonicClock");
         Objects.requireNonNull(inventory, "inventory");
         final var current = host.currentTargetWorkers();
@@ -318,10 +332,21 @@ public final class TargetWorkerOrdinaryDrr {
             final Reads reads,
             final LongSupplier monotonicClock,
             final boolean requireFirstPass) {
+        this(inventory, limits, reads, monotonicClock, requireFirstPass, null);
+    }
+
+    TargetWorkerOrdinaryDrr(
+            final TargetWorkerTargetInventory.Snapshot inventory,
+            final Limits limits,
+            final Reads reads,
+            final LongSupplier monotonicClock,
+            final boolean requireFirstPass,
+            final BoundedAsyncMetricExporter metrics) {
         host = null;
         workers = Map.of();
         ownerClock = null;
         this.limits = Objects.requireNonNull(limits, "limits");
+        this.metrics = metrics;
         this.reads = Objects.requireNonNull(reads, "reads");
         this.monotonicClock = Objects.requireNonNull(monotonicClock, "monotonicClock");
         final var exactInventory = Objects.requireNonNull(inventory, "inventory");
@@ -931,6 +956,7 @@ public final class TargetWorkerOrdinaryDrr {
             throw new IllegalStateException("Target DRR source membership changed");
         }
         final long started = clock();
+        final long metricsStarted = metrics == null ? 0L : System.nanoTime();
         final List<T> claims = new ArrayList<>();
         long bytes = 0;
         int visits = 0;
@@ -954,7 +980,8 @@ public final class TargetWorkerOrdinaryDrr {
             try {
                 visit = visit(target, nowEpochMs, budget.maxBytes() - bytes, selector);
             } catch (ReadIncompleteException incomplete) {
-                return new Turn<>(claims, visits, bytes, Stop.READ_INCOMPLETE);
+                return reportOrdinaryTurn(
+                        new Turn<>(claims, visits, bytes, Stop.READ_INCOMPLETE), metricsStarted);
             }
             if (visit.kind() == VisitKind.UNAVAILABLE || visit.kind() == VisitKind.CLAIMED) {
                 firstPassPending.remove(target.id);
@@ -969,7 +996,32 @@ public final class TargetWorkerOrdinaryDrr {
             }
         }
         final Stop stop = creditWait ? Stop.CREDIT_WAIT : budgetWait ? Stop.BUDGET_WAIT : Stop.NORMAL;
-        return new Turn<>(claims, visits, bytes, stop);
+        return reportOrdinaryTurn(new Turn<>(claims, visits, bytes, stop), metricsStarted);
+    }
+
+    private <T> Turn<T> reportOrdinaryTurn(final Turn<T> turn, final long metricsStarted) {
+        if (metrics == null) {
+            return turn;
+        }
+        metrics.record(new BoundedAsyncMetricExporter.MetricEvent(
+                BoundedAsyncMetricExporter.Metric.TARGET_DRR_TURN_VISITS, turn.targetVisits()));
+        metrics.record(new BoundedAsyncMetricExporter.MetricEvent(
+                BoundedAsyncMetricExporter.Metric.TARGET_DRR_TURN_SCHEDULING_BYTES, turn.schedulingBytes()));
+        metrics.record(new BoundedAsyncMetricExporter.MetricEvent(
+                BoundedAsyncMetricExporter.Metric.TARGET_DRR_TURN_DURATION_NANOS,
+                Math.max(0L, System.nanoTime() - metricsStarted)));
+        if (!turn.claims().isEmpty()) {
+            metrics.record(new BoundedAsyncMetricExporter.MetricEvent(
+                    BoundedAsyncMetricExporter.Metric.TARGET_DRR_CLAIM_TURNS, 1));
+        }
+        final BoundedAsyncMetricExporter.Metric stopMetric = switch (turn.stop()) {
+            case NORMAL -> BoundedAsyncMetricExporter.Metric.TARGET_DRR_STOP_NORMAL;
+            case READ_INCOMPLETE -> BoundedAsyncMetricExporter.Metric.TARGET_DRR_STOP_READ_INCOMPLETE;
+            case CREDIT_WAIT -> BoundedAsyncMetricExporter.Metric.TARGET_DRR_STOP_CREDIT_WAIT;
+            case BUDGET_WAIT -> BoundedAsyncMetricExporter.Metric.TARGET_DRR_STOP_BUDGET_WAIT;
+        };
+        metrics.record(new BoundedAsyncMetricExporter.MetricEvent(stopMetric, 1));
+        return turn;
     }
 
     synchronized <T> Turn<T> runNative(

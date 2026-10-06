@@ -9,6 +9,7 @@ import com.nereusstream.delay.runtime.TargetClaimRecord;
 import com.nereusstream.delay.runtime.TargetHeadCostProbe;
 import com.nereusstream.delay.runtime.TargetQueueSnapshotReader;
 import com.nereusstream.delay.runtime.TargetQuotaDelta;
+import com.nereusstream.delay.scheduler.BoundedAsyncMetricExporter;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import com.nereusstream.delay.scheduler.WorkClassTask;
@@ -474,7 +475,18 @@ public final class TargetWorkerHostRuntime {
             final TargetWorkerOrdinaryDrr.Limits limits,
             final LongSupplier ownerClock,
             final LongSupplier monotonicClock) {
-        return new TargetWorkerOrdinaryDrr(this, consumeTargetInventory(inventory), limits, ownerClock, monotonicClock);
+        return newOrdinaryDrr(inventory, limits, ownerClock, monotonicClock, null);
+    }
+
+    /** Creates ordinary byte DRR with optional bounded, best-effort process metrics. */
+    public TargetWorkerOrdinaryDrr newOrdinaryDrr(
+            final TargetWorkerTargetInventory.Result inventory,
+            final TargetWorkerOrdinaryDrr.Limits limits,
+            final LongSupplier ownerClock,
+            final LongSupplier monotonicClock,
+            final BoundedAsyncMetricExporter metrics) {
+        return new TargetWorkerOrdinaryDrr(
+                this, consumeTargetInventory(inventory), limits, ownerClock, monotonicClock, metrics);
     }
 
     synchronized TargetWorkerTargetInventory.Snapshot consumeTargetInventory(
