@@ -227,6 +227,9 @@ class TargetCommandStoreTest {
             Arrays.fill(targetAmounts, 50, 55, 0);
             targetAmounts[CapacityDimension.ACTIVE_MESSAGES.wireValue() - 1] = 1;
             targetAmounts[CapacityDimension.RESERVATION_MESSAGES.wireValue() - 1] = 1;
+            // This Shard fixture needs room for the strict-domain follower used after Admission.
+            final long[] otherTargetAmounts = targetAmounts.clone();
+            otherTargetAmounts[CapacityDimension.ACTIVE_MESSAGES.wireValue() - 1] = 2;
             final var targetRequest = new TargetQuotaGrantControlRequest(
                     new TargetQuotaGrant(
                             scope.forTarget(initial.target()),
@@ -1255,7 +1258,7 @@ class TargetCommandStoreTest {
                                     bytes(32, 0x85),
                                     1,
                                     originalGrant.accounting(),
-                                    new TargetQuotaUsage(new CapacityVector(targetAmounts), 1, 64, 64, 64),
+                                    new TargetQuotaUsage(new CapacityVector(otherTargetAmounts), 1, 64, 64, 64),
                                     originalGrant.tenantPolicyVersion(),
                                     originalGrant.tenantPolicyHash()),
                             null,
@@ -1631,6 +1634,61 @@ class TargetCommandStoreTest {
                                                     (incoming, source) -> new TargetCommandStore.ScheduleAdmission(
                                                             StableCode.OK,
                                                             otherTargetAuthority,
+                                                            TargetOrderState.OrderingContract.ADMISSION_WATERMARK),
+                                                    noProofs()),
+                                            (a, b, c) -> guard())
+                                    .stableCode());
+                    final var otherFollowerScheduleAt = source(
+                            otherTargetScheduleAt,
+                            otherTargetScheduleAt.offset() + 1,
+                            otherTargetScheduleAt.brokerLogAppendTimeEpochMs() + 1);
+                    final long otherFollowerDeliverAt = otherIntent.deliverAtEpochMs() + 1_000;
+                    final var otherFollowerIntent = CanonicalScheduleIntent.create(
+                            destination.ref(),
+                            otherIntent.retryPolicy(),
+                            otherFollowerDeliverAt,
+                            otherFollowerDeliverAt + 2_000,
+                            otherIntent.deliveryMode(),
+                            OrderingMode.DELIVERY_TIME_FIFO,
+                            otherIntent.orderingKey(),
+                            model.inlinePayload(),
+                            null,
+                            otherIntent.adapterMetadata(),
+                            otherIntent.businessKey(),
+                            otherIntent.eventTimeEpochMs(),
+                            NativeDeliveryPolicy.FORBID);
+                    final var otherFollowerSchedule = schedule(
+                            otherFollowerIntent, otherSeed, otherFollowerScheduleAt, 45);
+                    final var otherFollowerBinding = new TargetScheduleBinding(
+                            otherFollowerSchedule.delayMessageId(),
+                            CommandType.SCHEDULE,
+                            otherFollowerSchedule.canonicalBody(),
+                            otherFollowerScheduleAt,
+                            physical.id(),
+                            initial.domain(),
+                            otherActivation.allocation().identity().accountingIncarnation(),
+                            dispatch.digest(),
+                            dispatch.digest(),
+                            otherControls.digest(),
+                            otherMembership.digest(),
+                            null,
+                            otherOrderingDomain);
+                    final var otherFollowerAuthority = new TargetScheduleRegistration.Authority(
+                            otherFollowerBinding, physical, destination, capability, otherProfiles, 60000);
+                    assertEquals(
+                            StableCode.SCHEDULED,
+                            otherCommands
+                                    .commit(
+                                            otherCommands.prepareFirst(
+                                                    budget(),
+                                                    otherFollowerSchedule,
+                                                    otherFollowerScheduleAt,
+                                                    otherPolicy,
+                                                    (reader, bound, source) -> false,
+                                                    (reader, bound) -> java.util.Optional.empty(),
+                                                    (incoming, source) -> new TargetCommandStore.ScheduleAdmission(
+                                                            StableCode.OK,
+                                                            otherFollowerAuthority,
                                                             TargetOrderState.OrderingContract.ADMISSION_WATERMARK),
                                                     noProofs()),
                                             (a, b, c) -> guard())
@@ -2278,7 +2336,7 @@ class TargetCommandStoreTest {
                                     new TargetStoreBackend.WriteLimits(64, 2 << 20),
                                     budget(),
                                     replacementOwnerReads);
-                            final var expectedLateSchedule = new java.util.concurrent.atomic.AtomicReference<
+                            final var expectedLateCommand = new java.util.concurrent.atomic.AtomicReference<
                                     PreparedCommand>();
                             final var replacementRuntime = new TargetSourceApplyRuntime(
                                     replacementInitialized,
@@ -2306,7 +2364,7 @@ class TargetCommandStoreTest {
                                             (a, b, c) -> guard(),
                                             replacementOwnerReads,
                                             entry -> {
-                                                final var expected = expectedLateSchedule.get();
+                                                final var expected = expectedLateCommand.get();
                                                 if (expected == null || !expected.equals(entry.command())) {
                                                     throw new AssertionError(
                                                             "replacement Shard resolved an unexpected command");
@@ -2316,7 +2374,8 @@ class TargetCommandStoreTest {
                                                         (reader, bound, source) -> false,
                                                         (reader, bound) -> java.util.Optional.empty(),
                                                         (incoming, source) -> {
-                                                            if (!incoming.equals(expected)) {
+                                                            if (incoming.type() != CommandType.SCHEDULE
+                                                                    || !incoming.equals(expected)) {
                                                                 throw new AssertionError(
                                                                         "replacement Shard resolved another Schedule");
                                                             }
@@ -2546,7 +2605,7 @@ class TargetCommandStoreTest {
                                     NativeDeliveryPolicy.FORBID);
                             final var lateSchedule = schedule(
                                     lateIntent, otherSchedule.delayMessageId(), lateAt, 44);
-                            expectedLateSchedule.set(lateSchedule);
+                            expectedLateCommand.set(lateSchedule);
                             final var lateAcknowledgements = new java.util.concurrent.atomic.AtomicInteger();
                             final var lateEntry = new SourceReplayRecord(lateSchedule, lateAt, null, null);
                             replacementNextSourceRecord.set(new SourceRecordConsumer.PolledSourceRecord(
@@ -2578,6 +2637,65 @@ class TargetCommandStoreTest {
                             assertEquals(lateAt, replacementStore.appliedShardLogPosition());
                             assertNull(replacementStore.get(
                                     ColumnFamily.ID, TargetKeyCodec.message(lateSchedule.delayMessageId())));
+                            assertArrayEquals(
+                                    admittedOrderState, replacementStore.get(ColumnFamily.META, admittedOrderKey));
+
+                            final var lateRescheduleBefore =
+                                    (KafkaSourcePosition) replacementStore.appliedShardLogPosition();
+                            final var lateRescheduleAt = source(
+                                    lateRescheduleBefore,
+                                    lateRescheduleBefore.offset() + 1,
+                                    lateRescheduleBefore.brokerLogAppendTimeEpochMs() + 1);
+                            final var lateReschedule = PreparedCommand.reschedule(
+                                    otherShard,
+                                    cancel(otherFollowerSchedule.delayMessageId(), lateRescheduleAt, 46)
+                                            .commandId(),
+                                    otherFollowerSchedule.delayMessageId(),
+                                    new MessagePrecondition(0L, null),
+                                    lateDeliverAt,
+                                    lateRescheduleAt.brokerLogAppendTimeEpochMs() + 2_000,
+                                    lateRescheduleAt.brokerLogAppendTimeEpochMs() + 1_000);
+                            expectedLateCommand.set(lateReschedule);
+                            final var lateRescheduleEntry =
+                                    new SourceReplayRecord(lateReschedule, lateRescheduleAt, null, null);
+                            final byte[] followerMessageKey =
+                                    TargetKeyCodec.message(otherFollowerSchedule.delayMessageId());
+                            final byte[] followerMessageBefore =
+                                    replacementStore.get(ColumnFamily.ID, followerMessageKey);
+                            assertNotNull(followerMessageBefore);
+                            final var lateRescheduleAcknowledgements =
+                                    new java.util.concurrent.atomic.AtomicInteger();
+                            replacementNextSourceRecord.set(new SourceRecordConsumer.PolledSourceRecord(
+                                    lateRescheduleEntry,
+                                    (entry, outcome) -> {
+                                        assertEquals(lateRescheduleEntry, entry);
+                                        assertEquals(lateRescheduleAt, outcome.position());
+                                        assertEquals(ApplyStatus.REJECTED, outcome.commandResult().applyStatus());
+                                        assertEquals(
+                                                StableCode.ORDER_BEFORE_ADMISSION_WATERMARK,
+                                                outcome.commandResult().stableCode());
+                                        assertEquals(1, lateRescheduleAcknowledgements.incrementAndGet());
+                                        return SourceAcknowledgement.AcknowledgementResult.acked();
+                                    }));
+                            final long beforeLateRescheduleMutation = replacementStore.shardMutationSequence();
+                            final long beforeLateRescheduleVersion = replacementStore.latestSequenceNumber();
+                            final var lateRescheduleTurn = replacementWorker.runSourceTurn(
+                                    new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 101);
+                            assertEquals(
+                                    SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                                    lateRescheduleTurn.status(),
+                                    () -> String.valueOf(lateRescheduleTurn.failure()));
+                            assertEquals(lateRescheduleEntry, lateRescheduleTurn.entry());
+                            assertEquals(1, lateRescheduleAcknowledgements.get());
+                            assertTrue(replacementWorker.pendingSourceEntry().isEmpty());
+                            assertEquals(
+                                    beforeLateRescheduleMutation + 1,
+                                    replacementStore.shardMutationSequence());
+                            assertTrue(replacementStore.latestSequenceNumber() > beforeLateRescheduleVersion);
+                            assertEquals(lateRescheduleAt, replacementStore.appliedShardLogPosition());
+                            assertArrayEquals(
+                                    followerMessageBefore,
+                                    replacementStore.get(ColumnFamily.ID, followerMessageKey));
                             assertArrayEquals(
                                     admittedOrderState, replacementStore.get(ColumnFamily.META, admittedOrderKey));
 
