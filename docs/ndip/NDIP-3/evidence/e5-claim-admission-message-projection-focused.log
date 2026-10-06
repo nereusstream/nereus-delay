@@ -1,0 +1,23 @@
+E5 exact Claim-to-PUBLISHING Message projection focused evidence
+Date: 2026-10-06
+
+Source base commit: 8d3b6985baf153863ace7ec16c4e4c6b382da907
+
+Source hashes:
+- TargetClaimRecord.java SHA-256: 2b0853a0462cf69d88480099f832a40bd6bb79ea009ff7e725a53face6bf6251
+- TargetClaimRecordTest.java SHA-256: 0167e0d8e11badc5cf36df7adf000f89ea70bebf696525cabbf42516373aa0db
+- JUnit XML SHA-256: bcf2c95dfdd2f0b776e39f9b533d222d0453606ac72ed78f155df90fd8303735
+
+Behavior:
+- TargetClaimRecord.admitted requires the exact current claimed Message and a PUBLISHING obligation with the same generation and the Claim Owner epoch encoded in its INFLIGHT key.
+- It inserts the new reference in unsigned attempt-ID order, rejects duplicate IDs and the schema obligation bound, and advances Message/runtime revisions and the Admission count once.
+- An uncertain retry increments its retry-admission counter and records possible destination duplication; prior uncertain obligations keep the aggregate UNCERTAIN.
+- The focused retry case keeps the prior UNCERTAIN ref alongside the new PUBLISHING ref and verifies the exact unsigned ID order.
+- This is a Message projection only. It does not validate the complete Admission body, Schedule binding, readiness evidence, quota authority, live Owner/Producer permission, or atomically commit attempt budget, result, source position and ACK.
+
+Command:
+./gradlew test --tests 'com.nereusstream.delay.runtime.TargetClaimRecordTest' checkstyleTest --no-daemon --console=plain
+
+Result: TargetClaimRecordTest: 4 tests, 0 failures, 0 errors, 0 skipped; checkstyleTest passed. `checkDocumentation` passed. `checkstyleMain` still fails on only two untouched 123-character lines at `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:377`; it reported no violation in the changed source. `git diff --check` passed.
+
+E5 remains IN_PROGRESS / PENDING_CENTRAL_VALIDATION.

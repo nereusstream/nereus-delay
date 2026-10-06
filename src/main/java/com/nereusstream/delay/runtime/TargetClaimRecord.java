@@ -8,6 +8,7 @@ import com.nereusstream.delay.protocol.TargetHeadRef;
 import com.nereusstream.delay.protocol.TargetQueueState;
 import com.nereusstream.delay.protocol.TargetQuotaClaimCharge;
 import com.nereusstream.delay.protocol.TargetQuotaMutation;
+import com.nereusstream.delay.store.KeyCodec;
 import com.nereusstream.delay.store.TargetKeyCodec;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -165,6 +166,61 @@ public final class TargetClaimRecord {
                 || !Arrays.equals(copy(current, messageVersion, original).digest(), messageDigest)) {
             throw new IllegalStateException("Target Claim is no longer the exact current Message work");
         }
+    }
+
+    /**
+     * Builds the Message projection consumed by one exact PUBLISHING attempt.
+     * The caller must commit this successor, the attempt and quota records, and the source position atomically;
+     * this projection alone grants no Producer permission.
+     */
+    public TargetMessageRecord admitted(
+            final TargetMessageRecord current, final AttemptObligationRef publishingAttempt) {
+        requireCurrent(Objects.requireNonNull(current, "current"));
+        Objects.requireNonNull(publishingAttempt, "publishingAttempt");
+        final byte[] attemptId = publishingAttempt.publishAttemptId();
+        final byte[] expectedAttemptKey = KeyCodec.inflight((byte) 2, owner.ownerEpoch(), attemptId);
+        if (publishingAttempt.generation() != original.generation()
+                || publishingAttempt.ledgerState() != AttemptLedgerState.PUBLISHING
+                || Arrays.equals(attemptId, new byte[32])
+                || !Arrays.equals(publishingAttempt.encodedInflightKey(), expectedAttemptKey)) {
+            throw new IllegalArgumentException("Target Admission obligation differs from the exact Claim Owner");
+        }
+        final var prior = current.runtime();
+        if (prior.admissionsUsed() == Integer.MAX_VALUE
+                || prior.attemptObligations().size() >= TargetGenerationRuntimeIndex.MAX_OBLIGATIONS) {
+            throw new IllegalStateException("Target Admission exceeds its durable runtime obligation bound");
+        }
+        final var obligations = new ArrayList<>(prior.attemptObligations());
+        int insertAt = 0;
+        while (insertAt < obligations.size()
+                && Arrays.compareUnsigned(obligations.get(insertAt).publishAttemptId(), attemptId) < 0) {
+            insertAt++;
+        }
+        if (insertAt < obligations.size()
+                && Arrays.equals(obligations.get(insertAt).publishAttemptId(), attemptId)) {
+            throw new IllegalArgumentException("Target Admission reuses an open attempt ID");
+        }
+        obligations.add(insertAt, publishingAttempt);
+
+        final boolean uncertainRetry = work().workKind() == TimelineWorkKind.UNCERTAIN_RETRY;
+        final int uncertainRetries = Math.addExact(
+                prior.uncertainRetryAdmissionsUsed(), uncertainRetry ? 1 : 0);
+        final boolean hasUncertain = obligations.stream()
+                .anyMatch(ref -> ref.ledgerState() == AttemptLedgerState.UNCERTAIN);
+        final long runtimeRevision = TargetQueueState.nextRevision(prior.runtimeRevision());
+        final var nextRuntime = new TargetGenerationRuntimeIndex(
+                original.generation(),
+                hasUncertain ? GenerationAggregateState.UNCERTAIN : GenerationAggregateState.PUBLISHING,
+                CurrentSendWorkKind.PUBLISHING,
+                null,
+                null,
+                attemptId,
+                obligations,
+                Math.incrementExact(prior.admissionsUsed()),
+                uncertainRetries,
+                prior.possibleDestinationDuplicate() || uncertainRetry,
+                runtimeRevision);
+        return copy(current, TargetQueueState.nextRevision(current.stateVersion()), nextRuntime);
     }
 
     public TargetMessageRecord revoked(final TargetMessageRecord current) {
