@@ -7,7 +7,7 @@ Source lock:
 - SHA-256 values below bind this focused receipt to the current modified files.
 
 Implementation:
-- `BoundedAsyncMetricExporter` accepts fixed Worker-scope metric events through a non-blocking queue admission path. Both pending event count and canonical event payload bytes have explicit caps; the count cap also bounds per-object overhead.
+- `BoundedAsyncMetricExporter` accepts fixed Worker-scope metric events through a bounded queue admission path. Both pending event count and canonical event payload bytes have explicit caps; the count cap also bounds per-object overhead.
 - One daemon worker invokes the injected exporter callback. Queue admission holds a short lock only for in-memory bookkeeping; exporter callbacks run outside that lock. Queue-full, post-close offers, callback failures, and queued records abandoned after an unexpected worker stop are reflected in process-local gap counters.
 - `TargetWorkerOrdinaryDrr` optionally submits per-turn visits, scheduling bytes, elapsed time, Claim-turn count, and the returned stop category. Existing callers that do not inject the reporter keep the prior behavior. Metrics do not enter RocksDB or change Claim authorization.
 - This is an injectable async export seam, not an assembled OpenTelemetry exporter. Gap counters are in-memory only; restart coverage, scan/queue/send metrics, certification mode/generation/coverage, and production Host configuration remain open.
