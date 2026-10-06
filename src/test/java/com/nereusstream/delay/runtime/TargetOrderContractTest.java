@@ -325,6 +325,61 @@ class TargetOrderContractTest {
     }
 
     @Test
+    void sourceAdmissionAdvancesTheWatermarkAndRetainsTheExactPublishingMessage() {
+        final var claimed = message("claimed");
+        final var publishing = publishingSuccessor(claimed);
+        final var prior = orderState(
+                TargetOrderState.OrderingContract.ADMISSION_WATERMARK,
+                8,
+                null,
+                TargetOrderBarrier.fromMessage(claimed));
+
+        final var admitted = prior.afterAdmission(claimed, publishing);
+
+        assertEquals(9, admitted.stateRevision());
+        assertArrayEquals(bytes("order.key"), admitted.lastAdmittedOrder().encodedKey());
+        assertEquals(TargetOrderBarrier.fromMessage(publishing), admitted.barrier());
+        assertNull(admitted.serviceableHead());
+        assertDoesNotThrow(() -> admitted.requireBarrierProjection(publishing));
+    }
+
+    @Test
+    void sourceAdmissionRejectsWatermarkRewindAllowsEqualOrderAndKeepsLegacyContract() {
+        final var claimed = message("claimed");
+        final var publishing = publishingSuccessor(claimed);
+        final var order = TargetKeyCodec.decodeOrdered(bytes("order.key"));
+        final byte[] later = TargetKeyCodec.ordered(
+                order.target(),
+                order.orderingDomain(),
+                order.deliverAtEpochMs() + 1,
+                order.sourceOrderToken(),
+                order.messageId(),
+                order.generation());
+        final var rewound = orderState(
+                TargetOrderState.OrderingContract.ADMISSION_WATERMARK,
+                8,
+                later,
+                TargetOrderBarrier.fromMessage(claimed));
+        assertThrows(IllegalArgumentException.class, () -> rewound.afterAdmission(claimed, publishing));
+        final var equal = orderState(
+                TargetOrderState.OrderingContract.ADMISSION_WATERMARK,
+                8,
+                order.encodedKey(),
+                TargetOrderBarrier.fromMessage(claimed));
+        assertArrayEquals(
+                order.encodedKey(), equal.afterAdmission(claimed, publishing).lastAdmittedOrder().encodedKey());
+
+        final var legacy = orderState(
+                TargetOrderState.OrderingContract.LEGACY_DELIVERY_TIME_FIFO,
+                8,
+                null,
+                TargetOrderBarrier.fromMessage(claimed));
+        final var admitted = legacy.afterAdmission(claimed, publishing);
+        assertNull(admitted.lastAdmittedOrder());
+        assertEquals(TargetOrderBarrier.fromMessage(publishing), admitted.barrier());
+    }
+
+    @Test
     void successorUsesUnsignedFullOrderAndRevisionWithoutWrapOrReopening() {
         final var watermark = state("watermark");
         final var order = watermark.lastAdmittedOrder();
@@ -601,6 +656,41 @@ class TargetOrderContractTest {
                 watermark,
                 head,
                 barrier);
+    }
+
+    private TargetOrderState orderState(
+            final TargetOrderState.OrderingContract contract,
+            final long revision,
+            final byte[] watermark,
+            final TargetOrderBarrier barrier) {
+        return new TargetOrderState(
+                locator.target(),
+                locator.orderingDomain(),
+                locator.messageId().routingId().shardId(),
+                locator.domain(),
+                locator.accountingIncarnation(),
+                contract,
+                revision,
+                1,
+                TargetOrderState.Gate.OPEN,
+                watermark,
+                null,
+                barrier);
+    }
+
+    private TargetMessageRecord publishingSuccessor(final TargetMessageRecord claimed) {
+        final var publishing = message("publishing");
+        return new TargetMessageRecord(
+                claimed.locator(),
+                TargetQueueState.nextRevision(claimed.stateVersion()),
+                claimed.deliverAtEpochMs(),
+                claimed.expireAtEpochMs(),
+                claimed.retryEligibilityAtEpochMs(),
+                claimed.nativeDeliveryPolicy(),
+                claimed.scheduleSource(),
+                claimed.inlinePayload(),
+                claimed.payloadReference(),
+                publishing.runtime());
     }
 
     private TargetHeadRef head(final long time, final DelayMessageId message, final int generation) {

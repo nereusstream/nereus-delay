@@ -1,0 +1,22 @@
+E5 strict Admission watermark successor focused evidence
+Date: 2026-10-06
+
+Source base commit: b455f98803757369eec2b4dfcd9082e949546e02
+
+Source hashes:
+- TargetOrderState.java SHA-256: 67fd2d87e29adf1ffa23b5795d37d2a95850510e2e6e61fd76312c9b48a9613e
+- TargetOrderContractTest.java SHA-256: 50a8b136b139c942d8e097a6f2a7ec3cefd15afbdaa340dec75cd002f38eadf7
+- JUnit XML SHA-256: 391f9faa48bd7eace5575f71c03c2d2399ddaccdc6fe5d296d5e2585cac2df0c
+
+Behavior:
+- TargetOrderState.afterAdmission accepts only an exact strict-domain CLAIMED to PUBLISHING transition whose locator and complete ORDERED key remain unchanged.
+- It validates one-step message/runtime revision, Admission counter and open-obligation count changes, and the exact prior Claim barrier.
+- ADMISSION_WATERMARK advances monotonically to the complete ORDERED key; equal order is retained for the same Message retry. LEGACY_DELIVERY_TIME_FIFO does not acquire a watermark.
+- The result is only a typed successor for a source planner. TargetSourceApplyRuntime does not yet call it, and no source commit, accounting, result, ACK or recovery behavior is proven by this helper.
+
+Command:
+./gradlew test --tests 'com.nereusstream.delay.runtime.TargetOrderContractTest' checkstyleTest --no-daemon --console=plain
+
+Result: BUILD SUCCESSFUL. TargetOrderContractTest: 17 tests, 0 failures, 0 errors, 0 skipped. checkstyleTest passed.
+
+E5 remains IN_PROGRESS / PENDING_CENTRAL_VALIDATION.

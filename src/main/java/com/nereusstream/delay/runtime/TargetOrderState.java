@@ -283,6 +283,70 @@ public final class TargetOrderState {
         }
     }
 
+    /** Builds the strict-order successor for one source-ordered Admission of an already claimed Message. */
+    public TargetOrderState afterAdmission(
+            final TargetMessageRecord before, final TargetMessageRecord admitted) {
+        Objects.requireNonNull(before, "before");
+        Objects.requireNonNull(admitted, "admitted");
+        if (gate != Gate.OPEN
+                || barrier == null
+                || before.runtime().currentWorkKind() != CurrentSendWorkKind.CLAIMED
+                || admitted.runtime().currentWorkKind() != CurrentSendWorkKind.PUBLISHING
+                || !Arrays.equals(before.locator().canonicalBytes(), admitted.locator().canonicalBytes())) {
+            throw new IllegalArgumentException("strict Admission does not advance the exact claimed Message");
+        }
+        requireLocatorProjection(before.locator());
+        requireLocatorProjection(admitted.locator());
+        barrier.requireMessageProjection(before);
+        if (admitted.stateVersion() != TargetQueueState.nextRevision(before.stateVersion())
+                || admitted.runtime().runtimeRevision()
+                        != TargetQueueState.nextRevision(before.runtime().runtimeRevision())
+                || before.runtime().admissionsUsed() == Integer.MAX_VALUE
+                || admitted.runtime().admissionsUsed() != before.runtime().admissionsUsed() + 1
+                || admitted.runtime().attemptObligations().size()
+                        != before.runtime().attemptObligations().size() + 1) {
+            throw new IllegalArgumentException("strict Admission does not advance Message/runtime state once");
+        }
+        final byte[] order = orderedMessageKey(before);
+        if (!Arrays.equals(order, orderedMessageKey(admitted))) {
+            throw new IllegalArgumentException("strict Admission changes its Message ordering key");
+        }
+        byte[] nextWatermark = null;
+        if (orderingContract == OrderingContract.ADMISSION_WATERMARK) {
+            if (lastAdmittedOrder != null
+                    && Arrays.compareUnsigned(order, lastAdmittedOrder.encodedKey()) < 0) {
+                throw new IllegalArgumentException("strict Admission rewinds the durable watermark");
+            }
+            nextWatermark = order;
+        }
+        final TargetOrderState successor = new TargetOrderState(
+                target,
+                orderingDomain,
+                sourceShard,
+                executionDomain,
+                accountingIncarnation,
+                orderingContract,
+                TargetQueueState.nextRevision(stateRevision),
+                controlVersion,
+                gate,
+                nextWatermark,
+                null,
+                TargetOrderBarrier.fromMessage(admitted));
+        successor.requireSuccessorOf(this);
+        successor.requireBarrierProjection(admitted);
+        return successor;
+    }
+
+    private static byte[] orderedMessageKey(final TargetMessageRecord message) {
+        return TargetKeyCodec.ordered(
+                message.locator().target(),
+                message.locator().orderingDomain(),
+                message.deliverAtEpochMs(),
+                message.scheduleSource().sourceOrderToken(),
+                message.locator().messageId(),
+                message.locator().generation());
+    }
+
     /** Does not prove source CAS, control authorization, head minimality, or barrier-release evidence. */
     public void requireSuccessorOf(final TargetOrderState previous) {
         if (!target.equals(previous.target)
