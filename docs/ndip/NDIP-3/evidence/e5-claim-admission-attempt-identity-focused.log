@@ -1,0 +1,23 @@
+E5 Target Claim-derived Admission attempt identity focused evidence
+Date: 2026-10-06
+
+Source base commit: 56fa2d8a710bb7b96767ff8fd48f2bf99ebedc27
+
+Source hashes:
+- TargetClaimRecord.java SHA-256: 9fc115a8ccac397893c21b1eb6c709c4e9998f2756c24eea1c169b2d09272e5f
+- TargetClaimRecordTest.java SHA-256: dce41c4dde7ab5c6ccc9aae5365c7908732fa2adf8e74dd1f6f9d907b0771a99
+- JUnit XML SHA-256: 682a620b0fbeacee4a66dd92520a3ed118e8184a0c136823b3a1dfd4779b5503
+
+Behavior:
+- Admission requires the supplied attempt number to equal the claimed work candidateAttemptNo.
+- The PUBLISHING obligation ID must equal the existing deterministic Claim/Message/generation/attempt identity.
+- Regressions reject a mismatched attempt number and an arbitrary well-formed attempt ID; initial work uses candidate 1 and uncertain retry uses candidate 2.
+- Existing exact Claim/Owner/generation checks and bounded ordered-obligation projection remain in place.
+- This is still a pure Message projection. It does not validate the full Admission authority or commit AttemptBudget, result, source position and ACK; Target source PUBLISH_ADMISSION/PUBLISH_OUTCOME remain unwired.
+
+Command:
+./gradlew test --tests com.nereusstream.delay.runtime.TargetClaimRecordTest checkstyleTest checkDocumentation --no-daemon --console=plain
+
+Result: TargetClaimRecordTest: 4 tests, 0 failures, 0 errors, 0 skipped; checkstyleTest and checkDocumentation passed. `checkstyleMain` reports only two untouched existing line-length violations at `PersistentLaneScheduler.java:1327` and `TargetWorkerHostRuntime.java:377`. `git diff --check` passed.
+
+E5 remains IN_PROGRESS / PENDING_CENTRAL_VALIDATION.

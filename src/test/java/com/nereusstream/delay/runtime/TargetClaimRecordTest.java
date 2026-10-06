@@ -96,14 +96,14 @@ class TargetClaimRecordTest {
                 1,
                 template.creation());
         final var claimed = claim.claimed(message);
-        final byte[] attemptId = repeated(0x41);
+        final byte[] attemptId = admissionAttemptId(claim);
         final var obligation = new AttemptObligationRef(
                 attemptId,
                 work.locator().generation(),
                 AttemptLedgerState.PUBLISHING,
                 KeyCodec.inflight((byte) 2, claim.owner().ownerEpoch(), attemptId));
 
-        final var admitted = claim.admitted(claimed, obligation);
+        final var admitted = claim.admitted(claimed, obligation, work.candidateAttemptNo());
 
         assertEquals(TargetQueueState.nextRevision(claimed.stateVersion()), admitted.stateVersion());
         assertEquals(
@@ -116,8 +116,18 @@ class TargetClaimRecordTest {
         assertEquals(1, admitted.runtime().admissionsUsed());
         assertEquals(0, admitted.runtime().uncertainRetryAdmissionsUsed());
         assertFalse(admitted.runtime().possibleDestinationDuplicate());
-        assertThrows(IllegalStateException.class, () -> claim.admitted(message, obligation));
-        assertThrows(IllegalStateException.class, () -> claim.admitted(admitted, obligation));
+        assertThrows(IllegalStateException.class, () -> claim.admitted(message, obligation, 1));
+        assertThrows(IllegalStateException.class, () -> claim.admitted(admitted, obligation, 1));
+        assertThrows(IllegalArgumentException.class, () -> claim.admitted(claimed, obligation, 2));
+        final byte[] unboundAttemptId = repeated(0x42);
+        final var unboundAttempt = new AttemptObligationRef(
+                unboundAttemptId,
+                work.locator().generation(),
+                AttemptLedgerState.PUBLISHING,
+                KeyCodec.inflight((byte) 2, claim.owner().ownerEpoch(), unboundAttemptId));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> claim.admitted(claimed, unboundAttempt, work.candidateAttemptNo()));
     }
 
     @Test
@@ -140,7 +150,7 @@ class TargetClaimRecordTest {
                 1,
                 template.creation());
         final var claimed = claim.claimed(message);
-        final byte[] attemptId = repeated(0x42);
+        final byte[] attemptId = admissionAttemptId(claim);
         final var wrongOwner = new AttemptObligationRef(
                 attemptId,
                 work.locator().generation(),
@@ -152,8 +162,12 @@ class TargetClaimRecordTest {
                 AttemptLedgerState.PUBLISHING,
                 KeyCodec.inflight((byte) 2, claim.owner().ownerEpoch(), attemptId));
 
-        assertThrows(IllegalArgumentException.class, () -> claim.admitted(claimed, wrongOwner));
-        assertThrows(IllegalArgumentException.class, () -> claim.admitted(claimed, wrongGeneration));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> claim.admitted(claimed, wrongOwner, work.candidateAttemptNo()));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> claim.admitted(claimed, wrongGeneration, work.candidateAttemptNo()));
     }
 
     @Test
@@ -221,21 +235,25 @@ class TargetClaimRecordTest {
                 1,
                 template.creation());
         final var claimed = claim.claimed(retryMessage);
-        final byte[] retryAttemptId = repeated(0x22);
+        final byte[] retryAttemptId = admissionAttemptId(claim);
         final var publishingAttempt = new AttemptObligationRef(
                 retryAttemptId,
                 retryRuntime.generation(),
                 AttemptLedgerState.PUBLISHING,
                 KeyCodec.inflight((byte) 2, claim.owner().ownerEpoch(), retryAttemptId));
 
-        final var admitted = claim.admitted(claimed, publishingAttempt);
+        final var admitted = claim.admitted(claimed, publishingAttempt, retryWork.candidateAttemptNo());
 
         assertEquals(GenerationAggregateState.UNCERTAIN, admitted.runtime().aggregateState());
         assertEquals(2, admitted.runtime().admissionsUsed());
         assertEquals(1, admitted.runtime().uncertainRetryAdmissionsUsed());
         assertEquals(2, admitted.runtime().attemptObligations().size());
-        assertArrayEquals(retryAttemptId, admitted.runtime().attemptObligations().get(0).publishAttemptId());
-        assertArrayEquals(oldAttemptId, admitted.runtime().attemptObligations().get(1).publishAttemptId());
+        final var obligations = admitted.runtime().attemptObligations();
+        assertTrue(obligations.stream().anyMatch(ref -> Arrays.equals(ref.publishAttemptId(), retryAttemptId)));
+        assertTrue(obligations.stream().anyMatch(ref -> Arrays.equals(ref.publishAttemptId(), oldAttemptId)));
+        assertTrue(Arrays.compareUnsigned(
+                        obligations.get(0).publishAttemptId(), obligations.get(1).publishAttemptId())
+                < 0);
         assertTrue(admitted.runtime().possibleDestinationDuplicate());
     }
 
@@ -243,6 +261,15 @@ class TargetClaimRecordTest {
         final byte[] bytes = new byte[32];
         Arrays.fill(bytes, (byte) value);
         return bytes;
+    }
+
+    private static byte[] admissionAttemptId(final TargetClaimRecord claim) {
+        final var work = claim.work();
+        return com.nereusstream.delay.protocol.SystemMutation.computePublishAttemptLogicalIdentity(
+                claim.claimId(),
+                work.locator().messageId(),
+                Integer.toUnsignedLong(work.locator().generation()),
+                work.candidateAttemptNo());
     }
 
     private static byte[] raw(final String resource, final String key) throws Exception {

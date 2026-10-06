@@ -4,6 +4,7 @@ import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
 import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.QueryCodecSupport;
+import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.TargetHeadRef;
 import com.nereusstream.delay.protocol.TargetQueueState;
 import com.nereusstream.delay.protocol.TargetQuotaClaimCharge;
@@ -174,16 +175,29 @@ public final class TargetClaimRecord {
      * this projection alone grants no Producer permission.
      */
     public TargetMessageRecord admitted(
-            final TargetMessageRecord current, final AttemptObligationRef publishingAttempt) {
+            final TargetMessageRecord current,
+            final AttemptObligationRef publishingAttempt,
+            final int attemptNo) {
         requireCurrent(Objects.requireNonNull(current, "current"));
         Objects.requireNonNull(publishingAttempt, "publishingAttempt");
+        final TargetTimelineWorkRef claimedWork = work();
+        if (attemptNo != claimedWork.candidateAttemptNo()) {
+            throw new IllegalArgumentException("Target Admission attempt number differs from its claimed work");
+        }
         final byte[] attemptId = publishingAttempt.publishAttemptId();
+        final byte[] expectedAttemptId = SystemMutation.computePublishAttemptLogicalIdentity(
+                claimId,
+                claimedWork.locator().messageId(),
+                Integer.toUnsignedLong(claimedWork.locator().generation()),
+                attemptNo);
         final byte[] expectedAttemptKey = KeyCodec.inflight((byte) 2, owner.ownerEpoch(), attemptId);
         if (publishingAttempt.generation() != original.generation()
                 || publishingAttempt.ledgerState() != AttemptLedgerState.PUBLISHING
                 || Arrays.equals(attemptId, new byte[32])
+                || !Arrays.equals(attemptId, expectedAttemptId)
                 || !Arrays.equals(publishingAttempt.encodedInflightKey(), expectedAttemptKey)) {
-            throw new IllegalArgumentException("Target Admission obligation differs from the exact Claim Owner");
+            throw new IllegalArgumentException(
+                    "Target Admission obligation differs from the exact Claim-derived attempt");
         }
         final var prior = current.runtime();
         if (prior.admissionsUsed() == Integer.MAX_VALUE
