@@ -1,0 +1,25 @@
+# C1 Target EXPIRE_GENERATION TCP ACK response-loss evidence
+
+Date: 2026-10-06 (Asia/Shanghai)
+
+Delay source baseline: `2d086ae0d7eec839d9ec3eb1e7de28984d91afd2` with the working-tree changes listed below. The Nereus Delay checkout was therefore not a committed source snapshot. SHA-256 at execution:
+
+- `src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetWorkerSourceSmoke.java`: `a6f2d6b7c1a460fab0adb1d7b75fe2a59261dce829f224e83b7cda8a15312853`
+- `build.gradle`: `51c2b464fcba9fc55ec900a8ca199511291503aa9af8aa4fcc8dd39da966bf06`
+- `e2e/run-kafka-real-client-e2e.sh`: `7c77e66d1683c48b0d1c1ceb6dc7647a5a3e1ea215e82c1280e34ef01814390a`
+
+K1 checkout: `05849884ca81fad767fda058444d1e17c7f9cbf9`; clean at execution. Client SHA-256: `1c83ae777c364be833f7c8ff31f1fdeb28dafd5eb3998f0246e7d226a543cbe0`. Broker artifact SHA-256: `9a24f15ab08482fcd99464e735622dc7413f390716bd1e57c95f3879283e603a`. Server artifact SHA-256: `638582eb0241e6e06330e617cd948a50532d42e9cc763470a4301864f29ce3c7`.
+
+Command:
+
+```sh
+NEREUS_DELAY_KAFKA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1 \
+NEREUS_DELAY_KAFKA_CLIENT_JAR=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1/clients/build/libs/kafka-clients-4.4.0-SNAPSHOT.jar \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/Users/liusinan/.gradle \
+NEREUS_DELAY_KAFKA_TARGET_SOURCE_ACK_NETWORK_LOSS_ONLY=1 \
+./e2e/run-kafka-real-client-e2e.sh
+```
+
+Result: the focused runner passed against three disposable Kafka 4.4.0-SNAPSHOT KRaft brokers and a TCP OffsetCommit response-loss proxy. The existing generic source ACK-loss case passed. The new expiry case forwarded the Grant and Command ACKs, then armed the proxy before the first `EXPIRE_GENERATION` ACK. The Worker returned `ACK_UNKNOWN` for the exact expiry record at offset 2 after the Broker had committed next offset 3; retry ACKed the retained entry without another Store mutation, and duplicate expiry offset 3 advanced the Broker group frontier to 4. The proxy recorded real API key 8 Broker responses as received and not forwarded. The expiry authority resolved once. The E2E script and both smoke invocations exited successfully; the proxy reported 7 dropped responses in the generic case and 8 in the expiry case.
+
+Scope: the signed expiry deliberately targets a missing Message and uses test-only grant, signing, time, and Owner authority fixtures. This run verifies the real three-Broker TCP response-loss boundary and same-Host ACK retry for Target expiry. It does not verify production authority assembly, live Oxia Owner takeover, process-crash recovery at this expiry boundary, migration, or central C1 acceptance.

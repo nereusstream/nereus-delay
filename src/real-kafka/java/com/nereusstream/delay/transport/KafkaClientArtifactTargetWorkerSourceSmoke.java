@@ -104,42 +104,62 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
     private KafkaClientArtifactTargetWorkerSourceSmoke() {}
 
     public static void main(final String[] arguments) throws Exception {
-        if (arguments.length != 2 && arguments.length != 3 && arguments.length != 6 && arguments.length != 10) {
+        if (arguments.length != 2
+                && arguments.length != 3
+                && arguments.length != 6
+                && arguments.length != 7
+                && arguments.length != 10) {
             throw new IllegalArgumentException("usage: <bootstrap-server> <source-topic-prefix> "
                     + "[no-injection | store-write-response-unknown | target-expire-not-found | "
                     + "target-expire-not-found-ack-loss | target-expire-not-found-ack-loss-reopen | "
-                    + "target-expire-scheduled-message | "
+                    + "target-expire-not-found-network-ack-loss | target-expire-scheduled-message | "
                     + "network-response-loss "
                     + "<hold-file> <release-file> <dropped-response-file>] "
+                    + "[network-expiry-response-loss <hold-file> <release-file> <dropped-response-file> "
+                    + "target-expire-not-found-network-ack-loss] "
                     + "[network-response-loss-process-crash <phase> <hold-file> <release-file> "
                     + "<dropped-response-file> <state-file> <store-root> <ready-file>]");
         }
         final String bootstrap = arguments[0];
-        final String scenario = arguments.length == 3 ? arguments[2] : "";
+        final String scenario = arguments.length == 3 ? arguments[2] : arguments.length == 7 ? arguments[6] : "";
         final boolean targetExpiryAckResponseLossReopen =
                 "target-expire-not-found-ack-loss-reopen".equals(scenario);
         final boolean targetExpiryAckResponseLoss = targetExpiryAckResponseLossReopen
                 || "target-expire-not-found-ack-loss".equals(scenario);
         final boolean targetExpiryNotFound =
-                targetExpiryAckResponseLoss || "target-expire-not-found".equals(scenario);
+                targetExpiryAckResponseLoss
+                        || "target-expire-not-found".equals(scenario)
+                        || "target-expire-not-found-network-ack-loss".equals(scenario);
         final boolean targetScheduledMessageExpiry = "target-expire-scheduled-message".equals(scenario);
+        final boolean targetExpiryNetworkAckResponseLoss = arguments.length == 7
+                && "network-expiry-response-loss".equals(arguments[2]);
         final AckInjection ackInjection = targetExpiryAckResponseLossReopen
                 ? AckInjection.withExpiryAckResponseLossReopen()
                 : targetExpiryAckResponseLoss ? AckInjection.withExpiryAckResponseLoss()
-                : targetExpiryNotFound || targetScheduledMessageExpiry
+                : (targetExpiryNotFound && !targetExpiryNetworkAckResponseLoss) || targetScheduledMessageExpiry
                         ? AckInjection.acked()
                         : AckInjection.from(arguments);
+        if (targetExpiryNetworkAckResponseLoss
+                != "target-expire-not-found-network-ack-loss".equals(scenario)) {
+            throw new IllegalArgumentException("expiry network ACK loss requires its dedicated Target scenario");
+        }
         if (ackInjection.crashPhase() == CrashPhase.RESUME) {
             replayAfterProcessCrash(bootstrap, ackInjection);
             return;
         }
         final String topic = arguments[1] + "-target-" + UUID.randomUUID();
         final String groupId = "nereus-delay-target-source-" + UUID.randomUUID();
-        if (ackInjection.networkResponseLoss()
-                && (!Files.exists(ackInjection.holdFile())
-                        || Files.exists(ackInjection.releaseFile())
-                        || Files.exists(ackInjection.droppedResponseFile()))) {
-            throw new IllegalArgumentException("network ACK response-loss gate must start held and unobserved");
+        if (ackInjection.networkResponseLoss()) {
+            final boolean gateReady = targetExpiryNetworkAckResponseLoss
+                    ? !Files.exists(ackInjection.holdFile())
+                    : Files.exists(ackInjection.holdFile());
+            if (!gateReady
+                    || Files.exists(ackInjection.releaseFile())
+                    || Files.exists(ackInjection.droppedResponseFile())) {
+                throw new IllegalArgumentException(targetExpiryNetworkAckResponseLoss
+                        ? "expiry network ACK response-loss gate must start open and unobserved"
+                        : "network ACK response-loss gate must start held and unobserved");
+            }
         }
         final Map<String, Object> adminConfig = Map.of(
                 AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap,
@@ -202,7 +222,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                 throw new IllegalStateException("fresh Kafka Target source did not start at offsets 0 and 1");
             }
 
-            final boolean exerciseSibling = ackInjection.networkResponseLoss()
+            final boolean exerciseSibling = ackInjection.mode() == AckMode.NETWORK_RESPONSE_LOSS
                     && ackInjection.crashPhase() == CrashPhase.NONE;
             final ShardId siblingShard = new ShardId(shard.routeIncarnation(), 1);
             final TargetQuotaScope siblingScope = new TargetQuotaScope(
@@ -411,6 +431,9 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                     case NETWORK_RESPONSE_LOSS ->
                         "Broker OffsetCommit response was received by the TCP proxy and withheld before reaching "
                                 + "the Kafka client";
+                    case EXPIRY_NETWORK_RESPONSE_LOSS ->
+                        "Target expiry Broker OffsetCommit response was received by the TCP proxy and withheld "
+                                + "before reaching the Kafka client";
                 };
                 if (ackInjection.storeWriteResponseUnknown()) {
                     System.out.println("Kafka Target source factory: first grant at offset 0; Cancel at offset 1 "
@@ -765,7 +788,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                                 : replacementOwnerExpiryReplay
                                         ? runUntilApplied(worker)
                                         : runUntilAppliedByHost(host);
-                if (ackInjection.networkResponseLoss()) {
+                if (ackInjection.mode() == AckMode.NETWORK_RESPONSE_LOSS) {
                     final String dropped = Files.exists(ackInjection.droppedResponseFile())
                             ? Files.readString(ackInjection.droppedResponseFile())
                             : "";
@@ -836,7 +859,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                 if (ackInjection.crashPhase() == CrashPhase.PREPARE) {
                     writeProcessCrashState(ackInjection, topic, groupId, clusterId, topicId, scope, assignment,
                             command, commandOffset, active.ownerEpoch(), ownerLeasePrefix);
-                } else if (ackInjection.networkResponseLoss()) {
+                } else if (ackInjection.mode() == AckMode.NETWORK_RESPONSE_LOSS) {
                     Files.writeString(ackInjection.releaseFile(), "release\n");
                     if (siblingProgress != null) {
                         final var pendingBeforeSibling = worker.pendingSourceEntry().orElseThrow(() ->
@@ -879,9 +902,24 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                 if (expiryFixture != null) {
                     final SourceApplyCoordinator.TurnResult firstExpiryTurn;
                     if (ackInjection.expiryAckResponseLoss()) {
+                        if (ackInjection.expiryNetworkResponseLoss()) {
+                            Files.writeString(ackInjection.holdFile(), "hold\n");
+                        }
                         final var unknownExpiryTurn = ackInjection.expiryAckResponseLossReopen()
                                 ? runUntilAckUnknown(worker)
                                 : runUntilAckUnknownByHost(host);
+                        if (ackInjection.expiryNetworkResponseLoss()) {
+                            final String dropped = Files.exists(ackInjection.droppedResponseFile())
+                                    ? Files.readString(ackInjection.droppedResponseFile())
+                                    : "";
+                            if (!dropped.contains("apiKey=8")
+                                    || !dropped.contains("brokerResponseReceived=true forwarded=false")) {
+                                throw new IllegalStateException(
+                                        "TCP proxy did not withhold the Target expiry Broker ACK response: "
+                                                + dropped);
+                            }
+                            ackResponseLost.set(true);
+                        }
                         if (unknownExpiryTurn.status() != SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN
                                 || !(unknownExpiryTurn.entry() instanceof com.nereusstream.delay.ownership
                                         .SourceReplayMutation unknownExpiryEntry)
@@ -915,6 +953,9 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                             return expiryFixture;
                         }
 
+                        if (ackInjection.expiryNetworkResponseLoss()) {
+                            Files.writeString(ackInjection.releaseFile(), "release\n");
+                        }
                         firstExpiryTurn = runUntilAppliedByHost(host);
                         if (firstExpiryTurn.status() != SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED
                                 || !unknownExpiryEntry.equals(firstExpiryTurn.entry())
@@ -1410,7 +1451,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
         config.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
         config.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
         config.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
-        if (ackMode == AckMode.NETWORK_RESPONSE_LOSS) {
+        if (ackMode == AckMode.NETWORK_RESPONSE_LOSS || ackMode == AckMode.EXPIRY_NETWORK_RESPONSE_LOSS) {
             config.put(ConsumerConfig.DEFAULT_API_TIMEOUT_MS_CONFIG, 5_000);
             config.put(ConsumerConfig.REQUEST_TIMEOUT_MS_CONFIG, 2_000);
         }
@@ -1816,7 +1857,8 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
         EXPIRY_ACK_RESPONSE_LOSS,
         EXPIRY_ACK_RESPONSE_LOSS_REOPEN,
         STORE_WRITE_RESPONSE_UNKNOWN,
-        NETWORK_RESPONSE_LOSS
+        NETWORK_RESPONSE_LOSS,
+        EXPIRY_NETWORK_RESPONSE_LOSS
     }
 
     private enum CrashPhase {
@@ -1872,6 +1914,19 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                         null,
                         null);
             }
+            if (arguments.length == 7
+                    && "network-expiry-response-loss".equals(arguments[2])
+                    && "target-expire-not-found-network-ack-loss".equals(arguments[6])) {
+                return new AckInjection(
+                        AckMode.EXPIRY_NETWORK_RESPONSE_LOSS,
+                        Path.of(arguments[3]),
+                        Path.of(arguments[4]),
+                        Path.of(arguments[5]),
+                        CrashPhase.NONE,
+                        null,
+                        null,
+                        null);
+            }
             if (arguments.length != 10 || !"network-response-loss-process-crash".equals(arguments[2])) {
                 throw new IllegalArgumentException("unsupported Target source ACK injection mode");
             }
@@ -1892,7 +1947,11 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
         }
 
         private boolean networkResponseLoss() {
-            return mode == AckMode.NETWORK_RESPONSE_LOSS;
+            return mode == AckMode.NETWORK_RESPONSE_LOSS || expiryNetworkResponseLoss();
+        }
+
+        private boolean expiryNetworkResponseLoss() {
+            return mode == AckMode.EXPIRY_NETWORK_RESPONSE_LOSS;
         }
 
         private boolean storeWriteResponseUnknown() {
@@ -1901,7 +1960,8 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
 
         private boolean expiryAckResponseLoss() {
             return mode == AckMode.EXPIRY_ACK_RESPONSE_LOSS
-                    || mode == AckMode.EXPIRY_ACK_RESPONSE_LOSS_REOPEN;
+                    || mode == AckMode.EXPIRY_ACK_RESPONSE_LOSS_REOPEN
+                    || expiryNetworkResponseLoss();
         }
 
         private boolean expiryAckResponseLossReopen() {
@@ -1909,7 +1969,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
         }
 
         private boolean acknowledgementResponseUnknown() {
-            return mode == AckMode.CLIENT_DELEGATE_RESPONSE_LOSS || networkResponseLoss();
+            return mode == AckMode.CLIENT_DELEGATE_RESPONSE_LOSS || mode == AckMode.NETWORK_RESPONSE_LOSS;
         }
     }
 

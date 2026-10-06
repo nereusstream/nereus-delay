@@ -245,7 +245,7 @@ tasks.register('runRealKafkaTargetWorkerSourceSmoke', JavaExec) {
         }
         args project.ext.optionalRealTaskArgument.call(findProperty('kafkaTargetAckCrashPhase'))
     }
-    if (findProperty('kafkaTargetAckMode') == 'network-response-loss') {
+    if (findProperty('kafkaTargetAckMode') in ['network-response-loss', 'network-expiry-response-loss']) {
         args project.ext.optionalRealTaskArgument.call(findProperty('kafkaTargetAckHoldFile')),
                 project.ext.optionalRealTaskArgument.call(findProperty('kafkaTargetAckReleaseFile')),
                 project.ext.optionalRealTaskArgument.call(findProperty('kafkaTargetAckDroppedFile'))
@@ -255,20 +255,33 @@ tasks.register('runRealKafkaTargetWorkerSourceSmoke', JavaExec) {
         args recoveryProperties.collect { project.ext.optionalRealTaskArgument.call(findProperty(it)) }
     }
     if (findProperty('kafkaTargetScenario') != null) {
-        if (findProperty('kafkaTargetAckMode') != null || findProperty('kafkaTargetAckCrashPhase') != null
+        def expiryNetworkAckScenario = findProperty('kafkaTargetAckMode') == 'network-expiry-response-loss'
+                && findProperty('kafkaTargetScenario') == 'target-expire-not-found-network-ack-loss'
+        if ((findProperty('kafkaTargetAckMode') != null && !expiryNetworkAckScenario)
+                || findProperty('kafkaTargetAckCrashPhase') != null
                 || !(findProperty('kafkaTargetScenario') in [
                     'target-expire-not-found', 'target-expire-not-found-ack-loss',
-                    'target-expire-not-found-ack-loss-reopen', 'target-expire-scheduled-message'
-                ])) {
+                    'target-expire-not-found-ack-loss-reopen',
+                    'target-expire-not-found-network-ack-loss', 'target-expire-scheduled-message'
+                ])
+                || (findProperty('kafkaTargetScenario') == 'target-expire-not-found-network-ack-loss'
+                        && !expiryNetworkAckScenario)) {
             doFirst {
                 throw new GradleException(
                         'kafkaTargetScenario supports target-expire-not-found and '
                                 + 'target-expire-not-found-ack-loss and '
                                 + 'target-expire-not-found-ack-loss-reopen and '
-                                + 'target-expire-scheduled-message only and cannot combine with ACK modes')
+                                + 'target-expire-not-found-network-ack-loss (with network-expiry-response-loss) '
+                                + 'and target-expire-scheduled-message only')
             }
         }
         args project.ext.optionalRealTaskArgument.call(findProperty('kafkaTargetScenario'))
+    } else if (findProperty('kafkaTargetAckMode') == 'network-expiry-response-loss') {
+        doFirst {
+            throw new GradleException(
+                    'network-expiry-response-loss requires -PkafkaTargetScenario='
+                            + 'target-expire-not-found-network-ack-loss')
+        }
     }
 }
 
