@@ -4,12 +4,14 @@ import com.nereusstream.delay.protocol.AuthorIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.ProtocolTuple;
+import com.nereusstream.delay.protocol.PublishEvidence;
 import com.nereusstream.delay.protocol.PublishOutcomeBody;
 import com.nereusstream.delay.protocol.RetryPolicySemantic;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
+import com.nereusstream.delay.protocol.TargetOrdinaryPublicationBinding;
 import com.nereusstream.delay.protocol.TargetPublishAdmissionBody;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
 import com.nereusstream.delay.protocol.TargetSourcePosition;
@@ -42,6 +44,30 @@ public final class TargetPublishOutcomeVerifier {
                 TrustedUtcIntervalEvidence evidence);
     }
 
+    /**
+     * Pre-resolved authenticated provider/Journal/receipt snapshot for the exact frozen request and evidence.
+     * It must check response correlation, sender/sequence and artifact authority, not just VERIFIED status.
+     * History/provider I/O must finish outside the Store ReadView; absence/failure retains the source entry.
+     */
+    @FunctionalInterface
+    public interface EvidenceAuthority {
+        void requireAuthenticated(
+                TargetOrdinaryPublicationBinding publication,
+                PublishEvidence evidence,
+                SourcePosition admissionSource,
+                SourcePosition outcomeSource);
+    }
+
+    public record EvidenceContext(SystemMutation admission, EvidenceAuthority authority) {
+        public EvidenceContext {
+            RetryContext.requireAdmission(admission);
+            if (TargetPublishAdmissionBody.decode(admission.canonicalBody()).publication() == null) {
+                throw new IllegalArgumentException("Target physical evidence requires materialized Admission v4");
+            }
+            Objects.requireNonNull(authority, "evidenceAuthority");
+        }
+    }
+
     public record Authorization(
             PublicKey writerKey,
             ProtocolTuple activatedTuple,
@@ -50,7 +76,22 @@ public final class TargetPublishOutcomeVerifier {
             long maximumBrokerTimestampDivergenceMs,
             long maximumMutationEnqueueAgeMs,
             DecisionTimeAuthority decisionTime,
-            RetryContext retryContext) {
+            RetryContext retryContext,
+            EvidenceContext evidenceContext) {
+        public Authorization(
+                PublicKey writerKey,
+                ProtocolTuple activatedTuple,
+                OwnerIdentity activeOwner,
+                long maximumDecisionWidthMs,
+                long maximumBrokerTimestampDivergenceMs,
+                long maximumMutationEnqueueAgeMs,
+                DecisionTimeAuthority decisionTime,
+                RetryContext retryContext) {
+            this(writerKey, activatedTuple, activeOwner, maximumDecisionWidthMs,
+                    maximumBrokerTimestampDivergenceMs, maximumMutationEnqueueAgeMs,
+                    decisionTime, retryContext, null);
+        }
+
         public Authorization(
                 PublicKey writerKey,
                 ProtocolTuple activatedTuple,
@@ -67,6 +108,7 @@ public final class TargetPublishOutcomeVerifier {
                     maximumBrokerTimestampDivergenceMs,
                     maximumMutationEnqueueAgeMs,
                     decisionTime,
+                    null,
                     null);
         }
 

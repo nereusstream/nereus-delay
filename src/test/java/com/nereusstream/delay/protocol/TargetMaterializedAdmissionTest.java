@@ -99,6 +99,44 @@ class TargetMaterializedAdmissionTest {
             TargetClaimRecord claim,
             TargetMessageRecord claimed) {}
 
+    @Test
+    void targetPublishedEvidenceRequiresExactResourcePartitionAndPreparedCommitment() throws Exception {
+        final var f = fixture();
+        final var publication = publication(f);
+        final var body = admission(f, publication);
+        final var transfer = PublishAdmissionBody.ChargeVector.decodeCanonical(body.outcomeTransfer());
+        assertEquals(1, transfer.inflightMessages());
+        assertEquals(body.executionBytes(), transfer.inflightBytes());
+        assertEquals(body.commitment().amount(CapacityDimension.RESULT_BYTES), transfer.resultBytes());
+        final long part = publication.physical().physicalPartition();
+        assertDoesNotThrow(() -> pulsarAck(publication, part, publication.preparedPublishHash())
+                .requireOrdinaryTargetPublishedBinding(publication));
+        assertThrows(IllegalArgumentException.class, () -> pulsarAck(publication, part + 1,
+                publication.preparedPublishHash()).requireOrdinaryTargetPublishedBinding(publication));
+        assertThrows(IllegalArgumentException.class, () -> pulsarAck(publication, part, repeated(32, 0x61))
+                .requireOrdinaryTargetPublishedBinding(publication));
+    }
+
+    private static PublishEvidence pulsarAck(
+            TargetOrdinaryPublicationBinding publication, long partition, byte[] preparedHash) {
+        final byte[] branch = CanonicalProtobuf.message(out -> {
+            CanonicalProtobuf.bytes(out, 1, publication.physical().resource().canonicalBytes());
+            CanonicalProtobuf.uint32(out, 2, partition);
+            CanonicalProtobuf.uint64(out, 3, 1);
+            CanonicalProtobuf.uint64(out, 4, 2);
+            CanonicalProtobuf.uint32(out, 5, 0);
+            CanonicalProtobuf.uint64(out, 6, publication.deliverAtEpochMs());
+            CanonicalProtobuf.bytes(out, 7, repeated(32, 0x61));
+            CanonicalProtobuf.uint64(out, 8, 1);
+            CanonicalProtobuf.bytes(out, 9,
+                    ExternalDeliveryIdentity.publishAttempt(publication.publishAttemptId()).canonicalBytes());
+            CanonicalProtobuf.bytes(out, 10, preparedHash);
+            CanonicalProtobuf.bytes(out, 11, repeated(32, 0x62));
+        });
+        return PublishEvidence.create(
+                PublishEvidenceKind.PULSAR_SEND_ACK, EvidenceVerificationStatus.VERIFIED_PUBLISHED, branch);
+    }
+
     private static Fixture fixture() throws Exception {
         final var binding = TargetScheduleBinding.decode(vector("target-binding-channel", "binding.best"));
         final var physical = CanonicalTargetPartition.decode(vector("target-compatibility", "pulsar.target"));

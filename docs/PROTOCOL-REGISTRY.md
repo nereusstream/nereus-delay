@@ -842,6 +842,29 @@ Applying a valid fence monotonically advances `closedIngressDeadlineThrough`. Th
 
 Outcome combination rules are closed: `PUBLISHED` requires `disposition=NONE`, verified-published evidence, `stable_code=OK`, and `retryDecision=NONE`; `NOT_PUBLISHED` requires verified-not-published evidence and may use `MESSAGE_RETRIABLE/MESSAGE_PERMANENT/LANE_UNAVAILABLE`; `UNKNOWN` forbids a definitive evidence status and requires `UNCERTAIN_HOLD` unless a baseline duplicate-authorized `SCHEDULED` decision is already fixed by policy. `OWNER_FENCED`/`ADAPTER_BUG` never turn `UNKNOWN` into `NOT_PUBLISHED`. A Publish Outcome authored by an Owner other than the attempt's admitted Owner is legal only when that author is the current guarded recovery Owner and the exact tuple is `UNKNOWN + OWNER_FENCED + RECOVERY_FIRST_SEND_UNCERTAIN + no evidence + UNCERTAIN_HOLD`; every other cross-Owner initial outcome is unauthorized/audit-only. `EvidenceResolution` obeys the same evidence/side-effect matrix under its Service Writer branch. For definitive `PUBLISH_OUTCOME` and `EVIDENCE_RESOLUTION`, field `transfer` must be canonical byte-identical to the charge vector retained by the exact Admission ledger. A mismatch is `REJECTED(STALE_SYSTEM_MUTATION)`, advances the source position, and never changes the attempt, message, timeline, or quota; `UNKNOWN` transfer is opaque and never authorizes a definitive release.
 
+普通 Target 当前 PUBLISHED 首应用现使用该封闭 v1 Outcome body，不更改共享 tuple 或上述字段。
+其 v4 Admission 冻结 charge 的 `ChargeVector` fields 1–17 与同号 CapacityDimension 一致：
+outcome-reserve commitment 各维度，加 field 7 INFLIGHT_MESSAGES=1 和 field 8 INFLIGHT_BYTES=
+Admission execution bytes，其余为零。该投影由 `TargetPublishAdmissionBody.outcomeTransfer()` 生成；
+不是可由 Outcome 作者自行决定的减额。必须同时匹配 retained ADMITTED Budget 和 Admission 首结果。
+
+`EvidenceContext` 必须携带有界 v4 Admission 原始 signed envelope 和预解析的 provider authentication
+snapshot；完整 envelope digest/source/Owner/attempt/budget 先绑定到 retained APPLIED/OK 首结果。
+`RetryContext` 仍绑定完整 NONE RetryDecision 的 policy/first-admission/window/completed-attempt，cause=OK。
+直接 ACK 的静态比较核验 exact physical Target、partition 与 frozen prepared hash；generation-2
+Pulsar ACK 还比较 artifact-set digest。Kafka Produce ACK 只用于 BASELINE channel；Pulsar SEND ACK
+只用于 BASELINE/PULSAR_DEDUP channel。认证 snapshot 必须另行核对完整响应、sender/sequence、请求关联
+与 artifact authority，codec/status/hash 本身不证明认证。缺失或认证失败保留 entry，不能写成功首结果。
+transactional receipt、Journal/operator/absence 分支仍等待相应 Target recovery-domain verifier，
+不以直接 ACK 代替事务提交或 Journal 恢复证明。
+
+该 source batch 将 exact current PUBLISHING Message 写成 PUBLISHED terminal、移除其 ref、保留其它
+未决 refs/计数/duplicate，更新 strict barrier/watermark、Terminal history、Budget、首结果和 frontier。
+没有剩余 ref 才将 payload owner 转 RETAINED；仍有旧义务则保持原 payload owner。Budget 只进入
+RESOLVED_AWAITING_FLOOR，释放已确证的执行 charge，commitment/allocated 原样保留，不提前释放 reserve。
+当前本地证据使用显式 credential/response/认证 fixtures；生产 resolver、Producer/Broker、Native、
+NOT_PUBLISHED、terminal/historical settlement、Claim 缺失恢复和完整 Floor/retention 验证仍未闭合。
+
 Outcome/Resolution application updates the attempt ledger and `GenerationRuntimeIndex` in one WriteBatch. `UNKNOWN + SCHEDULED` atomically deletes the exact PUBLISHING key, writes the byte-equivalent identity/admission prefix plus Outcome under its exact UNCERTAIN key, replaces the PUBLISHING-key obligation ref with the UNCERTAIN-key ref, keeps aggregate `UNCERTAIN`, and inserts one `UNCERTAIN_RETRY` timeline work; it does not increment field 15 until the later Admission applies. `UNKNOWN + UNCERTAIN_HOLD` performs the same key/ref replacement and leaves current work NONE. Definitive nonpublication removes that exact ref only after required strong-capability retirement; if another UNCERTAIN ledger remains, any scheduled current work is `UNCERTAIN_RETRY` and the aggregate remains `UNCERTAIN`, otherwise it is `DEFINITIVE_RETRY`/`RETRY_WAIT`. When resolution empties the UNCERTAIN set while reversible TIMELINE/CLAIMED work exists, the event loop first revokes any Claim whose field-19 digest is stale, normalizes the work kind and aggregate, then permits a fresh Claim.
 
 Any verified success terminalizes the Generation. Reversible TIMELINE or CLAIMED current work is removed in that batch. A different already-admitted PUBLISHING attempt cannot be revoked: its ledger and obligation ref remain, current work becomes NONE, `possible_destination_duplicate=true`, and its later Outcome/evidence may release only its own obligation and charges. Expiry and Lane Close similarly delete reversible current work but never erase an admitted obligation; with any possible-delivery ledger they retain aggregate `UNCERTAIN` or apply the pinned explicit possible-delivery terminal policy. Cancel/Reschedule are `TOO_LATE` whenever an UNCERTAIN obligation exists, even if current work is TIMELINE or CLAIMED. `UNCERTAIN_RETRY` is invalid for `DELIVERY_TIME_FIFO`, a closed/broken Lane, or exhausted budgets.

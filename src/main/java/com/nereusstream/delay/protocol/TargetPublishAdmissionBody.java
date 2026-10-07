@@ -190,6 +190,18 @@ public final class TargetPublishAdmissionBody {
 
     public TargetClaimRecord claimProof() { return claimProof; }
 
+    /** Registry ChargeVector fields 1–17: exact frozen reserve plus the admitted execution charge. */
+    public byte[] outcomeTransfer() {
+        return CanonicalProtobuf.message(out -> {
+            for (int field = 1; field <= 17; field++) {
+                final long amount = field == CapacityDimension.INFLIGHT_MESSAGES.wireValue() ? 1
+                        : field == CapacityDimension.INFLIGHT_BYTES.wireValue() ? executionBytes
+                        : commitment.amount(CapacityDimension.fromWire(field));
+                CanonicalProtobuf.uint64(out, field, amount);
+            }
+        });
+    }
+
     public byte[] canonicalBytes() {
         final byte[] subject = new ShardSubject(shard).canonicalBytes();
         return CanonicalProtobuf.message(output -> {

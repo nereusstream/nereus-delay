@@ -4,6 +4,7 @@ import com.nereusstream.delay.protocol.AuthorIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.OwnerIdentity;
+import com.nereusstream.delay.protocol.PublishEvidence;
 import com.nereusstream.delay.protocol.PublishOutcomeBody;
 import com.nereusstream.delay.protocol.RetryJitter;
 import com.nereusstream.delay.protocol.RetryPolicySemantic;
@@ -16,6 +17,7 @@ import com.nereusstream.delay.protocol.TargetQueueState;
 import com.nereusstream.delay.protocol.TargetQuotaAttemptBudget;
 import com.nereusstream.delay.protocol.TargetQuotaIncarnation;
 import com.nereusstream.delay.protocol.TargetQuotaMutation;
+import com.nereusstream.delay.protocol.TargetQuotaPayloadOwner;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
 import com.nereusstream.delay.protocol.TargetScheduleBinding;
 import com.nereusstream.delay.protocol.TargetSourcePosition;
@@ -29,7 +31,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
-/** Applies initial Target UNKNOWN outcomes without releasing attempts, barriers, or their quota reserve. */
+/** Applies initial Target UNKNOWN or authenticated current PUBLISHED outcomes in one accounted source batch. */
 public final class TargetPublishOutcomeStore {
     public static final class Prepared {
         private final TargetPublishOutcomeStore owner;
@@ -121,16 +123,14 @@ public final class TargetPublishOutcomeStore {
                     final var extra = new java.util.ArrayList<TargetStoreBackend.Edit>();
                     if (rejection == null) {
                         final var outcome = decision.body();
-                        if (outcome.sideEffect() != 3) {
+                        if (outcome.sideEffect() == 2) {
                             throw new IllegalStateException(
                                     "Target definitive Publish Outcome application is not enabled yet");
                         }
-                        final var projection = unknown(
-                                reader,
-                                outcome,
-                                stamp,
-                                AuthorIdentity.decode(mutation.authorIdentity()).asOwnerIdentity(),
-                                decision.authorization());
+                        final var writer = AuthorIdentity.decode(mutation.authorIdentity()).asOwnerIdentity();
+                        final var projection = outcome.sideEffect() == 1
+                                ? published(reader, outcome, stamp, writer, decision.authorization())
+                                : unknown(reader, outcome, stamp, writer, decision.authorization());
                         rejection = projection.rejection();
                         if (rejection == null) {
                             transitions = List.of(new TargetMessageStore.Transition(
@@ -242,6 +242,123 @@ public final class TargetPublishOutcomeStore {
                 order,
                 List.of(budgetEdit),
                 null);
+    }
+
+    private OutcomeProjection published(
+            final TargetStoreBackend.Reader reader,
+            final PublishOutcomeBody outcome,
+            final TargetQuotaMutation stamp,
+            final OwnerIdentity writer,
+            final TargetPublishOutcomeVerifier.Authorization authorization) {
+        final byte[] budgetKey = Bytes.concat(
+                new byte[] {TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG, TargetKeyCodec.KEY_FORMAT},
+                outcome.publishAttemptId());
+        final byte[] raw = reader.get(ColumnFamily.META, budgetKey);
+        if (raw == null) {
+            return OutcomeProjection.stale(StableCode.STALE_SYSTEM_MUTATION);
+        }
+        final var budget = TargetQuotaAttemptBudget.decodeForStore(
+                budgetKey, TargetValueEnvelope.decode(raw, TargetQuotaAttemptBudget.VALUE_TYPE).payload(),
+                scope.shard());
+        if (budget.phase() != TargetQuotaAttemptBudget.Phase.ADMITTED) {
+            return OutcomeProjection.stale(StableCode.STALE_SYSTEM_MUTATION);
+        }
+        final var context = authorization.evidenceContext();
+        if (context == null) {
+            throw new IllegalStateException("Target physical evidence authority/history is unavailable");
+        }
+        final var admission = TargetPublishAdmissionBody.decode(context.admission().canonicalBody());
+        final var proof = admissionProof(reader, context.admission());
+        if (!admission.locator().equals(budget.locator())
+                || !Arrays.equals(context.admission().mutationHash(), budget.admissionDigest())
+                || !proof.mutation().equals(budget.mutation())
+                || !Arrays.equals(outcome.publishAttemptId(), admission.publishAttemptId())
+                || budget.executionBytes() != admission.executionBytes()
+                || !budget.commitment().equals(admission.commitment())
+                || !budget.allocated().equals(admission.allocated())) {
+            throw new IllegalStateException("Target evidence history differs from its exact Admission/budget");
+        }
+        if (!admission.owner().equals(writer)) {
+            return OutcomeProjection.stale(StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+        }
+        if (!Arrays.equals(outcome.transfer(), admission.outcomeTransfer())) {
+            return OutcomeProjection.stale(StableCode.STALE_SYSTEM_MUTATION);
+        }
+        final var evidence = PublishEvidence.decode(outcome.evidence());
+        evidence.requireOrdinaryTargetPublishedBinding(admission.publication());
+        final byte[] messageKey = TargetKeyCodec.message(budget.locator().messageId());
+        final var before = TargetMessageRecord.decodeForStore(
+                messageKey, TargetValueEnvelope.decode(
+                                required(reader, ColumnFamily.ID, messageKey), TargetMessageRecord.VALUE_TYPE)
+                        .payload(),
+                scope.shard());
+        if (!before.locator().equals(budget.locator())) {
+            throw new IllegalStateException("Target evidence budget points to another Message locator");
+        }
+        if (before.runtime().terminal()
+                || before.runtime().currentWorkKind() != CurrentSendWorkKind.PUBLISHING
+                || !Arrays.equals(before.runtime().publishAttemptId(), outcome.publishAttemptId())) {
+            throw new IllegalStateException("Target terminal/historical PUBLISHED source application is not enabled");
+        }
+        if (before.runtime().admissionsUsed() != admission.attemptNo()
+                || !before.runtime().attemptObligations().contains(admission.obligation())) {
+            throw new IllegalStateException("Target current PUBLISHING projection differs from its Admission proof");
+        }
+        requireRetryContext(reader, before, budget, outcome, authorization);
+        if (outcome.retryDecision().cause() != StableCode.OK) {
+            throw new IllegalArgumentException("Target PUBLISHED retry decision changes its successful cause");
+        }
+        context.authority().requireAuthenticated(
+                admission.publication(), evidence, proof.mutation().source(), stamp.source());
+        final var after = before.publishedOutcome(outcome.publishAttemptId());
+        final var terminal = new TargetTerminalGenerationRecord(
+                after.locator(), after.stateVersion(), StableCode.OK, after.runtime(), stamp, lineage);
+        if (reader.get(ColumnFamily.TERMINAL, terminal.key()) != null) {
+            throw new IllegalStateException("current Target publication already has terminal history");
+        }
+        final byte[] payloadKey = Bytes.concat(
+                new byte[] {TargetKeyCodec.QUOTA_PAYLOAD_OWNER_TAG, TargetKeyCodec.KEY_FORMAT},
+                before.locator().messageId().bytes());
+        final var payloadOwner = TargetQuotaPayloadOwner.decodeForStore(
+                payloadKey, TargetValueEnvelope.decode(
+                                required(reader, ColumnFamily.META, payloadKey), TargetQuotaPayloadOwner.VALUE_TYPE)
+                        .payload(),
+                scope.shard(), scope.tenantScope());
+        payloadOwner.requireMessagePayload(before);
+        terminal.requireOwner(payloadOwner);
+        payloadOwner.mutation().requireAtOrBefore(reader.aggregate().mutation());
+        if (payloadOwner.phase() != TargetQuotaPayloadOwner.Phase.ACTIVE) {
+            throw new IllegalStateException("current publishing Target Message lacks active payload ownership");
+        }
+        final var extra = new java.util.ArrayList<TargetStoreBackend.Edit>();
+        if (after.runtime().attemptObligations().isEmpty()) {
+            final var retained = payloadOwner.retain(stamp, (prior, next, floor) -> {
+                if (floor != null || !Arrays.equals(prior.canonicalBytes(), payloadOwner.canonicalBytes())
+                        || next.phase() != TargetQuotaPayloadOwner.Phase.RETAINED
+                        || !next.mutation().equals(stamp)) {
+                    throw new IllegalStateException("Target success changed its frozen payload retention");
+                }
+                next.requireMessagePayload(after);
+            });
+            extra.add(reader.replace(
+                    ColumnFamily.META, retained.key(), TargetQuotaPayloadOwner.VALUE_TYPE, retained.canonicalBytes()));
+        }
+        final var resolved = budget.resolve(evidence.verificationStatus(), budget.allocated(), stamp);
+        extra.add(reader.replace(
+                ColumnFamily.META, budgetKey, TargetQuotaAttemptBudget.VALUE_TYPE, resolved.canonicalBytes()));
+        extra.add(reader.replace(
+                ColumnFamily.TERMINAL, terminal.key(), TargetTerminalGenerationRecord.VALUE_TYPE,
+                terminal.canonicalBytes()));
+        return new OutcomeProjection(before, after, strictOrder(reader, before, after), extra, null);
+    }
+
+    private static byte[] required(
+            final TargetStoreBackend.Reader reader, final ColumnFamily family, final byte[] key) {
+        final byte[] raw = reader.get(family, key);
+        if (raw == null) {
+            throw new IllegalStateException("Target publication lacks a retained primary record");
+        }
+        return raw;
     }
 
     private void requireRetryContext(
@@ -387,7 +504,9 @@ public final class TargetPublishOutcomeStore {
                 scope.shard(),
                 queue(reader, before));
         state.requireBarrierProjection(before);
-        return new TargetMessageStore.OrderTransition(state, state.afterUnknownOutcome(before, after));
+        return new TargetMessageStore.OrderTransition(state,
+                after.aggregateState() == GenerationAggregateState.PUBLISHED
+                        ? state.afterPublishedOutcome(before, after) : state.afterUnknownOutcome(before, after));
     }
 
     private TargetQueueState queue(final TargetStoreBackend.Reader reader, final TargetMessageRecord message) {

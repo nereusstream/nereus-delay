@@ -178,6 +178,13 @@ MaterializationAuthority 必须是 Store 外已解析的历史保护/能力/凭�
 不可套用普通 Claim；实际 Producer/request 构造、live gate、authenticated receipt/Journal 与 frozen
 commitment 精确匹配、proof retention 和 Claim 缺失恢复仍未闭合。没有新 NV type 或物理发送许可。
 
+2026-10-07 后续：普通 current PUBLISHED 首应用已消费该冻结身份和 retained Admission 首结果证明。
+直接 ACK 的 Target/partition/prepared hash（Pulsar generation 2 另含 artifact digest）由静态 helper
+比较；EvidenceContext 另要求 Store 外已解析的 provider authentication snapshot，核对完整响应、
+sender/sequence 与请求关联。事务 receipt/Journal 等不能降为普通 ACK。成功保留其它旧义务和原
+channel，payload 无剩余 ref 才 retain，预算只释放 execution charge 并等待 Floor。fixture 验证了
+本地 source batch 和 ACK retry，生产 provider/Producer/Broker、完整 retention/recovery 仍未认证。
+
 | 对象 | key | reserved NV type |
 |---|---|---|
 | TargetChannelIdentity | meta `0e 01 + digest[32]` | 20 |

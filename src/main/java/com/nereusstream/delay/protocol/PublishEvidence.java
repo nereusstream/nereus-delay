@@ -113,6 +113,40 @@ public final class PublishEvidence {
         requireOwner(ExternalDeliveryIdentity.Kind.PUBLISH_ATTEMPT, publishAttemptId, published);
     }
 
+    /** Static ordinary Target binding only; a resolved provider authority must authenticate the full response. */
+    public void requireOrdinaryTargetPublishedBinding(final TargetOrdinaryPublicationBinding publication) {
+        Objects.requireNonNull(publication, "publication");
+        requireBusinessMutation(publication.publishAttemptId(), true);
+        final var fields = QueryCodecSupport.read(branch, "ordinary Target publication evidence");
+        final int targetField;
+        final int partitionField;
+        final int preparedField;
+        if (evidenceKind == PublishEvidenceKind.KAFKA_PRODUCE_ACK
+                && publication.channel().context().kind() == ChannelKind.BASELINE_PRODUCER) {
+            targetField = 1;
+            partitionField = 2;
+            preparedField = 7;
+        } else if (evidenceKind == PublishEvidenceKind.PULSAR_SEND_ACK
+                && (publication.channel().context().kind() == ChannelKind.BASELINE_PRODUCER
+                        || publication.channel().context().kind() == ChannelKind.PULSAR_DEDUP_PRODUCER)) {
+            final boolean record = fields.size() == 22;
+            targetField = record ? 2 : 1;
+            partitionField = record ? 3 : 2;
+            preparedField = record ? 15 : 10;
+            if (record && !Arrays.equals(fixed(fields, 22), publication.artifactGenerationSetDigest())) {
+                throw new IllegalArgumentException("Target ACK changes its frozen artifact set");
+            }
+        } else {
+            throw new IllegalStateException("Target publication evidence branch requires its recovery-domain verifier");
+        }
+        final var target = BrokerResourceIdentity.decode(nested(fields, targetField));
+        if (!Arrays.equals(target.canonicalBytes(), publication.physical().resource().canonicalBytes())
+                || uint(fields, partitionField) != publication.physical().physicalPartition()
+                || !Arrays.equals(fixed(fields, preparedField), publication.preparedPublishHash())) {
+            throw new IllegalArgumentException("Target evidence changes its frozen physical request identity");
+        }
+    }
+
     /**
      * Requires the fixed early-Pulsar handoff proof to bind to its retained
      * Publish Admission. This is deliberately narrower than ordinary

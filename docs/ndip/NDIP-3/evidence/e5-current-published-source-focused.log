@@ -1,0 +1,39 @@
+E5 Current ordinary PUBLISHED source application
+
+Date: 2026-10-07
+Base: main@e51ed6d1baea8d5356dc9b084177a47ee202b23b
+
+The initial current PUBLISHED path uses the existing shared PUBLISH_OUTCOME v1 body/tuple and requires an independent Target Admission v4. The bounded signed Admission image is joined to retained APPLIED/OK SYSTEM first result, full envelope digest/source/Owner/attempt and ADMITTED Budget. Frozen transfer is the existing ChargeVector fields 1-17 projection of reserve commitment plus one admitted execution message/bytes, not a caller-selected release amount. NONE RetryDecision is bound to the current/first Admission and Schedule policy/window/attempt with cause OK.
+
+Direct ACK static binding verifies exact Target resource, physical partition and prepared commitment (generation-2 Pulsar also artifact digest); Kafka Produce ACK is baseline-only, Pulsar ACK is baseline/dedup-only. An explicit EvidenceContext carries a pre-resolved provider-authentication snapshot responsible for full response correlation, sender/sequence and artifact authority. Missing/failed authentication retains the entry without first result/source advance. Transactional receipt, Journal/operator/absence branches remain disabled pending their Target recovery-domain verifier, not downgraded to direct ACK.
+
+One accounted source batch writes PUBLISHED current Message/ref settlement, strict order successor, terminal history, payload retention only when no refs remain, Budget RESOLVED_AWAITING_FLOOR and SYSTEM/POSITION_SYSTEM first results/frontier. Execution charge is released only after authentication; commitment/allocated remain unchanged until the existing Floor protocol. Transfer mismatch is a durable STALE_SYSTEM_MUTATION rejection with unchanged Message/order/Budget. Shared accounting checks primary/mirror/total ownership; no manual quota decrement is introduced.
+
+Commands:
+./gradlew checkstyleMain checkstyleTest test --tests 'com.nereusstream.delay.runtime.TargetCommandStoreTest.modifiesActualTimelineOrClaimWithHistoryAndFirstResults' --tests 'com.nereusstream.delay.protocol.TargetMaterializedAdmissionTest' --tests 'com.nereusstream.delay.protocol.PublishEvidenceTest' --tests 'com.nereusstream.delay.runtime.TargetPublishOutcomeVerifierTest' --no-daemon --console=plain
+Result: tests passed 20/20 (9+3+7+1), zero failures/errors/skips. Combined Gradle task failed only changed-file import order and line lengths. Those were corrected with formatting-only edits after the tests.
+
+./gradlew checkstyleMain checkstyleTest --no-daemon --console=plain
+Result: BUILD SUCCESSFUL in 28s; main/test Checkstyle zero errors.
+
+Actual Worker/RocksDB tests include one current PUBLISHED acceptance and one transfer-mismatch rejection after materialized v4 Admission, plus the seven retained compatibility/UNKNOWN cases. Both new cases observe ACK_UNKNOWN after durable commit and then ACK-only retry with unchanged native Store sequence and one authority resolution. The success checks exact Message/order successors, terminal record, retained payload, Budget phase/unchanged reserve/no Floor, system/position linkage and source frontier. Missing evidence context and failing authentication are zero-write preparation checks. Protocol checks cover matching/foreign partition/prepared hash and canonical charge projection.
+
+Scope: response, credential, clock/Owner/tuple/materialization/history and authentication providers are explicit test fixtures. No real Producer send, raw authenticated Broker response, transaction/Journal proof, physical evidence retention, process restart or takeover is exercised. Success with older unresolved refs is implemented by the existing value successor and conservative retention branch but this new source fixture has a single current ref; the prior value-only evidence covers retained old refs. Production resolvers/retention, Producer/Broker, Native, NOT_PUBLISHED, terminal/historical settlement, missing-Claim recovery and central validation remain open. E5 is IN_PROGRESS / PENDING_CENTRAL_VALIDATION; all completion/production authority flags remain false.
+
+Documentation command:
+./gradlew checkDocumentation --no-daemon --console=plain
+Result: BUILD SUCCESSFUL in 1m 4s; verifier suites passed 10/10 and 14/14 and historical/package authority checks passed. progress JSON parsing, incomplete/authority flags, evidence paths and final source/report SHA-256 matches verified. git diff --check passed.
+
+SHA-256 (final source; test edits after run are formatting only):
+34d638946be4dadd6fa84a11ada3e7c1cb7c41a53a127c71e594e6629c17204f  src/main/java/com/nereusstream/delay/protocol/PublishEvidence.java
+759be10df4ff19e3dfdc068a0a1fdcb0e5b456370cf5087e2473246a03c3499f  src/main/java/com/nereusstream/delay/protocol/TargetPublishAdmissionBody.java
+1a18c7aaaf5c7ea2653d958b22b09fc57dd62863c4591fba2b1f34d7a42a8fbb  src/main/java/com/nereusstream/delay/runtime/TargetPublishOutcomeStore.java
+041d812a377ff92656d2ac48350440f4ea409ee71af674bfd8fa021c184b073b  src/main/java/com/nereusstream/delay/runtime/TargetPublishOutcomeVerifier.java
+2208cf8349df15e84f4ddb699ea9dc06e4ef3a3c7eaa56803edbfea4d416f229  src/test/java/com/nereusstream/delay/protocol/TargetMaterializedAdmissionTest.java
+46075f11f2535ea5931e005fcdc25f4e208044cf2b6759006817e0c1383b7da9  src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java
+52b73d36f6703acc49711ca18d0b0bd460a1e5df35db3ade2623527b8aad3fb5  build/test-results/test/TEST-com.nereusstream.delay.runtime.TargetCommandStoreTest.xml
+1f20e23f1aa42863b7d087096b90c6692b18eb3e197aa332621227427a816728  build/test-results/test/TEST-com.nereusstream.delay.protocol.TargetMaterializedAdmissionTest.xml
+ed20285feb893182285e6b489ce01e12aae98346d8a778383c5444407b593c66  build/test-results/test/TEST-com.nereusstream.delay.protocol.PublishEvidenceTest.xml
+ccd5b9c143b9e05d54a74e31ccc4f9c6a2b3d7ad3957708ef0e2ceb728b413b1  build/test-results/test/TEST-com.nereusstream.delay.runtime.TargetPublishOutcomeVerifierTest.xml
+1cebbf9c4340f833edef1a4ab2e42e836af0c8b770dc96a500c3c32d6471e37e  build/reports/checkstyle/main.xml
+5f0297d93c65110a2f55915d73253257387acb5203d1ed178b8cabaacd86882e  build/reports/checkstyle/test.xml
