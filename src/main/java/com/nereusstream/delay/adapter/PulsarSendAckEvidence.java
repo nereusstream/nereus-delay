@@ -22,6 +22,28 @@ public final class PulsarSendAckEvidence {
 
     private PulsarSendAckEvidence() {}
 
+    /** Matches all generation-2 record/sender/sequence/artifact fields; provider authentication remains external. */
+    public static void requireRecordBinding(
+            final PublishEvidence evidence, final PulsarPreparedRecord record, final ArtifactGenerationSet artifacts) {
+        final var f = com.nereusstream.delay.protocol.QueryCodecSupport.read(evidence.branch(), "Pulsar record ACK");
+        if (f.size() != 22) {
+            throw new IllegalArgumentException("Target final record requires generation-2 ACK evidence");
+        }
+        requireExactBindingForRecord(evidence, record, artifacts,
+                com.nereusstream.delay.protocol.QueryCodecSupport.fixed(f.get(8), 9, 32),
+                com.nereusstream.delay.protocol.QueryCodecSupport.uint(f.get(3), 4),
+                com.nereusstream.delay.protocol.QueryCodecSupport.uint(f.get(4), 5),
+                Math.toIntExact(com.nereusstream.delay.protocol.QueryCodecSupport.uint(f.get(5), 6)),
+                Math.toIntExact(com.nereusstream.delay.protocol.QueryCodecSupport.uint(f.get(6), 7)),
+                com.nereusstream.delay.protocol.QueryCodecSupport.uint(f.get(7), 8),
+                Math.toIntExact(com.nereusstream.delay.protocol.QueryCodecSupport.uint(f.get(9), 10)),
+                com.nereusstream.delay.protocol.QueryCodecSupport.uint(f.get(10), 11),
+                com.nereusstream.delay.protocol.QueryCodecSupport.uint(f.get(11), 12),
+                com.nereusstream.delay.protocol.QueryCodecSupport.uint(f.get(12), 13),
+                com.nereusstream.delay.protocol.QueryCodecSupport.fixed(f.get(18), 19, 32),
+                com.nereusstream.delay.protocol.QueryCodecSupport.fixed(f.get(19), 20, 32));
+    }
+
     /** Creates a verified PUBLISHED branch bound to one exact prepared attempt. */
     public static PublishEvidence published(
             final PulsarDestinationRequest request,

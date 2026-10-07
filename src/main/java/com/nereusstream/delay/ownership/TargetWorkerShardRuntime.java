@@ -239,6 +239,44 @@ public final class TargetWorkerShardRuntime
         return target.readTargetQueue(budget, targetId, ownerClock);
     }
 
+    public synchronized com.nereusstream.delay.runtime.TargetPublishAdmissionStore.Applied readAppliedAdmission(
+            final BoundedReadBudget budget, final com.nereusstream.delay.protocol.SystemMutation image,
+            final LongSupplier ownerClock) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        return target.readAppliedAdmission(budget, image, ownerClock);
+    }
+
+    synchronized void submitOutcomeAction(
+            final WorkClassTask task, final com.nereusstream.delay.protocol.SystemMutation mutation,
+            final LongSupplier ownerClock, final Runnable action) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        target.requireOutcomeWriter(mutation, ownerClock);
+        workClasses.submit(task, action);
+    }
+
+    synchronized ShardLogMutationAppender.AppendOutcome appendOutcome(
+            final com.nereusstream.delay.protocol.SystemMutation mutation,
+            final ShardLogMutationAppender appender, final LongSupplier ownerClock) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        target.requireOutcomeWriter(mutation, ownerClock);
+        final var appended = Objects.requireNonNull(appender.append(mutation), "Target Outcome append");
+        if (appended.disposition() == ShardLogMutationAppender.AppendDisposition.PERSISTED) {
+            target.requireCurrentExpiryLogPosition(appended.sourcePosition(), appended.sourceConnectionGeneration(),
+                    appended.guardAttestationDigest(), ownerClock);
+        }
+        return appended;
+    }
+
+    synchronized Optional<SystemMutationResult> outcomeMutationResult(
+            final com.nereusstream.delay.protocol.SystemMutation mutation, final LongSupplier ownerClock) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        return target.outcomeMutationResult(mutation, ownerClock);
+    }
+
     /** Reads one bounded persisted active-message total for optional queue-depth telemetry. */
     public synchronized OptionalLong readTargetActiveMessages(
             final BoundedReadBudget budget, final TargetPartitionId targetId, final LongSupplier ownerClock) {

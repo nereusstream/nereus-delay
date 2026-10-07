@@ -1,10 +1,12 @@
 package com.nereusstream.delay.runtime;
 
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
 import com.nereusstream.delay.protocol.TargetMessageLocator;
+import com.nereusstream.delay.protocol.TargetPublishAdmissionBody;
 import com.nereusstream.delay.protocol.TargetQueueState;
 import com.nereusstream.delay.protocol.TargetQuotaAttemptBudget;
 import com.nereusstream.delay.protocol.TargetQuotaIdentity;
@@ -24,6 +26,34 @@ import java.util.Objects;
 
 /** Source-ordered Target Admission: Message, strict barrier, attempt budget, result and position commit together. */
 public final class TargetPublishAdmissionStore {
+    /** Actual bounded Store read, not a caller-created assertion that Admission was applied. */
+    public static final class Applied {
+        private final SystemMutation image;
+        private final TargetPublishAdmissionBody body;
+        private final SourcePosition source;
+        private final TargetMessageRecord message;
+
+        private Applied(SystemMutation image, TargetPublishAdmissionBody body,
+                SourcePosition source, TargetMessageRecord message) {
+            this.image = image;
+            this.body = body;
+            this.source = source;
+            this.message = message;
+        }
+
+        public SystemMutation image() { return image; }
+        public TargetPublishAdmissionBody body() { return body; }
+        public SourcePosition source() { return source; }
+        public TargetMessageRecord message() { return message; }
+
+        public void requireSame(final Applied current) {
+            if (!Arrays.equals(image.canonicalEnvelope(), current.image.canonicalEnvelope())
+                    || !Arrays.equals(source.canonicalBytes(), current.source.canonicalBytes())
+                    || !Arrays.equals(message.canonicalBytes(), current.message.canonicalBytes())) {
+                throw new IllegalStateException("Target send snapshot changed after its applied Admission read");
+            }
+        }
+    }
     public static final class Prepared {
         private final TargetPublishAdmissionStore owner;
         private final TargetStoreBackend.Prepared batch;
@@ -76,6 +106,72 @@ public final class TargetPublishAdmissionStore {
         this.maximumDomains = maximumDomains;
         messages = new TargetMessageStore(backend, 1, 1, maximumDomains);
         grants = new TargetQuotaStoreGate(scope, lineage, maximumTargets);
+    }
+
+    /** Verifies current PUBLISHING work, Store identity, full signed image and retained first/budget/source joins. */
+    public Applied readApplied(
+            final BoundedReadBudget budget, final SystemMutation image,
+            final TargetStoreBackend.ReadAuthority authority) {
+        Objects.requireNonNull(image, "image");
+        if (image.type() != SystemMutationType.TARGET_PUBLISH_ADMISSION || !image.shardId().equals(scope.shard())) {
+            throw new IllegalArgumentException("Target send image belongs to another operation/Shard");
+        }
+        final var body = TargetPublishAdmissionBody.decode(image.canonicalBody());
+        if (body.publication() == null) {
+            throw new IllegalArgumentException("Target send requires materialized Admission v4");
+        }
+        return backend.guardedRead(budget, reader -> {
+            if (!Arrays.equals(body.storeIncarnation(), reader.metadata().storeIncarnation())) {
+                throw new IllegalStateException("Target first send belongs to another Store incarnation");
+            }
+            final byte[] raw = reader.get(ColumnFamily.DEDUPE, systemResultKey(image));
+            if (raw == null) {
+                throw new IllegalStateException("Target first send lacks its retained Admission first result");
+            }
+            final var first = TargetResultRecord.decode(
+                    TargetValueEnvelope.decode(raw, TargetResultRecord.VALUE_TYPE).payload());
+            first.requireOwner(root(reader));
+            first.mutation().requireAtOrBefore(reader.aggregate().mutation());
+            final var result = SystemMutationResult.decode(first.typedPayload());
+            final byte[] budgetKey = Bytes.concat(
+                    new byte[] {TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG, TargetKeyCodec.KEY_FORMAT},
+                    body.publishAttemptId());
+            final var attempt = TargetQuotaAttemptBudget.decodeForStore(
+                    budgetKey, TargetValueEnvelope.decode(required(reader, ColumnFamily.META, budgetKey),
+                            TargetQuotaAttemptBudget.VALUE_TYPE).payload(), scope.shard());
+            final byte[] key = TargetKeyCodec.message(body.locator().messageId());
+            final var message = TargetMessageRecord.decodeForStore(key,
+                    TargetValueEnvelope.decode(required(reader, ColumnFamily.ID, key), TargetMessageRecord.VALUE_TYPE)
+                            .payload(), scope.shard());
+            if (first.kind() != TargetResultRecord.Kind.SYSTEM || first.allocation() != null
+                    || !Arrays.equals(first.logicalId(), image.systemMutationId())
+                    || !Arrays.equals(result.mutationId(), image.systemMutationId())
+                    || !Arrays.equals(result.mutationHash(), image.mutationHash())
+                    || !Arrays.equals(result.authorIdentity(), image.authorIdentity())
+                    || result.retryUntilEpochMs() != image.retryUntilEpochMs()
+                    || result.applyStatus() != ApplyStatus.APPLIED || result.stableCode() != StableCode.OK
+                    || !Arrays.equals(first.mutation().mutationDigest(), Bytes.sha256(image.canonicalEnvelope()))
+                    || !Arrays.equals(result.appliedSourcePosition(), first.mutation().source().canonicalBytes())
+                    || !attempt.mutation().equals(first.mutation())
+                    || attempt.phase() != TargetQuotaAttemptBudget.Phase.ADMITTED
+                    || !Arrays.equals(attempt.admissionDigest(), image.mutationHash())
+                    || !attempt.locator().equals(body.locator()) || !message.locator().equals(body.locator())
+                    || message.runtime().currentWorkKind() != CurrentSendWorkKind.PUBLISHING
+                    || !Arrays.equals(message.runtime().publishAttemptId(), body.publishAttemptId())
+                    || !message.runtime().attemptObligations().contains(body.obligation())) {
+                throw new IllegalStateException("Target first-send image differs from actual applied work/proof");
+            }
+            reader.requireWithinElapsedBudget();
+            return new Applied(image, body, first.mutation().source(), message);
+        }, Objects.requireNonNull(authority, "authority"));
+    }
+
+    private static byte[] required(TargetStoreBackend.Reader reader, ColumnFamily family, byte[] key) {
+        final byte[] value = reader.get(family, key);
+        if (value == null) {
+            throw new IllegalStateException("Target first send lacks retained primary records");
+        }
+        return value;
     }
 
     /** Immutable first-result replay must be routed before this method. */

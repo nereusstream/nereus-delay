@@ -1,5 +1,6 @@
 package com.nereusstream.delay.ownership;
 
+import com.nereusstream.delay.protocol.AuthorIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
 import com.nereusstream.delay.protocol.CanonicalTargetPartition;
@@ -10,6 +11,7 @@ import com.nereusstream.delay.protocol.PublishOutcomeBody;
 import com.nereusstream.delay.protocol.PulsarActivationBarrier;
 import com.nereusstream.delay.protocol.PulsarSourcePosition;
 import com.nereusstream.delay.protocol.SourcePosition;
+import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
 import com.nereusstream.delay.protocol.TargetCloseBody;
 import com.nereusstream.delay.protocol.TargetCloseRequest;
@@ -706,6 +708,42 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         requireGcOwner(clock);
         return new TargetQueueSnapshotReader(backend, limits.domains(), targetQueueHeadCache)
                 .readTarget(budget, target, workerReads(clock));
+    }
+
+    synchronized TargetPublishAdmissionStore.Applied readAppliedAdmission(
+            final BoundedReadBudget budget, final SystemMutation image, final LongSupplier ownerClock) {
+        final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
+        requireGcOwner(clock);
+        final var applied = targetAdmissions.readApplied(budget, image, workerReads(clock));
+        final var owner = applied.body().owner();
+        if (owner.ownerEpoch() != lease.ownerEpoch()
+                || !Bytes.constantTimeEquals(owner.leaseFencingDigest(), lease.leaseToken())) {
+            throw new IllegalStateException("Target first-send Admission belongs to another Owner");
+        }
+        requireGcOwner(clock);
+        return applied;
+    }
+
+    synchronized void requireOutcomeWriter(final SystemMutation mutation, final LongSupplier clock) {
+        requireGcOwner(clock);
+        final var author = AuthorIdentity.decode(mutation.authorIdentity()).asOwnerIdentity();
+        if (mutation.type() != SystemMutationType.PUBLISH_OUTCOME || !mutation.shardId().equals(scope.shard())
+                || author.ownerEpoch() != lease.ownerEpoch()
+                || !Bytes.constantTimeEquals(author.leaseFencingDigest(), lease.leaseToken())) {
+            throw new IllegalStateException("Target Outcome writer differs from current Source/Owner");
+        }
+    }
+
+    synchronized Optional<SystemMutationResult> outcomeMutationResult(
+            final SystemMutation mutation, final LongSupplier ownerClock) {
+        final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
+        requireGcOwner(clock);
+        if (mutation.type() != SystemMutationType.PUBLISH_OUTCOME || !mutation.shardId().equals(scope.shard())) {
+            throw new IllegalArgumentException("Target Outcome reconciliation requires its exact Source mutation");
+        }
+        return replay.appliedResult(
+                new BoundedReadBudget(limits.records(), limits.bytes(), limits.elapsedNanos(), monotonicClock),
+                mutation, workerReads(clock));
     }
 
     synchronized OptionalLong readTargetActiveMessages(

@@ -1,0 +1,49 @@
+C2 Target Publisher/Journal/SDK/signed Source Outcome bridge
+
+Date: 2026-10-07
+Base: main@41f3b7f6ad0ed10525a10fa428035c3a0dc84bfa
+
+readApplied joins a bounded actual guarded Store view to signed v4 image, retained APPLIED/OK SYSTEM/full-envelope/source, ADMITTED Budget and current PUBLISHING Message/ref/Store incarnation. Worker wraps current Owner checks. The returned snapshot cannot be directly created by a caller. Target Publisher rereads it at the final SDK gate; external live credential/activation/exclusive-token authority remains mandatory.
+
+Publisher orchestration connects exact mapping/ownership, fixed final record, bounded physical stage, complete generation-2 record/sequence/artifact ACK validation, authenticated-result/retention plus pinned time/retry context, durable Journal PUBLISHED and signed initial Source Outcome. TargetOutcomeWorkClassExecutor uses the existing OUTCOME_AND_CONTROL graph/current Owner/assigned Source guard and preserves exact bytes without local apply. Accepted queue admission is not Broker persistence or source application. Completion/handoff retry keeps the original signed mutation, no duplicate SDK SEND; settlement requires an actual APPLIED Source first result. Automatic Host integration/lifecycle is not implemented.
+
+Focused command:
+./gradlew checkstyleMain checkstyleTest test --tests 'com.nereusstream.delay.runtime.TargetCommandStoreTest.modifiesActualTimelineOrClaimWithHistoryAndFirstResults' --tests 'com.nereusstream.delay.protocol.TargetMaterializedAdmissionTest' --tests 'com.nereusstream.delay.adapter.PulsarAttemptJournalTest' --no-daemon --console=plain
+Result: 43/43 (9+10+24), zero failures/errors/skips. Combined task failed only one unused import in the new signer; removed after this run with formatting-only edits.
+./gradlew checkstyleMain checkstyleTest --no-daemon --console=plain
+Result: BUILD SUCCESSFUL in 30s.
+
+The actual accepted Worker/RocksDB path reads its v4 first proof, sends once through a fixture Target delegate/Journal/live/result authority, validates complete generation-2 ACK, records Journal PUBLISHED, simulates one pre-enqueue handoff failure then retries exact signed bytes, runs the actual OUTCOME_AND_CONTROL action, applies/ACKs via actual Source Worker and settles only its retained APPLIED first result. SDK/Journal/live/credential/response authentication and source append are fixtures here, not real Broker operations. Transfer-rejection and previous UNKNOWN compatibility cases remain included.
+
+Actual P1 command:
+NEREUS_DELAY_PULSAR_TARGET_JOURNAL_ONLY=1 NEREUS_DELAY_PULSAR_GRADLE_USER_HOME=/Users/liusinan/.gradle e2e/run-pulsar-real-client-e2e.sh
+Result: exit 0; runRealPulsarTargetJournalSmoke BUILD SUCCESSFUL in 20s, including compileRealPulsar.
+Target business SEND passed: payload bytes=23, sequence=0, guarded generation-2 ACK=true, gate=1
+Target Journal Broker smoke passed: records=5, reopen=5, renewed-sequence=1, recovered-first-send=0, partial-replay=blocked, guard-calls=27
+The existing five-record replay slice is followed by three additional business mapping/ownership/PUBLISHED records. Business Producer name is the channel's stable Target identity; prepared/template/record/sequence/source-lock/artifact evidence binding is verified. No fake PUBLISHED evidence is used in this Broker slice.
+P1 checkout: 0a2536484cd3932801a98dc88ff112b2df88a1c7
+P1 distribution SHA256: 373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3
+P1 image ID: sha256:6d3485378abd04d00ffd6c0d340a66e7eca8120bd6f89bd25fab45363f245cc3
+Compose project: nereus-delay-pulsar-e2e-1791367360-96916; ports broker=19666/web=19667. Owned destination/Journal topics and runner container/volumes/image/runtime cleaned.
+
+Scope: the actual Broker SEND uses explicitly constructed fixture Message/Admission/credential/Owner/live gate; it does not invoke the actual Source Store/private Applied snapshot/new Publisher class or Source Outcome handoff. Conversely the actual Source Store Publisher test uses a fixture physical transport/Journal and authentication. These two slices do not certify their full production composition. Native/baseline, NOT_PUBLISHED/UNKNOWN/recovery orchestration, process crash/actual Owner takeover, production providers and Host drain/lifecycle, retention/checkpoint/Floor/GC and central validation remain open. C2/D1/E5/global completion/production authority remain incomplete.
+
+Documentation:
+./gradlew checkDocumentation --no-daemon --console=plain
+Result: BUILD SUCCESSFUL in 59s; verifier suites 10/10 and 14/14 plus historical/package authority checks passed. progress flags, evidence paths, final source/report hashes and git diff --check verified; runner cleanup left no owned Broker.
+
+SHA-256 (final source; only import/format edits after focused tests):
+148e3cdcdd451e5610cf95c0881e8249f86812abec6393605c66098981dd5931  src/main/java/com/nereusstream/delay/adapter/PulsarSendAckEvidence.java
+82eb637fc2400a186a46c376345f3015e83204833e93f94451576b3471b3a1b2  src/main/java/com/nereusstream/delay/ownership/TargetSourceApplyRuntime.java
+184cbfec301b04fd81e4f8746335b032664ed9fcb403f0f5c8c4838277e44d55  src/main/java/com/nereusstream/delay/ownership/TargetWorkerShardRuntime.java
+ae8b0252e12aac5cdef6a12d5b549149f07c908b1915e392848dd9993a8214e6  src/main/java/com/nereusstream/delay/runtime/TargetPublishAdmissionStore.java
+c69927944acad309a9a5a4ff623a9ecdca1161f7e39394bf15d84bd31d76243e  src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactTargetJournalSmoke.java
+6b883ec6a4fe07e61855234909ef70f459d2a1e9502c5be27839cbe8c4a34f1c  src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java
+c783565366bace941d80ce858c42c7fe0d29be9bd5eb2615380003b1881bca1f  src/main/java/com/nereusstream/delay/ownership/TargetPulsarPublishExecutor.java
+ad396754d3e8cc7f1f1561cda153dffd6f956ffe45110cfc688f30fbbb3c48a2  src/main/java/com/nereusstream/delay/ownership/TargetPublishOutcomeMutationFactory.java
+e257bdd37ddc6eb46a1113c6fc78396e050810df36b272ec8d9942fa454e64c3  src/main/java/com/nereusstream/delay/ownership/TargetOutcomeWorkClassExecutor.java
+8f6d324acef5eafb78ebad7a1d5a593d0aaafbb1937292563186501c63ddcea6  build/test-results/test/TEST-com.nereusstream.delay.runtime.TargetCommandStoreTest.xml
+3441654addab23e0f83f2f98c85afc81019f4d6635ad489cf73f4a7665c05099  build/test-results/test/TEST-com.nereusstream.delay.protocol.TargetMaterializedAdmissionTest.xml
+61846232e4c6011f797ded7546418a4721d5a9e3019dfd0205e00a31b839f849  build/test-results/test/TEST-com.nereusstream.delay.adapter.PulsarAttemptJournalTest.xml
+bcebe383e605ea280784d64805d1e362d0c706828a41be4c27564f85de0d54c8  build/reports/checkstyle/main.xml
+5f0297d93c65110a2f55915d73253257387acb5203d1ed178b8cabaacd86882e  build/reports/checkstyle/test.xml

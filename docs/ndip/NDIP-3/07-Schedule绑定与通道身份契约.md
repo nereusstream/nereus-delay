@@ -224,6 +224,20 @@ guard 在创建前、恢复后、append 前和 ACK/readback 后检查；失败�
 装配或应用宿主。真实 P1 append/reopen 的本次范围及测试 fixture 边界见
 `evidence/c2-target-journal-namespace-focused.log`，不能提升完整 C2/D2/生产 authority。
 
+2026-10-07 后续：发送快照现在必须经 bounded Store read 绑定已应用 v4 首结果、精确 Budget/
+Message/Store，再由当前 Worker Owner 包装；SDK final gate 再核对该快照。Target Publisher 已连接
+mapping/ownership、final record、物理 stage、完整 ACK 验证、Journal PUBLISHED、signer 和 bounded
+source Outcome handoff。handoff/completion 重试保留原 bytes，不建立新 SEND；source 实际首结果
+APPLIED 后才释放该 in-process pending。live credential/activation、完整 authenticated response/
+retention、production providers 仍不由 DTO 或这一连接隐式授予。
+
+实际 P1 Target business SEND 使用 channel 的 stable producer name 和固定 sequence，核验
+record/template/prepared hashes、producer/sequence authority、P1 source lock 和 artifact digest。
+Source Message/Admission/live guard 是显式 fixture；它不代表 production Host→Store→Broker→Source
+完整验证。RocksDB/Worker 编排证据与 Broker slice 的具体边界见
+`evidence/c2-target-publish-source-bridge-focused.log`；Native/baseline、NOT_PUBLISHED、UNKNOWN/recovery
+完整编排、Host drain/retention/Floor/GC 和生产 authority 仍开放。
+
 | 对象 | key | reserved NV type |
 |---|---|---|
 | TargetChannelIdentity | meta `0e 01 + digest[32]` | 20 |

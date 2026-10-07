@@ -2872,7 +2872,8 @@ class TargetCommandStoreTest {
                                         replacementInitialized.backend(), replacementStore, otherScope,
                                         replacementInitialized.root().recoveryLineage(), replacementWorker,
                                         replacementNextSourceRecord, admission, keys, replacementOwnerIdentity[0],
-                                        expectedPublishedEvidence, outcomeAuthorityResolutions, mismatchedTransfer);
+                                        expectedPublishedEvidence, outcomeAuthorityResolutions, mismatchedTransfer,
+                                        workerClasses);
                             } else {
                                 if (closedRetryQueue) {
                                     closeRetryQueueFixture(
@@ -6850,7 +6851,9 @@ class TargetCommandStoreTest {
                             CanonicalTargetPartition.VALUE_TYPE)
                     .payload());
             publication = com.nereusstream.delay.protocol.TargetOrdinaryPublicationBinding.fromClaim(
-                    claim, claimed, binding, physical, channel, capabilityProfile, bytes(32, 0xC3));
+                    claim, claimed, binding, physical, channel, capabilityProfile,
+                    com.nereusstream.delay.protocol.ArtifactGenerationSet.current(
+                            1, com.nereusstream.delay.protocol.PulsarSourceLock.digest(), bytes(32, 0xC3)).setDigest());
         }
         final var body = new TargetPublishAdmissionBody(
                 at.shardId(),
@@ -7101,7 +7104,8 @@ class TargetCommandStoreTest {
             OwnerIdentity owner,
             java.util.concurrent.atomic.AtomicReference<com.nereusstream.delay.protocol.PublishEvidence> expected,
             java.util.concurrent.atomic.AtomicInteger authorityResolutions,
-            boolean mismatchedTransfer) {
+            boolean mismatchedTransfer,
+            WorkClassExecutionRegistry workerClasses) {
         final var body = TargetPublishAdmissionBody.decode(admission.entry().mutation().canonicalBody());
         final var publication = body.publication();
         final var before = (KafkaSourcePosition) store.appliedShardLogPosition();
@@ -7157,6 +7161,8 @@ class TargetCommandStoreTest {
         final byte[] orderKey = TargetKeyCodec.orderState(body.locator().target(), body.locator().orderingDomain());
         final var order = TargetOrderState.decode(TargetValueEnvelope.decode(
                 store.get(ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE).payload());
+        final var bridge = mismatchedTransfer ? null : publishThroughTargetBridge(
+                worker, workerClasses, admission, keys, time, none, expected, at);
         final var actualMutation = mismatchedTransfer
                 ? SystemMutation.signed(
                         scope.shard(), SystemMutationType.PUBLISH_OUTCOME, time.latestEpochMs() + 10_000,
@@ -7167,7 +7173,7 @@ class TargetCommandStoreTest {
                                         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0).canonicalBytes(),
                                 time, none),
                         mutation.authorIdentity(), 1, keys.getPrivate())
-                : mutation;
+                : bridge.publisher().mutation().orElseThrow();
         final var entry = new SourceReplayMutation(actualMutation, at, null, null);
         final var acknowledgements = new java.util.concurrent.atomic.AtomicInteger();
         pending.set(new SourceRecordConsumer.PolledSourceRecord(entry, (actual, result) -> {
@@ -7240,7 +7246,7 @@ class TargetCommandStoreTest {
         terminal.requireOwner(retained);
         assertEquals(after.runtime(), terminal.runtime());
         final var first = TargetResultRecord.decode(TargetValueEnvelope.decode(
-                store.get(ColumnFamily.DEDUPE, systemKey(mutation)), TargetResultRecord.VALUE_TYPE).payload());
+                store.get(ColumnFamily.DEDUPE, systemKey(actualMutation)), TargetResultRecord.VALUE_TYPE).payload());
         assertArrayEquals(at.canonicalBytes(),
                 SystemMutationResult.decode(first.typedPayload()).appliedSourcePosition());
         final var position = TargetResultRecord.decode(TargetValueEnvelope.decode(
@@ -7256,6 +7262,103 @@ class TargetCommandStoreTest {
         assertEquals(1, authorityResolutions.get());
         assertEquals(appliedSequence, store.latestSequenceNumber());
         assertTrue(worker.pendingSourceEntry().isEmpty());
+        assertTrue(bridge.executor().settleApplied(bridge.handoff(), () -> 101));
+        assertThrows(IllegalStateException.class,
+                () -> worker.readAppliedAdmission(budget(), admission.entry().mutation(), () -> 101));
+    }
+
+    private record PublishBridge(
+            com.nereusstream.delay.ownership.TargetPulsarPublishExecutor executor,
+            com.nereusstream.delay.ownership.TargetPulsarPublishExecutor.Submission publisher,
+            com.nereusstream.delay.ownership.TargetOutcomeWorkClassExecutor handoff) {}
+
+    private static PublishBridge publishThroughTargetBridge(
+            TargetWorkerShardRuntime worker, WorkClassExecutionRegistry classes, TargetAdmissionFixture admission,
+            KeyPair keys, TrustedUtcIntervalEvidence time, byte[] none,
+            java.util.concurrent.atomic.AtomicReference<com.nereusstream.delay.protocol.PublishEvidence> evidence,
+            KafkaSourcePosition sourceAt) {
+        final var applied = worker.readAppliedAdmission(budget(), admission.entry().mutation(), () -> 101);
+        final var publication = applied.body().publication();
+        final var artifacts = com.nereusstream.delay.protocol.ArtifactGenerationSet.current(
+                1, com.nereusstream.delay.protocol.PulsarSourceLock.digest(), bytes(32, 0xC3));
+        final var pool = new com.nereusstream.delay.adapter.DestinationPhysicalAdmission(1, 1_000_000);
+        pool.registerTargetCluster(publication.physical().resource().pulsar().authenticatedClusterId(), 1, 1_000_000);
+        pool.registerTargetChannel(new com.nereusstream.delay.adapter.DestinationPhysicalAdmission.TargetChannelSpec(
+                publication.channel(), publication.physical(), 1, 1_000_000, 1, 1_000_000));
+        pool.openTargetReady(publication.channel());
+        final var sends = new java.util.concurrent.atomic.AtomicInteger();
+        final com.nereusstream.delay.adapter.DestinationPublishAdapter delegate =
+                new com.nereusstream.delay.adapter.DestinationPublishAdapter() {
+                    @Override
+                    public java.util.concurrent.CompletionStage<com.nereusstream.delay.adapter.DestinationPublishResult>
+                            publish(com.nereusstream.delay.adapter.DestinationPublishRequest request) {
+                        throw new AssertionError("Target bridge must not use a Lane request");
+                    }
+
+                    @Override
+                    public java.util.concurrent.CompletionStage<com.nereusstream.delay.adapter.DestinationPublishResult>
+                            publishPreparedRecord(com.nereusstream.delay.protocol.PulsarPreparedRecord record,
+                                    com.nereusstream.delay.protocol.ArtifactGenerationSet set,
+                                    com.nereusstream.delay.adapter.BoundedDestinationPublishAdapter
+                                            .PreparedPublishPreflight gate) {
+                        final var blocked = gate.check(record, set);
+                        if (blocked != null) {
+                            return java.util.concurrent.CompletableFuture.completedFuture(blocked);
+                        }
+                        sends.incrementAndGet();
+                        final var ack = com.nereusstream.delay.adapter.PulsarSendAckEvidence.publishedRecord(
+                                record, set, record.sequenceAuthority().producerNameHash(), 1, 2, 0, 1,
+                                time.earliestEpochMs(), 21, 1, 1, record.sequenceAuthority().sequenceId(),
+                                bytes(32, 0xDA), bytes(32, 0xDB));
+                        evidence.set(ack);
+                        return java.util.concurrent.CompletableFuture.completedFuture(
+                                com.nereusstream.delay.adapter.DestinationPublishResult.published(
+                                        publication.physical().resource(),
+                                        Math.toIntExact(publication.physical().physicalPartition()),
+                                        publication.publishAttemptId(), time.earliestEpochMs(), ack.canonicalBytes()));
+                    }
+                };
+        final var adapter = new com.nereusstream.delay.adapter.BoundedDestinationPublishAdapter(
+                delegate, pool, classes, Runnable::run);
+        final var entry = new java.util.concurrent.atomic.AtomicInteger();
+        final var journal = com.nereusstream.delay.adapter.PulsarAttemptJournal.forTargets(
+                applied.body().shard(), request -> new com.nereusstream.delay.adapter.PulsarAttemptJournal
+                        .JournalPosition(1, entry.getAndIncrement(), 0, 1, time.earliestEpochMs()),
+                null, 16, 1_000_000);
+        final var source = new com.nereusstream.delay.ownership.TargetOutcomeWorkClassExecutor(
+                worker, image -> com.nereusstream.delay.ownership.ShardLogMutationAppender.AppendOutcome
+                        .persisted(sourceAt));
+        final var handoffs = new java.util.concurrent.atomic.AtomicInteger();
+        final var executor = new com.nereusstream.delay.ownership.TargetPulsarPublishExecutor(
+                journal, adapter, artifacts,
+                () -> worker.readAppliedAdmission(budget(), admission.entry().mutation(), () -> 101),
+                (p, r, a) -> null,
+                (a, r, result) -> new com.nereusstream.delay.ownership.WorkerPublishOutcomeMutationFactory
+                        .OutcomeContext(
+                        time.latestEpochMs() + 10_000, 0, a.body().outcomeTransfer(), time, none),
+                new com.nereusstream.delay.ownership.TargetPublishOutcomeMutationFactory(1, keys.getPrivate()),
+                image -> {
+                    if (handoffs.incrementAndGet() == 1) {
+                        throw new IllegalStateException("fixture Outcome queue temporarily unavailable");
+                    }
+                    source.submit(image, () -> 101);
+                }, Runnable::run);
+        final var payload = com.nereusstream.delay.protocol.PayloadForPublish.inline(applied.message().inlinePayload());
+        final var result = executor.submit(payload,
+                com.nereusstream.delay.protocol.ResolvedPayload.of(applied.message().inlinePayload()));
+        assertNotNull(result.failure().orElse(null));
+        assertEquals(1, sends.get());
+        assertEquals(3, journal.records().size());
+        final byte[] exact = result.mutation().orElseThrow().encodeFrame();
+        assertEquals(result, executor.submit(payload,
+                com.nereusstream.delay.protocol.ResolvedPayload.of(applied.message().inlinePayload())));
+        executor.retryCompletion();
+        assertTrue(result.handedOff());
+        assertArrayEquals(exact, result.mutation().orElseThrow().encodeFrame());
+        classes.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
+        assertEquals(1, sends.get());
+        assertEquals(0, pool.workerSnapshot().activeRequests());
+        return new PublishBridge(executor, result, source);
     }
 
     private static com.nereusstream.delay.protocol.PublishEvidence targetPublishedAck(

@@ -42,6 +42,8 @@ public final class PulsarClientArtifactTargetJournalSmoke {
         final var admin = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build();
         final String path = args[1] + "/admin/v2/persistent/public/default/" + args[2];
         create(admin, path, incarnation, created);
+        final String destinationPath = path + "-destination";
+        create(admin, destinationPath, hash("target-resource"), created);
         try (var client = PulsarClientArtifactClientBuilder.builder(args[0]).build()) {
             final var shard = new ShardId(RouteIncarnation.random(), 0);
             final var resource = new PulsarJournalResource(cluster, incarnation, topic, created, 0);
@@ -94,7 +96,8 @@ public final class PulsarClientArtifactTargetJournalSmoke {
             boolean incompleteBlocked = false;
             try (var ignored = PulsarClientArtifactAttemptJournal.openTarget(
                     client, shard, resource, writer, subscription, Duration.ofSeconds(15), 1, 1_000_000, guard)) {
-                throw new IllegalStateException("partial replay was exported as complete: " + ignored.replayedRecords());
+                throw new IllegalStateException(
+                        "partial replay was exported as complete: " + ignored.replayedRecords());
             } catch (PulsarAttemptJournal.JournalException expected) {
                 incompleteBlocked = true;
             }
@@ -102,12 +105,89 @@ public final class PulsarClientArtifactTargetJournalSmoke {
             try (var complete = PulsarClientArtifactAttemptJournal.openTarget(
                     client, shard, resource, writer, subscription, Duration.ofSeconds(15), 100, 1_000_000, guard)) {
                 require(complete.replayedRecords() == 5, "failed replay leaked Writer or changed retained records");
+                sendBusinessRecord(client, shard, physical, complete.journal());
             }
             System.out.println("Target Journal Broker smoke passed: records=5, reopen=5, "
                     + "renewed-sequence=1, recovered-first-send=0, partial-replay=blocked, guard-calls=" + guardCalls);
         } finally {
+            final var destinationDeleted = PulsarClientArtifactAdminHttp.request(
+                    admin, destinationPath + "?force=true", "DELETE", "");
+            require(destinationDeleted.statusCode() < 300 || destinationDeleted.statusCode() == 404,
+                    "owned destination cleanup failed");
             final var deleted = PulsarClientArtifactAdminHttp.request(admin, path + "?force=true", "DELETE", "");
             require(deleted.statusCode() < 300 || deleted.statusCode() == 404, "owned Journal topic cleanup failed");
+        }
+    }
+
+    /** Actual Target record/SEND/guarded ACK; source Message/Admission/credential/live authorities are fixtures. */
+    private static void sendBusinessRecord(
+            org.apache.pulsar.client.api.PulsarClient client, ShardId shard, CanonicalTargetPartition physical,
+            PulsarAttemptJournal journal) throws Exception {
+        final var c = channel(shard, physical, 2, 1);
+        final var artifacts = com.nereusstream.delay.protocol.ArtifactGenerationSet.current(
+                1, com.nereusstream.delay.protocol.PulsarSourceLock.digest(), hash("send-schema"));
+        final var id = DelayMessageId.random(shard);
+        final byte[] attempt = hash("business-attempt");
+        final byte[] data = Bytes.utf8("target-business-payload");
+        final long now = System.currentTimeMillis();
+        final var locator = new com.nereusstream.delay.protocol.TargetMessageLocator(
+                id, 0, physical.id(), c.context().domain(), c.context().accountingIncarnation(),
+                com.nereusstream.delay.protocol.OrderingMode.BEST_EFFORT, null, hash("fixture-schedule-binding"));
+        final var destination = c.credentialLease().profile();
+        final var capability = new ProfileRef(Bytes.utf8("fixture-capability"), 1, hash("capability"),
+                ProfileKind.DELIVERY_CAPABILITY);
+        final var metadata = com.nereusstream.delay.protocol.AdapterMetadata.pulsar(
+                new com.nereusstream.delay.protocol.PulsarMetadata(null, null, null, java.util.List.of()));
+        final var reserved = new com.nereusstream.delay.protocol.ReservedPublishMetadata(
+                shard.routeIncarnation(), shard.unsignedPartition(), id, 0, attempt, destination.semanticHash(),
+                capability.semanticHash(), now, com.nereusstream.delay.protocol.DeliveryMode.MANAGED);
+        final var publication = new com.nereusstream.delay.protocol.TargetOrdinaryPublicationBinding(
+                locator, physical, c, attempt, 1, hash("claim"), hash("claimed-message"), 1,
+                destination, capability, data.length, Bytes.sha256(data), metadata, reserved,
+                now, now + 60_000, now, null, artifacts.setDigest());
+        final var obligation = new com.nereusstream.delay.runtime.AttemptObligationRef(
+                attempt, 0, com.nereusstream.delay.runtime.AttemptLedgerState.PUBLISHING,
+                com.nereusstream.delay.store.KeyCodec.inflight((byte) 2, 1, attempt));
+        final var source = new KafkaSourcePosition(shard, "fixture-source", UUID.randomUUID(), 10, null, now);
+        final var message = new com.nereusstream.delay.runtime.TargetMessageRecord(
+                locator, 2, now, now + 60_000, now, com.nereusstream.delay.protocol.NativeDeliveryPolicy.FORBID,
+                source, data, null, new com.nereusstream.delay.runtime.TargetGenerationRuntimeIndex(
+                        0, com.nereusstream.delay.runtime.GenerationAggregateState.PUBLISHING,
+                        com.nereusstream.delay.runtime.CurrentSendWorkKind.PUBLISHING, null, null, attempt,
+                        java.util.List.of(obligation), 1, 0, false, 2));
+        final var payload = com.nereusstream.delay.protocol.PayloadForPublish.inline(data);
+        final var mapping = journal.appendOrReuseCurrent(PulsarAttemptJournal.ProducerKey.target(c, physical),
+                com.nereusstream.delay.adapter.PulsarPreparedRecordFactory.targetJournalIdentity(
+                        publication, message, payload, source)).record().mapping();
+        final var record = com.nereusstream.delay.adapter.PulsarPreparedRecordFactory.targetManaged(
+                publication, message, payload, com.nereusstream.delay.protocol.ResolvedPayload.of(data),
+                mapping, artifacts);
+        journal.markOwnershipStarted(mapping);
+        final var p = physical.resource().pulsar();
+        final String producerName = new String(c.context().producerIdentity(), java.nio.charset.StandardCharsets.UTF_8);
+        try (var producer = PulsarClientArtifactProducerFactory.create(client, p.authenticatedClusterId(),
+                p.resourceIncarnation(), p.physicalTopic(), p.physicalTopicCreationTimestamp(), producerName);
+             var transport = new PulsarClientArtifactDestinationTransport(producer, p.authenticatedClusterId(),
+                     p.resourceIncarnation(), p.physicalTopic(), p.physicalTopicCreationTimestamp(), 0,
+                     Bytes.sha256(c.context().producerIdentity()))) {
+            final var gates = new AtomicInteger();
+            final var result = journal.sendAfterOwnershipStarted(mapping, ignored ->
+                    transport.publishPreparedRecord(record, artifacts, (r, a) -> {
+                        gates.incrementAndGet();
+                        return null;
+                    })).toCompletableFuture().get(15, TimeUnit.SECONDS);
+            require(result.disposition()
+                    == com.nereusstream.delay.adapter.DestinationPublishResult.Disposition.PUBLISHED,
+                    "guarded Target business SEND did not produce PUBLISHED: " + result);
+            final var evidence = com.nereusstream.delay.protocol.PublishEvidence.decode(result.evidence());
+            evidence.requireOrdinaryTargetPublishedBinding(publication);
+            com.nereusstream.delay.adapter.PulsarSendAckEvidence.requireRecordBinding(evidence, record, artifacts);
+            journal.markPublished(mapping);
+            require(gates.get() == 1, "business SEND ownership gate count differs");
+            require(journal.state(mapping.mappingId()) == PulsarAttemptJournal.AttemptState.PUBLISHED,
+                    "business Journal publication was not durable");
+            System.out.println("Target business SEND passed: payload bytes=" + data.length
+                    + ", sequence=" + mapping.sequenceId() + ", guarded generation-2 ACK=true, gate=1");
         }
     }
 
