@@ -1,0 +1,158 @@
+package com.nereusstream.delay.transport;
+
+import com.nereusstream.delay.adapter.PulsarAttemptJournal;
+import com.nereusstream.delay.adapter.PulsarJournalResource;
+import com.nereusstream.delay.protocol.BrokerResourceIdentity;
+import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.CanonicalTargetPartition;
+import com.nereusstream.delay.protocol.ChannelKind;
+import com.nereusstream.delay.protocol.CredentialUseKind;
+import com.nereusstream.delay.protocol.CredentialUseLease;
+import com.nereusstream.delay.protocol.DelayMessageId;
+import com.nereusstream.delay.protocol.DeliveryContract;
+import com.nereusstream.delay.protocol.KafkaSourcePosition;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity;
+import com.nereusstream.delay.protocol.RouteIncarnation;
+import com.nereusstream.delay.protocol.ShardId;
+import com.nereusstream.delay.protocol.TargetChannelIdentity;
+import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
+import com.nereusstream.delay.store.TargetKeyCodec;
+import java.net.http.HttpClient;
+import java.time.Duration;
+import java.util.Arrays;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+
+/** Actual guarded Target Journal append/reopen; Owner/credential/Admission authorities are explicit fixtures. */
+public final class PulsarClientArtifactTargetJournalSmoke {
+    private PulsarClientArtifactTargetJournalSmoke() {}
+
+    public static void main(final String[] args) throws Exception {
+        if (args.length != 3 || !args[2].matches("[a-zA-Z0-9-]+")) {
+            throw new IllegalArgumentException("usage: <service-url> <admin-url> <unique-journal-topic>");
+        }
+        final String topic = "persistent://public/default/" + args[2];
+        final String cluster = PulsarClientArtifactClientBuilder.clusterId();
+        final byte[] incarnation = Bytes.sha256(Bytes.utf8(args[2]));
+        final long created = 1001;
+        final var admin = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build();
+        final String path = args[1] + "/admin/v2/persistent/public/default/" + args[2];
+        create(admin, path, incarnation, created);
+        try (var client = PulsarClientArtifactClientBuilder.builder(args[0]).build()) {
+            final var shard = new ShardId(RouteIncarnation.random(), 0);
+            final var resource = new PulsarJournalResource(cluster, incarnation, topic, created, 0);
+            final var physical = new CanonicalTargetPartition(BrokerResourceIdentity.pulsar(
+                    new PulsarBrokerResourceIdentity(cluster, hash("target-resource"),
+                            "persistent://public/default/" + args[2] + "-destination", created)), 0);
+            final var channel = channel(shard, physical, 0, 1);
+            final var producer = PulsarAttemptJournal.ProducerKey.target(channel, physical);
+            final var first = identity(shard, 1);
+            final AtomicInteger guardCalls = new AtomicInteger();
+            final PulsarClientArtifactAttemptJournal.TargetWriterGuard guard = (s, r) -> {
+                require(s.equals(shard) && r.equals(resource), "fixture guard changed Source/resource");
+                guardCalls.incrementAndGet();
+            };
+            final String writer = "target-journal-" + args[2];
+            final String subscription = "target-replay-" + args[2];
+            final byte[] mappingId;
+            try (var live = PulsarClientArtifactAttemptJournal.openTarget(
+                    client, shard, resource, writer, subscription, Duration.ofSeconds(15), 100, 1_000_000, guard)) {
+                final var mapped = live.journal().appendOrReuseCurrent(producer, first);
+                require(mapped.record().mapping().sequenceId() == 0, "first Target sequence differs");
+                mappingId = mapped.record().mapping().mappingId();
+                live.journal().markOwnershipStarted(mappingId);
+                require(live.journal().records().size() == 2, "expected durable MAPPED/OWNERSHIP_STARTED");
+            }
+            final AtomicInteger sends = new AtomicInteger();
+            try (var recovered = PulsarClientArtifactAttemptJournal.openTarget(
+                    client, shard, resource, writer, subscription, Duration.ofSeconds(15), 100, 1_000_000, guard)) {
+                require(recovered.replayedRecords() == 2, "complete physical replay differs");
+                final var restored = recovered.journal().findCurrent(producer, first).orElseThrow();
+                require(Arrays.equals(mappingId, restored.mappingId()), "reopen changed exact mapping");
+                boolean blocked = false;
+                try {
+                    recovered.journal().sendAfterOwnershipStarted(restored, ignored -> {
+                        sends.incrementAndGet();
+                        return CompletableFuture.completedFuture(null);
+                    });
+                } catch (IllegalStateException expected) {
+                    blocked = true;
+                }
+                require(blocked && sends.get() == 0, "reopened ownership allowed another first SEND");
+                final var slot = PulsarAttemptJournal.ProducerKey.target(channel(shard, physical, 1, 1), physical);
+                final var other = recovered.journal().appendOrReuseCurrent(slot, identity(shard, 2));
+                recovered.journal().retireNotPublished(other.record().mapping().mappingId());
+                final var renewal = PulsarAttemptJournal.ProducerKey.target(channel(shard, physical, 1, 2), physical);
+                final var next = recovered.journal().appendOrReuseCurrent(renewal, identity(shard, 3));
+                require(next.record().mapping().sequenceId() == 1, "renewal reset the sequence domain");
+                require(recovered.journal().records().size() == 5, "guarded Target Journal record count differs");
+            }
+            boolean incompleteBlocked = false;
+            try (var ignored = PulsarClientArtifactAttemptJournal.openTarget(
+                    client, shard, resource, writer, subscription, Duration.ofSeconds(15), 1, 1_000_000, guard)) {
+                throw new IllegalStateException("partial replay was exported as complete: " + ignored.replayedRecords());
+            } catch (PulsarAttemptJournal.JournalException expected) {
+                incompleteBlocked = true;
+            }
+            require(incompleteBlocked, "small replay budget did not fail closed");
+            try (var complete = PulsarClientArtifactAttemptJournal.openTarget(
+                    client, shard, resource, writer, subscription, Duration.ofSeconds(15), 100, 1_000_000, guard)) {
+                require(complete.replayedRecords() == 5, "failed replay leaked Writer or changed retained records");
+            }
+            System.out.println("Target Journal Broker smoke passed: records=5, reopen=5, "
+                    + "renewed-sequence=1, recovered-first-send=0, partial-replay=blocked, guard-calls=" + guardCalls);
+        } finally {
+            final var deleted = PulsarClientArtifactAdminHttp.request(admin, path + "?force=true", "DELETE", "");
+            require(deleted.statusCode() < 300 || deleted.statusCode() == 404, "owned Journal topic cleanup failed");
+        }
+    }
+
+    private static PulsarAttemptJournal.CurrentAttemptIdentity identity(ShardId shard, int id) {
+        return new PulsarAttemptJournal.CurrentAttemptIdentity(DelayMessageId.random(shard), 0,
+                hash("attempt-" + id), hash("prepared-" + id), hash("template-" + id),
+                DeliveryContract.NEREUS_MANAGED_NOT_BEFORE,
+                new KafkaSourcePosition(shard, "fixture-source", UUID.randomUUID(), id, null, 1000).canonicalBytes(),
+                hash("artifact"));
+    }
+
+    private static TargetChannelIdentity channel(ShardId shard, CanonicalTargetPartition physical, int slot, long gen) {
+        final var context = new TargetChannelIdentity.Context(shard, physical.id(),
+                new TargetKeyCodec.Domain(0, 1), Arrays.copyOf(hash("account"), 16), hash("dispatch"),
+                hash("controls"), ChannelKind.PULSAR_DEDUP_PRODUCER, slot, gen, 1L, hash("attestation"));
+        return new TargetChannelIdentity(context, new CredentialUseLease(
+                new ProfileRef(Bytes.utf8("fixture-destination"), 1, hash("profile"), ProfileKind.DESTINATION),
+                CredentialUseKind.DESTINATION_CHANNEL, context.credentialHolderScope(), 1, hash("binding"),
+                hash("fingerprint"), new TrustedUtcIntervalEvidence(1000, 1001,
+                        TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("fixture-clock"),
+                        1, 1, 1, hash("clock"), 0, null), 100_000, 1));
+    }
+
+    private static void create(HttpClient admin, String path, byte[] incarnation, long created) throws Exception {
+        final String body = "{\"nereus.resource.guard.version\":\"1\","
+                + "\"nereus.resource.incarnation\":\""
+                + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(incarnation)
+                + "\",\"nereus.resource.created-at\":\"" + created + "\"}";
+        for (int attempt = 0; attempt < 40; attempt++) {
+            final var response = PulsarClientArtifactAdminHttp.request(admin, path, "PUT", body);
+            if (response.statusCode() >= 200 && response.statusCode() < 300) {
+                return;
+            }
+            require(response.statusCode() == 409 || response.statusCode() == 412 || response.statusCode() == 503,
+                    "guarded Target Journal creation failed: " + response.statusCode() + " " + response.body());
+            TimeUnit.MILLISECONDS.sleep(250);
+        }
+        throw new IllegalStateException("Target Journal creation did not converge");
+    }
+
+    private static byte[] hash(String value) { return Bytes.sha256(Bytes.utf8(value)); }
+
+    private static void require(boolean condition, String message) {
+        if (!condition) {
+            throw new IllegalStateException(message);
+        }
+    }
+}

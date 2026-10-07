@@ -800,6 +800,25 @@ persistence+D 均须早于 Claim deadline 与 frozen lease expiry，仍受 Messa
 Native 完整模板、生产 authority/history retention、Producer/evidence 匹配仍须完成；没有新增 NV type、
 Column Family 或共享 System Mutation envelope version。
 
+独立 Target Pulsar Attempt Journal v1 使用专用受保护物理 namespace，不复用旧 Lane Journal
+generation 3。其 canonical record fields 为：1 uint32 version=1；2 原四态 RecordKind；3 完整
+TargetChannelIdentity；4 CanonicalTargetPartition；5 uint64 sequence（当前 SDK 支持非负 long）；
+6 DelayMessageId[41]；7 generation uint32；8 PublishAttemptId[32]；9 prepared hash[32]；
+10 record-template hash[32]；11 DeliveryContract；12 精确 Admission SourcePosition；13 artifact-set
+digest[32]；14 mapping ID[32]。上限为 channel + physical + bounded SourcePosition 的 canonical
+上限加 512 bytes，unknown/缺失/非规范字段均拒绝。
+mapping ID = SHA-256(`"nereus-delay-target-pulsar-attempt-journal-mapping-id\0"` || canonical fields
+3–13，保持原字段号)。完整 immutable channel 进入 mapping 身份；producer 序号域按 Source
+Shard/Target/domain/accounting/dispatch/control/kind/slot 的 stable producer identity 和物理资源定义，
+channel/credential 正常续期不从零重建。evidence generation 改变须显式迁移，不能普通续期或覆盖旧 attempt。
+
+该 namespace 复用原 MAPPED→OWNERSHIP_STARTED→PUBLISHED / MAPPED→RETIRED_NOT_PUBLISHED 状态机，
+不同版本 record 不能混入 replay。Target append outcome 不确定后封住后续 write/send，要求全量权威
+replay 的新实例；没有 ACK 不分配新的 mapping/sequence。新进程恢复到 OWNERSHIP_STARTED 只产生
+历史义务，不铸造首次发送 token；同一进程新持久化的 ownership marker 只允许一次 first-send。
+record/byte 预算有限，恢复耗尽不导出部分可发送状态；无限 sentinel 被拒绝。该边界不授权新 Source
+tuple、Native template、Target evidence cursor、checkpoint/Floor、retention/GC 或生产 Owner 接管。
+
 Outer `AuthorIdentity` branch is closed by mutation type: `APPLY_SHARD_CONTROL`, `REPLAY_DEAD_LETTER`, and `RESOLVE_UNCERTAIN` require `control`; `TIME_FENCE` requires `fence`; `PUBLISH_ADMISSION`, `PUBLISH_OUTCOME`, `EXPIRE_GENERATION`, `CLAIM_RESULT`, and `TARGET_PUBLISH_ADMISSION` require `owner`; `EVIDENCE_RESOLUTION`, both resource mutations, and `DLQ_EXPORT_RESULT` require `service`. Legacy Admission outer Owner must equal body field 10 and Claim precondition Owner; Target Admission outer Owner must equal Target body field 11. Target Admission field 16 is its Claim-derived `PublishAttemptId` and must equal the outer logical operation identity. Claim Result outer Owner must equal precondition Owner. Publish Outcome's Owner is checked against the immutable attempt ledger (the recovery-unknown Outcome is authored by the new current Owner and uses the explicit recovery code). Every signing key and service/fence/control generation must be in the Route's source-protected historical accepted-writer set for that record, retained through its retry/Recovery-Floor replay window. Owner authorization is likewise historical: an accepted signature, typed Owner and exact lease-fencing digest/body equalities are validated, but apply-time current Owner mismatch alone cannot invalidate an earlier Admission. Current lease/Store/certificate state only gates a new physical call. Wrong branch, unproved generation or equality mismatch is `UNAUTHORIZED_SYSTEM_MUTATION`, never a fallback branch. Nereus Delay assumes accepted service writers are non-Byzantine; a compromised accepted signing key is outside the normal failure model.
 
 For `PUBLISH_ADMISSION`, descriptor fields 4–5/10–13 must equal body fields 13–17/21, and field 18 must equal the descriptor hash formula. Certificate fields 2–6/16 must equal body Owner/Store/Lane/channel/digest, and certificate fields 13–15 must equal channel fields 14–16. Claim-precondition fields 1–3/5–6/14–15 must equal body fields 12/15–16/13–14/10–11, and its materialization must be the exact projection of descriptor fields 6–9/11–12/15–16/18–20. Any mismatch is `STALE_SYSTEM_MUTATION`; a hash-valid descriptor is persisted in full before Producer authorization.

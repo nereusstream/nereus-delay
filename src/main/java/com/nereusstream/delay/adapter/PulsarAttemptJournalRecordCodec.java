@@ -25,7 +25,7 @@ public final class PulsarAttemptJournalRecordCodec {
     public static byte[] encode(final PulsarAttemptJournal.AppendRequest request) {
         final PulsarAttemptJournal.AppendRequest exact = Objects.requireNonNull(request, "request");
         final PulsarAttemptJournal.Mapping mapping = exact.mapping();
-        if (!mapping.isCurrentGeneration()) {
+        if (!mapping.isCurrentGeneration() || mapping.producer().isTarget()) {
             throw new IllegalArgumentException("physical Attempt Journal accepts only current mappings");
         }
         final PulsarAttemptJournal.ProducerKey producer = mapping.producer();

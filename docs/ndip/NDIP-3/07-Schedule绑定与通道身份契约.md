@@ -206,6 +206,24 @@ completed stage 假装物理完成。SDK H0 probe 使用 CountingProducer，认�
 实际 Target Journal namespace/recovery、exclusive send token、Owner/Store/credential/activation
 providers、应用宿主接线、Native/baseline record 分支和真实 Broker 仍未闭合。
 
+2026-10-07 后续：Target Journal v1 专用 codec/namespace 已复用旧四态实现，Lane generation 3
+bytes/constructor/accessors 保留。完整 Target channel 冻结进 mapping；stable producer scope
+跨正常 renewal 延续序号，同一 attempt 不能切换完整 channel、source、prepared/template/artifact
+或另建 mapping。Target attempt 点查使用独立 bounded map，不扫描 retained history。
+新的 `targetJournalIdentity`/mapping overload 把精确 Admission source、Message/payload 和 final
+record 与完整 mapping 相联；mapping DTO 仍不等于 durable/Owner 权威。
+
+`PulsarClientArtifactAttemptJournal.openTarget` 使用独立 codec、有限 retained-replay record/byte
+预算与 mandatory Writer/namespace guard，复用 guarded ACK 和 contiguous startup/readback。
+Target writer 使用 Exclusive producer，不以重新创建来 reverse-fence 已占有 topic 的 replacement。
+guard 在创建前、恢复后、append 前和 ACK/readback 后检查；失败的 append 封住该 Journal 实例。
+恢复出的 OWNERSHIP_STARTED 没有本地 first-send token；新 marker 的 token 只消费一次，异常不退还。
+恢复预算不足/顺序损坏后同样封闭实例，不能将 partial replay 当作无历史。
+
+该实现不覆盖 Target cursor/checkpoint/Floor seed、Journal GC、Native 完整模板、生产 Writer guard
+装配或应用宿主。真实 P1 append/reopen 的本次范围及测试 fixture 边界见
+`evidence/c2-target-journal-namespace-focused.log`，不能提升完整 C2/D2/生产 authority。
+
 | 对象 | key | reserved NV type |
 |---|---|---|
 | TargetChannelIdentity | meta `0e 01 + digest[32]` | 20 |

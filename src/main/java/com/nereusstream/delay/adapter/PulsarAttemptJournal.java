@@ -4,6 +4,7 @@ import com.nereusstream.delay.protocol.AdapterKind;
 import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
+import com.nereusstream.delay.protocol.CanonicalTargetPartition;
 import com.nereusstream.delay.protocol.ChannelKind;
 import com.nereusstream.delay.protocol.ChannelResourceIdentity;
 import com.nereusstream.delay.protocol.DelayMessageId;
@@ -18,6 +19,7 @@ import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.SourcePositionCodec;
 import com.nereusstream.delay.protocol.StableCode;
+import com.nereusstream.delay.protocol.TargetChannelIdentity;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -43,11 +45,17 @@ public final class PulsarAttemptJournal {
     private static final byte[] MAPPING_ID_DOMAIN = Bytes.utf8("nereus-delay-pulsar-attempt-journal-mapping-id\0");
     private static final byte[] RECORD_DOMAIN = Bytes.utf8("nereus-delay-pulsar-attempt-journal-record\0");
 
+    private final boolean targetNamespace;
+    private final int maximumRecords;
+    private final long maximumRecordBytes;
+    private long recordBytes;
+    private boolean writeUncertain;
     private final ShardId shard;
     private final DurableAppender appender;
     private final PulsarJournalResource journalResource;
     private final Map<String, MappingState> mappings = new HashMap<>();
     private final Map<ProducerKey, ProducerState> producers = new HashMap<>();
+    private final Map<String, MappingState> targetAttempts = new HashMap<>();
     private final List<JournalRecord> records = new ArrayList<>();
     private JournalPosition lastPosition;
 
@@ -73,6 +81,28 @@ public final class PulsarAttemptJournal {
     /** Creates a journal seam with its explicit physical Journal identity. */
     public PulsarAttemptJournal(
             final ShardId shard, final DurableAppender appender, final PulsarJournalResource journalResource) {
+        this(shard, appender, journalResource, false, Integer.MAX_VALUE, Long.MAX_VALUE);
+    }
+
+    /** Independent Target namespace with finite retained-replay limits and no local durability default. */
+    public static PulsarAttemptJournal forTargets(
+            final ShardId shard, final DurableAppender appender, final PulsarJournalResource resource,
+            final int maximumRecords, final long maximumRecordBytes) {
+        if (maximumRecords == Integer.MAX_VALUE || maximumRecordBytes == Long.MAX_VALUE) {
+            throw new IllegalArgumentException("Target Journal requires finite configured replay limits");
+        }
+        return new PulsarAttemptJournal(shard, appender, resource, true, maximumRecords, maximumRecordBytes);
+    }
+
+    private PulsarAttemptJournal(
+            final ShardId shard, final DurableAppender appender, final PulsarJournalResource journalResource,
+            final boolean targetNamespace, final int maximumRecords, final long maximumRecordBytes) {
+        if (maximumRecords <= 0 || maximumRecordBytes <= 0) {
+            throw new IllegalArgumentException("Journal retained replay limits must be positive");
+        }
+        this.targetNamespace = targetNamespace;
+        this.maximumRecords = maximumRecords;
+        this.maximumRecordBytes = maximumRecordBytes;
         this.shard = Objects.requireNonNull(shard, "shard");
         this.appender = Objects.requireNonNull(appender, "appender");
         if (journalResource != null && journalResource.partition() != shard.partition()) {
@@ -84,6 +114,7 @@ public final class PulsarAttemptJournal {
     /** Allocates and durably appends the next sequence mapping in one local turn. */
     public synchronized AppendResult appendNext(final ProducerKey producer, final AttemptIdentity identity) {
         Objects.requireNonNull(producer, "producer");
+        requireProducerNamespace(producer);
         Objects.requireNonNull(identity, "identity");
         final ProducerState state = producers.get(producer);
         if (state != null && state.unresolvedMappingId != null) {
@@ -103,6 +134,7 @@ public final class PulsarAttemptJournal {
     public synchronized AppendResult appendNextCurrent(
             final ProducerKey producer, final CurrentAttemptIdentity identity) {
         Objects.requireNonNull(producer, "producer");
+        requireProducerNamespace(producer);
         Objects.requireNonNull(identity, "identity");
         final ProducerState state = producers.get(producer);
         if (state != null && state.unresolvedMappingId != null) {
@@ -135,6 +167,7 @@ public final class PulsarAttemptJournal {
      */
     public synchronized AppendResult appendOrReuse(final ProducerKey producer, final AttemptIdentity identity) {
         Objects.requireNonNull(producer, "producer");
+        requireProducerNamespace(producer);
         Objects.requireNonNull(identity, "identity");
         MappingState matching = null;
         for (MappingState candidate : mappings.values()) {
@@ -160,7 +193,19 @@ public final class PulsarAttemptJournal {
     public synchronized AppendResult appendOrReuseCurrent(
             final ProducerKey producer, final CurrentAttemptIdentity identity) {
         Objects.requireNonNull(producer, "producer");
+        requireProducerNamespace(producer);
         Objects.requireNonNull(identity, "identity");
+        if (targetNamespace) {
+            final var existing = targetAttempts.get(Bytes.hex(identity.publishAttemptId()));
+            if (existing == null) {
+                return appendNextCurrent(producer, identity);
+            }
+            if (!sameFrozenProducer(existing.mapping.producer(), producer)
+                    || !sameCurrentAttemptIdentity(existing.mapping, identity) || existing.retired) {
+                throw conflict("Target attempt changes its frozen Journal identity or is retired");
+            }
+            return new AppendResult(existing.mappedRecord, true);
+        }
         MappingState matching = null;
         for (MappingState candidate : mappings.values()) {
             if (!Arrays.equals(candidate.mapping.publishAttemptId(), identity.publishAttemptId())) {
@@ -192,7 +237,16 @@ public final class PulsarAttemptJournal {
     public synchronized Optional<Mapping> findCurrent(
             final ProducerKey producer, final CurrentAttemptIdentity identity) {
         Objects.requireNonNull(producer, "producer");
+        requireProducerNamespace(producer);
         Objects.requireNonNull(identity, "identity");
+        if (targetNamespace) {
+            final var existing = targetAttempts.get(Bytes.hex(identity.publishAttemptId()));
+            if (existing != null && (!sameFrozenProducer(existing.mapping.producer(), producer)
+                    || !sameCurrentAttemptIdentity(existing.mapping, identity))) {
+                throw conflict("Target recovery attempt changes its frozen Journal identity");
+            }
+            return existing == null ? Optional.empty() : Optional.of(existing.mapping);
+        }
         Mapping matching = null;
         for (MappingState candidate : mappings.values()) {
             if (!Arrays.equals(candidate.mapping.publishAttemptId(), identity.publishAttemptId())) {
@@ -237,7 +291,7 @@ public final class PulsarAttemptJournal {
         state.retired = true;
         state.retirementRecord = record;
         state.producer.unresolvedMappingId = null;
-        records.add(record);
+        record(record);
         lastPosition = position;
         return new AppendResult(record, false);
     }
@@ -254,8 +308,9 @@ public final class PulsarAttemptJournal {
         final JournalPosition position = append(RecordKind.OWNERSHIP_STARTED, state.mapping);
         final JournalRecord record = new JournalRecord(RecordKind.OWNERSHIP_STARTED, state.mapping, position);
         state.ownershipStarted = true;
+        state.targetFirstSendAvailable = targetNamespace;
         state.ownershipRecord = record;
-        records.add(record);
+        record(record);
         lastPosition = position;
         return new AppendResult(record, false);
     }
@@ -277,7 +332,7 @@ public final class PulsarAttemptJournal {
         state.published = true;
         state.publishedRecord = record;
         state.producer.unresolvedMappingId = null;
-        records.add(record);
+        record(record);
         lastPosition = position;
         return new AppendResult(record, false);
     }
@@ -311,10 +366,24 @@ public final class PulsarAttemptJournal {
 
     /** Replays one already-durable Journal record during local recovery. */
     public synchronized void replay(final JournalRecord record) {
+        try {
+            replayInternal(record);
+        } catch (RuntimeException incompleteOrCorruptReplay) {
+            writeUncertain = targetNamespace;
+            throw incompleteOrCorruptReplay;
+        }
+    }
+
+    private void replayInternal(final JournalRecord record) {
         Objects.requireNonNull(record, "record");
         requireShard(record.mapping());
         final String mappingId = Bytes.hex(record.mapping().mappingId());
         final MappingState current = mappings.get(mappingId);
+        final JournalRecord priorAtSameKind = current == null ? null : current.record(record.kind());
+        if (priorAtSameKind == null || !Arrays.equals(
+                priorAtSameKind.position().canonicalBytes(), record.position().canonicalBytes())) {
+            requireRecordCapacity(record);
+        }
         if (current != null) {
             if (!current.mapping.sameCanonical(record.mapping())) {
                 throw conflict("Attempt Journal mapping id/body conflict");
@@ -335,7 +404,7 @@ public final class PulsarAttemptJournal {
                 // physical record so contiguous replay and later cursors do
                 // not fail or silently skip it.
                 validatePosition(record.position());
-                records.add(record);
+                record(record);
                 lastPosition = record.position();
                 return;
             }
@@ -366,7 +435,7 @@ public final class PulsarAttemptJournal {
                     current.producer.unresolvedMappingId = null;
                 }
             }
-            records.add(record);
+            record(record);
             lastPosition = record.position();
             return;
         }
@@ -622,6 +691,9 @@ public final class PulsarAttemptJournal {
     public <T> CompletionStage<T> sendAfterMapped(final Mapping mapping, final TargetSender<T> sender) {
         Objects.requireNonNull(mapping, "mapping");
         Objects.requireNonNull(sender, "sender");
+        if (targetNamespace) {
+            throw conflict("Target SEND requires the durable ownership-marker entrance");
+        }
         synchronized (this) {
             requireShard(mapping);
             final MappingState state = mappings.get(Bytes.hex(mapping.mappingId()));
@@ -658,6 +730,12 @@ public final class PulsarAttemptJournal {
                     || state.published) {
                 throw conflict("target SEND requires an exact durable ownership marker");
             }
+            if (targetNamespace) {
+                if (!state.targetFirstSendAvailable) {
+                    throw conflict("Target replay/duplicate cannot acquire a second first-send token");
+                }
+                state.targetFirstSendAvailable = false;
+            }
         }
         final CompletionStage<T> result = sender.send(mapping);
         if (result == null) {
@@ -677,6 +755,9 @@ public final class PulsarAttemptJournal {
             }
             return new AppendResult(current.mappedRecord, true);
         }
+        if (targetNamespace && targetAttempts.containsKey(Bytes.hex(mapping.publishAttemptId()))) {
+            throw conflict("Target attempt ID already owns a different immutable mapping");
+        }
         final ProducerState state = producers.get(mapping.producer());
         if (state != null && state.unresolvedMappingId != null) {
             throw conflict("an unresolved lower sequence blocks this Producer");
@@ -692,6 +773,9 @@ public final class PulsarAttemptJournal {
     }
 
     private void appendState(final Mapping mapping, final JournalPosition position) {
+        if (targetNamespace && targetAttempts.containsKey(Bytes.hex(mapping.publishAttemptId()))) {
+            throw conflict("Target replay reuses an attempt ID with another mapping");
+        }
         final ProducerState state = producers.computeIfAbsent(mapping.producer(), ignored -> new ProducerState());
         if (state.unresolvedMappingId != null) {
             throw conflict("replay would create two unresolved mappings");
@@ -704,10 +788,13 @@ public final class PulsarAttemptJournal {
         final JournalRecord record = new JournalRecord(RecordKind.MAPPED, mapping, position);
         final MappingState value = new MappingState(mapping, state, record);
         mappings.put(Bytes.hex(mapping.mappingId()), value);
+        if (targetNamespace) {
+            targetAttempts.put(Bytes.hex(mapping.publishAttemptId()), value);
+        }
         state.lastMappingId = Bytes.hex(mapping.mappingId());
         state.lastSequenceId = mapping.sequenceId();
         state.unresolvedMappingId = state.lastMappingId;
-        records.add(record);
+        record(record);
         lastPosition = position;
     }
 
@@ -718,6 +805,11 @@ public final class PulsarAttemptJournal {
                 && Arrays.equals(mapping.preparedPublishHash(), identity.preparedPublishHash())
                 && mapping.guardedBrokerTimestampEpochMs() == identity.guardedBrokerTimestampEpochMs()
                 && Arrays.equals(mapping.sourcePosition(), identity.sourcePosition());
+    }
+
+    private static boolean sameFrozenProducer(final ProducerKey prior, final ProducerKey incoming) {
+        return prior.equals(incoming) && (!prior.isTarget()
+                || Arrays.equals(prior.targetChannel().canonicalBytes(), incoming.targetChannel().canonicalBytes()));
     }
 
     private static boolean sameCurrentAttemptIdentity(final Mapping mapping, final CurrentAttemptIdentity identity) {
@@ -733,17 +825,26 @@ public final class PulsarAttemptJournal {
     }
 
     private JournalPosition append(final RecordKind kind, final Mapping mapping) {
+        requireWritable();
+        requireRecordCapacity(new JournalRecord(kind, mapping, new JournalPosition(0, 0, 0, 1, 0)));
         final JournalPosition position;
         try {
             position = appender.append(new AppendRequest(kind, mapping));
         } catch (RuntimeException failure) {
+            writeUncertain = targetNamespace;
             throw failure;
         }
         if (position == null) {
+            writeUncertain = targetNamespace;
             throw new JournalException(
                     StableCode.PULSAR_EVIDENCE_DIVERGENCE, "Journal appender returned no durable position");
         }
-        validatePosition(position);
+        try {
+            validatePosition(position);
+        } catch (RuntimeException invalidPosition) {
+            writeUncertain = targetNamespace;
+            throw invalidPosition;
+        }
         return position;
     }
 
@@ -756,18 +857,55 @@ public final class PulsarAttemptJournal {
     }
 
     private void requireShard(final Mapping mapping) {
+        requireProducerNamespace(mapping.producer());
+        if (targetNamespace && !mapping.isCurrentGeneration()) {
+            throw conflict("Target namespace forbids legacy mapping generation");
+        }
         if (!shard.equals(mapping.shard())) {
             throw conflict("mapping belongs to another Shard");
         }
     }
 
     private MappingState requireMapping(final byte[] mappingId) {
+        requireWritable();
         Bytes.requireLength(mappingId, HASH_LENGTH, "mappingId");
         final MappingState state = mappings.get(Bytes.hex(mappingId));
         if (state == null) {
             throw conflict("unknown Attempt Journal mapping");
         }
         return state;
+    }
+
+    private void requireProducerNamespace(final ProducerKey producer) {
+        requireWritable();
+        if (producer.isTarget() != targetNamespace
+                || producer.isTarget() && !producer.targetChannel().context().sourceShard().equals(shard)) {
+            throw conflict("Journal namespace/Source Shard differs from Producer scope");
+        }
+    }
+
+    private void requireWritable() {
+        if (writeUncertain) {
+            throw conflict("Target Journal append is uncertain; reconstruct from complete authoritative replay");
+        }
+    }
+
+    private void requireRecordCapacity(final JournalRecord record) {
+        if (!targetNamespace) {
+            return;
+        }
+        final long bytes = record.canonicalBytes().length;
+        if (records.size() >= maximumRecords || bytes > maximumRecordBytes - recordBytes) {
+            throw conflict("Target Journal retained replay limit exhausted; completeness is not established");
+        }
+    }
+
+    private void record(final JournalRecord record) {
+        requireRecordCapacity(record);
+        records.add(record);
+        if (targetNamespace) {
+            recordBytes = Math.addExact(recordBytes, record.canonicalBytes().length);
+        }
     }
 
     private static long nextSequence(final long lastSequenceId) {
@@ -783,6 +921,11 @@ public final class PulsarAttemptJournal {
             return;
         }
         final MappingState prior = mappings.get(state.lastMappingId);
+        if (prior != null && prior.mapping.producer().isTarget()
+                && !Objects.equals(prior.mapping.producer().targetChannel().context().evidenceGeneration(),
+                        incoming.producer().targetChannel().context().evidenceGeneration())) {
+            throw conflict("Target evidence-generation change requires explicit sequence-domain migration");
+        }
         if (prior != null && prior.mapping.isCurrentGeneration() != incoming.isCurrentGeneration()) {
             throw conflict("Attempt Journal Producer cannot mix mapping generations");
         }
@@ -948,18 +1091,64 @@ public final class PulsarAttemptJournal {
             DestinationLaneId laneId,
             byte[] laneIncarnation,
             byte[] stableProducerNameHash,
-            PulsarTargetResource target) {
+            PulsarTargetResource target,
+            TargetChannelIdentity targetChannel) {
+        public ProducerKey(
+                DestinationLaneId laneId, byte[] laneIncarnation, byte[] stableProducerNameHash,
+                PulsarTargetResource target) {
+            this(laneId, laneIncarnation, stableProducerNameHash, target, null);
+        }
+
         public ProducerKey {
-            Objects.requireNonNull(laneId, "laneId");
-            Bytes.requireLength(laneIncarnation, LANE_INCARNATION_LENGTH, "laneIncarnation");
+            if (targetChannel == null) {
+                Objects.requireNonNull(laneId, "laneId");
+                Bytes.requireLength(laneIncarnation, LANE_INCARNATION_LENGTH, "laneIncarnation");
+            } else if (laneId != null || laneIncarnation != null
+                    || targetChannel.context().kind() != ChannelKind.PULSAR_DEDUP_PRODUCER
+                    || !Arrays.equals(stableProducerNameHash,
+                            Bytes.sha256(targetChannel.context().producerIdentity()))) {
+                throw new IllegalArgumentException("Target Journal Producer changes its channel identity");
+            }
             Bytes.requireLength(stableProducerNameHash, HASH_LENGTH, "stableProducerNameHash");
             Objects.requireNonNull(target, "target");
-            laneIncarnation = Bytes.copy(laneIncarnation);
+            laneIncarnation = laneIncarnation == null ? null : Bytes.copy(laneIncarnation);
             stableProducerNameHash = Bytes.copy(stableProducerNameHash);
+            if (targetChannel != null && !targetChannel.context().target().equals(new CanonicalTargetPartition(
+                    BrokerResourceIdentity.pulsar(new PulsarBrokerResourceIdentity(
+                            target.authenticatedClusterId(), target.resourceIncarnation(), target.physicalTopic(),
+                            target.physicalTopicCreationTimestamp())),
+                    Integer.toUnsignedLong(target.partition())).id())) {
+                throw new IllegalArgumentException("Target Journal Producer changes physical Target");
+            }
+        }
+
+        public static ProducerKey target(final TargetChannelIdentity channel, final CanonicalTargetPartition physical) {
+            if (physical.resource().kind() != BrokerResourceIdentity.Kind.PULSAR
+                    || physical.physicalPartition() > Integer.MAX_VALUE) {
+                throw new IllegalArgumentException("Target Journal requires a supported Pulsar partition");
+            }
+            final var p = physical.resource().pulsar();
+            return new ProducerKey(null, null, Bytes.sha256(channel.context().producerIdentity()),
+                    new PulsarTargetResource(p.authenticatedClusterId(), p.resourceIncarnation(), p.physicalTopic(),
+                            p.physicalTopicCreationTimestamp(), Math.toIntExact(physical.physicalPartition())),
+                    channel);
+        }
+
+        public boolean isTarget() { return targetChannel != null; }
+
+        @Override
+        public DestinationLaneId laneId() {
+            if (isTarget()) {
+                throw new IllegalStateException("Target Journal Producer has no Lane identity");
+            }
+            return laneId;
         }
 
         @Override
         public byte[] laneIncarnation() {
+            if (isTarget()) {
+                throw new IllegalStateException("Target Journal Producer has no Lane incarnation");
+            }
             return Bytes.copy(laneIncarnation);
         }
 
@@ -969,6 +1158,11 @@ public final class PulsarAttemptJournal {
         }
 
         private byte[] canonicalBytes() {
+            if (isTarget()) {
+                return Bytes.concat(Bytes.utf8("nereus-delay-target-pulsar-producer-scope\0"),
+                        Bytes.lp32(targetChannel.context().producerIdentity()), stableProducerNameHash,
+                        Bytes.lp32(targetResource().canonicalBytes()), Bytes.u32beBits(target.partition()));
+            }
             return Bytes.concat(
                     laneId.bytes(),
                     laneIncarnation,
@@ -985,6 +1179,9 @@ public final class PulsarAttemptJournal {
             if (!(other instanceof ProducerKey that)) {
                 return false;
             }
+            if (isTarget() || that.isTarget()) {
+                return isTarget() && that.isTarget() && Arrays.equals(canonicalBytes(), that.canonicalBytes());
+            }
             return laneId.equals(that.laneId)
                     && target.authenticatedClusterId().equals(that.target.authenticatedClusterId())
                     && target.physicalTopic().equals(that.target.physicalTopic())
@@ -993,6 +1190,12 @@ public final class PulsarAttemptJournal {
                     && Arrays.equals(laneIncarnation, that.laneIncarnation)
                     && Arrays.equals(stableProducerNameHash, that.stableProducerNameHash)
                     && Arrays.equals(target.resourceIncarnation(), that.target.resourceIncarnation());
+        }
+
+        private BrokerResourceIdentity targetResource() {
+            return BrokerResourceIdentity.pulsar(new PulsarBrokerResourceIdentity(
+                    target.authenticatedClusterId(), target.resourceIncarnation(), target.physicalTopic(),
+                    target.physicalTopicCreationTimestamp()));
         }
 
         @Override
@@ -1143,7 +1346,9 @@ public final class PulsarAttemptJournal {
             this.deliveryContract = null;
             this.artifactGenerationSetDigest = null;
             this.currentGeneration = false;
-            this.mappingId = Bytes.sha256(Bytes.concat(MAPPING_ID_DOMAIN, canonicalBody()));
+            this.mappingId = Bytes.sha256(Bytes.concat(producer.isTarget()
+                    ? Bytes.utf8("nereus-delay-target-pulsar-attempt-journal-mapping-id\0") : MAPPING_ID_DOMAIN,
+                    canonicalBody()));
         }
 
         private Mapping(
@@ -1172,7 +1377,9 @@ public final class PulsarAttemptJournal {
             this.deliveryContract = identity.deliveryContract();
             this.artifactGenerationSetDigest = identity.artifactGenerationSetDigest();
             this.currentGeneration = true;
-            this.mappingId = Bytes.sha256(Bytes.concat(MAPPING_ID_DOMAIN, canonicalBody()));
+            this.mappingId = Bytes.sha256(Bytes.concat(producer.isTarget()
+                    ? Bytes.utf8("nereus-delay-target-pulsar-attempt-journal-mapping-id\0") : MAPPING_ID_DOMAIN,
+                    canonicalBody()));
         }
 
         public static Mapping create(
@@ -1264,6 +1471,12 @@ public final class PulsarAttemptJournal {
         }
 
         private byte[] canonicalBody() {
+            if (producer.isTarget()) {
+                if (!currentGeneration) {
+                    throw new IllegalArgumentException("Target mapping requires the current identity shape");
+                }
+                return TargetPulsarAttemptJournalRecordCodec.mappingBody(this);
+            }
             if (currentGeneration) {
                 return Bytes.concat(
                         shard.routeIncarnation().bytes(),
@@ -1316,6 +1529,7 @@ public final class PulsarAttemptJournal {
         private final ProducerState producer;
         private final JournalRecord mappedRecord;
         private boolean ownershipStarted;
+        private boolean targetFirstSendAvailable;
         private JournalRecord ownershipRecord;
         private boolean published;
         private JournalRecord publishedRecord;

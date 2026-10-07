@@ -1,0 +1,52 @@
+C2/D2 Independent Target Pulsar Journal namespace and first-send recovery fence
+
+Date: 2026-10-07
+Base: main@4fcbaa884c01120d86b46e8058e379590410cc49
+
+Target Journal v1 has an independent closed codec/hash namespace and freezes full immutable Target channel, physical Target, sequence, Message/generation/attempt, prepared/template/artifact hashes and exact Admission source. Legacy Lane generation-3 codec/bytes remain unchanged; the old ProducerKey constructor/accessors remain supported. Producer stable scope excludes normal channel/credential renewal so the sequence does not reset; frozen attempts require the full original channel. Evidence-generation changes require explicit sequence-domain migration. Target attempt lookup uses an indexed bounded map and forbids changed/duplicate mappings.
+
+The existing four-state machine is reused. Target append exception/null/non-monotonic acknowledgement fences the instance before another mapping/sequence/SEND can be admitted. Finite retained record/byte limits and closed root-field bounds are enforced; replay failure fences partial state. A fresh durable ownership marker permits one process-local first-send token, consumed before the sender; replay, idempotent markers and exceptions never mint/return it. The pre-ownership legacy SEND entrance is unavailable in Target mode. Target cursor/checkpoint/Floor/GC remains unimplemented.
+
+Source-locked openTarget uses a distinct protected resource, mandatory Writer/namespace guard before creation, after complete replay, before append and after ACK/readback, and an Exclusive Journal producer. It reuses guarded ACK validation, exact response-loss readback and contiguous startup tail replay. Target readback is bounded too. The mapping overload in the record factory checks full Source/Message/payload/template/artifact/channel equality; DTOs alone remain insufficient Writer or durability authority.
+
+Final focused command:
+./gradlew checkstyleMain checkstyleTest test --tests 'com.nereusstream.delay.protocol.TargetMaterializedAdmissionTest' --tests 'com.nereusstream.delay.adapter.PulsarAttemptJournalTest' --no-daemon --console=plain
+Result: BUILD SUCCESSFUL in 30s; 34/34 (10+24), zero failures/errors/skips; main/test Checkstyle passed. Cases include exact codec/record join, old codec rejection, renewal sequence continuity, immutable attempt fence, single first-send, fresh replay ownership refusal, committed-response-loss fixture fencing, complete-vs-partial replay and infinite-sentinel rejection.
+
+Real environment bootstrap:
+NEREUS_DELAY_PULSAR_TARGET_JOURNAL_ONLY=1 e2e/run-pulsar-real-client-e2e.sh
+It verified the clean pinned P1 checkout, built its Broker image/distribution, extracted runtime libraries, and started an owned standalone Broker. Its uncached Gradle download remained live. The same owned Broker was then verified with the existing workspace Gradle cache via the following command; after success the unnecessary download child was explicitly terminated (bootstrap exit 143), and the script cleanup removed owned Broker/container/volumes/image/runtime. The bootstrap itself is not recorded as PASS.
+
+Actual Broker verification command:
+./gradlew runRealPulsarTargetJournalSmoke -PpulsarClientClasspath=/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-client/build/libs/pulsar-client-original-5.0.0-M1.jar:/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-client-api/build/libs/pulsar-client-api-5.0.0-M1.jar:/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-common/build/libs/pulsar-common-5.0.0-M1.jar -PpulsarRuntimeDir=/var/folders/vk/l_r0z80j1dj93fsrjx3zqv4r0000gn/T/nereus-delay-p1-runtime.XXXXXX.UO5RExxKfP/lib -PpulsarServiceUrl=pulsar://127.0.0.1:19669 -PpulsarAdminUrl=http://127.0.0.1:19670 -PpulsarTargetJournalTopic=p1-target-journal-direct-48919 --no-daemon --console=plain
+Result: BUILD SUCCESSFUL in 20s (including compileRealPulsar); owned Journal topic cleanup succeeded.
+Target Journal Broker smoke passed: records=5, reopen=5, renewed-sequence=1, recovered-first-send=0, partial-replay=blocked, guard-calls=21
+P1 checkout: 0a2536484cd3932801a98dc88ff112b2df88a1c7
+P1 distribution SHA256: 373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3
+P1 image ID: sha256:6d3485378abd04d00ffd6c0d340a66e7eca8120bd6f89bd25fab45363f245cc3
+Compose project: nereus-delay-pulsar-e2e-1791364286-48919
+
+Scope: five actual guarded Journal appends and same-JVM close/reopen on the locked P1 standalone Broker. Writer/Owner/time/credential/Admission/membership identities are explicit fixtures. No target business SEND, real Oxia takeover, process crash or real network response loss is exercised. The committed-response-loss test above uses an injected appender, not the Broker network. Production providers/Host, Target cursor/checkpoint/Floor/GC/sequence seed, Native/baseline, physical evidence retention and full Broker/recovery validation remain required. C2/D2/E5 remain IN_PROGRESS / PENDING_CENTRAL_VALIDATION, global completion/production-authority flags false.
+
+Documentation:
+./gradlew checkDocumentation --no-daemon --console=plain
+Result: BUILD SUCCESSFUL in 1m 7s; verifier suites 10/10 and 14/14 plus historical/package authority checks passed. Flags, paths and final source/artifact/report hashes verified. Owned Broker/runtime cleanup confirmed. bash -n e2e/run-pulsar-real-client-e2e.sh and git diff --check passed.
+
+SHA-256:
+818770ec66b9c57ef05db550d2e0ffa1686deb24d0d6dc1af498321094ae91ea  src/main/java/com/nereusstream/delay/adapter/PulsarAttemptJournal.java
+32abea4701364cb553726f801f0421d85492f9f080c65da758b2cd2964314982  src/main/java/com/nereusstream/delay/adapter/PulsarAttemptJournalRecordCodec.java
+389c5d2b1dfa38cba9309d57aeed28dd87a2f3a110c61670c6d1e50978dd5fcf  src/main/java/com/nereusstream/delay/adapter/TargetPulsarAttemptJournalRecordCodec.java
+96bf05674c8b91e606db9682448c8376217f36748d749cdfd7ca248a00a4e116  src/main/java/com/nereusstream/delay/adapter/PulsarPreparedRecordFactory.java
+28fca22e1c7ff4e1dcc67e72b26fa4420311f70b91db79ffbed2bec30adea659  src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactAttemptJournal.java
+72628b8fd872933a5e7a9dff826c188cc52de7856ea9b679f51efa792b9647a1  src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactProducerFactory.java
+49876c1e4c8259fc7eec46d9c8546f865425b568ebbbd3cc7072502e68b60f87  src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactTargetJournalSmoke.java
+546c5c1a003ecfd58424cebb912ae3ebd4784f23e29807822a3293987e381c93  src/test/java/com/nereusstream/delay/protocol/TargetMaterializedAdmissionTest.java
+9ddc34685ff574cb7dbf2138d2489b8bbb4c6b240820dc03309309db9423dd1e  build.gradle
+50c3410da322583273ec59c1535dc7cb5e3914f0f557c78f976f946d28b6e492  e2e/run-pulsar-real-client-e2e.sh
+feb9e2ae33cdf3077fb69aba811aa973c23f0dfe2f2261dfe536d62318c7d98e  build/test-results/test/TEST-com.nereusstream.delay.protocol.TargetMaterializedAdmissionTest.xml
+2294d6ae38c7b4f0ae604a2fcfe351516e20be51df779af4f3f60743d1871a94  build/test-results/test/TEST-com.nereusstream.delay.adapter.PulsarAttemptJournalTest.xml
+dc18e2b1f69a04209013546c30a1ba6ee9bc05a78c374c2a2e635055bc379a2e  build/reports/checkstyle/main.xml
+5f0297d93c65110a2f55915d73253257387acb5203d1ed178b8cabaacd86882e  build/reports/checkstyle/test.xml
+57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c  /Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-client/build/libs/pulsar-client-original-5.0.0-M1.jar
+f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394  /Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-client-api/build/libs/pulsar-client-api-5.0.0-M1.jar
+94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8  /Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-common/build/libs/pulsar-common-5.0.0-M1.jar

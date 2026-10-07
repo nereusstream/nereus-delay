@@ -3,6 +3,7 @@ package com.nereusstream.delay.transport;
 import com.nereusstream.delay.adapter.PulsarAttemptJournal;
 import com.nereusstream.delay.adapter.PulsarAttemptJournalRecordCodec;
 import com.nereusstream.delay.adapter.PulsarJournalResource;
+import com.nereusstream.delay.adapter.TargetPulsarAttemptJournalRecordCodec;
 import com.nereusstream.delay.protocol.ShardId;
 import java.time.Duration;
 import java.util.Arrays;
@@ -36,6 +37,10 @@ public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJo
     private final ShardId shard;
     private final PulsarAttemptJournal journal;
     private final int replayedRecords;
+    private final boolean targetNamespace;
+    private final int maximumRecords;
+    private final long maximumRecordBytes;
+    private final TargetWriterGuard targetWriterGuard;
     private int responseLossRecoveries;
 
     /** Opens the guarded producer and reconstructs the complete Journal from its earliest retained record. */
@@ -58,6 +63,36 @@ public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJo
                 journalProducerName);
         return openWithProducerForTesting(
                 client, shard, exactResource, producer, replaySubscriptionName, responseTimeout);
+    }
+
+    /** Opens a distinct source-protected Target Journal namespace; never use an active Lane Journal resource. */
+    public static PulsarClientArtifactAttemptJournal openTarget(
+            final PulsarClient client, final ShardId shard, final PulsarJournalResource resource,
+            final String journalProducerName, final String replaySubscriptionName, final Duration responseTimeout,
+            final int maximumRecords, final long maximumRecordBytes, final TargetWriterGuard writerGuard)
+            throws PulsarClientException {
+        Objects.requireNonNull(client, "client");
+        if (maximumRecords <= 0 || maximumRecordBytes <= 0
+                || maximumRecords == Integer.MAX_VALUE || maximumRecordBytes == Long.MAX_VALUE) {
+            throw new IllegalArgumentException("Target Journal replay limits must be finite and positive");
+        }
+        final var exactResource = Objects.requireNonNull(resource, "resource");
+        final var guard = Objects.requireNonNull(writerGuard, "writerGuard");
+        guard.requireActive(shard, exactResource);
+        final var producer = PulsarClientArtifactProducerFactory.createExclusiveJournal(
+                client, exactResource.authenticatedClusterId(), exactResource.resourceIncarnation(),
+                exactResource.physicalTopic(), exactResource.physicalTopicCreationTimestamp(), journalProducerName);
+        try {
+            return new PulsarClientArtifactAttemptJournal(client, producer, shard, exactResource,
+                    replaySubscriptionName, responseTimeout, true, maximumRecords, maximumRecordBytes, guard);
+        } catch (RuntimeException | PulsarClientException failure) {
+            try {
+                producer.close();
+            } catch (PulsarClientException closeFailure) {
+                failure.addSuppressed(closeFailure);
+            }
+            throw failure;
+        }
     }
 
     /**
@@ -96,12 +131,18 @@ public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJo
     }
 
     private PulsarClientArtifactAttemptJournal(
-            final PulsarClient client,
-            final Producer<byte[]> producer,
-            final ShardId shard,
-            final PulsarJournalResource resource,
-            final String replaySubscriptionName,
-            final Duration responseTimeout)
+            final PulsarClient client, final Producer<byte[]> producer, final ShardId shard,
+            final PulsarJournalResource resource, final String replaySubscriptionName, final Duration responseTimeout)
+            throws PulsarClientException {
+        this(client, producer, shard, resource, replaySubscriptionName, responseTimeout,
+                false, Integer.MAX_VALUE, Long.MAX_VALUE, null);
+    }
+
+    private PulsarClientArtifactAttemptJournal(
+            final PulsarClient client, final Producer<byte[]> producer, final ShardId shard,
+            final PulsarJournalResource resource, final String replaySubscriptionName, final Duration responseTimeout,
+            final boolean targetNamespace, final int maximumRecords, final long maximumRecordBytes,
+            final TargetWriterGuard targetWriterGuard)
             throws PulsarClientException {
         this.client = Objects.requireNonNull(client, "client");
         this.producer = Objects.requireNonNull(producer, "producer");
@@ -117,8 +158,16 @@ public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJo
         if (!resource.physicalTopic().equals(producer.getTopic()) || resource.partition() != shard.partition()) {
             throw new IllegalArgumentException("Attempt Journal producer/resource/shard binding differs");
         }
-        this.journal = new PulsarAttemptJournal(this.shard, this, resource);
+        this.targetNamespace = targetNamespace;
+        this.maximumRecords = maximumRecords;
+        this.maximumRecordBytes = maximumRecordBytes;
+        this.targetWriterGuard = targetWriterGuard;
+        requireTargetWriter();
+        this.journal = targetNamespace
+                ? PulsarAttemptJournal.forTargets(this.shard, this, resource, maximumRecords, maximumRecordBytes)
+                : new PulsarAttemptJournal(this.shard, this, resource);
         this.replayedRecords = replay(this.client, this.replaySubscriptionName);
+        requireTargetWriter();
     }
 
     public PulsarAttemptJournal journal() {
@@ -143,12 +192,22 @@ public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJo
     PulsarClientArtifactAttemptJournal reopenAfterCloseForTesting() throws PulsarClientException {
         final String producerName = producer.getProducerName();
         close();
+        if (targetNamespace) {
+            return openTarget(client, shard, resource, producerName, replaySubscriptionName, responseTimeout,
+                    maximumRecords, maximumRecordBytes, targetWriterGuard);
+        }
         return open(client, shard, resource, producerName, replaySubscriptionName, responseTimeout);
     }
 
     @Override
     public PulsarAttemptJournal.JournalPosition append(final PulsarAttemptJournal.AppendRequest request) {
-        final byte[] payload = PulsarAttemptJournalRecordCodec.encode(Objects.requireNonNull(request, "request"));
+        Objects.requireNonNull(request, "request");
+        if (request.mapping().producer().isTarget() != targetNamespace) {
+            throw new IllegalArgumentException("Attempt Journal physical namespace differs from mapping");
+        }
+        final byte[] payload = targetNamespace ? TargetPulsarAttemptJournalRecordCodec.encode(request)
+                : PulsarAttemptJournalRecordCodec.encode(request);
+        requireTargetWriter();
         final CompletableFuture<MessageId> completion;
         try {
             completion = producer.newMessage().value(payload).sendAsync();
@@ -170,12 +229,15 @@ public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJo
                 throw new IllegalStateException("Attempt Journal append outcome is unknown", failure);
             }
             if (recovered.isPresent()) {
+                requireTargetWriter();
                 responseLossRecoveries++;
                 return recovered.get();
             }
             throw new IllegalStateException("Attempt Journal append outcome is unknown", failure);
         }
-        return acknowledgedPosition(messageId);
+        final var position = acknowledgedPosition(messageId);
+        requireTargetWriter();
+        return position;
     }
 
     /**
@@ -195,15 +257,23 @@ public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJo
                 return Optional.empty();
             }
             PulsarAttemptJournal.JournalPosition exact = null;
+            int scanned = 0;
+            long scannedBytes = 0;
             while (true) {
                 final Message<byte[]> message = consumer.receive(responseTimeoutMs, TimeUnit.MILLISECONDS);
                 if (message == null) {
                     throw new IllegalStateException("Attempt Journal readback ended before its captured tail");
                 }
                 final PulsarAttemptJournal.JournalPosition position = replayPosition(message);
+                if (targetNamespace) {
+                    scannedBytes = Math.addExact(scannedBytes, message.getData().length);
+                    if (++scanned > maximumRecords || scannedBytes > maximumRecordBytes) {
+                        throw new IllegalStateException("Target Journal readback completeness exceeds its budget");
+                    }
+                }
                 // Decode every traversed record before acknowledging it so a
                 // corrupt or foreign body cannot be skipped by readback.
-                PulsarAttemptJournalRecordCodec.decode(message.getData(), position);
+                decode(message.getData(), position);
                 if (exact == null && Arrays.equals(expectedPayload, message.getData())) {
                     exact = position;
                 }
@@ -252,7 +322,7 @@ public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJo
                     throw new IllegalStateException("Attempt Journal replay ended before its captured tail");
                 }
                 final PulsarAttemptJournal.JournalPosition position = replayPosition(message);
-                journal.replay(PulsarAttemptJournalRecordCodec.decode(message.getData(), position));
+                journal.replay(decode(message.getData(), position));
                 consumer.acknowledge(message);
                 records++;
                 if (message.getMessageId().compareTo(replayThrough) >= 0) {
@@ -284,6 +354,24 @@ public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJo
             throw new IllegalStateException("Attempt Journal acknowledgement evidence is incomplete or foreign");
         }
         return position(advanced, guarded.brokerEntryTimestamp(), "Attempt Journal acknowledgement");
+    }
+
+    private PulsarAttemptJournal.JournalRecord decode(
+            final byte[] payload, final PulsarAttemptJournal.JournalPosition position) {
+        return targetNamespace ? TargetPulsarAttemptJournalRecordCodec.decode(payload, position)
+                : PulsarAttemptJournalRecordCodec.decode(payload, position);
+    }
+
+    /** Current Owner/Store/time and distinct source-protected Target namespace; never acquire Shard/Store locks here. */
+    @FunctionalInterface
+    public interface TargetWriterGuard {
+        void requireActive(ShardId shard, PulsarJournalResource resource);
+    }
+
+    private void requireTargetWriter() {
+        if (targetNamespace) {
+            Objects.requireNonNull(targetWriterGuard, "targetWriterGuard").requireActive(shard, resource);
+        }
     }
 
     private PulsarAttemptJournal.JournalPosition replayPosition(final Message<byte[]> message) {

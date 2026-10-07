@@ -28,6 +28,7 @@ worker_process_crash="${NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH:-0}"
 worker_process_crash_only="${NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH_ONLY:-0}"
 multi_shard_only="${NEREUS_DELAY_PULSAR_MULTI_SHARD_ONLY:-0}"
 target_worker_source_only="${NEREUS_DELAY_PULSAR_TARGET_WORKER_SOURCE_ONLY:-0}"
+target_journal_only="${NEREUS_DELAY_PULSAR_TARGET_JOURNAL_ONLY:-0}"
 oxia_checkout="${NEREUS_DELAY_OXIA_CHECKOUT:-${delay_dir}/../oxia}"
 compose_project="nereus-delay-pulsar-e2e-$(date +%s)-$$"
 oxia_project="nereus-delay-pulsar-oxia-e2e-${compose_project#nereus-delay-pulsar-e2e-}"
@@ -203,6 +204,16 @@ if [[ "${multi_shard_only}" == "1" && "${focused_response_loss_count}" != "0" ]]
   echo "NEREUS_DELAY_PULSAR_MULTI_SHARD_ONLY cannot be combined with response-loss focused mode" >&2
   exit 1
 fi
+if [[ "${target_journal_only}" != "0" && "${target_journal_only}" != "1" ]]; then
+  echo "NEREUS_DELAY_PULSAR_TARGET_JOURNAL_ONLY must be 0 or 1" >&2
+  exit 1
+fi
+if [[ "${target_journal_only}" == "1" && ( "${with_oxia}" == "1" || "${multi_shard_only}" == "1" \
+    || "${target_worker_source_only}" == "1" || "${focused_response_loss_count}" != "0" \
+    || "${worker_process_crash_only}" == "1" ) ]]; then
+  echo "Target Journal-only mode cannot be combined with another focused mode" >&2
+  exit 1
+fi
 if [[ "${target_worker_source_only}" == "1" && ( "${with_oxia}" == "1" || "${multi_shard_only}" == "1" \
     || "${focused_response_loss_count}" != "0" ) ]]; then
   echo "NEREUS_DELAY_PULSAR_TARGET_WORKER_SOURCE_ONLY is isolated from Oxia and other focused modes" >&2
@@ -342,6 +353,18 @@ if [[ "${with_oxia}" == "1" ]]; then
   NEREUS_DELAY_OXIA_CHECKOUT="${oxia_checkout}" NEREUS_DELAY_OXIA_E2E_PORT="${oxia_port}" \
     "${oxia_compose[@]}" up --build -d
   wait_for_oxia
+fi
+
+if [[ "${target_journal_only}" == "1" ]]; then
+  target_journal_topic="p1-target-journal-${compose_project##*-}"
+  GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealPulsarTargetJournalSmoke \
+    -PpulsarClientClasspath="${pulsar_client_cp}" \
+    -PpulsarRuntimeDir="${runtime_dir}/lib" \
+    -PpulsarServiceUrl="${service_url}" \
+    -PpulsarAdminUrl="${admin_url}" \
+    -PpulsarTargetJournalTopic="${target_journal_topic}" \
+    --no-daemon --console=plain
+  exit 0
 fi
 
 if [[ "${target_worker_source_only}" == "1" ]]; then

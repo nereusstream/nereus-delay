@@ -12,7 +12,10 @@ import com.nereusstream.delay.adapter.DestinationPhysicalAdmission;
 import com.nereusstream.delay.adapter.DestinationPublishAdapter;
 import com.nereusstream.delay.adapter.DestinationPublishRequest;
 import com.nereusstream.delay.adapter.DestinationPublishResult;
+import com.nereusstream.delay.adapter.PulsarAttemptJournal;
+import com.nereusstream.delay.adapter.PulsarAttemptJournalRecordCodec;
 import com.nereusstream.delay.adapter.PulsarPreparedRecordFactory;
+import com.nereusstream.delay.adapter.TargetPulsarAttemptJournalRecordCodec;
 import com.nereusstream.delay.runtime.AttemptLedgerState;
 import com.nereusstream.delay.runtime.AttemptObligationRef;
 import com.nereusstream.delay.runtime.CurrentSendWorkKind;
@@ -415,6 +418,141 @@ class TargetMaterializedAdmissionTest {
         }
         return new WorkClassExecutionRegistry(
                 new WorkClassRuntimeConfig(policies, 100, 100, 16, 8_000_000), () -> 0);
+    }
+
+    @Test
+    void targetJournalJoinsExactRecordAndRestoredOwnershipNeverMintsFirstSend() throws Exception {
+        final var f = fixture();
+        final var artifacts = ArtifactGenerationSet.current(1, PulsarSourceLock.digest(), repeated(32, 0x71));
+        final var publication = publication(f, artifacts.setDigest());
+        final var admitted = admission(f, publication);
+        final var message = f.claim().admitted(f.claimed(), admitted.obligation(), admitted.attemptNo());
+        final var payload = PayloadForPublish.inline(message.inlinePayload());
+        final var at = (KafkaSourcePosition) f.binding().bindingSource();
+        final var identity = PulsarPreparedRecordFactory.targetJournalIdentity(publication, message, payload, at);
+        final var producer = PulsarAttemptJournal.ProducerKey.target(f.channel(), f.physical());
+        final var rows = new ArrayList<PulsarAttemptJournal.JournalRecord>();
+        final var journal = PulsarAttemptJournal.forTargets(at.shardId(), request -> {
+            final var position = journalPosition(rows.size());
+            final var bytes = TargetPulsarAttemptJournalRecordCodec.encode(request);
+            rows.add(TargetPulsarAttemptJournalRecordCodec.decode(bytes, position));
+            return position;
+        }, null, 16, 100_000);
+        final var mapped = journal.appendOrReuseCurrent(producer, identity).record().mapping();
+        assertEquals(0, mapped.sequenceId());
+        assertTrue(journal.appendOrReuseCurrent(producer, identity).idempotent());
+        assertEquals(1, rows.size());
+        final var record = PulsarPreparedRecordFactory.targetManaged(
+                publication, message, payload, ResolvedPayload.of(message.inlinePayload()), mapped, artifacts);
+        assertArrayEquals(mapped.mappingId(), record.sequenceAuthority().journalMappingId());
+        assertThrows(IllegalArgumentException.class,
+                () -> PulsarAttemptJournalRecordCodec.encode(rowsRequest(rows.getFirst())));
+        assertThrows(IllegalArgumentException.class, () -> PulsarAttemptJournalRecordCodec.decode(
+                TargetPulsarAttemptJournalRecordCodec.encode(rowsRequest(rows.getFirst())),
+                rows.getFirst().position()));
+        assertThrows(IllegalStateException.class,
+                () -> journal.sendAfterMapped(mapped, ignored -> CompletableFuture.completedFuture(record)));
+        journal.markOwnershipStarted(mapped);
+        final var recovered = PulsarAttemptJournal.forTargets(at.shardId(), request -> {
+            throw new AssertionError("recovery token check must not append");
+        }, null, 16, 100_000);
+        rows.forEach(recovered::replay);
+        assertEquals(PulsarAttemptJournal.AttemptState.OWNERSHIP_STARTED, recovered.state(mapped.mappingId()));
+        assertTrue(recovered.markOwnershipStarted(mapped).idempotent());
+        final var sends = new AtomicInteger();
+        assertThrows(IllegalStateException.class, () -> recovered.sendAfterOwnershipStarted(mapped, ignored -> {
+            sends.incrementAndGet();
+            return CompletableFuture.completedFuture(record);
+        }));
+        journal.sendAfterOwnershipStarted(mapped, ignored -> {
+            sends.incrementAndGet();
+            return CompletableFuture.completedFuture(record);
+        }).toCompletableFuture().join();
+        assertThrows(IllegalStateException.class,
+                () -> journal.sendAfterOwnershipStarted(mapped, ignored -> CompletableFuture.completedFuture(record)));
+        assertEquals(1, sends.get());
+        assertThrows(IllegalStateException.class, () -> journal.retireNotPublished(mapped.mappingId()));
+    }
+
+    @Test
+    void targetJournalRenewalContinuesSequenceAndCannotRewriteFrozenAttempt() throws Exception {
+        final var f = fixture();
+        final var at = (KafkaSourcePosition) f.binding().bindingSource();
+        final var producer = PulsarAttemptJournal.ProducerKey.target(f.channel(), f.physical());
+        final var renewedChannel = channelFor(f.channel(), at.shardId(),
+                TargetQueueState.nextRevision(f.channel().context().channelGeneration()));
+        final var renewed = PulsarAttemptJournal.ProducerKey.target(renewedChannel, f.physical());
+        assertEquals(producer, renewed);
+        final var entries = new AtomicInteger();
+        final var journal = PulsarAttemptJournal.forTargets(at.shardId(),
+                request -> journalPosition(entries.getAndIncrement()), null, 16, 100_000);
+        final var first = targetJournalIdentity(f, repeated(32, 0x81));
+        final var mapping = journal.appendOrReuseCurrent(producer, first).record().mapping();
+        assertThrows(IllegalStateException.class, () -> journal.appendOrReuseCurrent(renewed, first));
+        journal.retireNotPublished(mapping.mappingId());
+        final var second = journal.appendOrReuseCurrent(renewed, targetJournalIdentity(f, repeated(32, 0x82)));
+        assertEquals(1, second.record().mapping().sequenceId());
+        assertEquals(renewedChannel, second.record().mapping().producer().targetChannel());
+        final var illegalDuplicate = PulsarAttemptJournal.Mapping.createCurrent(at.shardId(), renewed, 2, first);
+        assertThrows(IllegalStateException.class, () -> journal.appendMapped(illegalDuplicate));
+        assertThrows(IllegalStateException.class, () -> new PulsarAttemptJournal(at.shardId()).appendMapped(mapping));
+        assertThrows(IllegalStateException.class, producer::laneId);
+    }
+
+    @Test
+    void targetJournalUncertainAppendAndPartialReplayFenceEveryLaterWriteAndSend() throws Exception {
+        final var f = fixture();
+        final var shard = f.channel().context().sourceShard();
+        final var producer = PulsarAttemptJournal.ProducerKey.target(f.channel(), f.physical());
+        final var durable = new ArrayList<PulsarAttemptJournal.JournalRecord>();
+        assertThrows(IllegalArgumentException.class, () -> PulsarAttemptJournal.forTargets(
+                shard, request -> journalPosition(0), null, Integer.MAX_VALUE, Long.MAX_VALUE));
+        final var journal = PulsarAttemptJournal.forTargets(shard, request -> {
+            final var position = journalPosition(durable.size());
+            durable.add(TargetPulsarAttemptJournalRecordCodec.decode(
+                    TargetPulsarAttemptJournalRecordCodec.encode(request), position));
+            if (request.kind() == PulsarAttemptJournal.RecordKind.OWNERSHIP_STARTED) {
+                throw new IllegalStateException("fixture committed Journal response loss");
+            }
+            return position;
+        }, null, 16, 100_000);
+        final var first = targetJournalIdentity(f, repeated(32, 0x81));
+        final var mapping = journal.appendOrReuseCurrent(producer, first).record().mapping();
+        assertThrows(IllegalStateException.class, () -> journal.markOwnershipStarted(mapping));
+        assertThrows(IllegalStateException.class,
+                () -> journal.appendOrReuseCurrent(producer, targetJournalIdentity(f, repeated(32, 0x82))));
+        assertEquals(2, durable.size());
+        assertThrows(IllegalStateException.class,
+                () -> journal.sendAfterOwnershipStarted(mapping, ignored -> CompletableFuture.completedFuture(null)));
+        final var partial = PulsarAttemptJournal.forTargets(shard,
+                request -> journalPosition(10), null, 1, 100_000);
+        partial.replay(durable.getFirst());
+        assertThrows(IllegalStateException.class, () -> partial.replay(durable.get(1)));
+        assertThrows(IllegalStateException.class, () -> partial.markOwnershipStarted(mapping));
+        final var complete = PulsarAttemptJournal.forTargets(shard,
+                request -> journalPosition(10), null, 16, 100_000);
+        durable.forEach(complete::replay);
+        assertEquals(PulsarAttemptJournal.AttemptState.OWNERSHIP_STARTED, complete.state(mapping.mappingId()));
+        assertThrows(IllegalStateException.class,
+                () -> complete.sendAfterOwnershipStarted(mapping, ignored -> CompletableFuture.completedFuture(null)));
+        final byte[] tampered = TargetPulsarAttemptJournalRecordCodec.encode(rowsRequest(durable.getFirst()));
+        tampered[tampered.length - 1] ^= 1;
+        assertThrows(IllegalArgumentException.class,
+                () -> TargetPulsarAttemptJournalRecordCodec.decode(tampered, journalPosition(0)));
+    }
+
+    private static PulsarAttemptJournal.CurrentAttemptIdentity targetJournalIdentity(Fixture f, byte[] attempt) {
+        return new PulsarAttemptJournal.CurrentAttemptIdentity(f.binding().messageId(), 0, attempt,
+                repeated(32, 0x83), repeated(32, 0x84), DeliveryContract.NEREUS_MANAGED_NOT_BEFORE,
+                f.binding().bindingSource().canonicalBytes(), repeated(32, 0x85));
+    }
+
+    private static PulsarAttemptJournal.AppendRequest rowsRequest(PulsarAttemptJournal.JournalRecord record) {
+        return new PulsarAttemptJournal.AppendRequest(record.kind(), record.mapping());
+    }
+
+    private static PulsarAttemptJournal.JournalPosition journalPosition(int entry) {
+        return new PulsarAttemptJournal.JournalPosition(1, entry, 0, 1, 1000 + entry);
     }
 
     private static TargetPublishAdmissionBody admission(Fixture f, TargetOrdinaryPublicationBinding publication) {
