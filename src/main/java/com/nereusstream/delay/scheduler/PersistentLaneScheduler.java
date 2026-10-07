@@ -1324,7 +1324,8 @@ public final class PersistentLaneScheduler {
                 || decodedRound.roundGeneration() < 0) {
             throw new IllegalArgumentException("scheduler generations cannot be negative");
         }
-        final SchedulerProjections.DeficitMap decodedDeficits = SchedulerProjections.DeficitMap.decode(deficits.payload());
+        final SchedulerProjections.DeficitMap decodedDeficits =
+                SchedulerProjections.DeficitMap.decode(deficits.payload());
         if (decodedDeficits.entries().stream().anyMatch(entry -> entry.deficitBytes() < 0)) {
             throw new IllegalArgumentException("scheduler deficit cannot be negative");
         }

@@ -374,7 +374,8 @@ public final class TargetWorkerHostRuntime {
         }
     }
 
-    private void rollbackTargetQueueChangeSignalBindings(final List<? extends Shard> candidates, final Throwable failure) {
+    private void rollbackTargetQueueChangeSignalBindings(
+            final List<? extends Shard> candidates, final Throwable failure) {
         for (int index = candidates.size() - 1; index >= 0; index--) {
             try {
                 unbindTargetQueueChangeSignal(candidates.get(index));

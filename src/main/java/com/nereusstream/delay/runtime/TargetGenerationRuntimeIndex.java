@@ -4,6 +4,7 @@ import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
 import com.nereusstream.delay.protocol.QueryCodecSupport;
 import com.nereusstream.delay.protocol.TargetMessageLocator;
+import com.nereusstream.delay.protocol.TargetQueueState;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -242,6 +243,47 @@ public final class TargetGenerationRuntimeIndex {
 
     public byte[] runtimeDigest() {
         return Bytes.copy(digest);
+    }
+
+    /** Applies the initial UNKNOWN result without releasing the exact unresolved attempt obligation. */
+    public TargetGenerationRuntimeIndex unknownOutcome(final byte[] attemptId) {
+        Bytes.requireLength(attemptId, 32, "attemptId");
+        final var nextObligations = new ArrayList<>(obligations);
+        int matched = 0;
+        for (int index = 0; index < nextObligations.size(); index++) {
+            final var obligation = nextObligations.get(index);
+            if (Arrays.equals(obligation.publishAttemptId(), attemptId)) {
+                if (obligation.ledgerState() != AttemptLedgerState.PUBLISHING) {
+                    throw new IllegalStateException("Target attempt is not a PUBLISHING obligation");
+                }
+                nextObligations.set(index, obligation.uncertain());
+                matched++;
+            }
+        }
+        if (matched != 1) {
+            throw new IllegalStateException("Target UNKNOWN result must resolve exactly one PUBLISHING obligation");
+        }
+        final boolean terminal = terminal();
+        if (terminal) {
+            if (currentWorkKind != CurrentSendWorkKind.NONE || publishAttemptId != null) {
+                throw new IllegalStateException("terminal Target generation retains current send work");
+            }
+        } else if (currentWorkKind != CurrentSendWorkKind.PUBLISHING
+                || !Arrays.equals(this.publishAttemptId, attemptId)) {
+            throw new IllegalStateException("Target UNKNOWN result differs from current PUBLISHING work");
+        }
+        return new TargetGenerationRuntimeIndex(
+                generation,
+                terminal ? aggregateState : GenerationAggregateState.UNCERTAIN,
+                CurrentSendWorkKind.NONE,
+                null,
+                null,
+                null,
+                nextObligations,
+                admissionsUsed,
+                uncertainRetryAdmissionsUsed,
+                possibleDestinationDuplicate,
+                TargetQueueState.nextRevision(runtimeRevision));
     }
 
     public void requireMessageProjection(final TargetMessageLocator locator) {

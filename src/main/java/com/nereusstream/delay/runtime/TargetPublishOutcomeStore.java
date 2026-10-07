@@ -1,0 +1,361 @@
+package com.nereusstream.delay.runtime;
+
+import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.OrderingMode;
+import com.nereusstream.delay.protocol.PublishOutcomeBody;
+import com.nereusstream.delay.protocol.StableCode;
+import com.nereusstream.delay.protocol.SystemMutation;
+import com.nereusstream.delay.protocol.SystemMutationType;
+import com.nereusstream.delay.protocol.TargetMessageLocator;
+import com.nereusstream.delay.protocol.TargetQueueState;
+import com.nereusstream.delay.protocol.TargetQuotaAttemptBudget;
+import com.nereusstream.delay.protocol.TargetQuotaIncarnation;
+import com.nereusstream.delay.protocol.TargetQuotaMutation;
+import com.nereusstream.delay.protocol.TargetQuotaScope;
+import com.nereusstream.delay.protocol.TargetSourcePosition;
+import com.nereusstream.delay.store.BoundedReadBudget;
+import com.nereusstream.delay.store.ColumnFamily;
+import com.nereusstream.delay.store.TargetKeyCodec;
+import com.nereusstream.delay.store.TargetStoreBackend;
+import com.nereusstream.delay.store.TargetValueEnvelope;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Objects;
+
+/** Applies initial Target UNKNOWN outcomes without releasing attempts, barriers, or their quota reserve. */
+public final class TargetPublishOutcomeStore {
+    public static final class Prepared {
+        private final TargetPublishOutcomeStore owner;
+        private final TargetStoreBackend.Prepared batch;
+        private final SystemMutationResult result;
+
+        private Prepared(
+                final TargetPublishOutcomeStore owner,
+                final TargetStoreBackend.Prepared batch,
+                final SystemMutationResult result) {
+            this.owner = owner;
+            this.batch = batch;
+            this.result = result;
+        }
+    }
+
+    private final TargetStoreBackend backend;
+    private final TargetQuotaScope scope;
+    private final byte[] lineage;
+    private final int maximumCounters;
+    private final int maximumTargets;
+    private final int maximumDomains;
+    private final TargetMessageStore messages;
+    private final TargetQuotaStoreGate grants;
+
+    public TargetPublishOutcomeStore(
+            final TargetStoreBackend backend,
+            final TargetQuotaScope scope,
+            final byte[] recoveryLineage,
+            final int maximumCounters,
+            final int maximumTargets,
+            final int maximumDomains) {
+        this.backend = Objects.requireNonNull(backend, "backend");
+        this.scope = Objects.requireNonNull(scope, "scope");
+        Bytes.requireLength(recoveryLineage, 16, "recoveryLineage");
+        if (scope.target() != null
+                || maximumCounters < 2
+                || maximumTargets < 1
+                || maximumDomains < 1
+                || maximumDomains > 64
+                || Arrays.equals(recoveryLineage, new byte[16])) {
+            throw new IllegalArgumentException("Target Outcome requires a bounded Shard/lineage accounting scope");
+        }
+        lineage = Bytes.copy(recoveryLineage);
+        this.maximumCounters = maximumCounters;
+        this.maximumTargets = maximumTargets;
+        this.maximumDomains = maximumDomains;
+        messages = new TargetMessageStore(backend, 1, 1, maximumDomains);
+        grants = new TargetQuotaStoreGate(scope, lineage, maximumTargets);
+    }
+
+    /** Immutable first-result replay must be routed before this method. */
+    public Prepared prepareFirst(
+            final BoundedReadBudget budget,
+            final SystemMutation mutation,
+            final com.nereusstream.delay.protocol.SourcePosition source,
+            final TargetPublishOutcomeVerifier.Authority authority) {
+        Objects.requireNonNull(mutation, "mutation");
+        Objects.requireNonNull(authority, "authority");
+        TargetSourcePosition.requireBounded(source);
+        if (mutation.type() != SystemMutationType.PUBLISH_OUTCOME
+                || !scope.shard().equals(mutation.shardId())
+                || !scope.shard().equals(source.shardId())) {
+            throw new IllegalArgumentException("Target Outcome mutation/source differs from its Shard scope");
+        }
+        final SystemMutationResult[] applied = new SystemMutationResult[1];
+        final var sourceAccounting = new TargetSourceAccounting(
+                scope,
+                lineage,
+                source,
+                Bytes.sha256(mutation.canonicalEnvelope()),
+                maximumCounters,
+                maximumTargets,
+                maximumDomains);
+        final TargetMessageStore.AccountingAssembler accounting = grants.wrap(
+                (reader, business) -> sourceAccounting.assemble(reader, business),
+                TargetQuotaGrantGate.Operation.OUTCOME,
+                null);
+        final var batch = messages.prepareAccounted(
+                budget,
+                reader -> {
+                    requireFirstPosition(reader, source);
+                    final var stamp = stamp(reader, source, mutation);
+                    final var decision = TargetPublishOutcomeVerifier.decideFirstApplication(
+                            scope, mutation, source, authority);
+                    StableCode rejection = decision.rejection();
+                    List<TargetMessageStore.Transition> transitions = List.of();
+                    List<TargetMessageStore.OrderTransition> orders = List.of();
+                    final var extra = new java.util.ArrayList<TargetStoreBackend.Edit>();
+                    if (rejection == null) {
+                        final var outcome = decision.body();
+                        if (outcome.sideEffect() != 3) {
+                            throw new IllegalStateException(
+                                    "Target definitive Publish Outcome application is not enabled yet");
+                        }
+                        final var projection = unknown(
+                                reader, outcome, stamp, decision.authorization());
+                        rejection = projection.rejection();
+                        if (rejection == null) {
+                            transitions = List.of(new TargetMessageStore.Transition(
+                                    projection.before(), projection.after()));
+                            if (projection.order() != null) {
+                                orders = List.of(projection.order());
+                            }
+                            extra.addAll(projection.extra());
+                        }
+                    }
+                    final var result = SystemMutationResult.from(
+                            mutation,
+                            rejection == null ? ApplyStatus.APPLIED : ApplyStatus.REJECTED,
+                            rejection == null ? decision.body().stableCode() : rejection,
+                            source.canonicalBytes());
+                    extra.addAll(resultEdits(reader, mutation, stamp, result));
+                    applied[0] = result;
+                    return new TargetMessageStore.Input(transitions, orders, extra);
+                },
+                accounting);
+        return new Prepared(this, batch, Objects.requireNonNull(applied[0], "Target Outcome result"));
+    }
+
+    public SystemMutationResult commit(
+            final Prepared prepared, final TargetStoreBackend.CommitAuthority authority) {
+        Objects.requireNonNull(prepared, "prepared");
+        if (prepared.owner != this) {
+            throw new IllegalArgumentException("Target Outcome plan belongs to another Store wrapper");
+        }
+        backend.commit(prepared.batch, Objects.requireNonNull(authority, "writeAuthority"));
+        return prepared.result;
+    }
+
+    private OutcomeProjection unknown(
+            final TargetStoreBackend.Reader reader,
+            final PublishOutcomeBody outcome,
+            final TargetQuotaMutation stamp,
+            final TargetPublishOutcomeVerifier.Authorization authorization) {
+        if (outcome.retryDecision().hasFullShape()) {
+            // Target has no source-bound retry-policy snapshot on this path yet. Do not ACK a
+            // typed UNKNOWN retry decision that cannot be checked against its admitted policy.
+            throw new IllegalStateException("Target typed UNKNOWN retry decision application is not enabled yet");
+        }
+        final byte[] budgetKey = Bytes.concat(
+                new byte[] {TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG, TargetKeyCodec.KEY_FORMAT},
+                outcome.publishAttemptId());
+        final byte[] rawBudget = reader.get(ColumnFamily.META, budgetKey);
+        if (rawBudget == null) {
+            return OutcomeProjection.stale(StableCode.STALE_SYSTEM_MUTATION);
+        }
+        final var budget = TargetQuotaAttemptBudget.decodeForStore(
+                budgetKey,
+                TargetValueEnvelope.decode(rawBudget, TargetQuotaAttemptBudget.VALUE_TYPE).payload(),
+                scope.shard());
+        if (!Arrays.equals(outcome.publishAttemptId(), budget.publishAttemptId())
+                || budget.phase() != TargetQuotaAttemptBudget.Phase.ADMITTED) {
+            return OutcomeProjection.stale(StableCode.STALE_SYSTEM_MUTATION);
+        }
+        final TargetMessageLocator locator = budget.locator();
+        final byte[] messageKey = TargetKeyCodec.message(locator.messageId());
+        final byte[] rawMessage = reader.get(ColumnFamily.ID, messageKey);
+        if (rawMessage == null) {
+            throw new IllegalStateException("open Target attempt budget lacks its Message");
+        }
+        final var before = TargetMessageRecord.decodeForStore(
+                messageKey,
+                TargetValueEnvelope.decode(rawMessage, TargetMessageRecord.VALUE_TYPE).payload(),
+                scope.shard());
+        if (!before.locator().equals(locator)) {
+            throw new IllegalStateException("Target attempt budget points to another Message locator");
+        }
+        if (before.runtime().terminal()) {
+            throw new IllegalStateException("Target terminal Publish Outcome application is not enabled yet");
+        }
+        final var obligation = before.runtime().attemptObligations().stream()
+                .filter(candidate -> Arrays.equals(candidate.publishAttemptId(), outcome.publishAttemptId()))
+                .findFirst()
+                .orElse(null);
+        if (obligation == null || obligation.ledgerState() != AttemptLedgerState.PUBLISHING) {
+            throw new IllegalStateException("ADMITTED Target attempt budget lacks its PUBLISHING obligation");
+        }
+        if (obligation.ownerEpoch() != authorization.activeOwner().ownerEpoch()) {
+            return OutcomeProjection.stale(StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+        }
+        final TargetMessageRecord after = before.unknownOutcome(outcome.publishAttemptId());
+        final TargetQuotaAttemptBudget unknown = budget.unknown(budget.allocated(), stamp);
+        final var budgetEdit = reader.replace(
+                ColumnFamily.META,
+                budgetKey,
+                TargetQuotaAttemptBudget.VALUE_TYPE,
+                unknown.canonicalBytes());
+        final TargetMessageStore.OrderTransition order = strictOrder(reader, before, after);
+        return new OutcomeProjection(
+                before,
+                after,
+                order,
+                List.of(budgetEdit),
+                null);
+    }
+
+    private TargetMessageStore.OrderTransition strictOrder(
+            final TargetStoreBackend.Reader reader,
+            final TargetMessageRecord before,
+            final TargetMessageRecord after) {
+        if (before.locator().orderingMode() != OrderingMode.DELIVERY_TIME_FIFO) {
+            return null;
+        }
+        final byte[] key = TargetKeyCodec.orderState(before.locator().target(), before.locator().orderingDomain());
+        final byte[] raw = reader.get(ColumnFamily.META, key);
+        if (raw == null) {
+            throw new IllegalStateException("strict Target Outcome lacks its durable order state");
+        }
+        final var state = TargetOrderState.decodeForStore(
+                key,
+                TargetValueEnvelope.decode(raw, TargetOrderState.VALUE_TYPE).payload(),
+                scope.shard(),
+                queue(reader, before));
+        state.requireBarrierProjection(before);
+        return new TargetMessageStore.OrderTransition(state, state.afterUnknownOutcome(before, after));
+    }
+
+    private TargetQueueState queue(final TargetStoreBackend.Reader reader, final TargetMessageRecord message) {
+        final byte[] key = TargetKeyCodec.state(message.locator().target());
+        final byte[] raw = reader.get(ColumnFamily.META, key);
+        if (raw == null) {
+            throw new IllegalStateException("strict Target Outcome lacks its queue");
+        }
+        return TargetQueueState.decode(TargetValueEnvelope.decode(raw, TargetQueueState.VALUE_TYPE).payload());
+    }
+
+    private List<TargetStoreBackend.Edit> resultEdits(
+            final TargetStoreBackend.Reader reader,
+            final SystemMutation mutation,
+            final TargetQuotaMutation stamp,
+            final SystemMutationResult outcome) {
+        final var root = root(reader);
+        final var authority = (TargetResultRecord.CreationAuthority) (record, first) -> {
+            record.requireOwner(root);
+            if (!record.mutation().equals(stamp)
+                    || record.allocation() != null
+                    || reader.get(ColumnFamily.DEDUPE, record.key()) != null) {
+                throw new IllegalStateException("Target Outcome result changed its actual source/absence");
+            }
+            if (record.kind() == TargetResultRecord.Kind.SYSTEM) {
+                if (first != null
+                        || !Arrays.equals(record.key(), systemResultKey(mutation))
+                        || !Arrays.equals(record.typedPayload(), outcome.encode())) {
+                    throw new IllegalStateException("Target Outcome first result differs from its decision");
+                }
+            } else if (record.kind() == TargetResultRecord.Kind.POSITION_SYSTEM) {
+                if (first == null
+                        || !Arrays.equals(first.typedPayload(), outcome.encode())
+                        || !Arrays.equals(record.key(), positionResultKey(stamp.source()))) {
+                    throw new IllegalStateException("Target Outcome POSITION differs from its first result");
+                }
+                record.requireFirst(first);
+            } else {
+                throw new IllegalStateException("unexpected Target Outcome result kind");
+            }
+        };
+        final var first = TargetResultRecord.system(root, outcome, stamp, null, authority);
+        final var position = TargetResultRecord.position(root, first, stamp, authority);
+        return List.of(
+                reader.replace(ColumnFamily.DEDUPE, first.key(), TargetResultRecord.VALUE_TYPE, first.canonicalBytes()),
+                reader.replace(
+                        ColumnFamily.DEDUPE, position.key(), TargetResultRecord.VALUE_TYPE, position.canonicalBytes()));
+    }
+
+    private TargetQuotaIncarnation root(final TargetStoreBackend.Reader reader) {
+        final var identity = new com.nereusstream.delay.protocol.TargetQuotaIdentity(
+                com.nereusstream.delay.protocol.TargetQuotaIdentity.Kind.SHARD,
+                scope.shard(),
+                reader.aggregate().accountingIncarnation(),
+                null,
+                null);
+        final byte[] key = identity.key();
+        key[0] = TargetKeyCodec.QUOTA_INCARNATION_TAG;
+        final byte[] raw = reader.get(ColumnFamily.META, key);
+        if (raw == null) {
+            throw new IllegalStateException("Target Outcome quota incarnation is missing");
+        }
+        final var root = TargetQuotaIncarnation.decodeForStore(
+                key,
+                TargetValueEnvelope.decode(raw, TargetQuotaIncarnation.VALUE_TYPE).payload(),
+                scope.shard(),
+                scope.tenantScope());
+        if (!Arrays.equals(root.recoveryLineage(), lineage)) {
+            throw new IllegalStateException("Target Outcome quota root belongs to another lineage");
+        }
+        return root;
+    }
+
+    private static void requireFirstPosition(
+            final TargetStoreBackend.Reader reader, final com.nereusstream.delay.protocol.SourcePosition source) {
+        if (reader.source() == null || source.compareTo(reader.source()) <= 0) {
+            throw new IllegalStateException("first Target Outcome requires an established earlier source frontier");
+        }
+    }
+
+    private static TargetQuotaMutation stamp(
+            final TargetStoreBackend.Reader reader,
+            final com.nereusstream.delay.protocol.SourcePosition source,
+            final SystemMutation mutation) {
+        final var stamp = new TargetQuotaMutation(
+                TargetQuotaMutation.increment(reader.sourceSequence()),
+                source,
+                Bytes.sha256(mutation.canonicalEnvelope()));
+        if (reader.get(ColumnFamily.DEDUPE, systemResultKey(mutation)) != null
+                || reader.get(ColumnFamily.DEDUPE, positionResultKey(source)) != null) {
+            throw new IllegalStateException("first Target Outcome has an existing system or position result");
+        }
+        return stamp;
+    }
+
+    private static byte[] systemResultKey(final SystemMutation mutation) {
+        return Bytes.concat(
+                new byte[] {TargetKeyCodec.RESULT_SYSTEM_TAG, TargetKeyCodec.KEY_FORMAT}, mutation.systemMutationId());
+    }
+
+    private static byte[] positionResultKey(final com.nereusstream.delay.protocol.SourcePosition source) {
+        return Bytes.concat(
+                new byte[] {TargetKeyCodec.RESULT_POSITION_TAG, TargetKeyCodec.KEY_FORMAT}, source.canonicalBytes());
+    }
+
+    private record OutcomeProjection(
+            TargetMessageRecord before,
+            TargetMessageRecord after,
+            TargetMessageStore.OrderTransition order,
+            List<TargetStoreBackend.Edit> extra,
+            StableCode rejection) {
+        private OutcomeProjection {
+            extra = List.copyOf(extra);
+        }
+
+        private static OutcomeProjection stale(final StableCode rejection) {
+            return new OutcomeProjection(null, null, null, List.of(), rejection);
+        }
+    }
+}

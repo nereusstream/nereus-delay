@@ -337,6 +337,38 @@ public final class TargetOrderState {
         return successor;
     }
 
+    /** Advances the exact barrier projection while preserving the strict-order block for an unresolved attempt. */
+    public TargetOrderState afterUnknownOutcome(
+            final TargetMessageRecord before, final TargetMessageRecord uncertain) {
+        Objects.requireNonNull(before, "before");
+        Objects.requireNonNull(uncertain, "uncertain");
+        if (barrier == null
+                || before.locator().orderingMode() != OrderingMode.DELIVERY_TIME_FIFO
+                || !Arrays.equals(before.locator().canonicalBytes(), uncertain.locator().canonicalBytes())
+                || before.runtime().attemptObligations().isEmpty()
+                || uncertain.runtime().attemptObligations().isEmpty()) {
+            throw new IllegalArgumentException("strict UNKNOWN result does not retain its exact order barrier");
+        }
+        requireLocatorProjection(before.locator());
+        barrier.requireMessageProjection(before);
+        final TargetOrderState successor = new TargetOrderState(
+                target,
+                orderingDomain,
+                sourceShard,
+                executionDomain,
+                accountingIncarnation,
+                orderingContract,
+                TargetQueueState.nextRevision(stateRevision),
+                controlVersion,
+                gate,
+                lastAdmittedOrder == null ? null : lastAdmittedOrder.encodedKey(),
+                null,
+                TargetOrderBarrier.fromMessage(uncertain));
+        successor.requireSuccessorOf(this);
+        successor.requireBarrierProjection(uncertain);
+        return successor;
+    }
+
     private static byte[] orderedMessageKey(final TargetMessageRecord message) {
         return TargetKeyCodec.ordered(
                 message.locator().target(),

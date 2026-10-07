@@ -1,0 +1,33 @@
+E5 Target PUBLISH_OUTCOME sideEffect=UNKNOWN source-first apply
+
+Date: 2026-10-07
+Base: main@04d3a333dc8f02ead918436d9043469d732ff552
+
+The Target source runtime routes first application of the existing shared PUBLISH_OUTCOME v1 body through a dedicated Target Store. Immutable system-result replay remains before authority resolution. First application checks current Owner/key, the activated shared System Mutation tuple, signature, source-bound decision time, and that the active Owner epoch matches the exact open attempt key. The RocksDB batch moves the exact PUBLISHING obligation to UNCERTAIN, advances the strict-order barrier while retaining its watermark, updates TargetQuotaAttemptBudget from ADMITTED to UNKNOWN without changing commitment or allocated reserve, stores the system/source-position results, and advances the source frontier.
+
+Focused command:
+./gradlew checkstyleMain checkstyleTest test --tests 'com.nereusstream.delay.runtime.TargetCommandStoreTest.modifiesActualTimelineOrClaimWithHistoryAndFirstResults' --continue --no-daemon --console=plain
+
+Result: the focused test and checkstyleTest passed; TargetCommandStoreTest 5/5, zero skips, failures or errors. Three DELIVERY_TIME_FIFO scenarios execute the new Outcome path. They verify the Message and exact attempt obligation, UNKNOWN AttemptBudget revision/commitment/allocation, strict barrier and watermark, persisted system/source-position results, and source frontier. The ACK callback returns UNKNOWN once; retry ACKs the same entry without another Store sequence or authority resolution. This is callback-level uncertainty, not actual Broker/network response loss. The real Store preparation test also submits a canonical typed UNKNOWN RetryDecision and verifies the unsupported branch throws without writing its system result, changing RocksDB sequence, or advancing the source frontier.
+
+The command initially failed only on two pre-existing 123-character production declarations. Those declarations in PersistentLaneScheduler and TargetWorkerHostRuntime have now been wrapped without behavioral change; final checks are recorded below.
+
+Scope limit: this slice accepts the legacy opaque UNKNOWN retry placeholder for a current nonterminal Message. Unsupported typed, terminal/historical and definitive PUBLISHED/NOT_PUBLISHED paths retain the source entry and do not fix a rejection first result. Ordinary Outcome attempt Owner-epoch mismatch is an authorization rejection. Target retry-policy binding, canonical cross-Owner first-send-recovery UNKNOWN, terminal/historical Outcome projection, production authority assembly, actual Broker Outcome ACK-loss, process restart/recovery, Producer integration and E5 central validation remain open. Authorities in the positive/negative fixture are explicit test providers. E5 remains IN_PROGRESS / PENDING_CENTRAL_VALIDATION.
+
+Final command:
+./gradlew checkstyleMain checkDocumentation --no-daemon --console=plain
+Result: BUILD SUCCESSFUL; checkstyleMain and checkDocumentation passed. Implementation verifier 10/10, package verifier 14/14, and authority/historical documentation checks passed. git diff --check and progress JSON parsing also passed.
+
+SHA-256:
+4aede911fd6530cdaaf8e8489fa47a00d180bd167e3d6aa9f193651c18a930f1  src/main/java/com/nereusstream/delay/ownership/TargetSourceApplyRuntime.java
+e8c1f2e869bd8c4790ad8521899af8cb6a066cf02037a0dc623be24108e2dd67  src/main/java/com/nereusstream/delay/runtime/AttemptObligationRef.java
+553b69f707efb056b4b7d7b31dca3479f101d0c8d431cb9a0a8c0e5342ed8b16  src/main/java/com/nereusstream/delay/runtime/TargetGenerationRuntimeIndex.java
+789d1f7d2ec05b21ba3b4d758681994d6e92f75fe82abd85fc3bad5240560009  src/main/java/com/nereusstream/delay/runtime/TargetMessageRecord.java
+c668a481eef446a9444aca89134b49ea9926ac16109fe558536590b0dd71ff12  src/main/java/com/nereusstream/delay/runtime/TargetOrderState.java
+0b0eb3d6eeed64342fcdb6939b2781701f4719ae3a170b2366e7eec8bf4598ce  src/main/java/com/nereusstream/delay/runtime/TargetQuotaStoreGate.java
+0cadd2f10589a4c6015b07b11d64c137327ae23666d85d022910bf49b0631b14  src/main/java/com/nereusstream/delay/runtime/TargetPublishOutcomeStore.java
+be6b64a21925ea4587590d74f0e5b1bb8c700c3ae23a4196824f418f641b18eb  src/main/java/com/nereusstream/delay/runtime/TargetPublishOutcomeVerifier.java
+3f1c748ed34182b26c072d49e62a9f507bb7557f03692f5bd3662e2c063dd7f8  src/main/java/com/nereusstream/delay/scheduler/PersistentLaneScheduler.java
+de4d5b0edc057eac1094ebab560f7c09e7f9f7ef62c06699ebe7a4f376578e76  src/main/java/com/nereusstream/delay/ownership/TargetWorkerHostRuntime.java
+c2c1b385dd16bc810afa4bbc4fa4b1b6bff07dc38b0d4b38027fac494eba0813  src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java
+cef4187a3b904e3680cfb09f61725681851667ed857526c7d96c61e7b8720836  build/test-results/test/TEST-com.nereusstream.delay.runtime.TargetCommandStoreTest.xml

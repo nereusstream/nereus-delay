@@ -6,6 +6,7 @@ import com.nereusstream.delay.protocol.CanonicalTargetPartition;
 import com.nereusstream.delay.protocol.CheckpointUploadIntent;
 import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.PreparedControlOperation;
+import com.nereusstream.delay.protocol.PublishOutcomeBody;
 import com.nereusstream.delay.protocol.PulsarActivationBarrier;
 import com.nereusstream.delay.protocol.PulsarSourcePosition;
 import com.nereusstream.delay.protocol.SourcePosition;
@@ -42,6 +43,8 @@ import com.nereusstream.delay.runtime.TargetNativePolicyControlVerifier;
 import com.nereusstream.delay.runtime.TargetNativePolicyTrustStore;
 import com.nereusstream.delay.runtime.TargetPublishAdmissionStore;
 import com.nereusstream.delay.runtime.TargetPublishAdmissionVerifier;
+import com.nereusstream.delay.runtime.TargetPublishOutcomeStore;
+import com.nereusstream.delay.runtime.TargetPublishOutcomeVerifier;
 import com.nereusstream.delay.runtime.TargetQueueHeadCache;
 import com.nereusstream.delay.runtime.TargetQueueSnapshotReader;
 import com.nereusstream.delay.runtime.TargetQuotaDelta;
@@ -191,6 +194,19 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         AdmissionControl resolve(SourceReplayMutation entry);
     }
 
+    public record OutcomeControl(
+            TargetPublishOutcomeVerifier.Authority authority, TargetStoreBackend.CommitAuthority commit) {
+        public OutcomeControl {
+            Objects.requireNonNull(authority, "authority");
+            Objects.requireNonNull(commit, "commit");
+        }
+    }
+
+    @FunctionalInterface
+    public interface TargetOutcomes {
+        OutcomeControl resolve(SourceReplayMutation entry);
+    }
+
     public record CommandControl(
             TargetCommandStore.Policy policy,
             TargetCommandStore.CancellationControls cancellations,
@@ -226,7 +242,8 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             TargetStoreBackend.ReadAuthority reads,
             Commands commands,
             NativePolicyControls nativePolicyControls,
-            TargetAdmissions admissions) {
+            TargetAdmissions admissions,
+            TargetOutcomes outcomes) {
         public Authorities(
                 final OxiaOwnerLeaseStore leases,
                 final SourceReplaySuccessor successor,
@@ -254,6 +271,9 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                     },
                     entry -> {
                         throw new IllegalStateException("Target Publish Admission authorities are not configured");
+                    },
+                    entry -> {
+                        throw new IllegalStateException("Target Publish Outcome authorities are not configured");
                     });
         }
 
@@ -283,6 +303,40 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                     nativePolicyControls,
                     entry -> {
                         throw new IllegalStateException("Target Publish Admission authorities are not configured");
+                    },
+                    entry -> {
+                        throw new IllegalStateException("Target Publish Outcome authorities are not configured");
+                    });
+        }
+
+        public Authorities(
+                final OxiaOwnerLeaseStore leases,
+                final SourceReplaySuccessor successor,
+                final GrantControls grants,
+                final Fences fences,
+                final ExpiryControls expiries,
+                final Closes closes,
+                final MembershipControls membershipControls,
+                final TargetStoreBackend.CommitAuthority duplicateWrites,
+                final TargetStoreBackend.ReadAuthority reads,
+                final Commands commands,
+                final NativePolicyControls nativePolicyControls,
+                final TargetAdmissions admissions) {
+            this(
+                    leases,
+                    successor,
+                    grants,
+                    fences,
+                    expiries,
+                    closes,
+                    membershipControls,
+                    duplicateWrites,
+                    reads,
+                    commands,
+                    nativePolicyControls,
+                    admissions,
+                    entry -> {
+                        throw new IllegalStateException("Target Publish Outcome authorities are not configured");
                     });
         }
 
@@ -299,6 +353,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             Objects.requireNonNull(commands, "commands");
             Objects.requireNonNull(nativePolicyControls, "nativePolicyControls");
             Objects.requireNonNull(admissions, "admissions");
+            Objects.requireNonNull(outcomes, "outcomes");
         }
     }
 
@@ -309,6 +364,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     private final byte[] lineage;
     private final TargetQuotaGrantStore grants;
     private final TargetPublishAdmissionStore targetAdmissions;
+    private final TargetPublishOutcomeStore targetOutcomes;
     private final TargetTimeFenceStore fences;
     private final TargetExpiryDiscoveryStore expiryDiscovery;
     private final TargetExpireGenerationStore expiries;
@@ -404,6 +460,8 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         lineage = exactRoot.recoveryLineage();
         grants = new TargetQuotaGrantStore(backend, scope, lineage, limits.counters(), limits.domains());
         targetAdmissions = new TargetPublishAdmissionStore(
+                backend, scope, lineage, limits.counters(), 1, limits.domains());
+        targetOutcomes = new TargetPublishOutcomeStore(
                 backend, scope, lineage, limits.counters(), 1, limits.domains());
         fences = new TargetTimeFenceStore(backend, scope, lineage, limits.counters(), limits.domains());
         expiryDiscovery = new TargetExpiryDiscoveryStore(backend, scope);
@@ -978,6 +1036,17 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                     throw new ReadYield(incomplete);
                 }
                 result = targetAdmissions.commit(first, writes(control.commit(), entry, clock));
+            } else if (mutation.mutation().type() == SystemMutationType.PUBLISH_OUTCOME) {
+                final var control = Objects.requireNonNull(
+                        authorities.outcomes().resolve(mutation), "Target Publish Outcome authority");
+                final TargetPublishOutcomeStore.Prepared first;
+                try {
+                    first = targetOutcomes.prepareFirst(
+                            budget, mutation.mutation(), entry.position(), control.authority());
+                } catch (ReadIncompleteException incomplete) {
+                    throw new ReadYield(incomplete);
+                }
+                result = targetOutcomes.commit(first, writes(control.commit(), entry, clock));
             } else if (isTargetClose(mutation.mutation())) {
                 final var control =
                         Objects.requireNonNull(authorities.closes().resolve(mutation), "Target Close control");
@@ -1239,6 +1308,11 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         if (entry instanceof SourceReplayMutation admission
                 && admission.mutation().type() == SystemMutationType.TARGET_PUBLISH_ADMISSION) {
             TargetPublishAdmissionBody.decode(admission.mutation().canonicalBody());
+            return;
+        }
+        if (entry instanceof SourceReplayMutation outcome
+                && outcome.mutation().type() == SystemMutationType.PUBLISH_OUTCOME) {
+            PublishOutcomeBody.decode(outcome.mutation().canonicalBody());
             return;
         }
         if (!(entry instanceof SourceReplayMutation mutation)

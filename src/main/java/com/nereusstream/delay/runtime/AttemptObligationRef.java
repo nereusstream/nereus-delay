@@ -2,6 +2,7 @@ package com.nereusstream.delay.runtime;
 
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
+import com.nereusstream.delay.store.KeyCodec;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -77,6 +78,10 @@ public final class AttemptObligationRef {
         return ledgerState;
     }
 
+    public long ownerEpoch() {
+        return java.nio.ByteBuffer.wrap(encodedInflightKey, 2, Long.BYTES).getLong();
+    }
+
     public byte[] encodedInflightKey() {
         return Bytes.copy(encodedInflightKey);
     }
@@ -87,6 +92,18 @@ public final class AttemptObligationRef {
 
     public byte[] refDigest() {
         return Bytes.copy(refDigest);
+    }
+
+    /** Moves this exact durable PUBLISHING obligation to the unresolved UNCERTAIN index. */
+    public AttemptObligationRef uncertain() {
+        if (ledgerState != AttemptLedgerState.PUBLISHING) {
+            throw new IllegalStateException("only a PUBLISHING obligation can become UNCERTAIN");
+        }
+        return new AttemptObligationRef(
+                publishAttemptId,
+                generation,
+                AttemptLedgerState.UNCERTAIN,
+                KeyCodec.inflight((byte) 3, ownerEpoch(), publishAttemptId));
     }
 
     public byte[] canonicalBytes() {

@@ -10,6 +10,7 @@ import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.TargetMessageLocator;
 import com.nereusstream.delay.protocol.TargetPayloadReference;
+import com.nereusstream.delay.protocol.TargetQueueState;
 import com.nereusstream.delay.protocol.TargetSourcePosition;
 import com.nereusstream.delay.store.TargetKeyCodec;
 import java.util.ArrayList;
@@ -167,6 +168,21 @@ public final class TargetMessageRecord {
             throw new IllegalArgumentException("Target index disagrees with complete Message work");
         }
         return decoded;
+    }
+
+    /** Keeps a Target attempt and its order barrier unresolved after a source-ordered UNKNOWN outcome. */
+    public TargetMessageRecord unknownOutcome(final byte[] attemptId) {
+        return new TargetMessageRecord(
+                locator,
+                TargetQueueState.nextRevision(stateVersion),
+                deliverAtEpochMs,
+                expireAtEpochMs,
+                retryEligibilityAtEpochMs,
+                nativeDeliveryPolicy,
+                scheduleSource,
+                inlinePayload,
+                payloadReference,
+                runtime.unknownOutcome(attemptId));
     }
 
     private byte[] fields() {

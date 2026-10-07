@@ -77,7 +77,8 @@ public final class TargetQuotaStoreGate {
                 || (quota.changes().isEmpty()
                         && operation != TargetQuotaGrantGate.Operation.CANCEL
                         && operation != TargetQuotaGrantGate.Operation.RESCHEDULE
-                        && operation != TargetQuotaGrantGate.Operation.ADMISSION)
+                        && operation != TargetQuotaGrantGate.Operation.ADMISSION
+                        && operation != TargetQuotaGrantGate.Operation.OUTCOME)
                 || quota.changes().size() > maximumTargets) {
             throw new IllegalArgumentException("logical Store gate requires its bounded affected Target set");
         }
