@@ -759,6 +759,7 @@ of reinterpreting those bytes.
 | `TimeFence` | 10 `int64 close_through_epoch_ms`；11 `uint32 fence_proof_key_version`；12 `ProofId`；13 `TrustedUtcIntervalEvidence proof_time` |
 | `PublishAdmission` | 10 `OwnerIdentity`；11 `bytes store_incarnation`=16；12 ClaimId[32]；13 `DestinationLaneId`；14 `bytes lane_incarnation`=16；15 `DelayMessageId`；16 `uint32 generation`；17 `PublishAttemptId`；18 `bytes prepared_publish_hash`=32；19 `ChargeVector reserve_charge`；20 `bytes ready_certificate_digest`=32；21 `ChannelResourceIdentity channel`；22 `PreparedPublishDescriptor descriptor`；23 `ReadyCertificate ready_certificate`；24 `TrustedUtcIntervalEvidence decision_time`；25 `ClaimPrecondition claim_precondition` |
 | `TargetPublishAdmission` | 10 `uint32 target_body_version`=3；11 `OwnerIdentity`；12 Store Incarnation[16]；13 ClaimId[32]；14 `TargetMessageLocator`；15 `uint32 attempt_no`；16 PublishAttemptId[32]；17 `AttemptObligationRef`；18 `uint64 execution_bytes`；19 outcome-reserve commitment `CapacityVector`；20 initially allocated `CapacityVector`；21 `TrustedUtcIntervalEvidence decision_time` |
+| `TargetPublishAdmission` v4 | field 10=4；fields 11–21 与 v3 同形；22 `TargetOrdinaryPublicationBinding`；23 完整 `TargetClaimRecord` proof；两项 required |
 | `PublishOutcome` | 10 `PublishAttemptId`；11 `PublishSideEffect side_effect`；12 `PublishDisposition disposition`；13 `StableCode stable_code`；14 optional `PublishEvidence evidence`；15 `ChargeVector transfer`；16 `TrustedUtcIntervalEvidence observed_at`；17 `RetryDecision retry_decision` |
 | `ExpireGeneration` | 10 `DelayMessageId`；11 `uint32 generation`；12 `int64 expire_at`；13 `TrustedUtcIntervalEvidence` |
 | `EvidenceResolution` | 10 `PublishAttemptId`；11 `EvidenceCursor cursor`；12 `PublishEvidence evidence`；13 `StableCode stable_code`；14 `PublishSideEffect side_effect`；15 `PublishDisposition disposition`；16 `ChargeVector transfer`；17 `TrustedUtcIntervalEvidence observed_at`；18 `RetryDecision retry_decision` |
@@ -770,6 +771,34 @@ of reinterpreting those bytes.
 任何向上述 table 增加 field、改变 required/presence、复用 reserved number 或赋予旧 bytes 新语义都要求新 `bodyVersion` 和独立 activated tuple。
 
 `TARGET_PUBLISH_ADMISSION` 使用独立的 Target operation body：field 10 `target_body_version=3`，其激活 tuple 为 `(framing=1, logEnvelope=1, recordKind=SYSTEM_MUTATION, envelope=1, body=3)`。该版本和 tuple 不改变通用 System Mutation envelope 的 field 8 `bodyVersion=1`，也不继承共享 System Mutation v2 tuple。首次应用必须从 source-protected history 解析签名 Owner/key，并确认此类型当前激活的 tuple 精确等于 Target tuple；未激活或只激活共享 tuple 的记录不能进入 Target Admission。已有 `PUBLISH_ADMISSION` type 5 仍使用其封闭 v1 字段表及既有 activated tuple，type 13 不重解释、扩展或回退到该 body。
+
+Materialized Target Admission 使用同一 type 13 的独立 operation body v4，要求精确 tuple
+`(1,1,SYSTEM_MUTATION,1,4)`；v3 字节、4096-byte 上限与 tuple 不变，v4 不通过 v3 激活授权。
+v4 canonical body 上限为 `4096 + TargetOrdinaryPublicationBinding.MAX_CANONICAL_BYTES +
+TargetClaimRecord.MAX_CANONICAL_BYTES + 64`。fields 22–23 必须共同存在；Claim ID/digest、完整
+Owner/Store、locator、attempt 与 execution bytes 必须与 publication/common fields 一致。
+本版本只冻结普通 managed Claim，Native selected head 禁止进入此分支。
+
+`TargetOrdinaryPublicationBinding` version 1 的字段封闭为：1 version=1；2 locator；3 完整
+`CanonicalTargetPartition`；4 完整 `TargetChannelIdentity`（含 immutable CredentialUseLease）；
+5 PublishAttemptId[32]；6 attempt number uint32；7 Claim digest[32]；8 CLAIMED Message digest[32]；
+9 claimed Message state version raw uint64；10 destination ProfileRef；11 delivery-capability ProfileRef；
+12 payload length uint64；13 payload SHA-256[32]；14 AdapterMetadata；15 ReservedPublishMetadata；
+16 deliverAt、17 expireAt、18 retryEligibilityAt 均为非负 epoch-ms uint64；19 reserved；
+optional 20 eventTime uint64；21 artifact-generation-set digest[32]；22 prepared publication hash[32]。
+field 22 = SHA-256(`"nereus-delay-target-ordinary-publication\0"` || canonical fields 1–21，保持原
+field number/presence)。locator/channel/physical、reserved identity/Profile hashes/时间、实际 Claim/
+Message/绑定必须精确相符；payload 只冻结 length/hash，不在 body 中重复大 payload。
+publication canonical 上限为 Locator + physical Target + channel 各自的 canonical 上限，
+加 `TargetScheduleBinding.MAX_BODY_BYTES + 4096`；metadata cardinality 沿用绑定的既有上限。
+
+v4 首应用另外要求预解析的 source-protected materialization authority；缺失该 snapshot 时保留
+entry，不写首结果或 ACK。Store 同一 ReadView 比较 retained full Claim、Schedule binding、physical
+Target 和 NV20 immutable channel，并校验 queue projection。decision.latest 和 checked Broker
+persistence+D 均须早于 Claim deadline 与 frozen lease expiry，仍受 Message expiry 约束。
+这些本地冻结/比较不是 live Producer permit 或 authenticated physical evidence。Claim 缺失重建、
+Native 完整模板、生产 authority/history retention、Producer/evidence 匹配仍须完成；没有新增 NV type、
+Column Family 或共享 System Mutation envelope version。
 
 Outer `AuthorIdentity` branch is closed by mutation type: `APPLY_SHARD_CONTROL`, `REPLAY_DEAD_LETTER`, and `RESOLVE_UNCERTAIN` require `control`; `TIME_FENCE` requires `fence`; `PUBLISH_ADMISSION`, `PUBLISH_OUTCOME`, `EXPIRE_GENERATION`, `CLAIM_RESULT`, and `TARGET_PUBLISH_ADMISSION` require `owner`; `EVIDENCE_RESOLUTION`, both resource mutations, and `DLQ_EXPORT_RESULT` require `service`. Legacy Admission outer Owner must equal body field 10 and Claim precondition Owner; Target Admission outer Owner must equal Target body field 11. Target Admission field 16 is its Claim-derived `PublishAttemptId` and must equal the outer logical operation identity. Claim Result outer Owner must equal precondition Owner. Publish Outcome's Owner is checked against the immutable attempt ledger (the recovery-unknown Outcome is authored by the new current Owner and uses the explicit recovery code). Every signing key and service/fence/control generation must be in the Route's source-protected historical accepted-writer set for that record, retained through its retry/Recovery-Floor replay window. Owner authorization is likewise historical: an accepted signature, typed Owner and exact lease-fencing digest/body equalities are validated, but apply-time current Owner mismatch alone cannot invalidate an earlier Admission. Current lease/Store/certificate state only gates a new physical call. Wrong branch, unproved generation or equality mismatch is `UNAUTHORIZED_SYSTEM_MUTATION`, never a fallback branch. Nereus Delay assumes accepted service writers are non-Byzantine; a compromised accepted signing key is outside the normal failure model.
 

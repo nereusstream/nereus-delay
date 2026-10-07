@@ -35,13 +35,31 @@ public final class TargetPublishAdmissionVerifier {
                 TrustedUtcIntervalEvidence evidence);
     }
 
+    /** Resolved source-protected capability/credential/materialization snapshot; no I/O inside Store preparation. */
+    @FunctionalInterface
+    public interface MaterializationAuthority {
+        void requireAuthorized(TargetPublishAdmissionBody body, SourcePosition source);
+    }
+
     public record Authorization(
             PublicKey writerKey,
             ProtocolTuple activatedTuple,
             long maximumDecisionWidthMs,
             long maximumBrokerTimestampDivergenceMs,
             long maximumMutationEnqueueAgeMs,
-            DecisionTimeAuthority decisionTime) {
+            DecisionTimeAuthority decisionTime,
+            MaterializationAuthority materialization) {
+        public Authorization(
+                PublicKey writerKey,
+                ProtocolTuple activatedTuple,
+                long maximumDecisionWidthMs,
+                long maximumBrokerTimestampDivergenceMs,
+                long maximumMutationEnqueueAgeMs,
+                DecisionTimeAuthority decisionTime) {
+            this(writerKey, activatedTuple, maximumDecisionWidthMs, maximumBrokerTimestampDivergenceMs,
+                    maximumMutationEnqueueAgeMs, decisionTime, null);
+        }
+
         public Authorization {
             Objects.requireNonNull(writerKey, "writerKey");
             Objects.requireNonNull(activatedTuple, "activatedTuple");
@@ -104,7 +122,10 @@ public final class TargetPublishAdmissionVerifier {
         }
         final Authorization authorized = authority.resolve(shardScope, author, mutation, source);
         if (authorized == null
-                || !ProtocolTuple.targetPublishAdmission().equals(authorized.activatedTuple())
+                || !(body.publication() == null
+                                ? ProtocolTuple.targetPublishAdmission()
+                                : ProtocolTuple.targetMaterializedPublishAdmission())
+                        .equals(authorized.activatedTuple())
                 || !mutation.verifySignature(authorized.writerKey())) {
             return rejected(StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
         }
@@ -124,6 +145,12 @@ public final class TargetPublishAdmissionVerifier {
                         : 0;
         if (distance > enqueueBound || !authorized.decisionTime().verifies(shardScope, author, source, time)) {
             return rejected(StableCode.STALE_SYSTEM_MUTATION);
+        }
+        if (body.publication() != null) {
+            if (authorized.materialization() == null) {
+                throw new IllegalStateException("Target materialization authority is unavailable");
+            }
+            authorized.materialization().requireAuthorized(body, source);
         }
         return new Decision(body, null, authorized);
     }

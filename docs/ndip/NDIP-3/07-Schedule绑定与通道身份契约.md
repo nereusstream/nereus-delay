@@ -165,6 +165,19 @@ allocator，也不顺便放开原 P1 单未决、batching 或 response correlati
 
 ## 4. Store 预留、能力支持表与剩余项
 
+2026-10-07：普通 managed Target Admission v4 已冻结完整不可变 channel/lease 与 physical Target，
+并提交 Claim/CLAIMED Message digest、完整 Claim proof、payload length/hash、原 adapter/reserved
+metadata、destination/capability Profiles、时间和 artifact-generation-set digest。其 prepared hash
+覆盖全部字段及 optional eventTime presence，具体封闭字段与独立 tuple 见 Registry §5.3。
+source 首应用要求 retained NV20 identity 全字节一致、queue projection 和实际 Claim/Message/绑定
+一致；decision/Broker 时间还受 Claim deadline 与 frozen credential expiry 约束。
+MaterializationAuthority 必须是 Store 外已解析的历史保护/能力/凭据 snapshot，缺失时保留 entry。
+测试中的该 authority 和 credential lease 是显式 fixture。
+
+这只闭合普通发送身份冻结和本地首次 Admission。Native 提前发送需独立完整模板/timing commitment，
+不可套用普通 Claim；实际 Producer/request 构造、live gate、authenticated receipt/Journal 与 frozen
+commitment 精确匹配、proof retention 和 Claim 缺失恢复仍未闭合。没有新 NV type 或物理发送许可。
+
 | 对象 | key | reserved NV type |
 |---|---|---|
 | TargetChannelIdentity | meta `0e 01 + digest[32]` | 20 |

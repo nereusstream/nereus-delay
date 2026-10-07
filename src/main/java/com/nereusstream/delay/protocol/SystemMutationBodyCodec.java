@@ -1,6 +1,7 @@
 package com.nereusstream.delay.protocol;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
@@ -15,7 +16,15 @@ public final class SystemMutationBodyCodec {
         Objects.requireNonNull(type, "type");
         final List<CanonicalProtobuf.Reader.Field> fields =
                 readAll(new CanonicalProtobuf.Reader(Objects.requireNonNull(canonicalBody, "canonicalBody")));
-        final Spec[] specs = specs(type);
+        Spec[] specs = specs(type);
+        if (type == SystemMutationType.TARGET_PUBLISH_ADMISSION
+                && fields.size() > 3
+                && fields.get(3).number() == 10
+                && fields.get(3).unsignedValue() == TargetPublishAdmissionBody.MATERIALIZED_BODY_VERSION) {
+            specs = Arrays.copyOf(specs, specs.length + 2);
+            specs[specs.length - 2] = nested(22);
+            specs[specs.length - 1] = nested(23);
+        }
         int fieldIndex = 3;
         for (Spec spec : specs) {
             if (fieldIndex < fields.size() && fields.get(fieldIndex).number() == spec.number()) {
@@ -30,7 +39,8 @@ public final class SystemMutationBodyCodec {
                     + fields.get(fieldIndex).number());
         }
         if (type == SystemMutationType.TARGET_PUBLISH_ADMISSION
-                && fields.get(3).unsignedValue() != TargetPublishAdmissionBody.BODY_VERSION) {
+                && fields.get(3).unsignedValue() != TargetPublishAdmissionBody.BODY_VERSION
+                && fields.get(3).unsignedValue() != TargetPublishAdmissionBody.MATERIALIZED_BODY_VERSION) {
             throw new IllegalArgumentException("unsupported Target Publish Admission body version");
         }
     }

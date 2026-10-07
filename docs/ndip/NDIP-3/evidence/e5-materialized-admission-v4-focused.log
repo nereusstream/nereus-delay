@@ -1,0 +1,40 @@
+E5 Materialized ordinary Target Admission v4
+
+Date: 2026-10-07
+Base: main@f4316beed5d2e223dde0ea1cb86aef59ceea5363
+
+Independent type-13 operation body v4 / tuple (1,1,SYSTEM_MUTATION,1,4) adds an ordinary managed publication commitment and full Claim proof. Target v3/body3, the shared System Mutation envelope and legacy type5/v1 remain unchanged. No NV type, Column Family, physical Producer call or new scheduling mechanism is added. Native selected Claims are rejected by this ordinary branch.
+
+The commitment freezes physical Target, complete immutable Target channel/credential lease, exact Claim/CLAIMED Message digests, payload length/hash, adapter/reserved metadata, destination/capability Profiles, delivery/expiry/retry/event timing and artifact digest. Hash/canonical bounds and resolved payload are checked. First source application additionally requires a pre-resolved materialization authority, retained exact Claim/binding/Target/NV20 channel, queue projection and Claim/lease/Broker time bounds. Missing authority retains the source entry.
+
+Commands executed:
+./gradlew test --tests 'com.nereusstream.delay.protocol.TargetMaterializedAdmissionTest' --tests 'com.nereusstream.delay.runtime.TargetCommandStoreTest.modifiesActualTimelineOrClaimWithHistoryAndFirstResults' --no-daemon --console=plain
+Result: BUILD SUCCESSFUL; 9/9 (2+7), no failures/errors/skips.
+
+./gradlew checkstyleMain checkstyleTest test --tests 'com.nereusstream.delay.protocol.TargetMaterializedAdmissionTest' --tests 'com.nereusstream.delay.protocol.TargetPublishAdmissionBodyTest' --tests 'com.nereusstream.delay.protocol.PublishAdmissionBodyTest' --tests 'com.nereusstream.delay.runtime.TargetCommandStoreTest.modifiesActualTimelineOrClaimWithHistoryAndFirstResults' --no-daemon --console=plain
+Result verified from XML: 32/32 (2+4+19+7), no failures/errors/skips; main/test Checkstyle zero errors.
+
+The seven Worker/Store cases use actual RocksDB-backed Source Apply. Only the CLOSED retry case is switched to v4; it persists NV20 channel through the accounted Store fixture, freezes the actual ordinary Claim, consumes it into PUBLISHING with Budget/results/frontier, and subsequently applies typed UNKNOWN with the exact v4 Admission history image. Other cases preserve v3 compatibility. Channel, credential, capability/materialization/Owner/tuple/time authorities are explicit fixtures; no physical credential or protection authority is certified. Protocol tests verify exact commitment/roundtrip, changed hash/payload/current Message rejection, body bounds, independent tuple and missing materialization authority.
+
+Scope limit: this does not implement Producer/request construction, authenticated response/receipt/Journal matching, definitive/terminal/historical source Outcome, Native full timing template, production authority/proof retention, missing-Claim cold replay, Broker response loss or restart recovery. The frozen Claim proof is retained in the signed source body; recovery reconstruction is not implemented. E5 remains IN_PROGRESS / PENDING_CENTRAL_VALIDATION; productionAuthority/implementationComplete/centralValidationComplete remain false.
+
+Documentation command:
+./gradlew checkDocumentation --no-daemon --console=plain
+Result: BUILD SUCCESSFUL in 58s; implementation/package verifier suites 10/10 and 14/14, historical/package authority documentation checks passed. progress JSON parsing, unchanged incomplete/authority flags and evidence paths verified; git diff --check passed.
+
+SHA-256 (source and focused verification reports):
+329b781cf6f8211c0a76768e755b1430a2dca4a200a76f6aa1967636cd942086  src/main/java/com/nereusstream/delay/protocol/ProtocolTuple.java
+d379ece9692c27786df3ef49e7f0620ee4199ed25c1c82e5fe9fd8698c0be8c1  src/main/java/com/nereusstream/delay/protocol/SystemMutationBodyCodec.java
+c39078057bf3407ea36906d2aa2447700a350f41a6c025c065fecd976fc5728a  src/main/java/com/nereusstream/delay/protocol/TargetPublishAdmissionBody.java
+af1c8278bad5c4de5facff405b1008869a3c04daacf7a5f3652ab93a966586f8  src/main/java/com/nereusstream/delay/runtime/TargetPublishAdmissionStore.java
+4f0280fea7967e905e3409c81bcd2ef615efe000a85e8cd145d98aef61737694  src/main/java/com/nereusstream/delay/runtime/TargetPublishAdmissionVerifier.java
+5f3168dbf411fda9c46753155e8eeeed70061e032dfb761331201d55d1b32eea  src/main/java/com/nereusstream/delay/runtime/TargetPublishOutcomeVerifier.java
+2653ab73e61a0b70b44f7e59e630ef5793962805d74ad39b0063e6f4403e701d  src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java
+e89d5a446776fc47a0766138e85801f9328933bc9e90e612189b65b1e5809176  src/main/java/com/nereusstream/delay/protocol/TargetOrdinaryPublicationBinding.java
+589917fb37fdda31d1f33377e0b84ff848b4a928f81a31bcd3be4818a5da36bc  src/test/java/com/nereusstream/delay/protocol/TargetMaterializedAdmissionTest.java
+297c5c9266e2d8e66f558735c6aedbeeccbf8b3e904c20d0c470f02c8a70901d  build/test-results/test/TEST-com.nereusstream.delay.protocol.TargetMaterializedAdmissionTest.xml
+9308673ffa94493d6533a2b682b498b342d2c6251a9595b0b4fcd980e9f498cb  build/test-results/test/TEST-com.nereusstream.delay.protocol.TargetPublishAdmissionBodyTest.xml
+35dc3ffb5e3a354df6726f3df1e6bd84dbd04f3041a68ac0d0951666c7a1bb9c  build/test-results/test/TEST-com.nereusstream.delay.protocol.PublishAdmissionBodyTest.xml
+fcfd74d5a52ded640b73f5ce32c4a4ce93b7c2775a78280bfbf0ffeae0bbd28b  build/test-results/test/TEST-com.nereusstream.delay.runtime.TargetCommandStoreTest.xml
+1cebbf9c4340f833edef1a4ab2e42e836af0c8b770dc96a500c3c32d6471e37e  build/reports/checkstyle/main.xml
+5f0297d93c65110a2f55915d73253257387acb5203d1ed178b8cabaacd86882e  build/reports/checkstyle/test.xml

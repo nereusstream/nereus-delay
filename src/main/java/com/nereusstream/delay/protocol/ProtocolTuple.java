@@ -53,6 +53,10 @@ public final class ProtocolTuple {
         return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, TargetPublishAdmissionBody.BODY_VERSION);
     }
 
+    public static ProtocolTuple targetMaterializedPublishAdmission() {
+        return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, TargetPublishAdmissionBody.MATERIALIZED_BODY_VERSION);
+    }
+
     public long framingVersion() {
         return framingVersion;
     }

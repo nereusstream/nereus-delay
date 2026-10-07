@@ -95,7 +95,7 @@ public final class TargetPublishOutcomeVerifier {
             Objects.requireNonNull(mutation, "admission");
             if (mutation.type() != SystemMutationType.TARGET_PUBLISH_ADMISSION
                     || mutation.canonicalEnvelope().length
-                            > 2 * TargetPublishAdmissionBody.MAX_CANONICAL_BYTES + 1024) {
+                            > 2 * TargetPublishAdmissionBody.MAX_MATERIALIZED_BYTES + 1024) {
                 throw new IllegalArgumentException("Target retry context requires a bounded Target Admission image");
             }
             final var body = TargetPublishAdmissionBody.decode(mutation.canonicalBody());

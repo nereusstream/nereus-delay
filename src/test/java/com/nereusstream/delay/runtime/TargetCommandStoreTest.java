@@ -2458,11 +2458,17 @@ class TargetCommandStoreTest {
                                                                 writer.canonicalBytes());
                                                         return new TargetPublishAdmissionVerifier.Authorization(
                                                                 keys.getPublic(),
-                                                                ProtocolTuple.targetPublishAdmission(),
+                                                                TargetPublishAdmissionBody.decode(
+                                                                                mutation.canonicalBody())
+                                                                                .publication() == null
+                                                                        ? ProtocolTuple.targetPublishAdmission()
+                                                                        : ProtocolTuple
+                                                                                .targetMaterializedPublishAdmission(),
                                                                 10,
                                                                 10,
                                                                 100,
-                                                                (boundScope, boundWriter, position, evidence) -> true);
+                                                                (boundScope, boundWriter, position, evidence) -> true,
+                                                                (body, position) -> {});
                                                     },
                                                     (a, b, c) -> guard()),
                                             entry -> new TargetSourceApplyRuntime.OutcomeControl(
@@ -2588,6 +2594,12 @@ class TargetCommandStoreTest {
                                 ordinaryLoop.close();
                             }
 
+                            final var materializedChannel = closedRetryQueue
+                                    ? materializedChannelFixture(
+                                            replacementInitialized.backend(), replacementStore, otherScope,
+                                            replacementInitialized.root().recoveryLineage(), replacementLoopClaim,
+                                            otherBinding, destination.ref())
+                                    : null;
                             final var admissionBefore =
                                     (KafkaSourcePosition) replacementStore.appliedShardLogPosition();
                             final var admissionAt = source(
@@ -2602,7 +2614,15 @@ class TargetCommandStoreTest {
                                     replacementLoopClaim,
                                     replacementOwnerIdentity[0],
                                     keys,
-                                    admissionAt);
+                                    admissionAt,
+                                    materializedChannel,
+                                    capability.ref());
+                            if (closedRetryQueue) {
+                                final var materialized = TargetPublishAdmissionBody.decode(
+                                        admission.entry().mutation().canonicalBody());
+                                assertEquals(4, materialized.bodyVersion());
+                                assertEquals(materializedChannel, materialized.publication().channel());
+                            }
                             final var admissionAcknowledgements = new java.util.concurrent.atomic.AtomicInteger();
                             replacementNextSourceRecord.set(new SourceRecordConsumer.PolledSourceRecord(
                                     admission.entry(),
@@ -6744,6 +6764,17 @@ class TargetCommandStoreTest {
             OwnerIdentity owner,
             KeyPair keys,
             KafkaSourcePosition at) {
+        return targetAdmission(store, claim, owner, keys, at, null, null);
+    }
+
+    private static TargetAdmissionFixture targetAdmission(
+            ShardStore store,
+            TargetClaimRecord claim,
+            OwnerIdentity owner,
+            KeyPair keys,
+            KafkaSourcePosition at,
+            com.nereusstream.delay.protocol.TargetChannelIdentity channel,
+            ProfileRef capabilityProfile) {
         final byte[] messageKey = TargetKeyCodec.message(claim.work().locator().messageId());
         final var claimed = TargetMessageRecord.decode(TargetValueEnvelope.decode(
                         store.get(ColumnFamily.ID, messageKey), TargetMessageRecord.VALUE_TYPE)
@@ -6778,6 +6809,19 @@ class TargetCommandStoreTest {
                 KeyCodec.inflight((byte) 2, owner.ownerEpoch(), attemptId));
         final long[] reserved = new long[CapacityDimension.COUNT];
         reserved[CapacityDimension.RESULT_BYTES.wireValue() - 1] = 128;
+        com.nereusstream.delay.protocol.TargetOrdinaryPublicationBinding publication = null;
+        if (channel != null) {
+            final byte[] bindingKey = TargetKeyCodec.scheduleBinding(claimed.locator().scheduleBindingDigest());
+            final var binding = TargetScheduleBinding.decode(TargetValueEnvelope.decode(
+                            store.get(ColumnFamily.ID, bindingKey), TargetScheduleBinding.VALUE_TYPE)
+                    .payload());
+            final var physical = CanonicalTargetPartition.decode(TargetValueEnvelope.decode(
+                            store.get(ColumnFamily.META, TargetKeyCodec.identity(claimed.locator().target())),
+                            CanonicalTargetPartition.VALUE_TYPE)
+                    .payload());
+            publication = com.nereusstream.delay.protocol.TargetOrdinaryPublicationBinding.fromClaim(
+                    claim, claimed, binding, physical, channel, capabilityProfile, bytes(32, 0xC3));
+        }
         final var body = new TargetPublishAdmissionBody(
                 at.shardId(),
                 retryUntil,
@@ -6791,7 +6835,9 @@ class TargetCommandStoreTest {
                 claim.executionBytes(),
                 new CapacityVector(reserved),
                 CapacityVector.empty(),
-                decisionTime);
+                decisionTime,
+                publication,
+                publication == null ? null : claim);
         final var author = AuthorIdentity.owner(
                 owner.deploymentId(), owner.workerRunId(), owner.ownerEpoch(), owner.leaseFencingDigest());
         final var mutation = SystemMutation.signed(
@@ -7001,6 +7047,41 @@ class TargetCommandStoreTest {
         assertEquals(beforeSequence, store.latestSequenceNumber());
         assertEquals(beforeSource, store.appliedShardLogPosition());
         assertNull(store.get(ColumnFamily.DEDUPE, systemKey(mutation)));
+    }
+
+    private static com.nereusstream.delay.protocol.TargetChannelIdentity materializedChannelFixture(
+            TargetStoreBackend backend,
+            ShardStore store,
+            TargetQuotaScope scope,
+            byte[] lineage,
+            TargetClaimRecord claim,
+            TargetScheduleBinding binding,
+            ProfileRef providerProfile) {
+        final var prior = (KafkaSourcePosition) store.appliedShardLogPosition();
+        final var at = source(prior, prior.offset() + 1, prior.brokerPersistenceTimeEpochMs() + 1);
+        final var context = new com.nereusstream.delay.protocol.TargetChannelIdentity.Context(
+                scope.shard(), binding.target(), binding.domain(), binding.accountingIncarnation(),
+                binding.offeredDispatchRef(), binding.controlScopeRef(),
+                com.nereusstream.delay.protocol.ChannelKind.PULSAR_DEDUP_PRODUCER,
+                0, 1, 1L, bytes(32, 0xC1));
+        final var issued = new TrustedUtcIntervalEvidence(
+                at.brokerPersistenceTimeEpochMs(), at.brokerPersistenceTimeEpochMs() + 1,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                bytes(32, 0xA1), 1, 1, 1, bytes(32, 0xA2), 0, null);
+        final var channel = new com.nereusstream.delay.protocol.TargetChannelIdentity(
+                context,
+                new com.nereusstream.delay.protocol.CredentialUseLease(
+                        providerProfile, com.nereusstream.delay.protocol.CredentialUseKind.DESTINATION_CHANNEL,
+                        context.credentialHolderScope(), 1, bytes(32, 0xC2), bytes(32, 0xC3),
+                        issued, claim.deadlineEpochMs() + 1000, 1));
+        new TargetMessageStore(backend, 1, 1, 1).applyAccounted(
+                budget(),
+                reader -> new TargetMessageStore.Input(List.of(), List.of(), List.of(reader.replace(
+                        ColumnFamily.META, channel.encodedKey(),
+                        com.nereusstream.delay.protocol.TargetChannelIdentity.VALUE_TYPE, channel.canonicalBytes()))),
+                new TargetSourceAccounting(scope, lineage, at, bytes(32, 0xC4), 16, 1, 1),
+                (a, b, c) -> guard());
+        return channel;
     }
 
     private static void closeRetryQueueFixture(

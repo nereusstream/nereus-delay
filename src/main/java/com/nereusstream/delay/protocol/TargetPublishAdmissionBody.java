@@ -2,6 +2,7 @@ package com.nereusstream.delay.protocol;
 
 import com.nereusstream.delay.runtime.AttemptLedgerState;
 import com.nereusstream.delay.runtime.AttemptObligationRef;
+import com.nereusstream.delay.runtime.TargetClaimRecord;
 import com.nereusstream.delay.store.KeyCodec;
 import java.util.Arrays;
 import java.util.List;
@@ -12,6 +13,11 @@ public final class TargetPublishAdmissionBody {
     /** Target-only operation-body generation, independent from the shared System Mutation envelope body. */
     public static final int BODY_VERSION = 3;
     public static final int MAX_CANONICAL_BYTES = 4096;
+    public static final int MATERIALIZED_BODY_VERSION = 4;
+    public static final int MAX_MATERIALIZED_BYTES = MAX_CANONICAL_BYTES
+            + TargetOrdinaryPublicationBinding.MAX_CANONICAL_BYTES
+            + TargetClaimRecord.MAX_CANONICAL_BYTES
+            + 64;
 
     private final ShardId shard;
     private final long retryUntilEpochMs;
@@ -26,6 +32,8 @@ public final class TargetPublishAdmissionBody {
     private final CapacityVector commitment;
     private final CapacityVector allocated;
     private final TrustedUtcIntervalEvidence decisionTime;
+    private final TargetOrdinaryPublicationBinding publication;
+    private final TargetClaimRecord claimProof;
 
     public TargetPublishAdmissionBody(
             final ShardId shard,
@@ -41,6 +49,26 @@ public final class TargetPublishAdmissionBody {
             final CapacityVector commitment,
             final CapacityVector allocated,
             final TrustedUtcIntervalEvidence decisionTime) {
+        this(shard, retryUntilEpochMs, owner, storeIncarnation, claimId, locator, attemptNo,
+                publishAttemptId, obligation, executionBytes, commitment, allocated, decisionTime, null, null);
+    }
+
+    public TargetPublishAdmissionBody(
+            final ShardId shard,
+            final long retryUntilEpochMs,
+            final OwnerIdentity owner,
+            final byte[] storeIncarnation,
+            final byte[] claimId,
+            final TargetMessageLocator locator,
+            final int attemptNo,
+            final byte[] publishAttemptId,
+            final AttemptObligationRef obligation,
+            final long executionBytes,
+            final CapacityVector commitment,
+            final CapacityVector allocated,
+            final TrustedUtcIntervalEvidence decisionTime,
+            final TargetOrdinaryPublicationBinding publication,
+            final TargetClaimRecord claimProof) {
         this.shard = Objects.requireNonNull(shard, "shard");
         if (retryUntilEpochMs < 0 || executionBytes < 0) {
             throw new IllegalArgumentException("invalid Target Admission retry/size bound");
@@ -79,7 +107,25 @@ public final class TargetPublishAdmissionBody {
             throw new IllegalArgumentException("Target Admission budget is empty or under-committed");
         }
         this.decisionTime = Objects.requireNonNull(decisionTime, "decisionTime");
-        if (canonicalBytes().length > MAX_CANONICAL_BYTES) {
+        this.publication = publication;
+        this.claimProof = claimProof;
+        if ((publication == null) != (claimProof == null)) {
+            throw new IllegalArgumentException("materialized Admission requires both publication and full Claim proof");
+        }
+        if (publication != null
+                && (!locator.equals(publication.locator())
+                        || attemptNo != publication.attemptNo()
+                        || !Arrays.equals(this.publishAttemptId, publication.publishAttemptId())
+                        || !Arrays.equals(this.claimId, claimProof.claimId())
+                        || !Arrays.equals(publication.claimDigest(), claimProof.digest())
+                        || !owner.equals(claimProof.owner())
+                        || !Arrays.equals(this.storeIncarnation, claimProof.storeIncarnation())
+                        || !locator.equals(claimProof.work().locator())
+                        || executionBytes != claimProof.executionBytes()
+                        || claimProof.selected().nativeCandidate())) {
+            throw new IllegalArgumentException("materialized Target Admission changes its Claim/publication identity");
+        }
+        if (canonicalBytes().length > (publication == null ? MAX_CANONICAL_BYTES : MAX_MATERIALIZED_BYTES)) {
             throw new IllegalArgumentException("Target Admission exceeds its canonical body bound");
         }
     }
@@ -136,13 +182,21 @@ public final class TargetPublishAdmissionBody {
         return decisionTime;
     }
 
+    public int bodyVersion() {
+        return publication == null ? BODY_VERSION : MATERIALIZED_BODY_VERSION;
+    }
+
+    public TargetOrdinaryPublicationBinding publication() { return publication; }
+
+    public TargetClaimRecord claimProof() { return claimProof; }
+
     public byte[] canonicalBytes() {
         final byte[] subject = new ShardSubject(shard).canonicalBytes();
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, subject);
             CanonicalProtobuf.uint32(output, 2, SystemMutationType.TARGET_PUBLISH_ADMISSION.wireValue());
             CanonicalProtobuf.int64(output, 3, retryUntilEpochMs);
-            CanonicalProtobuf.uint32(output, 10, BODY_VERSION);
+            CanonicalProtobuf.uint32(output, 10, bodyVersion());
             CanonicalProtobuf.bytes(output, 11, owner.canonicalBytes());
             CanonicalProtobuf.bytes(output, 12, storeIncarnation);
             CanonicalProtobuf.bytes(output, 13, claimId);
@@ -154,15 +208,23 @@ public final class TargetPublishAdmissionBody {
             CanonicalProtobuf.bytes(output, 19, commitment.canonicalBytes());
             CanonicalProtobuf.bytes(output, 20, allocated.canonicalBytes());
             CanonicalProtobuf.bytes(output, 21, decisionTime.canonicalBytes());
+            if (publication != null) {
+                CanonicalProtobuf.bytes(output, 22, publication.canonicalBytes());
+                CanonicalProtobuf.bytes(output, 23, claimProof.canonicalBytes());
+            }
         });
     }
 
     public static TargetPublishAdmissionBody decode(final byte[] canonicalBody) {
-        if (canonicalBody == null || canonicalBody.length > MAX_CANONICAL_BYTES) {
+        if (canonicalBody == null || canonicalBody.length > MAX_MATERIALIZED_BYTES) {
             throw new IllegalArgumentException("Target Admission exceeds its canonical body bound");
         }
         final List<CanonicalProtobuf.Reader.Field> fields =
                 SystemMutationBodyCodec.fields(SystemMutationType.TARGET_PUBLISH_ADMISSION, canonicalBody);
+        final boolean materialized = fields.get(3).unsignedValue() == MATERIALIZED_BODY_VERSION;
+        if (!materialized && canonicalBody.length > MAX_CANONICAL_BYTES) {
+            throw new IllegalArgumentException("Target Admission v3 exceeds its unchanged byte bound");
+        }
         final ShardId shard = SystemMutationBodyCodec.subjectShard(fields);
         final long retryUntil = uint(fields.get(2), 3);
         final TargetPublishAdmissionBody result = new TargetPublishAdmissionBody(
@@ -178,7 +240,11 @@ public final class TargetPublishAdmissionBody {
                 uint(fields.get(11), 18),
                 CapacityVector.decode(QueryCodecSupport.nested(fields.get(12), 19)),
                 CapacityVector.decode(QueryCodecSupport.nested(fields.get(13), 20)),
-                TrustedUtcIntervalEvidence.decode(QueryCodecSupport.nested(fields.get(14), 21)));
+                TrustedUtcIntervalEvidence.decode(QueryCodecSupport.nested(fields.get(14), 21)),
+                materialized
+                        ? TargetOrdinaryPublicationBinding.decode(QueryCodecSupport.nested(fields.get(15), 22))
+                        : null,
+                materialized ? TargetClaimRecord.decode(QueryCodecSupport.nested(fields.get(16), 23)) : null);
         QueryCodecSupport.requireCanonical(canonicalBody, result.canonicalBytes(), "TargetPublishAdmissionBody");
         return result;
     }

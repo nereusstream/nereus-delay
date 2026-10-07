@@ -200,6 +200,48 @@ public final class TargetPublishAdmissionStore {
             throw new StaleAdmission();
         }
         TargetClaimStore.current(reader, before);
+        if (body.publication() != null) {
+            if (!Arrays.equals(claim.canonicalBytes(), body.claimProof().canonicalBytes())) {
+                throw new StaleAdmission();
+            }
+            final var publication = body.publication();
+            final byte[] bindingKey = TargetKeyCodec.scheduleBinding(locator.scheduleBindingDigest());
+            final byte[] bindingRaw = reader.get(ColumnFamily.ID, bindingKey);
+            final byte[] identityKey = TargetKeyCodec.identity(locator.target());
+            final byte[] identityRaw = reader.get(ColumnFamily.META, identityKey);
+            final byte[] channelKey = publication.channel().encodedKey();
+            final byte[] channelRaw = reader.get(ColumnFamily.META, channelKey);
+            if (bindingRaw == null || identityRaw == null || channelRaw == null) {
+                throw new IllegalStateException("materialized Admission lacks its applied binding/Target/channel");
+            }
+            final var binding = com.nereusstream.delay.protocol.TargetScheduleBinding.decodeForStore(
+                    bindingKey,
+                    TargetValueEnvelope.decode(bindingRaw,
+                                    com.nereusstream.delay.protocol.TargetScheduleBinding.VALUE_TYPE)
+                            .payload(),
+                    scope.shard());
+            final var identity = com.nereusstream.delay.protocol.CanonicalTargetPartition.decodeForStore(
+                    identityKey,
+                    TargetValueEnvelope.decode(identityRaw,
+                                    com.nereusstream.delay.protocol.CanonicalTargetPartition.VALUE_TYPE)
+                            .payload());
+            final var channel = com.nereusstream.delay.protocol.TargetChannelIdentity.decodeForStore(
+                    channelKey,
+                    TargetValueEnvelope.decode(channelRaw,
+                                    com.nereusstream.delay.protocol.TargetChannelIdentity.VALUE_TYPE)
+                            .payload(),
+                    scope.shard());
+            if (!Arrays.equals(identity.canonicalBytes(), publication.physical().canonicalBytes())) {
+                throw new StaleAdmission();
+            }
+            channel.requireExactFrozenIdentity(publication.channel());
+            channel.requireQueueProjection(queue(reader, before));
+            publication.requireClaim(claim, before, binding);
+            if (body.decisionTime().latestEpochMs() >= channel.credentialLease().validUntilEpochMs()
+                    || body.decisionTime().latestEpochMs() >= claim.deadlineEpochMs()) {
+                throw new StaleAdmission();
+            }
+        }
         final var time = body.decisionTime();
         final long requiredEarliest = claim.work().retryEligibilityAtEpochMs();
         final long notAfter = before.expireAtEpochMs();
@@ -209,6 +251,11 @@ public final class TargetPublishAdmissionStore {
                     source.brokerPersistenceTimeEpochMs(),
                     decision.authorization().maximumBrokerTimestampDivergenceMs());
         } catch (ArithmeticException overflow) {
+            throw new StaleAdmission();
+        }
+        if (body.publication() != null
+                && brokerBound >= Math.min(
+                        claim.deadlineEpochMs(), body.publication().channel().credentialLease().validUntilEpochMs())) {
             throw new StaleAdmission();
         }
         if (time.earliestEpochMs() < requiredEarliest
