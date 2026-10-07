@@ -369,6 +369,40 @@ public final class TargetOrderState {
         return successor;
     }
 
+    /** Clears only a fully settled strict barrier; terminal success with old obligations still blocks successors. */
+    public TargetOrderState afterPublishedOutcome(
+            final TargetMessageRecord before, final TargetMessageRecord published) {
+        Objects.requireNonNull(before, "before");
+        Objects.requireNonNull(published, "published");
+        if (barrier == null
+                || before.runtime().currentWorkKind() != CurrentSendWorkKind.PUBLISHING
+                || !published.equals(before.publishedOutcome(before.runtime().publishAttemptId()))) {
+            throw new IllegalArgumentException("strict published successor differs from the exact current attempt");
+        }
+        requireLocatorProjection(before.locator());
+        barrier.requireMessageProjection(before);
+        final TargetOrderState successor = new TargetOrderState(
+                target,
+                orderingDomain,
+                sourceShard,
+                executionDomain,
+                accountingIncarnation,
+                orderingContract,
+                TargetQueueState.nextRevision(stateRevision),
+                controlVersion,
+                gate,
+                lastAdmittedOrder == null ? null : lastAdmittedOrder.encodedKey(),
+                null,
+                published.runtime().attemptObligations().isEmpty()
+                        ? null
+                        : TargetOrderBarrier.fromMessage(published));
+        successor.requireSuccessorOf(this);
+        if (successor.barrier() != null) {
+            successor.requireBarrierProjection(published);
+        }
+        return successor;
+    }
+
     private static byte[] orderedMessageKey(final TargetMessageRecord message) {
         return TargetKeyCodec.ordered(
                 message.locator().target(),

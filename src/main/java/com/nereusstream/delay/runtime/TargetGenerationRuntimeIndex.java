@@ -295,6 +295,43 @@ public final class TargetGenerationRuntimeIndex {
                 TargetQueueState.nextRevision(runtimeRevision));
     }
 
+    /** Value successor for a verified success of the current attempt; other unresolved obligations remain. */
+    public TargetGenerationRuntimeIndex publishedOutcome(final byte[] attemptId) {
+        Bytes.requireLength(attemptId, 32, "attemptId");
+        if (terminal()
+                || currentWorkKind != CurrentSendWorkKind.PUBLISHING
+                || !Arrays.equals(publishAttemptId, attemptId)) {
+            throw new IllegalStateException("published outcome must settle the current PUBLISHING work");
+        }
+        final var remaining = new ArrayList<AttemptObligationRef>(obligations.size());
+        int matched = 0;
+        for (var obligation : obligations) {
+            if (Arrays.equals(obligation.publishAttemptId(), attemptId)) {
+                if (obligation.ledgerState() != AttemptLedgerState.PUBLISHING) {
+                    throw new IllegalStateException("published current attempt is not a PUBLISHING obligation");
+                }
+                matched++;
+            } else {
+                remaining.add(obligation);
+            }
+        }
+        if (matched != 1) {
+            throw new IllegalStateException("published outcome must settle exactly one current obligation");
+        }
+        return new TargetGenerationRuntimeIndex(
+                generation,
+                GenerationAggregateState.PUBLISHED,
+                CurrentSendWorkKind.NONE,
+                null,
+                null,
+                null,
+                remaining,
+                admissionsUsed,
+                uncertainRetryAdmissionsUsed,
+                possibleDestinationDuplicate,
+                TargetQueueState.nextRevision(runtimeRevision));
+    }
+
     public void requireMessageProjection(final TargetMessageLocator locator) {
         if (locator.generation() != generation
                 || (timeline != null && !timeline.locator().equals(locator))) {

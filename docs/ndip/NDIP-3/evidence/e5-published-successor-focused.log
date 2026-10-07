@@ -1,0 +1,27 @@
+E5 Current-attempt PUBLISHED value successor
+
+Date: 2026-10-07
+Base: main@03142cb7505156183b8eda33b0e5e76d89826ce7
+
+TargetGenerationRuntimeIndex/TargetMessageRecord require the exact current PUBLISHING attempt, remove exactly that ref, advance revisions once and produce PUBLISHED/NONE while retaining every other unresolved ref, Admission/retry counters and possible-duplicate flag. TargetOrderState requires the exact successor, preserves watermark/gate and clears its barrier only with no remaining refs; terminal success retaining old refs remains a strict-order block with an updated runtime digest.
+
+Command:
+./gradlew test --tests 'com.nereusstream.delay.runtime.TargetOrderContractTest' --tests 'com.nereusstream.delay.runtime.TargetClaimRecordTest' --no-daemon --console=plain
+Result: BUILD SUCCESSFUL; 23/23 (19+4), zero skips/failures/errors. Tests cover one-step current attempt settlement, wrong/absent/repeated attempt, retained old UNCERTAIN ref/counters/duplicate, canonical roundtrip, watermark and all strict gates. These are value/contract tests. Test source has one formatting-only assertion wrap after the run.
+
+./gradlew checkstyleMain checkstyleTest --no-daemon --console=plain
+Result: BUILD SUCCESSFUL.
+
+Documentation command:
+./gradlew checkDocumentation --no-daemon --console=plain
+Result: BUILD SUCCESSFUL; implementation/package verifier suites passed 10/10 and 14/14, authority/historical documentation checks passed. git diff --check and progress JSON parsing passed.
+
+Scope limit: these helpers are not yet wired into definitive Target source application. They do not authenticate physical evidence or settle payload/attempt reserve/Floor/results/source/ACK. Current Target Admission v3 does not freeze the actual Target channel/prepared publication identity; a VERIFIED_PUBLISHED enum and attempt label cannot substitute for that binding and authenticated response. Full materialized Admission/Producer/evidence path and Broker/recovery/central validation remain open. E5 remains IN_PROGRESS / PENDING_CENTRAL_VALIDATION.
+
+SHA-256:
+a3d1e6fe853ad3ddbfbea4a4fa7308a91a4d11ad5f5cf821e68bb5ec9749e371  src/main/java/com/nereusstream/delay/runtime/TargetGenerationRuntimeIndex.java
+9e61c7fc5837d03eb04dc6d9dc4df94e1883a080394f64dad9f888b327ea324c  src/main/java/com/nereusstream/delay/runtime/TargetMessageRecord.java
+1c6496e5eade95c364742230781db5fb5b1923a689edd237def4d4c48a14feaf  src/main/java/com/nereusstream/delay/runtime/TargetOrderState.java
+bee3739e7f249676c0ccde9a1724008e31e3d416b1e4a33505095623dc553afd  src/test/java/com/nereusstream/delay/runtime/TargetOrderContractTest.java
+44d4b44bfe134add357271d49dcf0c557db73a056e452c013ac6f0ec8567e379  build/test-results/test/TEST-com.nereusstream.delay.runtime.TargetOrderContractTest.xml
+267b9154d35ed8c674d3494cdb902cc6379986c8c053309fff6546ffe5b88d3e  build/test-results/test/TEST-com.nereusstream.delay.runtime.TargetClaimRecordTest.xml

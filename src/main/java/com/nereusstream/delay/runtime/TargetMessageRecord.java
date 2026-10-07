@@ -209,6 +209,21 @@ public final class TargetMessageRecord {
                 runtime.unknownOutcome(attemptId, retry));
     }
 
+    /** Does not authenticate evidence or release payload/reserve; those remain source-committer obligations. */
+    public TargetMessageRecord publishedOutcome(final byte[] attemptId) {
+        return new TargetMessageRecord(
+                locator,
+                TargetQueueState.nextRevision(stateVersion),
+                deliverAtEpochMs,
+                expireAtEpochMs,
+                retryEligibilityAtEpochMs,
+                nativeDeliveryPolicy,
+                scheduleSource,
+                inlinePayload,
+                payloadReference,
+                runtime.publishedOutcome(attemptId));
+    }
+
     private byte[] fields() {
         return CanonicalProtobuf.message(out -> {
             CanonicalProtobuf.uint32(out, 1, VERSION);
