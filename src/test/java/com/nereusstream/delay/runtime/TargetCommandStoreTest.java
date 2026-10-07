@@ -203,7 +203,7 @@ class TargetCommandStoreTest {
         "true,false,false,false,false,true,false,5",
         "true,false,false,false,false,true,false,6", "true,false,false,false,false,true,false,7",
         "true,false,false,false,false,true,false,8", "true,false,false,false,false,true,false,9",
-        "true,false,false,false,false,true,false,10"
+        "true,false,false,false,false,true,false,10", "true,false,false,false,false,true,false,11"
     })
     void modifiesActualTimelineOrClaimWithHistoryAndFirstResults(
             boolean claimed,
@@ -2923,13 +2923,13 @@ class TargetCommandStoreTest {
                                         orderAfterCancel.barrier().canonicalBytes());
                                 assertNull(orderAfterCancel.serviceableHead());
                             }
-                            if (publishFailure == 10) {
+                            if (publishFailure == 10 || publishFailure == 11) {
                                 assertRecoveredTargetOutcome(replacementStore, otherScope, replacementWorker,
                                         replacementActive, otherAssignment, leases,
                                         takeoverLeases == null ? leases : takeoverLeases,
                                         takeoverSession == null ? bytes(32, 0xF1) : takeoverSession,
                                         resources, workerClasses, admission, replacementOwnerIdentity[0], keys,
-                                        otherRetryPolicy);
+                                        otherRetryPolicy, publishFailure == 11);
                                 claimWorker.pauseNewTurns();
                                 claimWorker.closeSource();
                                 return;
@@ -7161,7 +7161,7 @@ class TargetCommandStoreTest {
             OxiaOwnerLeaseStore leases, byte[] session,
             com.nereusstream.delay.store.SharedRocksDbResources resources, WorkClassExecutionRegistry classes,
             TargetAdmissionFixture admission, OwnerIdentity oldOwner, KeyPair keys,
-            com.nereusstream.delay.protocol.RetryPolicySemantic policy) {
+            com.nereusstream.delay.protocol.RetryPolicySemantic policy, boolean loseOwnerDuringLoad) {
         final var admissionImage = admission.entry().mutation();
         final var admitted = TargetPublishAdmissionBody.decode(admissionImage.canonicalBody());
         final byte[] messageKey = TargetKeyCodec.message(admitted.locator().messageId());
@@ -7302,17 +7302,85 @@ class TargetCommandStoreTest {
                 worker, handoff, factory);
         final var context = new com.nereusstream.delay.ownership.WorkerPublishOutcomeMutationFactory.OutcomeContext(
                 time.latestEpochMs() + 10_000, 4, zero, time, retry);
-        final var submission = recovery.submit(budget(), admissionImage, owner, context, () -> 102);
-        assertTrue(submission.failure().isEmpty());
-        assertEquals(owner, AuthorIdentity.decode(submission.mutation().authorIdentity()).asOwnerIdentity());
-        assertFalse(recovery.settleApplied(() -> 102));
-        assertEquals(submission, recovery.submit(budget(), admissionImage, owner, context, () -> 102));
-        recovery.retryHandoff(() -> 102);
-        final byte[] exact = submission.mutation().encodeFrame();
+        final var loads = new java.util.concurrent.atomic.AtomicInteger();
+        final var firstHistory = new java.util.concurrent.CompletableFuture<
+                com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Prepared>();
+        final var secondHistory = new java.util.concurrent.CompletableFuture<
+                com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Prepared>();
+        final var host = TargetWorkerHostTestBridge.withoutMaintenanceTimer(classes, resources, List.of(worker));
+        final var maintenance = host.configurePublishRecoveryMaintenance(worker, factory,
+                image -> {
+                    appends.incrementAndGet();
+                    return com.nereusstream.delay.ownership.ShardLogMutationAppender.AppendOutcome.persisted(at);
+                }, TargetCommandStoreTest::budget,
+                ref -> {
+                    assertEquals(admissionImage, ref.requireImage(admissionImage, admission.entry().position()));
+                    return loads.incrementAndGet() == 1 ? firstHistory : secondHistory;
+                }, () -> 102);
+        final var competingLoadCount = new java.util.concurrent.atomic.AtomicInteger();
+        final var competingHistory = new java.util.concurrent.CompletableFuture<
+                com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Prepared>();
+        final var competing = new com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance(worker,
+                recovery, TargetCommandStoreTest::budget, ref -> {
+                    competingLoadCount.incrementAndGet();
+                    return competingHistory;
+                }, () -> 102);
+        assertEquals(com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.DISCOVERED,
+                competing.runTurn().status());
+        assertEquals(com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.LOADING,
+                competing.runTurn().status());
+        assertThrows(IllegalStateException.class, () -> host.configurePublishRecoveryMaintenance(worker, factory,
+                image -> { throw new AssertionError("duplicate configuration must not append"); },
+                TargetCommandStoreTest::budget, ref -> firstHistory, () -> 102));
+        assertEquals(com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.DISCOVERED,
+                host.runNextPublishRecoveryTurn().orElseThrow().turn().orElseThrow().status());
+        assertEquals(com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.LOADING,
+                host.runNextPublishRecoveryTurn().orElseThrow().turn().orElseThrow().status());
+        assertEquals(com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.LOADING,
+                host.runNextPublishRecoveryTurn().orElseThrow().turn().orElseThrow().status());
+        assertEquals(1, loads.get());
+        assertEquals(0, appends.get());
+        firstHistory.completeExceptionally(
+                new IllegalStateException("fixture protected history temporarily unavailable"));
+        final var loadFailed = host.runNextPublishRecoveryTurn().orElseThrow().turn().orElseThrow();
+        assertEquals(com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.FAILED,
+                loadFailed.status());
+        assertEquals("fixture protected history temporarily unavailable", loadFailed.failure().getMessage());
+        assertEquals(com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.LOADING,
+                host.runNextPublishRecoveryTurn().orElseThrow().turn().orElseThrow().status());
+        if (loseOwnerDuringLoad) {
+            final long beforeLoss = store.latestSequenceNumber();
+            assertTrue(leases.release(active));
+            secondHistory.complete(new com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Prepared(
+                    admissionImage, owner, context));
+            final var lost = host.runNextPublishRecoveryTurn().orElseThrow().turn().orElseThrow();
+            assertEquals(com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.FAILED,
+                    lost.status());
+            assertNotNull(lost.failure());
+            assertEquals(0, appends.get());
+            assertEquals(2, loads.get());
+            assertEquals(beforeLoss, store.latestSequenceNumber());
+            assertTrue(maintenance.pendingMutation().isEmpty());
+            final var retained = TargetQuotaAttemptBudget.decode(TargetValueEnvelope.decode(
+                    store.get(ColumnFamily.META, budgetKey), TargetQuotaAttemptBudget.VALUE_TYPE).payload());
+            assertEquals(TargetQuotaAttemptBudget.Phase.ADMITTED, retained.phase());
+            worker.pauseNewTurns();
+            worker.closeSource();
+            return;
+        }
+        secondHistory.complete(new com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Prepared(
+                admissionImage, owner, context));
+        final var submitted = host.runNextPublishRecoveryTurn().orElseThrow().turn().orElseThrow();
+        assertEquals(com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.SUBMITTED,
+                submitted.status(), () -> String.valueOf(submitted.failure()));
+        assertEquals(owner, AuthorIdentity.decode(submitted.mutation().authorIdentity()).asOwnerIdentity());
+        assertEquals(com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.WAITING_SOURCE,
+                host.runNextPublishRecoveryTurn().orElseThrow().turn().orElseThrow().status());
+        final byte[] exact = submitted.mutation().encodeFrame();
         classes.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
         assertEquals(1, appends.get());
-        assertArrayEquals(exact, submission.mutation().encodeFrame());
-        final var entry = new SourceReplayMutation(submission.mutation(), at, null, null);
+        assertArrayEquals(exact, maintenance.pendingMutation().orElseThrow().encodeFrame());
+        final var entry = new SourceReplayMutation(submitted.mutation(), at, null, null);
         final var acks = new java.util.concurrent.atomic.AtomicInteger();
         pending.set(new SourceRecordConsumer.PolledSourceRecord(entry, (actual, result) -> {
             assertEquals(ApplyStatus.APPLIED, result.systemMutationResult().applyStatus());
@@ -7345,15 +7413,39 @@ class TargetCommandStoreTest {
         assertEquals(2, acks.get());
         assertEquals(1, resolutions.get());
         assertEquals(applied, store.latestSequenceNumber());
-        recovery.retryHandoff(() -> 102);
+        final var settled = host.runNextPublishRecoveryTurn().orElseThrow().turn().orElseThrow();
+        assertEquals(com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.SETTLED,
+                settled.status());
         assertEquals(1, appends.get());
-        assertTrue(recovery.settleApplied(() -> 102));
+        assertEquals(2, loads.get());
+        assertArrayEquals(exact, settled.mutation().encodeFrame());
+        assertTrue(maintenance.pendingMutation().isEmpty());
+        assertEquals(com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.LOADING,
+                competing.runTurn().status());
+        assertEquals(1, competingLoadCount.get());
+        competingHistory.complete(new com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Prepared(
+                admissionImage, owner, context));
+        assertEquals(com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.ALREADY_HANDLED,
+                competing.runTurn().status());
+        assertEquals(1, appends.get());
+        assertTrue(competing.pendingMutation().isEmpty());
         assertThrows(IllegalStateException.class,
                 () -> worker.discoverPublishRecovery(budget(), discovered.continuation(), 1, () -> 102));
         final var settledDiscovery = worker.discoverPublishRecovery(budget(), null, 2, () -> 102);
         assertTrue(settledDiscovery.complete());
         assertTrue(settledDiscovery.entries().isEmpty());
         assertEquals(applied, store.latestSequenceNumber());
+        assertEquals(com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.SCAN_YIELD,
+                host.runNextPublishRecoveryTurn().orElseThrow().turn().orElseThrow().status());
+        store.write(batch -> batch.put(ColumnFamily.DEDUPE, firstProofKey, firstProof));
+        assertEquals(com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.RESTART_SCAN,
+                host.runNextPublishRecoveryTurn().orElseThrow().turn().orElseThrow().status());
+        assertEquals(com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.SCAN_YIELD,
+                host.runNextPublishRecoveryTurn().orElseThrow().turn().orElseThrow().status());
+        assertEquals(com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.IDLE,
+                host.runNextPublishRecoveryTurn().orElseThrow().turn().orElseThrow().status());
+        assertEquals(2, loads.get());
+        assertEquals(1, appends.get());
         worker.pauseNewTurns();
         worker.closeSource();
         assertTrue(leases.release(active));

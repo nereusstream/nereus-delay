@@ -27,6 +27,13 @@ import java.util.Objects;
 public final class TargetPublishRecoveryDiscovery {
     public enum Stop { RANGE_END, PAGE_LIMIT, READ_BUDGET }
 
+    /** A caller may restart this scan; other integrity failures must not be mistaken for revision changes. */
+    public static final class StaleCursor extends IllegalStateException {
+        private static final long serialVersionUID = 1L;
+
+        private StaleCursor() { super("Target recovery continuation belongs to another Store view"); }
+    }
+
     /** An opaque continuation for this exact discovery instance and unchanged physical Store view. */
     public static final class Cursor {
         private final TargetPublishRecoveryDiscovery owner;
@@ -119,7 +126,7 @@ public final class TargetPublishRecoveryDiscovery {
             final var cut = new TargetQueueSnapshotReader.Cut(
                     reader.metadata().storeIncarnation(), reader.nativeSequence());
             if (continuation != null && !continuation.cut.equals(cut)) {
-                throw new IllegalStateException("Target recovery continuation belongs to another Store view");
+                throw new StaleCursor();
             }
             final var entries = new ArrayList<Reference>();
             byte[] after = continuation == null ? null : continuation.after;
@@ -147,6 +154,37 @@ public final class TargetPublishRecoveryDiscovery {
             }
             return new Page(entries, new Cursor(this, after, cut), Stop.PAGE_LIMIT);
         }, Objects.requireNonNull(authority, "authority"));
+    }
+
+    /** Rechecks immutable Budget identity; an applied Outcome can retire this initial queue while history loads. */
+    public boolean stillAdmitted(final BoundedReadBudget budget, final Reference reference,
+            final TargetStoreBackend.ReadAuthority authority) {
+        final var expected = Objects.requireNonNull(reference, "reference").attempt();
+        return backend.guardedRead(budget, reader -> {
+            final var current = TargetQuotaAttemptBudget.decodeForStore(expected.key(),
+                    TargetValueEnvelope.decode(required(reader, ColumnFamily.META, expected.key()),
+                            TargetQuotaAttemptBudget.VALUE_TYPE).payload(), scope.shard());
+            if (!current.locator().equals(expected.locator())
+                    || !Arrays.equals(current.admissionDigest(), expected.admissionDigest())
+                    || !Arrays.equals(current.tenantScope(), expected.tenantScope())
+                    || !Arrays.equals(current.recoveryLineage(), lineage)
+                    || !current.accounting().equals(expected.accounting())
+                    || current.executionBytes() != expected.executionBytes()
+                    || !current.commitment().equals(expected.commitment())) {
+                throw new IllegalStateException("Target initial recovery Budget changed its immutable identity");
+            }
+            current.mutation().requireAtOrBefore(reader.aggregate().mutation());
+            if (current.phase() == TargetQuotaAttemptBudget.Phase.ADMITTED) {
+                if (!Arrays.equals(current.canonicalBytes(), expected.canonicalBytes())) {
+                    throw new IllegalStateException("Target ADMITTED recovery Budget changed without an Outcome");
+                }
+                verify(reader, current);
+            } else {
+                expected.mutation().requireAtOrBefore(current.mutation());
+            }
+            reader.requireWithinElapsedBudget();
+            return current.phase() == TargetQuotaAttemptBudget.Phase.ADMITTED;
+        }, authority);
     }
 
     private Reference verify(final TargetStoreBackend.Reader reader, final TargetQuotaAttemptBudget attempt) {

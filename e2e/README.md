@@ -7591,3 +7591,8 @@ uses an explicitly constructed retained-reference fixture and an owned non-durab
 Both verify exact source/envelope bytes without advancing active offsets/ACKs. Production protected history,
 pins/Floor, P1 Store composition and Host/process/new Store recovery are still required; see NDIP-3
 `evidence/c2-native-admission-history-focused.log` for commands, artifact locks and scope.
+
+The existing real Oxia Target publish Owner takeover test now drives the Host's bounded asynchronous
+recovery loop as well as Source settlement. Native session/lease CAS and Store/Worker paths are real;
+history future/source/time/key providers remain explicit fixtures. Native history/startup/deployment,
+process/new Store/pins/Floor combinations are still required; see NDIP-3 c2-recovery-maintenance evidence.

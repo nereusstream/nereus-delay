@@ -916,6 +916,12 @@ Owner guard 下核对原 Reference 的完整 envelope/source。K1 不参加/提�
 独立 non-durable inclusive-seek cursor，不 ACK 活动订阅。缺失、范围/资源/帧不符或超时保留
 恢复义务；读取成功不构成 SEND、GC 或长期 retention 证明。没有新增 wire/NV/tuple。
 
+Target initial recovery loop 现逐 turn 连接 existing ADMITTED discovery/history Reference 和
+原 UNKNOWN handoff，不增加 wire/NV/tuple。history future 未终结时不重新发起请求；Source 已
+转换 Budget 时也必须核对 frozen identity 才退出初始队列，不能借 ALREADY_HANDLED 解除 evidence/
+Floor。pending signed UNKNOWN 只按其 actual APPLIED recovery-code/hash 首结果结清。Owner loss
+不执行 late history result。Source/local revision 变化要重查，不能推测旧 cursor 可继续使用。
+
 Outcome/Resolution application updates the attempt ledger and `GenerationRuntimeIndex` in one WriteBatch. `UNKNOWN + SCHEDULED` atomically deletes the exact PUBLISHING key, writes the byte-equivalent identity/admission prefix plus Outcome under its exact UNCERTAIN key, replaces the PUBLISHING-key obligation ref with the UNCERTAIN-key ref, keeps aggregate `UNCERTAIN`, and inserts one `UNCERTAIN_RETRY` timeline work; it does not increment field 15 until the later Admission applies. `UNKNOWN + UNCERTAIN_HOLD` performs the same key/ref replacement and leaves current work NONE. Definitive nonpublication removes that exact ref only after required strong-capability retirement; if another UNCERTAIN ledger remains, any scheduled current work is `UNCERTAIN_RETRY` and the aggregate remains `UNCERTAIN`, otherwise it is `DEFINITIVE_RETRY`/`RETRY_WAIT`. When resolution empties the UNCERTAIN set while reversible TIMELINE/CLAIMED work exists, the event loop first revokes any Claim whose field-19 digest is stale, normalizes the work kind and aggregate, then permits a fresh Claim.
 
 Any verified success terminalizes the Generation. Reversible TIMELINE or CLAIMED current work is removed in that batch. A different already-admitted PUBLISHING attempt cannot be revoked: its ledger and obligation ref remain, current work becomes NONE, `possible_destination_duplicate=true`, and its later Outcome/evidence may release only its own obligation and charges. Expiry and Lane Close similarly delete reversible current work but never erase an admitted obligation; with any possible-delivery ledger they retain aggregate `UNCERTAIN` or apply the pinned explicit possible-delivery terminal policy. Cancel/Reschedule are `TOO_LATE` whenever an UNCERTAIN obligation exists, even if current work is TIMELINE or CLAIMED. `UNCERTAIN_RETRY` is invalid for `DELIVERY_TIME_FIFO`, a closed/broken Lane, or exhausted budgets.

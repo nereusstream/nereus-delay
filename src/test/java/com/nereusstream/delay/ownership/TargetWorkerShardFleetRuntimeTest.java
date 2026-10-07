@@ -183,6 +183,13 @@ class TargetWorkerShardFleetRuntimeTest {
             assertEquals(
                     second.shard,
                     fleet.runNextMessageExpiryTurnIfPresent().orElseThrow().shardId());
+            assertEquals(first.shard, fleet.runNextPublishRecoveryTurnIfPresent().orElseThrow().shardId());
+            assertEquals(second.shard, fleet.runNextPublishRecoveryTurnIfPresent().orElseThrow().shardId());
+            assertEquals(TargetPublishRecoveryMaintenance.Status.LOADING,
+                    fleet.runNextPublishRecoveryTurnIfPresent().orElseThrow().turn().orElseThrow().status());
+            assertEquals(second.shard, fleet.runNextSourceTurn(budget, () -> 101).shardId());
+            assertEquals(2, first.recoveryMaintenanceTurns.get());
+            assertEquals(1, second.recoveryMaintenanceTurns.get());
             first.failNextMaintenance = true;
             assertEquals(
                     first.shard,
@@ -207,6 +214,7 @@ class TargetWorkerShardFleetRuntimeTest {
             fleet.withdraw(second.shard);
             assertTrue(fleet.runNextMaintenanceTurnIfPresent(budget).isEmpty());
             assertTrue(fleet.runNextMessageExpiryTurnIfPresent().isEmpty());
+            assertTrue(fleet.runNextPublishRecoveryTurnIfPresent().isEmpty());
             assertThrows(IllegalStateException.class, () -> fleet.runNextSourceTurn(budget, () -> 101));
 
             assertThrows(
@@ -1022,6 +1030,7 @@ class TargetWorkerShardFleetRuntimeTest {
         private volatile boolean failNextExpiryMaintenance;
         private volatile int expiryDrainSteps;
         private final AtomicInteger expiryMaintenanceTurns = new AtomicInteger();
+        private final AtomicInteger recoveryMaintenanceTurns = new AtomicInteger();
         private final AtomicInteger expiryDrainTurns = new AtomicInteger();
         private final AtomicInteger sourceSettlementTurns = new AtomicInteger();
         private volatile SourceApplyCoordinator.TurnResult nextSourceResult = new SourceApplyCoordinator.TurnResult(
@@ -1095,6 +1104,13 @@ class TargetWorkerShardFleetRuntimeTest {
                 throw new IllegalStateException("message expiry maintenance failure");
             }
             return Optional.empty();
+        }
+
+        @Override
+        public Optional<TargetPublishRecoveryMaintenance.Turn> runPublishRecoveryMaintenanceTurn() {
+            recoveryMaintenanceTurns.incrementAndGet();
+            return Optional.of(new TargetPublishRecoveryMaintenance.Turn(
+                    TargetPublishRecoveryMaintenance.Status.LOADING, null, null));
         }
 
         @Override

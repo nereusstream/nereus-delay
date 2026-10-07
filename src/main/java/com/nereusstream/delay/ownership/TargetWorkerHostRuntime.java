@@ -577,6 +577,26 @@ public final class TargetWorkerHostRuntime {
         return withShardAdmission(expectedShard, () -> expectedShard.probeSelectedHead(budget, selected, ownerClock));
     }
 
+    /** Configures the exact admitted Worker; asynchronous history is owned and bounded by the supplied provider. */
+    public TargetPublishRecoveryMaintenance configurePublishRecoveryMaintenance(
+            final TargetWorkerShardRuntime expectedShard, final TargetPublishOutcomeMutationFactory outcomes,
+            final ShardLogMutationAppender appender, final Supplier<BoundedReadBudget> reads,
+            final TargetPublishRecoveryMaintenance.History history, final LongSupplier ownerClock) {
+        return withShardAdmission(expectedShard,
+                () -> expectedShard.configurePublishRecoveryMaintenance(
+                        outcomes, appender, reads, history, ownerClock));
+    }
+
+    /** Drives the same bounded recovery rotation used by the maintenance timer. */
+    public Optional<TargetWorkerShardFleetRuntime.PublishRecoveryTurn> runNextPublishRecoveryTurn() {
+        synchronized (this) {
+            if (stopping) {
+                throw new IllegalStateException("Target Host publish recovery admission is stopping");
+            }
+        }
+        return fleet.runNextPublishRecoveryTurnIfPresent();
+    }
+
     /** Test seam for the host lifecycle reservation without constructing a physical Target Store. */
     <T> T withCheckpointAdmission(final Shard expectedShard, final Supplier<T> admission) {
         return withShardAdmission(expectedShard, admission);

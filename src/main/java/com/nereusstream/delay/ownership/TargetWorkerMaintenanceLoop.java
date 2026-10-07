@@ -150,6 +150,21 @@ public final class TargetWorkerMaintenanceLoop implements AutoCloseable {
                         firstFailure.compareAndSet(null, caught);
                         failure = combineFailures(failure, caught);
                     }
+                    if (!(failure instanceof Error)) {
+                        try {
+                            final var recovery = fleet.runNextPublishRecoveryTurnIfPresent();
+                            if (recovery.isPresent() && recovery.orElseThrow().turn().isPresent()) {
+                                final var turn = recovery.orElseThrow().turn().orElseThrow();
+                                if (turn.failure() != null) {
+                                    firstFailure.compareAndSet(null, turn.failure());
+                                    failure = combineFailures(failure, turn.failure());
+                                }
+                            }
+                        } catch (RuntimeException | Error caught) {
+                            firstFailure.compareAndSet(null, caught);
+                            failure = combineFailures(failure, caught);
+                        }
+                    }
                 }
             } finally {
                 activeTurnThread = null;

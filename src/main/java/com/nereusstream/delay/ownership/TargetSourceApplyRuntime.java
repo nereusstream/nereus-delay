@@ -746,6 +746,18 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         return page;
     }
 
+    synchronized void requirePublishRecoveryOwner(final LongSupplier ownerClock) {
+        requireGcOwner(Objects.requireNonNull(ownerClock, "ownerClock"));
+    }
+
+    synchronized boolean publishRecoveryStillAdmitted(final BoundedReadBudget budget,
+            final TargetPublishRecoveryDiscovery.Reference reference, final LongSupplier ownerClock) {
+        requireGcOwner(ownerClock);
+        final boolean admitted = publishRecoveryDiscovery.stillAdmitted(budget, reference, workerReads(ownerClock));
+        requireGcOwner(ownerClock);
+        return admitted;
+    }
+
     synchronized void requireOutcomeWriter(final SystemMutation mutation, final LongSupplier clock) {
         requireGcOwner(clock);
         final var author = AuthorIdentity.decode(mutation.authorIdentity()).asOwnerIdentity();

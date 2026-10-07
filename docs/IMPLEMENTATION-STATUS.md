@@ -18590,3 +18590,10 @@ history/Owner/credential guards, using independent guarded cursors without activ
 K1 real Broker validation joins actual Store discovery; P1 real Broker validation uses a declared retained
 reference fixture and confirms non-durable query cursor cleanup. This does not certify P1 Store/history
 composition, protected pins/Floor, production providers/Host or process/new Store recovery.
+
+Target Host maintenance now rotates a single-reference asynchronous recovery loop on the existing Worker
+resource graph. History loads are caller-owned/bounded, pending futures are retained, original UNKNOWN
+bytes settle only by actual Source first result, and handled Budget/Owner-loss checks prevent stale or
+late handoff. Local 38 tests and a real two-session Oxia Worker/RocksDB loop pass; history/source/time/key
+providers remain fixtures. Production native provider/Host startup, process/new Store/pins/Floor and
+terminal/historical/evidence completeness remain open; recovery scan cost has not been optimized/measured.

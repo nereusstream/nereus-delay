@@ -313,6 +313,25 @@ receipt。生产构造仍 private，没有加 DTO bypass。P1 actual Store→his
 Floor、生产 credential/Owner/history provider、Host 自动恢复及 process/new Store 验证仍开放。
 详细锁定源码/artifact、命令和边界见 `evidence/c2-native-admission-history-focused.log`。
 
+
+2026-10-08 后续：Target publish recovery maintenance 已连接有界发现、调用方拥有的异步 history/
+policy preparation、一次签名的原 UNKNOWN、exact Worker handoff 与 actual Source first-result
+settlement。每 turn 扫一 row 或推进一状态，至多一个 reference/history future/pending mutation；
+不新建线程/队列，沿用 Host maintenance tick 与独立 Shard cursor。provider 必须 promptly 返回
+CompletableFuture，并在调用方已有有界 I/O executor 上执行历史/权限 I/O，不能阻塞维护线程。
+
+挂起 future 不重新发起 I/O；终结失败保留 reference 供重试。Source 已处理该初始 Budget 时，
+必须等旧 future 终结并核对 immutable Budget，再 ALREADY_HANDLED，不伪造 UNKNOWN/释放 evidence
+义务。Source settlement 后及 typed stale-cursor 都从头重查，不能推测 rebase 或忽略早插入；
+恢复全量读成本尚未优化/计量。Owner/Store guard 每 turn/提交继续检查，late future 在 Owner loss
+后零 append。Worker不在 recovery turn外持有自己的 monitor，避免 direct/timer反向锁序。
+
+Host exact-instance configure 和原 timer/fleet 已装配该 loop；历史、time/key/credential/pins/
+Floor、实际 native provider 的 deployment inputs 仍必须显式提供。当前真实 Oxia+RocksDB 场景的
+history future/source append 是 fixture；尚无完整 native Broker→history→new-Owner UNKNOWN/Host
+startup/process/new Store install 的组合证据。命令/状态边界见
+`evidence/c2-recovery-maintenance-focused.log`、`evidence/c2-recovery-maintenance-oxia-real.log`。
+
 | 对象 | key | reserved NV type |
 |---|---|---|
 | TargetChannelIdentity | meta `0e 01 + digest[32]` | 20 |

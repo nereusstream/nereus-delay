@@ -1,0 +1,37 @@
+C2 Target publish recovery maintenance loop
+Date: 2026-10-08 (Asia/Shanghai)
+Base: main@6b2c66334a3be9dec2f441ddc125874e93483312
+
+Bounded one-row turns now connect active-Worker ADMITTED discovery to one caller-owned asynchronous history/policy future, exact Reference image, single signed UNKNOWN handoff and actual Source APPLIED recovery-code/hash settlement. No thread/queue/send path is added. The provider must return promptly and perform bounded history/authentication I/O on the existing caller-owned I/O executor. Host exact-instance configuration and the existing timer/fleet use an independent recovery cursor. Failed history retains the candidate; a pending future is never reissued. Source-handled races await future termination and recheck frozen Budget identity before leaving the initial queue, without releasing UNKNOWN/evidence/pins/Floor obligations. Source/local revision invalidation and own Source settlement restart the bounded scan; total recovery scan cost is not optimized or certified.
+
+Every action rechecks active Owner/Store. Late Owner loss returns FAILED and leaves ADMITTED budget/inflight/reserve intact, zero append/write. Fatal expiry errors do not run another recovery action. Worker releases its monitor before calling the recovery coordinator to avoid Worker→recovery→Worker inversion. Historical/terminal discovery remains visible but its special source settlement is still not implemented.
+
+Focused command:
+./gradlew test --tests 'com.nereusstream.delay.runtime.TargetCommandStoreTest.modifiesActualTimelineOrClaimWithHistoryAndFirstResults' --tests 'com.nereusstream.delay.ownership.TargetWorkerShardFleetRuntimeTest' checkstyleMain checkstyleTest --no-daemon --console=plain
+Final tests: 38/38 (20+18), zero failure/error/skip. Combined final run passed tests/main style but failed only one new test line length; wrapped that line, then ./gradlew checkstyleMain checkstyleTest --no-daemon --console=plain passed in 24s. Previous full 37-case runs and final lock-order shared-runtime run also pass; no behavior/assertion weakening.
+
+The actual new-Owner Worker/RocksDB path now uses Host configuration and recovery turns. It holds/retries a controlled asynchronous fixture history load, submits one exact frame, applies Source UNKNOWN, retries ACK only, retains strict barrier and frozen budgets, and settles only actual Source proof. A competing completed source path drains a second old history future without reissuing or appending another initial outcome. Local extra case releases Owner during history load: late completion is rejected before handoff, zero Store mutation/append. Fleet/Host regression confirms independent rotation/empty-fleet behavior and existing source/GC/expiry/lifecycle tests.
+
+Real Oxia command uses clean source 37a17bef17202d5fd6e23282da5fd26d94865484, owned project nereus-delay-recovery-loop-1791397702-28330, image sha256:5a38309ecb7907363f7da435aa002a72349b2d630b463164c31cbd4719daf384. TargetCommandStoreTest.realOxiaPublishOwnerTakeoverRetainsUncertainBudgetAndBarrier passed one successful loop case, zero failure/error/skip; main/test style passed, BUILD SUCCESSFUL in 25s. This native run precedes a final lock-order-only change and the additional local late-owner-loss case; final local38 cover them. Owned container/project/image/network cleaned. Raw command/output: c2-recovery-maintenance-oxia-real.log.
+
+Scope: actual Worker/RocksDB and, in native variant, two actual Oxia sessions/lease CAS. History future/source consumer/append, logical time, key/policy/credential authority are fixtures. No complete native K1/P1 history→Owner restore→UNKNOWN/Broker Source/Host deployment composition, process crash, new Store install or production certification is claimed. Those providers/config, protected pins/Floor, terminal/historical/evidence handling, central validation and F migration/retirement remain required. C2/C5/D2/E5 and all global flags stay incomplete.
+
+Documentation:
+./gradlew checkDocumentation --no-daemon --console=plain
+Result: BUILD SUCCESSFUL in 1m 3s; historical NDIP receipts do not certify new Target runtime.
+
+SHA-256 (final source and local reports; native report was overwritten by final local runs):
+db7c74b3de3d2fdb0a0f686d975fd3291bd312359d36f4b305ebee8673f0ce8e  src/main/java/com/nereusstream/delay/ownership/TargetPublishRecoveryMaintenance.java
+41c8b799f5c57d232a196b5cf82f17a0c363081c8628ba3ce32c93b746acb40b  src/main/java/com/nereusstream/delay/ownership/TargetPublishRecoveryExecutor.java
+1b340740fbf8c9b659f0956137f24e6cb716f6771452f764e81d40e657003d53  src/main/java/com/nereusstream/delay/ownership/TargetSourceApplyRuntime.java
+dac43eeb51da007b4f11c4b34add91e33c1e6ceda3b84c31727561d3502f38b5  src/main/java/com/nereusstream/delay/ownership/TargetWorkerHostRuntime.java
+98f54dadcc9853c2dc4e16398d1f7339b9d6d6d400ee74cb5e79d73b5f8dbdcf  src/main/java/com/nereusstream/delay/ownership/TargetWorkerShardRuntime.java
+5bd6293f33391fdaba4505b344d86199f6b16cdb73e71f73452e9eef6f339d4b  src/main/java/com/nereusstream/delay/ownership/TargetWorkerShardFleetRuntime.java
+71c99d845f85e0ebcb00e3ae13090af8cb3c58e66eba3c0446958477c9bbbad2  src/main/java/com/nereusstream/delay/ownership/TargetWorkerMaintenanceLoop.java
+ca7e4578689a2557494409b33c314cc795a7c89cfec48a0a0e1dd11193856e57  src/main/java/com/nereusstream/delay/runtime/TargetPublishRecoveryDiscovery.java
+d5069a8487212403974e5f6a94e8c51edcfd753cbb85ea93c9ee7682a750e566  src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java
+1b81bdee129ba585f7e13c292130ca9bd4dc4e35b0a98b481f320fa839fa8a25  src/test/java/com/nereusstream/delay/ownership/TargetWorkerShardFleetRuntimeTest.java
+8f65345dcbe5b6e54272fc2102c86e63898abd2fa16245abc72395fdd8152f4a  build/test-results/test/TEST-com.nereusstream.delay.runtime.TargetCommandStoreTest.xml
+2cc5f58613ff306ceb5c3553c1bd0625243b53d63cdcf31944d013ed5bca01b4  build/test-results/test/TEST-com.nereusstream.delay.ownership.TargetWorkerShardFleetRuntimeTest.xml
+956409a5af1b091426fd5776acb302c0d5b4abbc1b757aa81e9915ca05bbf056  build/reports/checkstyle/main.xml
+5f0297d93c65110a2f55915d73253257387acb5203d1ed178b8cabaacd86882e  build/reports/checkstyle/test.xml

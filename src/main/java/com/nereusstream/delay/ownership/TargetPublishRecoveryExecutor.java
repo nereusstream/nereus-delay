@@ -27,6 +27,12 @@ public final class TargetPublishRecoveryExecutor {
         this.outcomes = Objects.requireNonNull(outcomes, "outcomes");
     }
 
+    void requireWorker(final TargetWorkerShardRuntime expected) {
+        if (worker != expected) {
+            throw new IllegalArgumentException("Target publish recovery belongs to another Worker instance");
+        }
+    }
+
     /** Reads exact current admitted work once, signs the hold once, and retains it before queue submission. */
     public synchronized Submission submit(
             final BoundedReadBudget budget, final SystemMutation admission, final OwnerIdentity recoveryOwner,

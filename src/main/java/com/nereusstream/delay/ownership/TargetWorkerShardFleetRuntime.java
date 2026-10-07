@@ -29,6 +29,10 @@ public final class TargetWorkerShardFleetRuntime {
         default Optional<WorkClassTask> runMessageExpiryMaintenanceTurn() {
             return Optional.empty();
         }
+
+        default Optional<TargetPublishRecoveryMaintenance.Turn> runPublishRecoveryMaintenanceTurn() {
+            return Optional.empty();
+        }
     }
 
     public record SourceTurn(ShardId shardId, SourceApplyCoordinator.TurnResult result) {
@@ -49,6 +53,13 @@ public final class TargetWorkerShardFleetRuntime {
         public MessageExpiryTurn {
             Objects.requireNonNull(shardId, "shardId");
             Objects.requireNonNull(pendingTask, "pendingTask");
+        }
+    }
+
+    public record PublishRecoveryTurn(ShardId shardId, Optional<TargetPublishRecoveryMaintenance.Turn> turn) {
+        public PublishRecoveryTurn {
+            Objects.requireNonNull(shardId, "shardId");
+            Objects.requireNonNull(turn, "turn");
         }
     }
 
@@ -76,6 +87,7 @@ public final class TargetWorkerShardFleetRuntime {
     private int sourceCursor;
     private int maintenanceCursor;
     private int messageExpiryCursor;
+    private int publishRecoveryCursor;
     private Thread activeTurnThread;
 
     public TargetWorkerShardFleetRuntime(
@@ -147,6 +159,7 @@ public final class TargetWorkerShardFleetRuntime {
                 sourceCursor = afterRemoval(sourceCursor, index, shards.size());
                 maintenanceCursor = afterRemoval(maintenanceCursor, index, shards.size());
                 messageExpiryCursor = afterRemoval(messageExpiryCursor, index, shards.size());
+                publishRecoveryCursor = afterRemoval(publishRecoveryCursor, index, shards.size());
                 return;
             }
         }
@@ -223,6 +236,23 @@ public final class TargetWorkerShardFleetRuntime {
     private void requireNotInSelectedTurn() {
         if (activeTurnThread == Thread.currentThread()) {
             throw new IllegalStateException("cannot reenter Target fleet dispatch from its selected turn");
+        }
+    }
+
+    /** Independent rotation; incomplete asynchronous history never blocks another Shard's recovery selection. */
+    synchronized Optional<PublishRecoveryTurn> runNextPublishRecoveryTurnIfPresent() {
+        requireNotInSelectedTurn();
+        if (shards.isEmpty()) {
+            return Optional.empty();
+        }
+        final var selected = shards.get(publishRecoveryCursor);
+        publishRecoveryCursor = publishRecoveryCursor == shards.size() - 1 ? 0 : publishRecoveryCursor + 1;
+        activeTurnThread = Thread.currentThread();
+        try {
+            return Optional.of(new PublishRecoveryTurn(
+                    selected.shardId(), selected.runPublishRecoveryMaintenanceTurn()));
+        } finally {
+            activeTurnThread = null;
         }
     }
 }

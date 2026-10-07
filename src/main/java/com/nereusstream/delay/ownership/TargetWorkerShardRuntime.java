@@ -93,6 +93,7 @@ public final class TargetWorkerShardRuntime
     private volatile TargetMessageExpiryWorkClassExecutor messageExpiryHandoff;
     private volatile TargetMessageExpiryMaintenance messageExpiryMaintenance;
     private TargetCheckpointCandidateWorkClassExecutor.Submission pendingCheckpoint;
+    private TargetPublishRecoveryMaintenance publishRecoveryMaintenance;
     private SourceRecordConsumer.CheckpointCut preparedCheckpointCut;
 
     TargetWorkerShardRuntime(
@@ -264,6 +265,46 @@ public final class TargetWorkerShardRuntime
         requireNewTurnsAdmitted();
         resources.requireRuntimeBusinessAdmission();
         return target.discoverPublishRecovery(budget, continuation, maximumRows, ownerClock);
+    }
+
+    /** Install before Host ticks begin. History must return promptly and perform its bounded I/O asynchronously. */
+    public synchronized TargetPublishRecoveryMaintenance configurePublishRecoveryMaintenance(
+            final TargetPublishOutcomeMutationFactory outcomes, final ShardLogMutationAppender appender,
+            final Supplier<BoundedReadBudget> reads, final TargetPublishRecoveryMaintenance.History history,
+            final LongSupplier recoveryClock) {
+        requirePublishRecoveryOwner(recoveryClock);
+        if (publishRecoveryMaintenance != null) {
+            throw new IllegalStateException("Target publish recovery maintenance is already configured");
+        }
+        final var handoff = new TargetOutcomeWorkClassExecutor(this, appender);
+        final var executor = new TargetPublishRecoveryExecutor(this, handoff, outcomes);
+        publishRecoveryMaintenance = new TargetPublishRecoveryMaintenance(
+                this, executor, reads, history, recoveryClock);
+        return publishRecoveryMaintenance;
+    }
+
+    synchronized void requirePublishRecoveryOwner(final LongSupplier clock) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        target.requirePublishRecoveryOwner(clock);
+    }
+
+    synchronized boolean publishRecoveryStillAdmitted(final BoundedReadBudget budget,
+            final com.nereusstream.delay.runtime.TargetPublishRecoveryDiscovery.Reference reference,
+            final LongSupplier clock) {
+        requirePublishRecoveryOwner(clock);
+        return target.publishRecoveryStillAdmitted(budget, reference, clock);
+    }
+
+    @Override
+    public Optional<TargetPublishRecoveryMaintenance.Turn> runPublishRecoveryMaintenanceTurn() {
+        final TargetPublishRecoveryMaintenance recovery;
+        synchronized (this) {
+            requireNewTurnsAdmitted();
+            recovery = publishRecoveryMaintenance;
+        }
+        // Recovery rechecks this Worker for each action; avoid Worker -> recovery -> Worker lock inversion.
+        return recovery == null ? Optional.empty() : Optional.of(recovery.runTurn());
     }
 
     synchronized void submitOutcomeAction(
