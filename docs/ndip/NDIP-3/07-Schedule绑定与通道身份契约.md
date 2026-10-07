@@ -238,6 +238,13 @@ Source Message/Admission/live guard 是显式 fixture；它不代表 production 
 `evidence/c2-target-publish-source-bridge-focused.log`；Native/baseline、NOT_PUBLISHED、UNKNOWN/recovery
 完整编排、Host drain/retention/Floor/GC 和生产 authority 仍开放。
 
+2026-10-07 后续：可达的 MAPPED/ownership append 不确定和 synchronous first-send error 现保留
+UNKNOWN/pending，而不是留下没有 completion 结果的 slot。recovery ownership 不重发。local
+physical admission 的文字拒绝缺少 exact Target evidence，不能当成 definitive NOT_PUBLISHED；
+转为 UNKNOWN 保留原预算，完整 typed NOT_PUBLISHED authority/path 仍待完成。completion/queue
+拒绝可以继续处理原结果/bytes，不重复 SEND；Source actual first result 是最终 settlement 依据。
+同一 handoff 实例只保留一条 exact action，queue acceptance response 丢失不会反复注册相同任务。
+
 | 对象 | key | reserved NV type |
 |---|---|---|
 | TargetChannelIdentity | meta `0e 01 + digest[32]` | 20 |

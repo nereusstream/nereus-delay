@@ -62,34 +62,59 @@ public final class TargetPulsarPublishExecutor {
         final var producer = PulsarAttemptJournal.ProducerKey.target(publication.channel(), publication.physical());
         final var identity = PulsarPreparedRecordFactory.targetJournalIdentity(
                 publication, applied.message(), payload, applied.source());
-        final var mapping = journal.appendOrReuseCurrent(producer, identity).record().mapping();
-        final var record = PulsarPreparedRecordFactory.targetManaged(
-                publication, applied.message(), payload, resolved, mapping, artifacts);
-        final var submission = new Submission(applied, mapping, record);
+        publication.requirePayload(Objects.requireNonNull(resolved, "resolved").bytes());
+        final var submission = new Submission(applied);
         pending = submission;
-        if (journal.state(mapping.mappingId()) != PulsarAttemptJournal.AttemptState.MAPPED) {
-            submission.result = DestinationPublishResult.unknown(StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, null);
-            completionExecutor.execute(() -> complete(submission, submission.result));
-            return submission;
-        }
-        journal.markOwnershipStarted(mapping);
-        final var physical = journal.sendAfterOwnershipStarted(mapping, ignored -> {
-            submission.call = adapter.submitTargetPreparedRecord(publication, record, artifacts, (p, r, a) -> {
-                applied.requireSame(Objects.requireNonNull(current.get(), "current applied Admission"));
-                return liveGate.check(p, r, a);
-            });
-            return submission.call.outcome();
-        });
-        physical.whenComplete((value, failure) -> {
-            submission.result = failure == null && value != null ? value
-                    : DestinationPublishResult.unknown(StableCode.DESTINATION_OUTCOME_UNKNOWN, null);
-            try {
-                completionExecutor.execute(() -> complete(submission, submission.result));
-            } catch (RuntimeException rejectedCompletion) {
-                submission.failure = rejectedCompletion;
+        try {
+            final var mapping = journal.appendOrReuseCurrent(producer, identity).record().mapping();
+            submission.mapping = mapping;
+            final var record = PulsarPreparedRecordFactory.targetManaged(
+                    publication, applied.message(), payload, resolved, mapping, artifacts);
+            submission.record = record;
+            if (journal.state(mapping.mappingId()) != PulsarAttemptJournal.AttemptState.MAPPED) {
+                observe(submission,
+                        DestinationPublishResult.unknown(StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, null), null);
+                return submission;
             }
-        });
+            journal.markOwnershipStarted(mapping);
+            final var physical = journal.sendAfterOwnershipStarted(mapping, ignored -> {
+                submission.call = adapter.submitTargetPreparedRecord(publication, record, artifacts, (p, r, a) -> {
+                    applied.requireSame(Objects.requireNonNull(current.get(), "current applied Admission"));
+                    return liveGate.check(p, r, a);
+                });
+                return submission.call.outcome();
+            });
+            physical.whenComplete((value, failure) -> observe(submission, value, failure));
+        } catch (RuntimeException firstSendUncertain) {
+            observe(submission,
+                    DestinationPublishResult.unknown(StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, null),
+                    firstSendUncertain);
+        }
         return submission;
+    }
+
+    private void observe(
+            final Submission submission, final DestinationPublishResult value, final Throwable physicalFailure) {
+        submission.result = physicalFailure == null && value != null ? value
+                : DestinationPublishResult.unknown(StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, null);
+        submission.failure = physicalFailure;
+        if (submission.result.disposition() == DestinationPublishResult.Disposition.DEFINITIVELY_NOT_PUBLISHED) {
+            try {
+                PublishEvidence.decode(submission.result.evidence())
+                        .requireBusinessMutation(submission.applied.body().publishAttemptId(), false);
+            } catch (RuntimeException missingExactEvidence) {
+                // Local physical admission text is not the typed Target absence proof required by Source apply.
+                submission.failure = missingExactEvidence;
+                submission.result = DestinationPublishResult.unknown(submission.result.stableCode(), null);
+            }
+        } else if (submission.result.disposition() == DestinationPublishResult.Disposition.UNKNOWN) {
+            submission.result = DestinationPublishResult.unknown(submission.result.stableCode(), null);
+        }
+        try {
+            completionExecutor.execute(() -> complete(submission, submission.result));
+        } catch (RuntimeException rejectedCompletion) {
+            submission.failure = rejectedCompletion;
+        }
     }
 
     /** Retries only completion/handoff, retaining the observed result and any already signed exact bytes. */
@@ -105,7 +130,7 @@ public final class TargetPulsarPublishExecutor {
     public synchronized boolean settleApplied(
             final TargetOutcomeWorkClassExecutor source, final LongSupplier ownerClock) {
         final var submission = Objects.requireNonNull(pending, "pending publication");
-        if (submission.mutation == null || !submission.handedOff) {
+        if (submission.mutation == null) {
             return false;
         }
         final var result = source.readApplied(submission.mutation, ownerClock).orElse(null);
@@ -150,7 +175,7 @@ public final class TargetPulsarPublishExecutor {
         }
     }
 
-    /** Accepted adapter evidence/retention and pinned retry/time policy; status alone is insufficient. */
+    /** Accepted evidence and retry/time policy. Record is null for an UNKNOWN before a mapping was observable. */
     @FunctionalInterface
     public interface ResultAuthority {
         WorkerPublishOutcomeMutationFactory.OutcomeContext requireAuthenticated(
@@ -160,8 +185,8 @@ public final class TargetPulsarPublishExecutor {
 
     public static final class Submission {
         private final TargetPublishAdmissionStore.Applied applied;
-        private final PulsarAttemptJournal.Mapping mapping;
-        private final PulsarPreparedRecord record;
+        private volatile PulsarAttemptJournal.Mapping mapping;
+        private volatile PulsarPreparedRecord record;
         private volatile BoundedDestinationPublishAdapter.PublishCall call;
         private volatile DestinationPublishResult result;
         private volatile SystemMutation mutation;
@@ -169,15 +194,13 @@ public final class TargetPulsarPublishExecutor {
         private volatile boolean handedOff;
         private volatile boolean journalResolved;
 
-        private Submission(TargetPublishAdmissionStore.Applied applied,
-                PulsarAttemptJournal.Mapping mapping, PulsarPreparedRecord record) {
+        private Submission(TargetPublishAdmissionStore.Applied applied) {
             this.applied = applied;
-            this.mapping = mapping;
-            this.record = record;
         }
 
         public Optional<SystemMutation> mutation() { return Optional.ofNullable(mutation); }
         public Optional<Throwable> failure() { return Optional.ofNullable(failure); }
+        public Optional<DestinationPublishResult> result() { return Optional.ofNullable(result); }
         public boolean handedOff() { return handedOff; }
         public boolean markCallbackTimeout() { return call != null && call.markCallbackTimeout(); }
     }

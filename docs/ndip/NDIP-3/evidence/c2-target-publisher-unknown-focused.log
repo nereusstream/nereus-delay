@@ -1,0 +1,32 @@
+C2 Publisher UNKNOWN and exact handoff retention
+
+Date: 2026-10-07
+Base: main@2a50688a641428a0d1b5d8fd4cad046300ac0f05
+
+A Publisher pending snapshot now precedes Journal MAPPED append. Mapping/ownership/synchronous first-send uncertainty and restored ownership produce retained UNKNOWN completion, never another SDK call or a fabricated mapping/sequence. The result authority receives a null record when the mapping was not observable. Local physical admission text/absent or mismatched absence evidence cannot encode definitive NOT_PUBLISHED; it becomes UNKNOWN with no evidence and retains budget. Valid typed definitive evidence remains subject to the normal authority/Source contract.
+
+Each TargetOutcomeWorkClassExecutor instance retains one exact mutation/task. Queued/PERSISTED duplicates reuse its Submission, actual Source first-result lookup precedes another append, UNKNOWN/definitely-not-persisted requeue uses the exact signed frame, and rejected requeue restores prior append/failure state rather than becoming an unstarted false QUEUED record. Source APPLIED proof can settle Publisher pending even if queue acceptance response was lost; an in-process handedOff flag alone does not determine Source truth.
+
+Focused command:
+./gradlew checkstyleMain checkstyleTest test --tests 'com.nereusstream.delay.runtime.TargetCommandStoreTest.modifiesActualTimelineOrClaimWithHistoryAndFirstResults' --tests 'com.nereusstream.delay.protocol.TargetMaterializedAdmissionTest' --tests 'com.nereusstream.delay.adapter.PulsarAttemptJournalTest' --no-daemon --console=plain
+Result: BUILD SUCCESSFUL in 45s; 48/48 (14+10+24), zero failures/errors/skips.
+
+After restoring prior state on rejected handoff retries:
+./gradlew checkstyleMain checkstyleTest test --tests 'com.nereusstream.delay.runtime.TargetCommandStoreTest.modifiesActualTimelineOrClaimWithHistoryAndFirstResults' --no-daemon --console=plain
+Result: BUILD SUCCESSFUL in 42s; 14/14, zero failures/errors/skips; main/test Checkstyle passes. Remaining suites above are unchanged. One formatting-only indentation change follows this final run. Continuation ran ./gradlew checkstyleMain checkstyleTest --no-daemon --console=plain against the final source: BUILD SUCCESSFUL in 40s.
+
+Actual RocksDB/Worker coverage adds five Publisher paths: MAPPED append uncertainty (record absent), ownership append uncertainty, final live gate rejection, replayed OWNERSHIP_STARTED and local physical pool not READY with opaque rejection text. Each generates the full typed UNKNOWN/UNCERTAIN_HOLD from pinned policy/window, source-applies UNKNOWN, leaves execution/outcome reserve held, creates no terminal, retries only ACK after ACK_UNKNOWN and settles against its actual Source first result. Every path observes zero SDK calls. Queue sink first accepts the exact action then throws a fixture lost-acceptance response; retry reuses the queued Submission/action and exact mutation, no second SEND. Prior success/transfer/UNKNOWN cases remain included.
+
+Scope: actual Store, bounded accounting and Source Worker are exercised, with explicit Owner/clock/credential/activation/policy/source append, Journal, physical transport and result-authority fixtures. The uncertain Journal appender and restored Journal are in-process fixtures; no new real Broker, network response loss, process crash or actual Oxia takeover is claimed. Cross-Owner recovery signing/history and new Store incarnation reconstruction, production Host/providers/lifecycle, Native/baseline, full NOT_PUBLISHED, terminal/historical evidence resolution, retention/checkpoint/Floor/GC and central validation remain required. C2/E5 and global completion/production authority remain incomplete.
+
+Documentation:
+./gradlew checkDocumentation --no-daemon --console=plain
+Result: BUILD SUCCESSFUL, exit 0, original chat final command (68.356s); verified from read_thread on continuation. Historical NDIP-1 closure is not current Target authority.
+
+SHA-256 (final source and focused Source/style reports):
+0e8703781a746dfb2437bedc0b22c08bcf4a4022b444730441eb378f04180319  src/main/java/com/nereusstream/delay/ownership/TargetOutcomeWorkClassExecutor.java
+9b4f9b99412292ae47adbc314ec4dc23303252ffc053c2c8877823294be19597  src/main/java/com/nereusstream/delay/ownership/TargetPulsarPublishExecutor.java
+ce2d55612ba969075fcc18ec75c068b0da50af13f7029a2b1a52835ddb024d53  src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java
+2613e4d068ec77b682832361398cc25b96344e74f744a9131c215e5df98be901  build/test-results/test/TEST-com.nereusstream.delay.runtime.TargetCommandStoreTest.xml
+bcebe383e605ea280784d64805d1e362d0c706828a41be4c27564f85de0d54c8  build/reports/checkstyle/main.xml
+5f0297d93c65110a2f55915d73253257387acb5203d1ed178b8cabaacd86882e  build/reports/checkstyle/test.xml
