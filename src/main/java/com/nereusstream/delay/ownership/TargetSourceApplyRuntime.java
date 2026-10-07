@@ -760,10 +760,19 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
 
     synchronized void requireOutcomeWriter(final SystemMutation mutation, final LongSupplier clock) {
         requireGcOwner(clock);
-        final var author = AuthorIdentity.decode(mutation.authorIdentity()).asOwnerIdentity();
-        if (mutation.type() != SystemMutationType.PUBLISH_OUTCOME || !mutation.shardId().equals(scope.shard())
-                || author.ownerEpoch() != lease.ownerEpoch()
-                || !Bytes.constantTimeEquals(author.leaseFencingDigest(), lease.leaseToken())) {
+        final var author = AuthorIdentity.decode(mutation.authorIdentity());
+        if (!mutation.shardId().equals(scope.shard())) {
+            throw new IllegalStateException("Target Outcome writer differs from current Source Shard");
+        }
+        if (mutation.type() == SystemMutationType.EVIDENCE_RESOLUTION) {
+            if (author.kind() != AuthorIdentity.Kind.SERVICE) {
+                throw new IllegalStateException("Target resolution requires its service writer");
+            }
+            return;
+        }
+        if (mutation.type() != SystemMutationType.PUBLISH_OUTCOME || author.kind() != AuthorIdentity.Kind.OWNER
+                || author.asOwnerIdentity().ownerEpoch() != lease.ownerEpoch()
+                || !Bytes.constantTimeEquals(author.asOwnerIdentity().leaseFencingDigest(), lease.leaseToken())) {
             throw new IllegalStateException("Target Outcome writer differs from current Source/Owner");
         }
     }
@@ -772,7 +781,9 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             final SystemMutation mutation, final LongSupplier ownerClock) {
         final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
         requireGcOwner(clock);
-        if (mutation.type() != SystemMutationType.PUBLISH_OUTCOME || !mutation.shardId().equals(scope.shard())) {
+        if ((mutation.type() != SystemMutationType.PUBLISH_OUTCOME
+                && mutation.type() != SystemMutationType.EVIDENCE_RESOLUTION)
+                || !mutation.shardId().equals(scope.shard())) {
             throw new IllegalArgumentException("Target Outcome reconciliation requires its exact Source mutation");
         }
         return replay.appliedResult(
@@ -1108,7 +1119,8 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                     throw new ReadYield(incomplete);
                 }
                 result = targetAdmissions.commit(first, writes(control.commit(), entry, clock));
-            } else if (mutation.mutation().type() == SystemMutationType.PUBLISH_OUTCOME) {
+            } else if (mutation.mutation().type() == SystemMutationType.PUBLISH_OUTCOME
+                    || mutation.mutation().type() == SystemMutationType.EVIDENCE_RESOLUTION) {
                 final var control = Objects.requireNonNull(
                         authorities.outcomes().resolve(mutation), "Target Publish Outcome authority");
                 final TargetPublishOutcomeStore.Prepared first;
@@ -1383,8 +1395,13 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             return;
         }
         if (entry instanceof SourceReplayMutation outcome
-                && outcome.mutation().type() == SystemMutationType.PUBLISH_OUTCOME) {
-            PublishOutcomeBody.decode(outcome.mutation().canonicalBody());
+                && (outcome.mutation().type() == SystemMutationType.PUBLISH_OUTCOME
+                        || outcome.mutation().type() == SystemMutationType.EVIDENCE_RESOLUTION)) {
+            if (outcome.mutation().type() == SystemMutationType.EVIDENCE_RESOLUTION) {
+                PublishOutcomeBody.decodeEvidenceResolution(outcome.mutation().canonicalBody());
+            } else {
+                PublishOutcomeBody.decode(outcome.mutation().canonicalBody());
+            }
             return;
         }
         if (!(entry instanceof SourceReplayMutation mutation)

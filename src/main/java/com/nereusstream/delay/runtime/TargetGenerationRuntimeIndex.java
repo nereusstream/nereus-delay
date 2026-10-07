@@ -302,6 +302,11 @@ public final class TargetGenerationRuntimeIndex {
 
     /** Settles one initial result after terminalization, preserving the terminal decision and other obligations. */
     public TargetGenerationRuntimeIndex terminalOutcome(final byte[] attemptId, final boolean published) {
+        return terminalOutcome(attemptId, published, AttemptLedgerState.PUBLISHING);
+    }
+
+    private TargetGenerationRuntimeIndex terminalOutcome(
+            final byte[] attemptId, final boolean published, final AttemptLedgerState expected) {
         Bytes.requireLength(attemptId, 32, "attemptId");
         if (!terminal()) {
             throw new IllegalStateException("late terminal outcome requires a terminal generation");
@@ -310,8 +315,8 @@ public final class TargetGenerationRuntimeIndex {
         int matched = 0;
         for (var obligation : obligations) {
             if (Arrays.equals(obligation.publishAttemptId(), attemptId)) {
-                if (obligation.ledgerState() != AttemptLedgerState.PUBLISHING) {
-                    throw new IllegalStateException("initial terminal result requires a PUBLISHING obligation");
+                if (obligation.ledgerState() != expected) {
+                    throw new IllegalStateException("terminal result differs from its retained obligation state");
                 }
                 matched++;
             } else {
@@ -323,6 +328,46 @@ public final class TargetGenerationRuntimeIndex {
         }
         return new TargetGenerationRuntimeIndex(
                 generation, aggregateState, CurrentSendWorkKind.NONE, null, null, null, remaining,
+                admissionsUsed, uncertainRetryAdmissionsUsed, possibleDestinationDuplicate || published,
+                TargetQueueState.nextRevision(runtimeRevision));
+    }
+
+    /** Settles only an UNCERTAIN ref; already-admitted newer publishers remain explicit obligations. */
+    TargetGenerationRuntimeIndex evidenceOutcome(
+            final byte[] attemptId, final boolean published, final boolean permanent,
+            final TargetTimelineWorkRef retry) {
+        if (terminal()) {
+            return terminalOutcome(attemptId, published, AttemptLedgerState.UNCERTAIN);
+        }
+        final var remaining = new ArrayList<AttemptObligationRef>(obligations.size());
+        int matched = 0;
+        for (var obligation : obligations) {
+            if (Arrays.equals(obligation.publishAttemptId(), attemptId)) {
+                if (obligation.ledgerState() != AttemptLedgerState.UNCERTAIN) {
+                    throw new IllegalStateException("evidence must resolve an UNCERTAIN obligation");
+                }
+                matched++;
+            } else {
+                remaining.add(obligation);
+            }
+        }
+        if (matched != 1) {
+            throw new IllegalStateException("evidence must resolve exactly one retained obligation");
+        }
+        final boolean preservePublisher = !published && currentWorkKind == CurrentSendWorkKind.PUBLISHING;
+        final boolean uncertain = remaining.stream().anyMatch(ref -> ref.ledgerState() == AttemptLedgerState.UNCERTAIN);
+        final GenerationAggregateState next = published ? GenerationAggregateState.PUBLISHED
+                : preservePublisher ? uncertain
+                        ? GenerationAggregateState.UNCERTAIN : GenerationAggregateState.PUBLISHING
+                : permanent ? GenerationAggregateState.DEAD_LETTER
+                : uncertain ? GenerationAggregateState.UNCERTAIN : GenerationAggregateState.RETRY_WAIT;
+        if ((published || permanent || preservePublisher) && retry != null) {
+            throw new IllegalArgumentException("evidence retry cannot bypass a terminal decision or current publisher");
+        }
+        return new TargetGenerationRuntimeIndex(generation, next,
+                preservePublisher ? CurrentSendWorkKind.PUBLISHING
+                        : retry == null ? CurrentSendWorkKind.NONE : CurrentSendWorkKind.TIMELINE,
+                retry, null, preservePublisher ? publishAttemptId : null, remaining,
                 admissionsUsed, uncertainRetryAdmissionsUsed, possibleDestinationDuplicate || published,
                 TargetQueueState.nextRevision(runtimeRevision));
     }

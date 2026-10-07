@@ -2,6 +2,7 @@ package com.nereusstream.delay.runtime;
 
 import com.nereusstream.delay.protocol.AuthorIdentity;
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.EvidenceCursor;
 import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.ProtocolTuple;
 import com.nereusstream.delay.protocol.PublishEvidence;
@@ -58,7 +59,19 @@ public final class TargetPublishOutcomeVerifier {
                 SourcePosition outcomeSource);
     }
 
-    public record EvidenceContext(SystemMutation admission, EvidenceAuthority authority) {
+    /** Authenticates the exact service observation/cursor and its protected recovery domain before Store apply. */
+    @FunctionalInterface
+    public interface ResolutionAuthority {
+        void requireAuthenticated(
+                TargetOrdinaryPublicationBinding publication, PublishEvidence evidence, EvidenceCursor cursor,
+                SourcePosition admissionSource, SourcePosition unknownSource, SourcePosition resolutionSource);
+    }
+
+    public record EvidenceContext(
+            SystemMutation admission, EvidenceAuthority authority, ResolutionAuthority resolutionAuthority) {
+        public EvidenceContext(SystemMutation admission, EvidenceAuthority authority) {
+            this(admission, authority, null);
+        }
         public EvidenceContext {
             RetryContext.requireAdmission(admission);
             if (TargetPublishAdmissionBody.decode(admission.canonicalBody()).publication() == null) {
@@ -174,20 +187,26 @@ public final class TargetPublishOutcomeVerifier {
         if (shardScope.target() != null
                 || !shardScope.shard().equals(source.shardId())
                 || !shardScope.shard().equals(mutation.shardId())
-                || mutation.type() != SystemMutationType.PUBLISH_OUTCOME) {
+                || mutation.type() != SystemMutationType.PUBLISH_OUTCOME
+                        && mutation.type() != SystemMutationType.EVIDENCE_RESOLUTION) {
             throw new IllegalStateException("Target Outcome requires the exact Shard root scope/source");
         }
         final PublishOutcomeBody body;
         final AuthorIdentity author;
         try {
-            body = PublishOutcomeBody.decode(mutation.canonicalBody());
+            body = mutation.type() == SystemMutationType.EVIDENCE_RESOLUTION
+                    ? PublishOutcomeBody.decodeEvidenceResolution(mutation.canonicalBody())
+                    : PublishOutcomeBody.decode(mutation.canonicalBody());
             author = AuthorIdentity.decode(mutation.authorIdentity());
         } catch (IllegalArgumentException malformed) {
             return rejected(StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
         }
-        if (author.kind() != AuthorIdentity.Kind.OWNER
+        final boolean resolution = mutation.type() == SystemMutationType.EVIDENCE_RESOLUTION;
+        if (author.kind() != (resolution ? AuthorIdentity.Kind.SERVICE : AuthorIdentity.Kind.OWNER)
                 || !Bytes.constantTimeEquals(
-                        mutation.logicalOperationIdentity(), body.initialLogicalOperationIdentity())) {
+                        mutation.logicalOperationIdentity(), resolution
+                                ? body.evidenceResolutionLogicalOperationIdentity()
+                                : body.initialLogicalOperationIdentity())) {
             return rejected(StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
         }
         if (source.brokerPersistenceTimeEpochMs() > mutation.retryUntilEpochMs()) {

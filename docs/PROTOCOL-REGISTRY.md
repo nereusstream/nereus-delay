@@ -894,6 +894,15 @@ LANE_CLOSED_AFTER_ADMISSION_NOT_PUBLISHED。严格 retry 保留原排序位置/�
 仅在无 refs 时转 RETAINED。其它 absence/recovery 分支、生产 response/classifier、DLQ export、
 terminal/historical settlement 与真实 Broker 验证继续开放。没有新增 evidence/body wire 版本。
 
+Target EVIDENCE_RESOLUTION（2026-10-08）复用 type8 与 evidence-ID logical identity，要求
+service historical signature/tuple/time、UNKNOWN Budget/exact UNCERTAIN ref、v4 Admission
+首结果及 initial UNKNOWN SYSTEM/POSITION/stamp 连接。解码保留 cursor，并强制预解析
+ResolutionAuthority 认证精确 publication/evidence/cursor/Source domain。原 UNKNOWN 结果
+不可变，execution charge 结算但 reserve/Floor 保持；terminal 决定/历史新 Message 不改。
+value transition 保留其它 admitted refs/Publisher，可逆 Claim snapshot 改变必须撤销。
+仅普通 SDK ACK/Broker rejection 静态绑定接上已有 authority seam；absence/transaction/
+Journal/operator verifier、生产 service/provider/多 attempt/恢复/pins/Floor 仍开放。无 wire 变更。
+
 Target terminal/historical initial Outcome（2026-10-08）现结算 ADMITTED/PUBLISHING 的
 精确 ref。当前 terminal aggregate/code/原 Source mutation 保持；晚到成功增加 duplicate
 risk，UNKNOWN 只转 UNCERTAIN，terminal 不创建 retry。strict 当前终态最后一个明确 ref

@@ -18619,3 +18619,14 @@ Local49 and real two-session Oxia6/main-test style pass; native cases include cu
 Host takeover with conservative UNKNOWN and retained obligations/payload/barriers. Provider/transition
 fixtures remain explicit, all completion flags stay false, and exact native image/source/report receipts
 record the bounded fixture concurrency corrections without changing production guards.
+
+Target Source now routes service EVIDENCE_RESOLUTION after immutable-result replay, requiring an exact
+UNKNOWN Budget/UNCERTAIN ref, frozen v4 Admission and initial UNKNOWN first-result joins, signed
+observation, and mandatory pre-resolved cursor-domain authority. It atomically settles the matching
+execution charge while retaining reserve/Floor, original UNKNOWN results, other obligations and terminal
+history. Local86/style pass with explicit ACK/rejection/Source/history/time/key/cursor fixtures. Actual
+multi-attempt/Claim and Broker/provider composition, specialized verifiers, v3/history/service deployment,
+process/new Store/pins/Floor, F migration/retirement and central validation remain required.
+Real two-session Oxia9/style also pass on the current source, including service resolution after takeover
+for held current/historical success and terminal rejection. Native Owner/Store/source paths are real;
+Broker/Source/history/time/key/cursor providers remain fixtures, with no completion flag raised.

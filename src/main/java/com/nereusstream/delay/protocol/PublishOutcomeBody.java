@@ -17,6 +17,7 @@ public final class PublishOutcomeBody {
     private final byte[] transfer;
     private final TrustedUtcIntervalEvidence observedAt;
     private final RetryDecision retryDecision;
+    private final EvidenceCursor evidenceCursor;
 
     private PublishOutcomeBody(
             final byte[] publishAttemptId,
@@ -27,6 +28,15 @@ public final class PublishOutcomeBody {
             final byte[] transfer,
             final TrustedUtcIntervalEvidence observedAt,
             final RetryDecision retryDecision) {
+        this(publishAttemptId, sideEffect, disposition, stableCode, evidence, transfer,
+                observedAt, retryDecision, null);
+    }
+
+    private PublishOutcomeBody(
+            final byte[] publishAttemptId, final int sideEffect, final int disposition,
+            final StableCode stableCode, final byte[] evidence, final byte[] transfer,
+            final TrustedUtcIntervalEvidence observedAt, final RetryDecision retryDecision,
+            final EvidenceCursor evidenceCursor) {
         this.publishAttemptId = fixed(publishAttemptId, "publishAttemptId");
         this.sideEffect = sideEffect;
         this.disposition = disposition;
@@ -35,6 +45,7 @@ public final class PublishOutcomeBody {
         this.transfer = copy(transfer);
         this.observedAt = Objects.requireNonNull(observedAt, "observedAt");
         this.retryDecision = Objects.requireNonNull(retryDecision, "retryDecision");
+        this.evidenceCursor = evidenceCursor;
     }
 
     /**
@@ -152,7 +163,7 @@ public final class PublishOutcomeBody {
     public static PublishOutcomeBody decodeEvidenceResolution(final byte[] canonicalBody) {
         final List<CanonicalProtobuf.Reader.Field> fields =
                 SystemMutationBodyCodec.fields(SystemMutationType.EVIDENCE_RESOLUTION, canonicalBody);
-        EvidenceCursor.decode(nested(field(fields, 11), 11));
+        final var cursor = EvidenceCursor.decode(nested(field(fields, 11), 11));
         final byte[] attemptId = bytes(field(fields, 10), 10);
         final byte[] evidence = nested(field(fields, 12), 12);
         final StableCode stableCode = StableCode.fromWire(intValue(field(fields, 13), 13));
@@ -168,7 +179,12 @@ public final class PublishOutcomeBody {
         PublishEvidence.decode(evidence).requireBusinessMutation(attemptId, sideEffect == 1);
         validateDefinitiveCombination(sideEffect, disposition, stableCode, evidence, retryDecision);
         return new PublishOutcomeBody(
-                attemptId, sideEffect, disposition, stableCode, evidence, transfer, observedAt, retryDecision);
+                attemptId, sideEffect, disposition, stableCode, evidence, transfer, observedAt, retryDecision, cursor);
+    }
+
+    /** Present only for a verified EVIDENCE_RESOLUTION, never for an initial Outcome. */
+    public EvidenceCursor evidenceCursor() {
+        return evidenceCursor;
     }
 
     public byte[] publishAttemptId() {

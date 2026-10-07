@@ -382,3 +382,8 @@ terminal runtime/revision/digest。不能用新 Message 覆盖这个 barrier；�
 terminal/原 payload owner 和 strict barrier 必须相接。此为当前 Owner 下的 retained 事实，
 不能作为 Applied 首发快照。Checkpoint order 审计也按 barrier locator 核对旧 terminal，
 保留水位/引用要求；未决 refs 不因新 Message 或新 Owner 出现而消失。
+
+Target Evidence Resolution 复用原 Admission publication/binding/transfer，service 作者与
+Owner 初始 Outcome 分离。cursor 仅 canonical 不等于认证，必须由预解析 domain/history
+snapshot 核对冻结请求和各 Source；UNKNOWN 原首结果/预算/ref 是本地结算依据。没有
+SEND 权或新 wire，专用 absence/Journal/operator verifier 和 production provider 仍需闭合。

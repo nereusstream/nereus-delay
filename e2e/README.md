@@ -7608,3 +7608,9 @@ Owner takeover through Host recovery maintenance. It uses actual lease/session g
 checkpoint audit/Source settlement, with explicit terminal/replay transition and Source/history/time/key
 fixtures. Evidence and remaining production/Broker/process/pins/Floor obligations are tracked in NDIP-3
 `evidence/c2-terminal-historical-recovery-focused.log` and `evidence/c2-terminal-historical-recovery-oxia-real.log`.
+
+The real Oxia late-Outcome suite adds service Evidence Resolution after Owner-takeover UNKNOWN:
+held current success, historical success, and current terminal NOT_PUBLISHED. Native Owner guards/
+Worker/RocksDB/source state are real; evidence/Source/history/time/key/cursor-domain providers remain
+fixtures. Receipts and the remaining Broker/provider/process/Floor obligations are tracked in NDIP-3
+`evidence/e5-target-evidence-resolution-focused.log` and `evidence/e5-target-evidence-resolution-oxia-real.log`.

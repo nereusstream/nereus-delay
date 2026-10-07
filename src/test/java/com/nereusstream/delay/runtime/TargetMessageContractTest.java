@@ -880,6 +880,48 @@ class TargetMessageContractTest {
                 () -> current.terminalOutcome(older.publishAttemptId(), false));
     }
 
+    @Test
+    void olderEvidencePreservesNewPublisherOrTerminalizesWithItsObligation() {
+        final var older = ref(0x66, 2, AttemptLedgerState.UNCERTAIN);
+        final var publishing = ref(0x77, 2, AttemptLedgerState.PUBLISHING);
+        final var current = message(index(GenerationAggregateState.UNCERTAIN, CurrentSendWorkKind.PUBLISHING,
+                null, null, attempt, List.of(older, publishing), 2, 1, true, 7));
+        final var failed = current.evidenceOutcome(older.publishAttemptId(), false, true, null, null);
+        assertEquals(GenerationAggregateState.PUBLISHING, failed.aggregateState());
+        assertEquals(CurrentSendWorkKind.PUBLISHING, failed.runtime().currentWorkKind());
+        assertArrayEquals(attempt, failed.runtime().publishAttemptId());
+        assertEquals(List.of(publishing), failed.runtime().attemptObligations());
+        final var published = current.evidenceOutcome(older.publishAttemptId(), true, false, null, null);
+        assertEquals(GenerationAggregateState.PUBLISHED, published.aggregateState());
+        assertEquals(CurrentSendWorkKind.NONE, published.runtime().currentWorkKind());
+        assertEquals(List.of(publishing), published.runtime().attemptObligations());
+        assertTrue(published.runtime().possibleDestinationDuplicate());
+        assertEquals(2, published.runtime().admissionsUsed());
+        assertEquals(1, published.runtime().uncertainRetryAdmissionsUsed());
+        assertEquals(published, TargetMessageRecord.decode(published.canonicalBytes()));
+        assertThrows(IllegalStateException.class,
+                () -> current.evidenceOutcome(publishing.publishAttemptId(), true, false, null, null));
+    }
+
+    @Test
+    void lastUnknownEvidenceCreatesOnlyDefinitiveRetryOrPreservesTerminalDecision() {
+        final var uncertain = ref(0x77, 2, AttemptLedgerState.UNCERTAIN);
+        final var held = message(index(GenerationAggregateState.UNCERTAIN, CurrentSendWorkKind.NONE,
+                null, null, null, List.of(uncertain), 1, 0, false, 7));
+        final var retry = held.evidenceOutcome(attempt, false, false, 110L, null);
+        assertEquals(GenerationAggregateState.RETRY_WAIT, retry.aggregateState());
+        assertEquals(TimelineWorkKind.DEFINITIVE_RETRY, retry.runtime().timeline().workKind());
+        assertFalse(retry.runtime().timeline().nativeCandidate());
+        assertTrue(retry.runtime().attemptObligations().isEmpty());
+        assertThrows(IllegalArgumentException.class, () -> held.evidenceOutcome(attempt, false, false, null, null));
+        final var terminal = message(index(GenerationAggregateState.DEAD_LETTER, CurrentSendWorkKind.NONE,
+                null, null, null, List.of(uncertain), 1, 0, false, 7));
+        final var settled = terminal.evidenceOutcome(attempt, true, false, null, null);
+        assertEquals(GenerationAggregateState.DEAD_LETTER, settled.aggregateState());
+        assertTrue(settled.runtime().possibleDestinationDuplicate());
+        assertTrue(settled.runtime().attemptObligations().isEmpty());
+    }
+
     private TargetGenerationRuntimeIndex terminal(final List<AttemptObligationRef> refs, final int admissions) {
         return index(
                 GenerationAggregateState.EXPIRED,

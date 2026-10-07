@@ -1,0 +1,95 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :checkstyleMain UP-TO-DATE
+> Task :checkstyleTest
+
+BUILD SUCCESSFUL in 1m 14s
+15 actionable tasks: 4 executed, 11 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+
+Focused XML receipts (before native run):
+[
+  {
+    "suite": "com.nereusstream.delay.protocol.PublishOutcomeBodyTest",
+    "tests": "8",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "sha256": "c80f81b22e20bc85fe14b411309bb86043f10ea3f69d8b66b29d0b2a08bd99c0"
+  },
+  {
+    "suite": "com.nereusstream.delay.runtime.TargetCommandStoreTest",
+    "tests": "35",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "sha256": "e30b957fb54b521f5817ee71fda662389ed36c38b83abb4a5497a3430bb2ee52"
+  },
+  {
+    "suite": "com.nereusstream.delay.runtime.TargetMessageContractTest",
+    "tests": "20",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "sha256": "6364ef12fa1a025c401ace7949adc90517fd9a2c293b9750f539757d24e67543"
+  },
+  {
+    "suite": "com.nereusstream.delay.runtime.TargetOrderContractTest",
+    "tests": "19",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "sha256": "6519c952d8201a34db4d1004952ec2e1591f19a6997654ddf67289ed23a48c64"
+  },
+  {
+    "suite": "com.nereusstream.delay.runtime.TargetPublishOutcomeVerifierTest",
+    "tests": "1",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "sha256": "bc31747fe007af3eee96a22ee46c230dd5ab5b6abb0eee1d26298f1cd5b1acaa"
+  },
+  {
+    "suite": "com.nereusstream.delay.store.TargetCheckpointRootVerifierTest",
+    "tests": "3",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "sha256": "e61990c4abed2a0080f9ca8accac5844e2937aa6ba6abd5e782c3ced2ab5e8ac"
+  }
+]
+
+Parent d16431e43a8b5022afbb9cbd59292490109f60b4; scoped uncommitted implementation.
+Command: ./gradlew test --tests 'com.nereusstream.delay.runtime.TargetCommandStoreTest.modifiesActualTimelineOrClaimWithHistoryAndFirstResults' --tests 'com.nereusstream.delay.runtime.TargetMessageContractTest' --tests 'com.nereusstream.delay.runtime.TargetOrderContractTest' --tests 'com.nereusstream.delay.runtime.TargetPublishOutcomeVerifierTest' --tests 'com.nereusstream.delay.protocol.PublishOutcomeBodyTest' --tests 'com.nereusstream.delay.store.TargetCheckpointRootVerifierTest' checkstyleMain checkstyleTest --no-daemon --console=plain
+Local86 zero failure/error/skip, main/test style pass. Final native expands only the real-service ValueSource list after this local run; production and local scenario semantics unchanged.
+Iterations: initial main compile passed but new long lines failed style; test compile fixed shadowed Source variable and actual AppendDisposition/disposition API, then 72 semantic tests passed with test formatting failures. Two independent newer-publisher/last-ref value regressions and broader codec/Verifier/root checks brought final scope to 86, all pass.
+Scope: actual Worker/RocksDB/source/first results/quota/order, with ACK/rejection/Source/history/key/time/cursor-domain authority fixtures. No real Broker provider, multi-attempt/Claim Store, absence/Journal/operator, v3 window, process/new Store/Floor/migration or full correctness certification.
+{
+  "src/main/java/com/nereusstream/delay/ownership/TargetSourceApplyRuntime.java": "84576dcb43ec16ed0b214a3547bd10f77810c311d1fb4cdc687d867c47fc4492",
+  "src/main/java/com/nereusstream/delay/protocol/PublishOutcomeBody.java": "c2ad076325fb342c8efc5b6f2e4031849331c52dfe6c922b62f5dffaa8c012d7",
+  "src/main/java/com/nereusstream/delay/runtime/TargetGenerationRuntimeIndex.java": "c05583f0d81c41dda16601f5b0d47c2d73ef85c884b06fa256be0903cd87540b",
+  "src/main/java/com/nereusstream/delay/runtime/TargetMessageRecord.java": "564303d7a3c5235e758c86bc7dc6d57ccc73edf2832c104083ae3161a5c74ba2",
+  "src/main/java/com/nereusstream/delay/runtime/TargetOrderState.java": "0e6613e57c2d4741f14a48222508249c373ba2583cc185450721ea1793f04908",
+  "src/main/java/com/nereusstream/delay/runtime/TargetPublishOutcomeStore.java": "c681b6cc73cd73ae9928489ff4e857a00fdb9b36c277eb3734a41c05ca694555",
+  "src/main/java/com/nereusstream/delay/runtime/TargetPublishOutcomeVerifier.java": "a2b52b4ca8c1a86f2be4b4cc294eb2bf1a01d670c0cc836bcd75ddf49974d6ce",
+  "src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java": "fd9e1f99c25a7698e08b932814a25530133774b232acf8fec43c42116f8916b2",
+  "src/test/java/com/nereusstream/delay/runtime/TargetMessageContractTest.java": "860276011ffc37a1cd0f8e31cd12486bd2e24e7783a6cb5ec33f4ad674f81d92"
+}
+Documentation: ./gradlew checkDocumentation --no-daemon --console=plain; observed BUILD SUCCESSFUL in 1m 4s, six tasks executed. Historical NDIP-1/2 receipts do not certify this NDIP-3 runtime.

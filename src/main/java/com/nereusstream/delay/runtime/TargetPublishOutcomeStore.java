@@ -93,6 +93,7 @@ public final class TargetPublishOutcomeStore {
         Objects.requireNonNull(authority, "authority");
         TargetSourcePosition.requireBounded(source);
         if (mutation.type() != SystemMutationType.PUBLISH_OUTCOME
+                        && mutation.type() != SystemMutationType.EVIDENCE_RESOLUTION
                 || !scope.shard().equals(mutation.shardId())
                 || !scope.shard().equals(source.shardId())) {
             throw new IllegalArgumentException("Target Outcome mutation/source differs from its Shard scope");
@@ -124,9 +125,11 @@ public final class TargetPublishOutcomeStore {
                     final var extra = new java.util.ArrayList<TargetStoreBackend.Edit>();
                     if (rejection == null) {
                         final var outcome = decision.body();
-                        final var writer = AuthorIdentity.decode(mutation.authorIdentity()).asOwnerIdentity();
+                        final var author = AuthorIdentity.decode(mutation.authorIdentity());
+                        final var writer = author.kind() == AuthorIdentity.Kind.OWNER ? author.asOwnerIdentity() : null;
                         final var projection = outcome.sideEffect() != 3
-                                ? definitive(reader, outcome, stamp, writer, decision.authorization())
+                                ? definitive(reader, outcome, stamp, writer, decision.authorization(),
+                                        mutation.type() == SystemMutationType.EVIDENCE_RESOLUTION)
                                 : unknown(reader, outcome, stamp, writer, decision.authorization());
                         rejection = projection.rejection();
                         appliedCode = projection.appliedCode();
@@ -231,7 +234,7 @@ public final class TargetPublishOutcomeStore {
                 ? terminalEdits(reader, generation, after, nextRuntime, stamp, extra) : null;
         return new OutcomeProjection(generation.historical() ? null : before, after,
                 generation.historical() ? historicalOrder(reader, generation, terminalAfter,
-                        outcome.publishAttemptId(), 3)
+                        outcome.publishAttemptId(), 3, false)
                         : strictOrder(reader, before, after, outcome.publishAttemptId(), false),
                 extra, null, null);
     }
@@ -241,7 +244,7 @@ public final class TargetPublishOutcomeStore {
             final PublishOutcomeBody outcome,
             final TargetQuotaMutation stamp,
             final OwnerIdentity writer,
-            final TargetPublishOutcomeVerifier.Authorization authorization) {
+            final TargetPublishOutcomeVerifier.Authorization authorization, final boolean resolution) {
         final byte[] budgetKey = Bytes.concat(
                 new byte[] {TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG, TargetKeyCodec.KEY_FORMAT},
                 outcome.publishAttemptId());
@@ -252,7 +255,8 @@ public final class TargetPublishOutcomeStore {
         final var budget = TargetQuotaAttemptBudget.decodeForStore(
                 budgetKey, TargetValueEnvelope.decode(raw, TargetQuotaAttemptBudget.VALUE_TYPE).payload(),
                 scope.shard());
-        if (budget.phase() != TargetQuotaAttemptBudget.Phase.ADMITTED) {
+        if (budget.phase() != (resolution
+                ? TargetQuotaAttemptBudget.Phase.UNKNOWN : TargetQuotaAttemptBudget.Phase.ADMITTED)) {
             return OutcomeProjection.stale(StableCode.STALE_SYSTEM_MUTATION);
         }
         final var context = authorization.evidenceContext();
@@ -263,14 +267,14 @@ public final class TargetPublishOutcomeStore {
         final var proof = admissionProof(reader, context.admission());
         if (!admission.locator().equals(budget.locator())
                 || !Arrays.equals(context.admission().mutationHash(), budget.admissionDigest())
-                || !proof.mutation().equals(budget.mutation())
+                || !resolution && !proof.mutation().equals(budget.mutation())
                 || !Arrays.equals(outcome.publishAttemptId(), admission.publishAttemptId())
                 || budget.executionBytes() != admission.executionBytes()
                 || !budget.commitment().equals(admission.commitment())
                 || !budget.allocated().equals(admission.allocated())) {
             throw new IllegalStateException("Target evidence history differs from its exact Admission/budget");
         }
-        if (!admission.owner().equals(writer)) {
+        if (!resolution && !admission.owner().equals(writer)) {
             return OutcomeProjection.stale(StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
         }
         if (!Arrays.equals(outcome.transfer(), admission.outcomeTransfer())) {
@@ -282,9 +286,13 @@ public final class TargetPublishOutcomeStore {
         } else {
             evidence.requireOrdinaryTargetNotPublishedBinding(admission.publication());
         }
+        if (resolution) {
+            proof.mutation().requireAtOrBefore(budget.mutation());
+            requireUnknownProof(reader, budget);
+        }
         final var generation = generation(reader, budget.locator());
         final var before = generation.current();
-        if (!generation.runtime().terminal()
+        if (!resolution && !generation.runtime().terminal()
                 && (before.runtime().currentWorkKind() != CurrentSendWorkKind.PUBLISHING
                         || !Arrays.equals(before.runtime().publishAttemptId(), outcome.publishAttemptId()))) {
             throw new IllegalStateException("Target definitive outcome differs from current PUBLISHING work");
@@ -293,8 +301,16 @@ public final class TargetPublishOutcomeStore {
         if (outcome.retryDecision().cause() != outcome.stableCode()) {
             throw new IllegalArgumentException("Target definitive retry decision changes its observed cause");
         }
-        context.authority().requireAuthenticated(
-                admission.publication(), evidence, proof.mutation().source(), stamp.source());
+        if (resolution) {
+            if (context.resolutionAuthority() == null) {
+                throw new IllegalStateException("Target resolution cursor/history authority is unavailable");
+            }
+            context.resolutionAuthority().requireAuthenticated(admission.publication(), evidence,
+                    outcome.evidenceCursor(), proof.mutation().source(), budget.mutation().source(), stamp.source());
+        } else {
+            context.authority().requireAuthenticated(
+                    admission.publication(), evidence, proof.mutation().source(), stamp.source());
+        }
         final TargetQueueState currentQueue = !generation.runtime().terminal() && outcome.sideEffect() == 2
                 ? queue(reader, before) : null;
         if (currentQueue != null) {
@@ -305,29 +321,47 @@ public final class TargetPublishOutcomeStore {
         final StableCode terminalCode = closed ? StableCode.LANE_CLOSED_AFTER_ADMISSION_NOT_PUBLISHED
                 : outcome.stableCode();
         final boolean published = outcome.sideEffect() == 1;
+        final boolean permanent = closed || outcome.disposition() == 2;
+        final Long retryAt = permanent || !outcome.retryDecision().hasNextRetryAt()
+                ? null : outcome.retryDecision().nextRetryAt();
+        final var claim = resolution && !generation.historical()
+                        && before.runtime().currentWorkKind() == CurrentSendWorkKind.CLAIMED
+                ? TargetClaimStore.current(reader, before) : null;
         final TargetMessageRecord after = generation.historical() ? null
+                : resolution ? before.evidenceOutcome(outcome.publishAttemptId(), published, permanent,
+                        retryAt, claim == null ? null : claim.work())
                 : before.runtime().terminal() ? before.terminalOutcome(outcome.publishAttemptId(), published)
                 : published ? before.publishedOutcome(outcome.publishAttemptId())
                 : before.notPublishedOutcome(outcome.publishAttemptId(), closed || outcome.disposition() == 2,
                         closed || !outcome.retryDecision().hasNextRetryAt()
                                 ? null : outcome.retryDecision().nextRetryAt());
         final var extra = new java.util.ArrayList<TargetStoreBackend.Edit>();
+        if (claim != null) {
+            stamp.requireStoreSuccessorOf(claim.creation());
+            extra.add(reader.replace(ColumnFamily.INFLIGHT, claim.key(), TargetClaimRecord.VALUE_TYPE, null));
+            extra.add(reader.replace(ColumnFamily.META, claim.chargeKey(),
+                    com.nereusstream.delay.protocol.TargetQuotaClaimCharge.VALUE_TYPE, null));
+        }
         final var resolved = budget.resolve(evidence.verificationStatus(), budget.allocated(), stamp);
         extra.add(reader.replace(
                 ColumnFamily.META, budgetKey, TargetQuotaAttemptBudget.VALUE_TYPE, resolved.canonicalBytes()));
         if (generation.runtime().terminal()) {
             final var terminalAfter = terminalEdits(reader, generation, after, after == null
-                    ? generation.runtime().terminalOutcome(outcome.publishAttemptId(), published) : after.runtime(),
+                    ? resolution ? generation.runtime().evidenceOutcome(
+                            outcome.publishAttemptId(), published, false, null)
+                            : generation.runtime().terminalOutcome(outcome.publishAttemptId(), published)
+                            : after.runtime(),
                     stamp, extra);
             return new OutcomeProjection(generation.historical() ? null : before, after,
                     generation.historical() ? historicalOrder(reader, generation, terminalAfter,
-                            outcome.publishAttemptId(), outcome.sideEffect())
-                            : strictOrder(reader, before, after, outcome.publishAttemptId(), published),
+                            outcome.publishAttemptId(), outcome.sideEffect(), resolution)
+                            : definitiveOrder(reader, before, after, outcome, resolution, permanent, retryAt, claim),
                     extra, null, null);
         }
         if (!after.runtime().terminal()) {
             return new OutcomeProjection(before, after,
-                    strictOrder(reader, before, after, outcome.publishAttemptId(), published), extra, null, null);
+                    definitiveOrder(reader, before, after, outcome, resolution, permanent, retryAt, claim),
+                    extra, null, null);
         }
         final var terminal = new TargetTerminalGenerationRecord(
                 after.locator(), after.stateVersion(), terminalCode, after.runtime(), stamp, lineage);
@@ -364,8 +398,56 @@ public final class TargetPublishOutcomeStore {
                 ColumnFamily.TERMINAL, terminal.key(), TargetTerminalGenerationRecord.VALUE_TYPE,
                 terminal.canonicalBytes()));
         return new OutcomeProjection(before, after,
-                strictOrder(reader, before, after, outcome.publishAttemptId(), published), extra, null,
+                definitiveOrder(reader, before, after, outcome, resolution, permanent, retryAt, claim), extra, null,
                 closed ? terminalCode : null);
+    }
+
+    private void requireUnknownProof(final TargetStoreBackend.Reader reader, final TargetQuotaAttemptBudget budget) {
+        final byte[] positionKey = positionResultKey(budget.mutation().source());
+        final var position = TargetResultRecord.decode(TargetValueEnvelope.decode(
+                required(reader, ColumnFamily.DEDUPE, positionKey), TargetResultRecord.VALUE_TYPE).payload());
+        final byte[] firstKey = Bytes.concat(
+                new byte[] {TargetKeyCodec.RESULT_SYSTEM_TAG, TargetKeyCodec.KEY_FORMAT}, position.logicalId());
+        final var first = TargetResultRecord.decode(TargetValueEnvelope.decode(
+                required(reader, ColumnFamily.DEDUPE, firstKey), TargetResultRecord.VALUE_TYPE).payload());
+        final var root = root(reader);
+        position.requireOwner(root);
+        first.requireOwner(root);
+        position.requireFirst(first);
+        first.mutation().requireAtOrBefore(reader.aggregate().mutation());
+        final var result = SystemMutationResult.decode(first.typedPayload());
+        if (position.kind() != TargetResultRecord.Kind.POSITION_SYSTEM
+                || first.kind() != TargetResultRecord.Kind.SYSTEM || first.allocation() != null
+                || !first.mutation().equals(budget.mutation())
+                || result.mutationType() != SystemMutationType.PUBLISH_OUTCOME
+                || result.applyStatus() != ApplyStatus.APPLIED || result.stableCode() == StableCode.OK
+                || AuthorIdentity.decode(result.authorIdentity()).kind() != AuthorIdentity.Kind.OWNER
+                || !Arrays.equals(result.appliedSourcePosition(), budget.mutation().source().canonicalBytes())
+                || !Arrays.equals(result.mutationId(), first.logicalId())
+                || !Arrays.equals(result.mutationId(), SystemMutation.computeSystemMutationId(
+                        scope.shard(), SystemMutationType.PUBLISH_OUTCOME,
+                        budget.publishAttemptId(), result.mutationHash()))) {
+            throw new IllegalStateException("Target resolution lacks its exact applied initial UNKNOWN first result");
+        }
+    }
+
+    private TargetMessageStore.OrderTransition definitiveOrder(
+            final TargetStoreBackend.Reader reader, final TargetMessageRecord before, final TargetMessageRecord after,
+            final PublishOutcomeBody outcome, final boolean resolution, final boolean permanent,
+            final Long retryAt, final TargetClaimRecord claim) {
+        if (!resolution) {
+            return strictOrder(reader, before, after, outcome.publishAttemptId(), outcome.sideEffect() == 1);
+        }
+        if (before.locator().orderingMode() != OrderingMode.DELIVERY_TIME_FIFO) {
+            return null;
+        }
+        final byte[] key = TargetKeyCodec.orderState(before.locator().target(), before.locator().orderingDomain());
+        final var state = TargetOrderState.decodeForStore(key, TargetValueEnvelope.decode(
+                required(reader, ColumnFamily.META, key), TargetOrderState.VALUE_TYPE).payload(),
+                scope.shard(), queue(reader, before));
+        return new TargetMessageStore.OrderTransition(state, state.afterEvidenceResolution(before, after,
+                outcome.publishAttemptId(), outcome.sideEffect() == 1, permanent, retryAt,
+                claim == null ? null : claim.work()));
     }
 
     private record Generation(TargetMessageRecord current, TargetTerminalGenerationRecord history) {
@@ -452,7 +534,8 @@ public final class TargetPublishOutcomeStore {
 
     private TargetMessageStore.OrderTransition historicalOrder(
             final TargetStoreBackend.Reader reader, final Generation generation,
-            final TargetTerminalGenerationRecord after, final byte[] attemptId, final int effect) {
+            final TargetTerminalGenerationRecord after, final byte[] attemptId, final int effect,
+            final boolean resolution) {
         if (generation.locator().orderingMode() != OrderingMode.DELIVERY_TIME_FIFO) {
             return null;
         }
@@ -462,7 +545,8 @@ public final class TargetPublishOutcomeStore {
                 required(reader, ColumnFamily.META, key), TargetOrderState.VALUE_TYPE).payload(),
                 scope.shard(), queue(reader, generation.current()));
         return new TargetMessageStore.OrderTransition(before,
-                before.afterHistoricalTerminalOutcome(generation.history(), after, attemptId, effect));
+                resolution ? before.afterHistoricalEvidenceResolution(generation.history(), after, attemptId, effect)
+                        : before.afterHistoricalTerminalOutcome(generation.history(), after, attemptId, effect));
     }
 
     /** Bounded by the source ReadView budget; a partial history range cannot authorize payload retention. */
@@ -517,6 +601,7 @@ public final class TargetPublishOutcomeStore {
         if (context == null) {
             throw new IllegalStateException("Target retry source-history context is unavailable");
         }
+        final boolean resolution = outcome.evidenceCursor() != null;
         final var current = TargetPublishAdmissionBody.decode(context.admission().canonicalBody());
         final var first = TargetPublishAdmissionBody.decode(context.firstAdmission().canonicalBody());
         final var currentResult = admissionProof(reader, context.admission());
@@ -525,12 +610,13 @@ public final class TargetPublishOutcomeStore {
         if (!current.locator().equals(budget.locator())
                 || !first.locator().equals(budget.locator())
                 || first.attemptNo() != 1
-                || (generation.runtime().terminal()
+                || (resolution || generation.runtime().terminal()
                         ? Integer.compareUnsigned(current.attemptNo(), generation.runtime().admissionsUsed()) > 0
                         : current.attemptNo() != generation.runtime().admissionsUsed())
                 || !Arrays.equals(context.admission().mutationHash(), budget.admissionDigest())
-                || !currentResult.mutation().equals(budget.mutation())
-                || !generation.runtime().attemptObligations().contains(current.obligation())) {
+                || !resolution && !currentResult.mutation().equals(budget.mutation())
+                || !generation.runtime().attemptObligations().contains(
+                        resolution ? current.obligation().uncertain() : current.obligation())) {
             throw new IllegalStateException("Target retry history differs from the exact applied Admission/budget");
         }
         final byte[] bindingKey = TargetKeyCodec.scheduleBinding(generation.locator().scheduleBindingDigest());

@@ -1,0 +1,20 @@
+Receipt 2026-10-08 Asia/Shanghai; parent d16431e43a8b5022afbb9cbd59292490109f60b4; scoped current source below.
+Oxia clean locked source /Users/liusinan/apps/ideaproject/nereusstream/oxia @ 37a17bef17202d5fd6e23282da5fd26d94865484.
+Owned Compose project nereus-delay-evidence-resolution-1791405935-62310; image sha256:c208076d3ab58091c56eed0ea2c25cbaabcb76007eddd934a2230dbcd78b347e.
+Compose: NEREUS_DELAY_OXIA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/oxia NEREUS_DELAY_OXIA_E2E_PORT=16681 docker compose --project-name nereus-delay-evidence-resolution-1791405935-62310 --file e2e/docker-compose.oxia.yml up -d --build.
+Command: NEREUS_DELAY_OXIA_ENDPOINT=127.0.0.1:16681 NEREUS_DELAY_OXIA_NAMESPACE=default GRADLE_USER_HOME=/Users/liusinan/.gradle ./gradlew test --tests 'com.nereusstream.delay.runtime.TargetCommandStoreTest.realOxiaPublishOwnerTakeoverRetainsUncertainBudgetAndBarrier' --tests 'com.nereusstream.delay.runtime.TargetCommandStoreTest.realOxiaLateTargetOutcomeRetainsTerminalDecision' checkstyleMain checkstyleTest --no-daemon --console=plain
+Observed BUILD SUCCESSFUL in 1m 6s; native9/9 zero failure/error/skip; main style up-to-date, test style executed/pass.
+Existing six native slices plus post-takeover service evidence: held current PUBLISHED(20), historical PUBLISHED(24), current terminal NOT_PUBLISHED(26). Actual native Owner/session/lease/CAS/guard, Worker/RocksDB/source/root audit/immutable results. Broker evidence, terminal/replay transition, Source/history/time/key/policy/cursor-domain authorities remain fixtures; no actual Broker/provider/process/new Store/pins/Floor/migration or full evidence-domain certification.
+Owned container/network/image cleanup observed; unrelated connector retained. No remote/server source edit.
+Native XML SHA256: 187813e4718727651d27419c8998d104b4929387c025364641c299e8b911726a
+{
+  "src/main/java/com/nereusstream/delay/ownership/TargetSourceApplyRuntime.java": "84576dcb43ec16ed0b214a3547bd10f77810c311d1fb4cdc687d867c47fc4492",
+  "src/main/java/com/nereusstream/delay/protocol/PublishOutcomeBody.java": "c2ad076325fb342c8efc5b6f2e4031849331c52dfe6c922b62f5dffaa8c012d7",
+  "src/main/java/com/nereusstream/delay/runtime/TargetGenerationRuntimeIndex.java": "c05583f0d81c41dda16601f5b0d47c2d73ef85c884b06fa256be0903cd87540b",
+  "src/main/java/com/nereusstream/delay/runtime/TargetMessageRecord.java": "564303d7a3c5235e758c86bc7dc6d57ccc73edf2832c104083ae3161a5c74ba2",
+  "src/main/java/com/nereusstream/delay/runtime/TargetOrderState.java": "0e6613e57c2d4741f14a48222508249c373ba2583cc185450721ea1793f04908",
+  "src/main/java/com/nereusstream/delay/runtime/TargetPublishOutcomeStore.java": "c681b6cc73cd73ae9928489ff4e857a00fdb9b36c277eb3734a41c05ca694555",
+  "src/main/java/com/nereusstream/delay/runtime/TargetPublishOutcomeVerifier.java": "a2b52b4ca8c1a86f2be4b4cc294eb2bf1a01d670c0cc836bcd75ddf49974d6ce",
+  "src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java": "fd9e1f99c25a7698e08b932814a25530133774b232acf8fec43c42116f8916b2",
+  "src/test/java/com/nereusstream/delay/runtime/TargetMessageContractTest.java": "860276011ffc37a1cd0f8e31cd12486bd2e24e7783a6cb5ec33f4ad674f81d92"
+}

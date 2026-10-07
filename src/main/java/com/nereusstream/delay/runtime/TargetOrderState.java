@@ -416,11 +416,35 @@ public final class TargetOrderState {
         return afterDefinitiveOutcome(before, settled);
     }
 
+    public TargetOrderState afterEvidenceResolution(
+            final TargetMessageRecord before, final TargetMessageRecord after, final byte[] attemptId,
+            final boolean published, final boolean permanent, final Long retryAt,
+            final TargetTimelineWorkRef claimedWork) {
+        if (barrier == null || !after.equals(before.evidenceOutcome(
+                attemptId, published, permanent, retryAt, claimedWork))) {
+            throw new IllegalArgumentException("strict evidence differs from its exact UNCERTAIN obligation");
+        }
+        return afterDefinitiveOutcome(before, after);
+    }
+
     public TargetOrderState afterHistoricalTerminalOutcome(
             final TargetTerminalGenerationRecord before, final TargetTerminalGenerationRecord after,
             final byte[] attemptId, final int effect) {
+        return afterHistoricalOutcome(before, after, attemptId, effect, false);
+    }
+
+    public TargetOrderState afterHistoricalEvidenceResolution(
+            final TargetTerminalGenerationRecord before, final TargetTerminalGenerationRecord after,
+            final byte[] attemptId, final int effect) {
+        return afterHistoricalOutcome(before, after, attemptId, effect, true);
+    }
+
+    private TargetOrderState afterHistoricalOutcome(
+            final TargetTerminalGenerationRecord before, final TargetTerminalGenerationRecord after,
+            final byte[] attemptId, final int effect, final boolean resolution) {
         requireTerminalBarrierProjection(before);
-        final var runtime = effect == 3 ? before.runtime().unknownOutcome(attemptId)
+        final var runtime = resolution ? before.runtime().evidenceOutcome(attemptId, effect == 1, false, null)
+                : effect == 3 ? before.runtime().unknownOutcome(attemptId)
                 : before.runtime().terminalOutcome(attemptId, effect == 1);
         final var expected = new TargetTerminalGenerationRecord(before.locator(), before.stateVersion(),
                 before.terminalCode(), runtime, before.mutation(), before.recoveryLineage());
