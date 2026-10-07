@@ -1,0 +1,31 @@
+E5 Target typed UNKNOWN with exact applied Admission history
+
+Date: 2026-10-07
+Base: main@c1257f754a477b39311425177f5d15009a4061eb
+
+Typed UNKNOWN with no next retry work now requires bounded current/first Target Admission signed-envelope images and an immutable RetryPolicySemantic. In the same guarded Store view, both images must match retained APPLIED/OK SYSTEM first results, exact signed-envelope digests and source stamps. The current image must match AttemptBudget Admission hash/stamp and the exact Message obligation; the first image must be attempt 1 for that locator. The policy must match the immutable Schedule binding RetryPolicyRef. Completed attempt, first-admission time, deadline and deterministic jitter are checked against those facts. A mismatch is an integrity failure under Registry section 5 RetryDecision semantics; it does not become an ACKed rejection result.
+
+Ordinary Outcome retains the historical admitted writer identity. The apply-time active Owner is used only to authorize the closed cross-Owner recovery UNKNOWN shape: recovery disposition/code, full UNCERTAIN_HOLD and no next retry. Historical accepted-writer/key and live current Owner snapshot remain obligations of the source authority provider.
+
+Command:
+./gradlew checkstyleMain checkstyleTest test --tests 'com.nereusstream.delay.runtime.TargetCommandStoreTest.modifiesActualTimelineOrClaimWithHistoryAndFirstResults' --tests 'com.nereusstream.delay.runtime.TargetPublishOutcomeVerifierTest' --tests 'com.nereusstream.delay.runtime.TargetPublishRetryDecisionTest' --no-daemon --console=plain
+
+Result: BUILD SUCCESSFUL. 7 tests, zero skips/failures/errors: TargetCommandStoreTest 5 parameter cases, TargetPublishOutcomeVerifierTest 1, TargetPublishRetryDecisionTest 1. checkstyleMain and checkstyleTest passed. Three strict Worker/RocksDB parameter cases now apply full UNCERTAIN_HOLD with fixture history images and a real hash-matching immutable policy. They retain the attempt reserve and strict barrier, persist system/source-position results/frontier, and retry ACK_UNKNOWN without another write or authority resolution. A missing history context and an Admission image resigned with another signing-key version both fail Store preparation with unchanged sequence/frontier and no first result. Pure tests reject mismatched completed attempt, first time, deadline or policy; crypto/tuple/time checks cover a historical writer with a different active Owner snapshot and propagate unavailable authority.
+
+Scope limit: this is local fixture evidence for current nonterminal no-next UNKNOWN only. Actual cross-Owner takeover, production history retrieval and retention/replacement proofs, uncertain retry work, definitive/terminal/historical Outcome projection, Producer integration, Broker response loss/restart and central validation remain open. No wire body, activated tuple or persistent schema changes. E5 remains IN_PROGRESS / PENDING_CENTRAL_VALIDATION.
+
+Documentation command:
+./gradlew checkDocumentation --no-daemon --console=plain
+Result: BUILD SUCCESSFUL; implementation verifier 10/10, package verifier 14/14 and authority/historical documentation checks passed. A final standalone checkstyleMain after the snapshot-I/O contract comment also passed.
+
+git diff --check and progress JSON parsing passed.
+
+SHA-256:
+754d83326d70f0b1d489b5da7b176beaff973c331cceb2feecb3eb75d63ca1bb  src/main/java/com/nereusstream/delay/runtime/TargetPublishOutcomeStore.java
+96f4008f5a0c190ce744ea0d36d509b790e30119f93420208a62ce056eb7fc96  src/main/java/com/nereusstream/delay/runtime/TargetPublishOutcomeVerifier.java
+aeef845cdfc28d23aee951c3e11dba13e7d0d8f95d60e78049834c044b4d12e2  src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java
+599628bdbab3cba8fedde8e0faa412d8e4b01893657c635e5759d23821751a94  src/test/java/com/nereusstream/delay/runtime/TargetPublishOutcomeVerifierTest.java
+d25a53cfafa27874a4b389fa83686733da7ebfe51dd0955b6126b2ba35bf9bcd  src/test/java/com/nereusstream/delay/runtime/TargetPublishRetryDecisionTest.java
+c18162ff836c04a23bd02cd965d7be487c7be5799acf777c05118be94d348064  build/test-results/test/TEST-com.nereusstream.delay.runtime.TargetCommandStoreTest.xml
+31689a1f318538ff7d154b1f2a230d11abd6494ac5a083ae36150268c85c9349  build/test-results/test/TEST-com.nereusstream.delay.runtime.TargetPublishOutcomeVerifierTest.xml
+d641cbf8fa9570fc43fc5cbe0270ca6180dadf0434af16319d5cc08873c62beb  build/test-results/test/TEST-com.nereusstream.delay.runtime.TargetPublishRetryDecisionTest.xml

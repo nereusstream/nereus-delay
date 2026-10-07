@@ -1,18 +1,25 @@
 package com.nereusstream.delay.runtime;
 
+import com.nereusstream.delay.protocol.AuthorIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.OrderingMode;
+import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.PublishOutcomeBody;
+import com.nereusstream.delay.protocol.RetryJitter;
+import com.nereusstream.delay.protocol.RetryPolicySemantic;
 import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
 import com.nereusstream.delay.protocol.TargetMessageLocator;
+import com.nereusstream.delay.protocol.TargetPublishAdmissionBody;
 import com.nereusstream.delay.protocol.TargetQueueState;
 import com.nereusstream.delay.protocol.TargetQuotaAttemptBudget;
 import com.nereusstream.delay.protocol.TargetQuotaIncarnation;
 import com.nereusstream.delay.protocol.TargetQuotaMutation;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
+import com.nereusstream.delay.protocol.TargetScheduleBinding;
 import com.nereusstream.delay.protocol.TargetSourcePosition;
+import com.nereusstream.delay.protocol.UncertainPolicy;
 import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.ColumnFamily;
 import com.nereusstream.delay.store.TargetKeyCodec;
@@ -119,7 +126,11 @@ public final class TargetPublishOutcomeStore {
                                     "Target definitive Publish Outcome application is not enabled yet");
                         }
                         final var projection = unknown(
-                                reader, outcome, stamp, decision.authorization());
+                                reader,
+                                outcome,
+                                stamp,
+                                AuthorIdentity.decode(mutation.authorIdentity()).asOwnerIdentity(),
+                                decision.authorization());
                         rejection = projection.rejection();
                         if (rejection == null) {
                             transitions = List.of(new TargetMessageStore.Transition(
@@ -157,12 +168,8 @@ public final class TargetPublishOutcomeStore {
             final TargetStoreBackend.Reader reader,
             final PublishOutcomeBody outcome,
             final TargetQuotaMutation stamp,
+            final OwnerIdentity writer,
             final TargetPublishOutcomeVerifier.Authorization authorization) {
-        if (outcome.retryDecision().hasFullShape()) {
-            // Target has no source-bound retry-policy snapshot on this path yet. Do not ACK a
-            // typed UNKNOWN retry decision that cannot be checked against its admitted policy.
-            throw new IllegalStateException("Target typed UNKNOWN retry decision application is not enabled yet");
-        }
         final byte[] budgetKey = Bytes.concat(
                 new byte[] {TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG, TargetKeyCodec.KEY_FORMAT},
                 outcome.publishAttemptId());
@@ -201,8 +208,20 @@ public final class TargetPublishOutcomeStore {
         if (obligation == null || obligation.ledgerState() != AttemptLedgerState.PUBLISHING) {
             throw new IllegalStateException("ADMITTED Target attempt budget lacks its PUBLISHING obligation");
         }
-        if (obligation.ownerEpoch() != authorization.activeOwner().ownerEpoch()) {
+        final boolean typed = outcome.retryDecision().hasFullShape();
+        if (typed) {
+            requireRetryContext(reader, before, budget, outcome, authorization);
+        }
+        final boolean admittedWriter = typed
+                ? TargetPublishAdmissionBody.decode(authorization.retryContext().admission().canonicalBody())
+                        .owner()
+                        .equals(writer)
+                : obligation.ownerEpoch() == writer.ownerEpoch();
+        if (!admittedWriter && !(writer.equals(authorization.activeOwner()) && isRecoveryUnknown(outcome))) {
             return OutcomeProjection.stale(StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+        }
+        if (typed && outcome.retryDecision().hasNextRetryAt()) {
+            throw new IllegalStateException("Target uncertain retry work application is not enabled yet");
         }
         final TargetMessageRecord after = before.unknownOutcome(outcome.publishAttemptId());
         final TargetQuotaAttemptBudget unknown = budget.unknown(budget.allocated(), stamp);
@@ -218,6 +237,131 @@ public final class TargetPublishOutcomeStore {
                 order,
                 List.of(budgetEdit),
                 null);
+    }
+
+    private void requireRetryContext(
+            final TargetStoreBackend.Reader reader,
+            final TargetMessageRecord message,
+            final TargetQuotaAttemptBudget budget,
+            final PublishOutcomeBody outcome,
+            final TargetPublishOutcomeVerifier.Authorization authorization) {
+        final var context = authorization.retryContext();
+        if (context == null) {
+            throw new IllegalStateException("Target retry source-history context is unavailable");
+        }
+        final var current = TargetPublishAdmissionBody.decode(context.admission().canonicalBody());
+        final var first = TargetPublishAdmissionBody.decode(context.firstAdmission().canonicalBody());
+        final var currentResult = admissionProof(reader, context.admission());
+        final var firstResult = admissionProof(reader, context.firstAdmission());
+        firstResult.mutation().requireAtOrBefore(currentResult.mutation());
+        if (!current.locator().equals(budget.locator())
+                || !first.locator().equals(budget.locator())
+                || first.attemptNo() != 1
+                || current.attemptNo() != message.runtime().admissionsUsed()
+                || !Arrays.equals(context.admission().mutationHash(), budget.admissionDigest())
+                || !currentResult.mutation().equals(budget.mutation())
+                || !message.runtime().attemptObligations().contains(current.obligation())) {
+            throw new IllegalStateException("Target retry history differs from the exact applied Admission/budget");
+        }
+        final byte[] bindingKey = TargetKeyCodec.scheduleBinding(message.locator().scheduleBindingDigest());
+        final byte[] rawBinding = reader.get(ColumnFamily.ID, bindingKey);
+        if (rawBinding == null) {
+            throw new IllegalStateException("Target retry lacks its retained Schedule binding");
+        }
+        final var binding = TargetScheduleBinding.decodeForStore(
+                bindingKey,
+                TargetValueEnvelope.decode(rawBinding, TargetScheduleBinding.VALUE_TYPE).payload(),
+                scope.shard());
+        binding.requireLocator(message.locator());
+        final var policy = context.policy();
+        if (!binding.intent().retryPolicy().equals(policy.ref())) {
+            throw new IllegalStateException("Target retry policy differs from the immutable Schedule binding");
+        }
+        requireRetryDecision(message, current, first, policy, outcome);
+    }
+
+    static void requireRetryDecision(
+            final TargetMessageRecord message,
+            final TargetPublishAdmissionBody current,
+            final TargetPublishAdmissionBody first,
+            final RetryPolicySemantic policy,
+            final PublishOutcomeBody outcome) {
+        final var retry = outcome.retryDecision();
+        final long firstAt = first.decisionTime().latestEpochMs();
+        final long deadline;
+        try {
+            deadline = Math.min(message.expireAtEpochMs(), Math.addExact(firstAt, policy.maxRetryDurationMs()));
+        } catch (ArithmeticException invalidWindow) {
+            throw new IllegalArgumentException("Target retry deadline overflows its admitted window", invalidWindow);
+        }
+        if (!retry.policy().matches(policy)
+                || retry.retryDomain() != RetryJitter.MESSAGE_PUBLISH
+                || retry.completedAttemptNo() != Integer.toUnsignedLong(current.attemptNo())
+                || retry.firstAttemptAt() != firstAt
+                || firstAt >= message.expireAtEpochMs()
+                || retry.retryDeadline() != deadline) {
+            throw new IllegalArgumentException("Target RetryDecision differs from its admitted attempt/window/policy");
+        }
+        if (retry.hasNextRetryAt()) {
+            final long next;
+            try {
+                next = Math.addExact(
+                        outcome.observedAt().latestEpochMs(),
+                        RetryJitter.delayMs(
+                                RetryJitter.MESSAGE_PUBLISH,
+                                message.locator().messageId(),
+                                Integer.toUnsignedLong(message.locator().generation()),
+                                retry.completedAttemptNo(),
+                                policy.retryBackoffCap(retry.completedAttemptNo())));
+            } catch (ArithmeticException invalidRetryTime) {
+                throw new IllegalArgumentException("Target retry jitter time overflows", invalidRetryTime);
+            }
+            if (retry.kind() != 2
+                    || message.locator().orderingMode() != OrderingMode.BEST_EFFORT
+                    || policy.uncertainPolicy() != UncertainPolicy.BOUNDED_RETRY_POSSIBLE_DUPLICATE
+                    || retry.nextRetryAt() != next
+                    || next > deadline
+                    || Math.max(message.deliverAtEpochMs(), next) >= message.expireAtEpochMs()
+                    || message.runtime().uncertainRetryAdmissionsUsed() >= policy.maxUncertainRetries()
+                    || message.runtime().admissionsUsed() >= policy.maxPublishAdmissions()) {
+                throw new IllegalArgumentException("Target uncertain retry differs from its policy/jitter/budget");
+            }
+        }
+    }
+
+    private TargetResultRecord admissionProof(final TargetStoreBackend.Reader reader, final SystemMutation image) {
+        final byte[] raw = reader.get(ColumnFamily.DEDUPE, systemResultKey(image));
+        if (raw == null) {
+            throw new IllegalStateException("Target retry lacks its retained Admission first result");
+        }
+        final var record = TargetResultRecord.decode(
+                TargetValueEnvelope.decode(raw, TargetResultRecord.VALUE_TYPE).payload());
+        record.requireOwner(root(reader));
+        record.mutation().requireAtOrBefore(reader.aggregate().mutation());
+        final var result = SystemMutationResult.decode(record.typedPayload());
+        if (record.kind() != TargetResultRecord.Kind.SYSTEM
+                || record.allocation() != null
+                || result.applyStatus() != ApplyStatus.APPLIED
+                || result.stableCode() != StableCode.OK
+                || result.mutationType() != SystemMutationType.TARGET_PUBLISH_ADMISSION
+                || !Arrays.equals(record.logicalId(), image.systemMutationId())
+                || !Arrays.equals(result.mutationId(), image.systemMutationId())
+                || !Arrays.equals(result.mutationHash(), image.mutationHash())
+                || result.retryUntilEpochMs() != image.retryUntilEpochMs()
+                || !Arrays.equals(result.authorIdentity(), image.authorIdentity())
+                || !Arrays.equals(record.mutation().mutationDigest(), Bytes.sha256(image.canonicalEnvelope()))
+                || !Arrays.equals(result.appliedSourcePosition(), record.mutation().source().canonicalBytes())) {
+            throw new IllegalStateException("Target retry Admission image differs from its authenticated first result");
+        }
+        return record;
+    }
+
+    private static boolean isRecoveryUnknown(final PublishOutcomeBody outcome) {
+        return outcome.disposition() == 4
+                && outcome.stableCode() == StableCode.RECOVERY_FIRST_SEND_UNCERTAIN
+                && outcome.retryDecision().hasFullShape()
+                && outcome.retryDecision().kind() == 5
+                && !outcome.retryDecision().hasNextRetryAt();
     }
 
     private TargetMessageStore.OrderTransition strictOrder(

@@ -1390,9 +1390,10 @@ class TargetCommandStoreTest {
                             otherMembershipAt.offset() + 1,
                             otherMembershipAt.brokerLogAppendTimeEpochMs() + 1);
                     final byte[] otherOrderingDomain = bytes(32, 0x8a);
+                    final var otherRetryPolicy = targetOutcomeRetryPolicy();
                     final var otherIntent = CanonicalScheduleIntent.create(
                             destination.ref(),
-                            priorIntent.retryPolicy(),
+                            otherRetryPolicy.ref(),
                             otherScheduleAt.brokerLogAppendTimeEpochMs() + 100,
                             otherScheduleAt.brokerLogAppendTimeEpochMs() + 2000,
                             priorIntent.deliveryMode(),
@@ -2334,6 +2335,8 @@ class TargetCommandStoreTest {
                                         public void close() {}
                                     };
                             final var outcomeAuthorityResolutions = new java.util.concurrent.atomic.AtomicInteger();
+                            final var retryAdmissionImage =
+                                    new java.util.concurrent.atomic.AtomicReference<SystemMutation>();
                             final var replacementInitialized = TargetStoreBootstrap.reopen(
                                     replacementStore,
                                     otherScope,
@@ -2421,6 +2424,7 @@ class TargetCommandStoreTest {
                                             },
                                             entry -> new TargetSourceApplyRuntime.AdmissionControl(
                                                     (actualScope, writer, mutation, source) -> {
+                                                        retryAdmissionImage.set(mutation);
                                                         assertEquals(otherScope, actualScope);
                                                         final var writerOwner = replacementOwnerIdentity[0];
                                                         assertArrayEquals(
@@ -2463,7 +2467,11 @@ class TargetCommandStoreTest {
                                                                 10,
                                                                 10,
                                                                 100,
-                                                                (boundScope, boundWriter, position, evidence) -> true);
+                                                                (boundScope, boundWriter, position, evidence) -> true,
+                                                                new TargetPublishOutcomeVerifier.RetryContext(
+                                                                        retryAdmissionImage.get(),
+                                                                        retryAdmissionImage.get(),
+                                                                        otherRetryPolicy));
                                                     },
                                                     (a, b, c) -> guard())),
                                     new TargetSourceApplyRuntime.Limits(
@@ -2824,8 +2832,14 @@ class TargetCommandStoreTest {
                                     bytes(32, 0xA2),
                                     0,
                                     new byte[0]);
-                            final byte[] unknownRetry = CanonicalProtobuf.message(
-                                    encoded -> CanonicalProtobuf.bytes(encoded, 1, Bytes.utf8("unknown-retry")));
+                            final var admittedBody =
+                                    TargetPublishAdmissionBody.decode(admission.entry().mutation().canonicalBody());
+                            final long firstAttemptAt = admittedBody.decisionTime().latestEpochMs();
+                            final long retryDeadline = Math.min(
+                                    otherIntent.expireAtEpochMs(),
+                                    firstAttemptAt + otherRetryPolicy.maxRetryDurationMs());
+                            final byte[] unknownRetry = typedUnknownRetryDecision(
+                                    otherRetryPolicy, firstAttemptAt, retryDeadline, admittedBody.attemptNo());
                             final byte[] unknownTransfer = new PublishAdmissionBody.ChargeVector(
                                             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
                                     .canonicalBytes();
@@ -2856,13 +2870,15 @@ class TargetCommandStoreTest {
                                     1,
                                     keys.getPrivate());
                             final var outcomeEntry = new SourceReplayMutation(outcomeMutation, outcomeAt, null, null);
-                            assertUnsupportedTypedTargetOutcomeLeavesSourceUnchanged(
+                            assertUnprovedTypedTargetOutcomeLeavesSourceUnchanged(
                                     replacementInitialized.backend(),
                                     replacementStore,
                                     otherScope,
                                     replacementInitialized.root().recoveryLineage(),
                                     outcomeEntry,
                                     outcomeOwner,
+                                    admission.entry().mutation(),
+                                    otherRetryPolicy,
                                     keys);
                             final var outcomeAcknowledgements = new java.util.concurrent.atomic.AtomicInteger();
                             replacementNextSourceRecord.set(new SourceRecordConsumer.PolledSourceRecord(
@@ -6672,13 +6688,15 @@ class TargetCommandStoreTest {
         position.requireFirst(first);
     }
 
-    private static void assertUnsupportedTypedTargetOutcomeLeavesSourceUnchanged(
+    private static void assertUnprovedTypedTargetOutcomeLeavesSourceUnchanged(
             TargetStoreBackend backend,
             ShardStore store,
             TargetQuotaScope scope,
             byte[] lineage,
             SourceReplayMutation entry,
             OwnerIdentity owner,
+            SystemMutation admissionImage,
+            com.nereusstream.delay.protocol.RetryPolicySemantic retryPolicy,
             KeyPair keys)
             throws java.security.GeneralSecurityException {
         final var original = entry.mutation();
@@ -6733,9 +6751,70 @@ class TargetCommandStoreTest {
                                 10,
                                 100,
                                 (boundScope, boundWriter, position, evidence) -> true)));
+        final var changedAdmission = SystemMutation.signed(
+                admissionImage.shardId(),
+                admissionImage.type(),
+                admissionImage.retryUntilEpochMs(),
+                admissionImage.logicalOperationIdentity(),
+                admissionImage.canonicalBody(),
+                admissionImage.authorIdentity(),
+                2,
+                keys.getPrivate());
+        assertThrows(
+                IllegalStateException.class,
+                () -> outcomes.prepareFirst(
+                        budget(),
+                        original,
+                        entry.position(),
+                        (actualScope, writer, mutation, source) -> new TargetPublishOutcomeVerifier.Authorization(
+                                keys.getPublic(),
+                                ProtocolTuple.currentSystemMutation(),
+                                owner,
+                                10,
+                                10,
+                                100,
+                                (boundScope, boundWriter, position, evidence) -> true,
+                                new TargetPublishOutcomeVerifier.RetryContext(
+                                        changedAdmission, admissionImage, retryPolicy))));
         assertEquals(beforeSequence, store.latestSequenceNumber());
         assertEquals(beforeSource, store.appliedShardLogPosition());
         assertNull(store.get(ColumnFamily.DEDUPE, systemKey(typedMutation)));
+    }
+
+    private static com.nereusstream.delay.protocol.RetryPolicySemantic targetOutcomeRetryPolicy() {
+        return new com.nereusstream.delay.protocol.RetryPolicySemantic(
+                Bytes.utf8("target-outcome-policy"),
+                1,
+                10,
+                100,
+                3,
+                60_000,
+                com.nereusstream.delay.protocol.UncertainPolicy.HOLD_FOR_EVIDENCE,
+                0,
+                com.nereusstream.delay.protocol.DlqExportMode.NOT_CONFIGURED,
+                0,
+                0,
+                0,
+                0,
+                false,
+                bytes(32, 0xA3));
+    }
+
+    private static byte[] typedUnknownRetryDecision(
+            com.nereusstream.delay.protocol.RetryPolicySemantic policy,
+            long firstAttemptAt,
+            long deadline,
+            int completedAttempt) {
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.uint32(output, 1, 5);
+            CanonicalProtobuf.bytes(output, 2, policy.ref().canonicalBytes());
+            CanonicalProtobuf.uint32(output, 3, completedAttempt);
+            CanonicalProtobuf.uint64(output, 4, firstAttemptAt);
+            CanonicalProtobuf.uint64(output, 5, deadline);
+            CanonicalProtobuf.uint32(output, 7, 1);
+            CanonicalProtobuf.uint32(output, 8, StableCode.RECOVERY_FIRST_SEND_UNCERTAIN.wireValue());
+            CanonicalProtobuf.uint32(output, 9, 1);
+        });
     }
 
     private static Signed signedClose(
