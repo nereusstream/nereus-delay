@@ -220,10 +220,15 @@ public final class TargetPublishOutcomeStore {
         if (!admittedWriter && !(writer.equals(authorization.activeOwner()) && isRecoveryUnknown(outcome))) {
             return OutcomeProjection.stale(StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
         }
-        if (typed && outcome.retryDecision().hasNextRetryAt()) {
-            throw new IllegalStateException("Target uncertain retry work application is not enabled yet");
+        final boolean retryRequested = typed && outcome.retryDecision().hasNextRetryAt();
+        final TargetQueueState currentQueue = retryRequested ? queue(reader, before) : null;
+        if (currentQueue != null) {
+            before.locator().requireQueueProjection(currentQueue);
         }
-        final TargetMessageRecord after = before.unknownOutcome(outcome.publishAttemptId());
+        final TargetMessageRecord after = currentQueue != null
+                        && currentQueue.admissionState() != TargetQueueState.AdmissionState.CLOSED
+                ? before.unknownOutcomeWithRetry(outcome.publishAttemptId(), outcome.retryDecision().nextRetryAt())
+                : before.unknownOutcome(outcome.publishAttemptId());
         final TargetQuotaAttemptBudget unknown = budget.unknown(budget.allocated(), stamp);
         final var budgetEdit = reader.replace(
                 ColumnFamily.META,

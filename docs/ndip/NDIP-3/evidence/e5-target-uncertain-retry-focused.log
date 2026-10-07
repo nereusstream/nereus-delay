@@ -1,0 +1,35 @@
+E5 Source-applied uncertain retry work and E1 ordinary due boundary
+
+Date: 2026-10-07
+Base: main@5e402ddf0d035427658d4df4ad4b37344981d98b
+
+Verified typed SCHEDULED UNKNOWN now retains the exact old UNCERTAIN obligation and attempt reserve, while the same source batch builds ordinary UNCERTAIN_RETRY/PINNED_POLICY work, Message/runtime/index/head/accounting/first results/source frontier. Eligibility is max(deliverAt,nextRetryAt), candidate attempt is admissionsUsed+1, original Schedule source token remains and Native is forbidden. Only a later Admission consumes retry counters and marks possible duplicate. CLOSED queues record UNKNOWN with no new work.
+
+The actual Host/Worker/RocksDB test adds open BEST_EFFORT and CLOSED scenarios. Open: no Claim before due, then a second durable Claim/Admission at due with no new queue event, two exact obligations, admissions=2/uncertainRetryAdmissions=1/possible-duplicate, unchanged old UNKNOWN budget, and zero-write integrity failure for an additional exhausted retry. Closed: source-accounted queue fixture, no new retry timeline/head, unchanged reserve. This closed fixture does not execute formal Target Close control or certify closure recovery.
+
+The real-loop test exposed an ordinary-pass/pre-wait clock boundary. A future-only search at the newly sampled due time discarded the crossed head and fell back to safety recheck. The loop now preserves the ordinary pass time and revisits a crossed indexed deadline immediately. On a later pass, already-due unavailable work uses the normal recheck; the two-head unit verifies crossed and non-crossed cases without a busy loop. Native wake revision and original budgets remain unchanged.
+
+Command:
+./gradlew checkstyleMain checkstyleTest test --tests 'com.nereusstream.delay.runtime.TargetCommandStoreTest.modifiesActualTimelineOrClaimWithHistoryAndFirstResults' --tests 'com.nereusstream.delay.ownership.TargetWorkerOrdinaryDrrTest' --tests 'com.nereusstream.delay.ownership.TargetWorkerShardFleetRuntimeTest' --tests 'com.nereusstream.delay.runtime.TargetClaimRecordTest' --tests 'com.nereusstream.delay.runtime.TargetPublishRetryDecisionTest' --no-daemon --console=plain
+
+Result: test task passed 59/59 with no skipped/failing/error cases (7+29+18+4+1); checkstyleMain passed. The aggregate command failed solely on one 122-character test declaration, which has now been wrapped. Test source hashes below include that formatting-only wrap; production source contents match the tested implementation.
+
+Final checks:
+./gradlew checkstyleMain checkstyleTest checkDocumentation --no-daemon --console=plain
+Result: BUILD SUCCESSFUL; checkstyleMain, checkstyleTest and checkDocumentation passed. Documentation implementation/package verifier suites passed 10/10 and 14/14; authority/historical checks passed.
+
+Scope limit: this is fixture-authorized local Store/Worker/Host evidence. It is not actual Producer/Broker publication/response loss, production history retention/Owner/time authority, process crash/restart, full Close control or centralized E1/E5 validation. No new wire body, persistent schema, thread, timer or retry layer. E1 and E5 remain IN_PROGRESS / PENDING_CENTRAL_VALIDATION.
+
+SHA-256:
+d23778dbd18f522bb61954680640a8739fe52d335b2aef2ebd49a15f8a779714  src/main/java/com/nereusstream/delay/runtime/TargetGenerationRuntimeIndex.java
+cf219b512d1d4a94c2702155c643946569835367757808f964fd419393c8b978  src/main/java/com/nereusstream/delay/runtime/TargetMessageRecord.java
+5623f9eafdca80ac4ce8014cfb7bdf810dbab00fce6a618d7dd9344b14063c63  src/main/java/com/nereusstream/delay/runtime/TargetPublishOutcomeStore.java
+0a2670b72ccd562083407a0ef21fe50cd83e9241de038c01e808a51678f20244  src/main/java/com/nereusstream/delay/ownership/TargetWorkerOrdinaryDrr.java
+560b93b51b22ee5364366a441c9943b46657b02d6db3ac3c939469ca4e2097ee  src/main/java/com/nereusstream/delay/ownership/TargetWorkerOrdinaryLoop.java
+1ad63756e831a7b4972a1ba4619a189b92ffd4b83986a0b810ade4e87869a128  src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java
+d6708f5604bf650d73d4f7e27a8f71c52f28cbfe15b7e9c6def6ae71fe9b0afb  src/test/java/com/nereusstream/delay/ownership/TargetWorkerOrdinaryDrrTest.java
+2ae9486b06cdd6984f96530827ae2d1a97302a121dc8cb88a90c4c6648e4f067  build/test-results/test/TEST-com.nereusstream.delay.ownership.TargetWorkerOrdinaryDrrTest.xml
+d6afbfe1c0d19fae0fdb275823dae93276e666b12f9f3b0725323dcabca2333f  build/test-results/test/TEST-com.nereusstream.delay.ownership.TargetWorkerShardFleetRuntimeTest.xml
+a28f9f4308c73031ea029b06d157c65f7089089777845c88096f780a4b3a3cd1  build/test-results/test/TEST-com.nereusstream.delay.runtime.TargetClaimRecordTest.xml
+55a645f75c1c34b210dbbb479cf93a0c9c880b32c08474cac22a9f0af4e5bac5  build/test-results/test/TEST-com.nereusstream.delay.runtime.TargetCommandStoreTest.xml
+87c11e302c8100e5bca4e528b106061c697507996f43a81aadb522d9def6b6a2  build/test-results/test/TEST-com.nereusstream.delay.runtime.TargetPublishRetryDecisionTest.xml

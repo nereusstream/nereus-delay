@@ -435,9 +435,10 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
                     boolean ordinaryPassSawCandidate = false;
                     boolean ordinaryPassClear = false;
                     boolean ordinaryReadIncomplete = false;
+                    final long ordinaryPassEpochMs = schedulerClock.getAsLong();
                     for (long turn = 0; turn < maximumCreditTurns; turn++) {
                         final var result = scheduler.claimOrdinary(
-                                schedulerClock.getAsLong(), turnBudget, requests);
+                                turn == 0 ? ordinaryPassEpochMs : schedulerClock.getAsLong(), turnBudget, requests);
                         if (!result.claims().isEmpty()) {
                             try {
                                 claimConsumer.accept(result.claims().getFirst());
@@ -516,17 +517,17 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
                                         && now - creditCycleStarted < turnBudget.maxElapsedNanos()) {
                                     continue;
                                 }
-                                awaitSchedulerChange(observedRevision, scheduler);
+                                awaitSchedulerChange(observedRevision, scheduler, ordinaryPassEpochMs);
                                 break;
                             }
                             if (turn + 1 == maximumCreditTurns
                                     || now - creditCycleStarted >= turnBudget.maxElapsedNanos()) {
-                                awaitSchedulerChange(observedRevision, scheduler);
+                                awaitSchedulerChange(observedRevision, scheduler, ordinaryPassEpochMs);
                                 break;
                             }
                         }
                     } else {
-                        awaitSchedulerChange(observedRevision, scheduler);
+                        awaitSchedulerChange(observedRevision, scheduler, ordinaryPassEpochMs);
                     }
                 } catch (TargetWorkerHostRuntime.ShardAdmissionBusyException busy) {
                     host.awaitShardAdmission(busy.shardId(), Duration.ofNanos(recheckNanos));
@@ -558,14 +559,20 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
         awaitChange(observedRevision, Duration.ofNanos(recheckNanos));
     }
 
-    private void awaitSchedulerChange(final long observedRevision, final TargetWorkerOrdinaryDrr scheduler)
+    private void awaitSchedulerChange(
+            final long observedRevision,
+            final TargetWorkerOrdinaryDrr scheduler,
+            final long ordinaryPassEpochMs)
             throws InterruptedException {
         final long nowEpochMs = schedulerClock.getAsLong();
         if (nowEpochMs < 0) {
             throw new IllegalStateException("Target ordinary next-wake requires trusted nonnegative time");
         }
-        final long timeoutNanos = changeWaitNanos(
-                scheduler.nextWakeEpochMs(nowEpochMs, observedRevision), nowEpochMs, recheckNanos);
+        final OptionalLong nextWake = scheduler.nextWakeEpochMs(nowEpochMs, observedRevision, ordinaryPassEpochMs);
+        if (nextWake.isPresent() && nextWake.getAsLong() <= nowEpochMs) {
+            return;
+        }
+        final long timeoutNanos = changeWaitNanos(nextWake, nowEpochMs, recheckNanos);
         awaitChange(observedRevision, Duration.ofNanos(timeoutNanos));
     }
 

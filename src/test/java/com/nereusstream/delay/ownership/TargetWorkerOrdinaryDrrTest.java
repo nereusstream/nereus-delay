@@ -152,6 +152,11 @@ class TargetWorkerOrdinaryDrrTest {
         assertEquals(OptionalLong.of(200), drr.nextOrdinaryWakeEpochMs(100));
         assertEquals(OptionalLong.of(500), drr.nextOrdinaryWakeEpochMs(200));
         assertEquals(OptionalLong.empty(), drr.nextOrdinaryWakeEpochMs(500));
+        assertEquals(OptionalLong.of(200), drr.nextWakeEpochMs(200, -1, 100));
+        assertEquals(OptionalLong.of(500), drr.nextWakeEpochMs(200, -1, 200));
+        assertEquals(OptionalLong.of(500), drr.nextWakeEpochMs(499, -1, 200));
+        assertEquals(OptionalLong.of(500), drr.nextWakeEpochMs(500, -1, 499));
+        assertEquals(OptionalLong.empty(), drr.nextWakeEpochMs(500, -1, 500));
 
         final var refreshed = headAt(firstTarget, shard, 300, 50);
         drr.refreshSnapshot(new TargetWorkerTargetInventory.Snapshot(

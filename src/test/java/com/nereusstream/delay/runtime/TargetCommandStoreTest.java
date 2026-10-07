@@ -99,6 +99,7 @@ import com.nereusstream.delay.protocol.TargetCloseRecord;
 import com.nereusstream.delay.protocol.TargetCloseRequest;
 import com.nereusstream.delay.protocol.TargetControlScope;
 import com.nereusstream.delay.protocol.TargetDispatchCompatibility;
+import com.nereusstream.delay.protocol.TargetDomainState;
 import com.nereusstream.delay.protocol.TargetExpireGenerationBody;
 import com.nereusstream.delay.protocol.TargetMembershipGrant;
 import com.nereusstream.delay.protocol.TargetMembershipPolicy;
@@ -157,9 +158,17 @@ class TargetCommandStoreTest {
     Path root;
 
     @ParameterizedTest
-    @CsvSource({"false,false,false", "true,false,false", "false,true,false", "true,true,false", "true,false,true"})
+    @CsvSource({
+        "false,false,false,false,false", "true,false,false,false,false", "false,true,false,false,false",
+        "true,true,false,false,false", "true,false,true,false,false",
+        "true,false,false,true,false", "true,false,false,true,true"
+    })
     void modifiesActualTimelineOrClaimWithHistoryAndFirstResults(
-            boolean claimed, boolean rescheduled, boolean strictOrderExpiry)
+            boolean claimed,
+            boolean rescheduled,
+            boolean strictOrderExpiry,
+            boolean uncertainRetry,
+            boolean closedRetryQueue)
             throws Exception {
         final var initial =
                 TargetScheduleBinding.decode(vector("target-binding-channel-vectors.properties", "binding.best"));
@@ -1389,16 +1398,19 @@ class TargetCommandStoreTest {
                             otherMembershipAt,
                             otherMembershipAt.offset() + 1,
                             otherMembershipAt.brokerLogAppendTimeEpochMs() + 1);
-                    final byte[] otherOrderingDomain = bytes(32, 0x8a);
-                    final var otherRetryPolicy = targetOutcomeRetryPolicy();
+                    final byte[] otherOrderingDomain = uncertainRetry ? null : bytes(32, 0x8a);
+                    final var otherRetryPolicy = targetOutcomeRetryPolicy(uncertainRetry);
                     final var otherIntent = CanonicalScheduleIntent.create(
                             destination.ref(),
                             otherRetryPolicy.ref(),
                             otherScheduleAt.brokerLogAppendTimeEpochMs() + 100,
-                            otherScheduleAt.brokerLogAppendTimeEpochMs() + 2000,
+                            uncertainRetry
+                                    ? Math.max(message.deliverAtEpochMs(),
+                                            otherScheduleAt.brokerLogAppendTimeEpochMs() + 100) + 4000
+                                    : otherScheduleAt.brokerLogAppendTimeEpochMs() + 2000,
                             priorIntent.deliveryMode(),
-                            OrderingMode.DELIVERY_TIME_FIFO,
-                            Bytes.utf8("target-admission-order-key"),
+                            uncertainRetry ? OrderingMode.BEST_EFFORT : OrderingMode.DELIVERY_TIME_FIFO,
+                            uncertainRetry ? new byte[0] : Bytes.utf8("target-admission-order-key"),
                             model.inlinePayload(),
                             null,
                             priorIntent.adapterMetadata(),
@@ -1646,14 +1658,16 @@ class TargetCommandStoreTest {
                             otherTargetScheduleAt,
                             otherTargetScheduleAt.offset() + 1,
                             otherTargetScheduleAt.brokerLogAppendTimeEpochMs() + 1);
-                    final long otherFollowerDeliverAt = otherIntent.deliverAtEpochMs() + 1_000;
+                    final long otherFollowerDeliverAt = uncertainRetry
+                            ? Math.max(otherIntent.deliverAtEpochMs(), otherTargetDeliverAt) + 1_000
+                            : otherIntent.deliverAtEpochMs() + 1_000;
                     final var otherFollowerIntent = CanonicalScheduleIntent.create(
                             destination.ref(),
                             otherIntent.retryPolicy(),
                             otherFollowerDeliverAt,
                             otherFollowerDeliverAt + 2_000,
                             otherIntent.deliveryMode(),
-                            OrderingMode.DELIVERY_TIME_FIFO,
+                            otherIntent.orderingMode(),
                             otherIntent.orderingKey(),
                             model.inlinePayload(),
                             null,
@@ -2337,6 +2351,8 @@ class TargetCommandStoreTest {
                             final var outcomeAuthorityResolutions = new java.util.concurrent.atomic.AtomicInteger();
                             final var retryAdmissionImage =
                                     new java.util.concurrent.atomic.AtomicReference<SystemMutation>();
+                            final var firstRetryAdmissionImage =
+                                    new java.util.concurrent.atomic.AtomicReference<SystemMutation>();
                             final var replacementInitialized = TargetStoreBootstrap.reopen(
                                     replacementStore,
                                     otherScope,
@@ -2425,6 +2441,11 @@ class TargetCommandStoreTest {
                                             entry -> new TargetSourceApplyRuntime.AdmissionControl(
                                                     (actualScope, writer, mutation, source) -> {
                                                         retryAdmissionImage.set(mutation);
+                                                        if (TargetPublishAdmissionBody.decode(mutation.canonicalBody())
+                                                                        .attemptNo()
+                                                                == 1) {
+                                                            firstRetryAdmissionImage.set(mutation);
+                                                        }
                                                         assertEquals(otherScope, actualScope);
                                                         final var writerOwner = replacementOwnerIdentity[0];
                                                         assertArrayEquals(
@@ -2470,7 +2491,7 @@ class TargetCommandStoreTest {
                                                                 (boundScope, boundWriter, position, evidence) -> true,
                                                                 new TargetPublishOutcomeVerifier.RetryContext(
                                                                         retryAdmissionImage.get(),
-                                                                        retryAdmissionImage.get(),
+                                                                        firstRetryAdmissionImage.get(),
                                                                         otherRetryPolicy));
                                                     },
                                                     (a, b, c) -> guard())),
@@ -2561,16 +2582,21 @@ class TargetCommandStoreTest {
                             assertEquals(
                                     "owner replacement credit reached commit", creditReachedCommitBarrier.getMessage());
                             assertEquals(sequenceBeforeCreditCheck, replacementStore.latestSequenceNumber());
-                            schedulerEpoch.set(0);
-                            schedulerClaimGate.release();
-                            ordinaryLoop.close();
+                            if (!uncertainRetry) {
+                                schedulerEpoch.set(0);
+                                schedulerClaimGate.release();
+                                ordinaryLoop.close();
+                            }
 
                             final var admissionBefore =
                                     (KafkaSourcePosition) replacementStore.appliedShardLogPosition();
                             final var admissionAt = source(
                                     admissionBefore,
                                     admissionBefore.offset() + 1,
-                                    admissionBefore.brokerLogAppendTimeEpochMs() + 1);
+                                    uncertainRetry
+                                            ? Math.max(admissionBefore.brokerLogAppendTimeEpochMs() + 1,
+                                                    schedulerEpoch.get())
+                                            : admissionBefore.brokerLogAppendTimeEpochMs() + 1);
                             final var admission = targetAdmission(
                                     replacementStore,
                                     replacementLoopClaim,
@@ -2615,200 +2641,222 @@ class TargetCommandStoreTest {
                             assertEquals(versionAfterAdmission, replacementStore.latestSequenceNumber());
                             assertEquals(admissionAt, replacementStore.appliedShardLogPosition());
 
-                            final byte[] admittedOrderKey = TargetKeyCodec.orderState(
-                                    replacementLoopClaim.work().locator().target(),
-                                    replacementLoopClaim.work().locator().orderingDomain());
-                            final byte[] admittedOrderState = replacementStore.get(ColumnFamily.META, admittedOrderKey);
-                            final var admittedOrder = TargetOrderState.decode(TargetValueEnvelope.decode(
-                                            admittedOrderState, TargetOrderState.VALUE_TYPE)
-                                    .payload());
-                            final long lateDeliverAt = admittedOrder.lastAdmittedOrder().deliverAtEpochMs() - 1;
-                            final var lateAt = source(
-                                    admissionAt,
-                                    admissionAt.offset() + 1,
-                                    admissionAt.brokerLogAppendTimeEpochMs() + 1);
-                            final var lateIntent = CanonicalScheduleIntent.create(
-                                    destination.ref(),
-                                    otherIntent.retryPolicy(),
-                                    lateDeliverAt,
-                                    lateAt.brokerLogAppendTimeEpochMs() + 2000,
-                                    otherIntent.deliveryMode(),
-                                    OrderingMode.DELIVERY_TIME_FIFO,
-                                    otherIntent.orderingKey(),
-                                    model.inlinePayload(),
-                                    null,
-                                    otherIntent.adapterMetadata(),
-                                    otherIntent.businessKey(),
-                                    otherIntent.eventTimeEpochMs(),
-                                    NativeDeliveryPolicy.FORBID);
-                            final var lateSchedule = schedule(
-                                    lateIntent, otherSchedule.delayMessageId(), lateAt, 44);
-                            expectedLateCommand.set(lateSchedule);
-                            final var lateAcknowledgements = new java.util.concurrent.atomic.AtomicInteger();
-                            final var lateEntry = new SourceReplayRecord(lateSchedule, lateAt, null, null);
-                            replacementNextSourceRecord.set(new SourceRecordConsumer.PolledSourceRecord(
-                                    lateEntry,
-                                    (entry, outcome) -> {
-                                        assertEquals(lateEntry, entry);
-                                        assertEquals(lateAt, outcome.position());
-                                        assertEquals(
-                                                StableCode.ORDER_BEFORE_ADMISSION_WATERMARK,
-                                                outcome.commandResult().stableCode());
-                                        assertEquals(1, lateAcknowledgements.incrementAndGet());
-                                        return SourceAcknowledgement.AcknowledgementResult.acked();
-                                    }));
-                            final long beforeLateScheduleMutation = replacementStore.shardMutationSequence();
-                            final long beforeLateScheduleVersion = replacementStore.latestSequenceNumber();
-                            final var lateScheduleTurn = replacementWorker.runSourceTurn(
-                                    new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 101);
-                            assertEquals(
-                                    SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
-                                    lateScheduleTurn.status(),
-                                    () -> String.valueOf(lateScheduleTurn.failure()));
-                            assertEquals(lateEntry, lateScheduleTurn.entry());
-                            assertEquals(1, lateAcknowledgements.get());
-                            assertTrue(replacementWorker.pendingSourceEntry().isEmpty());
-                            assertEquals(
-                                    beforeLateScheduleMutation + 1,
-                                    replacementStore.shardMutationSequence());
-                            assertTrue(replacementStore.latestSequenceNumber() > beforeLateScheduleVersion);
-                            assertEquals(lateAt, replacementStore.appliedShardLogPosition());
-                            assertNull(replacementStore.get(
-                                    ColumnFamily.ID, TargetKeyCodec.message(lateSchedule.delayMessageId())));
-                            assertArrayEquals(
-                                    admittedOrderState, replacementStore.get(ColumnFamily.META, admittedOrderKey));
+                            final byte[] admittedOrderKey = uncertainRetry
+                                    ? null
+                                    : TargetKeyCodec.orderState(
+                                            replacementLoopClaim.work().locator().target(),
+                                            replacementLoopClaim.work().locator().orderingDomain());
+                            TargetOrderState orderAfterCancel = null;
+                            if (!uncertainRetry) {
+                                final byte[] admittedOrderState =
+                                        replacementStore.get(ColumnFamily.META, admittedOrderKey);
+                                final var admittedOrder = TargetOrderState.decode(TargetValueEnvelope.decode(
+                                                admittedOrderState, TargetOrderState.VALUE_TYPE)
+                                        .payload());
+                                final long lateDeliverAt = admittedOrder.lastAdmittedOrder().deliverAtEpochMs() - 1;
+                                final var lateAt = source(
+                                        admissionAt,
+                                        admissionAt.offset() + 1,
+                                        admissionAt.brokerLogAppendTimeEpochMs() + 1);
+                                final var lateIntent = CanonicalScheduleIntent.create(
+                                        destination.ref(),
+                                        otherIntent.retryPolicy(),
+                                        lateDeliverAt,
+                                        lateAt.brokerLogAppendTimeEpochMs() + 2000,
+                                        otherIntent.deliveryMode(),
+                                        OrderingMode.DELIVERY_TIME_FIFO,
+                                        otherIntent.orderingKey(),
+                                        model.inlinePayload(),
+                                        null,
+                                        otherIntent.adapterMetadata(),
+                                        otherIntent.businessKey(),
+                                        otherIntent.eventTimeEpochMs(),
+                                        NativeDeliveryPolicy.FORBID);
+                                final var lateSchedule = schedule(
+                                        lateIntent, otherSchedule.delayMessageId(), lateAt, 44);
+                                expectedLateCommand.set(lateSchedule);
+                                final var lateAcknowledgements = new java.util.concurrent.atomic.AtomicInteger();
+                                final var lateEntry = new SourceReplayRecord(lateSchedule, lateAt, null, null);
+                                replacementNextSourceRecord.set(new SourceRecordConsumer.PolledSourceRecord(
+                                        lateEntry,
+                                        (entry, outcome) -> {
+                                            assertEquals(lateEntry, entry);
+                                            assertEquals(lateAt, outcome.position());
+                                            assertEquals(
+                                                    StableCode.ORDER_BEFORE_ADMISSION_WATERMARK,
+                                                    outcome.commandResult().stableCode());
+                                            assertEquals(1, lateAcknowledgements.incrementAndGet());
+                                            return SourceAcknowledgement.AcknowledgementResult.acked();
+                                        }));
+                                final long beforeLateScheduleMutation = replacementStore.shardMutationSequence();
+                                final long beforeLateScheduleVersion = replacementStore.latestSequenceNumber();
+                                final var lateScheduleTurn = replacementWorker.runSourceTurn(
+                                        new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 101);
+                                assertEquals(
+                                        SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                                        lateScheduleTurn.status(),
+                                        () -> String.valueOf(lateScheduleTurn.failure()));
+                                assertEquals(lateEntry, lateScheduleTurn.entry());
+                                assertEquals(1, lateAcknowledgements.get());
+                                assertTrue(replacementWorker.pendingSourceEntry().isEmpty());
+                                assertEquals(
+                                        beforeLateScheduleMutation + 1,
+                                        replacementStore.shardMutationSequence());
+                                assertTrue(replacementStore.latestSequenceNumber() > beforeLateScheduleVersion);
+                                assertEquals(lateAt, replacementStore.appliedShardLogPosition());
+                                assertNull(replacementStore.get(
+                                        ColumnFamily.ID, TargetKeyCodec.message(lateSchedule.delayMessageId())));
+                                assertArrayEquals(
+                                        admittedOrderState, replacementStore.get(ColumnFamily.META, admittedOrderKey));
 
-                            final var lateRescheduleBefore =
-                                    (KafkaSourcePosition) replacementStore.appliedShardLogPosition();
-                            final var lateRescheduleAt = source(
-                                    lateRescheduleBefore,
-                                    lateRescheduleBefore.offset() + 1,
-                                    lateRescheduleBefore.brokerLogAppendTimeEpochMs() + 1);
-                            final var lateReschedule = PreparedCommand.reschedule(
-                                    otherShard,
-                                    cancel(otherFollowerSchedule.delayMessageId(), lateRescheduleAt, 46)
-                                            .commandId(),
-                                    otherFollowerSchedule.delayMessageId(),
-                                    new MessagePrecondition(0L, null),
-                                    lateDeliverAt,
-                                    lateRescheduleAt.brokerLogAppendTimeEpochMs() + 2_000,
-                                    lateRescheduleAt.brokerLogAppendTimeEpochMs() + 1_000);
-                            expectedLateCommand.set(lateReschedule);
-                            final var lateRescheduleEntry =
-                                    new SourceReplayRecord(lateReschedule, lateRescheduleAt, null, null);
-                            final byte[] followerMessageKey =
-                                    TargetKeyCodec.message(otherFollowerSchedule.delayMessageId());
-                            final byte[] followerMessageBefore =
-                                    replacementStore.get(ColumnFamily.ID, followerMessageKey);
-                            assertNotNull(followerMessageBefore);
-                            final var lateRescheduleAcknowledgements =
-                                    new java.util.concurrent.atomic.AtomicInteger();
-                            replacementNextSourceRecord.set(new SourceRecordConsumer.PolledSourceRecord(
-                                    lateRescheduleEntry,
-                                    (entry, outcome) -> {
-                                        assertEquals(lateRescheduleEntry, entry);
-                                        assertEquals(lateRescheduleAt, outcome.position());
-                                        assertEquals(ApplyStatus.REJECTED, outcome.commandResult().applyStatus());
-                                        assertEquals(
-                                                StableCode.ORDER_BEFORE_ADMISSION_WATERMARK,
-                                                outcome.commandResult().stableCode());
-                                        assertEquals(1, lateRescheduleAcknowledgements.incrementAndGet());
-                                        return SourceAcknowledgement.AcknowledgementResult.acked();
-                                    }));
-                            final long beforeLateRescheduleMutation = replacementStore.shardMutationSequence();
-                            final long beforeLateRescheduleVersion = replacementStore.latestSequenceNumber();
-                            final var lateRescheduleTurn = replacementWorker.runSourceTurn(
-                                    new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 101);
-                            assertEquals(
-                                    SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
-                                    lateRescheduleTurn.status(),
-                                    () -> String.valueOf(lateRescheduleTurn.failure()));
-                            assertEquals(lateRescheduleEntry, lateRescheduleTurn.entry());
-                            assertEquals(1, lateRescheduleAcknowledgements.get());
-                            assertTrue(replacementWorker.pendingSourceEntry().isEmpty());
-                            assertEquals(
-                                    beforeLateRescheduleMutation + 1,
-                                    replacementStore.shardMutationSequence());
-                            assertTrue(replacementStore.latestSequenceNumber() > beforeLateRescheduleVersion);
-                            assertEquals(lateRescheduleAt, replacementStore.appliedShardLogPosition());
-                            assertArrayEquals(
-                                    followerMessageBefore,
-                                    replacementStore.get(ColumnFamily.ID, followerMessageKey));
-                            assertArrayEquals(
-                                    admittedOrderState, replacementStore.get(ColumnFamily.META, admittedOrderKey));
+                                final var lateRescheduleBefore =
+                                        (KafkaSourcePosition) replacementStore.appliedShardLogPosition();
+                                final var lateRescheduleAt = source(
+                                        lateRescheduleBefore,
+                                        lateRescheduleBefore.offset() + 1,
+                                        lateRescheduleBefore.brokerLogAppendTimeEpochMs() + 1);
+                                final var lateReschedule = PreparedCommand.reschedule(
+                                        otherShard,
+                                        cancel(otherFollowerSchedule.delayMessageId(), lateRescheduleAt, 46)
+                                                .commandId(),
+                                        otherFollowerSchedule.delayMessageId(),
+                                        new MessagePrecondition(0L, null),
+                                        lateDeliverAt,
+                                        lateRescheduleAt.brokerLogAppendTimeEpochMs() + 2_000,
+                                        lateRescheduleAt.brokerLogAppendTimeEpochMs() + 1_000);
+                                expectedLateCommand.set(lateReschedule);
+                                final var lateRescheduleEntry =
+                                        new SourceReplayRecord(lateReschedule, lateRescheduleAt, null, null);
+                                final byte[] followerMessageKey =
+                                        TargetKeyCodec.message(otherFollowerSchedule.delayMessageId());
+                                final byte[] followerMessageBefore =
+                                        replacementStore.get(ColumnFamily.ID, followerMessageKey);
+                                assertNotNull(followerMessageBefore);
+                                final var lateRescheduleAcknowledgements =
+                                        new java.util.concurrent.atomic.AtomicInteger();
+                                replacementNextSourceRecord.set(new SourceRecordConsumer.PolledSourceRecord(
+                                        lateRescheduleEntry,
+                                        (entry, outcome) -> {
+                                            assertEquals(lateRescheduleEntry, entry);
+                                            assertEquals(lateRescheduleAt, outcome.position());
+                                            assertEquals(ApplyStatus.REJECTED, outcome.commandResult().applyStatus());
+                                            assertEquals(
+                                                    StableCode.ORDER_BEFORE_ADMISSION_WATERMARK,
+                                                    outcome.commandResult().stableCode());
+                                            assertEquals(1, lateRescheduleAcknowledgements.incrementAndGet());
+                                            return SourceAcknowledgement.AcknowledgementResult.acked();
+                                        }));
+                                final long beforeLateRescheduleMutation = replacementStore.shardMutationSequence();
+                                final long beforeLateRescheduleVersion = replacementStore.latestSequenceNumber();
+                                final var lateRescheduleTurn = replacementWorker.runSourceTurn(
+                                        new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 101);
+                                assertEquals(
+                                        SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                                        lateRescheduleTurn.status(),
+                                        () -> String.valueOf(lateRescheduleTurn.failure()));
+                                assertEquals(lateRescheduleEntry, lateRescheduleTurn.entry());
+                                assertEquals(1, lateRescheduleAcknowledgements.get());
+                                assertTrue(replacementWorker.pendingSourceEntry().isEmpty());
+                                assertEquals(
+                                        beforeLateRescheduleMutation + 1,
+                                        replacementStore.shardMutationSequence());
+                                assertTrue(replacementStore.latestSequenceNumber() > beforeLateRescheduleVersion);
+                                assertEquals(lateRescheduleAt, replacementStore.appliedShardLogPosition());
+                                assertArrayEquals(
+                                        followerMessageBefore,
+                                        replacementStore.get(ColumnFamily.ID, followerMessageKey));
+                                assertArrayEquals(
+                                        admittedOrderState, replacementStore.get(ColumnFamily.META, admittedOrderKey));
 
-                            final var lateCancelBefore =
-                                    (KafkaSourcePosition) replacementStore.appliedShardLogPosition();
-                            final var lateCancelAt = source(
-                                    lateCancelBefore,
-                                    lateCancelBefore.offset() + 1,
-                                    lateCancelBefore.brokerLogAppendTimeEpochMs() + 1);
-                            final var lateCancel = cancel(
-                                    otherFollowerSchedule.delayMessageId(), lateCancelAt, 47);
-                            expectedLateCommand.set(lateCancel);
-                            final var lateCancelEntry = new SourceReplayRecord(lateCancel, lateCancelAt, null, null);
-                            final var lateCancelAcknowledgements = new java.util.concurrent.atomic.AtomicInteger();
-                            replacementNextSourceRecord.set(new SourceRecordConsumer.PolledSourceRecord(
-                                    lateCancelEntry,
-                                    (entry, outcome) -> {
-                                        assertEquals(lateCancelEntry, entry);
-                                        assertEquals(lateCancelAt, outcome.position());
-                                        assertEquals(StableCode.CANCELED, outcome.commandResult().stableCode());
-                                        assertEquals(1, lateCancelAcknowledgements.incrementAndGet());
-                                        return SourceAcknowledgement.AcknowledgementResult.acked();
-                                    }));
-                            final long beforeLateCancelMutation = replacementStore.shardMutationSequence();
-                            final long beforeLateCancelVersion = replacementStore.latestSequenceNumber();
-                            final var lateCancelTurn = replacementWorker.runSourceTurn(
-                                    new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 101);
-                            assertEquals(
-                                    SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
-                                    lateCancelTurn.status(),
-                                    () -> String.valueOf(lateCancelTurn.failure()));
-                            assertEquals(lateCancelEntry, lateCancelTurn.entry());
-                            assertEquals(1, lateCancelAcknowledgements.get());
-                            assertTrue(replacementWorker.pendingSourceEntry().isEmpty());
-                            assertEquals(beforeLateCancelMutation + 1, replacementStore.shardMutationSequence());
-                            assertTrue(replacementStore.latestSequenceNumber() > beforeLateCancelVersion);
-                            assertEquals(lateCancelAt, replacementStore.appliedShardLogPosition());
-                            final var canceledFollower = TargetMessageRecord.decodeForStore(
-                                    followerMessageKey,
-                                    TargetValueEnvelope.decode(
-                                                    replacementStore.get(ColumnFamily.ID, followerMessageKey),
-                                                    TargetMessageRecord.VALUE_TYPE)
-                                            .payload(),
-                                    otherShard);
-                            assertEquals(GenerationAggregateState.CANCELED, canceledFollower.aggregateState());
-                            assertEquals(CurrentSendWorkKind.NONE, canceledFollower.runtime().currentWorkKind());
-                            final var canceledTerminal = TargetTerminalGenerationRecord.decode(
-                                    TargetValueEnvelope.decode(
-                                                    replacementStore.get(
-                                                            ColumnFamily.TERMINAL,
-                                                            TargetTerminalGenerationRecord.key(
-                                                                    canceledFollower.locator())),
-                                                    TargetTerminalGenerationRecord.VALUE_TYPE)
-                                            .payload());
-                            assertEquals(canceledFollower.locator(), canceledTerminal.locator());
-                            assertEquals(StableCode.CANCELED, canceledTerminal.terminalCode());
-                            final var orderAfterCancel = TargetOrderState.decode(TargetValueEnvelope.decode(
-                                            replacementStore.get(ColumnFamily.META, admittedOrderKey),
-                                            TargetOrderState.VALUE_TYPE)
-                                    .payload());
-                            orderAfterCancel.requireSuccessorOf(admittedOrder);
-                            assertArrayEquals(
-                                    admittedOrder.lastAdmittedOrder().encodedKey(),
-                                    orderAfterCancel.lastAdmittedOrder().encodedKey());
-                            assertArrayEquals(
-                                    admittedOrder.barrier().canonicalBytes(),
-                                    orderAfterCancel.barrier().canonicalBytes());
-                            assertNull(orderAfterCancel.serviceableHead());
+                                final var lateCancelBefore =
+                                        (KafkaSourcePosition) replacementStore.appliedShardLogPosition();
+                                final var lateCancelAt = source(
+                                        lateCancelBefore,
+                                        lateCancelBefore.offset() + 1,
+                                        lateCancelBefore.brokerLogAppendTimeEpochMs() + 1);
+                                final var lateCancel = cancel(
+                                        otherFollowerSchedule.delayMessageId(), lateCancelAt, 47);
+                                expectedLateCommand.set(lateCancel);
+                                final var lateCancelEntry =
+                                        new SourceReplayRecord(lateCancel, lateCancelAt, null, null);
+                                final var lateCancelAcknowledgements = new java.util.concurrent.atomic.AtomicInteger();
+                                replacementNextSourceRecord.set(new SourceRecordConsumer.PolledSourceRecord(
+                                        lateCancelEntry,
+                                        (entry, outcome) -> {
+                                            assertEquals(lateCancelEntry, entry);
+                                            assertEquals(lateCancelAt, outcome.position());
+                                            assertEquals(StableCode.CANCELED, outcome.commandResult().stableCode());
+                                            assertEquals(1, lateCancelAcknowledgements.incrementAndGet());
+                                            return SourceAcknowledgement.AcknowledgementResult.acked();
+                                        }));
+                                final long beforeLateCancelMutation = replacementStore.shardMutationSequence();
+                                final long beforeLateCancelVersion = replacementStore.latestSequenceNumber();
+                                final var lateCancelTurn = replacementWorker.runSourceTurn(
+                                        new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 101);
+                                assertEquals(
+                                        SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                                        lateCancelTurn.status(),
+                                        () -> String.valueOf(lateCancelTurn.failure()));
+                                assertEquals(lateCancelEntry, lateCancelTurn.entry());
+                                assertEquals(1, lateCancelAcknowledgements.get());
+                                assertTrue(replacementWorker.pendingSourceEntry().isEmpty());
+                                assertEquals(beforeLateCancelMutation + 1, replacementStore.shardMutationSequence());
+                                assertTrue(replacementStore.latestSequenceNumber() > beforeLateCancelVersion);
+                                assertEquals(lateCancelAt, replacementStore.appliedShardLogPosition());
+                                final var canceledFollower = TargetMessageRecord.decodeForStore(
+                                        followerMessageKey,
+                                        TargetValueEnvelope.decode(
+                                                        replacementStore.get(ColumnFamily.ID, followerMessageKey),
+                                                        TargetMessageRecord.VALUE_TYPE)
+                                                .payload(),
+                                        otherShard);
+                                assertEquals(GenerationAggregateState.CANCELED, canceledFollower.aggregateState());
+                                assertEquals(CurrentSendWorkKind.NONE, canceledFollower.runtime().currentWorkKind());
+                                final var canceledTerminal = TargetTerminalGenerationRecord.decode(
+                                        TargetValueEnvelope.decode(
+                                                        replacementStore.get(
+                                                                ColumnFamily.TERMINAL,
+                                                                TargetTerminalGenerationRecord.key(
+                                                                        canceledFollower.locator())),
+                                                        TargetTerminalGenerationRecord.VALUE_TYPE)
+                                                .payload());
+                                assertEquals(canceledFollower.locator(), canceledTerminal.locator());
+                                assertEquals(StableCode.CANCELED, canceledTerminal.terminalCode());
+                                orderAfterCancel = TargetOrderState.decode(TargetValueEnvelope.decode(
+                                                replacementStore.get(ColumnFamily.META, admittedOrderKey),
+                                                TargetOrderState.VALUE_TYPE)
+                                        .payload());
+                                orderAfterCancel.requireSuccessorOf(admittedOrder);
+                                assertArrayEquals(
+                                        admittedOrder.lastAdmittedOrder().encodedKey(),
+                                        orderAfterCancel.lastAdmittedOrder().encodedKey());
+                                assertArrayEquals(
+                                        admittedOrder.barrier().canonicalBytes(),
+                                        orderAfterCancel.barrier().canonicalBytes());
+                                assertNull(orderAfterCancel.serviceableHead());
+                            }
+                            if (closedRetryQueue) {
+                                closeRetryQueueFixture(
+                                        replacementInitialized.backend(),
+                                        replacementStore,
+                                        otherScope,
+                                        replacementInitialized.root().recoveryLineage(),
+                                        replacementLoopClaim.work().locator().target());
+                            }
 
+                            final var admittedBody =
+                                    TargetPublishAdmissionBody.decode(admission.entry().mutation().canonicalBody());
                             final var outcomeBefore =
                                     (KafkaSourcePosition) replacementStore.appliedShardLogPosition();
                             final var outcomeAt = source(
                                     outcomeBefore,
                                     outcomeBefore.offset() + 1,
-                                    outcomeBefore.brokerLogAppendTimeEpochMs() + 1);
+                                    uncertainRetry
+                                            ? Math.max(
+                                                    Math.max(outcomeBefore.brokerLogAppendTimeEpochMs() + 1,
+                                                            admittedBody.decisionTime().latestEpochMs() + 1),
+                                                    schedulerEpoch.get() + 1)
+                                            : outcomeBefore.brokerLogAppendTimeEpochMs() + 1);
                             final byte[] outcomeBudgetKey = Bytes.concat(
                                     new byte[] {
                                         (byte) TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG,
@@ -2832,14 +2880,22 @@ class TargetCommandStoreTest {
                                     bytes(32, 0xA2),
                                     0,
                                     new byte[0]);
-                            final var admittedBody =
-                                    TargetPublishAdmissionBody.decode(admission.entry().mutation().canonicalBody());
                             final long firstAttemptAt = admittedBody.decisionTime().latestEpochMs();
                             final long retryDeadline = Math.min(
                                     otherIntent.expireAtEpochMs(),
                                     firstAttemptAt + otherRetryPolicy.maxRetryDurationMs());
+                            final Long nextRetryAt = uncertainRetry
+                                    ? outcomeObservedAt.latestEpochMs()
+                                            + com.nereusstream.delay.protocol.RetryJitter.delayMs(
+                                                    com.nereusstream.delay.protocol.RetryJitter.MESSAGE_PUBLISH,
+                                                    admittedBody.locator().messageId(),
+                                                    Integer.toUnsignedLong(admittedBody.locator().generation()),
+                                                    Integer.toUnsignedLong(admittedBody.attemptNo()),
+                                                    otherRetryPolicy.retryBackoffCap(admittedBody.attemptNo()))
+                                    : null;
                             final byte[] unknownRetry = typedUnknownRetryDecision(
-                                    otherRetryPolicy, firstAttemptAt, retryDeadline, admittedBody.attemptNo());
+                                    otherRetryPolicy, firstAttemptAt, retryDeadline,
+                                    admittedBody.attemptNo(), nextRetryAt);
                             final byte[] unknownTransfer = new PublishAdmissionBody.ChargeVector(
                                             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
                                     .canonicalBytes();
@@ -2908,7 +2964,7 @@ class TargetCommandStoreTest {
                             assertTrue(replacementStore.latestSequenceNumber() > beforeOutcomeVersion);
                             assertEquals(outcomeAt, replacementStore.appliedShardLogPosition());
                             final byte[] admittedMessageKey =
-                                    TargetKeyCodec.message(admittedOrder.barrier().locator().messageId());
+                                    TargetKeyCodec.message(replacementLoopClaim.work().locator().messageId());
                             final var uncertainMessage = TargetMessageRecord.decodeForStore(
                                     admittedMessageKey,
                                     TargetValueEnvelope.decode(
@@ -2917,7 +2973,31 @@ class TargetCommandStoreTest {
                                             .payload(),
                                     otherShard);
                             assertEquals(GenerationAggregateState.UNCERTAIN, uncertainMessage.aggregateState());
-                            assertEquals(CurrentSendWorkKind.NONE, uncertainMessage.runtime().currentWorkKind());
+                            assertEquals(
+                                    uncertainRetry && !closedRetryQueue
+                                            ? CurrentSendWorkKind.TIMELINE
+                                            : CurrentSendWorkKind.NONE,
+                                    uncertainMessage.runtime().currentWorkKind());
+                            if (uncertainRetry && !closedRetryQueue) {
+                                final var retryWork = uncertainMessage.runtime().timeline();
+                                assertEquals(TimelineWorkKind.UNCERTAIN_RETRY, retryWork.workKind());
+                                assertEquals(UncertainRetryAuthority.PINNED_POLICY,
+                                        retryWork.uncertainRetryAuthority());
+                                assertEquals(2, retryWork.candidateAttemptNo());
+                                assertFalse(retryWork.nativeCandidate());
+                                assertEquals(Math.max(uncertainMessage.deliverAtEpochMs(), nextRetryAt),
+                                        retryWork.ordinaryEligibilityAtEpochMs());
+                                uncertainMessage.requireTimelineProjection(
+                                        retryWork.ordinaryKey(),
+                                        TargetValueEnvelope.decode(
+                                                        replacementStore.get(
+                                                                ColumnFamily.TIMELINE, retryWork.ordinaryKey()),
+                                                        TargetTimelineWorkRef.VALUE_TYPE)
+                                                .payload());
+                                assertEquals(1, uncertainMessage.runtime().admissionsUsed());
+                                assertEquals(0, uncertainMessage.runtime().uncertainRetryAdmissionsUsed());
+                            }
+
                             assertEquals(1, uncertainMessage.runtime().attemptObligations().size());
                             assertEquals(
                                     AttemptLedgerState.UNCERTAIN,
@@ -2933,18 +3013,20 @@ class TargetCommandStoreTest {
                             assertEquals(admittedBudget.commitment(), unknownBudget.commitment());
                             assertEquals(admittedBudget.allocated(), unknownBudget.allocated());
                             assertEquals(admittedBudget.revision() + 1, unknownBudget.revision());
-                            final var outcomeOrder = TargetOrderState.decode(TargetValueEnvelope.decode(
-                                            replacementStore.get(ColumnFamily.META, admittedOrderKey),
-                                            TargetOrderState.VALUE_TYPE)
-                                    .payload());
-                            assertEquals(
-                                    TargetQueueState.nextRevision(orderAfterCancel.stateRevision()),
-                                    outcomeOrder.stateRevision());
-                            assertArrayEquals(
-                                    orderAfterCancel.lastAdmittedOrder().encodedKey(),
-                                    outcomeOrder.lastAdmittedOrder().encodedKey());
-                            assertEquals(TargetOrderBarrier.fromMessage(uncertainMessage), outcomeOrder.barrier());
-                            assertNull(outcomeOrder.serviceableHead());
+                            if (!uncertainRetry) {
+                                final var outcomeOrder = TargetOrderState.decode(TargetValueEnvelope.decode(
+                                                replacementStore.get(ColumnFamily.META, admittedOrderKey),
+                                                TargetOrderState.VALUE_TYPE)
+                                        .payload());
+                                assertEquals(
+                                        TargetQueueState.nextRevision(orderAfterCancel.stateRevision()),
+                                        outcomeOrder.stateRevision());
+                                assertArrayEquals(
+                                        orderAfterCancel.lastAdmittedOrder().encodedKey(),
+                                        outcomeOrder.lastAdmittedOrder().encodedKey());
+                                assertEquals(TargetOrderBarrier.fromMessage(uncertainMessage), outcomeOrder.barrier());
+                                assertNull(outcomeOrder.serviceableHead());
+                            }
                             final var outcomeFirst = TargetResultRecord.decode(TargetValueEnvelope.decode(
                                             replacementStore.get(ColumnFamily.DEDUPE, systemKey(outcomeMutation)),
                                             TargetResultRecord.VALUE_TYPE)
@@ -2974,6 +3056,90 @@ class TargetCommandStoreTest {
                             assertEquals(beforeOutcomeMutation + 1, replacementStore.shardMutationSequence());
                             assertEquals(outcomeVersionAfterApply, replacementStore.latestSequenceNumber());
                             assertEquals(1, outcomeAuthorityResolutions.get());
+
+                            if (uncertainRetry && !closedRetryQueue) {
+                                final var retryWork = uncertainMessage.runtime().timeline();
+                                final long due = retryWork.ordinaryEligibilityAtEpochMs();
+                                final var retryQueue = replacementWorker.readTargetQueue(
+                                                budget(), uncertainMessage.locator().target(), () -> 101)
+                                        .orElseThrow().queue();
+                                final var retryHead = retryQueue.domains()
+                                        .get(uncertainMessage.locator().domain().slot()).ordinaryHead();
+                                assertNotNull(retryHead);
+                                assertEquals(uncertainMessage.locator().messageId(), retryHead.messageId());
+                                assertEquals(due, retryHead.timeEpochMs());
+                                final var retryCost =
+                                        replacementWorker.probeSelectedHead(budget(), retryHead, () -> 101);
+                                assertTrue(retryCost.deliverAtEpochMs() <= due && retryCost.expireAtEpochMs() > due);
+                                schedulerEpoch.set(due - 1);
+                                schedulerClaimGate.release();
+                                assertNull(schedulerClaims.poll(150, java.util.concurrent.TimeUnit.MILLISECONDS));
+                                schedulerEpoch.set(due);
+                                final var retryClaim = schedulerClaims.poll(5, java.util.concurrent.TimeUnit.SECONDS);
+                                assertNotNull(retryClaim,
+                                        () -> "uncertain retry scheduler failure: " + ordinaryLoop.firstFailure());
+                                assertEquals(retryWork.locator(), retryClaim.work().locator());
+                                assertEquals(TimelineWorkKind.UNCERTAIN_RETRY, retryClaim.work().workKind());
+                                assertEquals(2, retryClaim.work().candidateAttemptNo());
+                                assertEquals(replacementOwnerIdentity[0], retryClaim.owner());
+                                schedulerClaimGate.release();
+                                final var retryBefore =
+                                        (KafkaSourcePosition) replacementStore.appliedShardLogPosition();
+                                final var retryAt = source(
+                                        retryBefore, retryBefore.offset() + 1,
+                                        Math.max(retryBefore.brokerPersistenceTimeEpochMs() + 1, due));
+                                final var retryAdmission = targetAdmission(
+                                        replacementStore, retryClaim, replacementOwnerIdentity[0], keys, retryAt);
+                                replacementNextSourceRecord.set(new SourceRecordConsumer.PolledSourceRecord(
+                                        retryAdmission.entry(), (entry, outcome) -> {
+                                            assertEquals(StableCode.OK, outcome.systemMutationResult().stableCode());
+                                            return SourceAcknowledgement.AcknowledgementResult.acked();
+                                        }));
+                                final var retryTurn = replacementWorker.runSourceTurn(
+                                        new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 101);
+                                assertEquals(SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED, retryTurn.status(),
+                                        () -> String.valueOf(retryTurn.failure()));
+                                assertTargetAdmissionCommitted(replacementStore, retryClaim, retryAdmission);
+                                final var retried = TargetMessageRecord.decode(TargetValueEnvelope.decode(
+                                                replacementStore.get(ColumnFamily.ID, admittedMessageKey),
+                                                TargetMessageRecord.VALUE_TYPE)
+                                        .payload());
+                                assertEquals(GenerationAggregateState.UNCERTAIN, retried.aggregateState());
+                                assertEquals(2, retried.runtime().admissionsUsed());
+                                assertEquals(1, retried.runtime().uncertainRetryAdmissionsUsed());
+                                assertTrue(retried.runtime().possibleDestinationDuplicate());
+                                assertEquals(2, retried.runtime().attemptObligations().size());
+                                assertTrue(retried.runtime().attemptObligations().stream().anyMatch(ref ->
+                                        Arrays.equals(ref.publishAttemptId(), admission.attemptId())
+                                                && ref.ledgerState() == AttemptLedgerState.UNCERTAIN));
+                                assertTrue(retried.runtime().attemptObligations().stream().anyMatch(ref ->
+                                        Arrays.equals(ref.publishAttemptId(), retryAdmission.attemptId())
+                                                && ref.ledgerState() == AttemptLedgerState.PUBLISHING));
+                                final var oldBudgetAfterRetry =
+                                        TargetQuotaAttemptBudget.decode(TargetValueEnvelope.decode(
+                                                replacementStore.get(ColumnFamily.META, outcomeBudgetKey),
+                                                TargetQuotaAttemptBudget.VALUE_TYPE)
+                                        .payload());
+                                assertArrayEquals(unknownBudget.canonicalBytes(), oldBudgetAfterRetry.canonicalBytes());
+                                assertExhaustedRetryDoesNotWrite(
+                                        replacementInitialized.backend(), replacementStore, otherScope,
+                                        replacementInitialized.root().recoveryLineage(),
+                                        admission, retryAdmission, replacementOwnerIdentity[0], otherRetryPolicy, keys);
+                                assertNull(ordinaryLoop.firstFailure());
+                                ordinaryLoop.close();
+                            } else if (closedRetryQueue) {
+                                final var closedQueue = TargetQueueState.decode(TargetValueEnvelope.decode(
+                                                replacementStore.get(ColumnFamily.META,
+                                                        TargetKeyCodec.state(uncertainMessage.locator().target())),
+                                                TargetQueueState.VALUE_TYPE)
+                                        .payload());
+                                assertEquals(TargetQueueState.AdmissionState.CLOSED, closedQueue.admissionState());
+                                assertNull(uncertainMessage.runtime().timeline());
+                                assertTrue(closedQueue.domains().stream().allMatch(domain ->
+                                        domain.ordinaryHead() == null && domain.nativeHead() == null));
+                                schedulerClaimGate.release();
+                                ordinaryLoop.close();
+                            }
 
                             final var replacementBeforeReplay =
                                     (KafkaSourcePosition) replacementStore.appliedShardLogPosition();
@@ -6662,17 +6828,18 @@ class TargetCommandStoreTest {
                 .payload());
         assertEquals(TargetQuotaAttemptBudget.Phase.ADMITTED, attemptBudget.phase());
         assertEquals(claim.work().locator(), attemptBudget.locator());
-        assertEquals(OrderingMode.DELIVERY_TIME_FIFO, admitted.locator().orderingMode());
-        final byte[] orderKey =
-                TargetKeyCodec.orderState(admitted.locator().target(), admitted.locator().orderingDomain());
-        final var order = TargetOrderState.decode(TargetValueEnvelope.decode(
-                        store.get(ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE)
-                .payload());
-        final var barrier = TargetOrderBarrier.fromMessage(admitted);
-        assertEquals(TargetOrderState.OrderingContract.ADMISSION_WATERMARK, order.orderingContract());
-        assertArrayEquals(barrier.order().encodedKey(), order.lastAdmittedOrder().encodedKey());
-        assertEquals(barrier, order.barrier());
-        assertNull(order.serviceableHead());
+        if (admitted.locator().orderingMode() == OrderingMode.DELIVERY_TIME_FIFO) {
+            final byte[] orderKey =
+                    TargetKeyCodec.orderState(admitted.locator().target(), admitted.locator().orderingDomain());
+            final var order = TargetOrderState.decode(TargetValueEnvelope.decode(
+                            store.get(ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE)
+                    .payload());
+            final var barrier = TargetOrderBarrier.fromMessage(admitted);
+            assertEquals(TargetOrderState.OrderingContract.ADMISSION_WATERMARK, order.orderingContract());
+            assertArrayEquals(barrier.order().encodedKey(), order.lastAdmittedOrder().encodedKey());
+            assertEquals(barrier, order.barrier());
+            assertNull(order.serviceableHead());
+        }
         final var first = TargetResultRecord.decode(TargetValueEnvelope.decode(
                         store.get(ColumnFamily.DEDUPE, systemKey(entry.mutation())), TargetResultRecord.VALUE_TYPE)
                 .payload());
@@ -6781,7 +6948,100 @@ class TargetCommandStoreTest {
         assertNull(store.get(ColumnFamily.DEDUPE, systemKey(typedMutation)));
     }
 
-    private static com.nereusstream.delay.protocol.RetryPolicySemantic targetOutcomeRetryPolicy() {
+    private static void assertExhaustedRetryDoesNotWrite(
+            TargetStoreBackend backend,
+            ShardStore store,
+            TargetQuotaScope scope,
+            byte[] lineage,
+            TargetAdmissionFixture first,
+            TargetAdmissionFixture current,
+            OwnerIdentity owner,
+            com.nereusstream.delay.protocol.RetryPolicySemantic policy,
+            KeyPair keys) {
+        final var currentBody = TargetPublishAdmissionBody.decode(current.entry().mutation().canonicalBody());
+        final var firstBody = TargetPublishAdmissionBody.decode(first.entry().mutation().canonicalBody());
+        final var message = TargetMessageRecord.decode(TargetValueEnvelope.decode(
+                        store.get(ColumnFamily.ID, TargetKeyCodec.message(currentBody.locator().messageId())),
+                        TargetMessageRecord.VALUE_TYPE)
+                .payload());
+        final var beforeSource = (KafkaSourcePosition) store.appliedShardLogPosition();
+        final var at = source(beforeSource, beforeSource.offset() + 1, beforeSource.brokerPersistenceTimeEpochMs() + 1);
+        final var observed = new TrustedUtcIntervalEvidence(
+                at.brokerPersistenceTimeEpochMs(), at.brokerPersistenceTimeEpochMs() + 1,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                bytes(32, 0xA1), 1, 1, 1, bytes(32, 0xA2), 0, null);
+        final long next = observed.latestEpochMs() + com.nereusstream.delay.protocol.RetryJitter.delayMs(
+                com.nereusstream.delay.protocol.RetryJitter.MESSAGE_PUBLISH,
+                message.locator().messageId(), Integer.toUnsignedLong(message.locator().generation()),
+                Integer.toUnsignedLong(currentBody.attemptNo()), policy.retryBackoffCap(currentBody.attemptNo()));
+        final long retryUntil = at.brokerPersistenceTimeEpochMs() + 10_000;
+        final byte[] placeholder = CanonicalProtobuf.message(
+                output -> CanonicalProtobuf.bytes(output, 1, Bytes.utf8("unknown")));
+        final byte[] body = PublishOutcomeBody.encodeInitial(
+                scope.shard(), retryUntil, currentBody.publishAttemptId(), 3, 4,
+                StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, null, placeholder, observed,
+                typedUnknownRetryDecision(
+                        policy, firstBody.decisionTime().latestEpochMs(),
+                        Math.min(message.expireAtEpochMs(),
+                                firstBody.decisionTime().latestEpochMs() + policy.maxRetryDurationMs()),
+                        currentBody.attemptNo(), next));
+        final var mutation = SystemMutation.signed(
+                scope.shard(), SystemMutationType.PUBLISH_OUTCOME, retryUntil, currentBody.publishAttemptId(), body,
+                current.entry().mutation().authorIdentity(), 1, keys.getPrivate());
+        final long beforeSequence = store.latestSequenceNumber();
+        final var outcomes = new TargetPublishOutcomeStore(backend, scope, lineage, 16, 1, 1);
+        final var exhausted = assertThrows(IllegalArgumentException.class, () -> outcomes.prepareFirst(
+                budget(), mutation, at,
+                (a, b, c, d) -> new TargetPublishOutcomeVerifier.Authorization(
+                        keys.getPublic(), ProtocolTuple.currentSystemMutation(), owner, 10, 10, 100,
+                        (e, f, g, h) -> true,
+                        new TargetPublishOutcomeVerifier.RetryContext(
+                                current.entry().mutation(), first.entry().mutation(), policy))));
+        assertTrue(exhausted.getMessage().contains("policy/jitter/budget"));
+        assertEquals(beforeSequence, store.latestSequenceNumber());
+        assertEquals(beforeSource, store.appliedShardLogPosition());
+        assertNull(store.get(ColumnFamily.DEDUPE, systemKey(mutation)));
+    }
+
+    private static void closeRetryQueueFixture(
+            TargetStoreBackend backend,
+            ShardStore store,
+            TargetQuotaScope scope,
+            byte[] lineage,
+            TargetPartitionId target) {
+        final var priorSource = (KafkaSourcePosition) store.appliedShardLogPosition();
+        final var at = source(priorSource, priorSource.offset() + 1, priorSource.brokerPersistenceTimeEpochMs() + 1);
+        final byte[] digest = bytes(32, 0xB1);
+        new TargetMessageStore(backend, 1, 1, 1).applyAccounted(
+                budget(),
+                reader -> {
+                    final byte[] key = TargetKeyCodec.state(target);
+                    final var prior = TargetQueueState.decode(TargetValueEnvelope.decode(
+                                    reader.get(ColumnFamily.META, key), TargetQueueState.VALUE_TYPE)
+                            .payload());
+                    final var domains = prior.domains().stream().map(domain -> new TargetDomainState(
+                                    domain.domain(), domain.lifecycle(), domain.dispatchCompatibilityRef(),
+                                    domain.controlScopeRef(), domain.nativePolicyScopeRef(), null, null))
+                            .toList();
+                    final var closed = new TargetQueueState(
+                            target,
+                            TargetQueueState.nextRevision(prior.headRevision()),
+                            TargetQueueState.nextRevision(prior.controlVersion()),
+                            TargetQueueState.AdmissionState.CLOSED,
+                            prior.accountingIncarnation(),
+                            prior.nativeIndexLeadCapMs(),
+                            domains);
+                    closed.requireSuccessorOf(prior);
+                    return new TargetMessageStore.Input(
+                            List.of(), List.of(),
+                            List.of(reader.replace(
+                                    ColumnFamily.META, key, TargetQueueState.VALUE_TYPE, closed.canonicalBytes())));
+                },
+                new TargetSourceAccounting(scope, lineage, at, digest, 16, 1, 1),
+                (a, b, c) -> guard());
+    }
+
+    private static com.nereusstream.delay.protocol.RetryPolicySemantic targetOutcomeRetryPolicy(boolean retry) {
         return new com.nereusstream.delay.protocol.RetryPolicySemantic(
                 Bytes.utf8("target-outcome-policy"),
                 1,
@@ -6789,8 +7049,10 @@ class TargetCommandStoreTest {
                 100,
                 3,
                 60_000,
-                com.nereusstream.delay.protocol.UncertainPolicy.HOLD_FOR_EVIDENCE,
-                0,
+                retry
+                        ? com.nereusstream.delay.protocol.UncertainPolicy.BOUNDED_RETRY_POSSIBLE_DUPLICATE
+                        : com.nereusstream.delay.protocol.UncertainPolicy.HOLD_FOR_EVIDENCE,
+                retry ? 1 : 0,
                 com.nereusstream.delay.protocol.DlqExportMode.NOT_CONFIGURED,
                 0,
                 0,
@@ -6804,13 +7066,17 @@ class TargetCommandStoreTest {
             com.nereusstream.delay.protocol.RetryPolicySemantic policy,
             long firstAttemptAt,
             long deadline,
-            int completedAttempt) {
+            int completedAttempt,
+            Long nextRetryAt) {
         return CanonicalProtobuf.message(output -> {
-            CanonicalProtobuf.uint32(output, 1, 5);
+            CanonicalProtobuf.uint32(output, 1, nextRetryAt == null ? 5 : 2);
             CanonicalProtobuf.bytes(output, 2, policy.ref().canonicalBytes());
             CanonicalProtobuf.uint32(output, 3, completedAttempt);
             CanonicalProtobuf.uint64(output, 4, firstAttemptAt);
             CanonicalProtobuf.uint64(output, 5, deadline);
+            if (nextRetryAt != null) {
+                CanonicalProtobuf.uint64(output, 6, nextRetryAt);
+            }
             CanonicalProtobuf.uint32(output, 7, 1);
             CanonicalProtobuf.uint32(output, 8, StableCode.RECOVERY_FIRST_SEND_UNCERTAIN.wireValue());
             CanonicalProtobuf.uint32(output, 9, 1);

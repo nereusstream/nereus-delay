@@ -172,17 +172,41 @@ public final class TargetMessageRecord {
 
     /** Keeps a Target attempt and its order barrier unresolved after a source-ordered UNKNOWN outcome. */
     public TargetMessageRecord unknownOutcome(final byte[] attemptId) {
+        return unknownOutcome(attemptId, null);
+    }
+
+    /** Retains the old obligation and creates only the next bounded ordinary, policy-authorized retry work. */
+    public TargetMessageRecord unknownOutcomeWithRetry(final byte[] attemptId, final long nextRetryAt) {
+        if (nextRetryAt < 0 || Math.max(deliverAtEpochMs, nextRetryAt) >= expireAtEpochMs) {
+            throw new IllegalArgumentException("uncertain retry is outside the current Message window");
+        }
+        final var work = new TargetTimelineWorkRef(
+                locator,
+                TimelineWorkKind.UNCERTAIN_RETRY,
+                deliverAtEpochMs,
+                Math.max(deliverAtEpochMs, nextRetryAt),
+                scheduleSource.sourceOrderToken(),
+                Math.addExact(runtime.admissionsUsed(), 1),
+                TargetQueueState.nextRevision(runtime.runtimeRevision()),
+                UncertainRetryAuthority.PINNED_POLICY,
+                null,
+                null,
+                false);
+        return unknownOutcome(attemptId, work);
+    }
+
+    private TargetMessageRecord unknownOutcome(final byte[] attemptId, final TargetTimelineWorkRef retry) {
         return new TargetMessageRecord(
                 locator,
                 TargetQueueState.nextRevision(stateVersion),
                 deliverAtEpochMs,
                 expireAtEpochMs,
-                retryEligibilityAtEpochMs,
+                retry == null ? retryEligibilityAtEpochMs : retry.retryEligibilityAtEpochMs(),
                 nativeDeliveryPolicy,
                 scheduleSource,
                 inlinePayload,
                 payloadReference,
-                runtime.unknownOutcome(attemptId));
+                runtime.unknownOutcome(attemptId, retry));
     }
 
     private byte[] fields() {

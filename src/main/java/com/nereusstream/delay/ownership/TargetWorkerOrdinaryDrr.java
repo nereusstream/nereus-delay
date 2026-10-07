@@ -497,6 +497,16 @@ public final class TargetWorkerOrdinaryDrr {
         return next;
     }
 
+    /** A head that became due after the ordinary pass must be revisited before entering the wait. */
+    synchronized OptionalLong nextWakeEpochMs(
+            final long nowEpochMs, final long expectedQueueRevision, final long ordinaryPassEpochMs) {
+        final OptionalLong crossed = nextOrdinaryWakeEpochMs(ordinaryPassEpochMs);
+        if (crossed.isPresent() && crossed.getAsLong() <= nowEpochMs) {
+            return crossed;
+        }
+        return nextWakeEpochMs(nowEpochMs, expectedQueueRevision);
+    }
+
     synchronized boolean nativeWakeScanComplete(final long expectedQueueRevision) {
         return expectedQueueRevision >= 0
                 && nativeWakeCompleteRevision == expectedQueueRevision

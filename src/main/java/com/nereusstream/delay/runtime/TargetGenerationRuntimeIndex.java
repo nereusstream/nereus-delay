@@ -247,6 +247,10 @@ public final class TargetGenerationRuntimeIndex {
 
     /** Applies the initial UNKNOWN result without releasing the exact unresolved attempt obligation. */
     public TargetGenerationRuntimeIndex unknownOutcome(final byte[] attemptId) {
+        return unknownOutcome(attemptId, null);
+    }
+
+    TargetGenerationRuntimeIndex unknownOutcome(final byte[] attemptId, final TargetTimelineWorkRef retry) {
         Bytes.requireLength(attemptId, 32, "attemptId");
         final var nextObligations = new ArrayList<>(obligations);
         int matched = 0;
@@ -265,18 +269,23 @@ public final class TargetGenerationRuntimeIndex {
         }
         final boolean terminal = terminal();
         if (terminal) {
-            if (currentWorkKind != CurrentSendWorkKind.NONE || publishAttemptId != null) {
+            if (currentWorkKind != CurrentSendWorkKind.NONE || publishAttemptId != null || retry != null) {
                 throw new IllegalStateException("terminal Target generation retains current send work");
             }
         } else if (currentWorkKind != CurrentSendWorkKind.PUBLISHING
                 || !Arrays.equals(this.publishAttemptId, attemptId)) {
             throw new IllegalStateException("Target UNKNOWN result differs from current PUBLISHING work");
         }
+        if (retry != null
+                && (retry.workKind() != TimelineWorkKind.UNCERTAIN_RETRY
+                        || retry.uncertainRetryAuthority() != UncertainRetryAuthority.PINNED_POLICY)) {
+            throw new IllegalArgumentException("UNKNOWN can only create a policy-authorized uncertain retry");
+        }
         return new TargetGenerationRuntimeIndex(
                 generation,
                 terminal ? aggregateState : GenerationAggregateState.UNCERTAIN,
-                CurrentSendWorkKind.NONE,
-                null,
+                retry == null ? CurrentSendWorkKind.NONE : CurrentSendWorkKind.TIMELINE,
+                retry,
                 null,
                 null,
                 nextObligations,
