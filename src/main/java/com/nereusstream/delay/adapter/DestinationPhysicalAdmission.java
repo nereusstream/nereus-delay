@@ -1,7 +1,12 @@
 package com.nereusstream.delay.adapter;
 
+import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.CanonicalTargetPartition;
+import com.nereusstream.delay.protocol.ChannelKind;
 import com.nereusstream.delay.protocol.DestinationLaneId;
+import com.nereusstream.delay.protocol.ShardId;
+import com.nereusstream.delay.protocol.TargetChannelIdentity;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import java.nio.charset.StandardCharsets;
 import java.text.Normalizer;
@@ -23,7 +28,8 @@ public final class DestinationPhysicalAdmission {
     private final long workerMaxRequests;
     private final long workerMaxBytes;
     private final Map<String, ClusterState> clusters = new HashMap<>();
-    private final Map<DestinationLaneId, LaneState> lanes = new HashMap<>();
+    private final Map<DestinationLaneId, ChannelState> lanes = new HashMap<>();
+    private final Map<String, ChannelState> targetChannels = new HashMap<>();
     private long workerActiveRequests;
     private long workerActiveBytes;
     private long nextReservationId = 1;
@@ -66,14 +72,90 @@ public final class DestinationPhysicalAdmission {
         if (!clusters.containsKey(specification.targetClusterId())) {
             throw new IllegalArgumentException("target cluster is not registered");
         }
-        if (lanes.putIfAbsent(specification.laneId(), new LaneState(specification)) != null) {
+        if (lanes.putIfAbsent(specification.laneId(), new ChannelState(specification)) != null) {
             throw new IllegalArgumentException("Lane is already registered");
         }
     }
 
+    /** Registers one full immutable source-Shard/Target/channel generation, initially closed. */
+    public synchronized void registerTargetChannel(final TargetChannelSpec specification) {
+        Objects.requireNonNull(specification, "specification");
+        if (!clusters.containsKey(specification.clusterId())) {
+            throw new IllegalArgumentException("Target channel cluster is not registered");
+        }
+        if (targetChannels.putIfAbsent(targetKey(specification.channel()), new ChannelState(specification)) != null) {
+            throw new IllegalArgumentException("Target channel is already registered");
+        }
+    }
+
+    public synchronized void openTargetReady(final TargetChannelIdentity channel) {
+        final var state = targetChannel(channel);
+        if (!state.ready) {
+            ensureReadyMinimumFits(state);
+            state.ready = true;
+        }
+    }
+
+    public synchronized void closeTargetReady(final TargetChannelIdentity channel) {
+        targetChannel(channel).ready = false;
+    }
+
+    /** Stops this Source Shard's new/queued Target calls; physical completion and client teardown remain external. */
+    public synchronized void closeTargetSourceShard(final ShardId shard) {
+        Objects.requireNonNull(shard, "shard");
+        for (var state : targetChannels.values()) {
+            if (state.targetChannel.context().sourceShard().equals(shard)) {
+                state.ready = false;
+            }
+        }
+    }
+
+    /** A closed generation remains registered until every physical/zombie charge has actually ended. */
+    public synchronized void unregisterTargetChannel(final TargetChannelIdentity channel) {
+        final var state = targetChannel(channel);
+        if (state.ready || state.activeRequests != 0 || state.activeBytes != 0
+                || state.zombieRequests != 0 || state.zombieBytes != 0) {
+            throw new IllegalStateException("Target channel is READY or has outstanding physical charges");
+        }
+        targetChannels.remove(targetKey(channel));
+    }
+
+    public synchronized AdmissionDecision tryAcquireTarget(
+            final TargetChannelIdentity channel, final long physicalBytes) {
+        final var state = targetChannels.get(targetKey(channel));
+        return state == null ? AdmissionDecision.rejected(Rejection.TARGET_CHANNEL_NOT_REGISTERED)
+                : tryAcquire(state, physicalBytes);
+    }
+
+    public synchronized void clearTargetZombieBlock(final TargetChannelIdentity channel) {
+        final var state = targetChannel(channel);
+        if (state.zombieRequests >= state.maxZombieRequests || state.zombieBytes >= state.maxZombieBytes) {
+            throw new IllegalStateException("Target channel zombie capacity is still exhausted");
+        }
+        state.blocked = false;
+    }
+
+    public synchronized TargetChannelSnapshot targetChannelSnapshot(final TargetChannelIdentity channel) {
+        final var state = targetChannel(channel);
+        return new TargetChannelSnapshot(channel, state.ready, state.blocked,
+                state.activeRequests, state.activeBytes, state.zombieRequests, state.zombieBytes);
+    }
+
+    private ChannelState targetChannel(final TargetChannelIdentity channel) {
+        final var state = targetChannels.get(targetKey(channel));
+        if (state == null) {
+            throw new IllegalArgumentException("Target channel is not registered");
+        }
+        return state;
+    }
+
+    private static String targetKey(final TargetChannelIdentity channel) {
+        return Bytes.hex(Objects.requireNonNull(channel, "channel").encodedKey());
+    }
+
     /** Opens the Lane only if its committed READY minimum can be protected. */
     public synchronized void openReady(final DestinationLaneId laneId) {
-        final LaneState lane = lane(laneId);
+        final ChannelState lane = lane(laneId);
         if (lane.ready) {
             return;
         }
@@ -96,7 +178,7 @@ public final class DestinationPhysicalAdmission {
      * stale teardown callback from removing a newer registration.</p>
      */
     public synchronized void unregisterLane(final DestinationLaneId laneId, final byte[] laneIncarnation) {
-        final LaneState lane = lane(laneId);
+        final ChannelState lane = lane(laneId);
         Bytes.requireLength(laneIncarnation, 16, "laneIncarnation");
         if (!Arrays.equals(lane.laneIncarnation, laneIncarnation)) {
             throw new IllegalArgumentException("Lane identity mismatch");
@@ -117,18 +199,23 @@ public final class DestinationPhysicalAdmission {
      */
     public synchronized AdmissionDecision tryAcquire(
             final DestinationLaneId laneId, final byte[] laneIncarnation, final long physicalBytes) {
-        final LaneState lane = lanes.get(Objects.requireNonNull(laneId, "laneId"));
+        final ChannelState lane = lanes.get(Objects.requireNonNull(laneId, "laneId"));
         if (lane == null) {
             return AdmissionDecision.rejected(Rejection.LANE_NOT_REGISTERED);
         }
         if (!Arrays.equals(lane.laneIncarnation, laneIncarnation)) {
             return AdmissionDecision.rejected(Rejection.LANE_IDENTITY_MISMATCH);
         }
+        return tryAcquire(lane, physicalBytes);
+    }
+
+    private AdmissionDecision tryAcquire(final ChannelState lane, final long physicalBytes) {
         if (physicalBytes < 0) {
             throw new IllegalArgumentException("physical byte charge must be non-negative");
         }
         if (!lane.ready) {
-            return AdmissionDecision.rejected(Rejection.LANE_NOT_READY);
+            return AdmissionDecision.rejected(lane.targetChannel == null
+                    ? Rejection.LANE_NOT_READY : Rejection.TARGET_CHANNEL_NOT_READY);
         }
         if (lane.blocked || lane.zombieRequests >= lane.maxZombieRequests || lane.zombieBytes >= lane.maxZombieBytes) {
             lane.blocked = true;
@@ -145,7 +232,8 @@ public final class DestinationPhysicalAdmission {
             return AdmissionDecision.rejected(Rejection.ZOMBIE_CAPACITY);
         }
         if (lane.activeRequests >= lane.maxRequests || physicalBytes > lane.maxBytes - lane.activeBytes) {
-            return AdmissionDecision.rejected(Rejection.LANE_CAPACITY);
+            return AdmissionDecision.rejected(lane.targetChannel == null
+                    ? Rejection.LANE_CAPACITY : Rejection.TARGET_CHANNEL_CAPACITY);
         }
 
         final long otherReadyRequests = readyMinimumRequests(lane, false);
@@ -165,7 +253,7 @@ public final class DestinationPhysicalAdmission {
         final long reservationId = nextReservationId;
         nextReservationId = Math.addExact(nextReservationId, 1);
         final Reservation reservation = new Reservation(
-                this, reservationId, lane.laneId, lane.laneIncarnation, lane.targetClusterId, physicalBytes);
+                this, reservationId, lane, physicalBytes);
         lane.activeRequests = Math.addExact(lane.activeRequests, 1);
         lane.activeBytes = Math.addExact(lane.activeBytes, physicalBytes);
         cluster.activeRequests = Math.addExact(cluster.activeRequests, 1);
@@ -177,7 +265,7 @@ public final class DestinationPhysicalAdmission {
 
     /** Clears a zombie-capacity block only after the caller has rechecked the physical state. */
     public synchronized void clearZombieBlock(final DestinationLaneId laneId) {
-        final LaneState lane = lane(laneId);
+        final ChannelState lane = lane(laneId);
         if (lane.zombieRequests >= lane.maxZombieRequests || lane.zombieBytes >= lane.maxZombieBytes) {
             throw new IllegalStateException("zombie capacity is still exhausted");
         }
@@ -185,7 +273,7 @@ public final class DestinationPhysicalAdmission {
     }
 
     public synchronized LaneSnapshot laneSnapshot(final DestinationLaneId laneId) {
-        final LaneState lane = lane(laneId);
+        final ChannelState lane = lane(laneId);
         return new LaneSnapshot(
                 lane.laneId,
                 lane.laneIncarnation,
@@ -229,7 +317,7 @@ public final class DestinationPhysicalAdmission {
                 cluster.maxBytes);
     }
 
-    private void ensureReadyMinimumFits(final LaneState candidate) {
+    private void ensureReadyMinimumFits(final ChannelState candidate) {
         final long workerMinimumRequests = readyMinimumRequests(candidate, false);
         final long workerMinimumBytes = readyMinimumBytes(candidate, false);
         if (!fits(workerActiveRequests, 0, workerMinimumRequests, workerMaxRequests)
@@ -245,14 +333,14 @@ public final class DestinationPhysicalAdmission {
         }
     }
 
-    private long readyMinimumRequests(final LaneState excluded, final boolean sameCluster) {
+    private long readyMinimumRequests(final ChannelState excluded, final boolean sameCluster) {
         return readyMinimumRequests(excluded, sameCluster, null);
     }
 
     private long readyMinimumRequests(
-            final LaneState excluded, final boolean sameCluster, final String targetClusterId) {
+            final ChannelState excluded, final boolean sameCluster, final String targetClusterId) {
         long total = 0;
-        for (LaneState lane : lanes.values()) {
+        for (ChannelState lane : lanes.values()) {
             if (lane == excluded || !lane.ready) {
                 continue;
             }
@@ -273,13 +361,14 @@ public final class DestinationPhysicalAdmission {
         return total;
     }
 
-    private long readyMinimumBytes(final LaneState excluded, final boolean sameCluster) {
+    private long readyMinimumBytes(final ChannelState excluded, final boolean sameCluster) {
         return readyMinimumBytes(excluded, sameCluster, null);
     }
 
-    private long readyMinimumBytes(final LaneState excluded, final boolean sameCluster, final String targetClusterId) {
+    private long readyMinimumBytes(
+            final ChannelState excluded, final boolean sameCluster, final String targetClusterId) {
         long total = 0;
-        for (LaneState lane : lanes.values()) {
+        for (ChannelState lane : lanes.values()) {
             if (lane == excluded || !lane.ready) {
                 continue;
             }
@@ -309,8 +398,8 @@ public final class DestinationPhysicalAdmission {
         }
     }
 
-    private LaneState lane(final DestinationLaneId laneId) {
-        final LaneState result = lanes.get(Objects.requireNonNull(laneId, "laneId"));
+    private ChannelState lane(final DestinationLaneId laneId) {
+        final ChannelState result = lanes.get(Objects.requireNonNull(laneId, "laneId"));
         if (result == null) {
             throw new IllegalArgumentException("Lane is not registered");
         }
@@ -337,7 +426,7 @@ public final class DestinationPhysicalAdmission {
             if (reservation.state == ReservationState.ZOMBIE) {
                 return true;
             }
-            final LaneState lane = lane(reservation.laneId);
+            final ChannelState lane = reservation.channel;
             if (lane.zombieRequests >= lane.maxZombieRequests
                     || reservation.physicalBytes > lane.maxZombieBytes - lane.zombieBytes) {
                 lane.blocked = true;
@@ -355,7 +444,7 @@ public final class DestinationPhysicalAdmission {
             if (reservation.state == ReservationState.RELEASED) {
                 return false;
             }
-            final LaneState lane = lane(reservation.laneId);
+            final ChannelState lane = reservation.channel;
             final ClusterState cluster = clusters.get(reservation.targetClusterId);
             if (lane.activeRequests <= 0
                     || lane.activeBytes < reservation.physicalBytes
@@ -391,7 +480,10 @@ public final class DestinationPhysicalAdmission {
         ZOMBIE_CAPACITY,
         LANE_CAPACITY,
         WORKER_CAPACITY,
-        TARGET_CLUSTER_CAPACITY
+        TARGET_CLUSTER_CAPACITY,
+        TARGET_CHANNEL_NOT_REGISTERED,
+        TARGET_CHANNEL_NOT_READY,
+        TARGET_CHANNEL_CAPACITY
     }
 
     public enum ReservationState {
@@ -408,6 +500,35 @@ public final class DestinationPhysicalAdmission {
             }
         }
     }
+
+    /** Finite per-generation limits; callers must also enforce activated Target/domain/slot/resource counts. */
+    public record TargetChannelSpec(
+            TargetChannelIdentity channel, CanonicalTargetPartition physical,
+            long maxRequests, long maxBytes, long maxZombieRequests, long maxZombieBytes) {
+        public TargetChannelSpec {
+            Objects.requireNonNull(channel, "channel");
+            Objects.requireNonNull(physical, "physical");
+            if (!channel.context().target().equals(physical.id())
+                    || channel.context().kind() == ChannelKind.KAFKA_TRANSACTIONAL_RECEIPT
+                            && physical.resource().kind() != BrokerResourceIdentity.Kind.KAFKA
+                    || channel.context().kind() == ChannelKind.PULSAR_DEDUP_PRODUCER
+                            && physical.resource().kind() != BrokerResourceIdentity.Kind.PULSAR
+                    || maxRequests <= 0 || maxBytes <= 0 || maxZombieRequests <= 0 || maxZombieBytes <= 0
+                    || maxZombieRequests > maxRequests || maxZombieBytes > maxBytes) {
+                throw new IllegalArgumentException("invalid Target channel physical identity/limits");
+            }
+        }
+
+        private String clusterId() {
+            return physical.resource().kind() == BrokerResourceIdentity.Kind.KAFKA
+                    ? physical.resource().kafka().authenticatedClusterId()
+                    : physical.resource().pulsar().authenticatedClusterId();
+        }
+    }
+
+    public record TargetChannelSnapshot(
+            TargetChannelIdentity channel, boolean ready, boolean blocked,
+            long activeRequests, long activeBytes, long zombieRequests, long zombieBytes) {}
 
     public record LaneSpec(
             DestinationLaneId laneId,
@@ -467,6 +588,7 @@ public final class DestinationPhysicalAdmission {
     public final class Reservation implements AutoCloseable {
         private final DestinationPhysicalAdmission owner;
         private final long id;
+        private final ChannelState channel;
         private final DestinationLaneId laneId;
         private final byte[] laneIncarnation;
         private final String targetClusterId;
@@ -476,15 +598,14 @@ public final class DestinationPhysicalAdmission {
         private Reservation(
                 final DestinationPhysicalAdmission owner,
                 final long id,
-                final DestinationLaneId laneId,
-                final byte[] laneIncarnation,
-                final String targetClusterId,
+                final ChannelState channel,
                 final long physicalBytes) {
             this.owner = owner;
             this.id = id;
-            this.laneId = laneId;
-            this.laneIncarnation = Bytes.copy(laneIncarnation);
-            this.targetClusterId = targetClusterId;
+            this.channel = channel;
+            this.laneId = channel.laneId;
+            this.laneIncarnation = channel.laneIncarnation == null ? null : Bytes.copy(channel.laneIncarnation);
+            this.targetClusterId = channel.targetClusterId;
             this.physicalBytes = physicalBytes;
         }
 
@@ -493,11 +614,21 @@ public final class DestinationPhysicalAdmission {
         }
 
         public DestinationLaneId laneId() {
+            if (laneId == null) {
+                throw new IllegalStateException("Target reservation has no Lane identity");
+            }
             return laneId;
         }
 
         public byte[] laneIncarnation() {
+            if (laneIncarnation == null) {
+                throw new IllegalStateException("Target reservation has no Lane incarnation");
+            }
             return Bytes.copy(laneIncarnation);
+        }
+
+        public TargetChannelIdentity targetChannel() {
+            return channel.targetChannel;
         }
 
         public String targetClusterId() {
@@ -585,7 +716,8 @@ public final class DestinationPhysicalAdmission {
         }
     }
 
-    private static final class LaneState {
+    private static final class ChannelState {
+        private final TargetChannelIdentity targetChannel;
         private final DestinationLaneId laneId;
         private final byte[] laneIncarnation;
         private final String targetClusterId;
@@ -602,12 +734,28 @@ public final class DestinationPhysicalAdmission {
         private long zombieRequests;
         private long zombieBytes;
 
-        private LaneState(final LaneSpec specification) {
+        private ChannelState(final LaneSpec specification) {
+            targetChannel = null;
             laneId = specification.laneId();
             laneIncarnation = specification.laneIncarnation();
             targetClusterId = specification.targetClusterId();
             minimumReadyRequests = specification.minimumReadyRequests();
             minimumReadyBytes = specification.minimumReadyBytes();
+            maxRequests = specification.maxRequests();
+            maxBytes = specification.maxBytes();
+            maxZombieRequests = specification.maxZombieRequests();
+            maxZombieBytes = specification.maxZombieBytes();
+        }
+
+        private ChannelState(final TargetChannelSpec specification) {
+            targetChannel = specification.channel();
+            laneId = null;
+            laneIncarnation = null;
+            targetClusterId = specification.clusterId();
+            // Target fairness and ordinary protection belong to the Worker Target ring/work-class graph;
+            // a Profile, source Shard or channel slot never creates another Lane READY minimum.
+            minimumReadyRequests = 0;
+            minimumReadyBytes = 0;
             maxRequests = specification.maxRequests();
             maxBytes = specification.maxBytes();
             maxZombieRequests = specification.maxZombieRequests();

@@ -1,0 +1,45 @@
+C2 Target physical pool and Pulsar prepared-record bridge
+
+Date: 2026-10-07
+Base: main@abb430a47500871b7e95424e6188886d33830927
+
+DestinationPhysicalAdmission now registers full immutable Target channel generations using their NV20 content keys, sharing the existing Worker/cluster/active/zombie pool and release machinery. Target generations retain their own source-Shard/channel ownership; renewal does not erase old charges. Source-Shard close prevents new/queued sends only for that Shard. Target slots/Profiles/source Shards do not create Lane READY minima; fairness/ordinary protection stays in the existing Target ring/WorkClass graph. Activated registration/slot/Producer/FD counts are still production resource-graph obligations, not authority supplied by this local gate.
+
+PulsarPreparedRecordFactory.targetManaged joins the exact newly PUBLISHING Message and frozen publication with inline or committed-object payload projection, resolved bytes, fixed Journal sequence, full metadata/reserved properties/prepared hash/artifact set. It checks stable producer-name hash against the Target channel and preserves managed timing. This is a pure record join, not a sequence allocator or durable Journal proof. The supplied object Profile/protection and the mapping still require production authorities. Existing record wire schema, Source bodies, tuples, NV values and legacy Lane interfaces are unchanged.
+
+Target bounded submission requires a distinct final ownership hook. Legacy adapter/transport defaults fail closed without invoking the ordinary prepared-record hook. Pinned adapter propagates it into the source-locked P1 transport after builder/value/properties setup and before sendAsync; Source close is checked both after queue wait and at the final hook. The live producer-name hash is checked before SDK construction. Once SEND has been called, synchronous exception or unobservable return propagates to the original bounded zombie fence; it is not converted into an already-completed UNKNOWN physical stage.
+
+Final focused command:
+./gradlew checkstyleMain checkstyleTest test --tests 'com.nereusstream.delay.protocol.TargetMaterializedAdmissionTest' --tests 'com.nereusstream.delay.adapter.DestinationPhysicalAdmissionTest' --tests 'com.nereusstream.delay.adapter.BoundedDestinationPublishAdapterTest' --no-daemon --console=plain
+Result: BUILD SUCCESSFUL in 22s; 37/37 (7+10+20), zero failures/errors/skips; main/test Checkstyle passes. Target tests cover inline/object identity and foreign projection rejection, producer mismatch, exact Message state, old-generation zombie retention, shared Worker envelope, source-Shard isolation, missing final gate/legacy fallback refusal, queued Source close and physical completion after logical timeout. Existing pool/async wrapper cases remain included.
+
+Locked P1 SDK command:
+./gradlew runRealPulsarH0Smoke -PpulsarClientClasspath=/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-client/build/libs/pulsar-client-original-5.0.0-M1.jar:/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-client-api/build/libs/pulsar-client-api-5.0.0-M1.jar:/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-common/build/libs/pulsar-common-5.0.0-M1.jar --no-daemon --console=plain
+Result: BUILD SUCCESSFUL in 14s, including compileRealPulsar.
+Prepared SDK ownership gate passed: after properties/before SEND; denied=0, unavailable=0, allowed=1, synchronous SEND uncertainty propagates
+Pulsar H0 smoke passed: managed.newMessage=0, managed.sendAsync=0, native.newMessage=0, native.sendAsync=0
+The added probe uses CountingProducer and controlled Owner revocation during SDK properties setup. Its one permitted SEND returns no authenticated Broker evidence; it is not a real-service publication.
+
+Scope: credentials, fixed sequence/Journal ID and final gate are explicit fixtures. No actual Target Journal namespace/mapping durability/recovery, exclusive first-send token, production Owner/Store/credential/activation provider, application Host composition, Native/baseline record path or real Broker send/ACK/restart is certified. Those remain required work. C2/E5 remain IN_PROGRESS / PENDING_CENTRAL_VALIDATION; global implementation/central-validation/production-authority flags remain false.
+
+Documentation command:
+./gradlew checkDocumentation --no-daemon --console=plain
+Result: BUILD SUCCESSFUL in 1m 4s; verifier suites 10/10 and 14/14 plus historical/package authority checks passed. progress JSON incomplete flags, evidence paths, final source/report/artifact SHA-256 matches and git diff --check verified.
+
+SHA-256 (final source, reports and explicitly supplied P1 artifacts):
+3fcfbc0efe4617ed05691b8ec3b3d5d8e87f17d3082b2ebf7c34758c588981e5  src/main/java/com/nereusstream/delay/adapter/BoundedDestinationPublishAdapter.java
+60443aaeb3bd8558051680d484256659b6a522af3062ff8a96bacb3009a51884  src/main/java/com/nereusstream/delay/adapter/DestinationPhysicalAdmission.java
+8fec9527340d241f236734ed5684c82219e3577b9fb1f4b0df52d33748faba2a  src/main/java/com/nereusstream/delay/adapter/DestinationPublishAdapter.java
+28da23b5d4d33b0cb088d0ad984d5ff7d5faaea4db0b16badb2a5ce7ca8bf128  src/main/java/com/nereusstream/delay/adapter/PinnedPulsarDestinationAdapter.java
+aa4eba1006a8d04ec5d0c25ff3771530b4577368edbf3feb789d20698f02a11e  src/main/java/com/nereusstream/delay/adapter/PulsarPreparedRecordFactory.java
+1e24dd00c464c943abeb29496cc89727266e040a7a020ff1be0dfffdad224474  src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactDestinationTransport.java
+a0e80d380eec04fe81c5d1f9ea30ff8657f44f362cb4859d3ab06f3e009ec45b  src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactH0Smoke.java
+81a17895d2a7bd2f6bc301ae9ffb28a43ee097e418136e39691e9519240b5333  src/test/java/com/nereusstream/delay/protocol/TargetMaterializedAdmissionTest.java
+ea46b69c6d72ca2a2c87886aec3d71fa8dec7ed69527b5e309b59b84c7c58e45  build/test-results/test/TEST-com.nereusstream.delay.protocol.TargetMaterializedAdmissionTest.xml
+827d7440d0c143d28749f9294dc7210a02d45182bc7b0968ad0d2109236ef446  build/test-results/test/TEST-com.nereusstream.delay.adapter.DestinationPhysicalAdmissionTest.xml
+bc6cb874baa58d56c0df5507e5af71fe15821d66aced7bf6e93a6d9e666778e7  build/test-results/test/TEST-com.nereusstream.delay.adapter.BoundedDestinationPublishAdapterTest.xml
+1cebbf9c4340f833edef1a4ab2e42e836af0c8b770dc96a500c3c32d6471e37e  build/reports/checkstyle/main.xml
+5f0297d93c65110a2f55915d73253257387acb5203d1ed178b8cabaacd86882e  build/reports/checkstyle/test.xml
+57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c  /Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-client/build/libs/pulsar-client-original-5.0.0-M1.jar
+f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394  /Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-client-api/build/libs/pulsar-client-api-5.0.0-M1.jar
+94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8  /Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-common/build/libs/pulsar-common-5.0.0-M1.jar

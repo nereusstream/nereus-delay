@@ -1,5 +1,6 @@
 package com.nereusstream.delay.transport;
 
+import com.nereusstream.delay.adapter.BoundedDestinationPublishAdapter.PreparedPublishPreflight;
 import com.nereusstream.delay.adapter.DestinationPublishResult;
 import com.nereusstream.delay.adapter.PinnedPulsarDestinationAdapter;
 import com.nereusstream.delay.adapter.PulsarDestinationRequest;
@@ -182,6 +183,19 @@ public final class PulsarClientArtifactDestinationTransport
      */
     public CompletionStage<DestinationPublishResult> publishPreparedRecord(
             final PulsarPreparedRecord record, final ArtifactGenerationSet artifacts) {
+        return publishPreparedRecordInternal(record, artifacts, null);
+    }
+
+    @Override
+    public CompletionStage<DestinationPublishResult> publishPreparedRecord(
+            final PulsarPreparedRecord record, final ArtifactGenerationSet artifacts,
+            final PreparedPublishPreflight ownershipGate) {
+        return publishPreparedRecordInternal(record, artifacts, Objects.requireNonNull(ownershipGate, "ownershipGate"));
+    }
+
+    private CompletionStage<DestinationPublishResult> publishPreparedRecordInternal(
+            final PulsarPreparedRecord record, final ArtifactGenerationSet artifacts,
+            final PreparedPublishPreflight ownershipGate) {
         Objects.requireNonNull(record, "record");
         Objects.requireNonNull(artifacts, "artifacts");
         if (!Arrays.equals(record.artifactGenerationSetDigest(), artifacts.setDigest())
@@ -195,12 +209,38 @@ public final class PulsarClientArtifactDestinationTransport
             return CompletableFuture.completedFuture(
                     DestinationPublishResult.definitelyNotPublished(StableCode.CAPABILITY_UNAVAILABLE, null));
         }
+        if (ownershipGate != null
+                && record.sequenceAuthority().kind()
+                        == com.nereusstream.delay.protocol.PulsarSequenceAuthority.Kind.MANAGED_JOURNAL
+                && !Arrays.equals(record.sequenceAuthority().producerNameHash(), producerNameHash)) {
+            return CompletableFuture.completedFuture(
+                    DestinationPublishResult.unknown(StableCode.PREPARED_SUBMISSION_MISMATCH, null));
+        }
+        boolean libraryInvoked = false;
         try {
-            return PulsarClientArtifactRecordEncoder.send(producer, record)
+            final var builder = PulsarClientArtifactRecordEncoder.configure(producer, record);
+            if (ownershipGate != null) {
+                final DestinationPublishResult denied;
+                try {
+                    denied = ownershipGate.check(record, artifacts);
+                } catch (RuntimeException unavailableGate) {
+                    return CompletableFuture.completedFuture(
+                            DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null));
+                }
+                if (denied != null) {
+                    return CompletableFuture.completedFuture(denied);
+                }
+            }
+            libraryInvoked = true;
+            return builder.sendAsync()
                     .handle((messageId, failure) -> failure == null
                             ? success(record, artifacts, messageId)
                             : failure(record, artifacts, failure));
         } catch (RuntimeException failure) {
+            if (ownershipGate != null && libraryInvoked) {
+                // The Target bounded adapter must retain a zombie when SEND ownership or completion is unobserved.
+                throw failure;
+            }
             return CompletableFuture.completedFuture(failure(record, artifacts, failure));
         }
     }

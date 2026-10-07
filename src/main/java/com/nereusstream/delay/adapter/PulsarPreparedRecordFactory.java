@@ -4,14 +4,24 @@ import com.nereusstream.delay.protocol.AdapterKind;
 import com.nereusstream.delay.protocol.ArtifactGenerationSet;
 import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.ChannelKind;
 import com.nereusstream.delay.protocol.DeliveryContract;
 import com.nereusstream.delay.protocol.ExternalDeliveryIdentity;
+import com.nereusstream.delay.protocol.PayloadForPublish;
+import com.nereusstream.delay.protocol.PayloadReference;
 import com.nereusstream.delay.protocol.PreparedPublishDescriptor;
 import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity;
+import com.nereusstream.delay.protocol.PulsarKey;
+import com.nereusstream.delay.protocol.PulsarMetadata;
 import com.nereusstream.delay.protocol.PulsarPreparedRecord;
+import com.nereusstream.delay.protocol.PulsarRecordTemplate;
 import com.nereusstream.delay.protocol.PulsarReservedProperties;
 import com.nereusstream.delay.protocol.PulsarSequenceAuthority;
 import com.nereusstream.delay.protocol.ResolvedPayload;
+import com.nereusstream.delay.protocol.TargetOrdinaryPublicationBinding;
+import com.nereusstream.delay.protocol.TargetQueueState;
+import com.nereusstream.delay.runtime.CurrentSendWorkKind;
+import com.nereusstream.delay.runtime.TargetMessageRecord;
 import java.util.Arrays;
 import java.util.Objects;
 
@@ -24,6 +34,89 @@ import java.util.Objects;
  */
 public final class PulsarPreparedRecordFactory {
     private PulsarPreparedRecordFactory() {}
+
+    /**
+     * Pure Target record join. The sequence is a supplied Journal value, not proof that its mapping is durable.
+     * The final Target preflight must validate the protected mapping and live Owner/Store/credential/send token.
+     */
+    public static PulsarPreparedRecord targetManaged(
+            final TargetOrdinaryPublicationBinding publication,
+            final TargetMessageRecord message,
+            final PayloadForPublish payload,
+            final ResolvedPayload resolved,
+            final PulsarSequenceAuthority sequence,
+            final ArtifactGenerationSet artifacts) {
+        Objects.requireNonNull(message, "message");
+        Objects.requireNonNull(payload, "payload");
+        if (!publication.locator().equals(message.locator())
+                || message.stateVersion() != TargetQueueState.nextRevision(publication.claimedMessageVersion())
+                || message.runtime().currentWorkKind() != CurrentSendWorkKind.PUBLISHING
+                || !Arrays.equals(message.runtime().publishAttemptId(), publication.publishAttemptId())
+                || message.runtime().admissionsUsed() != publication.attemptNo()
+                || (message.inlinePayload() != null
+                        ? !payload.hasInlinePayload()
+                                || !Arrays.equals(message.inlinePayload(), payload.inlinePayload())
+                        : !payload.hasObject()
+                                || !message.payloadReference().equals(
+                                        PayloadReference.fromDescriptor(payload.object())))) {
+            throw new IllegalArgumentException("Target record differs from the exact newly admitted Message/payload");
+        }
+        final var template = targetTemplate(publication, payload);
+        final var record = new PulsarPreparedRecord(
+                template, template.recordTemplateHash(), resolved, sequence,
+                ExternalDeliveryIdentity.publishAttempt(publication.publishAttemptId()),
+                publication.preparedPublishHash(),
+                PulsarReservedProperties.all(template.reservedMetadata(), publication.publishAttemptId(),
+                        publication.preparedPublishHash()),
+                Objects.requireNonNull(artifacts, "artifacts").setDigest());
+        requireTargetBinding(publication, record, artifacts);
+        return record;
+    }
+
+    /** Immutable byte/identity checks only; no Source, Journal, physical ownership or credential authorization. */
+    public static void requireTargetBinding(
+            final TargetOrdinaryPublicationBinding publication,
+            final PulsarPreparedRecord record,
+            final ArtifactGenerationSet artifacts) {
+        Objects.requireNonNull(publication, "publication");
+        Objects.requireNonNull(record, "record");
+        Objects.requireNonNull(artifacts, "artifacts");
+        if (!record.template().equals(targetTemplate(publication, record.template().payload()))
+                || record.sequenceAuthority().kind() != PulsarSequenceAuthority.Kind.MANAGED_JOURNAL
+                || !Arrays.equals(record.sequenceAuthority().producerNameHash(),
+                        Bytes.sha256(publication.channel().context().producerIdentity()))
+                || !record.externalIdentity().equals(
+                        ExternalDeliveryIdentity.publishAttempt(publication.publishAttemptId()))
+                || !Arrays.equals(record.preparedIdentityHash(), publication.preparedPublishHash())
+                || !Arrays.equals(record.artifactGenerationSetDigest(), publication.artifactGenerationSetDigest())
+                || !Arrays.equals(artifacts.setDigest(), publication.artifactGenerationSetDigest())) {
+            throw new IllegalArgumentException(
+                    "Pulsar Target record changes its frozen channel/request/artifact identity");
+        }
+    }
+
+    private static PulsarRecordTemplate targetTemplate(
+            final TargetOrdinaryPublicationBinding publication, final PayloadForPublish payload) {
+        Objects.requireNonNull(publication, "publication");
+        if (publication.physical().resource().kind() != BrokerResourceIdentity.Kind.PULSAR
+                || publication.channel().context().kind() != ChannelKind.PULSAR_DEDUP_PRODUCER
+                || publication.adapterMetadata().kind() != com.nereusstream.delay.protocol.AdapterMetadata.Kind.PULSAR
+                || payload.length() != publication.payloadLength()
+                || !Arrays.equals(payload.payloadSha256(), publication.payloadSha256())) {
+            throw new IllegalArgumentException(
+                    "Target managed Journal record requires its exact Pulsar payload/channel");
+        }
+        final var metadata = publication.adapterMetadata().pulsar();
+        final byte[] keyBytes = metadata.partitionKey();
+        final var key = keyBytes == null ? PulsarKey.none()
+                : metadata.keyEncoding() == PulsarMetadata.KeyEncoding.UTF8
+                        ? PulsarKey.utf8(keyBytes) : PulsarKey.binary(keyBytes);
+        return new PulsarRecordTemplate(
+                publication.physical().resource(), publication.physical().physicalPartition(), key,
+                metadata.orderingKey(), metadata.properties(), publication.eventTimeEpochMs(),
+                publication.reservedMetadata(), DeliveryContract.NEREUS_MANAGED_NOT_BEFORE, null,
+                payload, publication.artifactGenerationSetDigest());
+    }
 
     /** Constructs the managed record after an exact durable Journal mapping. */
     public static PulsarPreparedRecord managed(

@@ -108,8 +108,72 @@ public final class PulsarClientArtifactH0Smoke {
         }
         nativeProducer.requireUntouched("AUTO_FAST real transport");
 
+        verifyPreparedOwnershipGate(shard, messageId);
+
         System.out.println("Pulsar H0 smoke passed: managed.newMessage=0, managed.sendAsync=0, "
                 + "native.newMessage=0, native.sendAsync=0");
+    }
+
+    private static void verifyPreparedOwnershipGate(final ShardId shard, final DelayMessageId messageId) {
+        final var artifacts = com.nereusstream.delay.protocol.ArtifactGenerationSet.current(
+                1, com.nereusstream.delay.protocol.PulsarSourceLock.digest(), digest("gate-schema"));
+        final byte[] payload = Bytes.utf8("gate-payload");
+        final byte[] attempt = digest("gate-attempt");
+        final var reserved = new com.nereusstream.delay.protocol.ReservedPublishMetadata(
+                shard.routeIncarnation(), shard.unsignedPartition(), messageId, 0, attempt,
+                digest("destination"), digest("capability"), 1000,
+                com.nereusstream.delay.protocol.DeliveryMode.MANAGED);
+        final var template = new com.nereusstream.delay.protocol.PulsarRecordTemplate(
+                com.nereusstream.delay.protocol.BrokerResourceIdentity.pulsar(
+                        new com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity(
+                                CLUSTER, RESOURCE_INCARNATION, TOPIC, TOPIC_CREATION_TIMESTAMP)),
+                0, com.nereusstream.delay.protocol.PulsarKey.none(), null, java.util.List.of(), null,
+                reserved, com.nereusstream.delay.protocol.DeliveryContract.NEREUS_MANAGED_NOT_BEFORE, null,
+                com.nereusstream.delay.protocol.PayloadForPublish.inline(payload), artifacts.setDigest());
+        final byte[] prepared = digest("gate-prepared");
+        final var record = new com.nereusstream.delay.protocol.PulsarPreparedRecord(
+                template, template.recordTemplateHash(), com.nereusstream.delay.protocol.ResolvedPayload.of(payload),
+                com.nereusstream.delay.protocol.PulsarSequenceAuthority.managedJournal(
+                        digest("fixture-mapping"), 1, digest("h0-producer")),
+                com.nereusstream.delay.protocol.ExternalDeliveryIdentity.publishAttempt(attempt), prepared,
+                com.nereusstream.delay.protocol.PulsarReservedProperties.all(reserved, attempt, prepared),
+                artifacts.setDigest());
+        final var producer = new CountingProducer(TOPIC);
+        final var transport = new PulsarClientArtifactDestinationTransport(
+                producer.proxy(), CLUSTER, RESOURCE_INCARNATION, TOPIC, TOPIC_CREATION_TIMESTAMP,
+                0, digest("h0-producer"));
+        final AtomicInteger gateCalls = new AtomicInteger();
+        final var ownerActive = new java.util.concurrent.atomic.AtomicBoolean(true);
+        producer.afterProperties = () -> ownerActive.set(false);
+        final var denied = transport.publishPreparedRecord(record, artifacts, (r, a) -> {
+            require(producer.propertiesConfigured, "gate ran before SDK properties construction");
+            require(producer.sendAsyncCalls.get() == 0, "gate ran after library SEND ownership");
+            require(!ownerActive.get(), "SDK construction did not observe the fixture Owner revocation");
+            gateCalls.incrementAndGet();
+            return DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null);
+        }).toCompletableFuture().join();
+        require(denied.disposition() == DestinationPublishResult.Disposition.UNKNOWN, "denial was changed");
+        require(gateCalls.get() == 1 && producer.sendAsyncCalls.get() == 0, "denial called SEND");
+        transport.publishPreparedRecord(record, artifacts, (r, a) -> {
+            throw new IllegalStateException("fixture Owner authority is unavailable");
+        }).toCompletableFuture().join();
+        require(producer.sendAsyncCalls.get() == 0, "unavailable gate called SEND");
+        transport.publishPreparedRecord(record, artifacts, (r, a) -> {
+            require(producer.propertiesConfigured, "permitted gate ran before SDK properties");
+            return null;
+        }).toCompletableFuture().join();
+        require(producer.sendAsyncCalls.get() == 1, "permitted gate did not call SEND exactly once");
+        producer.throwOnSend = true;
+        boolean propagated = false;
+        try {
+            transport.publishPreparedRecord(record, artifacts, (r, a) -> null);
+        } catch (IllegalStateException unobservedSend) {
+            propagated = true;
+        }
+        require(propagated, "unobserved SEND was converted into a completed physical stage");
+        transport.close();
+        System.out.println("Prepared SDK ownership gate passed: after properties/before SEND; "
+                + "denied=0, unavailable=0, allowed=1, synchronous SEND uncertainty propagates");
     }
 
     private static byte[] digest(final String value) {
@@ -133,6 +197,9 @@ public final class PulsarClientArtifactH0Smoke {
         private final AtomicInteger newMessageCalls = new AtomicInteger();
         private final AtomicInteger sendAsyncCalls = new AtomicInteger();
         private final Producer<byte[]> proxy;
+        private boolean propertiesConfigured;
+        private boolean throwOnSend;
+        private Runnable afterProperties = () -> {};
 
         private CountingProducer(final String topic) {
             this.topic = topic;
@@ -161,6 +228,7 @@ public final class PulsarClientArtifactH0Smoke {
                 case "getProducerName" -> "h0-producer";
                 case "newMessage" -> {
                     newMessageCalls.incrementAndGet();
+                    propertiesConfigured = false;
                     yield messageBuilder(method.getReturnType());
                 }
                 case "close" -> null;
@@ -175,9 +243,17 @@ public final class PulsarClientArtifactH0Smoke {
             return Proxy.newProxyInstance(
                     builderType.getClassLoader(), new Class<?>[] {builderType}, (target, method, arguments) -> {
                         return switch (method.getName()) {
-                            case "value", "key", "keyBytes", "property", "properties" -> target;
+                            case "value", "key", "keyBytes", "property" -> target;
+                            case "properties" -> {
+                                propertiesConfigured = true;
+                                afterProperties.run();
+                                yield target;
+                            }
                             case "sendAsync" -> {
                                 sendAsyncCalls.incrementAndGet();
+                                if (throwOnSend) {
+                                    throw new IllegalStateException("fixture unobserved SEND ownership");
+                                }
                                 yield CompletableFuture.completedFuture(null);
                             }
                             case "toString" -> "counting-message-builder";

@@ -86,6 +86,18 @@ public final class PinnedPulsarDestinationAdapter implements DestinationPublishA
                 () -> completed(DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null)));
     }
 
+    @Override
+    public CompletionStage<DestinationPublishResult> publishPreparedRecord(
+            final PulsarPreparedRecord record, final ArtifactGenerationSet artifacts,
+            final BoundedDestinationPublishAdapter.PreparedPublishPreflight ownershipGate) {
+        Objects.requireNonNull(record, "record");
+        Objects.requireNonNull(artifacts, "artifacts");
+        Objects.requireNonNull(ownershipGate, "ownershipGate");
+        return closeGuard.invokeIfOpen(
+                () -> publishPreparedRecordOpen(record, artifacts, ownershipGate),
+                () -> completed(DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null)));
+    }
+
     private CompletionStage<DestinationPublishResult> publishOpen(final DestinationPublishRequest request) {
         return publishOpen(request, null, null);
     }
@@ -161,6 +173,12 @@ public final class PinnedPulsarDestinationAdapter implements DestinationPublishA
 
     private CompletionStage<DestinationPublishResult> publishPreparedRecordOpen(
             final PulsarPreparedRecord record, final ArtifactGenerationSet artifacts) {
+        return publishPreparedRecordOpen(record, artifacts, null);
+    }
+
+    private CompletionStage<DestinationPublishResult> publishPreparedRecordOpen(
+            final PulsarPreparedRecord record, final ArtifactGenerationSet artifacts,
+            final BoundedDestinationPublishAdapter.PreparedPublishPreflight ownershipGate) {
         final BrokerResourceIdentity target = record.template().targetResource();
         if (target.kind() != BrokerResourceIdentity.Kind.PULSAR
                 || !resource.authenticatedClusterId().equals(target.pulsar().authenticatedClusterId())
@@ -177,7 +195,8 @@ public final class PinnedPulsarDestinationAdapter implements DestinationPublishA
         }
         final CompletionStage<DestinationPublishResult> result;
         try {
-            result = transport.publishPreparedRecord(record, artifacts);
+            result = ownershipGate == null ? transport.publishPreparedRecord(record, artifacts)
+                    : transport.publishPreparedRecord(record, artifacts, ownershipGate);
         } catch (RuntimeException exception) {
             return UnobservedDestinationPublishStage.unknown();
         }
@@ -230,6 +249,14 @@ public final class PinnedPulsarDestinationAdapter implements DestinationPublishA
                 final PulsarPreparedRecord record, final ArtifactGenerationSet artifacts) {
             Objects.requireNonNull(record, "record");
             Objects.requireNonNull(artifacts, "artifacts");
+            return CompletableFuture.completedFuture(
+                    DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null));
+        }
+
+        default CompletionStage<DestinationPublishResult> publishPreparedRecord(
+                final PulsarPreparedRecord record, final ArtifactGenerationSet artifacts,
+                final BoundedDestinationPublishAdapter.PreparedPublishPreflight ownershipGate) {
+            Objects.requireNonNull(ownershipGate, "ownershipGate");
             return CompletableFuture.completedFuture(
                     DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null));
         }

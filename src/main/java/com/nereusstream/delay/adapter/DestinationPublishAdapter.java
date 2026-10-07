@@ -41,6 +41,20 @@ public interface DestinationPublishAdapter extends AutoCloseable {
                 DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null));
     }
 
+    /**
+     * Executes the final gate after SDK record construction and immediately before sendAsync ownership.
+     * A legacy transport must not emulate this by checking before its ordinary record hook.
+     */
+    default CompletionStage<DestinationPublishResult> publishPreparedRecord(
+            final PulsarPreparedRecord record, final ArtifactGenerationSet artifacts,
+            final BoundedDestinationPublishAdapter.PreparedPublishPreflight ownershipGate) {
+        Objects.requireNonNull(record, "record");
+        Objects.requireNonNull(artifacts, "artifacts");
+        Objects.requireNonNull(ownershipGate, "ownershipGate");
+        return java.util.concurrent.CompletableFuture.completedFuture(
+                DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null));
+    }
+
     @Override
     default void close() {
         // Implementations with broker resources override this method.

@@ -6,6 +6,7 @@ import com.nereusstream.delay.protocol.DestinationLaneId;
 import com.nereusstream.delay.protocol.PulsarPreparedRecord;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.StableCode;
+import com.nereusstream.delay.protocol.TargetOrdinaryPublicationBinding;
 import com.nereusstream.delay.scheduler.BoundedAsyncMetricExporter;
 import com.nereusstream.delay.scheduler.BoundedAsyncMetricExporter.Metric;
 import com.nereusstream.delay.scheduler.BoundedAsyncMetricExporter.MetricEvent;
@@ -178,6 +179,27 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
                 () -> delegate.publishPreparedRecord(exactRecord, exactArtifacts));
     }
 
+    /**
+     * Target submission uses the full immutable channel in the same physical pool, with a mandatory final gate.
+     * That gate must prove the applied Admission, durable exact Journal mapping and live Owner/Store/credential/
+     * activation/exclusive first-send token immediately before library ownership. DTO checks do not authorize it.
+     */
+    public PublishCall submitTargetPreparedRecord(
+            final TargetOrdinaryPublicationBinding publication,
+            final PulsarPreparedRecord record,
+            final ArtifactGenerationSet artifacts,
+            final TargetPreparedPublishPreflight preflight) {
+        Objects.requireNonNull(preflight, "preflight");
+        PulsarPreparedRecordFactory.requireTargetBinding(publication, record, artifacts);
+        return submitPhysical(
+                () -> admission.tryAcquireTarget(publication.channel(), record.physicalByteCharge()),
+                () -> !admission.targetChannelSnapshot(publication.channel()).ready()
+                        ? completedUnknownValue() : null,
+                () -> delegate.publishPreparedRecord(record, artifacts, (r, a) ->
+                        !admission.targetChannelSnapshot(publication.channel()).ready()
+                                ? completedUnknownValue() : preflight.check(publication, r, a)));
+    }
+
     private PublishCall submit(
             final DestinationPublishRequest request,
             final PublishPreflight preflight,
@@ -206,11 +228,19 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
         }
         Objects.requireNonNull(preflight, "preflight");
         Objects.requireNonNull(delegateCall, "delegateCall");
+        return submitPhysical(() -> admission.tryAcquire(laneId, laneIncarnation, physicalBytes),
+                preflight, delegateCall);
+    }
+
+    private PublishCall submitPhysical(
+            final java.util.function.Supplier<DestinationPhysicalAdmission.AdmissionDecision> acquire,
+            final PhysicalPreflight preflight,
+            final DelegateCall delegateCall) {
         if (closeGuard.isClosed()) {
             return PublishCall.completed(DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null));
         }
         final DestinationPhysicalAdmission.AdmissionDecision decision =
-                admission.tryAcquire(laneId, laneIncarnation, physicalBytes);
+                acquire.get();
         if (!decision.granted()) {
             final byte[] evidence =
                     Bytes.utf8("physical-admission:" + decision.rejection().name());
@@ -572,6 +602,13 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
     @FunctionalInterface
     public interface PreparedPublishPreflight {
         DestinationPublishResult check(PulsarPreparedRecord record, ArtifactGenerationSet artifacts);
+    }
+
+    @FunctionalInterface
+    public interface TargetPreparedPublishPreflight {
+        DestinationPublishResult check(
+                TargetOrdinaryPublicationBinding publication, PulsarPreparedRecord record,
+                ArtifactGenerationSet artifacts);
     }
 
     public static final class PublishCall {

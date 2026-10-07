@@ -185,6 +185,27 @@ sender/sequence 与请求关联。事务 receipt/Journal 等不能降为普通 A
 channel，payload 无剩余 ref 才 retain，预算只释放 execution charge 并等待 Floor。fixture 验证了
 本地 source batch 和 ACK retry，生产 provider/Producer/Broker、完整 retention/recovery 仍未认证。
 
+2026-10-07 后续：`DestinationPhysicalAdmission` 增加完整 immutable Target channel 的注册、READY、
+acquire、source-Shard close 和 teardown 入口，复用原 Worker/cluster/active/zombie 总额及状态机。
+Target generation 使用 NV20 内容键区分，续期不继承或清空旧请求；Source close 只停止所属 Shard
+的新/queued call，其它 Source Shard 仍可工作，旧 physical/zombie charge 留到实际 completion。
+Profile、Source Shard 和 slot 不新增 Lane READY minimum；Target 公平性/ordinary 保护仍属于原
+Target ring/WorkClass 图。注册数量、activated slots、连接/Producer/FD envelope 仍由生产资源图证明。
+
+`PulsarPreparedRecordFactory.targetManaged` 现从 frozen publication 和精确新 PUBLISHING Message，
+将原 inline/object payload projection、Pulsar key/ordering key/properties/event time、九个 reserved
+properties、artifact digest 和固定 Journal sequence 合为既有 final record；producer-name hash
+必须等于 channel 的 stable producer identity。该构造不会分配序号，也不证明 Journal durability。
+
+`BoundedDestinationPublishAdapter.submitTargetPreparedRecord` 使用上述同一 pool，不伪装 Lane。
+强制传入的 final gate 经 Pinned adapter 到 source-locked transport，在 SDK metadata 构造后、
+`sendAsync()` 前执行；没有该 hook 的旧 adapter/transport fail closed，不退回旧 record API。
+Source close 在队列后及该最终点都复查；目标 Producer name 在 SDK 构造前检查。SEND 已调用后
+同步异常/无法观察 stage 时传播不确定性，由原 bounded wrapper 保留 zombie，而非用 UNKNOWN
+completed stage 假装物理完成。SDK H0 probe 使用 CountingProducer，认证/序号为 fixture，零 Broker；
+实际 Target Journal namespace/recovery、exclusive send token、Owner/Store/credential/activation
+providers、应用宿主接线、Native/baseline record 分支和真实 Broker 仍未闭合。
+
 | 对象 | key | reserved NV type |
 |---|---|---|
 | TargetChannelIdentity | meta `0e 01 + digest[32]` | 20 |
