@@ -362,7 +362,7 @@ public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJo
                 : PulsarAttemptJournalRecordCodec.decode(payload, position);
     }
 
-    /** Current Owner/Store/time and distinct source-protected Target namespace; never acquire Shard/Store locks here. */
+    /** Current Owner/Store/time and source-protected Target namespace; never acquire Shard/Store locks here. */
     @FunctionalInterface
     public interface TargetWriterGuard {
         void requireActive(ShardId shard, PulsarJournalResource resource);

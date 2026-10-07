@@ -57,6 +57,7 @@ import com.nereusstream.delay.protocol.TargetMembershipPolicy;
 import com.nereusstream.delay.protocol.TargetPartitionHashInput;
 import com.nereusstream.delay.protocol.TargetPartitionPolicy;
 import com.nereusstream.delay.protocol.TargetPublishAdmissionBody;
+import com.nereusstream.delay.protocol.TargetQueueState;
 import com.nereusstream.delay.protocol.TargetQuotaAttemptBudget;
 import com.nereusstream.delay.protocol.TargetQuotaGrant;
 import com.nereusstream.delay.protocol.TargetQuotaGrantActivation;
@@ -64,29 +65,28 @@ import com.nereusstream.delay.protocol.TargetQuotaGrantControlBody;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlRequest;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
 import com.nereusstream.delay.protocol.TargetQuotaUsage;
-import com.nereusstream.delay.protocol.TargetQueueState;
 import com.nereusstream.delay.protocol.TargetScheduleBinding;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.runtime.ApplyStatus;
+import com.nereusstream.delay.runtime.AttemptLedgerState;
+import com.nereusstream.delay.runtime.AttemptObligationRef;
 import com.nereusstream.delay.runtime.CommandResult;
 import com.nereusstream.delay.runtime.ProfileCatalog;
+import com.nereusstream.delay.runtime.TargetClaimRecord;
+import com.nereusstream.delay.runtime.TargetClaimStore;
 import com.nereusstream.delay.runtime.TargetCloseStore;
 import com.nereusstream.delay.runtime.TargetCommandStore;
 import com.nereusstream.delay.runtime.TargetExpireGenerationVerifier;
 import com.nereusstream.delay.runtime.TargetMembershipControlStore;
 import com.nereusstream.delay.runtime.TargetMembershipControlVerifier;
-import com.nereusstream.delay.runtime.AttemptLedgerState;
-import com.nereusstream.delay.runtime.AttemptObligationRef;
-import com.nereusstream.delay.runtime.TargetClaimRecord;
-import com.nereusstream.delay.runtime.TargetClaimStore;
-import com.nereusstream.delay.runtime.TargetPublishAdmissionVerifier;
-import com.nereusstream.delay.runtime.TargetQuotaDelta;
-import com.nereusstream.delay.runtime.TargetResultRecord;
 import com.nereusstream.delay.runtime.TargetMessageRecord;
+import com.nereusstream.delay.runtime.TargetPublishAdmissionVerifier;
 import com.nereusstream.delay.runtime.TargetQuotaGrantControlVerifier;
 import com.nereusstream.delay.runtime.TargetQuotaGrantStore;
+import com.nereusstream.delay.runtime.TargetResultRecord;
 import com.nereusstream.delay.runtime.TargetStoreBootstrap;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
+import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.ColumnFamily;
 import com.nereusstream.delay.store.KeyCodec;
 import com.nereusstream.delay.store.ShardStore;
@@ -110,6 +110,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.apache.kafka.clients.admin.Admin;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.producer.GuardedProducer;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
@@ -516,7 +517,8 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
                                                                         entry.position().canonicalBytes(),
                                                                         source.canonicalBytes())) {
                                                             throw new IllegalStateException(
-                                                                    "Target Admission verifier received another Owner or source");
+                                                                    "Target Admission verifier received "
+                                                                            + "another Owner or source");
                                                         }
                                                         admissionAuthorityResolutions.incrementAndGet();
                                                         return new TargetPublishAdmissionVerifier.Authorization(
@@ -525,7 +527,8 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
                                                                 20_000,
                                                                 10_000,
                                                                 60_000,
-                                                                (boundScope, boundWriter, boundSource, evidence) -> true);
+                                                                (boundScope, boundWriter, boundSource, evidence) ->
+                                                                        true);
                                                     },
                                                     KafkaClientArtifactTargetWorkerSourceSmoke.ownerCommitAuthority(
                                                             leases, active));
@@ -672,6 +675,7 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
                     if (targetAdmissionScenario) {
                         runTargetAdmissionAckLoss(
                                 admin,
+                                bootstrap,
                                 topic,
                                 groupId,
                                 host,
@@ -889,6 +893,7 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
 
     private static void runTargetAdmissionAckLoss(
             final Admin admin,
+            final String bootstrap,
             final String topic,
             final String groupId,
             final TargetWorkerHostRuntime host,
@@ -957,6 +962,41 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
             throw new IllegalStateException("Broker frontier changed after the Target Admission ACK retry");
         }
         assertTargetAdmissionApplied(store, fixture, appliedEntry);
+        final var page = worker.discoverPublishRecovery(
+                new BoundedReadBudget(2048, 16L << 20, 60_000_000_000L, System::nanoTime),
+                null, 1, System::currentTimeMillis);
+        if (page.entries().size() != 1 || page.complete()) {
+            throw new IllegalStateException("Target Broker Admission did not yield its bounded history reference");
+        }
+        final var reference = page.entries().getFirst();
+        final var config = new java.util.HashMap<String, Object>();
+        config.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap);
+        config.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG,
+                org.apache.kafka.common.serialization.ByteArrayDeserializer.class.getName());
+        config.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG,
+                org.apache.kafka.common.serialization.ByteArrayDeserializer.class.getName());
+        final var guards = new AtomicInteger();
+        final var recovered = KafkaClientArtifactTargetAdmissionHistory.read(config, topic, reference,
+                Duration.ofSeconds(10), () -> {
+                    guards.incrementAndGet();
+                    // This smoke owns a retained disposable topic. Production must resolve protected history/pins.
+                    worker.readRecoveryAdmission(
+                            new BoundedReadBudget(2048, 16L << 20, 60_000_000_000L, System::nanoTime),
+                            fixture.mutation(), System::currentTimeMillis);
+                });
+        if (!java.util.Arrays.equals(fixture.mutation().encodeFrame(), recovered.encodeFrame())
+                || store.latestSequenceNumber() != sequenceAfterUnknown || guards.get() < 3) {
+            throw new IllegalStateException("K1 guarded history changed exact Admission bytes or local Store");
+        }
+        final var groupAfterHistory = admin.listConsumerGroupOffsets(groupId)
+                .partitionsToOffsetAndMetadata().get(10, TimeUnit.SECONDS)
+                .get(new TopicPartition(topic, scope.shard().partition()));
+        if (groupAfterHistory == null || groupAfterHistory.offset() != committedAfterRetry.offset()) {
+            throw new IllegalStateException("K1 history read advanced the active Worker group offset");
+        }
+        System.out.println("K1 exact Target Admission history passed: authenticated Fetch/resource, "
+                + "full envelope/source match, independent consumer, no group commit, no Store write, guard calls="
+                + guards.get());
         System.out.println("Kafka Target PUBLISH_ADMISSION TCP ACK-loss recovery passed: Broker committed offset "
                 + fixture.position().offset() + " before response loss; same Host retried only ACK without another "
                 + "Store mutation. Claim, AttemptBudget, first result and source frontier remain durable.");

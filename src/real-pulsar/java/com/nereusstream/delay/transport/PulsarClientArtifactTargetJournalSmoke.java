@@ -106,6 +106,7 @@ public final class PulsarClientArtifactTargetJournalSmoke {
                     client, shard, resource, writer, subscription, Duration.ofSeconds(15), 100, 1_000_000, guard)) {
                 require(complete.replayedRecords() == 5, "failed replay leaked Writer or changed retained records");
                 sendBusinessRecord(client, shard, physical, complete.journal());
+                verifyAdmissionHistory(client, admin, path, shard, physical, cluster, created);
             }
             System.out.println("Target Journal Broker smoke passed: records=5, reopen=5, "
                     + "renewed-sequence=1, recovered-first-send=0, partial-replay=blocked, guard-calls=" + guardCalls);
@@ -188,6 +189,96 @@ public final class PulsarClientArtifactTargetJournalSmoke {
                     "business Journal publication was not durable");
             System.out.println("Target business SEND passed: payload bytes=" + data.length
                     + ", sequence=" + mapping.sequenceId() + ", guarded generation-2 ACK=true, gate=1");
+        }
+    }
+
+    /** Actual P1 I/O with an explicitly constructed retained-reference fixture, not a Source Store receipt. */
+    private static void verifyAdmissionHistory(
+            org.apache.pulsar.client.api.PulsarClient client, HttpClient admin, String basePath,
+            ShardId shard, CanonicalTargetPartition physical, String cluster, long created) throws Exception {
+        final String sourcePath = basePath + "-admission-source";
+        final String topic = "persistent://public/default/" + sourcePath.substring(sourcePath.lastIndexOf('/') + 1);
+        final byte[] incarnation = hash("history-source-resource");
+        create(admin, sourcePath, incarnation, created);
+        final var guard = new org.apache.pulsar.client.api.TopicResourceGuard(cluster, incarnation, created);
+        try (var active = PulsarClientArtifactSourceConsumerFactory.create(client, guard, topic,
+                "target-history-active-" + UUID.randomUUID())) {
+            final var owner = new com.nereusstream.delay.protocol.OwnerIdentity(
+                    Arrays.copyOf(hash("history-deployment"), 16), Arrays.copyOf(hash("history-run"), 16),
+                    1, hash("history-owner"));
+            final var id = DelayMessageId.random(shard);
+            final var locator = new com.nereusstream.delay.protocol.TargetMessageLocator(id, 0, physical.id(),
+                    new TargetKeyCodec.Domain(0, 1), Arrays.copyOf(hash("history-account"), 16),
+                    com.nereusstream.delay.protocol.OrderingMode.BEST_EFFORT, null, hash("history-binding"));
+            final byte[] claim = hash("history-claim");
+            final byte[] attempt = com.nereusstream.delay.protocol.SystemMutation.computePublishAttemptLogicalIdentity(
+                    claim, id, 0, 1);
+            final var obligation = new com.nereusstream.delay.runtime.AttemptObligationRef(attempt, 0,
+                    com.nereusstream.delay.runtime.AttemptLedgerState.PUBLISHING,
+                    com.nereusstream.delay.store.KeyCodec.inflight((byte) 2, owner.ownerEpoch(), attempt));
+            final long now = System.currentTimeMillis();
+            final var time = new TrustedUtcIntervalEvidence(now, now + 1,
+                    TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, hash("history-clock"),
+                    1, 1, 1, hash("history-clock-evidence"), 0, null);
+            final long[] reserve = new long[com.nereusstream.delay.protocol.CapacityDimension.COUNT];
+            reserve[com.nereusstream.delay.protocol.CapacityDimension.RESULT_BYTES.wireValue() - 1] = 128;
+            final var commitment = new com.nereusstream.delay.protocol.CapacityVector(reserve);
+            final var body = new com.nereusstream.delay.protocol.TargetPublishAdmissionBody(shard, now + 60_000,
+                    owner, Arrays.copyOf(hash("history-store"), 16), claim, locator, 1, attempt, obligation,
+                    128, commitment, com.nereusstream.delay.protocol.CapacityVector.empty(), time);
+            final var keys = java.security.KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+            final var mutation = com.nereusstream.delay.protocol.SystemMutation.signed(shard,
+                    com.nereusstream.delay.protocol.SystemMutationType.TARGET_PUBLISH_ADMISSION, now + 60_000,
+                    attempt, body.canonicalBytes(), com.nereusstream.delay.protocol.AuthorIdentity.owner(
+                            owner.deploymentId(), owner.workerRunId(), owner.ownerEpoch(), owner.leaseFencingDigest())
+                            .canonicalBytes(), 1, keys.getPrivate());
+            final com.nereusstream.delay.protocol.PulsarSourcePosition source;
+            try (var producer = PulsarClientArtifactProducerFactory.create(client, cluster, incarnation,
+                    topic, created, "target-history-source-writer");
+                    var appender = new PulsarClientArtifactShardLogMutationAppender(producer, active, shard, cluster,
+                            incarnation, topic, created, Duration.ofSeconds(15))) {
+                final var appended = appender.append(mutation);
+                require(appended.disposition()
+                        == com.nereusstream.delay.ownership.ShardLogMutationAppender.AppendDisposition.PERSISTED,
+                        "P1 history fixture Admission append was not guarded/persisted");
+                source = (com.nereusstream.delay.protocol.PulsarSourcePosition) appended.sourcePosition();
+            }
+            final var stamp = new com.nereusstream.delay.protocol.TargetQuotaMutation(
+                    1, source, Bytes.sha256(mutation.canonicalEnvelope()));
+            final var budget = com.nereusstream.delay.protocol.TargetQuotaAttemptBudget.admit(locator,
+                    hash("history-tenant"), attempt, mutation.mutationHash(),
+                    new com.nereusstream.delay.protocol.TargetQuotaAccounting(hash("history-schema"), 0, 0, 0, 1),
+                    128, commitment, com.nereusstream.delay.protocol.CapacityVector.empty(), stamp,
+                    Arrays.copyOf(hash("history-lineage"), 16));
+            final var first = com.nereusstream.delay.runtime.SystemMutationResult.from(mutation,
+                    com.nereusstream.delay.runtime.ApplyStatus.APPLIED, com.nereusstream.delay.protocol.StableCode.OK,
+                    source.canonicalBytes());
+            // The Reference constructor is private so production cannot substitute a DTO for Store proof.
+            // This I/O smoke uses reflection only to build its declared fixture; Store joins have separate real tests.
+            final var constructor = com.nereusstream.delay.runtime.TargetPublishRecoveryDiscovery.Reference.class
+                    .getDeclaredConstructor(com.nereusstream.delay.protocol.TargetQuotaAttemptBudget.class,
+                            com.nereusstream.delay.runtime.SystemMutationResult.class);
+            constructor.setAccessible(true);
+            final var reference = constructor.newInstance(budget, first);
+            final var guards = new AtomicInteger();
+            final var found = PulsarClientArtifactTargetAdmissionHistory.read(client, guard, reference,
+                    Duration.ofSeconds(15), () -> guards.incrementAndGet());
+            require(Arrays.equals(mutation.encodeFrame(), found.encodeFrame()), "P1 history changed original bytes");
+            require(guards.get() >= 4, "P1 history omitted authority/lifetime checks");
+            final var activeMessage = active.receive(5, TimeUnit.SECONDS);
+            require(activeMessage != null && Arrays.equals(activeMessage.getData(), mutation.encodeFrame()),
+                    "owned history seek changed the active source subscription");
+            final var subscriptions = PulsarClientArtifactAdminHttp.request(admin, sourcePath + "/subscriptions",
+                    "GET", "");
+            require(subscriptions.statusCode() == 200
+                    && !subscriptions.body().contains("nereus-target-admission-history-"),
+                    "P1 history left a durable or unclosed query subscription");
+            System.out.println("P1 exact Target Admission history passed: guarded append/receive/source, "
+                    + "inclusive non-durable seek, exact envelope, active source unchanged, cursor closed; "
+                    + "retained reference/Owner/time/retention are fixtures, guard calls=" + guards.get());
+        } finally {
+            final var deleted = PulsarClientArtifactAdminHttp.request(admin, sourcePath + "?force=true", "DELETE", "");
+            require(deleted.statusCode() < 300 || deleted.statusCode() == 404, "owned history source cleanup failed");
         }
     }
 

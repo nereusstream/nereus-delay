@@ -102,7 +102,7 @@ public final class PulsarClientArtifactRecoverySourcePositioner {
         }
     }
 
-    private static PositionedGuardProof requireCurrentProof(
+    static PositionedGuardProof requireCurrentProof(
             final GuardedConsumer<byte[]> consumer,
             final TopicResourceGuard expectedGuard,
             final String physicalTopic,

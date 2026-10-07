@@ -7584,3 +7584,10 @@ identities, while Source append/consumer, logical clock and historical key/confi
 fixtures. It does not certify a real Broker, process crash, new Store install or production rollout.
 The focused Target recovery run passed with clean Oxia source `37a17bef` and a recorded image identity;
 commands, reports and the exact fixture boundary are in NDIP-3 evidence/c2-target-publish-recovery-oxia-real.log.
+
+Target Admission history is now exercised in the existing K1 source ACK-network-loss runner and the P1
+Target Journal runner. K1 uses actual Store discovery and an independent guarded manual consumer; P1
+uses an explicitly constructed retained-reference fixture and an owned non-durable inclusive-seek cursor.
+Both verify exact source/envelope bytes without advancing active offsets/ACKs. Production protected history,
+pins/Floor, P1 Store composition and Host/process/new Store recovery are still required; see NDIP-3
+`evidence/c2-native-admission-history-focused.log` for commands, artifact locks and scope.

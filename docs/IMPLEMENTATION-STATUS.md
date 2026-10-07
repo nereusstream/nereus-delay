@@ -18584,3 +18584,9 @@ same-view pages, joining SYSTEM/POSITION and original PUBLISHING obligations. Mi
 partial pages preserve an opaque revision-bound continuation. References correlate retained source and
 full signed-image bytes, without granting Broker retention/authentication or SEND. Broker history fetch,
 Host pagination/recovery loop, terminal/historical settlement and complete pins/Floor remain open.
+
+Native K1/P1 Target Admission history readers now correlate exact source/envelope bytes under explicit
+history/Owner/credential guards, using independent guarded cursors without active offset/ACK commits.
+K1 real Broker validation joins actual Store discovery; P1 real Broker validation uses a declared retained
+reference fixture and confirms non-durable query cursor cleanup. This does not certify P1 Store/history
+composition, protected pins/Floor, production providers/Host or process/new Store recovery.

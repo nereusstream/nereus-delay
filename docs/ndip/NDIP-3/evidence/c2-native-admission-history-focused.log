@@ -1,0 +1,35 @@
+C2 native Target Admission history readers
+Date: 2026-10-08 (Asia/Shanghai)
+Base: main@05e1d4957a0e12c9eb3f3b35c1caf2219f4720bc
+
+K1 opens a dedicated manually assigned guarded consumer from a copied credential configuration; auto commit is disabled by the existing factory, group/static membership removed, offset reset forbidden, one-record poll and frame/Fetch/timeouts bounded. Authenticated Fetch proof and exact source offset/timestamp/leader epoch plus Reference full envelope/Owner/locator/budget must match. It has no offset commit or physical send path.
+P1 opens an owned Exclusive NonDurable guarded cursor with inclusive reset and queue size one. Async opening/seek/receive/proof/image work uses a deadline; any late-created cursor after timeout is closed. Stable post-seek and unchanged after-receive proof are mandatory. Source/batch identity and full signed bytes must match. No active consumer ACK is called; successful return also requires owned cursor close confirmation. The current proof helper is shared package-locally, not replaced by unguarded Reader API.
+
+Both require an explicit caller history guard for protected retention and credential/Owner lifetime before/after native I/O. A successful read is not SEND/GC/long-term retention/production authority. Broker absence/gaps, resource or frame mismatch and timeout fail closed, preserving the external recovery obligation.
+
+K1 compile: ./gradlew compileRealKafka -PkafkaClientJar=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1/clients/build/libs/kafka-clients-4.4.0-SNAPSHOT.jar --no-daemon --console=plain
+Result: BUILD SUCCESSFUL in 15s, after correcting the new bounded CloseOptions API and fixture import. Source 05849884ca81fad767fda058444d1e17c7f9cbf9, client SHA256 1c83ae777c364be833f7c8ff31f1fdeb28dafd5eb3998f0246e7d226a543cbe0.
+K1 actual command: NEREUS_DELAY_KAFKA_TARGET_SOURCE_ACK_NETWORK_LOSS_ONLY=1 NEREUS_DELAY_KAFKA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1 NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/Users/liusinan/.gradle e2e/run-kafka-real-client-e2e.sh
+Result: second run exit 0; initial owned-image build hit Docker anonymous token EOF and ran no tests. Three-Broker source/expiry/Admission ACK-loss slices pass. Actual Store discovery→guarded history retrieves original Admission, guard calls=3, no active group offset or Store sequence change. Source/signer/Owner/time/history protection providers are fixtures; target is disposable, not a production retention/pin authority. Raw output and cleanup identity: c2-target-admission-history-k1-real.log.
+
+P1 compile: ./gradlew compileRealPulsar -PpulsarClientClasspath=<locked nereus-delay-p1 client/api/common jars> --no-daemon --console=plain
+Result: BUILD SUCCESSFUL in 14s. An initial wrong ordinary-checkout classpath was rejected for absent guard APIs; corrected locked P1 source is 0a2536484cd3932801a98dc88ff112b2df88a1c7. The new fixture producer argument and package-level proof reuse were corrected before success.
+P1 actual command: NEREUS_DELAY_PULSAR_TARGET_JOURNAL_ONLY=1 NEREUS_DELAY_PULSAR_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1 NEREUS_DELAY_PULSAR_GRADLE_USER_HOME=/Users/liusinan/.gradle e2e/run-pulsar-real-client-e2e.sh
+Result: exit 0, runRealPulsarTargetJournalSmoke BUILD SUCCESSFUL in 20s. Actual guarded append/receive validates exact original v3 Admission bytes/source, inclusive non-durable seek, guard calls=4, active source still delivers the original frame and query subscription is absent after close. Retained Reference/first result are explicitly constructed via verification-only reflection; no production constructor bypass was added and this slice does not certify actual P1 Source Store joins. Owner/time/retention/credential are fixtures. Existing five-record Journal/reopen/zero-recovered-first-send/business SEND checks also pass. Raw output: c2-target-admission-history-p1-real.log. Both owned Broker projects, topics, containers, volumes and runner artifacts cleaned.
+
+Formatting: ./gradlew checkstyleRealKafka checkstyleRealPulsar --no-daemon --console=plain
+Final result: BUILD SUCCESSFUL in 8s, both XML reports zero violations. First check found six existing smoke import/line issues and one existing Journal Javadoc line; only formatting/import correction followed Broker tests, not behavior changes.
+Documentation: ./gradlew checkDocumentation --no-daemon --console=plain
+Result: BUILD SUCCESSFUL in 1m 3s; historical NDIP receipts do not certify current Target runtime.
+
+Still required: real P1 Source Store→Reference→history composition, retained/pinned historical Source authority, production credential/Owner providers, Host automatic reconstruction loop, initial terminal/historical handling, all evidence branches, actual process/new Store restore and full A–F validation/migration/retirement. No slice or global flags are promoted.
+
+SHA-256 (final source; native runs precede formatting-only legacy style corrections):
+1dd7a4a5fdf346310dec6e17f30165c4cad0f600702b4ab4a83bd7569e0e9b8f  src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetAdmissionHistory.java
+007a99f2cc04f5b7a1df199623572047e5b44c7b4eeb2fe1cc9875c8adca2fa5  src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetScheduledExpirySmoke.java
+c5e4aff20b5cd247d3073054e9d1fda5c557b084d96012354dd35c90ec94a4a3  src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactTargetAdmissionHistory.java
+390c200a4008dc327b64e72d869296745a1b98bc365ff1ea4508988a9b1af1bc  src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactRecoverySourcePositioner.java
+a705ad85e0ab1324c8e2d8125fb97e074c5165b932425b64512fb2de31edecbb  src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactTargetJournalSmoke.java
+d136051c56e050ee019f8ce2ebcd90ae3a23976ba2998e3465728aecd9870ab8  src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactAttemptJournal.java
+5ad0d7c6f9c846ae5b100ecc8b81316716214deecce5bf548dd3697bdcb6286b  build/reports/checkstyle/realKafka.xml
+302952e45e0dc2a494a658045a6ae02a83e7aa1cb8bc3f418c669314d9755ba1  build/reports/checkstyle/realPulsar.xml

@@ -297,6 +297,22 @@ retention/authentication，也不授予 SEND。RANGE_END 只证明此 cut 下 AD
 Floor、Host 自动分页/恢复循环和 production resolver 继续开放。命令与范围见
 `evidence/c2-recovery-discovery-focused.log`、`evidence/c2-recovery-discovery-oxia-real.log`。
 
+
+2026-10-08 后续：K1/P1 native history reader 已按 recovery Reference 取回 exact Admission。
+K1 创建独立 manual-assignment guarded consumer，移除 group/static membership、禁 auto commit/
+auto offset reset，单条 poll、frame/Fetch/timeout 有界；authenticated Fetch、SourcePosition 和完整
+signed envelope 必须匹配。P1 创建独立 NonDurable/inclusive-seek guarded cursor，post-seek 和
+receive 的 connection/attestation 保持一致；只核对 exact source/frame，绝不 ACK 活动订阅。
+异步创建超时后 late cursor 仍关闭，成功读取也须确认 owned cursor close。
+
+两个 reader 都要求显式 history guard（retention、credential/Owner lifetime），不从 hash/codec
+推导授权。K1真实三 Broker 场景连接了 actual Store discovery→guarded history，Worker group
+frontier/Store sequence 不变。P1真实 Broker 场景确认 active subscription 保持原消息及 query
+subscription 清理；retained Reference 由 declared fixture 反射构造，不能当作实际 Source Store
+receipt。生产构造仍 private，没有加 DTO bypass。P1 actual Store→history 组合、protected pins/
+Floor、生产 credential/Owner/history provider、Host 自动恢复及 process/new Store 验证仍开放。
+详细锁定源码/artifact、命令和边界见 `evidence/c2-native-admission-history-focused.log`。
+
 | 对象 | key | reserved NV type |
 |---|---|---|
 | TargetChannelIdentity | meta `0e 01 + digest[32]` | 20 |
