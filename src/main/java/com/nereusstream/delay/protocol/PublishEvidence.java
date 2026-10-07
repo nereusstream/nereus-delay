@@ -136,6 +136,15 @@ public final class PublishEvidence {
             if (record && !Arrays.equals(fixed(fields, 22), publication.artifactGenerationSetDigest())) {
                 throw new IllegalArgumentException("Target ACK changes its frozen artifact set");
             }
+        } else if (evidenceKind == PublishEvidenceKind.PULSAR_ATTEMPT_JOURNAL) {
+            final var cursor = EvidenceCursor.decode(nested(fields, 1));
+            requireTargetJournalCursor(publication, cursor);
+            if (!Arrays.equals(fixed(fields, 6), publication.preparedPublishHash())
+                    || !Arrays.equals(fixed(fields, 7),
+                            Bytes.sha256(publication.channel().context().producerIdentity()))) {
+                throw new IllegalArgumentException("Target Journal evidence changes its frozen request/Producer");
+            }
+            return;
         } else {
             throw new IllegalStateException("Target publication evidence branch requires its recovery-domain verifier");
         }
@@ -144,6 +153,22 @@ public final class PublishEvidence {
                 || uint(fields, partitionField) != publication.physical().physicalPartition()
                 || !Arrays.equals(fixed(fields, preparedField), publication.preparedPublishHash())) {
             throw new IllegalArgumentException("Target evidence changes its frozen physical request identity");
+        }
+    }
+
+    /** Static namespace/resource binding only; full durable record/retention authentication remains mandatory. */
+    public static void requireTargetJournalCursor(
+            final TargetOrdinaryPublicationBinding publication, final EvidenceCursor cursor) {
+        final var context = publication.channel().context();
+        if (!cursor.isTarget() || publication.physical().resource().kind() != BrokerResourceIdentity.Kind.PULSAR
+                || context.evidenceGeneration() == null || cursor.evidenceGeneration() != context.evidenceGeneration()
+                || cursor.physicalPartition() != context.sourceShard().partition()) {
+            throw new IllegalArgumentException("Target Journal cursor namespace/generation/partition mismatch");
+        }
+        final var expected = new EvidenceCursor.TargetScope(context.sourceShard(), context.target(), context.domain(),
+                context.accountingIncarnation(), Bytes.sha256(context.producerIdentity()));
+        if (!Arrays.equals(cursor.targetScope().canonicalBytes(), expected.canonicalBytes())) {
+            throw new IllegalArgumentException("Target Journal cursor belongs to another frozen Producer scope");
         }
     }
 

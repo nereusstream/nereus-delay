@@ -184,6 +184,15 @@ public final class PulsarClientArtifactTargetJournalSmoke {
             evidence.requireOrdinaryTargetPublishedBinding(publication);
             com.nereusstream.delay.adapter.PulsarSendAckEvidence.requireRecordBinding(evidence, record, artifacts);
             journal.markPublished(mapping);
+            final long evidenceGeneration = c.context().evidenceGeneration();
+            final var journalEvidence = journal.publishedEvidence(mapping, evidenceGeneration, evidence.evidenceId());
+            final var cursor = journal.evidenceCursor(mapping.producer(), evidenceGeneration).orElseThrow();
+            require(cursor.isTarget(), "Target Journal cursor aliased the Lane namespace");
+            require(Arrays.equals(cursor.canonicalBytes(),
+                    com.nereusstream.delay.protocol.EvidenceCursor.decode(cursor.canonicalBytes()).canonicalBytes()),
+                    "Target Journal cursor roundtrip changed");
+            journalEvidence.requireOrdinaryTargetPublishedBinding(publication);
+            journal.requireTargetPublishedEvidence(mapping, publication, source, cursor, journalEvidence);
             require(gates.get() == 1, "business SEND ownership gate count differs");
             require(journal.state(mapping.mappingId()) == PulsarAttemptJournal.AttemptState.PUBLISHED,
                     "business Journal publication was not durable");

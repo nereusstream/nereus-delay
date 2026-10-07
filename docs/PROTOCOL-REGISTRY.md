@@ -519,6 +519,29 @@ Field 18 and `RetryPolicyRef.semantic_hash` must match. `PayloadProofTrustSetSem
 
 `EvidenceCursor` fields are: 1 `EvidenceKind evidence_kind`; 2 `bytes destination_lane_id`=32; 3 `bytes lane_incarnation`=16; 4 `bytes evidence_resource_incarnation`; 5 `uint32 physical_partition`; 6 `uint64 evidence_generation`; 7 `int64 max_broker_persisted_at_through_cursor`; oneof field 10 `KafkaReceiptCursor kafka` / field 11 `PulsarJournalCursor pulsar`. Kafka fields are 1 `bytes topic_uuid`=16, 2 `uint64 next_offset_exclusive`, 3 `uint64 last_observed_lso_exclusive`. Pulsar fields are 1 `bytes resource_token`=32, 2 `bytes canonical_physical_topic_utf8`, 3 `uint64 physical_topic_creation_timestamp`, 4 `uint64 ledger_id`, 5 `uint64 entry_id`, 6 `uint32 normalized_batch_index`, 7 `uint32 batch_size`. Kind and branch must agree; common resource bytes must equal the branch's canonical resource-incarnation encoding.
 
+Target Pulsar Journal cursor uses an independent closed namespace alongside the unchanged Lane cursor.
+Its exact outer field set is `{1,4,5,6,7,8,11}`: fields 1/4–7 and the Pulsar member field11 keep the
+existing scalar/resource/member definitions; field8 is `TargetEvidenceScope`, and Lane fields2/3 are
+absent. Scope exact fields: 1 version=1; 2 source Shard[20] (Route Incarnation[16] + u32 partition);
+3 TargetId[32]; 4 domain slot u32 (0..63); 5 nonzero raw u64 domain generation; 6 assigned accounting
+incarnation[16]; 7 assigned stable Producer-name SHA256[32]. Scope canonical bound=128 bytes.
+Only PULSAR_ATTEMPT_JOURNAL_CONTIGUOUS admits this Target branch. Lane accessors reject it,
+Target accessors reject Lane, mixed namespaces are incomparable for dominance/identity, and legacy
+Lane cursor bytes/ordering remain unchanged. Total sort adds namespace Lane=0/Target=1 after kind;
+Target compares canonical field8 scope before resource/partition/evidence generation. No new NV/CF
+or System Mutation type is allocated. Older closed decoders reject the Target field set; activation
+must use the Target-aware reader/artifact tuple and cannot rewrite protected legacy cursors in place.
+
+Target Journal PUBLISHED evidence keeps PublishEvidenceKind14 and its existing fields1..9/optional10,
+with a Target cursor at field1. Static binding checks Target producer scope, source-Shard Journal
+partition, evidence generation, prepared request hash and Producer hash. The retained Journal verifier
+additionally joins the full original Target channel/Message/generation/attempt/Admission source/artifact,
+exact durable PUBLISHED mapping/position/sequence/record SHA256 and covered retained cursor cut.
+The evidence cursor embedded in field1 must equal EvidenceResolution field11. These checks do not
+authenticate Broker history/retention by themselves; pre-resolved Source ResolutionAuthority remains
+mandatory. Target absence/GC/pins/Floor/checkpoint seeds and full production provider remain open.
+
+
 `ChannelResourceIdentity` exact fields: 1 `AdapterKind adapter_kind`; 2 `ChannelKind channel_kind`; 3 `bytes destination_lane_id`=32; 4 `bytes lane_incarnation`=16; 5 `BrokerResourceIdentity target_resource`; 6 `uint32 physical_partition`; 7 `uint64 channel_generation`; 8 `uint32 channel_slot`; 9 `bytes producer_or_transactional_identity`; 10 `bytes producer_or_transactional_identity_sha256`=32; optional 11 `BrokerResourceIdentity evidence_resource`; optional 12 `uint64 evidence_generation`; 13 `bytes resource_guard_attestation_digest`=32; 14 nonzero raw `uint64 credential_binding_generation`; 15 `bytes credential_binding_digest`=32; 16 `bytes resolved_credential_version_fingerprint_digest`=32; 17 `CredentialUseLease credential_use_lease`. Fields 7, 12 and 14 carry complete raw unsigned 64-bit patterns; zero is invalid, but a host signed-integer high bit is not a decode error. Field 10 must equal SHA-256(field 9); evidence fields are both present exactly for a channel kind that requires them. Lease kind must be `DESTINATION_CHANNEL`; fields 14–16 must equal lease fields 5–7, the enclosing holder-scope formula must match, and the certificate validity cannot outlive the lease. Replacing/renewing field 17 requires a checked-incremented channel generation and a new entire identity; it can never mutate one generation in place. Before every first physical Producer call, the Worker validates the live lease/loaded fingerprint locally and closes the gate-to-library-ownership interval within `maximumCredentialAuthorizationToProducerCallAge`. A mismatch cannot reuse or silently relabel the channel: the Lane first loses READY and becomes `BLOCKED(CREDENTIAL_BINDING_DRIFT)`.
 
 `PayloadForPublish` exact fields: 1 `uint64 length`; 2 `bytes payload_sha256`=32; closed oneof field 3 `bytes inline_payload` / field 4 `CommittedPayloadDescriptor object`. Inline bytes must match length/hash; an object descriptor must match the same length/hash.

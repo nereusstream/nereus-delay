@@ -7,6 +7,35 @@ import org.junit.jupiter.api.Test;
 
 class EvidenceCursorTest {
     @Test
+    void targetPulsarCursorHasAnIndependentBoundedProducerNamespace() {
+        final var shard = new ShardId(new RouteIncarnation(bytes(16, 1)), 2);
+        final var target = new TargetPartitionId(bytes(32, 2));
+        final var scope = new EvidenceCursor.TargetScope(shard, target,
+                new com.nereusstream.delay.store.TargetKeyCodec.Domain(3, -1L), bytes(16, 4), bytes(32, 5));
+        final var cursor = EvidenceCursor.targetPulsar(scope, bytes(32, 6), 2, -1L, 200,
+                "persistent://tenant/ns/target-journal", 8, 9, 10, 0, 1);
+        assertEquals(cursor, EvidenceCursor.decode(cursor.canonicalBytes()));
+        assertTrue(cursor.isTarget());
+        assertEquals(scope.domain(), cursor.targetScope().domain());
+        assertThrows(IllegalStateException.class, cursor::destinationLaneId);
+        assertThrows(IllegalStateException.class, cursor::laneIncarnation);
+        final var lane = EvidenceCursor.pulsar(target.bytes(), scope.accountingIncarnation(), bytes(32, 6),
+                2, -1L, 200, "persistent://tenant/ns/target-journal", 8, 9, 10, 0, 1);
+        assertTrue(cursor.compareTo(lane) > 0);
+        assertTrue(!cursor.sameIdentity(lane) && !cursor.dominates(lane) && !lane.dominates(cursor));
+        final var next = EvidenceCursor.targetPulsar(scope, bytes(32, 6), 2, -1L, 201,
+                "persistent://tenant/ns/target-journal", 8, 9, 11, 0, 1);
+        assertTrue(next.strictlyDominates(cursor));
+        final var otherProducer = EvidenceCursor.targetPulsar(new EvidenceCursor.TargetScope(shard, target,
+                scope.domain(), scope.accountingIncarnation(), bytes(32, 7)), bytes(32, 6), 2, -1L, 201,
+                "persistent://tenant/ns/target-journal", 8, 9, 11, 0, 1);
+        assertTrue(!otherProducer.sameIdentity(cursor));
+        assertTrue(scope.canonicalBytes().length <= EvidenceCursor.TargetScope.MAX_CANONICAL_BYTES);
+        assertThrows(IllegalArgumentException.class,
+                () -> EvidenceCursor.TargetScope.decode(new byte[EvidenceCursor.TargetScope.MAX_CANONICAL_BYTES + 1]));
+    }
+
+    @Test
     void roundTripsKafkaAndPulsarCursors() {
         final EvidenceCursor kafka = EvidenceCursor.kafka(bytes(32, 1), bytes(16, 2), bytes(16, 3), 1, 4, 100, 11, 10);
         assertEquals(kafka, EvidenceCursor.decode(kafka.canonicalBytes()));

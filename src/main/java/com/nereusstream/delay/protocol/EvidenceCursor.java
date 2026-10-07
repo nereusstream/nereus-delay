@@ -1,5 +1,6 @@
 package com.nereusstream.delay.protocol;
 
+import com.nereusstream.delay.store.TargetKeyCodec;
 import java.nio.charset.StandardCharsets;
 import java.text.Normalizer;
 import java.util.Arrays;
@@ -8,6 +9,61 @@ import java.util.Objects;
 
 /** Canonical Kafka/Pulsar evidence cursor used by ReadyCertificate. */
 public final class EvidenceCursor implements Comparable<EvidenceCursor> {
+    /** Target producer namespace, independent of Owner/channel renewal and incompatible with Lane identity. */
+    public record TargetScope(ShardId sourceShard, TargetPartitionId target, TargetKeyCodec.Domain domain,
+            byte[] accountingIncarnation, byte[] producerNameHash) {
+        public static final int MAX_CANONICAL_BYTES = 128;
+
+        public TargetScope {
+            Objects.requireNonNull(sourceShard, "sourceShard");
+            Objects.requireNonNull(target, "target");
+            Objects.requireNonNull(domain, "domain");
+            if (domain.slot() >= TargetQueueState.MAX_DOMAIN_SLOTS) {
+                throw new IllegalArgumentException("Target evidence domain exceeds its registered slot range");
+            }
+            accountingIncarnation = TargetCompatibilityCodec.assigned(
+                    accountingIncarnation, 16, "accountingIncarnation");
+            producerNameHash = TargetCompatibilityCodec.assigned(producerNameHash, 32, "producerNameHash");
+        }
+
+        @Override
+        public byte[] accountingIncarnation() { return Bytes.copy(accountingIncarnation); }
+        @Override
+        public byte[] producerNameHash() { return Bytes.copy(producerNameHash); }
+
+        public byte[] canonicalBytes() {
+            return CanonicalProtobuf.message(out -> {
+                CanonicalProtobuf.uint32(out, 1, 1);
+                CanonicalProtobuf.bytes(out, 2, Bytes.concat(sourceShard.routeIncarnation().bytes(),
+                        Bytes.u32beBits(sourceShard.partition())));
+                CanonicalProtobuf.bytes(out, 3, target.bytes());
+                CanonicalProtobuf.uint32(out, 4, domain.slot());
+                CanonicalProtobuf.uint64Bits(out, 5, domain.generation());
+                CanonicalProtobuf.bytes(out, 6, accountingIncarnation);
+                CanonicalProtobuf.bytes(out, 7, producerNameHash);
+            });
+        }
+
+        public static TargetScope decode(final byte[] encoded) {
+            final var fields = TargetCompatibilityCodec.read(
+                    encoded, MAX_CANONICAL_BYTES, 7, false, "TargetEvidenceScope");
+            QueryCodecSupport.requireNumbers(fields, new int[] {1, 2, 3, 4, 5, 6, 7}, "TargetEvidenceScope");
+            if (QueryCodecSupport.uint32(fields.getFirst(), 1) != 1) {
+                throw new IllegalArgumentException("unknown Target evidence scope version");
+            }
+            final byte[] shard = QueryCodecSupport.fixed(fields.get(1), 2, 20);
+            final var result = new TargetScope(new ShardId(new RouteIncarnation(Arrays.copyOf(shard, 16)),
+                    (int) Bytes.readU32be(shard, 16)),
+                    new TargetPartitionId(QueryCodecSupport.fixed(fields.get(2), 3, 32)),
+                    new TargetKeyCodec.Domain(QueryCodecSupport.uint32(fields.get(3), 4),
+                            QueryCodecSupport.uint64Bits(fields.get(4), 5)),
+                    QueryCodecSupport.fixed(fields.get(5), 6, 16), QueryCodecSupport.fixed(fields.get(6), 7, 32));
+            QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "TargetEvidenceScope");
+            return result;
+        }
+    }
+
+    private final TargetScope targetScope;
     private final EvidenceKind evidenceKind;
     private final byte[] destinationLaneId;
     private final byte[] laneIncarnation;
@@ -45,9 +101,27 @@ public final class EvidenceCursor implements Comparable<EvidenceCursor> {
             final long entryId,
             final int normalizedBatchIndex,
             final int batchSize) {
+        this(evidenceKind, destinationLaneId, laneIncarnation, evidenceResourceIncarnation, physicalPartition,
+                evidenceGeneration, maxBrokerPersistedAtThroughCursor, topicUuid, nextOffsetExclusive,
+                lastObservedLsoExclusive, resourceToken, physicalTopic, physicalTopicCreationTimestamp,
+                ledgerId, entryId, normalizedBatchIndex, batchSize, null);
+    }
+
+    private EvidenceCursor(
+            final EvidenceKind evidenceKind, final byte[] destinationLaneId, final byte[] laneIncarnation,
+            final byte[] evidenceResourceIncarnation, final int physicalPartition, final long evidenceGeneration,
+            final long maxBrokerPersistedAtThroughCursor, final byte[] topicUuid, final long nextOffsetExclusive,
+            final long lastObservedLsoExclusive, final byte[] resourceToken, final String physicalTopic,
+            final long physicalTopicCreationTimestamp, final long ledgerId, final long entryId,
+            final int normalizedBatchIndex, final int batchSize, final TargetScope targetScope) {
+        this.targetScope = targetScope;
         this.evidenceKind = Objects.requireNonNull(evidenceKind, "evidenceKind");
-        this.destinationLaneId = fixed(destinationLaneId, 32, "destinationLaneId");
-        this.laneIncarnation = fixed(laneIncarnation, 16, "laneIncarnation");
+        if (targetScope != null && (destinationLaneId != null || laneIncarnation != null
+                || evidenceKind != EvidenceKind.PULSAR_ATTEMPT_JOURNAL_CONTIGUOUS)) {
+            throw new IllegalArgumentException("Target cursor cannot alias a Lane or Kafka receipt namespace");
+        }
+        this.destinationLaneId = targetScope == null ? fixed(destinationLaneId, 32, "destinationLaneId") : null;
+        this.laneIncarnation = targetScope == null ? fixed(laneIncarnation, 16, "laneIncarnation") : null;
         this.evidenceResourceIncarnation = nonEmpty(evidenceResourceIncarnation, "evidenceResourceIncarnation");
         if (evidenceGeneration == 0 || maxBrokerPersistedAtThroughCursor < 0) {
             throw new IllegalArgumentException("invalid evidence cursor counters");
@@ -147,11 +221,37 @@ public final class EvidenceCursor implements Comparable<EvidenceCursor> {
         return evidenceKind;
     }
 
+    public static EvidenceCursor targetPulsar(
+            final TargetScope scope, final byte[] resourceToken, final int physicalPartition,
+            final long evidenceGeneration, final long maxBrokerPersistedAtThroughCursor,
+            final String physicalTopic, final long physicalTopicCreationTimestamp,
+            final long ledgerId, final long entryId, final int normalizedBatchIndex, final int batchSize) {
+        return new EvidenceCursor(EvidenceKind.PULSAR_ATTEMPT_JOURNAL_CONTIGUOUS, null, null,
+                resourceToken, physicalPartition, evidenceGeneration, maxBrokerPersistedAtThroughCursor,
+                null, 0, 0, resourceToken, physicalTopic, physicalTopicCreationTimestamp,
+                ledgerId, entryId, normalizedBatchIndex, batchSize, Objects.requireNonNull(scope, "Target scope"));
+    }
+
+    public boolean isTarget() { return targetScope != null; }
+
+    public TargetScope targetScope() {
+        if (targetScope == null) {
+            throw new IllegalStateException("Lane evidence cursor has no Target scope");
+        }
+        return targetScope;
+    }
+
     public byte[] destinationLaneId() {
+        if (targetScope != null) {
+            throw new IllegalStateException("Target evidence cursor has no Lane identity");
+        }
         return Bytes.copy(destinationLaneId);
     }
 
     public byte[] laneIncarnation() {
+        if (targetScope != null) {
+            throw new IllegalStateException("Target evidence cursor has no Lane incarnation");
+        }
         return Bytes.copy(laneIncarnation);
     }
 
@@ -214,12 +314,17 @@ public final class EvidenceCursor implements Comparable<EvidenceCursor> {
     public byte[] canonicalBytes() {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.uint32(output, 1, evidenceKind.wireValue());
-            CanonicalProtobuf.bytes(output, 2, destinationLaneId);
-            CanonicalProtobuf.bytes(output, 3, laneIncarnation);
+            if (targetScope == null) {
+                CanonicalProtobuf.bytes(output, 2, destinationLaneId);
+                CanonicalProtobuf.bytes(output, 3, laneIncarnation);
+            }
             CanonicalProtobuf.bytes(output, 4, evidenceResourceIncarnation);
             CanonicalProtobuf.uint32Bits(output, 5, physicalPartition);
             CanonicalProtobuf.uint64Bits(output, 6, evidenceGeneration);
             CanonicalProtobuf.int64(output, 7, maxBrokerPersistedAtThroughCursor);
+            if (targetScope != null) {
+                CanonicalProtobuf.bytes(output, 8, targetScope.canonicalBytes());
+            }
             if (kafka) {
                 CanonicalProtobuf.bytes(output, 10, CanonicalProtobuf.message(fields -> {
                     CanonicalProtobuf.bytes(fields, 1, topicUuid);
@@ -242,6 +347,28 @@ public final class EvidenceCursor implements Comparable<EvidenceCursor> {
 
     public static EvidenceCursor decode(final byte[] encoded) {
         final List<CanonicalProtobuf.Reader.Field> fields = QueryCodecSupport.read(encoded, "EvidenceCursor");
+        if (fields.size() == 7) {
+            QueryCodecSupport.requireNumbers(fields, new int[] {1, 4, 5, 6, 7, 8, 11}, "TargetEvidenceCursor");
+            if (EvidenceKind.fromWire(QueryCodecSupport.uint(fields.getFirst(), 1))
+                    != EvidenceKind.PULSAR_ATTEMPT_JOURNAL_CONTIGUOUS) {
+                throw new IllegalArgumentException("Target cursor requires its Pulsar Journal branch");
+            }
+            final var member = QueryCodecSupport.read(
+                    QueryCodecSupport.nested(fields.get(6), 11), "PulsarJournalCursor");
+            QueryCodecSupport.requireNumbers(member, new int[] {1, 2, 3, 4, 5, 6, 7}, "PulsarJournalCursor");
+            final byte[] resource = QueryCodecSupport.fixed(fields.get(1), 4, 32);
+            if (!Arrays.equals(resource, QueryCodecSupport.fixed(member.getFirst(), 1, 32))) {
+                throw new IllegalArgumentException("Target cursor resource differs from its Journal member");
+            }
+            final var result = targetPulsar(TargetScope.decode(QueryCodecSupport.nested(fields.get(5), 8)), resource,
+                    QueryCodecSupport.uint32Bits(fields.get(2), 5), QueryCodecSupport.uint64Bits(fields.get(3), 6),
+                    QueryCodecSupport.uint(fields.get(4), 7), utf8(QueryCodecSupport.bytes(member.get(1), 2)),
+                    QueryCodecSupport.uint64Bits(member.get(2), 3), QueryCodecSupport.uint64Bits(member.get(3), 4),
+                    QueryCodecSupport.uint64Bits(member.get(4), 5), QueryCodecSupport.uint32Bits(member.get(5), 6),
+                    QueryCodecSupport.uint32Bits(member.get(6), 7));
+            QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "TargetEvidenceCursor");
+            return result;
+        }
         if (fields.size() != 8
                 || fields.get(0).number() != 1
                 || fields.get(6).number() != 7
@@ -303,11 +430,19 @@ public final class EvidenceCursor implements Comparable<EvidenceCursor> {
         if (result != 0) {
             return result;
         }
-        result = compareUnsigned(destinationLaneId, other.destinationLaneId);
+        result = Boolean.compare(isTarget(), other.isTarget());
         if (result != 0) {
             return result;
         }
-        result = compareUnsigned(laneIncarnation, other.laneIncarnation);
+        if (isTarget()) {
+            result = compareUnsigned(targetScope.canonicalBytes(), other.targetScope.canonicalBytes());
+        } else {
+            result = compareUnsigned(destinationLaneId, other.destinationLaneId);
+        }
+        if (result != 0) {
+            return result;
+        }
+        result = isTarget() ? 0 : compareUnsigned(laneIncarnation, other.laneIncarnation);
         if (result != 0) {
             return result;
         }
@@ -333,6 +468,8 @@ public final class EvidenceCursor implements Comparable<EvidenceCursor> {
     public boolean sameIdentity(final EvidenceCursor other) {
         if (other == null
                 || evidenceKind != other.evidenceKind
+                || isTarget() != other.isTarget()
+                || isTarget() && !Arrays.equals(targetScope.canonicalBytes(), other.targetScope.canonicalBytes())
                 || !Arrays.equals(destinationLaneId, other.destinationLaneId)
                 || !Arrays.equals(laneIncarnation, other.laneIncarnation)
                 || !Arrays.equals(evidenceResourceIncarnation, other.evidenceResourceIncarnation)

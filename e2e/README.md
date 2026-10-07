@@ -7614,3 +7614,9 @@ held current success, historical success, and current terminal NOT_PUBLISHED. Na
 Worker/RocksDB/source state are real; evidence/Source/history/time/key/cursor-domain providers remain
 fixtures. Receipts and the remaining Broker/provider/process/Floor obligations are tracked in NDIP-3
 `evidence/e5-target-evidence-resolution-focused.log` and `evidence/e5-target-evidence-resolution-oxia-real.log`.
+
+The existing locked P1 Target Journal runner now verifies the independent Target EvidenceCursor and
+PUBLISHED Journal evidence after a real guarded Target business SEND, including exact mapping/record/
+sequence/hash/cursor joins. The matching actual Store Source regression still uses declared Journal/
+Writer/history/time/key/cursor-domain authority fixtures; Broker/Store/production recovery composition
+and protected retention/pins/Floor remain required. See NDIP-3 `e5-target-journal-evidence` receipts.

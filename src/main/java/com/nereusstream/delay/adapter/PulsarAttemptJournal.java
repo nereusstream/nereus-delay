@@ -16,6 +16,7 @@ import com.nereusstream.delay.protocol.ExternalDeliveryIdentity;
 import com.nereusstream.delay.protocol.PublishEvidence;
 import com.nereusstream.delay.protocol.PublishEvidenceKind;
 import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity;
+import com.nereusstream.delay.protocol.QueryCodecSupport;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.SourcePositionCodec;
 import com.nereusstream.delay.protocol.StableCode;
@@ -496,6 +497,15 @@ public final class PulsarAttemptJournal {
         final byte[] resourceIncarnation =
                 journalResource == null ? target.resourceIncarnation() : journalResource.resourceIncarnation();
         final int physicalPartition = journalResource == null ? target.partition() : journalResource.partition();
+        if (producer.isTarget()) {
+            final var context = producer.targetChannel().context();
+            return Optional.of(EvidenceCursor.targetPulsar(new EvidenceCursor.TargetScope(context.sourceShard(),
+                    context.target(), context.domain(), context.accountingIncarnation(),
+                    producer.stableProducerNameHash()),
+                    resourceIncarnation, physicalPartition, evidenceGeneration, maxBrokerPersistedAt,
+                    physicalTopic, physicalTopicCreationTimestamp, position.ledgerId(), position.entryId(),
+                    position.batchIndex(), position.batchSize()));
+        }
         return Optional.of(EvidenceCursor.pulsar(
                 producer.laneId().bytes(),
                 producer.laneIncarnation(),
@@ -555,6 +565,67 @@ public final class PulsarAttemptJournal {
         });
         return PublishEvidence.create(
                 PublishEvidenceKind.PULSAR_ATTEMPT_JOURNAL, EvidenceVerificationStatus.VERIFIED_PUBLISHED, branch);
+    }
+
+    /**
+     * Exact Target mapping/PUBLISHED join in this fully replayed Journal. The caller still needs the
+     * authenticated Broker namespace, retained-history/cursor and accepted service-writer authority.
+     */
+    public synchronized void requireTargetPublishedEvidence(
+            final Mapping mapping,
+            final com.nereusstream.delay.protocol.TargetOrdinaryPublicationBinding publication,
+            final com.nereusstream.delay.protocol.SourcePosition admissionSource,
+            final EvidenceCursor cursor, final PublishEvidence evidence) {
+        requireShard(Objects.requireNonNull(mapping, "mapping"));
+        Objects.requireNonNull(publication, "publication");
+        if (!mapping.producer().isTarget() || !mapping.isCurrentGeneration()
+                || mapping.deliveryContract() != DeliveryContract.NEREUS_MANAGED_NOT_BEFORE
+                || !Arrays.equals(mapping.producer().targetChannel().canonicalBytes(),
+                        publication.channel().canonicalBytes())
+                || !mapping.delayMessageId().equals(publication.locator().messageId())
+                || mapping.generation() != publication.locator().generation()
+                || !Arrays.equals(mapping.publishAttemptId(), publication.publishAttemptId())
+                || !Arrays.equals(mapping.preparedPublishHash(), publication.preparedPublishHash())
+                || !Arrays.equals(mapping.sourcePosition(), admissionSource.canonicalBytes())
+                || !Arrays.equals(mapping.artifactGenerationSetDigest(), publication.artifactGenerationSetDigest())) {
+            throw conflict("Target Journal mapping differs from its frozen Admission/source");
+        }
+        final MappingState state = mappings.get(Bytes.hex(mapping.mappingId()));
+        if (state == null || !state.mapping.sameCanonical(mapping) || state.retired
+                || !state.published || state.publishedRecord == null) {
+            throw conflict("Target Journal evidence lacks its exact durable PUBLISHED record");
+        }
+        evidence.requireOrdinaryTargetPublishedBinding(publication);
+        if (evidence.evidenceKind() != PublishEvidenceKind.PULSAR_ATTEMPT_JOURNAL) {
+            throw conflict("Target Journal verifier requires its Journal evidence branch");
+        }
+        final var fields = QueryCodecSupport.read(
+                evidence.branch(), "Target Journal evidence");
+        final var embedded = EvidenceCursor.decode(QueryCodecSupport.nested(fields.get(0), 1));
+        if (!Arrays.equals(embedded.canonicalBytes(), cursor.canonicalBytes())) {
+            throw conflict("Target Journal evidence and resolution cursor differ");
+        }
+        final var current = evidenceCursor(mapping.producer(), cursor.evidenceGeneration()).orElseThrow();
+        if (!current.dominates(cursor)) {
+            throw conflict("Target Journal evidence cursor exceeds its retained replay cut");
+        }
+        final var record = state.publishedRecord;
+        final var position = record.position();
+        if (QueryCodecSupport.uint64Bits(fields.get(1), 2) != position.ledgerId()
+                || QueryCodecSupport.uint64Bits(fields.get(2), 3) != position.entryId()
+                || QueryCodecSupport.uint32Bits(fields.get(3), 4) != position.batchIndex()
+                || QueryCodecSupport.uint64Bits(fields.get(7), 8) != mapping.sequenceId()
+                || !Arrays.equals(QueryCodecSupport.fixed(fields.get(8), 9, 32),
+                        Bytes.sha256(record.canonicalBytes()))
+                || cursor.maxBrokerPersistedAtThroughCursor() < position.brokerEntryTimestampEpochMs()
+                || Long.compareUnsigned(cursor.ledgerId(), position.ledgerId()) < 0
+                || cursor.ledgerId() == position.ledgerId()
+                        && (Long.compareUnsigned(cursor.entryId(), position.entryId()) < 0
+                                || cursor.entryId() == position.entryId()
+                                        && Integer.compareUnsigned(
+                                                cursor.normalizedBatchIndex(), position.batchIndex()) < 0)) {
+            throw conflict("Target Journal evidence does not cover its exact PUBLISHED member/hash/sequence");
+        }
     }
 
     /**

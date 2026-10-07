@@ -1,0 +1,164 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+
+> Task :checkstyleTest
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:7333: 本行字符数 125个，最多：120个。 [LineLength]
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:7829: 本行字符数 128个，最多：120个。 [LineLength]
+
+> Task :checkstyleTest FAILED
+
+> Task :checkstyleMain
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/adapter/PulsarAttemptJournal.java:19:1: 导入 'com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity' 顺序错误。 [ImportOrder]
+
+> Task :checkstyleMain FAILED
+
+FAILURE: Build completed with 2 failures.
+
+1: Task failed with an exception.
+-----------
+* What went wrong:
+Execution failed for task ':checkstyleTest'.
+> A failure occurred while executing org.gradle.api.plugins.quality.internal.CheckstyleAction
+   > Checkstyle rule violations were found. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/checkstyle/test.html
+     Checkstyle files with violations: 1
+     Checkstyle violations by severity: [error:2]
+
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+==============================================================================
+
+2: Task failed with an exception.
+-----------
+* What went wrong:
+Execution failed for task ':checkstyleMain'.
+> A failure occurred while executing org.gradle.api.plugins.quality.internal.CheckstyleAction
+   > Checkstyle rule violations were found. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/checkstyle/main.html
+     Checkstyle files with violations: 1
+     Checkstyle violations by severity: [error:1]
+
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+==============================================================================
+
+BUILD FAILED in 1m 28s
+15 actionable tasks: 6 executed, 9 up-to-date
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :checkstyleTest
+> Task :checkstyleMain
+
+BUILD SUCCESSFUL in 1m 27s
+15 actionable tasks: 6 executed, 9 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeRealPulsarProto UP-TO-DATE
+> Task :extractRealPulsarProto UP-TO-DATE
+> Task :generateRealPulsarProto NO-SOURCE
+> Task :compileRealPulsar UP-TO-DATE
+> Task :compileRealPulsarJava SKIPPED
+> Task :processRealPulsarProtoResources UP-TO-DATE
+> Task :processRealPulsarResources NO-SOURCE
+> Task :realPulsarClasses UP-TO-DATE
+> Task :checkstyleRealPulsar
+
+BUILD SUCCESSFUL in 17s
+12 actionable tasks: 2 executed, 10 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+
+Receipt 2026-10-08 Asia/Shanghai; parent 7bb58d9c708b1797094151b2fc59bd34f85e3f3d; scoped uncommitted runtime.
+Command: ./gradlew test --tests 'com.nereusstream.delay.runtime.TargetCommandStoreTest.modifiesActualTimelineOrClaimWithHistoryAndFirstResults' --tests 'com.nereusstream.delay.protocol.EvidenceCursorTest' --tests 'com.nereusstream.delay.adapter.PulsarAttemptJournalTest' --tests 'com.nereusstream.delay.protocol.PublishOutcomeBodyTest' checkstyleMain checkstyleTest --no-daemon --console=plain
+Local80 zero failure/error/skip, main/test style pass in 1m27s. Source Journal appender and Broker/history/time/key/cursor authority are fixtures; original actual Store/Owner/source/budget joins remain real. Real Broker and Source Store are separate slices.
+Initial main compile shadowed the existing evidence fields variable; fixed before tests. First semantic72 had one wrong expected exception (JournalException is the actual precise cursor-conflict failure), corrected without changing the guard. Original legacy/cursor80 then passed semantics but new import/two test long lines failed style; final80/style pass.
+Optional P1 compileRealPulsar/checkstyleRealPulsar with locked 0a253648 client-original/api/common jars: observed BUILD SUCCESSFUL in17s.
+TargetScope is bounded128 and new cursor has closed fields1/4/5/6/7/8/11. Lane bytes remain unchanged; mixed identity/accessor/dominance reject. Journal verifier joins exact retained PUBLISHED mapping/member/hash/sequence/cut, but authenticated Broker/retention/service authority remains mandatory outside this local ledger method. No complete pins/Floor/seeds/GC/production authority.
+{
+  "sourceSha256": {
+    "src/main/java/com/nereusstream/delay/protocol/EvidenceCursor.java": "2dfc9e1a22af69d32b0127c554fa5417383826afe446e3a5cd6a6fbabad5293e",
+    "src/main/java/com/nereusstream/delay/protocol/PublishEvidence.java": "bfa144935814d92328709021f515c1f10ce8177e2ecb87cf1024e882407fdbe7",
+    "src/main/java/com/nereusstream/delay/adapter/PulsarAttemptJournal.java": "3b44bf71f7a7204ec7a5d721172f6f69fce82e30133d02ce08034ca8bd878dbf",
+    "src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactTargetJournalSmoke.java": "cfd4d9f0c49e00a5d5b9b2860f67235643c45efe71f10e9adb80f0840f93ac72",
+    "src/test/java/com/nereusstream/delay/protocol/EvidenceCursorTest.java": "cb8aea535adb3a89510c58b49357d57f10faa439d345fd6c31e5970af1bf1058",
+    "src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java": "922c86e876cff174185fdb9169a26d334083c472cf60a74468f056dd9aaf6c21"
+  },
+  "xml": [
+    {
+      "suite": "com.nereusstream.delay.adapter.PulsarAttemptJournalTest",
+      "tests": "24",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "sha256": "af71a569480dbb7bc09d14a683dc6fda368970c775119a039dd0f69ff596b66d"
+    },
+    {
+      "suite": "com.nereusstream.delay.protocol.EvidenceCursorTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "sha256": "5dd344d52ccd61d3b2c4f9031228951f7df54106c695cf44fd88fde0ed6e2861"
+    },
+    {
+      "suite": "com.nereusstream.delay.protocol.PublishOutcomeBodyTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "sha256": "3c12f42e095ccc1fa06732a06e6927be2055502de3e1a47f10cee661c239cb35"
+    },
+    {
+      "suite": "com.nereusstream.delay.runtime.TargetCommandStoreTest",
+      "tests": "40",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "sha256": "00c03692f877c8c6a57212cc34d0e53664a95de560d80d1fbe5ff6d688299db4"
+    }
+  ]
+}
+Documentation: ./gradlew checkDocumentation --no-daemon --console=plain; observed BUILD SUCCESSFUL in 1m4s, six tasks executed. Historical NDIP-1/2 checks do not certify this NDIP-3 runtime.

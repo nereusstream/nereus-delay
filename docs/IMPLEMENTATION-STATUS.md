@@ -18637,3 +18637,11 @@ including success terminal history with that unresolved ref. Each final state pa
 reopen ledger/accounting audit. These direct planner/commit tests use explicit commit/physical/time/
 key/policy/cursor fixtures and do not add new Broker/Source-ACK or process/Floor evidence. Remaining
 multi-UNCERTAIN/closure/provider/verifier/production/migration/central obligations stay open.
+
+Target Pulsar Journal PUBLISHED evidence now carries an independent bounded Target cursor namespace,
+with static request/producer binding and exact retained mapping/PUBLISHED-record/cursor verification.
+Legacy Lane cursor/Journal bytes and identity ordering remain unchanged. Local80/style and locked P1
+actual Target Journal business-SEND/cursor smoke pass; Store Source and real Broker evidence remain
+separate slices with explicit Writer/time/history/retention/service fixtures. Target absence/GC/Floor
+seeds, specialized verifiers, production assembly, v3 history, process/new Store/F migration and central
+validation are still open; completion and production flags stay false.
