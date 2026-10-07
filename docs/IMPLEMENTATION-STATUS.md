@@ -18630,3 +18630,10 @@ process/new Store/pins/Floor, F migration/retirement and central validation rema
 Real two-session Oxia9/style also pass on the current source, including service resolution after takeover
 for held current/historical success and terminal rejection. Native Owner/Store/source paths are real;
 Broker/Source/history/time/key/cursor providers remain fixtures, with no completion flag raised.
+
+The existing Target evidence transitions now have four actual RocksDB Store/Claim/second-Admission
+regressions: reversible Claim/charge removal versus preservation of a newer PUBLISHING ref/Budget,
+including success terminal history with that unresolved ref. Each final state passes complete Store
+reopen ledger/accounting audit. These direct planner/commit tests use explicit commit/physical/time/
+key/policy/cursor fixtures and do not add new Broker/Source-ACK or process/Floor evidence. Remaining
+multi-UNCERTAIN/closure/provider/verifier/production/migration/central obligations stay open.

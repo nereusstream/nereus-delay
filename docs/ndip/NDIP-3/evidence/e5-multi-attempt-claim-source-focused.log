@@ -1,0 +1,96 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+
+> Task :checkstyleTest
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:2969: 本行字符数 127个，最多：120个。 [LineLength]
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:7904: 本行字符数 121个，最多：120个。 [LineLength]
+
+> Task :checkstyleTest FAILED
+> Task :checkstyleMain
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':checkstyleTest'.
+> A failure occurred while executing org.gradle.api.plugins.quality.internal.CheckstyleAction
+   > Checkstyle rule violations were found. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/checkstyle/test.html
+     Checkstyle files with violations: 1
+     Checkstyle violations by severity: [error:2]
+
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 1m 24s
+15 actionable tasks: 5 executed, 10 up-to-date
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :checkstyleMain UP-TO-DATE
+> Task :checkstyleTest
+
+BUILD SUCCESSFUL in 1m 19s
+15 actionable tasks: 4 executed, 11 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+
+Receipt 2026-10-08 Asia/Shanghai, parent 967093ed0d8a166272be280ca63808f22acb053c; scoped test/documentation changes.
+Command: ./gradlew test --tests 'com.nereusstream.delay.runtime.TargetCommandStoreTest.modifiesActualTimelineOrClaimWithHistoryAndFirstResults' --tests 'com.nereusstream.delay.store.TargetCheckpointRootVerifierTest' checkstyleMain checkstyleTest --no-daemon --console=plain
+Final42 (39 actual Source/Store harness variants and 3 root tests), zero failure/error/skip; main/test style passed, BUILD SUCCESSFUL in 1m 19s. Four new variants directly run actual Target UNKNOWN/Claim/second Admission/Evidence Resolution planner/commit and complete Store reopen audit. Their commit/physical/time/key/policy/cursor providers remain fixtures; no new Broker/Source-ACK/native Owner/process/new Store/Floor certification.
+Initial test compile used nonexistent SDK_TIMEOUT; corrected to registered ENQUEUE_RESULT_UNCERTAIN with its matching typed retry cause. The first semantic39 passed; a broader42 passed tests but two long lines failed style, corrected before final42/style run. No production code/gate changes or weakened assertions.
+{
+  "sourceSha256": {
+    "src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java": "cca1f4caf40604a812a9d7daa9ea801a0c9db0c2968586c7d044991fa498c882"
+  },
+  "xml": [
+    {
+      "suite": "com.nereusstream.delay.runtime.TargetCommandStoreTest",
+      "tests": "39",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "sha256": "384417f1735ebc5033ec0a5944a440f3e77e303147729ae6500a5e3dbd7b905e"
+    },
+    {
+      "suite": "com.nereusstream.delay.store.TargetCheckpointRootVerifierTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "sha256": "5b11db07397abd71cf6cb348ba592a1e0398b821bad603ab051a6ef9ebfd0366"
+    }
+  ]
+}
+Documentation: ./gradlew checkDocumentation --no-daemon --console=plain; observed BUILD SUCCESSFUL in 1m 3s, six tasks executed. Historical NDIP-1/2 checks do not certify this NDIP-3 runtime.

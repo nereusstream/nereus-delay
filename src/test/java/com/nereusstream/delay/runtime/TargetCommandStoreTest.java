@@ -224,7 +224,9 @@ class TargetCommandStoreTest {
         "true,false,false,false,false,true,false,20", "true,false,false,false,false,true,false,21",
         "true,false,false,false,false,true,false,22", "true,false,false,false,false,true,false,23",
         "true,false,false,false,false,true,false,24", "true,false,false,false,false,true,false,25",
-        "true,false,false,false,false,true,false,26"
+        "true,false,false,false,false,true,false,26",
+        "true,false,false,true,false,true,false,27", "true,false,false,true,false,true,false,28",
+        "true,false,false,true,false,true,false,29", "true,false,false,true,false,true,false,30"
     })
     void modifiesActualTimelineOrClaimWithHistoryAndFirstResults(
             boolean claimed,
@@ -2960,6 +2962,17 @@ class TargetCommandStoreTest {
                                         admittedOrder.barrier().canonicalBytes(),
                                         orderAfterCancel.barrier().canonicalBytes());
                                 assertNull(orderAfterCancel.serviceableHead());
+                            }
+                            if (publishFailure >= 27) {
+                                assertEvidenceWithNewerWork(replacementInitialized.backend(), replacementStore,
+                                        otherScope, replacementInitialized.root().recoveryLineage(), admission,
+                                        replacementOwnerIdentity[0], keys, otherRetryPolicy, capability.ref(),
+                                        publishFailure);
+                                replacementWorker.pauseNewTurns();
+                                replacementWorker.closeSource();
+                                claimWorker.pauseNewTurns();
+                                claimWorker.closeSource();
+                                return;
                             }
                             if (publishFailure == 10 || publishFailure == 11 || publishFailure >= 18) {
                                 final boolean terminalRecovery = publishFailure == 18 || publishFailure == 19
@@ -7779,6 +7792,182 @@ class TargetCommandStoreTest {
         assertEquals(applied, store.latestSequenceNumber());
         assertEquals(2, acknowledgements.get());
         assertTrue(handoff.readApplied(mutation, () -> 102).isPresent());
+    }
+
+    /** Actual atomic Store/Claim/Admission paths; physical/time/key/cursor/commit authorities are fixtures. */
+    private static void assertEvidenceWithNewerWork(
+            TargetStoreBackend backend, ShardStore store, TargetQuotaScope scope, byte[] lineage,
+            TargetAdmissionFixture admission, OwnerIdentity owner, KeyPair keys,
+            com.nereusstream.delay.protocol.RetryPolicySemantic policy, ProfileRef capability, int mode) {
+        final var image = admission.entry().mutation();
+        final var body = TargetPublishAdmissionBody.decode(image.canonicalBody());
+        final boolean newPublisher = mode >= 29;
+        final boolean published = mode == 27 || mode == 29;
+        final var outcomes = new TargetPublishOutcomeStore(backend, scope, lineage, 16, 1, 1);
+        final var prior = (KafkaSourcePosition) store.appliedShardLogPosition();
+        final var unknownAt = source(prior, prior.offset() + 1, prior.brokerPersistenceTimeEpochMs() + 1);
+        final long observed = Math.max(unknownAt.brokerPersistenceTimeEpochMs(), body.decisionTime().latestEpochMs());
+        final var time = new TrustedUtcIntervalEvidence(observed, observed + 1,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, bytes(32, 0xD0),
+                1, 1, 1, bytes(32, 0xD1), 0, null);
+        final long next = time.latestEpochMs() + RetryJitter.delayMs(RetryJitter.MESSAGE_PUBLISH,
+                body.locator().messageId(), body.locator().generation(), body.attemptNo(),
+                policy.retryBackoffCap(body.attemptNo()));
+        final long deadline = Math.min(body.publication().expireAtEpochMs(),
+                body.decisionTime().latestEpochMs() + policy.maxRetryDurationMs());
+        final var unknown = SystemMutation.signed(scope.shard(), SystemMutationType.PUBLISH_OUTCOME, observed + 10_000,
+                body.publishAttemptId(), PublishOutcomeBody.encodeInitial(scope.shard(), observed + 10_000,
+                        body.publishAttemptId(), 3, 4, StableCode.ENQUEUE_RESULT_UNCERTAIN, null,
+                        new PublishAdmissionBody.ChargeVector(
+                                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0).canonicalBytes(), time,
+                        typedUnknownRetryDecision(policy, body.decisionTime().latestEpochMs(),
+                                deadline, body.attemptNo(), next, StableCode.ENQUEUE_RESULT_UNCERTAIN)),
+                image.authorIdentity(), 1, keys.getPrivate());
+        final var history = new TargetPublishOutcomeVerifier.RetryContext(image, image, policy);
+        final var preparedUnknown = outcomes.prepareFirst(budget(), unknown, unknownAt,
+                (a, b, c, d) -> new TargetPublishOutcomeVerifier.Authorization(keys.getPublic(),
+                        ProtocolTuple.currentSystemMutation(), owner, 10, 10, 100, (e, f, g, h) -> true, history));
+        assertEquals(ApplyStatus.APPLIED, outcomes.commit(preparedUnknown, (a, b, c) -> guard()).applyStatus());
+        final byte[] key = TargetKeyCodec.message(body.locator().messageId());
+        final var retrying = TargetMessageRecord.decode(
+                TargetValueEnvelope.decode(store.get(ColumnFamily.ID, key), TargetMessageRecord.VALUE_TYPE).payload());
+        assertEquals(TimelineWorkKind.UNCERTAIN_RETRY, retrying.runtime().timeline().workKind());
+        final var work = retrying.runtime().timeline();
+        final var selected = new com.nereusstream.delay.protocol.TargetHeadRef(work.ordinaryKey(),
+                body.locator().messageId(), body.locator().generation(), work.retryEligibilityAtEpochMs());
+        final var claims = new TargetClaimStore(backend, scope, lineage, 1, (a, b) -> {});
+        final var plan = claims.prepareClaim(budget(), selected, owner, next, next + 1_000,
+                body.executionBytes(), bytes(32, 0xD2));
+        claims.commit(plan, (a, b, c) -> guard());
+        final var claim = plan.claim();
+        final byte[] claimKey = claim.key();
+        final byte[] chargeKey = claim.chargeKey();
+        SystemMutation newer = null;
+        byte[] newerBudgetKey = null;
+        byte[] newerBudgetBytes = null;
+        if (newPublisher) {
+            final var last = (KafkaSourcePosition) store.appliedShardLogPosition();
+            final var secondAt = source(last, last.offset() + 1,
+                    Math.max(last.brokerPersistenceTimeEpochMs() + 1, next));
+            final var second = targetAdmission(
+                    store, claim, owner, keys, secondAt, body.publication().channel(), capability);
+            newer = second.entry().mutation();
+            final var admissions = new TargetPublishAdmissionStore(backend, scope, lineage, 16, 1, 1);
+            final var admissionPlan = admissions.prepareFirst(budget(), newer, secondAt,
+                    (a, b, c, d) -> new TargetPublishAdmissionVerifier.Authorization(keys.getPublic(),
+                            ProtocolTuple.targetMaterializedPublishAdmission(), 10, 10, 100,
+                            (e, f, g, h) -> true, (e, f) -> {}));
+            assertEquals(ApplyStatus.APPLIED, admissions.commit(admissionPlan, (a, b, c) -> guard()).applyStatus());
+            newerBudgetKey = Bytes.concat(
+                    new byte[] {TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG, TargetKeyCodec.KEY_FORMAT},
+                    second.attemptId());
+            newerBudgetBytes = store.get(ColumnFamily.META, newerBudgetKey);
+        }
+        final var before = TargetMessageRecord.decode(
+                TargetValueEnvelope.decode(store.get(ColumnFamily.ID, key), TargetMessageRecord.VALUE_TYPE).payload());
+        final var oldUnknown = store.get(ColumnFamily.DEDUPE, systemKey(unknown));
+        final byte[] oldBudgetKey = Bytes.concat(
+                new byte[] {TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG, TargetKeyCodec.KEY_FORMAT},
+                body.publishAttemptId());
+        final var oldBudget = TargetQuotaAttemptBudget.decode(TargetValueEnvelope.decode(
+                store.get(ColumnFamily.META, oldBudgetKey), TargetQuotaAttemptBudget.VALUE_TYPE).payload());
+        assertEquals(TargetQuotaAttemptBudget.Phase.UNKNOWN, oldBudget.phase());
+        final var last = (KafkaSourcePosition) store.appliedShardLogPosition();
+        final var at = source(last, last.offset() + 1,
+                Math.max(last.brokerPersistenceTimeEpochMs() + 1, next));
+        final var resolvedTime = new TrustedUtcIntervalEvidence(at.brokerPersistenceTimeEpochMs(),
+                at.brokerPersistenceTimeEpochMs() + 1, TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                bytes(32, 0xD3), 1, 1, 1, bytes(32, 0xD4), 0, null);
+        final var evidence = published ? targetPublishedAck(
+                body.publication(), body.publication().preparedPublishHash())
+                : targetRejectedEvidence(body.publication(), body.publication().preparedPublishHash(),
+                        body.publication().physical().physicalPartition());
+        final var cursor = com.nereusstream.delay.protocol.EvidenceCursor.pulsar(body.locator().target().bytes(),
+                body.locator().accountingIncarnation(), bytes(32, 0xD5), 0, 5, at.brokerPersistenceTimeEpochMs(),
+                "persistent://public/default/multi-attempt-evidence-fixture", 1, 1, 1, 0, 1);
+        final StableCode cause = published ? StableCode.OK : StableCode.DESTINATION_DEFINITIVE_RETRIABLE;
+        final long resolutionRetry = resolvedTime.latestEpochMs() + RetryJitter.delayMs(RetryJitter.MESSAGE_PUBLISH,
+                body.locator().messageId(), body.locator().generation(), body.attemptNo(),
+                policy.retryBackoffCap(body.attemptNo()));
+        final byte[] decision = CanonicalProtobuf.message(out -> {
+            CanonicalProtobuf.uint32(out, 1, published ? 1 : 2);
+            CanonicalProtobuf.bytes(out, 2, policy.ref().canonicalBytes());
+            CanonicalProtobuf.uint32(out, 3, body.attemptNo());
+            CanonicalProtobuf.uint64(out, 4, body.decisionTime().latestEpochMs());
+            CanonicalProtobuf.uint64(out, 5, deadline);
+            if (!published) {
+                CanonicalProtobuf.uint64(out, 6, resolutionRetry);
+            }
+            CanonicalProtobuf.uint32(out, 7, 1);
+            CanonicalProtobuf.uint32(out, 8, cause.wireValue());
+            CanonicalProtobuf.uint32(out, 9, 1);
+        });
+        final byte[] encoded = PublishOutcomeBody.encodeEvidenceResolution(
+                scope.shard(), at.brokerPersistenceTimeEpochMs()
+                        + 10_000, body.publishAttemptId(), cursor, evidence.canonicalBytes(), cause, published ? 1 : 2,
+                published ? 0 : 1, body.outcomeTransfer(), resolvedTime, decision);
+        final var parsed = PublishOutcomeBody.decodeEvidenceResolution(encoded);
+        final var resolution = SystemMutation.signed(scope.shard(), SystemMutationType.EVIDENCE_RESOLUTION,
+                at.brokerPersistenceTimeEpochMs() + 10_000,
+                parsed.evidenceResolutionLogicalOperationIdentity(), encoded,
+                AuthorIdentity.service(bytes(16, 0xD6), bytes(16, 0xD7), 5).canonicalBytes(), 1, keys.getPrivate());
+        final var applied = outcomes.prepareFirst(budget(), resolution, at,
+                (a, b, c, d) -> new TargetPublishOutcomeVerifier.Authorization(keys.getPublic(),
+                        ProtocolTuple.currentSystemMutation(), owner, 10, 10, 100, (e, f, g, h) -> true, history,
+                        new TargetPublishOutcomeVerifier.EvidenceContext(image, (e, f, g, h) -> {},
+                                (publication, actual, actualCursor, first, held, current) -> {
+                                    assertEquals(body.publication(), publication);
+                                    assertArrayEquals(evidence.canonicalBytes(), actual.canonicalBytes());
+                                    assertArrayEquals(cursor.canonicalBytes(), actualCursor.canonicalBytes());
+                                    assertEquals(admission.entry().position(), first);
+                                    assertEquals(unknownAt, held);
+                                    assertEquals(at, current);
+                                })));
+        assertEquals(ApplyStatus.APPLIED, outcomes.commit(applied, (a, b, c) -> guard()).applyStatus());
+        final var after = TargetMessageRecord.decode(
+                TargetValueEnvelope.decode(store.get(ColumnFamily.ID, key), TargetMessageRecord.VALUE_TYPE).payload());
+        assertEquals(before.evidenceOutcome(body.publishAttemptId(), published, false,
+                published ? null : resolutionRetry, claim.work()), after);
+        assertNull(store.get(ColumnFamily.INFLIGHT, claimKey));
+        assertNull(store.get(ColumnFamily.META, chargeKey));
+        assertArrayEquals(oldUnknown, store.get(ColumnFamily.DEDUPE, systemKey(unknown)));
+        final var resolvedBudget = TargetQuotaAttemptBudget.decode(TargetValueEnvelope.decode(
+                store.get(ColumnFamily.META, oldBudgetKey), TargetQuotaAttemptBudget.VALUE_TYPE).payload());
+        assertEquals(TargetQuotaAttemptBudget.Phase.RESOLVED_AWAITING_FLOOR, resolvedBudget.phase());
+        assertEquals(oldBudget.commitment(), resolvedBudget.commitment());
+        assertEquals(oldBudget.allocated(), resolvedBudget.allocated());
+        assertEquals(0, resolvedBudget.effectiveCharge().amount(CapacityDimension.INFLIGHT_MESSAGES));
+        assertNull(resolvedBudget.floorDigest());
+        if (newPublisher) {
+            assertArrayEquals(newerBudgetBytes, store.get(ColumnFamily.META, newerBudgetKey));
+            final var secondBody = TargetPublishAdmissionBody.decode(newer.canonicalBody());
+            assertEquals(List.of(secondBody.obligation()), after.runtime().attemptObligations());
+            assertEquals(2, after.runtime().admissionsUsed());
+            assertEquals(1, after.runtime().uncertainRetryAdmissionsUsed());
+            if (published) {
+                assertEquals(GenerationAggregateState.PUBLISHED, after.aggregateState());
+                assertEquals(CurrentSendWorkKind.NONE, after.runtime().currentWorkKind());
+                final var terminal = TargetTerminalGenerationRecord.decode(TargetValueEnvelope.decode(
+                        store.get(ColumnFamily.TERMINAL, TargetTerminalGenerationRecord.key(after.locator())),
+                        TargetTerminalGenerationRecord.VALUE_TYPE).payload());
+                assertEquals(after.runtime(), terminal.runtime());
+            } else {
+                assertEquals(GenerationAggregateState.PUBLISHING, after.aggregateState());
+                assertArrayEquals(secondBody.publishAttemptId(), after.runtime().publishAttemptId());
+            }
+            final byte[] payloadKey = Bytes.concat(
+                    new byte[] {TargetKeyCodec.QUOTA_PAYLOAD_OWNER_TAG, TargetKeyCodec.KEY_FORMAT},
+                    after.locator().messageId().bytes());
+            assertEquals(TargetQuotaPayloadOwner.Phase.ACTIVE,
+                    TargetQuotaPayloadOwner.decode(TargetValueEnvelope.decode(
+                    store.get(ColumnFamily.META, payloadKey), TargetQuotaPayloadOwner.VALUE_TYPE).payload()).phase());
+        } else if (!published) {
+            assertEquals(TimelineWorkKind.DEFINITIVE_RETRY, after.runtime().timeline().workKind());
+            assertFalse(after.runtime().timeline().nativeCandidate());
+            assertTrue(after.runtime().attemptObligations().isEmpty());
+        }
+        TargetStoreBootstrap.reopen(store, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(),
+                (a, b) -> guard());
     }
 
     private static void assertRecoveryOutcomeSnapshot(
