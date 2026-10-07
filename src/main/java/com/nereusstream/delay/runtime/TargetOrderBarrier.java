@@ -79,6 +79,16 @@ public final class TargetOrderBarrier {
         }
     }
 
+    /** An older terminal generation can still block the current generation's strict work. */
+    public void requireTerminalProjection(final TargetTerminalGenerationRecord terminal) {
+        if (!locator.equals(terminal.locator())
+                || runtimeRevision != terminal.runtime().runtimeRevision()
+                || !Bytes.constantTimeEquals(runtimeDigest, terminal.runtime().runtimeDigest())
+                || terminal.runtime().attemptObligations().isEmpty()) {
+            throw new IllegalArgumentException("Target order barrier lacks its exact terminal obligations");
+        }
+    }
+
     public TargetMessageLocator locator() {
         return locator;
     }

@@ -188,6 +188,7 @@ GRADLE_USER_HOME="$delay_gradle_user_home" \
         --tests com.nereusstream.delay.semantic.OxiaRealTargetNativePolicySmokeTest \
         --tests com.nereusstream.delay.runtime.TargetQuotaGrantStoreTest.realOxiaOwnerTakeoverReopensTargetRootAndCompletesCloseGc \
         --tests com.nereusstream.delay.runtime.TargetCommandStoreTest.realOxiaPublishOwnerTakeoverRetainsUncertainBudgetAndBarrier \
+        --tests com.nereusstream.delay.runtime.TargetCommandStoreTest.realOxiaLateTargetOutcomeRetainsTerminalDecision \
         --tests com.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest \
         --tests com.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest \
         --tests com.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest \

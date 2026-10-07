@@ -224,6 +224,13 @@ public final class TargetMessageRecord {
                 runtime.publishedOutcome(attemptId));
     }
 
+    public TargetMessageRecord terminalOutcome(final byte[] attemptId, final boolean published) {
+        return new TargetMessageRecord(
+                locator, TargetQueueState.nextRevision(stateVersion), deliverAtEpochMs, expireAtEpochMs,
+                retryEligibilityAtEpochMs, nativeDeliveryPolicy, scheduleSource, inlinePayload, payloadReference,
+                runtime.terminalOutcome(attemptId, published));
+    }
+
     /** Settles only the exact current attempt; older uncertain obligations prevent a definitive retry. */
     public TargetMessageRecord notPublishedOutcome(
             final byte[] attemptId, final boolean permanent, final Long nextRetryAt) {

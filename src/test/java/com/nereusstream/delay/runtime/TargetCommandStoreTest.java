@@ -104,6 +104,7 @@ import com.nereusstream.delay.protocol.TargetDomainState;
 import com.nereusstream.delay.protocol.TargetExpireGenerationBody;
 import com.nereusstream.delay.protocol.TargetMembershipGrant;
 import com.nereusstream.delay.protocol.TargetMembershipPolicy;
+import com.nereusstream.delay.protocol.TargetMessageLocator;
 import com.nereusstream.delay.protocol.TargetNativePolicyScope;
 import com.nereusstream.delay.protocol.TargetPartitionHashInput;
 import com.nereusstream.delay.protocol.TargetPartitionId;
@@ -116,6 +117,7 @@ import com.nereusstream.delay.protocol.TargetQuotaGrant;
 import com.nereusstream.delay.protocol.TargetQuotaGrantActivation;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlBody;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlRequest;
+import com.nereusstream.delay.protocol.TargetQuotaMutation;
 import com.nereusstream.delay.protocol.TargetQuotaPayloadOwner;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
 import com.nereusstream.delay.protocol.TargetQuotaUsage;
@@ -165,6 +167,17 @@ class TargetCommandStoreTest {
     @org.junit.jupiter.api.Test
     @org.junit.jupiter.api.Tag("real-service")
     void realOxiaPublishOwnerTakeoverRetainsUncertainBudgetAndBarrier() throws Exception {
+        runRealOxiaTargetOutcome(10);
+    }
+
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(ints = {12, 15, 17})
+    @org.junit.jupiter.api.Tag("real-service")
+    void realOxiaLateTargetOutcomeRetainsTerminalDecision(int mode) throws Exception {
+        runRealOxiaTargetOutcome(mode);
+    }
+
+    private void runRealOxiaTargetOutcome(int mode) throws Exception {
         final String endpoint = System.getenv("NEREUS_DELAY_OXIA_ENDPOINT");
         org.junit.jupiter.api.Assumptions.assumeTrue(endpoint != null && !endpoint.isBlank(),
                 "NEREUS_DELAY_OXIA_ENDPOINT is not configured");
@@ -182,7 +195,7 @@ class TargetCommandStoreTest {
             takeoverSession = second.sessionIdentity();
             assertFalse(Arrays.equals(connectedOwnerSession, takeoverSession));
             modifiesActualTimelineOrClaimWithHistoryAndFirstResults(
-                    true, false, false, false, false, true, false, 10);
+                    true, false, false, false, false, true, false, mode);
         }
     }
 
@@ -203,7 +216,10 @@ class TargetCommandStoreTest {
         "true,false,false,false,false,true,false,5",
         "true,false,false,false,false,true,false,6", "true,false,false,false,false,true,false,7",
         "true,false,false,false,false,true,false,8", "true,false,false,false,false,true,false,9",
-        "true,false,false,false,false,true,false,10", "true,false,false,false,false,true,false,11"
+        "true,false,false,false,false,true,false,10", "true,false,false,false,false,true,false,11",
+        "true,false,false,false,false,true,false,12", "true,false,false,false,false,true,false,13",
+        "true,false,false,false,false,true,false,14", "true,false,false,false,false,true,false,15",
+        "true,false,false,false,false,true,false,16", "true,false,false,false,false,true,false,17"
     })
     void modifiesActualTimelineOrClaimWithHistoryAndFirstResults(
             boolean claimed,
@@ -2930,6 +2946,17 @@ class TargetCommandStoreTest {
                                         takeoverSession == null ? bytes(32, 0xF1) : takeoverSession,
                                         resources, workerClasses, admission, replacementOwnerIdentity[0], keys,
                                         otherRetryPolicy, publishFailure == 11);
+                                claimWorker.pauseNewTurns();
+                                claimWorker.closeSource();
+                                return;
+                            }
+                            if (publishFailure >= 12) {
+                                assertLateTargetOutcome(replacementInitialized.backend(), replacementStore, otherScope,
+                                        replacementInitialized.root().recoveryLineage(), replacementWorker,
+                                        replacementNextSourceRecord, admission, keys, replacementOwnerIdentity[0],
+                                        expectedPublishedEvidence, outcomeAuthorityResolutions, publishFailure);
+                                replacementWorker.pauseNewTurns();
+                                replacementWorker.closeSource();
                                 claimWorker.pauseNewTurns();
                                 claimWorker.closeSource();
                                 return;
@@ -7501,6 +7528,212 @@ class TargetCommandStoreTest {
             assertArrayEquals(expected.canonicalBytes(), evidence.canonicalBytes());
             assertTrue(first.compareTo(at) < 0);
         });
+    }
+
+    /** Source/accounting regression; terminal/replay projection and Broker evidence providers remain fixtures. */
+    private static void assertLateTargetOutcome(
+            TargetStoreBackend backend, ShardStore store, TargetQuotaScope scope, byte[] lineage,
+            TargetWorkerShardRuntime worker,
+            java.util.concurrent.atomic.AtomicReference<SourceRecordConsumer.PolledSourceRecord> pending,
+            TargetAdmissionFixture admission, KeyPair keys, OwnerIdentity owner,
+            java.util.concurrent.atomic.AtomicReference<com.nereusstream.delay.protocol.PublishEvidence> expected,
+            java.util.concurrent.atomic.AtomicInteger authorityResolutions, int mode) {
+        final var body = TargetPublishAdmissionBody.decode(admission.entry().mutation().canonicalBody());
+        final boolean historical = mode >= 15;
+        final int effect = (mode - 12) % 3 + 1;
+        terminalOutcomeFixture(backend, store, scope, lineage, body.locator(), historical);
+        final byte[] messageKey = TargetKeyCodec.message(body.locator().messageId());
+        final byte[] currentBytes = store.get(ColumnFamily.ID, messageKey);
+        final var current = TargetMessageRecord.decode(
+                TargetValueEnvelope.decode(currentBytes, TargetMessageRecord.VALUE_TYPE).payload());
+        final byte[] terminalKey = TargetTerminalGenerationRecord.key(body.locator());
+        final var terminal = TargetTerminalGenerationRecord.decode(TargetValueEnvelope.decode(
+                store.get(ColumnFamily.TERMINAL, terminalKey), TargetTerminalGenerationRecord.VALUE_TYPE).payload());
+        final byte[] orderKey = TargetKeyCodec.orderState(body.locator().target(), body.locator().orderingDomain());
+        final byte[] orderBytes = store.get(ColumnFamily.META, orderKey);
+        final var order = TargetOrderState.decode(TargetValueEnvelope.decode(
+                orderBytes, TargetOrderState.VALUE_TYPE).payload());
+        if (historical) {
+            order.requireTerminalBarrierProjection(terminal);
+            assertNull(order.serviceableHead());
+        }
+        final byte[] payloadKey = Bytes.concat(
+                new byte[] {TargetKeyCodec.QUOTA_PAYLOAD_OWNER_TAG, TargetKeyCodec.KEY_FORMAT},
+                body.locator().messageId().bytes());
+        final byte[] payloadBytes = store.get(ColumnFamily.META, payloadKey);
+        final var priorSource = (KafkaSourcePosition) store.appliedShardLogPosition();
+        final var at = source(priorSource, priorSource.offset() + 1, priorSource.brokerPersistenceTimeEpochMs() + 1);
+        final long observed = Math.max(at.brokerPersistenceTimeEpochMs(), body.decisionTime().latestEpochMs());
+        final var time = new TrustedUtcIntervalEvidence(observed, observed + 1,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, bytes(32, 0xA1),
+                1, 1, 1, bytes(32, 0xA2), 0, null);
+        final StableCode cause = effect == 1 ? StableCode.OK
+                : effect == 2 ? StableCode.DESTINATION_DEFINITIVE_PERMANENT : StableCode.RECOVERY_FIRST_SEND_UNCERTAIN;
+        final var evidence = effect == 1 ? targetPublishedAck(
+                body.publication(), body.publication().preparedPublishHash())
+                : effect == 2 ? targetRejectedEvidence(body.publication(), body.publication().preparedPublishHash(),
+                        body.publication().physical().physicalPartition()) : null;
+        expected.set(evidence);
+        final var policy = targetOutcomeRetryPolicy(false);
+        final byte[] retry = com.nereusstream.delay.protocol.CanonicalProtobuf.message(out -> {
+            com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(out, 1, effect == 1 ? 1 : effect == 2 ? 3 : 5);
+            com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(out, 2, policy.ref().canonicalBytes());
+            com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(out, 3, body.attemptNo());
+            com.nereusstream.delay.protocol.CanonicalProtobuf.uint64(out, 4, body.decisionTime().latestEpochMs());
+            com.nereusstream.delay.protocol.CanonicalProtobuf.uint64(out, 5, Math.min(
+                    body.publication().expireAtEpochMs(),
+                    body.decisionTime().latestEpochMs() + policy.maxRetryDurationMs()));
+            com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(out, 7, 1);
+            com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(out, 8, cause.wireValue());
+            com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(out, 9, 1);
+        });
+        final byte[] transfer = effect == 3 ? new PublishAdmissionBody.ChargeVector(
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0).canonicalBytes() : body.outcomeTransfer();
+        final var mutation = SystemMutation.signed(scope.shard(), SystemMutationType.PUBLISH_OUTCOME, observed + 10_000,
+                body.publishAttemptId(), PublishOutcomeBody.encodeInitial(scope.shard(), observed + 10_000,
+                        body.publishAttemptId(), effect, effect == 1 ? 0 : effect == 2 ? 2 : 4, cause,
+                        evidence == null ? new byte[0] : evidence.canonicalBytes(), transfer, time, retry),
+                AuthorIdentity.owner(owner.deploymentId(), owner.workerRunId(), owner.ownerEpoch(),
+                        owner.leaseFencingDigest()).canonicalBytes(), 1, keys.getPrivate());
+        final var outcomes = new TargetPublishOutcomeStore(backend, scope, lineage, 16, 1, 1);
+        final byte[] terminalBytes = store.get(ColumnFamily.TERMINAL, terminalKey);
+        store.write(batch -> batch.delete(ColumnFamily.TERMINAL, terminalKey));
+        final long missingSequence = store.latestSequenceNumber();
+        assertThrows(IllegalStateException.class, () -> outcomes.prepareFirst(budget(), mutation, at,
+                (a, b, c, d) -> new TargetPublishOutcomeVerifier.Authorization(keys.getPublic(),
+                        ProtocolTuple.currentSystemMutation(), owner, 10, 10, 100, (e, f, g, h) -> true,
+                        new TargetPublishOutcomeVerifier.RetryContext(admission.entry().mutation(),
+                                admission.entry().mutation(), policy),
+                        effect == 3 ? null : publishedEvidenceContext(admission.entry().mutation(), evidence))));
+        assertEquals(missingSequence, store.latestSequenceNumber());
+        assertEquals(priorSource, store.appliedShardLogPosition());
+        store.write(batch -> batch.put(ColumnFamily.TERMINAL, terminalKey, terminalBytes));
+        final var entry = new SourceReplayMutation(mutation, at, null, null);
+        final var acknowledgements = new java.util.concurrent.atomic.AtomicInteger();
+        pending.set(new SourceRecordConsumer.PolledSourceRecord(entry, (actual, result) -> {
+            assertEquals(entry, actual);
+            assertEquals(ApplyStatus.APPLIED, result.systemMutationResult().applyStatus());
+            assertEquals(cause, result.systemMutationResult().stableCode());
+            return acknowledgements.incrementAndGet() == 1
+                    ? SourceAcknowledgement.AcknowledgementResult.unknown(null)
+                    : SourceAcknowledgement.AcknowledgementResult.acked();
+        }));
+        assertEquals(SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN,
+                worker.runSourceTurn(new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 101).status());
+        assertEquals(at, store.appliedShardLogPosition());
+        final var next = TargetTerminalGenerationRecord.decode(TargetValueEnvelope.decode(
+                store.get(ColumnFamily.TERMINAL, terminalKey), TargetTerminalGenerationRecord.VALUE_TYPE).payload());
+        assertEquals(terminal.terminalCode(), next.terminalCode());
+        assertEquals(terminal.runtime().aggregateState(), next.runtime().aggregateState());
+        assertEquals(terminal.mutation(), next.mutation());
+        assertEquals(terminal.runtime().admissionsUsed(), next.runtime().admissionsUsed());
+        assertEquals(effect == 1, next.runtime().possibleDestinationDuplicate());
+        assertEquals(terminal.runtime().runtimeRevision() + 1, next.runtime().runtimeRevision());
+        assertEquals(effect == 3 ? List.of(body.obligation().uncertain()) : List.of(),
+                next.runtime().attemptObligations());
+        if (historical) {
+            assertArrayEquals(currentBytes, store.get(ColumnFamily.ID, messageKey));
+            final var nextOrder = TargetOrderState.decode(TargetValueEnvelope.decode(
+                    store.get(ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE).payload());
+            assertArrayEquals(order.lastAdmittedOrder().encodedKey(), nextOrder.lastAdmittedOrder().encodedKey());
+            if (effect == 3) {
+                nextOrder.requireTerminalBarrierProjection(next);
+                assertNull(nextOrder.serviceableHead());
+            } else {
+                assertNull(nextOrder.barrier());
+                assertEquals(current.locator().messageId(), nextOrder.serviceableHead().messageId());
+                assertEquals(current.locator().generation(), nextOrder.serviceableHead().generation());
+            }
+            assertArrayEquals(payloadBytes, store.get(ColumnFamily.META, payloadKey));
+            assertEquals(terminal.stateVersion(), next.stateVersion());
+        } else {
+            final var after = TargetMessageRecord.decode(TargetValueEnvelope.decode(
+                    store.get(ColumnFamily.ID, messageKey), TargetMessageRecord.VALUE_TYPE).payload());
+            assertEquals(current.stateVersion() + 1, after.stateVersion());
+            assertEquals(after.runtime(), next.runtime());
+            assertEquals(after.stateVersion(), next.stateVersion());
+            final var nextOrder = TargetOrderState.decode(TargetValueEnvelope.decode(
+                    store.get(ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE).payload());
+            assertArrayEquals(order.lastAdmittedOrder().encodedKey(), nextOrder.lastAdmittedOrder().encodedKey());
+            if (effect == 3) {
+                nextOrder.requireBarrierProjection(after);
+            } else {
+                assertNull(nextOrder.barrier());
+                // This harness has already canceled its sole follower before the Outcome.
+                assertNull(nextOrder.serviceableHead());
+            }
+            final var payload = TargetQuotaPayloadOwner.decode(TargetValueEnvelope.decode(
+                    store.get(ColumnFamily.META, payloadKey), TargetQuotaPayloadOwner.VALUE_TYPE).payload());
+            assertEquals(effect == 3 ? TargetQuotaPayloadOwner.Phase.ACTIVE : TargetQuotaPayloadOwner.Phase.RETAINED,
+                    payload.phase());
+        }
+        final byte[] budgetKey = Bytes.concat(
+                new byte[] {TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG, TargetKeyCodec.KEY_FORMAT},
+                body.publishAttemptId());
+        final var budget = TargetQuotaAttemptBudget.decode(TargetValueEnvelope.decode(
+                store.get(ColumnFamily.META, budgetKey), TargetQuotaAttemptBudget.VALUE_TYPE).payload());
+        assertEquals(effect == 3 ? TargetQuotaAttemptBudget.Phase.UNKNOWN
+                : TargetQuotaAttemptBudget.Phase.RESOLVED_AWAITING_FLOOR, budget.phase());
+        assertEquals(body.commitment(), budget.commitment());
+        assertEquals(body.allocated(), budget.allocated());
+        assertNull(budget.floorDigest());
+        assertEquals(effect == 3 ? 1 : 0, budget.effectiveCharge().amount(CapacityDimension.INFLIGHT_MESSAGES));
+        final long applied = store.latestSequenceNumber();
+        assertEquals(SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                worker.runSourceTurn(new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 101).status());
+        assertEquals(applied, store.latestSequenceNumber());
+        assertEquals(2, acknowledgements.get());
+        assertEquals(1, authorityResolutions.get());
+    }
+
+    private static void terminalOutcomeFixture(
+            TargetStoreBackend backend, ShardStore store, TargetQuotaScope scope, byte[] lineage,
+            TargetMessageLocator locator, boolean historical) {
+        final var priorSource = (KafkaSourcePosition) store.appliedShardLogPosition();
+        final var at = source(priorSource, priorSource.offset() + 1, priorSource.brokerPersistenceTimeEpochMs() + 1);
+        final byte[] digest = bytes(32, 0xB2);
+        new TargetMessageStore(backend, 1, 1, 1).applyAccounted(budget(), reader -> {
+            final byte[] key = TargetKeyCodec.message(locator.messageId());
+            final var before = TargetMessageRecord.decode(TargetValueEnvelope.decode(
+                    reader.get(ColumnFamily.ID, key), TargetMessageRecord.VALUE_TYPE).payload());
+            final var prior = before.runtime();
+            final var terminalRuntime = new TargetGenerationRuntimeIndex(prior.generation(),
+                    historical ? GenerationAggregateState.SUPERSEDED : GenerationAggregateState.DEAD_LETTER,
+                    CurrentSendWorkKind.NONE, null, null, null, prior.attemptObligations(), prior.admissionsUsed(),
+                    prior.uncertainRetryAdmissionsUsed(), prior.possibleDestinationDuplicate(),
+                    prior.runtimeRevision() + 1);
+            final var nextLocator = historical ? new TargetMessageLocator(locator.messageId(), locator.generation() + 1,
+                    locator.target(), locator.domain(), locator.accountingIncarnation(), locator.orderingMode(),
+                    locator.orderingDomain(), locator.scheduleBindingDigest()) : locator;
+            final var work = historical ? new TargetTimelineWorkRef(nextLocator, TimelineWorkKind.INITIAL_SCHEDULE,
+                    before.deliverAtEpochMs() + 1, before.deliverAtEpochMs() + 1, at.sourceOrderToken(),
+                    1, 1, UncertainRetryAuthority.NONE, null, null, false) : null;
+            final var after = new TargetMessageRecord(nextLocator, before.stateVersion() + 1,
+                    historical ? before.deliverAtEpochMs() + 1 : before.deliverAtEpochMs(), before.expireAtEpochMs(),
+                    historical ? before.deliverAtEpochMs() + 1 : before.retryEligibilityAtEpochMs(),
+                    before.nativeDeliveryPolicy(), historical ? at : before.scheduleSource(), before.inlinePayload(),
+                    before.payloadReference(), historical ? new TargetGenerationRuntimeIndex(nextLocator.generation(),
+                            GenerationAggregateState.SCHEDULED, CurrentSendWorkKind.TIMELINE, work,
+                            null, null, List.of(), 0, 0, false, 1) : terminalRuntime);
+            final var terminal = new TargetTerminalGenerationRecord(locator, after.stateVersion(),
+                    historical ? StableCode.SUPERSEDED : StableCode.DESTINATION_DEFINITIVE_PERMANENT, terminalRuntime,
+                    new TargetQuotaMutation(reader.aggregate().mutation().sequence() + 1, at, digest), lineage);
+            final byte[] orderKey = TargetKeyCodec.orderState(locator.target(), locator.orderingDomain());
+            final var order = TargetOrderState.decode(TargetValueEnvelope.decode(
+                    reader.get(ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE).payload());
+            order.requireBarrierProjection(before);
+            final var nextOrder = new TargetOrderState(order.target(), order.orderingDomain(), order.sourceShard(),
+                    order.executionDomain(), order.accountingIncarnation(), order.orderingContract(),
+                    order.stateRevision() + 1, order.controlVersion(), order.gate(),
+                    order.lastAdmittedOrder().encodedKey(), null,
+                    historical ? new TargetOrderBarrier(locator, order.barrier().order().encodedKey(),
+                            terminalRuntime.runtimeRevision(), terminalRuntime.runtimeDigest())
+                            : TargetOrderBarrier.fromMessage(after));
+            return new TargetMessageStore.Input(List.of(new TargetMessageStore.Transition(before, after)),
+                    List.of(new TargetMessageStore.OrderTransition(order, nextOrder)),
+                    List.of(reader.replace(ColumnFamily.TERMINAL, terminal.key(),
+                            TargetTerminalGenerationRecord.VALUE_TYPE, terminal.canonicalBytes())));
+        }, new TargetSourceAccounting(scope, lineage, at, digest, 16, 1, 1), (a, b, c) -> guard());
     }
 
     private static void assertPublishedTargetOutcome(

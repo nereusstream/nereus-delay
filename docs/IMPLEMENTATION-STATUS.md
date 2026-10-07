@@ -18597,3 +18597,15 @@ bytes settle only by actual Source first result, and handled Budget/Owner-loss c
 late handoff. Local 38 tests and a real two-session Oxia Worker/RocksDB loop pass; history/source/time/key
 providers remain fixtures. Production native provider/Host startup, process/new Store/pins/Floor and
 terminal/historical/evidence completeness remain open; recovery scan cost has not been optimized/measured.
+
+Target initial Outcome now settles retained terminal/historical PUBLISHING obligations atomically.
+Terminal decisions and Source stamps remain unchanged, late success records duplicate risk, and only
+matched refs/execution charges settle; reserve/Floor protection remains. Historical v4 results preserve the newer Message/payload and settle the exact historical strict barrier
+before recomputing any serviceable head. Current payload retention requires a complete bounded terminal
+history check. Local 78 Source/Message/Order/Store/Quota tests and main/test Checkstyle pass with explicit
+terminal/replay/Broker/Source authority fixtures. Evidence resolution after UNKNOWN, v3 historical windows,
+production terminal/Replay, recovery reader/Host/provider/pins/Floor, actual Broker/process/new Store,
+F migration/retirement and central validation remain open.
+Real two-session Oxia also passes four current-source tests: the existing Host takeover loop and current
+terminal PUBLISHED / historical PUBLISHED / historical UNKNOWN. Native Owner guards are real, while
+terminal/replay/Broker/Source/history/time/key authorities remain fixtures; no completion flag is raised.

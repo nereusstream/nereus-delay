@@ -7596,3 +7596,9 @@ The existing real Oxia Target publish Owner takeover test now drives the Host's 
 recovery loop as well as Source settlement. Native session/lease CAS and Store/Worker paths are real;
 history future/source/time/key providers remain explicit fixtures. Native history/startup/deployment,
 process/new Store/pins/Floor combinations are still required; see NDIP-3 c2-recovery-maintenance evidence.
+
+The real Oxia suite also includes `TargetCommandStoreTest.realOxiaLateTargetOutcomeRetainsTerminalDecision`:
+current terminal PUBLISHED and historical PUBLISHED/UNKNOWN Source application under actual native Owner
+lease guards. Terminal/replay projection, Broker evidence, Source/history/time/key providers remain fixtures;
+this does not certify production Replay, Broker response-loss or process/new Store recovery. See NDIP-3
+`evidence/e5-terminal-historical-outcome-oxia-real.log` for the current receipt and artifact identity.

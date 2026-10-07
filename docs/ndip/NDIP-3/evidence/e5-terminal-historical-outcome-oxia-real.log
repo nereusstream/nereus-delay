@@ -1,0 +1,42 @@
+Receipt recorded 2026-10-08 Asia/Shanghai; parent 6f801a81a5e8f160c5b3f3849034a7a9f04bde18; same implementation as focused source hashes.
+Oxia checkout: /Users/liusinan/apps/ideaproject/nereusstream/oxia; clean HEAD 37a17bef17202d5fd6e23282da5fd26d94865484
+Owned Compose project: nereus-delay-late-outcome-1791400821-77344
+Oxia image: sha256:8911a53a8854603a2046d7e2f59d45f7a2d6d8077cce526e79137d58760e8a4b
+Compose: NEREUS_DELAY_OXIA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/oxia NEREUS_DELAY_OXIA_E2E_PORT=16681 docker compose --project-name nereus-delay-late-outcome-1791400821-77344 --file e2e/docker-compose.oxia.yml up -d --build
+Command: NEREUS_DELAY_OXIA_ENDPOINT=127.0.0.1:16681 NEREUS_DELAY_OXIA_NAMESPACE=default GRADLE_USER_HOME=/Users/liusinan/.gradle ./gradlew test --tests 'com.nereusstream.delay.runtime.TargetCommandStoreTest.realOxiaPublishOwnerTakeoverRetainsUncertainBudgetAndBarrier' --tests 'com.nereusstream.delay.runtime.TargetCommandStoreTest.realOxiaLateTargetOutcomeRetainsTerminalDecision' checkstyleMain checkstyleTest --no-daemon --console=plain
+Observed tool output: BUILD SUCCESSFUL in 33s; native tests 4/4, zero failure/error/skip. Main/test Checkstyle up-to-date from the final successful focused run with identical source.
+Tests: Owner takeover recovery Host loop; current terminal PUBLISHED (12); historical PUBLISHED (15); historical typed UNKNOWN (17).
+Scope: actual distinct Oxia session identities/Owner lease CAS/live guards and actual Worker/RocksDB source state. Terminal/replay transition, Broker evidence and Source/history/key/time/policy remain declared fixtures. No actual Broker/process/new Store/production Replay or post-UNKNOWN resolution certification.
+Cleanup observed: owned container/network removed and own image deleted; docker ps retained only the unrelated connector. No server source edit or unrelated container cleanup.
+Native test XML SHA256: 8537030d66b4860a713743ed94a261337d2c8145a6ca28c496497555cde76b70
+{
+  "src/main/java/com/nereusstream/delay/runtime/TargetGenerationRuntimeIndex.java": "108440aa189b1cd97407f1a66169b83fd83bed5962699be48ed0e0669fe134c8",
+  "src/main/java/com/nereusstream/delay/runtime/TargetMessageRecord.java": "a789e4e40ab9f902e8c1e586815212936ad2fbfe87a59e9837bfecdcf5adc41b",
+  "src/main/java/com/nereusstream/delay/runtime/TargetOrderState.java": "7a37021de67a1b7fae0befc7f5dfa63df9dc21ad6db4439d46b7076a021e02f2",
+  "src/main/java/com/nereusstream/delay/runtime/TargetPublishOutcomeStore.java": "3eb796a335dc2cc7cda95cf1e5a53b98584e02b115542fdc0bc17bbe6c38dc7f",
+  "src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java": "aa65d0c59a98a100fcf8f31c055ddabd2feb9d9e7d7e6d175fe2fb5dbef79353",
+  "src/test/java/com/nereusstream/delay/runtime/TargetMessageContractTest.java": "5d909700d7631a42542499865da012959bf99d9365e001c6237e9fac12f2779a",
+  "e2e/run-oxia-real-service.sh": "fe9af46755bb950abea24d2afc745dd2ed8b778bf16fe8988ac5fe8c708374ef"
+}
+
+Final historical-barrier rerun supersedes the earlier native receipt for the latest runtime:
+Local draft HEAD 7b42e4e8, not published; source file hashes below bind the final amended milestone (parent 6f801a81).
+Oxia source unchanged/clean: 37a17bef17202d5fd6e23282da5fd26d94865484
+Owned Compose project: nereus-delay-historical-barrier-1791401473-91477
+Image: sha256:e8856d60b853c65acbfd157acff56ac475b78c75ac669c6be35f9dc5e9ee20ab
+Same Compose and Gradle commands above with the new project name; endpoint 127.0.0.1:16681.
+Observed BUILD SUCCESSFUL in 48s; 4/4 zero failure/error/skip, main/test Checkstyle executed and passed.
+Historical fixture retains original terminal barrier, blocks newer head after UNKNOWN, and recomputes newer head only after final definitive ref closure. Actual Owner guards/Worker/RocksDB; all previously declared Source/Broker/transition/history/time/key fixtures remain fixtures. No production/process/Floor or post-UNKNOWN evidence claim.
+Owned container/network/image removed by trap; unrelated connector left alone.
+Final native XML SHA256: 08657ce8302e027f63d6741bad70b095f2f164449ee019b8e025c231297ad8cf
+{
+  "src/main/java/com/nereusstream/delay/runtime/TargetGenerationRuntimeIndex.java": "108440aa189b1cd97407f1a66169b83fd83bed5962699be48ed0e0669fe134c8",
+  "src/main/java/com/nereusstream/delay/runtime/TargetMessageRecord.java": "a789e4e40ab9f902e8c1e586815212936ad2fbfe87a59e9837bfecdcf5adc41b",
+  "src/main/java/com/nereusstream/delay/runtime/TargetMessageStore.java": "27e379fae16b6ef6b639cd18c1c73b99d5f3c7f697e033dce4a888678a8bb38d",
+  "src/main/java/com/nereusstream/delay/runtime/TargetOrderBarrier.java": "b7cbec9cad4f60f3c94c895e8a43e9dcf701ef4cff3d4a48be0ee1c623d3e82f",
+  "src/main/java/com/nereusstream/delay/runtime/TargetOrderState.java": "77757d5f866a027caaa321522146b56b603e9d0eda45618c5f07515f80895d84",
+  "src/main/java/com/nereusstream/delay/runtime/TargetPublishOutcomeStore.java": "73463a8c9c069de142864c8e5414a2a138a51e8134d6d6ec37203b837c76795a",
+  "src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java": "3723f247c2de7369d389cf934d20f4b8a4616de3888131d0fb8f61a421ce7760",
+  "src/test/java/com/nereusstream/delay/runtime/TargetMessageContractTest.java": "5d909700d7631a42542499865da012959bf99d9365e001c6237e9fac12f2779a",
+  "e2e/run-oxia-real-service.sh": "fe9af46755bb950abea24d2afc745dd2ed8b778bf16fe8988ac5fe8c708374ef"
+}

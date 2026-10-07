@@ -894,6 +894,17 @@ LANE_CLOSED_AFTER_ADMISSION_NOT_PUBLISHED。严格 retry 保留原排序位置/�
 仅在无 refs 时转 RETAINED。其它 absence/recovery 分支、生产 response/classifier、DLQ export、
 terminal/historical settlement 与真实 Broker 验证继续开放。没有新增 evidence/body wire 版本。
 
+Target terminal/historical initial Outcome（2026-10-08）现结算 ADMITTED/PUBLISHING 的
+精确 ref。当前 terminal aggregate/code/原 Source mutation 保持；晚到成功增加 duplicate
+risk，UNKNOWN 只转 UNCERTAIN，terminal 不创建 retry。strict 当前终态最后一个明确 ref
+关闭才解除 barrier，Admission watermark 保持。历史 v4 window 来自其冻结 publication；
+旧 generation 结算 terminal/Budget/first result/accounting，strict 只更新对应历史 barrier，
+最后一个 ref 关闭后重建 head；不能覆盖新 Message。
+当前 payload 转 RETAINED 前须完整核对同一有界 ReadView 的 Message terminal 历史；
+单个旧 summary 不证明其它 generation 已无 refs。reserve 保留至实际 Floor。未保存窗口的
+v3 historical typed 首应用继续 fail closed；UNKNOWN 后 evidence resolution、完整生产
+terminal/replay/Host recovery/providers/pins/Floor 与真实 Broker 组合继续开放。无 wire 变更。
+
 Target recovery 的有界 retained-Admission reader 返回独立 Recovery proof，保留原 image/source/
 Message/Budget，允许旧 Owner/Store 与当前活动实例不同；它不是首发快照。恢复 signer 仅铸造
 既有 OWNER_FENCED/RECOVERY_FIRST_SEND_UNCERTAIN typed UNCERTAIN_HOLD（无 next retry、zero

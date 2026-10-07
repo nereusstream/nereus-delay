@@ -1,0 +1,228 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+
+> Task :checkstyleTest
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:112:1: 导入 'com.nereusstream.delay.protocol.TargetMessageLocator' 顺序错误。 [ImportOrder]
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:114:1: 导入 'com.nereusstream.delay.protocol.TargetQueueState' 顺序错误。 [ImportOrder]
+
+> Task :checkstyleTest FAILED
+> Task :checkstyleMain
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':checkstyleTest'.
+> A failure occurred while executing org.gradle.api.plugins.quality.internal.CheckstyleAction
+   > Checkstyle rule violations were found. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/checkstyle/test.html
+     Checkstyle files with violations: 1
+     Checkstyle violations by severity: [error:2]
+
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 1m 13s
+15 actionable tasks: 5 executed, 10 up-to-date
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :checkstyleTest
+> Task :checkstyleMain
+
+BUILD SUCCESSFUL in 1m 10s
+15 actionable tasks: 6 executed, 9 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+
+Receipt recorded 2026-10-08 Asia/Shanghai; parent 6f801a81a5e8f160c5b3f3849034a7a9f04bde18; scoped uncommitted implementation.
+Command: ./gradlew test --tests 'com.nereusstream.delay.runtime.TargetCommandStoreTest.modifiesActualTimelineOrClaimWithHistoryAndFirstResults' --tests 'com.nereusstream.delay.runtime.TargetMessageContractTest' --tests 'com.nereusstream.delay.runtime.TargetOrderContractTest' --tests 'com.nereusstream.delay.runtime.TargetMessageStoreTest' --tests 'com.nereusstream.delay.runtime.TargetQuotaMessageRecordsTest' checkstyleMain checkstyleTest --no-daemon --console=plain
+Final successful run: 78 tests (26 Source + 18 Message + 19 Order + 1 Store + 14 Quota), zero failure/error/skip; main/test Checkstyle passed. Local XML files were not archived before the later native run replaced test output; the raw final BUILD SUCCESSFUL above is retained.
+Earlier iteration: missing test imports failed compilation; a new successor-head assertion failed twice because the existing harness had canceled the sole follower; corrected expected empty head without changing production gate. One further compile failed due missing assertFalse static import. First complete 78-test run passed tests but test import ordering failed; final semantic guard requires typed history for terminal first result, and the full focused set/style was rerun successfully.
+Scope: actual Worker/RocksDB source batches/first results/ACK-only replay and quota/order projection. Terminal/replay transition, Broker evidence, Source/history/key/clock/policy authorities are fixtures. Not production Replay, later UNKNOWN evidence resolution, Broker response loss, process/new Store/Floor certification.
+Source SHA256:
+{
+  "src/main/java/com/nereusstream/delay/runtime/TargetGenerationRuntimeIndex.java": "108440aa189b1cd97407f1a66169b83fd83bed5962699be48ed0e0669fe134c8",
+  "src/main/java/com/nereusstream/delay/runtime/TargetMessageRecord.java": "a789e4e40ab9f902e8c1e586815212936ad2fbfe87a59e9837bfecdcf5adc41b",
+  "src/main/java/com/nereusstream/delay/runtime/TargetOrderState.java": "7a37021de67a1b7fae0befc7f5dfa63df9dc21ad6db4439d46b7076a021e02f2",
+  "src/main/java/com/nereusstream/delay/runtime/TargetPublishOutcomeStore.java": "3eb796a335dc2cc7cda95cf1e5a53b98584e02b115542fdc0bc17bbe6c38dc7f",
+  "src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java": "aa65d0c59a98a100fcf8f31c055ddabd2feb9d9e7d7e6d175fe2fb5dbef79353",
+  "src/test/java/com/nereusstream/delay/runtime/TargetMessageContractTest.java": "5d909700d7631a42542499865da012959bf99d9365e001c6237e9fac12f2779a",
+  "e2e/run-oxia-real-service.sh": "fe9af46755bb950abea24d2afc745dd2ed8b778bf16fe8988ac5fe8c708374ef"
+}
+Documentation command: ./gradlew checkDocumentation --no-daemon --console=plain; observed BUILD SUCCESSFUL in 1m 3s, six tasks executed. NDIP-1/2 historical checks do not certify this NDIP-3 runtime.
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+
+> Task :compileTestJava FAILED
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:7644: 错误: 找不到符号
+                assertEquals(current.locator(), nextOrder.serviceableHead().work().locator());
+                                                                           ^
+  符号:   方法 work()
+  位置: 类 TargetHeadRef
+1 个错误
+
+[Incubating] Problems report is available at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':compileTestJava'.
+> Compilation failed; see the compiler output below.
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:7644: 错误: 找不到符号
+                  assertEquals(current.locator(), nextOrder.serviceableHead().work().locator());
+                                                                             ^
+    符号:   方法 work()
+    位置: 类 TargetHeadRef
+  1 个错误
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 17s
+10 actionable tasks: 4 executed, 6 up-to-date
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :checkstyleTest
+
+> Task :checkstyleMain
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/runtime/TargetMessageStore.java:483: 本行字符数 123个，最多：120个。 [LineLength]
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/runtime/TargetOrderState.java:434: 本行字符数 124个，最多：120个。 [LineLength]
+
+> Task :checkstyleMain FAILED
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':checkstyleMain'.
+> A failure occurred while executing org.gradle.api.plugins.quality.internal.CheckstyleAction
+   > Checkstyle rule violations were found. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/checkstyle/main.html
+     Checkstyle files with violations: 2
+     Checkstyle violations by severity: [error:2]
+
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 1m 10s
+15 actionable tasks: 5 executed, 10 up-to-date
+
+Historical strict barrier correction: final semantic focused tests 78/78, zero failure/error/skip; test style passed; main style reported two long lines. The following format-only wraps are separately verified with the final native/style run. Historical fixture now preserves the old barrier, verifies UNKNOWN blocking, and derives the newer head only after exact definitive closure.
+[
+  {
+    "suite": "com.nereusstream.delay.runtime.TargetCommandStoreTest",
+    "tests": "26",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "sha256": "b7811c5902a05d191489ca4f2212fd1dc6bebe6bbd66d236cc1d4b4b77ca1ea2"
+  },
+  {
+    "suite": "com.nereusstream.delay.runtime.TargetMessageContractTest",
+    "tests": "18",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "sha256": "53dd0cca5a314e40ff70d92a00426afe03266877dda7c797c8123376ce078661"
+  },
+  {
+    "suite": "com.nereusstream.delay.runtime.TargetMessageStoreTest",
+    "tests": "1",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "sha256": "85c8f05592bea24715db4d90779ef9fc6f3c16eb3ac3c933fc948a71b8e67d06"
+  },
+  {
+    "suite": "com.nereusstream.delay.runtime.TargetOrderContractTest",
+    "tests": "19",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "sha256": "4f7633d94029b335153ba4bf7ec6988f30fc28e780eded2340f9c6b4ca60ab34"
+  },
+  {
+    "suite": "com.nereusstream.delay.runtime.TargetQuotaMessageRecordsTest",
+    "tests": "14",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "sha256": "92aa336d6de6e05314125bc94f9433bab0bdeadf89a81bcdaa172e63b0a1c5b0"
+  }
+]
+
+Final source after historical barrier correction/format wraps (local semantic78 and final native4/style):
+{
+  "src/main/java/com/nereusstream/delay/runtime/TargetGenerationRuntimeIndex.java": "108440aa189b1cd97407f1a66169b83fd83bed5962699be48ed0e0669fe134c8",
+  "src/main/java/com/nereusstream/delay/runtime/TargetMessageRecord.java": "a789e4e40ab9f902e8c1e586815212936ad2fbfe87a59e9837bfecdcf5adc41b",
+  "src/main/java/com/nereusstream/delay/runtime/TargetMessageStore.java": "27e379fae16b6ef6b639cd18c1c73b99d5f3c7f697e033dce4a888678a8bb38d",
+  "src/main/java/com/nereusstream/delay/runtime/TargetOrderBarrier.java": "b7cbec9cad4f60f3c94c895e8a43e9dcf701ef4cff3d4a48be0ee1c623d3e82f",
+  "src/main/java/com/nereusstream/delay/runtime/TargetOrderState.java": "77757d5f866a027caaa321522146b56b603e9d0eda45618c5f07515f80895d84",
+  "src/main/java/com/nereusstream/delay/runtime/TargetPublishOutcomeStore.java": "73463a8c9c069de142864c8e5414a2a138a51e8134d6d6ec37203b837c76795a",
+  "src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java": "3723f247c2de7369d389cf934d20f4b8a4616de3888131d0fb8f61a421ce7760",
+  "src/test/java/com/nereusstream/delay/runtime/TargetMessageContractTest.java": "5d909700d7631a42542499865da012959bf99d9365e001c6237e9fac12f2779a",
+  "e2e/run-oxia-real-service.sh": "fe9af46755bb950abea24d2afc745dd2ed8b778bf16fe8988ac5fe8c708374ef"
+}
+One intermediate historical-head test compile used nonexistent TargetHeadRef.work(); changed assertions to its actual MessageId/generation API, then the full local78 tests passed.
+Final documentation after historical barrier correction: ./gradlew checkDocumentation --no-daemon --console=plain; observed BUILD SUCCESSFUL in 1m 5s, six tasks executed.

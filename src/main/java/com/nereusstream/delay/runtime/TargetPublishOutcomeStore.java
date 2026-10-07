@@ -31,7 +31,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
-/** Applies initial Target UNKNOWN or authenticated current definitive outcomes in one accounted source batch. */
+/** Applies initial Target outcomes, including retained terminal generations, in one accounted source batch. */
 public final class TargetPublishOutcomeStore {
     public static final class Prepared {
         private final TargetPublishOutcomeStore owner;
@@ -131,8 +131,10 @@ public final class TargetPublishOutcomeStore {
                         rejection = projection.rejection();
                         appliedCode = projection.appliedCode();
                         if (rejection == null) {
-                            transitions = List.of(new TargetMessageStore.Transition(
-                                    projection.before(), projection.after()));
+                            if (projection.before() != null) {
+                                transitions = List.of(new TargetMessageStore.Transition(
+                                        projection.before(), projection.after()));
+                            }
                             if (projection.order() != null) {
                                 orders = List.of(projection.order());
                             }
@@ -184,23 +186,9 @@ public final class TargetPublishOutcomeStore {
                 || budget.phase() != TargetQuotaAttemptBudget.Phase.ADMITTED) {
             return OutcomeProjection.stale(StableCode.STALE_SYSTEM_MUTATION);
         }
-        final TargetMessageLocator locator = budget.locator();
-        final byte[] messageKey = TargetKeyCodec.message(locator.messageId());
-        final byte[] rawMessage = reader.get(ColumnFamily.ID, messageKey);
-        if (rawMessage == null) {
-            throw new IllegalStateException("open Target attempt budget lacks its Message");
-        }
-        final var before = TargetMessageRecord.decodeForStore(
-                messageKey,
-                TargetValueEnvelope.decode(rawMessage, TargetMessageRecord.VALUE_TYPE).payload(),
-                scope.shard());
-        if (!before.locator().equals(locator)) {
-            throw new IllegalStateException("Target attempt budget points to another Message locator");
-        }
-        if (before.runtime().terminal()) {
-            throw new IllegalStateException("Target terminal Publish Outcome application is not enabled yet");
-        }
-        final var obligation = before.runtime().attemptObligations().stream()
+        final var generation = generation(reader, budget.locator());
+        final var before = generation.current();
+        final var obligation = generation.runtime().attemptObligations().stream()
                 .filter(candidate -> Arrays.equals(candidate.publishAttemptId(), outcome.publishAttemptId()))
                 .findFirst()
                 .orElse(null);
@@ -208,8 +196,11 @@ public final class TargetPublishOutcomeStore {
             throw new IllegalStateException("ADMITTED Target attempt budget lacks its PUBLISHING obligation");
         }
         final boolean typed = outcome.retryDecision().hasFullShape();
+        if (generation.runtime().terminal() && !typed) {
+            throw new IllegalStateException("late terminal Target result requires its typed Admission history");
+        }
         if (typed) {
-            requireRetryContext(reader, before, budget, outcome, authorization);
+            requireRetryContext(reader, generation, budget, outcome, authorization);
         }
         final boolean admittedWriter = typed
                 ? TargetPublishAdmissionBody.decode(authorization.retryContext().admission().canonicalBody())
@@ -219,29 +210,30 @@ public final class TargetPublishOutcomeStore {
         if (!admittedWriter && !(writer.equals(authorization.activeOwner()) && isRecoveryUnknown(outcome))) {
             return OutcomeProjection.stale(StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
         }
-        final boolean retryRequested = typed && outcome.retryDecision().hasNextRetryAt();
+        final boolean retryRequested = !generation.runtime().terminal()
+                && typed && outcome.retryDecision().hasNextRetryAt();
         final TargetQueueState currentQueue = retryRequested ? queue(reader, before) : null;
         if (currentQueue != null) {
             before.locator().requireQueueProjection(currentQueue);
         }
-        final TargetMessageRecord after = currentQueue != null
-                        && currentQueue.admissionState() != TargetQueueState.AdmissionState.CLOSED
-                ? before.unknownOutcomeWithRetry(outcome.publishAttemptId(), outcome.retryDecision().nextRetryAt())
-                : before.unknownOutcome(outcome.publishAttemptId());
+        final TargetMessageRecord after = generation.historical() ? null
+                : currentQueue != null && currentQueue.admissionState() != TargetQueueState.AdmissionState.CLOSED
+                        ? before.unknownOutcomeWithRetry(
+                                outcome.publishAttemptId(), outcome.retryDecision().nextRetryAt())
+                        : before.unknownOutcome(outcome.publishAttemptId());
+        final var nextRuntime = after == null
+                ? generation.runtime().unknownOutcome(outcome.publishAttemptId()) : after.runtime();
         final TargetQuotaAttemptBudget unknown = budget.unknown(budget.allocated(), stamp);
-        final var budgetEdit = reader.replace(
-                ColumnFamily.META,
-                budgetKey,
-                TargetQuotaAttemptBudget.VALUE_TYPE,
-                unknown.canonicalBytes());
-        final TargetMessageStore.OrderTransition order = strictOrder(reader, before, after);
-        return new OutcomeProjection(
-                before,
-                after,
-                order,
-                List.of(budgetEdit),
-                null,
-                null);
+        final var extra = new java.util.ArrayList<TargetStoreBackend.Edit>();
+        extra.add(reader.replace(ColumnFamily.META, budgetKey, TargetQuotaAttemptBudget.VALUE_TYPE,
+                unknown.canonicalBytes()));
+        final var terminalAfter = generation.runtime().terminal()
+                ? terminalEdits(reader, generation, after, nextRuntime, stamp, extra) : null;
+        return new OutcomeProjection(generation.historical() ? null : before, after,
+                generation.historical() ? historicalOrder(reader, generation, terminalAfter,
+                        outcome.publishAttemptId(), 3)
+                        : strictOrder(reader, before, after, outcome.publishAttemptId(), false),
+                extra, null, null);
     }
 
     private OutcomeProjection definitive(
@@ -290,31 +282,21 @@ public final class TargetPublishOutcomeStore {
         } else {
             evidence.requireOrdinaryTargetNotPublishedBinding(admission.publication());
         }
-        final byte[] messageKey = TargetKeyCodec.message(budget.locator().messageId());
-        final var before = TargetMessageRecord.decodeForStore(
-                messageKey, TargetValueEnvelope.decode(
-                                required(reader, ColumnFamily.ID, messageKey), TargetMessageRecord.VALUE_TYPE)
-                        .payload(),
-                scope.shard());
-        if (!before.locator().equals(budget.locator())) {
-            throw new IllegalStateException("Target evidence budget points to another Message locator");
+        final var generation = generation(reader, budget.locator());
+        final var before = generation.current();
+        if (!generation.runtime().terminal()
+                && (before.runtime().currentWorkKind() != CurrentSendWorkKind.PUBLISHING
+                        || !Arrays.equals(before.runtime().publishAttemptId(), outcome.publishAttemptId()))) {
+            throw new IllegalStateException("Target definitive outcome differs from current PUBLISHING work");
         }
-        if (before.runtime().terminal()
-                || before.runtime().currentWorkKind() != CurrentSendWorkKind.PUBLISHING
-                || !Arrays.equals(before.runtime().publishAttemptId(), outcome.publishAttemptId())) {
-            throw new IllegalStateException("Target terminal/historical definitive source application is not enabled");
-        }
-        if (before.runtime().admissionsUsed() != admission.attemptNo()
-                || !before.runtime().attemptObligations().contains(admission.obligation())) {
-            throw new IllegalStateException("Target current PUBLISHING projection differs from its Admission proof");
-        }
-        requireRetryContext(reader, before, budget, outcome, authorization);
+        requireRetryContext(reader, generation, budget, outcome, authorization);
         if (outcome.retryDecision().cause() != outcome.stableCode()) {
             throw new IllegalArgumentException("Target definitive retry decision changes its observed cause");
         }
         context.authority().requireAuthenticated(
                 admission.publication(), evidence, proof.mutation().source(), stamp.source());
-        final TargetQueueState currentQueue = outcome.sideEffect() == 2 ? queue(reader, before) : null;
+        final TargetQueueState currentQueue = !generation.runtime().terminal() && outcome.sideEffect() == 2
+                ? queue(reader, before) : null;
         if (currentQueue != null) {
             before.locator().requireQueueProjection(currentQueue);
         }
@@ -322,7 +304,10 @@ public final class TargetPublishOutcomeStore {
                 && currentQueue.admissionState() == TargetQueueState.AdmissionState.CLOSED;
         final StableCode terminalCode = closed ? StableCode.LANE_CLOSED_AFTER_ADMISSION_NOT_PUBLISHED
                 : outcome.stableCode();
-        final var after = outcome.sideEffect() == 1 ? before.publishedOutcome(outcome.publishAttemptId())
+        final boolean published = outcome.sideEffect() == 1;
+        final TargetMessageRecord after = generation.historical() ? null
+                : before.runtime().terminal() ? before.terminalOutcome(outcome.publishAttemptId(), published)
+                : published ? before.publishedOutcome(outcome.publishAttemptId())
                 : before.notPublishedOutcome(outcome.publishAttemptId(), closed || outcome.disposition() == 2,
                         closed || !outcome.retryDecision().hasNextRetryAt()
                                 ? null : outcome.retryDecision().nextRetryAt());
@@ -330,8 +315,19 @@ public final class TargetPublishOutcomeStore {
         final var resolved = budget.resolve(evidence.verificationStatus(), budget.allocated(), stamp);
         extra.add(reader.replace(
                 ColumnFamily.META, budgetKey, TargetQuotaAttemptBudget.VALUE_TYPE, resolved.canonicalBytes()));
+        if (generation.runtime().terminal()) {
+            final var terminalAfter = terminalEdits(reader, generation, after, after == null
+                    ? generation.runtime().terminalOutcome(outcome.publishAttemptId(), published) : after.runtime(),
+                    stamp, extra);
+            return new OutcomeProjection(generation.historical() ? null : before, after,
+                    generation.historical() ? historicalOrder(reader, generation, terminalAfter,
+                            outcome.publishAttemptId(), outcome.sideEffect())
+                            : strictOrder(reader, before, after, outcome.publishAttemptId(), published),
+                    extra, null, null);
+        }
         if (!after.runtime().terminal()) {
-            return new OutcomeProjection(before, after, strictOrder(reader, before, after), extra, null, null);
+            return new OutcomeProjection(before, after,
+                    strictOrder(reader, before, after, outcome.publishAttemptId(), published), extra, null, null);
         }
         final var terminal = new TargetTerminalGenerationRecord(
                 after.locator(), after.stateVersion(), terminalCode, after.runtime(), stamp, lineage);
@@ -352,7 +348,7 @@ public final class TargetPublishOutcomeStore {
         if (payloadOwner.phase() != TargetQuotaPayloadOwner.Phase.ACTIVE) {
             throw new IllegalStateException("current publishing Target Message lacks active payload ownership");
         }
-        if (after.runtime().attemptObligations().isEmpty()) {
+        if (canRetainPayload(reader, after, payloadOwner)) {
             final var retained = payloadOwner.retain(stamp, (prior, next, floor) -> {
                 if (floor != null || !Arrays.equals(prior.canonicalBytes(), payloadOwner.canonicalBytes())
                         || next.phase() != TargetQuotaPayloadOwner.Phase.RETAINED
@@ -367,8 +363,139 @@ public final class TargetPublishOutcomeStore {
         extra.add(reader.replace(
                 ColumnFamily.TERMINAL, terminal.key(), TargetTerminalGenerationRecord.VALUE_TYPE,
                 terminal.canonicalBytes()));
-        return new OutcomeProjection(before, after, strictOrder(reader, before, after), extra, null,
+        return new OutcomeProjection(before, after,
+                strictOrder(reader, before, after, outcome.publishAttemptId(), published), extra, null,
                 closed ? terminalCode : null);
+    }
+
+    private record Generation(TargetMessageRecord current, TargetTerminalGenerationRecord history) {
+        private boolean historical() {
+            return history != null && !current.locator().equals(history.locator());
+        }
+
+        private TargetMessageLocator locator() {
+            return history == null ? current.locator() : history.locator();
+        }
+
+        private TargetGenerationRuntimeIndex runtime() {
+            return history == null ? current.runtime() : history.runtime();
+        }
+    }
+
+    private Generation generation(final TargetStoreBackend.Reader reader, final TargetMessageLocator locator) {
+        final byte[] key = TargetKeyCodec.message(locator.messageId());
+        final var current = TargetMessageRecord.decodeForStore(key, TargetValueEnvelope.decode(
+                required(reader, ColumnFamily.ID, key), TargetMessageRecord.VALUE_TYPE).payload(), scope.shard());
+        final boolean historical = !current.locator().equals(locator);
+        if (historical && Integer.compareUnsigned(current.locator().generation(), locator.generation()) <= 0) {
+            throw new IllegalStateException("Target Outcome budget points to another or future generation");
+        }
+        if (!historical && !current.runtime().terminal()) {
+            return new Generation(current, null);
+        }
+        final var history = TargetTerminalGenerationRecord.decode(TargetValueEnvelope.decode(
+                required(reader, ColumnFamily.TERMINAL, TargetTerminalGenerationRecord.key(locator)),
+                TargetTerminalGenerationRecord.VALUE_TYPE).payload());
+        if (!history.locator().equals(locator) || !Arrays.equals(history.recoveryLineage(), lineage)
+                || !historical && (history.stateVersion() != current.stateVersion()
+                        || !history.runtime().equals(current.runtime()))) {
+            throw new IllegalStateException("Target Outcome terminal history differs from its exact generation");
+        }
+        history.mutation().requireAtOrBefore(reader.aggregate().mutation());
+        if (historical && locator.orderingMode() == OrderingMode.DELIVERY_TIME_FIFO) {
+            final byte[] orderKey = TargetKeyCodec.orderState(locator.target(), locator.orderingDomain());
+            final var order = TargetOrderState.decodeForStore(orderKey, TargetValueEnvelope.decode(
+                    required(reader, ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE).payload(),
+                    scope.shard(), queue(reader, current));
+            order.requireTerminalBarrierProjection(history);
+        }
+        return new Generation(current, history);
+    }
+
+    private TargetTerminalGenerationRecord terminalEdits(
+            final TargetStoreBackend.Reader reader, final Generation generation,
+            final TargetMessageRecord after, final TargetGenerationRuntimeIndex runtime,
+            final TargetQuotaMutation stamp, final List<TargetStoreBackend.Edit> extra) {
+        final var history = Objects.requireNonNull(generation.history(), "terminal history");
+        final var next = new TargetTerminalGenerationRecord(history.locator(),
+                after == null ? history.stateVersion() : after.stateVersion(), history.terminalCode(), runtime,
+                history.mutation(), history.recoveryLineage());
+        final byte[] payloadKey = Bytes.concat(
+                new byte[] {TargetKeyCodec.QUOTA_PAYLOAD_OWNER_TAG, TargetKeyCodec.KEY_FORMAT},
+                history.locator().messageId().bytes());
+        final var payload = TargetQuotaPayloadOwner.decodeForStore(payloadKey, TargetValueEnvelope.decode(
+                required(reader, ColumnFamily.META, payloadKey), TargetQuotaPayloadOwner.VALUE_TYPE).payload(),
+                scope.shard(), scope.tenantScope());
+        history.requireOwner(payload);
+        payload.requireMessagePayload(generation.current());
+        payload.mutation().requireAtOrBefore(reader.aggregate().mutation());
+        if (payload.phase() != TargetQuotaPayloadOwner.Phase.ACTIVE) {
+            throw new IllegalStateException("unresolved Target terminal history lacks active payload ownership");
+        }
+        // An old summary alone cannot prove that all other generations have closed their payload references.
+        if (!generation.historical() && canRetainPayload(reader, after, payload)) {
+            final var retained = payload.retain(stamp, (prior, successor, floor) -> {
+                if (floor != null || !Arrays.equals(prior.canonicalBytes(), payload.canonicalBytes())
+                        || successor.phase() != TargetQuotaPayloadOwner.Phase.RETAINED
+                        || !successor.mutation().equals(stamp)) {
+                    throw new IllegalStateException("late terminal Outcome changed frozen payload retention");
+                }
+                successor.requireMessagePayload(after);
+            });
+            extra.add(reader.replace(ColumnFamily.META, payloadKey,
+                    TargetQuotaPayloadOwner.VALUE_TYPE, retained.canonicalBytes()));
+        }
+        extra.add(reader.replace(ColumnFamily.TERMINAL, next.key(),
+                TargetTerminalGenerationRecord.VALUE_TYPE, next.canonicalBytes()));
+        return next;
+    }
+
+    private TargetMessageStore.OrderTransition historicalOrder(
+            final TargetStoreBackend.Reader reader, final Generation generation,
+            final TargetTerminalGenerationRecord after, final byte[] attemptId, final int effect) {
+        if (generation.locator().orderingMode() != OrderingMode.DELIVERY_TIME_FIFO) {
+            return null;
+        }
+        final byte[] key = TargetKeyCodec.orderState(
+                generation.locator().target(), generation.locator().orderingDomain());
+        final var before = TargetOrderState.decodeForStore(key, TargetValueEnvelope.decode(
+                required(reader, ColumnFamily.META, key), TargetOrderState.VALUE_TYPE).payload(),
+                scope.shard(), queue(reader, generation.current()));
+        return new TargetMessageStore.OrderTransition(before,
+                before.afterHistoricalTerminalOutcome(generation.history(), after, attemptId, effect));
+    }
+
+    /** Bounded by the source ReadView budget; a partial history range cannot authorize payload retention. */
+    private boolean canRetainPayload(
+            final TargetStoreBackend.Reader reader, final TargetMessageRecord after,
+            final TargetQuotaPayloadOwner payload) {
+        if (!after.runtime().attemptObligations().isEmpty()) {
+            return false;
+        }
+        final byte[] prefix = Bytes.concat(new byte[] {TargetKeyCodec.TERMINAL_GENERATION_TAG, 1},
+                after.locator().messageId().bytes());
+        final byte[] upper = Bytes.concat(prefix, Bytes.u32beBits(-1), new byte[] {0});
+        byte[] lower = prefix;
+        while (true) {
+            final var row = reader.first(ColumnFamily.TERMINAL, lower, upper, List.of());
+            if (row == null) {
+                return true;
+            }
+            final var history = TargetTerminalGenerationRecord.decode(TargetValueEnvelope.decode(
+                    row.value(), TargetTerminalGenerationRecord.VALUE_TYPE).payload());
+            if (!Arrays.equals(row.key(), history.key())
+                    || !history.locator().messageId().equals(after.locator().messageId())
+                    || Integer.compareUnsigned(history.locator().generation(), after.locator().generation()) > 0
+                    || !Arrays.equals(history.recoveryLineage(), lineage)) {
+                throw new IllegalStateException("payload retention history differs from its Message generation range");
+            }
+            history.requireOwner(payload);
+            history.mutation().requireAtOrBefore(reader.aggregate().mutation());
+            if (!history.locator().equals(after.locator()) && !history.runtime().attemptObligations().isEmpty()) {
+                return false;
+            }
+            lower = Bytes.concat(row.key(), new byte[] {0});
+        }
     }
 
     private static byte[] required(
@@ -382,7 +509,7 @@ public final class TargetPublishOutcomeStore {
 
     private void requireRetryContext(
             final TargetStoreBackend.Reader reader,
-            final TargetMessageRecord message,
+            final Generation generation,
             final TargetQuotaAttemptBudget budget,
             final PublishOutcomeBody outcome,
             final TargetPublishOutcomeVerifier.Authorization authorization) {
@@ -398,13 +525,15 @@ public final class TargetPublishOutcomeStore {
         if (!current.locator().equals(budget.locator())
                 || !first.locator().equals(budget.locator())
                 || first.attemptNo() != 1
-                || current.attemptNo() != message.runtime().admissionsUsed()
+                || (generation.runtime().terminal()
+                        ? Integer.compareUnsigned(current.attemptNo(), generation.runtime().admissionsUsed()) > 0
+                        : current.attemptNo() != generation.runtime().admissionsUsed())
                 || !Arrays.equals(context.admission().mutationHash(), budget.admissionDigest())
                 || !currentResult.mutation().equals(budget.mutation())
-                || !message.runtime().attemptObligations().contains(current.obligation())) {
+                || !generation.runtime().attemptObligations().contains(current.obligation())) {
             throw new IllegalStateException("Target retry history differs from the exact applied Admission/budget");
         }
-        final byte[] bindingKey = TargetKeyCodec.scheduleBinding(message.locator().scheduleBindingDigest());
+        final byte[] bindingKey = TargetKeyCodec.scheduleBinding(generation.locator().scheduleBindingDigest());
         final byte[] rawBinding = reader.get(ColumnFamily.ID, bindingKey);
         if (rawBinding == null) {
             throw new IllegalStateException("Target retry lacks its retained Schedule binding");
@@ -413,12 +542,19 @@ public final class TargetPublishOutcomeStore {
                 bindingKey,
                 TargetValueEnvelope.decode(rawBinding, TargetScheduleBinding.VALUE_TYPE).payload(),
                 scope.shard());
-        binding.requireLocator(message.locator());
+        binding.requireLocator(generation.locator());
         final var policy = context.policy();
         if (!binding.intent().retryPolicy().equals(policy.ref())) {
             throw new IllegalStateException("Target retry policy differs from the immutable Schedule binding");
         }
-        requireRetryDecision(message, current, first, policy, outcome);
+        if (generation.historical() && current.publication() == null) {
+            throw new IllegalStateException("historical Target retry window requires materialized Admission history");
+        }
+        requireRetryDecision(generation.locator(), generation.runtime(),
+                generation.historical() ? current.publication().deliverAtEpochMs()
+                        : generation.current().deliverAtEpochMs(),
+                generation.historical() ? current.publication().expireAtEpochMs()
+                        : generation.current().expireAtEpochMs(), current, first, policy, outcome);
     }
 
     static void requireRetryDecision(
@@ -427,11 +563,20 @@ public final class TargetPublishOutcomeStore {
             final TargetPublishAdmissionBody first,
             final RetryPolicySemantic policy,
             final PublishOutcomeBody outcome) {
+        requireRetryDecision(message.locator(), message.runtime(), message.deliverAtEpochMs(),
+                message.expireAtEpochMs(), current, first, policy, outcome);
+    }
+
+    private static void requireRetryDecision(
+            final TargetMessageLocator locator, final TargetGenerationRuntimeIndex runtime,
+            final long deliverAt, final long expireAt,
+            final TargetPublishAdmissionBody current, final TargetPublishAdmissionBody first,
+            final RetryPolicySemantic policy, final PublishOutcomeBody outcome) {
         final var retry = outcome.retryDecision();
         final long firstAt = first.decisionTime().latestEpochMs();
         final long deadline;
         try {
-            deadline = Math.min(message.expireAtEpochMs(), Math.addExact(firstAt, policy.maxRetryDurationMs()));
+            deadline = Math.min(expireAt, Math.addExact(firstAt, policy.maxRetryDurationMs()));
         } catch (ArithmeticException invalidWindow) {
             throw new IllegalArgumentException("Target retry deadline overflows its admitted window", invalidWindow);
         }
@@ -439,7 +584,7 @@ public final class TargetPublishOutcomeStore {
                 || retry.retryDomain() != RetryJitter.MESSAGE_PUBLISH
                 || retry.completedAttemptNo() != Integer.toUnsignedLong(current.attemptNo())
                 || retry.firstAttemptAt() != firstAt
-                || firstAt >= message.expireAtEpochMs()
+                || firstAt >= expireAt
                 || retry.retryDeadline() != deadline) {
             throw new IllegalArgumentException("Target RetryDecision differs from its admitted attempt/window/policy");
         }
@@ -450,8 +595,8 @@ public final class TargetPublishOutcomeStore {
                         outcome.observedAt().latestEpochMs(),
                         RetryJitter.delayMs(
                                 RetryJitter.MESSAGE_PUBLISH,
-                                message.locator().messageId(),
-                                Integer.toUnsignedLong(message.locator().generation()),
+                                locator.messageId(),
+                                Integer.toUnsignedLong(locator.generation()),
                                 retry.completedAttemptNo(),
                                 policy.retryBackoffCap(retry.completedAttemptNo())));
             } catch (ArithmeticException invalidRetryTime) {
@@ -459,13 +604,14 @@ public final class TargetPublishOutcomeStore {
             }
             final boolean uncertain = outcome.sideEffect() == 3;
             if ((uncertain ? retry.kind() != 2 : retry.kind() != 2 && retry.kind() != 4)
-                    || uncertain && message.locator().orderingMode() != OrderingMode.BEST_EFFORT
+                    || uncertain && locator.orderingMode() != OrderingMode.BEST_EFFORT
                     || uncertain && policy.uncertainPolicy() != UncertainPolicy.BOUNDED_RETRY_POSSIBLE_DUPLICATE
                     || retry.nextRetryAt() != next
                     || next > deadline
-                    || Math.max(message.deliverAtEpochMs(), next) >= message.expireAtEpochMs()
-                    || uncertain && message.runtime().uncertainRetryAdmissionsUsed() >= policy.maxUncertainRetries()
-                    || message.runtime().admissionsUsed() >= policy.maxPublishAdmissions()) {
+                    || Math.max(deliverAt, next) >= expireAt
+                    || !runtime.terminal() && uncertain
+                            && runtime.uncertainRetryAdmissionsUsed() >= policy.maxUncertainRetries()
+                    || !runtime.terminal() && runtime.admissionsUsed() >= policy.maxPublishAdmissions()) {
                 throw new IllegalArgumentException("Target retry differs from its policy/jitter/budget");
             }
         }
@@ -509,7 +655,9 @@ public final class TargetPublishOutcomeStore {
     private TargetMessageStore.OrderTransition strictOrder(
             final TargetStoreBackend.Reader reader,
             final TargetMessageRecord before,
-            final TargetMessageRecord after) {
+            final TargetMessageRecord after,
+            final byte[] attemptId,
+            final boolean published) {
         if (before.locator().orderingMode() != OrderingMode.DELIVERY_TIME_FIFO) {
             return null;
         }
@@ -525,7 +673,11 @@ public final class TargetPublishOutcomeStore {
                 queue(reader, before));
         state.requireBarrierProjection(before);
         final TargetOrderState next;
-        if (after.aggregateState() == GenerationAggregateState.PUBLISHED) {
+        if (before.runtime().terminal()
+                && after.runtime().attemptObligations().size() < before.runtime().attemptObligations().size()) {
+            next = state.afterTerminalOutcome(before, after, attemptId, published);
+        } else if (after.aggregateState() == GenerationAggregateState.PUBLISHED
+                && !before.runtime().terminal()) {
             next = state.afterPublishedOutcome(before, after);
         } else if (after.runtime().attemptObligations().size() < before.runtime().attemptObligations().size()) {
             next = state.afterNotPublishedOutcome(before, after);

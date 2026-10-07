@@ -363,3 +363,16 @@ strict/Prepare/committed object、最大完整记录、key 和有效 CRC envelop
 验收对应见 [§09](09-成员策略与认证控制契约.md)。本文已
 固定绑定/通道字段、冻结规则、teardown 与能力表；C1/C2 的实际 mutation/池/回收及
 D/E/F 证据仍按原切片执行，不反向成为 B2 设计验收的运行时前置。
+
+### 晚到 initial Outcome 的绑定读取（2026-10-08）
+
+历史 generation 的初始结果以原 locator、Budget 和 APPLIED Admission 首结果核对绑定，
+窗口来自 v4 Admission 的冻结 publication；不借新 generation Message 的窗口或义务。
+当前终态首结果要求 terminal 与当前 Message 的 state/runtime 完全相同，保留原 terminal
+Source mutation/code。未保存窗口的 v3 historical typed 结果保守保留，需另行重建权威历史。
+没有新增 wire/body/NV 版本，也不把 retained proof 变成首发权；范围见
+[执行记录](04-执行记录.md) 的 terminal/historical initial Outcome 节。
+
+strict 的 barrier locator 可指向尚有 refs 的旧 terminal generation；投影必须读取精确
+terminal runtime/revision/digest。不能用新 Message 覆盖这个 barrier；旧 UNKNOWN 保留，
+旧初始明确结果关闭最后 ref 后才重建新 generation head，原水位保持。

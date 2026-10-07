@@ -300,6 +300,33 @@ public final class TargetGenerationRuntimeIndex {
         return definitiveOutcome(attemptId, GenerationAggregateState.PUBLISHED, null);
     }
 
+    /** Settles one initial result after terminalization, preserving the terminal decision and other obligations. */
+    public TargetGenerationRuntimeIndex terminalOutcome(final byte[] attemptId, final boolean published) {
+        Bytes.requireLength(attemptId, 32, "attemptId");
+        if (!terminal()) {
+            throw new IllegalStateException("late terminal outcome requires a terminal generation");
+        }
+        final var remaining = new ArrayList<AttemptObligationRef>(obligations.size());
+        int matched = 0;
+        for (var obligation : obligations) {
+            if (Arrays.equals(obligation.publishAttemptId(), attemptId)) {
+                if (obligation.ledgerState() != AttemptLedgerState.PUBLISHING) {
+                    throw new IllegalStateException("initial terminal result requires a PUBLISHING obligation");
+                }
+                matched++;
+            } else {
+                remaining.add(obligation);
+            }
+        }
+        if (matched != 1) {
+            throw new IllegalStateException("late terminal result must settle exactly one obligation");
+        }
+        return new TargetGenerationRuntimeIndex(
+                generation, aggregateState, CurrentSendWorkKind.NONE, null, null, null, remaining,
+                admissionsUsed, uncertainRetryAdmissionsUsed, possibleDestinationDuplicate || published,
+                TargetQueueState.nextRevision(runtimeRevision));
+    }
+
     TargetGenerationRuntimeIndex notPublishedOutcome(
             final byte[] attemptId, final boolean permanent, final TargetTimelineWorkRef retry) {
         return definitiveOutcome(attemptId,

@@ -3,6 +3,7 @@ package com.nereusstream.delay.runtime;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.Bytes;
@@ -853,6 +854,30 @@ class TargetMessageContractTest {
         assertThrows(IllegalStateException.class, () -> held.notPublishedOutcome(attempt, true, null));
         assertThrows(IllegalStateException.class,
                 () -> current.notPublishedOutcome(older.publishAttemptId(), true, null));
+    }
+
+    @Test
+    void terminalInitialResultSettlesOnlyItsPublishingRefAndPreservesDecision() {
+        final var older = ref(0x66, 2, AttemptLedgerState.UNCERTAIN);
+        final var publishing = ref(0x77, 2, AttemptLedgerState.PUBLISHING);
+        final var current = message(index(GenerationAggregateState.DEAD_LETTER, CurrentSendWorkKind.NONE,
+                null, null, null, List.of(older, publishing), 2, 1, false, 7));
+        final var published = current.terminalOutcome(attempt, true);
+        final var rejected = current.terminalOutcome(attempt, false);
+        assertEquals(GenerationAggregateState.DEAD_LETTER, published.aggregateState());
+        assertEquals(CurrentSendWorkKind.NONE, published.runtime().currentWorkKind());
+        assertEquals(List.of(older), published.runtime().attemptObligations());
+        assertEquals(List.of(older), rejected.runtime().attemptObligations());
+        assertTrue(published.runtime().possibleDestinationDuplicate());
+        assertFalse(rejected.runtime().possibleDestinationDuplicate());
+        assertEquals(2, published.runtime().admissionsUsed());
+        assertEquals(1, published.runtime().uncertainRetryAdmissionsUsed());
+        assertEquals(current.stateVersion() + 1, published.stateVersion());
+        assertEquals(current.runtime().runtimeRevision() + 1, published.runtime().runtimeRevision());
+        assertEquals(published, TargetMessageRecord.decode(published.canonicalBytes()));
+        assertThrows(IllegalStateException.class, () -> published.terminalOutcome(attempt, true));
+        assertThrows(IllegalStateException.class,
+                () -> current.terminalOutcome(older.publishAttemptId(), false));
     }
 
     private TargetGenerationRuntimeIndex terminal(final List<AttemptObligationRef> refs, final int admissions) {

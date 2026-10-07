@@ -476,8 +476,23 @@ public final class TargetMessageStore {
             throw new IllegalArgumentException("foreign strict state source");
         }
         if (state.barrier() != null) {
-            state.requireBarrierProjection(
-                    readMessage(reader, state.barrier().locator().messageId(), overlay));
+            final var current = readMessage(reader, state.barrier().locator().messageId(), overlay);
+            if (current.locator().equals(state.barrier().locator())) {
+                state.requireBarrierProjection(current);
+            } else {
+                if (Integer.compareUnsigned(
+                        current.locator().generation(), state.barrier().locator().generation()) <= 0) {
+                    throw new IllegalStateException("strict barrier points to a foreign or future generation");
+                }
+                final byte[] key = TargetTerminalGenerationRecord.key(state.barrier().locator());
+                final byte[] raw = reader.projected(ColumnFamily.TERMINAL, key, overlay);
+                if (raw == null) {
+                    throw new IllegalStateException("historical strict barrier lacks its terminal summary");
+                }
+                final var terminal = TargetTerminalGenerationRecord.decode(
+                        TargetValueEnvelope.decode(raw, TargetTerminalGenerationRecord.VALUE_TYPE).payload());
+                state.requireTerminalBarrierProjection(terminal);
+            }
         }
         if (state.gate() != TargetOrderState.Gate.OPEN || state.barrier() != null) {
             return new OrderProjection(null, null);
