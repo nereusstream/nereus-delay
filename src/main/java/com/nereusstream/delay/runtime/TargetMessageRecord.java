@@ -224,6 +224,35 @@ public final class TargetMessageRecord {
                 runtime.publishedOutcome(attemptId));
     }
 
+    /** Settles only the exact current attempt; older uncertain obligations prevent a definitive retry. */
+    public TargetMessageRecord notPublishedOutcome(
+            final byte[] attemptId, final boolean permanent, final Long nextRetryAt) {
+        if (permanent && nextRetryAt != null) {
+            throw new IllegalArgumentException("permanent Target failure cannot schedule retry work");
+        }
+        final boolean older = runtime.attemptObligations().stream()
+                .anyMatch(ref -> !Arrays.equals(ref.publishAttemptId(), attemptId));
+        final TargetTimelineWorkRef retry;
+        if (nextRetryAt != null && !older) {
+            if (nextRetryAt < 0 || Math.max(deliverAtEpochMs, nextRetryAt) >= expireAtEpochMs) {
+                throw new IllegalArgumentException("definitive retry is outside the current Message window");
+            }
+            retry = new TargetTimelineWorkRef(
+                    locator, TimelineWorkKind.DEFINITIVE_RETRY, deliverAtEpochMs,
+                    Math.max(deliverAtEpochMs, nextRetryAt), scheduleSource.sourceOrderToken(),
+                    Math.addExact(runtime.admissionsUsed(), 1),
+                    TargetQueueState.nextRevision(runtime.runtimeRevision()),
+                    UncertainRetryAuthority.NONE, null, null, false);
+        } else {
+            retry = null;
+        }
+        return new TargetMessageRecord(
+                locator, TargetQueueState.nextRevision(stateVersion), deliverAtEpochMs, expireAtEpochMs,
+                retry == null ? retryEligibilityAtEpochMs : retry.retryEligibilityAtEpochMs(),
+                nativeDeliveryPolicy, scheduleSource, inlinePayload, payloadReference,
+                runtime.notPublishedOutcome(attemptId, permanent, retry));
+    }
+
     private byte[] fields() {
         return CanonicalProtobuf.message(out -> {
             CanonicalProtobuf.uint32(out, 1, VERSION);

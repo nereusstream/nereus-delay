@@ -147,6 +147,22 @@ public final class PublishEvidence {
         }
     }
 
+    /** Static direct Broker rejection binding; the resolved authority must authenticate and classify the response. */
+    public void requireOrdinaryTargetNotPublishedBinding(final TargetOrdinaryPublicationBinding publication) {
+        Objects.requireNonNull(publication, "publication");
+        requireBusinessMutation(publication.publishAttemptId(), false);
+        if (evidenceKind != PublishEvidenceKind.BROKER_DEFINITIVE_REJECTION) {
+            throw new IllegalStateException("Target absence evidence requires its recovery-domain verifier");
+        }
+        final var fields = QueryCodecSupport.read(branch, "ordinary Target rejection evidence");
+        final var target = BrokerResourceIdentity.decode(nested(fields, 2));
+        if (!target.equals(publication.physical().resource())
+                || uint(fields, 3) != publication.physical().physicalPartition()
+                || !Arrays.equals(fixed(fields, 5), publication.preparedPublishHash())) {
+            throw new IllegalArgumentException("Target rejection changes its frozen physical request identity");
+        }
+    }
+
     /**
      * Requires the fixed early-Pulsar handoff proof to bind to its retained
      * Publish Admission. This is deliberately narrower than ordinary

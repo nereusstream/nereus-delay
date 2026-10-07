@@ -245,6 +245,17 @@ physical admission 的文字拒绝缺少 exact Target evidence，不能当成 de
 拒绝可以继续处理原结果/bytes，不重复 SEND；Source actual first result 是最终 settlement 依据。
 同一 handoff 实例只保留一条 exact action，queue acceptance response 丢失不会反复注册相同任务。
 
+
+2026-10-07 后续：current NOT_PUBLISHED 已复用 definitive source batch，接受既有精确 Broker
+rejection evidence 与 mandatory v4/history/authenticated classifier snapshot。消息/Lane-wait retry
+核对原 policy/window/jitter/admission budget，生成非 Native DEFINITIVE_RETRY；旧 UNCERTAIN refs
+存在时保持 hold，不创建普通重试。永久拒绝或 source CLOSED 写 DEAD_LETTER，Close 的首结果返回
+LANE_CLOSED_AFTER_ADMISSION_NOT_PUBLISHED。strict barrier 仅在 refs 结清后解除，retry 保持原
+watermark/ordered key 并重建 ORDER_HEAD。execution charge 结束，reserve/allocated 保留至 Floor；
+终态仅无 refs 才 retain payload。细节与 fixture 边界见
+`evidence/e5-current-not-published-source-focused.log`；其它 absence/recovery、production classifier、
+DLQ export、terminal/historical、Broker/Host 和完整集中验证仍开放。
+
 | 对象 | key | reserved NV type |
 |---|---|---|
 | TargetChannelIdentity | meta `0e 01 + digest[32]` | 20 |

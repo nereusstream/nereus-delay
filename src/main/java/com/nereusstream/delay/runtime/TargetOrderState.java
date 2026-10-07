@@ -379,6 +379,24 @@ public final class TargetOrderState {
                 || !published.equals(before.publishedOutcome(before.runtime().publishAttemptId()))) {
             throw new IllegalArgumentException("strict published successor differs from the exact current attempt");
         }
+        return afterDefinitiveOutcome(before, published);
+    }
+
+    /** Releases the current head only after definitive settlement; retry keeps the same durable ordering position. */
+    public TargetOrderState afterNotPublishedOutcome(
+            final TargetMessageRecord before, final TargetMessageRecord settled) {
+        final Long retryAt = settled.runtime().timeline() == null
+                ? null : settled.runtime().timeline().retryEligibilityAtEpochMs();
+        if (barrier == null || before.runtime().currentWorkKind() != CurrentSendWorkKind.PUBLISHING
+                || !settled.equals(before.notPublishedOutcome(before.runtime().publishAttemptId(),
+                        settled.aggregateState() == GenerationAggregateState.DEAD_LETTER, retryAt))) {
+            throw new IllegalArgumentException("strict rejection successor differs from the exact current attempt");
+        }
+        return afterDefinitiveOutcome(before, settled);
+    }
+
+    private TargetOrderState afterDefinitiveOutcome(
+            final TargetMessageRecord before, final TargetMessageRecord published) {
         requireLocatorProjection(before.locator());
         barrier.requireMessageProjection(before);
         final TargetOrderState successor = new TargetOrderState(

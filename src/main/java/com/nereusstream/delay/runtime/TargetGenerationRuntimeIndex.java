@@ -297,18 +297,31 @@ public final class TargetGenerationRuntimeIndex {
 
     /** Value successor for a verified success of the current attempt; other unresolved obligations remain. */
     public TargetGenerationRuntimeIndex publishedOutcome(final byte[] attemptId) {
+        return definitiveOutcome(attemptId, GenerationAggregateState.PUBLISHED, null);
+    }
+
+    TargetGenerationRuntimeIndex notPublishedOutcome(
+            final byte[] attemptId, final boolean permanent, final TargetTimelineWorkRef retry) {
+        return definitiveOutcome(attemptId,
+                permanent ? GenerationAggregateState.DEAD_LETTER
+                        : retry == null ? GenerationAggregateState.UNCERTAIN : GenerationAggregateState.RETRY_WAIT,
+                retry);
+    }
+
+    private TargetGenerationRuntimeIndex definitiveOutcome(
+            final byte[] attemptId, final GenerationAggregateState nextState, final TargetTimelineWorkRef retry) {
         Bytes.requireLength(attemptId, 32, "attemptId");
         if (terminal()
                 || currentWorkKind != CurrentSendWorkKind.PUBLISHING
                 || !Arrays.equals(publishAttemptId, attemptId)) {
-            throw new IllegalStateException("published outcome must settle the current PUBLISHING work");
+            throw new IllegalStateException("definitive outcome must settle the current PUBLISHING work");
         }
         final var remaining = new ArrayList<AttemptObligationRef>(obligations.size());
         int matched = 0;
         for (var obligation : obligations) {
             if (Arrays.equals(obligation.publishAttemptId(), attemptId)) {
                 if (obligation.ledgerState() != AttemptLedgerState.PUBLISHING) {
-                    throw new IllegalStateException("published current attempt is not a PUBLISHING obligation");
+                    throw new IllegalStateException("definitive current attempt is not a PUBLISHING obligation");
                 }
                 matched++;
             } else {
@@ -316,13 +329,16 @@ public final class TargetGenerationRuntimeIndex {
             }
         }
         if (matched != 1) {
-            throw new IllegalStateException("published outcome must settle exactly one current obligation");
+            throw new IllegalStateException("definitive outcome must settle exactly one current obligation");
+        }
+        if (retry != null && (retry.workKind() != TimelineWorkKind.DEFINITIVE_RETRY || !remaining.isEmpty())) {
+            throw new IllegalArgumentException("definitive retry requires no unresolved attempt obligations");
         }
         return new TargetGenerationRuntimeIndex(
                 generation,
-                GenerationAggregateState.PUBLISHED,
-                CurrentSendWorkKind.NONE,
-                null,
+                nextState,
+                retry == null ? CurrentSendWorkKind.NONE : CurrentSendWorkKind.TIMELINE,
+                retry,
                 null,
                 null,
                 remaining,

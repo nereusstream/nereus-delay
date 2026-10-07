@@ -1,0 +1,36 @@
+E5 current direct Broker NOT_PUBLISHED source settlement
+Date: 2026-10-07
+Base: main@a738f43cff0e9e9e2c3781a79ec544a71e11c98c
+
+The existing v1 PublishOutcome and BrokerDefinitiveRejectionEvidence wire are unchanged. Direct rejection binds attempt, exact physical resource/partition/prepared hash; Source requires a bounded v4 image, retained APPLIED/OK Admission first result/full envelope, exact admitted Owner/Budget/transfer, pinned retry history and an authenticated response/classifier snapshot. Missing or failed authentication retains the source entry without a result/frontier write.
+
+Source atomically settles only the current PUBLISHING obligation. SCHEDULED/LANE_WAIT retries recompute policy/window/jitter and admission limits; Native is not recreated. Strict retry rebuilds ORDER_HEAD at the same ordering position/watermark. MESSAGE_PERMANENT or source Target CLOSED records DEAD_LETTER; CLOSED overrides the result/terminal code to LANE_CLOSED_AFTER_ADMISSION_NOT_PUBLISHED. Resolved budget drops execution charge but remains RESOLVED_AWAITING_FLOOR with original reserve/allocated. Payload is retained only for terminal with no remaining obligations. An older UNCERTAIN set stays held, with counters/duplicate preserved, and is not bypassed by ordinary retry.
+
+Focused command:
+./gradlew test --tests 'com.nereusstream.delay.runtime.TargetCommandStoreTest.modifiesActualTimelineOrClaimWithHistoryAndFirstResults' --tests 'com.nereusstream.delay.runtime.TargetMessageContractTest' --tests 'com.nereusstream.delay.protocol.TargetMaterializedAdmissionTest' checkstyleMain checkstyleTest --no-daemon --console=plain
+Tests: 45/45 (18+17+10), zero failure/error/skip. Main Checkstyle passed. The combined build failed only on nine test line lengths; later changes only wrap those lines.
+Development failures before that result: fixed an incorrect StableCode/import in the new test, an observation earlier than the Admission decision (full RetryDecision rejected it) and fixture Close/Outcome sharing the same source position (actual Worker returned APPLY_FAILURE). Assertions/contracts were preserved. One accidental compile retry was interrupted after a failed import-edit assertion.
+
+Final formatting command:
+./gradlew checkstyleMain checkstyleTest --no-daemon --console=plain
+Result: BUILD SUCCESSFUL in 27s; main/test Checkstyle passes.
+Documentation command:
+./gradlew checkDocumentation --no-daemon --console=plain
+Result: BUILD SUCCESSFUL in 1m 3s; historical NDIP receipts do not certify new Target runtime.
+
+Scope: Store, bounded accounting, strict head and Source Worker/ACK retry are real local RocksDB paths. The physical Publisher call, authenticated rejection/classifier, Journal/source append, credential, Owner and time are explicit fixtures. Four new Worker paths make one fixture SEND, retain exact Outcome bytes across lost queue-acceptance response, and after source ACK_UNKNOWN retry only ACK before settling Publisher. Unknown Sender/Journal cases continue to observe zero SEND. No real Broker rejection, network/process loss or production authority is certified here. Other absence/recovery branches, terminal/historical settlement, production classifier/Host, DLQ export, Claim reconstruction, Floor/GC and centralized full verification remain required. C1/C2/E5 and global completion flags remain open; productionAuthority=false.
+
+SHA-256 (final source; XML tests precede formatting-only changes):
+3287a7f2809f36154e8978ce8b22df4a01f8dc361fd954f50193dbb61acfa156  src/main/java/com/nereusstream/delay/runtime/TargetPublishOutcomeStore.java
+5a84e81ce270174e7e18010bda8d1f0b04d36caa95f26acc565adc0ca327d751  src/main/java/com/nereusstream/delay/runtime/TargetMessageRecord.java
+d30df284af5a28946c2a8409694a74c0c1e4a0722cebfc4e217258c5746e6112  src/main/java/com/nereusstream/delay/runtime/TargetGenerationRuntimeIndex.java
+85255ecea48e3b152ed88630242c9dfdcfe3583dc546a169ff7f97a5ae9efcad  src/main/java/com/nereusstream/delay/runtime/TargetOrderState.java
+d73d526e4d7b3de1f7cfa5fa8bb450a28d195fa531c986a33eb491fe5716f791  src/main/java/com/nereusstream/delay/protocol/PublishEvidence.java
+b1c0f5dfb6f846f164ccec505801b681b1809c4816a85351d8545c1c0d53641d  src/main/java/com/nereusstream/delay/ownership/TargetPublishOutcomeMutationFactory.java
+20bb8e6151b7e9558efd689535a1dafeb7527d0d42dadb5fcaa4316855282941  src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java
+260a63f09345b40e4b538230954a60e4a0245630090277a7d2dfa7d5305c716b  src/test/java/com/nereusstream/delay/runtime/TargetMessageContractTest.java
+ef07d347e779648c78494cd38cfbfa26d17b6b577093f5370f402e3e17b86f39  build/test-results/test/TEST-com.nereusstream.delay.runtime.TargetCommandStoreTest.xml
+aebf91f1c8eaf957e4d0d39c888a9e5b1e60eb5902973eed0a936033dbabaab3  build/test-results/test/TEST-com.nereusstream.delay.runtime.TargetMessageContractTest.xml
+87d4ad8f4c962e3064059428b0a4fcee92f8562caf10482863487459c93d68e5  build/test-results/test/TEST-com.nereusstream.delay.protocol.TargetMaterializedAdmissionTest.xml
+bcebe383e605ea280784d64805d1e362d0c706828a41be4c27564f85de0d54c8  build/reports/checkstyle/main.xml
+5f0297d93c65110a2f55915d73253257387acb5203d1ed178b8cabaacd86882e  build/reports/checkstyle/test.xml

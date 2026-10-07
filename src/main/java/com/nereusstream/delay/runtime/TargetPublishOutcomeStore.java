@@ -31,7 +31,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
-/** Applies initial Target UNKNOWN or authenticated current PUBLISHED outcomes in one accounted source batch. */
+/** Applies initial Target UNKNOWN or authenticated current definitive outcomes in one accounted source batch. */
 public final class TargetPublishOutcomeStore {
     public static final class Prepared {
         private final TargetPublishOutcomeStore owner;
@@ -118,20 +118,18 @@ public final class TargetPublishOutcomeStore {
                     final var decision = TargetPublishOutcomeVerifier.decideFirstApplication(
                             scope, mutation, source, authority);
                     StableCode rejection = decision.rejection();
+                    StableCode appliedCode = null;
                     List<TargetMessageStore.Transition> transitions = List.of();
                     List<TargetMessageStore.OrderTransition> orders = List.of();
                     final var extra = new java.util.ArrayList<TargetStoreBackend.Edit>();
                     if (rejection == null) {
                         final var outcome = decision.body();
-                        if (outcome.sideEffect() == 2) {
-                            throw new IllegalStateException(
-                                    "Target definitive Publish Outcome application is not enabled yet");
-                        }
                         final var writer = AuthorIdentity.decode(mutation.authorIdentity()).asOwnerIdentity();
-                        final var projection = outcome.sideEffect() == 1
-                                ? published(reader, outcome, stamp, writer, decision.authorization())
+                        final var projection = outcome.sideEffect() != 3
+                                ? definitive(reader, outcome, stamp, writer, decision.authorization())
                                 : unknown(reader, outcome, stamp, writer, decision.authorization());
                         rejection = projection.rejection();
+                        appliedCode = projection.appliedCode();
                         if (rejection == null) {
                             transitions = List.of(new TargetMessageStore.Transition(
                                     projection.before(), projection.after()));
@@ -144,7 +142,8 @@ public final class TargetPublishOutcomeStore {
                     final var result = SystemMutationResult.from(
                             mutation,
                             rejection == null ? ApplyStatus.APPLIED : ApplyStatus.REJECTED,
-                            rejection == null ? decision.body().stableCode() : rejection,
+                            rejection != null ? rejection
+                                    : appliedCode == null ? decision.body().stableCode() : appliedCode,
                             source.canonicalBytes());
                     extra.addAll(resultEdits(reader, mutation, stamp, result));
                     applied[0] = result;
@@ -241,10 +240,11 @@ public final class TargetPublishOutcomeStore {
                 after,
                 order,
                 List.of(budgetEdit),
+                null,
                 null);
     }
 
-    private OutcomeProjection published(
+    private OutcomeProjection definitive(
             final TargetStoreBackend.Reader reader,
             final PublishOutcomeBody outcome,
             final TargetQuotaMutation stamp,
@@ -285,7 +285,11 @@ public final class TargetPublishOutcomeStore {
             return OutcomeProjection.stale(StableCode.STALE_SYSTEM_MUTATION);
         }
         final var evidence = PublishEvidence.decode(outcome.evidence());
-        evidence.requireOrdinaryTargetPublishedBinding(admission.publication());
+        if (outcome.sideEffect() == 1) {
+            evidence.requireOrdinaryTargetPublishedBinding(admission.publication());
+        } else {
+            evidence.requireOrdinaryTargetNotPublishedBinding(admission.publication());
+        }
         final byte[] messageKey = TargetKeyCodec.message(budget.locator().messageId());
         final var before = TargetMessageRecord.decodeForStore(
                 messageKey, TargetValueEnvelope.decode(
@@ -298,21 +302,39 @@ public final class TargetPublishOutcomeStore {
         if (before.runtime().terminal()
                 || before.runtime().currentWorkKind() != CurrentSendWorkKind.PUBLISHING
                 || !Arrays.equals(before.runtime().publishAttemptId(), outcome.publishAttemptId())) {
-            throw new IllegalStateException("Target terminal/historical PUBLISHED source application is not enabled");
+            throw new IllegalStateException("Target terminal/historical definitive source application is not enabled");
         }
         if (before.runtime().admissionsUsed() != admission.attemptNo()
                 || !before.runtime().attemptObligations().contains(admission.obligation())) {
             throw new IllegalStateException("Target current PUBLISHING projection differs from its Admission proof");
         }
         requireRetryContext(reader, before, budget, outcome, authorization);
-        if (outcome.retryDecision().cause() != StableCode.OK) {
-            throw new IllegalArgumentException("Target PUBLISHED retry decision changes its successful cause");
+        if (outcome.retryDecision().cause() != outcome.stableCode()) {
+            throw new IllegalArgumentException("Target definitive retry decision changes its observed cause");
         }
         context.authority().requireAuthenticated(
                 admission.publication(), evidence, proof.mutation().source(), stamp.source());
-        final var after = before.publishedOutcome(outcome.publishAttemptId());
+        final TargetQueueState currentQueue = outcome.sideEffect() == 2 ? queue(reader, before) : null;
+        if (currentQueue != null) {
+            before.locator().requireQueueProjection(currentQueue);
+        }
+        final boolean closed = currentQueue != null
+                && currentQueue.admissionState() == TargetQueueState.AdmissionState.CLOSED;
+        final StableCode terminalCode = closed ? StableCode.LANE_CLOSED_AFTER_ADMISSION_NOT_PUBLISHED
+                : outcome.stableCode();
+        final var after = outcome.sideEffect() == 1 ? before.publishedOutcome(outcome.publishAttemptId())
+                : before.notPublishedOutcome(outcome.publishAttemptId(), closed || outcome.disposition() == 2,
+                        closed || !outcome.retryDecision().hasNextRetryAt()
+                                ? null : outcome.retryDecision().nextRetryAt());
+        final var extra = new java.util.ArrayList<TargetStoreBackend.Edit>();
+        final var resolved = budget.resolve(evidence.verificationStatus(), budget.allocated(), stamp);
+        extra.add(reader.replace(
+                ColumnFamily.META, budgetKey, TargetQuotaAttemptBudget.VALUE_TYPE, resolved.canonicalBytes()));
+        if (!after.runtime().terminal()) {
+            return new OutcomeProjection(before, after, strictOrder(reader, before, after), extra, null, null);
+        }
         final var terminal = new TargetTerminalGenerationRecord(
-                after.locator(), after.stateVersion(), StableCode.OK, after.runtime(), stamp, lineage);
+                after.locator(), after.stateVersion(), terminalCode, after.runtime(), stamp, lineage);
         if (reader.get(ColumnFamily.TERMINAL, terminal.key()) != null) {
             throw new IllegalStateException("current Target publication already has terminal history");
         }
@@ -330,26 +352,23 @@ public final class TargetPublishOutcomeStore {
         if (payloadOwner.phase() != TargetQuotaPayloadOwner.Phase.ACTIVE) {
             throw new IllegalStateException("current publishing Target Message lacks active payload ownership");
         }
-        final var extra = new java.util.ArrayList<TargetStoreBackend.Edit>();
         if (after.runtime().attemptObligations().isEmpty()) {
             final var retained = payloadOwner.retain(stamp, (prior, next, floor) -> {
                 if (floor != null || !Arrays.equals(prior.canonicalBytes(), payloadOwner.canonicalBytes())
                         || next.phase() != TargetQuotaPayloadOwner.Phase.RETAINED
                         || !next.mutation().equals(stamp)) {
-                    throw new IllegalStateException("Target success changed its frozen payload retention");
+                    throw new IllegalStateException("Target definitive result changed its frozen payload retention");
                 }
                 next.requireMessagePayload(after);
             });
             extra.add(reader.replace(
                     ColumnFamily.META, retained.key(), TargetQuotaPayloadOwner.VALUE_TYPE, retained.canonicalBytes()));
         }
-        final var resolved = budget.resolve(evidence.verificationStatus(), budget.allocated(), stamp);
-        extra.add(reader.replace(
-                ColumnFamily.META, budgetKey, TargetQuotaAttemptBudget.VALUE_TYPE, resolved.canonicalBytes()));
         extra.add(reader.replace(
                 ColumnFamily.TERMINAL, terminal.key(), TargetTerminalGenerationRecord.VALUE_TYPE,
                 terminal.canonicalBytes()));
-        return new OutcomeProjection(before, after, strictOrder(reader, before, after), extra, null);
+        return new OutcomeProjection(before, after, strictOrder(reader, before, after), extra, null,
+                closed ? terminalCode : null);
     }
 
     private static byte[] required(
@@ -438,15 +457,16 @@ public final class TargetPublishOutcomeStore {
             } catch (ArithmeticException invalidRetryTime) {
                 throw new IllegalArgumentException("Target retry jitter time overflows", invalidRetryTime);
             }
-            if (retry.kind() != 2
-                    || message.locator().orderingMode() != OrderingMode.BEST_EFFORT
-                    || policy.uncertainPolicy() != UncertainPolicy.BOUNDED_RETRY_POSSIBLE_DUPLICATE
+            final boolean uncertain = outcome.sideEffect() == 3;
+            if ((uncertain ? retry.kind() != 2 : retry.kind() != 2 && retry.kind() != 4)
+                    || uncertain && message.locator().orderingMode() != OrderingMode.BEST_EFFORT
+                    || uncertain && policy.uncertainPolicy() != UncertainPolicy.BOUNDED_RETRY_POSSIBLE_DUPLICATE
                     || retry.nextRetryAt() != next
                     || next > deadline
                     || Math.max(message.deliverAtEpochMs(), next) >= message.expireAtEpochMs()
-                    || message.runtime().uncertainRetryAdmissionsUsed() >= policy.maxUncertainRetries()
+                    || uncertain && message.runtime().uncertainRetryAdmissionsUsed() >= policy.maxUncertainRetries()
                     || message.runtime().admissionsUsed() >= policy.maxPublishAdmissions()) {
-                throw new IllegalArgumentException("Target uncertain retry differs from its policy/jitter/budget");
+                throw new IllegalArgumentException("Target retry differs from its policy/jitter/budget");
             }
         }
     }
@@ -504,9 +524,15 @@ public final class TargetPublishOutcomeStore {
                 scope.shard(),
                 queue(reader, before));
         state.requireBarrierProjection(before);
-        return new TargetMessageStore.OrderTransition(state,
-                after.aggregateState() == GenerationAggregateState.PUBLISHED
-                        ? state.afterPublishedOutcome(before, after) : state.afterUnknownOutcome(before, after));
+        final TargetOrderState next;
+        if (after.aggregateState() == GenerationAggregateState.PUBLISHED) {
+            next = state.afterPublishedOutcome(before, after);
+        } else if (after.runtime().attemptObligations().size() < before.runtime().attemptObligations().size()) {
+            next = state.afterNotPublishedOutcome(before, after);
+        } else {
+            next = state.afterUnknownOutcome(before, after);
+        }
+        return new TargetMessageStore.OrderTransition(state, next);
     }
 
     private TargetQueueState queue(final TargetStoreBackend.Reader reader, final TargetMessageRecord message) {
@@ -617,13 +643,14 @@ public final class TargetPublishOutcomeStore {
             TargetMessageRecord after,
             TargetMessageStore.OrderTransition order,
             List<TargetStoreBackend.Edit> extra,
-            StableCode rejection) {
+            StableCode rejection,
+            StableCode appliedCode) {
         private OutcomeProjection {
             extra = List.copyOf(extra);
         }
 
         private static OutcomeProjection stale(final StableCode rejection) {
-            return new OutcomeProjection(null, null, null, List.of(), rejection);
+            return new OutcomeProjection(null, null, null, List.of(), rejection, null);
         }
     }
 }

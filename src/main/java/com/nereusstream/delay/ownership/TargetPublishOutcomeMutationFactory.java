@@ -50,6 +50,8 @@ public final class TargetPublishOutcomeMutationFactory {
                         || !Arrays.equals(physical.externalDeliveryIdentity(), body.publishAttemptId())) {
                     throw new IllegalArgumentException("Target Outcome result changes physical request identity");
                 }
+            } else {
+                evidence.requireOrdinaryTargetNotPublishedBinding(body.publication());
             }
         } else if (physical.evidence() != null && physical.evidence().length != 0) {
             throw new IllegalArgumentException("Target UNKNOWN cannot carry definitive/opaque evidence");

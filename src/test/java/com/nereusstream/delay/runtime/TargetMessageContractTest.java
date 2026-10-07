@@ -832,6 +832,29 @@ class TargetMessageContractTest {
                 runtime);
     }
 
+    @Test
+    void definitiveFailureKeepsOlderUncertainObligationsWithoutOrdinaryRetry() {
+        final var older = ref(0x66, 2, AttemptLedgerState.UNCERTAIN);
+        final var publishing = ref(0x77, 2, AttemptLedgerState.PUBLISHING);
+        final var current = message(index(
+                GenerationAggregateState.UNCERTAIN, CurrentSendWorkKind.PUBLISHING, null, null, attempt,
+                List.of(older, publishing), 2, 1, true, 7));
+        final var held = current.notPublishedOutcome(attempt, false, 110L);
+        assertEquals(GenerationAggregateState.UNCERTAIN, held.aggregateState());
+        assertEquals(CurrentSendWorkKind.NONE, held.runtime().currentWorkKind());
+        assertEquals(List.of(older), held.runtime().attemptObligations());
+        assertEquals(2, held.runtime().admissionsUsed());
+        assertEquals(1, held.runtime().uncertainRetryAdmissionsUsed());
+        assertTrue(held.runtime().possibleDestinationDuplicate());
+        assertEquals(held, TargetMessageRecord.decode(held.canonicalBytes()));
+        final var terminal = current.notPublishedOutcome(attempt, true, null);
+        assertEquals(GenerationAggregateState.DEAD_LETTER, terminal.aggregateState());
+        assertEquals(List.of(older), terminal.runtime().attemptObligations());
+        assertThrows(IllegalStateException.class, () -> held.notPublishedOutcome(attempt, true, null));
+        assertThrows(IllegalStateException.class,
+                () -> current.notPublishedOutcome(older.publishAttemptId(), true, null));
+    }
+
     private TargetGenerationRuntimeIndex terminal(final List<AttemptObligationRef> refs, final int admissions) {
         return index(
                 GenerationAggregateState.EXPIRED,

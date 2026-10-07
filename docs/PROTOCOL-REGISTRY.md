@@ -884,6 +884,16 @@ RESOLVED_AWAITING_FLOOR，释放已确证的执行 charge，commitment/allocated
 当前本地证据使用显式 credential/response/认证 fixtures；生产 resolver、Producer/Broker、Native、
 NOT_PUBLISHED、terminal/historical settlement、Claim 缺失恢复和完整 Floor/retention 验证仍未闭合。
 
+普通 Target 的 current NOT_PUBLISHED 首应用现接受既有 BrokerDefinitiveRejectionEvidence，
+静态比较 exact Target/partition/prepared hash，并要求相同 v4 Admission 首结果/预算/Owner、
+冻结 transfer 与预解析认证/分类 snapshot。MESSAGE_RETRIABLE/LANE_UNAVAILABLE 的 SCHEDULED/
+LANE_WAIT 从 pinned policy/window 重算 jitter 与 Admission 上限；普通/严格 retry 不增加 Native。
+MESSAGE_PERMANENT 或 source-ordered Target CLOSED 创建 DEAD_LETTER terminal；CLOSED 的首结果为
+LANE_CLOSED_AFTER_ADMISSION_NOT_PUBLISHED。严格 retry 保留原排序位置/水位并重建 ORDER_HEAD，
+有其它未决义务时不创建 DEFINITIVE_RETRY。Budget 的 reserve 和未决旧 attempt 保留，终态 payload
+仅在无 refs 时转 RETAINED。其它 absence/recovery 分支、生产 response/classifier、DLQ export、
+terminal/historical settlement 与真实 Broker 验证继续开放。没有新增 evidence/body wire 版本。
+
 Outcome/Resolution application updates the attempt ledger and `GenerationRuntimeIndex` in one WriteBatch. `UNKNOWN + SCHEDULED` atomically deletes the exact PUBLISHING key, writes the byte-equivalent identity/admission prefix plus Outcome under its exact UNCERTAIN key, replaces the PUBLISHING-key obligation ref with the UNCERTAIN-key ref, keeps aggregate `UNCERTAIN`, and inserts one `UNCERTAIN_RETRY` timeline work; it does not increment field 15 until the later Admission applies. `UNKNOWN + UNCERTAIN_HOLD` performs the same key/ref replacement and leaves current work NONE. Definitive nonpublication removes that exact ref only after required strong-capability retirement; if another UNCERTAIN ledger remains, any scheduled current work is `UNCERTAIN_RETRY` and the aggregate remains `UNCERTAIN`, otherwise it is `DEFINITIVE_RETRY`/`RETRY_WAIT`. When resolution empties the UNCERTAIN set while reversible TIMELINE/CLAIMED work exists, the event loop first revokes any Claim whose field-19 digest is stale, normalizes the work kind and aggregate, then permits a fresh Claim.
 
 Any verified success terminalizes the Generation. Reversible TIMELINE or CLAIMED current work is removed in that batch. A different already-admitted PUBLISHING attempt cannot be revoked: its ledger and obligation ref remain, current work becomes NONE, `possible_destination_duplicate=true`, and its later Outcome/evidence may release only its own obligation and charges. Expiry and Lane Close similarly delete reversible current work but never erase an admitted obligation; with any possible-delivery ledger they retain aggregate `UNCERTAIN` or apply the pinned explicit possible-delivery terminal policy. Cancel/Reschedule are `TOO_LATE` whenever an UNCERTAIN obligation exists, even if current work is TIMELINE or CLAIMED. `UNCERTAIN_RETRY` is invalid for `DELIVERY_TIME_FIFO`, a closed/broken Lane, or exhausted budgets.

@@ -18560,3 +18560,10 @@ The Target host now admits a local candidate only through its currently register
 A process-local Target candidate schedule now claims due Shards through exact host admission, retains the claim until the exact task reaches a terminal outcome, reschedules failed admission, and permits bounded settlement after host stop. The two-Shard host lifecycle suite passes 12 tests with Checkstyle. Production timing, pending-intent creation, real Broker source-cut validation, authenticated snapshots, Catalog publication and restore remain open; C5 and format-2 gates are unchanged.
 
 Scheduled Target checkpoint candidates capture a protected source cut before creating a pending intent, submit with that exact cut under the host Shard lock, and recheck it around local physical work. Kafka verifies the last successful ACK against the broker committed offset and current guard/assignment; Pulsar requires the receipt-enabled factory consumer and unchanged connection proof. Four real-Store Worker cases pass with a simulated cut, and both locked client bindings compile. Real Broker smoke assertions were added but not executed; restart cut acquisition, authenticated snapshots, publication and restore remain open. C5 and format-2 gates are unchanged.
+
+The current Target NOT_PUBLISHED source path now accepts exact direct Broker rejection evidence with a
+mandatory authenticated classifier snapshot, settles only its current attempt and atomically records
+retry or DEAD_LETTER, strict head/barrier, budget and first results. Reserve remains protected until Floor;
+older UNKNOWN obligations prevent an ordinary retry. Actual Worker/RocksDB tests use response/authority
+fixtures; production classifier, other absence/recovery branches, terminal/historical, DLQ export and
+real Broker validation remain open. See NDIP-3 evidence/e5-current-not-published-source-focused.log.
