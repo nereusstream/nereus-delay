@@ -724,6 +724,15 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         return applied;
     }
 
+    synchronized TargetPublishAdmissionStore.Recovery readRecoveryAdmission(
+            final BoundedReadBudget budget, final SystemMutation image, final LongSupplier ownerClock) {
+        final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
+        requireGcOwner(clock);
+        final var recovery = targetAdmissions.readRecovery(budget, image, workerReads(clock));
+        requireGcOwner(clock);
+        return recovery;
+    }
+
     synchronized void requireOutcomeWriter(final SystemMutation mutation, final LongSupplier clock) {
         requireGcOwner(clock);
         final var author = AuthorIdentity.decode(mutation.authorIdentity()).asOwnerIdentity();

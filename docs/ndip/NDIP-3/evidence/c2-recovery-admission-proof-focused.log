@@ -1,0 +1,32 @@
+C2 recovery-only retained Admission proof and UNKNOWN signer
+Date: 2026-10-07
+Base: main@f98bed16 (local); publication of this base is still pending due to SSH transport failure.
+
+The existing v3/v4 Admission and v1 Outcome wire are unchanged. Recovery proof uses current Worker Owner/read guards and the same bounded exact retained Admission first-result/full-envelope/source join, ADMITTED Budget and current PUBLISHING Message checks. A private common read verifies budget execution/commitment/allocated and admissionsUsed. Ordinary Applied read additionally requires materialized v4 and original Store/Owner identity; Recovery is a distinct type and cannot be passed as that send snapshot. A different Store incarnation/Owner is allowed only for retained facts, not SDK or Journal first-send authority.
+
+Recovery signer accepts only OWNER_FENCED, the RECOVERY_FIRST_SEND_UNCERTAIN cause and typed UNCERTAIN_HOLD without next retry or early-release transfer. It signs the recovery Owner; the mandatory current append lease and Source historical/activeOwner/policy checks remain external. No Producer/Journal call is made by this path.
+
+Command:
+./gradlew test --tests 'com.nereusstream.delay.runtime.TargetCommandStoreTest.modifiesActualTimelineOrClaimWithHistoryAndFirstResults' --tests 'com.nereusstream.delay.protocol.TargetMaterializedAdmissionTest' checkstyleMain checkstyleTest --no-daemon --console=plain
+Tests: 28/28 (18+10), zero failure/error/skip. Main Checkstyle passed; combined build failed only on two new test line lengths. The following source changes wrap only those lines.
+Final style command:
+./gradlew checkstyleMain checkstyleTest --no-daemon --console=plain
+Result: BUILD SUCCESSFUL in 25s; main/test Checkstyle passes.
+Documentation command:
+./gradlew checkDocumentation --no-daemon --console=plain
+Result: BUILD SUCCESSFUL in 1m 4s; historical NDIP receipts do not certify current Target runtime.
+
+Scope: actual current Worker/RocksDB guarded proof reads include non-materialized v3. Existing UNKNOWN source application uses the same bytes now checked against this recovery factory. A synthetic different Owner signs a correct hold, but unacquired Owner handoff is rejected before append; invalid disposition, retry kind/cause or nonzero transfer is rejected. Reads/signing/queue rejection leave Store sequence unchanged. Owner/time/source-history authorities are explicit fixtures. This does not certify actual successor lease acquisition, new Store install, process/Broker restart, bounded recovery enumeration/history resolver, host orchestration or production authority. Full 29-slice objective and C2/D2/E5 remain open.
+
+SHA-256 (final source; test reports precede formatting-only changes):
+a73b241b57201973cfa43de709e1637e5ed8ea8ac1e219449c44360d04eb1436  src/main/java/com/nereusstream/delay/runtime/TargetPublishAdmissionStore.java
+69f81bd3f71306d222f8c38f1e7fec4bf137f119e3c00fb193cc6c1ae7aa30ad  src/main/java/com/nereusstream/delay/ownership/TargetSourceApplyRuntime.java
+b5360fbd8f0d8a9d30485693df4016ba20193f1407940cb0d264dc68eb883f5a  src/main/java/com/nereusstream/delay/ownership/TargetWorkerShardRuntime.java
+99958e1065dac0841e56b2acbeded876911fa8b591c3cd17e0c8fe18fee83259  src/main/java/com/nereusstream/delay/ownership/TargetPublishOutcomeMutationFactory.java
+d449fc0ce907d3acb06136b308adee310026a24c4ff068cdf0804dd41abdb60b  src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java
+db4da3eaab3bdef2816bf668fade7a6919d5e327160fa25856f08693f7b4b2c8  build/test-results/test/TEST-com.nereusstream.delay.runtime.TargetCommandStoreTest.xml
+40a75f00ffdb1136ceb4e3693f2ce697d59ed19d76dc9fa34688297246c080e8  build/test-results/test/TEST-com.nereusstream.delay.protocol.TargetMaterializedAdmissionTest.xml
+bcebe383e605ea280784d64805d1e362d0c706828a41be4c27564f85de0d54c8  build/reports/checkstyle/main.xml
+5f0297d93c65110a2f55915d73253257387acb5203d1ed178b8cabaacd86882e  build/reports/checkstyle/test.xml
+
+Publication boundary observed in this continuation: a738f43c was pushed and remote SHA verified. f98bed16 remained local after bounded SSH attempts (port 22, 443, verified real endpoint and current local SOCKS transport reset/closed). Existing gh HTTPS credential belongs to Denovo1998 and returned 403 for write to nereusstream/nereus-delay; origin URL and credential/configuration were not changed. No publication of the local current NOT_PUBLISHED/recovery milestones is claimed. A later successful fetch/ancestry/push and remote SHA verification is still required.

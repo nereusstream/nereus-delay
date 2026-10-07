@@ -247,6 +247,15 @@ public final class TargetWorkerShardRuntime
         return target.readAppliedAdmission(budget, image, ownerClock);
     }
 
+    /** Retained Admission proof for conservative recovery only; current Owner/read guards still apply. */
+    public synchronized com.nereusstream.delay.runtime.TargetPublishAdmissionStore.Recovery readRecoveryAdmission(
+            final BoundedReadBudget budget, final com.nereusstream.delay.protocol.SystemMutation image,
+            final LongSupplier ownerClock) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        return target.readRecoveryAdmission(budget, image, ownerClock);
+    }
+
     synchronized void submitOutcomeAction(
             final WorkClassTask task, final com.nereusstream.delay.protocol.SystemMutation mutation,
             final LongSupplier ownerClock, final Runnable action) {

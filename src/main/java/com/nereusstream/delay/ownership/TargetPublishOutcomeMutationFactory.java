@@ -2,8 +2,11 @@ package com.nereusstream.delay.ownership;
 
 import com.nereusstream.delay.adapter.DestinationPublishResult;
 import com.nereusstream.delay.protocol.AuthorIdentity;
+import com.nereusstream.delay.protocol.OwnerIdentity;
+import com.nereusstream.delay.protocol.PublishAdmissionBody;
 import com.nereusstream.delay.protocol.PublishEvidence;
 import com.nereusstream.delay.protocol.PublishOutcomeBody;
+import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
 import com.nereusstream.delay.runtime.TargetPublishAdmissionStore;
@@ -61,6 +64,33 @@ public final class TargetPublishOutcomeMutationFactory {
                 body.shard(), c.retryUntilEpochMs(), body.publishAttemptId(), effect, c.disposition(),
                 physical.stableCode(), effect == 3 ? null : physical.evidence(), c.transfer(),
                 c.observedAt(), c.retryDecision());
+        return SystemMutation.signed(body.shard(), SystemMutationType.PUBLISH_OUTCOME, c.retryUntilEpochMs(),
+                body.publishAttemptId(), encoded,
+                AuthorIdentity.owner(owner.deploymentId(), owner.workerRunId(), owner.ownerEpoch(),
+                        owner.leaseFencingDigest()).canonicalBytes(), keyVersion, key);
+    }
+
+    /** Signs only the initial conservative hold, never a definitive result or new send/retry permission. */
+    public SystemMutation createRecoveryUnknown(
+            final TargetPublishAdmissionStore.Recovery recovery, final OwnerIdentity recoveryOwner,
+            final WorkerPublishOutcomeMutationFactory.OutcomeContext context) {
+        final var body = Objects.requireNonNull(recovery, "recovery").body();
+        final var owner = Objects.requireNonNull(recoveryOwner, "recoveryOwner");
+        final var c = Objects.requireNonNull(context, "context");
+        final byte[] zeroTransfer = new PublishAdmissionBody.ChargeVector(
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0).canonicalBytes();
+        if (c.disposition() != 4 || !Arrays.equals(c.transfer(), zeroTransfer)) {
+            throw new IllegalArgumentException("Target recovery requires OWNER_FENCED and no early release claim");
+        }
+        final byte[] encoded = PublishOutcomeBody.encodeInitial(
+                body.shard(), c.retryUntilEpochMs(), body.publishAttemptId(), 3, 4,
+                StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, null, c.transfer(), c.observedAt(), c.retryDecision());
+        final var outcome = PublishOutcomeBody.decode(encoded);
+        if (!outcome.retryDecision().hasFullShape() || outcome.retryDecision().kind() != 5
+                || outcome.retryDecision().hasNextRetryAt()
+                || outcome.retryDecision().cause() != StableCode.RECOVERY_FIRST_SEND_UNCERTAIN) {
+            throw new IllegalArgumentException("Target recovery requires typed UNCERTAIN_HOLD and its recovery cause");
+        }
         return SystemMutation.signed(body.shard(), SystemMutationType.PUBLISH_OUTCOME, c.retryUntilEpochMs(),
                 body.publishAttemptId(), encoded,
                 AuthorIdentity.owner(owner.deploymentId(), owner.workerRunId(), owner.ownerEpoch(),

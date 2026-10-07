@@ -54,6 +54,18 @@ public final class TargetPublishAdmissionStore {
             }
         }
     }
+    /** Recovery proof of current admitted work. It deliberately cannot be supplied as an Applied send snapshot. */
+    public static final class Recovery {
+        private final Applied retained;
+
+        private Recovery(Applied retained) { this.retained = retained; }
+
+        public SystemMutation image() { return retained.image(); }
+        public TargetPublishAdmissionBody body() { return retained.body(); }
+        public SourcePosition source() { return retained.source(); }
+        public TargetMessageRecord message() { return retained.message(); }
+    }
+
     public static final class Prepared {
         private final TargetPublishAdmissionStore owner;
         private final TargetStoreBackend.Prepared batch;
@@ -112,16 +124,29 @@ public final class TargetPublishAdmissionStore {
     public Applied readApplied(
             final BoundedReadBudget budget, final SystemMutation image,
             final TargetStoreBackend.ReadAuthority authority) {
+        return readCurrent(budget, image, authority, true);
+    }
+
+    /** Reads old Owner/Store Admission facts under the current read guard; this never authorizes a first send. */
+    public Recovery readRecovery(
+            final BoundedReadBudget budget, final SystemMutation image,
+            final TargetStoreBackend.ReadAuthority authority) {
+        return new Recovery(readCurrent(budget, image, authority, false));
+    }
+
+    private Applied readCurrent(
+            final BoundedReadBudget budget, final SystemMutation image,
+            final TargetStoreBackend.ReadAuthority authority, final boolean firstSend) {
         Objects.requireNonNull(image, "image");
         if (image.type() != SystemMutationType.TARGET_PUBLISH_ADMISSION || !image.shardId().equals(scope.shard())) {
             throw new IllegalArgumentException("Target send image belongs to another operation/Shard");
         }
         final var body = TargetPublishAdmissionBody.decode(image.canonicalBody());
-        if (body.publication() == null) {
+        if (firstSend && body.publication() == null) {
             throw new IllegalArgumentException("Target send requires materialized Admission v4");
         }
         return backend.guardedRead(budget, reader -> {
-            if (!Arrays.equals(body.storeIncarnation(), reader.metadata().storeIncarnation())) {
+            if (firstSend && !Arrays.equals(body.storeIncarnation(), reader.metadata().storeIncarnation())) {
                 throw new IllegalStateException("Target first send belongs to another Store incarnation");
             }
             final byte[] raw = reader.get(ColumnFamily.DEDUPE, systemResultKey(image));
@@ -149,15 +174,19 @@ public final class TargetPublishAdmissionStore {
                     || !Arrays.equals(result.mutationHash(), image.mutationHash())
                     || !Arrays.equals(result.authorIdentity(), image.authorIdentity())
                     || result.retryUntilEpochMs() != image.retryUntilEpochMs()
+                    || result.mutationType() != SystemMutationType.TARGET_PUBLISH_ADMISSION
                     || result.applyStatus() != ApplyStatus.APPLIED || result.stableCode() != StableCode.OK
                     || !Arrays.equals(first.mutation().mutationDigest(), Bytes.sha256(image.canonicalEnvelope()))
                     || !Arrays.equals(result.appliedSourcePosition(), first.mutation().source().canonicalBytes())
                     || !attempt.mutation().equals(first.mutation())
                     || attempt.phase() != TargetQuotaAttemptBudget.Phase.ADMITTED
                     || !Arrays.equals(attempt.admissionDigest(), image.mutationHash())
+                    || attempt.executionBytes() != body.executionBytes()
+                    || !attempt.commitment().equals(body.commitment()) || !attempt.allocated().equals(body.allocated())
                     || !attempt.locator().equals(body.locator()) || !message.locator().equals(body.locator())
                     || message.runtime().currentWorkKind() != CurrentSendWorkKind.PUBLISHING
                     || !Arrays.equals(message.runtime().publishAttemptId(), body.publishAttemptId())
+                    || message.runtime().admissionsUsed() != body.attemptNo()
                     || !message.runtime().attemptObligations().contains(body.obligation())) {
                 throw new IllegalStateException("Target first-send image differs from actual applied work/proof");
             }

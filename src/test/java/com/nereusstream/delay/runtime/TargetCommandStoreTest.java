@@ -2972,6 +2972,12 @@ class TargetCommandStoreTest {
                                                 .canonicalBytes(),
                                         1,
                                         keys.getPrivate());
+                                if (!uncertainRetry) {
+                                    assertRecoveryOutcomeSnapshot(replacementWorker, replacementStore,
+                                            admission.entry().mutation(), outcomeOwner, keys, otherRetryPolicy,
+                                            outcomeRetryUntil, outcomeObservedAt, unknownRetry, unknownTransfer,
+                                            outcomeMutation);
+                                }
                                 final var outcomeEntry =
                                         new SourceReplayMutation(outcomeMutation, outcomeAt, null, null);
                                 assertUnprovedTypedTargetOutcomeLeavesSourceUnchanged(
@@ -7087,6 +7093,48 @@ class TargetCommandStoreTest {
         assertEquals(beforeSequence, store.latestSequenceNumber());
         assertEquals(beforeSource, store.appliedShardLogPosition());
         assertNull(store.get(ColumnFamily.DEDUPE, systemKey(mutation)));
+    }
+
+    private static void assertRecoveryOutcomeSnapshot(
+            TargetWorkerShardRuntime worker, ShardStore store, SystemMutation admission,
+            OwnerIdentity owner, KeyPair keys, com.nereusstream.delay.protocol.RetryPolicySemantic policy,
+            long until, TrustedUtcIntervalEvidence observed, byte[] retry, byte[] transfer, SystemMutation expected) {
+        final long before = store.latestSequenceNumber();
+        final var recovery = worker.readRecoveryAdmission(budget(), admission, () -> 101);
+        assertArrayEquals(admission.canonicalEnvelope(), recovery.image().canonicalEnvelope());
+        final var factory = new com.nereusstream.delay.ownership.TargetPublishOutcomeMutationFactory(
+                1, keys.getPrivate());
+        final var context = new com.nereusstream.delay.ownership.WorkerPublishOutcomeMutationFactory.OutcomeContext(
+                until, 4, transfer, observed, retry);
+        assertArrayEquals(expected.encodeFrame(),
+                factory.createRecoveryUnknown(recovery, owner, context).encodeFrame());
+        final var successor = new OwnerIdentity(owner.deploymentId(), bytes(16, 0xE6),
+                owner.ownerEpoch() + 1, bytes(32, 0xE7));
+        final var signed = factory.createRecoveryUnknown(recovery, successor, context);
+        assertEquals(successor, AuthorIdentity.decode(signed.authorIdentity()).asOwnerIdentity());
+        assertTrue(signed.verifySignature(keys.getPublic()));
+        final var body = PublishOutcomeBody.decode(signed.canonicalBody());
+        assertEquals(3, body.sideEffect());
+        assertEquals(StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, body.stableCode());
+        assertEquals(5, body.retryDecision().kind());
+        assertFalse(body.retryDecision().hasNextRetryAt());
+        final var source = new com.nereusstream.delay.ownership.TargetOutcomeWorkClassExecutor(worker,
+                mutation -> { throw new AssertionError("unowned recovery must not append"); });
+        assertThrows(IllegalStateException.class, () -> source.submit(signed, () -> 101));
+        assertThrows(IllegalArgumentException.class, () -> factory.createRecoveryUnknown(recovery, owner,
+                new com.nereusstream.delay.ownership.WorkerPublishOutcomeMutationFactory.OutcomeContext(
+                        until, 0, transfer, observed, retry)));
+        final byte[] scheduled = typedUnknownRetryDecision(policy, body.retryDecision().firstAttemptAt(),
+                body.retryDecision().retryDeadline(), recovery.body().attemptNo(),
+                body.retryDecision().firstAttemptAt() + 1);
+        assertThrows(IllegalArgumentException.class, () -> factory.createRecoveryUnknown(recovery, owner,
+                new com.nereusstream.delay.ownership.WorkerPublishOutcomeMutationFactory.OutcomeContext(
+                        until, 4, transfer, observed, scheduled)));
+        assertThrows(IllegalArgumentException.class, () -> factory.createRecoveryUnknown(recovery, owner,
+                new com.nereusstream.delay.ownership.WorkerPublishOutcomeMutationFactory.OutcomeContext(
+                        until, 4, new PublishAdmissionBody.ChargeVector(
+                                1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0).canonicalBytes(), observed, retry)));
+        assertEquals(before, store.latestSequenceNumber());
     }
 
     private static TargetPublishOutcomeVerifier.EvidenceContext publishedEvidenceContext(

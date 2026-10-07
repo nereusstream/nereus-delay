@@ -18567,3 +18567,8 @@ retry or DEAD_LETTER, strict head/barrier, budget and first results. Reserve rem
 older UNKNOWN obligations prevent an ordinary retry. Actual Worker/RocksDB tests use response/authority
 fixtures; production classifier, other absence/recovery branches, terminal/historical, DLQ export and
 real Broker validation remain open. See NDIP-3 evidence/e5-current-not-published-source-focused.log.
+
+A separate bounded Target Recovery proof now reads retained Admission/Budget/current Message under the
+active Worker guard without treating old Owner/Store identity as send authority. Its signer emits only
+a typed recovery UNKNOWN hold with zero transfer. Local v3/v4 Store tests check exact bytes and reject
+unowned handoff; actual new-Owner/new-Store installation, recovery enumeration and Host wiring remain open.

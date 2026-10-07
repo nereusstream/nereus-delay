@@ -256,6 +256,17 @@ watermark/ordered key 并重建 ORDER_HEAD。execution charge 结束，reserve/a
 `evidence/e5-current-not-published-source-focused.log`；其它 absence/recovery、production classifier、
 DLQ export、terminal/historical、Broker/Host 和完整集中验证仍开放。
 
+
+2026-10-07 后续：`readRecoveryAdmission` 现从当前 Worker 的 Owner/read guard 读取 exact retained
+Admission first result、ADMITTED Budget/current PUBLISHING Message 和 source。它不要求旧 Owner/
+Store 身份等于新的活动实例，返回独立 Recovery 类型，不能作为普通 Applied 发送快照。
+普通首发仍保留原 Store/Owner 限制；两个 reader 均核对完整 budget execution/commitment/allocated
+和当前 admissionsUsed。恢复 signer 只生成 OWNER_FENCED/RECOVERY_FIRST_SEND_UNCERTAIN、typed
+UNCERTAIN_HOLD、无 next retry 且 zero transfer 的初始 UNKNOWN；新的 Owner 签名仍必须经实际
+handoff 当前 lease 校验和 source historical/active-owner authority，不能借该 reader 获得 SEND 权。
+证据见 `evidence/c2-recovery-admission-proof-focused.log`；真实新 Owner/new Store/restart、生产
+history resolver、恢复枚举及 Host 编排仍开放。
+
 | 对象 | key | reserved NV type |
 |---|---|---|
 | TargetChannelIdentity | meta `0e 01 + digest[32]` | 20 |
