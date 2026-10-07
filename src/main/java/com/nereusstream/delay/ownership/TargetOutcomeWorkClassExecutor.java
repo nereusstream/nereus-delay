@@ -22,6 +22,12 @@ public final class TargetOutcomeWorkClassExecutor {
         this.appender = Objects.requireNonNull(appender, "appender");
     }
 
+    void requireWorker(final TargetWorkerShardRuntime expected) {
+        if (worker != expected) {
+            throw new IllegalArgumentException("Target Outcome handoff belongs to another Worker instance");
+        }
+    }
+
     public synchronized Submission submit(final SystemMutation mutation, final LongSupplier ownerClock) {
         final var image = Objects.requireNonNull(mutation, "mutation");
         final var clock = Objects.requireNonNull(ownerClock, "ownerClock");

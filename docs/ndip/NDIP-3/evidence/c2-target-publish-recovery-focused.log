@@ -1,0 +1,29 @@
+C2 single-Admission Target recovery orchestration
+Date: 2026-10-07
+Base: main@5df8775bc38839add7e3087d70155e7bcf672aa6; this base remains local pending publication.
+
+TargetPublishRecoveryExecutor has no Journal/Producer/physical publication dependency. It reads guarded retained work once, signs the recovery UNKNOWN once, retains the exact mutation before queue submission and retries only that handoff. A pending different Admission/Owner is rejected. Exact APPLIED Source first result with the recovery code/hash is required to clear its local slot. It does not authorize historical/terminal resolution or a first send.
+
+Local development command:
+./gradlew test --tests 'com.nereusstream.delay.runtime.TargetCommandStoreTest.modifiesActualTimelineOrClaimWithHistoryAndFirstResults' checkstyleMain checkstyleTest --no-daemon --console=plain
+Result: 19/19 tests, zero failure/error/skip; main style passed. Combined build failed on one formatting-only test line (then wrapped). Previous fixture failure correctly rejected binding the same SharedRocksDbResources to a second WorkClass registry; the replacement now reuses the actual single Worker graph.
+
+The new local scenario applies a v4 Admission, pauses/closes the old Worker source, releases its lease, acquires a higher epoch, reopens/audits the actual format-2 root and activates that epoch before composing the new Worker. Ordinary first-send read of the old Admission is rejected, while recovery signs under the new Owner. Queued duplicate handoff makes one fixture source append; Source applies UNKNOWN, keeps original Owner epoch in its obligation, exact reserve/allocated and execution charge, and keeps strict barrier without ORDER_HEAD. ACK_UNKNOWN retries only ACK, without another Store write or authority resolution; exact Source proof settles the local recovery slot. Stale old lease cannot release the new Owner.
+
+The same scenario is exposed as an opt-in real-service test using two Oxia ClientHandles with different session-derived identities and a unique owned prefix. e2e/run-oxia-real-service.sh includes it. Source append/consumer, historical keys/config and logical clock remain fixtures even when the lease CAS uses the real service. No real Broker, process crash, new Store incarnation install or production certification is implied. Bounded recovered-work enumeration/history resolver, Host lifecycle, all remaining evidence branches, checkpoint/Floor/GC and full 29-slice verification remain required.
+
+Final real-service command and scope are recorded in c2-target-publish-recovery-oxia-real.log: one real Oxia test passes, zero failure/error/skip; main/test Checkstyle passes. The new test uses the same actual Worker resource graph with two connected native sessions. A previous native attempt exposed a valid transient Host admission-busy refusal before the fixture's first drain; the fixture now uses the existing bounded awaitShardAdmission plus a 10-second overall retry bound for only that exact refusal. Production busy guards and completion assertions are unchanged. The final native test exercises this updated fixture; local 19-case report precedes that fixture-only wait adjustment.
+Documentation: ./gradlew checkDocumentation --no-daemon --console=plain passed in 1m 7s before replacing the pending-native statements with these final results. No protocol/body/evidence wire format changed.
+
+SHA-256 (final source and native reports):
+9200c07be540909c30db9008fa0f594ced9192b2f34f9bf332a7dd0394862db8  src/main/java/com/nereusstream/delay/ownership/TargetPublishRecoveryExecutor.java
+a7ddf9a984c88f8e818c54c82e31f69d3bee65dcd57aa7e0b8c3d01f3284be3e  src/main/java/com/nereusstream/delay/ownership/TargetOutcomeWorkClassExecutor.java
+6b713c5586ef14b7334bd6b5cd21b682b4c61e7c06faa9eea6c1416388e24b70  src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java
+9b5c3b3b9ae364f5028045f07c4db1d798a4944db9bc34e404186b673035869a  e2e/run-oxia-real-service.sh
+27062296cb7d7a0501e89b71d99a0c90ed641b33a0dbc8fe24217ff496b75252  build/test-results/test/TEST-com.nereusstream.delay.runtime.TargetCommandStoreTest.xml
+3ec607b4669c26b4bb53e97acefdca61fbdb4375ebbe6a01cdc91b6ac55695f8  build/reports/checkstyle/main.xml
+5f0297d93c65110a2f55915d73253257387acb5203d1ed178b8cabaacd86882e  build/reports/checkstyle/test.xml
+
+Final documentation after replacing pending-native statements: ./gradlew checkDocumentation --no-daemon --console=plain, BUILD SUCCESSFUL in 1m 7s. Historical NDIP receipts do not certify the new Target runtime. Final 19-case local rerun after the bounded fixture admission-wait adjustment: ./gradlew test --tests com.nereusstream.delay.runtime.TargetCommandStoreTest.modifiesActualTimelineOrClaimWithHistoryAndFirstResults --no-daemon --console=plain, BUILD SUCCESSFUL in 51s; 19/19, zero failure/error/skip.
+
+Final local report SHA-256: 0ea26981a935c2ca1be8dcdaa5619e4613050356391eb8bb240b394f80c712c0  build/test-results/test/TEST-com.nereusstream.delay.runtime.TargetCommandStoreTest.xml

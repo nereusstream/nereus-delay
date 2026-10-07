@@ -1,0 +1,257 @@
+Attempt 1: selected GITHUB/oxia@d7704adda51aa071fed23d2191bd489a7e356dd8 by mistake. Cancelled its live Docker build after checking the prior Target recovery source lock (37a17bef); exit 130, no Oxia test ran, owned container/image/network cleaned. Repetitive base-image download output omitted. This is not validation evidence.
+
+Attempt 1 was deliberately cancelled after checkout mismatch was identified; no Oxia test ran. Corrected source-bound attempt follows.
+Wed Oct  7 15:19:36 UTC 2026
+5df8775bc38839add7e3087d70155e7bcf672aa6
+37a17bef17202d5fd6e23282da5fd26d94865484
+Compose project: nereus-delay-target-publish-recovery-1791386376-62660; endpoint: 127.0.0.1:16681
+ Image nereus-delay-target-publish-recovery-1791386376-62660-oxia Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 636B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 1.34kB done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/alpine:3.22
+#3 ...
+
+#4 [internal] load metadata for docker.io/library/golang:1.26-alpine
+#4 DONE 4.5s
+
+#3 [internal] load metadata for docker.io/library/alpine:3.22
+#3 DONE 5.1s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 2B done
+#5 DONE 0.0s
+
+#6 [runtime 1/8] FROM docker.io/library/alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
+#6 DONE 0.0s
+
+#7 [build 1/5] FROM docker.io/library/golang:1.26-alpine@sha256:8ac98ca534ac3f51e1f420a1dd2c15e74c75cfa0f23f3ad27eb5d7236c349a0c
+#7 DONE 0.0s
+
+#8 [internal] load build context
+#8 transferring context: 186.34MB 1.6s done
+#8 DONE 1.6s
+
+#9 [runtime 3/8] RUN apk upgrade --no-cache
+#9 CACHED
+
+#10 [runtime 5/8] COPY --from=build /src/oxia/bin/oxia /oxia/bin/oxia
+#10 CACHED
+
+#11 [build 4/5] COPY . .
+#11 CACHED
+
+#12 [runtime 6/8] COPY --from=build /src/oxia/conf/coordinator.yaml /oxia/conf/coordinator.yaml
+#12 CACHED
+
+#13 [runtime 7/8] COPY --from=build /src/oxia/conf/dataserver.yaml /oxia/conf/dataserver.yaml
+#13 CACHED
+
+#14 [runtime 2/8] RUN apk add --no-cache bash bash-completion jq
+#14 CACHED
+
+#15 [build 2/5] RUN apk add --no-cache make git build-base bash
+#15 CACHED
+
+#16 [build 3/5] WORKDIR /src/oxia
+#16 CACHED
+
+#17 [build 5/5] RUN --mount=type=cache,target=/go/pkg/mod     --mount=type=cache,target=/root/.cache/go-build     make
+#17 CACHED
+
+#18 [runtime 4/8] WORKDIR /oxia
+#18 CACHED
+
+#19 [runtime 8/8] RUN oxia completion bash > ~/.bashrc
+#19 CACHED
+
+#20 exporting to image
+#20 exporting layers done
+#20 writing image sha256:5e9091ee1971ec72350e98e91694327e4a239718105535eaa42215463442e966 done
+#20 naming to docker.io/library/nereus-delay-target-publish-recovery-1791386376-62660-oxia 0.0s done
+#20 DONE 0.1s
+
+#21 resolving provenance for metadata file
+#21 DONE 0.0s
+ Image nereus-delay-target-publish-recovery-1791386376-62660-oxia Built 
+ Network nereus-delay-target-publish-recovery-1791386376-62660_default Creating 
+ Network nereus-delay-target-publish-recovery-1791386376-62660_default Creating 
+ Network nereus-delay-target-publish-recovery-1791386376-62660_default Created 
+ Network nereus-delay-target-publish-recovery-1791386376-62660_default Created 
+ Container nereus-delay-target-publish-recovery-1791386376-62660-oxia-1 Creating 
+ Container nereus-delay-target-publish-recovery-1791386376-62660-oxia-1 Created 
+ Container nereus-delay-target-publish-recovery-1791386376-62660-oxia-1 Starting 
+ Container nereus-delay-target-publish-recovery-1791386376-62660-oxia-1 Started 
+sha256:5e9091ee1971ec72350e98e91694327e4a239718105535eaa42215463442e966
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava UP-TO-DATE
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses UP-TO-DATE
+
+> Task :test
+
+TargetCommandStoreTest > realOxiaPublishOwnerTakeoverRetainsUncertainBudgetAndBarrier() FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2357
+
+1 test completed, 1 failed
+
+> Task :test FAILED
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':test'.
+> There were failing tests. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/tests/test/index.html
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 22s
+13 actionable tasks: 2 executed, 11 up-to-date
+Corrected native fixture: bounded Host admission wait/retry before drain; production busy guard unchanged.
+Wed Oct  7 15:25:49 UTC 2026
+5df8775bc38839add7e3087d70155e7bcf672aa6
+37a17bef17202d5fd6e23282da5fd26d94865484
+Compose project: nereus-delay-target-publish-recovery-1791386749-67102; endpoint: 127.0.0.1:16681
+ Image nereus-delay-target-publish-recovery-1791386749-67102-oxia Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 636B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 1.34kB done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/golang:1.26-alpine
+#3 ...
+
+#4 [internal] load metadata for docker.io/library/alpine:3.22
+#4 DONE 4.2s
+
+#3 [internal] load metadata for docker.io/library/golang:1.26-alpine
+#3 DONE 4.9s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 2B done
+#5 DONE 0.0s
+
+#6 [runtime 1/8] FROM docker.io/library/alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
+#6 DONE 0.0s
+
+#7 [build 1/5] FROM docker.io/library/golang:1.26-alpine@sha256:8ac98ca534ac3f51e1f420a1dd2c15e74c75cfa0f23f3ad27eb5d7236c349a0c
+#7 DONE 0.0s
+
+#8 [internal] load build context
+#8 transferring context: 39.30kB 0.0s done
+#8 DONE 0.0s
+
+#9 [runtime 5/8] COPY --from=build /src/oxia/bin/oxia /oxia/bin/oxia
+#9 CACHED
+
+#10 [build 3/5] WORKDIR /src/oxia
+#10 CACHED
+
+#11 [runtime 3/8] RUN apk upgrade --no-cache
+#11 CACHED
+
+#12 [runtime 7/8] COPY --from=build /src/oxia/conf/dataserver.yaml /oxia/conf/dataserver.yaml
+#12 CACHED
+
+#13 [runtime 2/8] RUN apk add --no-cache bash bash-completion jq
+#13 CACHED
+
+#14 [build 5/5] RUN --mount=type=cache,target=/go/pkg/mod     --mount=type=cache,target=/root/.cache/go-build     make
+#14 CACHED
+
+#15 [runtime 6/8] COPY --from=build /src/oxia/conf/coordinator.yaml /oxia/conf/coordinator.yaml
+#15 CACHED
+
+#16 [build 4/5] COPY . .
+#16 CACHED
+
+#17 [runtime 4/8] WORKDIR /oxia
+#17 CACHED
+
+#18 [build 2/5] RUN apk add --no-cache make git build-base bash
+#18 CACHED
+
+#19 [runtime 8/8] RUN oxia completion bash > ~/.bashrc
+#19 CACHED
+
+#20 exporting to image
+#20 exporting layers done
+#20 writing image sha256:ba5960b28763d13a1c8aef58e3ff9b2dfaf38153b0791827cad08b164c0e9104 done
+#20 naming to docker.io/library/nereus-delay-target-publish-recovery-1791386749-67102-oxia done
+#20 DONE 0.0s
+
+#21 resolving provenance for metadata file
+#21 DONE 0.0s
+ Image nereus-delay-target-publish-recovery-1791386749-67102-oxia Built 
+ Network nereus-delay-target-publish-recovery-1791386749-67102_default Creating 
+ Network nereus-delay-target-publish-recovery-1791386749-67102_default Creating 
+ Network nereus-delay-target-publish-recovery-1791386749-67102_default Created 
+ Network nereus-delay-target-publish-recovery-1791386749-67102_default Created 
+ Container nereus-delay-target-publish-recovery-1791386749-67102-oxia-1 Creating 
+ Container nereus-delay-target-publish-recovery-1791386749-67102-oxia-1 Created 
+ Container nereus-delay-target-publish-recovery-1791386749-67102-oxia-1 Starting 
+ Container nereus-delay-target-publish-recovery-1791386749-67102-oxia-1 Started 
+sha256:ba5960b28763d13a1c8aef58e3ff9b2dfaf38153b0791827cad08b164c0e9104
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :checkstyleMain UP-TO-DATE
+> Task :checkstyleTest
+
+BUILD SUCCESSFUL in 34s
+15 actionable tasks: 4 executed, 11 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+
+Final result: corrected fixture run exits 0; one real-service test, zero failures/errors/skips; main/test Checkstyle passes.
+Oxia dependency: clean /Users/liusinan/apps/ideaproject/nereusstream/oxia@37a17bef17202d5fd6e23282da5fd26d94865484.
+Final image: sha256:ba5960b28763d13a1c8aef58e3ff9b2dfaf38153b0791827cad08b164c0e9104.
+Owned final Compose project nereus-delay-target-publish-recovery-1791386749-67102 and its image/container/network were cleaned after the test.
+Scope: real two-client/session-derived Owner lease CAS, actual Target Worker/RocksDB root audit/activation/new-Owner UNKNOWN apply and ACK-only retry. Source consumer/append, logical time and historical key/config/credential authority remain fixtures. No actual Kafka/Pulsar source/Broker send, process crash, new Store incarnation install, production Host/history resolver or Floor certification.
+
+SHA-256 (final source and native reports):
+9200c07be540909c30db9008fa0f594ced9192b2f34f9bf332a7dd0394862db8  src/main/java/com/nereusstream/delay/ownership/TargetPublishRecoveryExecutor.java
+a7ddf9a984c88f8e818c54c82e31f69d3bee65dcd57aa7e0b8c3d01f3284be3e  src/main/java/com/nereusstream/delay/ownership/TargetOutcomeWorkClassExecutor.java
+6b713c5586ef14b7334bd6b5cd21b682b4c61e7c06faa9eea6c1416388e24b70  src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java
+9b5c3b3b9ae364f5028045f07c4db1d798a4944db9bc34e404186b673035869a  e2e/run-oxia-real-service.sh
+27062296cb7d7a0501e89b71d99a0c90ed641b33a0dbc8fe24217ff496b75252  build/test-results/test/TEST-com.nereusstream.delay.runtime.TargetCommandStoreTest.xml
+3ec607b4669c26b4bb53e97acefdca61fbdb4375ebbe6a01cdc91b6ac55695f8  build/reports/checkstyle/main.xml
+5f0297d93c65110a2f55915d73253257387acb5203d1ed178b8cabaacd86882e  build/reports/checkstyle/test.xml

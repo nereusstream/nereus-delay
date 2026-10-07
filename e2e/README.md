@@ -7576,3 +7576,11 @@ image remain. Eighty-eight unreferenced `/private/tmp/nereus-delay*`
 directories were moved recoverably to
 `/Users/liusinan/.Trash/nereus-delay-cleanup-20260822-full`; no `.git`, source
 checkout or code directory was moved, and all current evidence trees remain.
+
+Target publish recovery now has a focused two-session Oxia test,
+`TargetCommandStoreTest.realOxiaPublishOwnerTakeoverRetainsUncertainBudgetAndBarrier`, included in
+`run-oxia-real-service.sh`. It runs the actual Worker/RocksDB recovery flow with real lease CAS/session
+identities, while Source append/consumer, logical clock and historical key/config authority remain
+fixtures. It does not certify a real Broker, process crash, new Store install or production rollout.
+The focused Target recovery run passed with clean Oxia source `37a17bef` and a recorded image identity;
+commands, reports and the exact fixture boundary are in NDIP-3 evidence/c2-target-publish-recovery-oxia-real.log.

@@ -18572,3 +18572,9 @@ A separate bounded Target Recovery proof now reads retained Admission/Budget/cur
 active Worker guard without treating old Owner/Store identity as send authority. Its signer emits only
 a typed recovery UNKNOWN hold with zero transfer. Local v3/v4 Store tests check exact bytes and reject
 unowned handoff; actual new-Owner/new-Store installation, recovery enumeration and Host wiring remain open.
+
+Target recovery now has a single-Admission executor on the exact Worker/Outcome handoff graph, with no
+Journal/Producer dependency. A local v4 new-Owner scenario retains the old obligation, reserve and strict
+barrier and retries only ACK after Source apply. The real two-session Oxia test is wired into the existing
+runner and passes on the locked 37a17bef dependency; Broker/time/history/activation providers remain fixtures.
+Recovery enumeration/history resolution, Host wiring, actual Broker/process/new Store/Floor remain open.

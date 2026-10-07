@@ -267,6 +267,21 @@ handoff 当前 lease 校验和 source historical/active-owner authority，不能
 证据见 `evidence/c2-recovery-admission-proof-focused.log`；真实新 Owner/new Store/restart、生产
 history resolver、恢复枚举及 Host 编排仍开放。
 
+
+2026-10-07 后续：`TargetPublishRecoveryExecutor` 现把 guarded retained Admission、只签一次的
+恢复 UNKNOWN 和原 OUTCOME_AND_CONTROL handoff 接成单条有界 pending。handoff 必须属于该
+exact Worker 实例，重复 Admission/Owner 复用同一 mutation；retry 不读回旧快照或重签，
+actual Source APPLIED recovery-code/hash 首结果才清除 pending。它没有 Journal/Producer 依赖。
+
+新增实际 Worker/RocksDB 场景在 v4 Admission 后释放旧 lease，取得更高 epoch，重新审计 Target
+root 并通过 OwnerActivation 持久记录/激活新 Owner；旧 Admission 普通 send read 被拒绝，
+新 Owner 只应用 UNKNOWN、保留旧 obligation epoch、execution/reserve/allocated 和 strict barrier。
+ACK_UNKNOWN 后只 ACK，零重复 Store write/authority resolution。same Worker registry/resource
+graph 保持不变。真实双 Oxia session 定向测试已接入现有 runner并通过；
+source/Broker、clock、historical key/config 仍是 fixture。证据与未完成项见
+`evidence/c2-target-publish-recovery-focused.log` 和 `evidence/c2-target-publish-recovery-oxia-real.log`。
+恢复枚举/history resolver、Host 生命周期、actual Broker/process/new Store install/Floor 仍开放。
+
 | 对象 | key | reserved NV type |
 |---|---|---|
 | TargetChannelIdentity | meta `0e 01 + digest[32]` | 20 |
