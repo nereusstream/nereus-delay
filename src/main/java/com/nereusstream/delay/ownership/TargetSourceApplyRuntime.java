@@ -47,6 +47,7 @@ import com.nereusstream.delay.runtime.TargetPublishAdmissionStore;
 import com.nereusstream.delay.runtime.TargetPublishAdmissionVerifier;
 import com.nereusstream.delay.runtime.TargetPublishOutcomeStore;
 import com.nereusstream.delay.runtime.TargetPublishOutcomeVerifier;
+import com.nereusstream.delay.runtime.TargetPublishRecoveryDiscovery;
 import com.nereusstream.delay.runtime.TargetQueueHeadCache;
 import com.nereusstream.delay.runtime.TargetQueueSnapshotReader;
 import com.nereusstream.delay.runtime.TargetQuotaDelta;
@@ -366,6 +367,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     private final byte[] lineage;
     private final TargetQuotaGrantStore grants;
     private final TargetPublishAdmissionStore targetAdmissions;
+    private final TargetPublishRecoveryDiscovery publishRecoveryDiscovery;
     private final TargetPublishOutcomeStore targetOutcomes;
     private final TargetTimeFenceStore fences;
     private final TargetExpiryDiscoveryStore expiryDiscovery;
@@ -463,6 +465,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         grants = new TargetQuotaGrantStore(backend, scope, lineage, limits.counters(), limits.domains());
         targetAdmissions = new TargetPublishAdmissionStore(
                 backend, scope, lineage, limits.counters(), 1, limits.domains());
+        publishRecoveryDiscovery = new TargetPublishRecoveryDiscovery(backend, scope, lineage);
         targetOutcomes = new TargetPublishOutcomeStore(
                 backend, scope, lineage, limits.counters(), 1, limits.domains());
         fences = new TargetTimeFenceStore(backend, scope, lineage, limits.counters(), limits.domains());
@@ -731,6 +734,16 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         final var recovery = targetAdmissions.readRecovery(budget, image, workerReads(clock));
         requireGcOwner(clock);
         return recovery;
+    }
+
+    synchronized TargetPublishRecoveryDiscovery.Page discoverPublishRecovery(
+            final BoundedReadBudget budget, final TargetPublishRecoveryDiscovery.Cursor continuation,
+            final int maximumRows, final LongSupplier ownerClock) {
+        final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
+        requireGcOwner(clock);
+        final var page = publishRecoveryDiscovery.scan(budget, continuation, maximumRows, workerReads(clock));
+        requireGcOwner(clock);
+        return page;
     }
 
     synchronized void requireOutcomeWriter(final SystemMutation mutation, final LongSupplier clock) {

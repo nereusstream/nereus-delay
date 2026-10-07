@@ -256,6 +256,16 @@ public final class TargetWorkerShardRuntime
         return target.readRecoveryAdmission(budget, image, ownerClock);
     }
 
+    /** Enumerates retained Admission references under this active Worker, with opaque same-view continuation. */
+    public synchronized com.nereusstream.delay.runtime.TargetPublishRecoveryDiscovery.Page discoverPublishRecovery(
+            final BoundedReadBudget budget,
+            final com.nereusstream.delay.runtime.TargetPublishRecoveryDiscovery.Cursor continuation,
+            final int maximumRows, final LongSupplier ownerClock) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        return target.discoverPublishRecovery(budget, continuation, maximumRows, ownerClock);
+    }
+
     synchronized void submitOutcomeAction(
             final WorkClassTask task, final com.nereusstream.delay.protocol.SystemMutation mutation,
             final LongSupplier ownerClock, final Runnable action) {

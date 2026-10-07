@@ -1,0 +1,28 @@
+C2 initial Target publish recovery discovery
+Date: 2026-10-08 (Asia/Shanghai)
+Base: main@8fb2edc8c6dc589bac54990c163feedd7d37bf3e
+
+A bounded active-Worker scan reads existing ADMITTED Budget rows, exact SYSTEM/POSITION first results, mutation/source/envelope digest and original PUBLISHING references. It verifies current or retained terminal generation references instead of silently filtering historical attempts. Source historical images are not stored or invented by this scanner: its immutable Reference validates fetched signed bytes/source/Owner/locator/execution/commitment/allocated against the accepted first result and budget. Actual Broker history authentication and retention remain mandatory external work.
+
+Each page bounds scanned rows including UNKNOWN/resolved records. READ_BUDGET does not advance the cursor past an incompletely verified row. The opaque continuation binds the exact discovery instance and physical Store incarnation/native revision. A changed Store cut or foreign continuation is rejected; caller must start again, not combine mixed cuts. RANGE_END means end of this initial ADMITTED scan only, not settlement of UNKNOWN/evidence/pins/Floor obligations. No new wire/value tag, physical send or reserve release is added.
+
+Local command:
+./gradlew test --tests 'com.nereusstream.delay.runtime.TargetCommandStoreTest.modifiesActualTimelineOrClaimWithHistoryAndFirstResults' checkstyleMain checkstyleTest --no-daemon --console=plain
+Result: final BUILD SUCCESSFUL in 1m; 19/19 local tests, zero failure/error/skip. Prior initial combination passed tests but failed new line lengths/import order; only those formats were corrected before adding the independent missing-first-proof fault case. Final run includes that fault case and all style checks.
+
+The existing actual new-Owner v4 Worker/RocksDB path now verifies page limit/range end, read-budget exhaustion/resume, foreign/stale cursor, full-envelope key-version/source mismatch, no-write reads, missing SYSTEM proof failing closed and recovery after restoring that exact proof. Source UNKNOWN invalidates old continuation and removes this attempt only from the initial ADMITTED discovery, retaining its budget/evidence obligations. The real two-session Oxia variant repeats that entire scenario with actual lease CAS and root/Owner activation; one test passes, with main/test style. See c2-recovery-discovery-oxia-real.log for locked source/image and raw command output.
+
+Scope: actual Store/read budgets/accounting/Source Worker and, in native variant, two real Oxia sessions. Source consumer/append, logical time, historical key/config authority and credentials are fixtures. Historical/terminal references are included by code but their special settlement and independent scenario coverage remain open. No real Broker fetch, retention/pin authority, process crash, new Store install, automatic Host scan/recovery loop or production certification is claimed. Full 29-slice completion and C2/D2/E5 remain open.
+
+Documentation command:
+./gradlew checkDocumentation --no-daemon --console=plain
+Result: BUILD SUCCESSFUL in 1m 13s; historical NDIP receipts do not certify new Target runtime.
+
+SHA-256 (final source and native reports; local reports were overwritten by the native run):
+96742d677e99c3da696ba776df954cbec0aa3edf5a37f2ed454f06ade8b69992  src/main/java/com/nereusstream/delay/runtime/TargetPublishRecoveryDiscovery.java
+89bfffa90c45fb06ddfe9be42bdd8f431fe16c2096a3867eea8d0ea981f440de  src/main/java/com/nereusstream/delay/ownership/TargetSourceApplyRuntime.java
+73f4f6e8bc1d0d4c9b67f94bf1d1fdb5263efbab41cb70e31089bf94d3ed0e03  src/main/java/com/nereusstream/delay/ownership/TargetWorkerShardRuntime.java
+9bc2f66ca92a50c50ec020009769dabcc5760c3b823ea9316791b0d2897efbba  src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java
+80ef7b3d97a638398720869db22e0c1d5116c1811a7088c7913d21812ccdccb4  build/test-results/test/TEST-com.nereusstream.delay.runtime.TargetCommandStoreTest.xml
+3e4f9350a88ed336f42c6f13176e98c3bac69c070c4d689d9e71db6716a6702f  build/reports/checkstyle/main.xml
+5f0297d93c65110a2f55915d73253257387acb5203d1ed178b8cabaacd86882e  build/reports/checkstyle/test.xml

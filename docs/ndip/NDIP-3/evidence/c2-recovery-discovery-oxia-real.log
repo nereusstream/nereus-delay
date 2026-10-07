@@ -1,0 +1,118 @@
+Wed Oct  7 16:05:42 UTC 2026
+8fb2edc8c6dc589bac54990c163feedd7d37bf3e
+37a17bef17202d5fd6e23282da5fd26d94865484
+Compose project: nereus-delay-target-recovery-discovery-1791389142-3704; endpoint: 127.0.0.1:16681
+ Image nereus-delay-target-recovery-discovery-1791389142-3704-oxia Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 638B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 1.34kB done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/alpine:3.22
+#3 DONE 3.4s
+
+#4 [internal] load metadata for docker.io/library/golang:1.26-alpine
+#4 DONE 8.1s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 2B done
+#5 DONE 0.0s
+
+#6 [runtime 1/8] FROM docker.io/library/alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
+#6 DONE 0.0s
+
+#7 [build 1/5] FROM docker.io/library/golang:1.26-alpine@sha256:8ac98ca534ac3f51e1f420a1dd2c15e74c75cfa0f23f3ad27eb5d7236c349a0c
+#7 DONE 0.0s
+
+#8 [internal] load build context
+#8 transferring context: 39.30kB 0.0s done
+#8 DONE 0.0s
+
+#9 [build 4/5] COPY . .
+#9 CACHED
+
+#10 [build 3/5] WORKDIR /src/oxia
+#10 CACHED
+
+#11 [runtime 3/8] RUN apk upgrade --no-cache
+#11 CACHED
+
+#12 [runtime 7/8] COPY --from=build /src/oxia/conf/dataserver.yaml /oxia/conf/dataserver.yaml
+#12 CACHED
+
+#13 [runtime 2/8] RUN apk add --no-cache bash bash-completion jq
+#13 CACHED
+
+#14 [runtime 4/8] WORKDIR /oxia
+#14 CACHED
+
+#15 [runtime 5/8] COPY --from=build /src/oxia/bin/oxia /oxia/bin/oxia
+#15 CACHED
+
+#16 [build 2/5] RUN apk add --no-cache make git build-base bash
+#16 CACHED
+
+#17 [runtime 6/8] COPY --from=build /src/oxia/conf/coordinator.yaml /oxia/conf/coordinator.yaml
+#17 CACHED
+
+#18 [build 5/5] RUN --mount=type=cache,target=/go/pkg/mod     --mount=type=cache,target=/root/.cache/go-build     make
+#18 CACHED
+
+#19 [runtime 8/8] RUN oxia completion bash > ~/.bashrc
+#19 CACHED
+
+#20 exporting to image
+#20 exporting layers done
+#20 writing image sha256:7796ab4eed158ed7aba2ca41341e21c406795dcc08f8707c6117ad3bde715c0e done
+#20 naming to docker.io/library/nereus-delay-target-recovery-discovery-1791389142-3704-oxia done
+#20 DONE 0.0s
+
+#21 resolving provenance for metadata file
+#21 DONE 0.0s
+ Image nereus-delay-target-recovery-discovery-1791389142-3704-oxia Built 
+ Network nereus-delay-target-recovery-discovery-1791389142-3704_default Creating 
+ Network nereus-delay-target-recovery-discovery-1791389142-3704_default Creating 
+ Network nereus-delay-target-recovery-discovery-1791389142-3704_default Created 
+ Network nereus-delay-target-recovery-discovery-1791389142-3704_default Created 
+ Container nereus-delay-target-recovery-discovery-1791389142-3704-oxia-1 Creating 
+ Container nereus-delay-target-recovery-discovery-1791389142-3704-oxia-1 Created 
+ Container nereus-delay-target-recovery-discovery-1791389142-3704-oxia-1 Starting 
+ Container nereus-delay-target-recovery-discovery-1791389142-3704-oxia-1 Started 
+sha256:7796ab4eed158ed7aba2ca41341e21c406795dcc08f8707c6117ad3bde715c0e
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava UP-TO-DATE
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses UP-TO-DATE
+> Task :test
+> Task :checkstyleMain UP-TO-DATE
+> Task :checkstyleTest UP-TO-DATE
+
+BUILD SUCCESSFUL in 23s
+15 actionable tasks: 2 executed, 13 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+
+Final result: corrected source-bound run exit 0; one real-service test, zero failure/error/skip; Checkstyle main/test pass. Oxia clean checkout 37a17bef17202d5fd6e23282da5fd26d94865484, image sha256:7796ab4eed158ed7aba2ca41341e21c406795dcc08f8707c6117ad3bde715c0e. Owned project/image/container/network cleaned after execution. Scope and remaining external authority obligations are recorded in c2-recovery-discovery-focused.log.
+
+SHA-256 (final source/native report):
+96742d677e99c3da696ba776df954cbec0aa3edf5a37f2ed454f06ade8b69992  src/main/java/com/nereusstream/delay/runtime/TargetPublishRecoveryDiscovery.java
+89bfffa90c45fb06ddfe9be42bdd8f431fe16c2096a3867eea8d0ea981f440de  src/main/java/com/nereusstream/delay/ownership/TargetSourceApplyRuntime.java
+73f4f6e8bc1d0d4c9b67f94bf1d1fdb5263efbab41cb70e31089bf94d3ed0e03  src/main/java/com/nereusstream/delay/ownership/TargetWorkerShardRuntime.java
+9bc2f66ca92a50c50ec020009769dabcc5760c3b823ea9316791b0d2897efbba  src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java
+80ef7b3d97a638398720869db22e0c1d5116c1811a7088c7913d21812ccdccb4  build/test-results/test/TEST-com.nereusstream.delay.runtime.TargetCommandStoreTest.xml

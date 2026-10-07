@@ -7229,6 +7229,52 @@ class TargetCommandStoreTest {
                 () -> oldWorker.readRecoveryAdmission(budget(), admissionImage, () -> 102));
         assertThrows(IllegalStateException.class,
                 () -> worker.readAppliedAdmission(budget(), admissionImage, () -> 102));
+        final long beforeDiscovery = store.latestSequenceNumber();
+        final var discoveryBudget = budget();
+        final var discovered = worker.discoverPublishRecovery(discoveryBudget, null, 1, () -> 102);
+        assertEquals(TargetPublishRecoveryDiscovery.Stop.PAGE_LIMIT, discovered.stop());
+        assertFalse(discovered.complete());
+        assertEquals(1, discovered.entries().size());
+        final var reference = discovered.entries().getFirst();
+        assertEquals(oldOwner, reference.admittedOwner());
+        assertEquals(admission.entry().position(), reference.source());
+        assertArrayEquals(Bytes.sha256(admissionImage.canonicalEnvelope()), reference.envelopeDigest());
+        assertEquals(admissionImage, reference.requireImage(admissionImage, admission.entry().position()));
+        final var changedImage = SystemMutation.signed(admissionImage.shardId(), admissionImage.type(),
+                admissionImage.retryUntilEpochMs(), admissionImage.logicalOperationIdentity(),
+                admissionImage.canonicalBody(), admissionImage.authorIdentity(), 2, keys.getPrivate());
+        assertThrows(IllegalStateException.class,
+                () -> reference.requireImage(changedImage, admission.entry().position()));
+        final var originalPosition = (KafkaSourcePosition) admission.entry().position();
+        assertThrows(IllegalStateException.class, () -> reference.requireImage(admissionImage,
+                source(originalPosition, originalPosition.offset() + 1,
+                        originalPosition.brokerPersistenceTimeEpochMs())));
+        final var rangeEnd = worker.discoverPublishRecovery(budget(), discovered.continuation(), 1, () -> 102);
+        assertTrue(rangeEnd.complete());
+        assertTrue(rangeEnd.entries().isEmpty());
+        final var shortBudget = new BoundedReadBudget(Math.toIntExact(discoveryBudget.actualRecords() - 1),
+                32L << 20, 60_000_000_000L, System::nanoTime);
+        final var incomplete = worker.discoverPublishRecovery(shortBudget, null, 1, () -> 102);
+        assertEquals(TargetPublishRecoveryDiscovery.Stop.READ_BUDGET, incomplete.stop());
+        assertFalse(incomplete.complete());
+        assertTrue(incomplete.entries().isEmpty());
+        final var resumed = worker.discoverPublishRecovery(budget(), incomplete.continuation(), 1, () -> 102);
+        assertEquals(1, resumed.entries().size());
+        final var foreign = new TargetPublishRecoveryDiscovery(
+                reopened.backend(), scope, reopened.root().recoveryLineage());
+        assertThrows(IllegalArgumentException.class,
+                () -> foreign.scan(budget(), discovered.continuation(), 1, reads));
+        assertEquals(beforeDiscovery, store.latestSequenceNumber());
+        final byte[] firstProofKey = systemKey(admissionImage);
+        final byte[] firstProof = store.get(ColumnFamily.DEDUPE, firstProofKey);
+        store.write(batch -> batch.delete(ColumnFamily.DEDUPE, firstProofKey));
+        final long missingProofVersion = store.latestSequenceNumber();
+        assertThrows(IllegalStateException.class,
+                () -> worker.discoverPublishRecovery(budget(), null, 1, () -> 102));
+        assertEquals(missingProofVersion, store.latestSequenceNumber());
+        store.write(batch -> batch.put(ColumnFamily.DEDUPE, firstProofKey, firstProof));
+        final var restoredReference = worker.discoverPublishRecovery(budget(), null, 1, () -> 102).entries().getFirst();
+        assertEquals(admissionImage, restoredReference.requireImage(admissionImage, admission.entry().position()));
         final var before = (KafkaSourcePosition) store.appliedShardLogPosition();
         final var at = source(before, before.offset() + 1, before.brokerPersistenceTimeEpochMs() + 1);
         final long observed = Math.max(at.brokerPersistenceTimeEpochMs(), admitted.decisionTime().latestEpochMs());
@@ -7302,6 +7348,12 @@ class TargetCommandStoreTest {
         recovery.retryHandoff(() -> 102);
         assertEquals(1, appends.get());
         assertTrue(recovery.settleApplied(() -> 102));
+        assertThrows(IllegalStateException.class,
+                () -> worker.discoverPublishRecovery(budget(), discovered.continuation(), 1, () -> 102));
+        final var settledDiscovery = worker.discoverPublishRecovery(budget(), null, 2, () -> 102);
+        assertTrue(settledDiscovery.complete());
+        assertTrue(settledDiscovery.entries().isEmpty());
+        assertEquals(applied, store.latestSequenceNumber());
         worker.pauseNewTurns();
         worker.closeSource();
         assertTrue(leases.release(active));

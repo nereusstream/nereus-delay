@@ -18578,3 +18578,9 @@ Journal/Producer dependency. A local v4 new-Owner scenario retains the old oblig
 barrier and retries only ACK after Source apply. The real two-session Oxia test is wired into the existing
 runner and passes on the locked 37a17bef dependency; Broker/time/history/activation providers remain fixtures.
 Recovery enumeration/history resolution, Host wiring, actual Broker/process/new Store/Floor remain open.
+
+Initial Target publish recovery now discovers ADMITTED budgets through the active Worker guard in bounded
+same-view pages, joining SYSTEM/POSITION and original PUBLISHING obligations. Missing proof fails closed;
+partial pages preserve an opaque revision-bound continuation. References correlate retained source and
+full signed-image bytes, without granting Broker retention/authentication or SEND. Broker history fetch,
+Host pagination/recovery loop, terminal/historical settlement and complete pins/Floor remain open.
