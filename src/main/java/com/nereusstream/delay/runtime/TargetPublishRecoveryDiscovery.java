@@ -211,28 +211,8 @@ public final class TargetPublishRecoveryDiscovery {
                 || !Arrays.equals(outcome.appliedSourcePosition(), attempt.mutation().source().canonicalBytes())) {
             throw new IllegalStateException("Target recovery budget lacks its exact accepted Admission first result");
         }
-        final byte[] key = TargetKeyCodec.message(attempt.locator().messageId());
-        final var message = TargetMessageRecord.decodeForStore(key,
-                TargetValueEnvelope.decode(required(reader, ColumnFamily.ID, key), TargetMessageRecord.VALUE_TYPE)
-                        .payload(),
-                scope.shard());
-        final TargetGenerationRuntimeIndex runtime;
-        if (message.locator().equals(attempt.locator())) {
-            runtime = message.runtime();
-        } else {
-            if (Integer.compareUnsigned(message.locator().generation(), attempt.locator().generation()) <= 0) {
-                throw new IllegalStateException("Target recovery budget points to another current Message locator");
-            }
-            final var terminal = TargetTerminalGenerationRecord.decode(TargetValueEnvelope.decode(
-                    required(reader, ColumnFamily.TERMINAL, TargetTerminalGenerationRecord.key(attempt.locator())),
-                    TargetTerminalGenerationRecord.VALUE_TYPE).payload());
-            if (!terminal.locator().equals(attempt.locator()) || !Arrays.equals(terminal.recoveryLineage(), lineage)) {
-                throw new IllegalStateException(
-                        "Target recovery historical attempt lacks its exact terminal generation");
-            }
-            terminal.mutation().requireAtOrBefore(reader.aggregate().mutation());
-            runtime = terminal.runtime();
-        }
+        final var runtime = TargetPublishAdmissionStore.retainedGeneration(
+                reader, scope, lineage, attempt.locator()).runtime();
         final var obligation = runtime.attemptObligations().stream()
                 .filter(ref -> Arrays.equals(ref.publishAttemptId(), attempt.publishAttemptId()))
                 .findFirst().orElse(null);

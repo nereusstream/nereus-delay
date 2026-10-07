@@ -413,7 +413,23 @@ final class TargetCheckpointLedgerAudit {
         }
         final var barrier = state.barrier();
         if (barrier != null) {
-            state.requireBarrierProjection(requireOrderMessage(barrier.locator().messageId(), view));
+            final var current = requireOrderMessage(barrier.locator().messageId(), view);
+            if (current.locator().equals(barrier.locator())) {
+                state.requireBarrierProjection(current);
+            } else {
+                if (Integer.compareUnsigned(current.locator().generation(), barrier.locator().generation()) <= 0) {
+                    throw new IllegalStateException(
+                            "Target checkpoint barrier references another or future generation");
+                }
+                final byte[] key = TargetTerminalGenerationRecord.key(barrier.locator());
+                final byte[] raw = view.projected(ColumnFamily.TERMINAL, key, List.of());
+                if (raw == null) {
+                    throw new IllegalStateException("Target checkpoint historical barrier lacks its terminal summary");
+                }
+                final var terminal = TargetTerminalGenerationRecord.decode(
+                        TargetValueEnvelope.decode(raw, TargetTerminalGenerationRecord.VALUE_TYPE).payload());
+                state.requireTerminalBarrierProjection(terminal);
+            }
         }
     }
 

@@ -376,3 +376,9 @@ Source mutation/code。未保存窗口的 v3 historical typed 结果保守保留
 strict 的 barrier locator 可指向尚有 refs 的旧 terminal generation；投影必须读取精确
 terminal runtime/revision/digest。不能用新 Message 覆盖这个 barrier；旧 UNKNOWN 保留，
 旧初始明确结果关闭最后 ref 后才重建新 generation head，原水位保持。
+
+恢复 Admission proof 现按原 locator 读取 terminal/historical runtime，而保留的 message()
+始终是当前 Message 主记录。两者允许 generation 不同；完整首结果/Budget/source、旧
+terminal/原 payload owner 和 strict barrier 必须相接。此为当前 Owner 下的 retained 事实，
+不能作为 Applied 首发快照。Checkpoint order 审计也按 barrier locator 核对旧 terminal，
+保留水位/引用要求；未决 refs 不因新 Message 或新 Owner 出现而消失。

@@ -905,6 +905,12 @@ risk，UNKNOWN 只转 UNCERTAIN，terminal 不创建 retry。strict 当前终态
 v3 historical typed 首应用继续 fail closed；UNKNOWN 后 evidence resolution、完整生产
 terminal/replay/Host recovery/providers/pins/Floor 与真实 Broker 组合继续开放。无 wire 变更。
 
+2026-10-08 retained Recovery proof 后续：支持 terminal/historical 的精确 ADMITTED/PUBLISHING
+facts，不再包装 Applied；current Message 与 admitted runtime 分别保留。发现/全 image 读取
+都核对 terminal/lineage/source、payload owner 和严格历史 barrier；当前终态额外要求
+Message/terminal 版本与 runtime 相同。Checkpoint order dependency 也识别历史 terminal
+barrier，完整预算引用/费用审计保留。readApplied 拒绝终态/历史首发。无新增格式或发送权。
+
 Target recovery 的有界 retained-Admission reader 返回独立 Recovery proof，保留原 image/source/
 Message/Budget，允许旧 Owner/Store 与当前活动实例不同；它不是首发快照。恢复 signer 仅铸造
 既有 OWNER_FENCED/RECOVERY_FIRST_SEND_UNCERTAIN typed UNCERTAIN_HOLD（无 next retry、zero

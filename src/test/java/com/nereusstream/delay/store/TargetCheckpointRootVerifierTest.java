@@ -5,7 +5,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
+import com.nereusstream.delay.protocol.StableCode;
+import com.nereusstream.delay.protocol.TargetMessageLocator;
 import com.nereusstream.delay.protocol.TargetQuotaAttemptBudget;
+import com.nereusstream.delay.protocol.TargetQuotaMutation;
 import com.nereusstream.delay.runtime.AttemptLedgerState;
 import com.nereusstream.delay.runtime.AttemptObligationRef;
 import com.nereusstream.delay.runtime.CurrentSendWorkKind;
@@ -14,7 +17,10 @@ import com.nereusstream.delay.runtime.TargetGenerationRuntimeIndex;
 import com.nereusstream.delay.runtime.TargetMessageRecord;
 import com.nereusstream.delay.runtime.TargetOrderState;
 import com.nereusstream.delay.runtime.TargetRecordAccounting;
+import com.nereusstream.delay.runtime.TargetTerminalGenerationRecord;
 import com.nereusstream.delay.runtime.TargetTimelineWorkRef;
+import com.nereusstream.delay.runtime.TimelineWorkKind;
+import com.nereusstream.delay.runtime.UncertainRetryAuthority;
 import java.nio.file.Path;
 import java.util.HexFormat;
 import java.util.List;
@@ -140,6 +146,49 @@ class TargetCheckpointRootVerifierTest {
             assertTrue(assertThrows(IllegalStateException.class,
                     () -> TargetCheckpointLedgerAudit.auditOrderStateDependencies(barrier, view))
                     .getMessage().contains("lacks its referenced Message"));
+            final var terminalMessage = TargetMessageRecord.decode(vector("order.message.terminal"));
+            final var terminalState = TargetOrderState.decode(vector("order.terminal"));
+            final var old = terminalMessage.locator();
+            final var nextLocator = new TargetMessageLocator(old.messageId(), old.generation() + 1,
+                    old.target(), old.domain(), old.accountingIncarnation(), old.orderingMode(),
+                    old.orderingDomain(), old.scheduleBindingDigest());
+            final var nextWork = new TargetTimelineWorkRef(nextLocator, TimelineWorkKind.INITIAL_SCHEDULE,
+                    message.deliverAtEpochMs(), message.deliverAtEpochMs(), message.scheduleSource().sourceOrderToken(),
+                    1, 1, UncertainRetryAuthority.NONE, null, null, false);
+            final var nextMessage = new TargetMessageRecord(nextLocator, terminalMessage.stateVersion() + 1,
+                    message.deliverAtEpochMs(), message.expireAtEpochMs(), message.retryEligibilityAtEpochMs(),
+                    message.nativeDeliveryPolicy(), message.scheduleSource(), message.inlinePayload(),
+                    message.payloadReference(), new TargetGenerationRuntimeIndex(nextLocator.generation(),
+                            GenerationAggregateState.SCHEDULED, CurrentSendWorkKind.TIMELINE, nextWork,
+                            null, null, List.of(), 0, 0, false, 1));
+            final var terminal = new TargetTerminalGenerationRecord(old, terminalMessage.stateVersion(),
+                    StableCode.ALREADY_EXPIRED, terminalMessage.runtime(),
+                    new TargetQuotaMutation(1, message.scheduleSource(), terminalMessage.runtime().runtimeDigest()),
+                    HexFormat.of().parseHex("01".repeat(16)));
+            store.write(batch -> {
+                batch.put(ColumnFamily.ID, nextMessage.encodedKey(),
+                        TargetValueEnvelope.encode(TargetMessageRecord.VALUE_TYPE, nextMessage.canonicalBytes()));
+                batch.put(ColumnFamily.TERMINAL, terminal.key(),
+                        TargetValueEnvelope.encode(
+                                TargetTerminalGenerationRecord.VALUE_TYPE, terminal.canonicalBytes()));
+            });
+            TargetCheckpointLedgerAudit.auditOrderStateDependencies(terminalState, view);
+            store.write(batch -> batch.delete(ColumnFamily.TERMINAL, terminal.key()));
+            assertTrue(assertThrows(IllegalStateException.class,
+                    () -> TargetCheckpointLedgerAudit.auditOrderStateDependencies(terminalState, view))
+                    .getMessage().contains("historical barrier lacks its terminal summary"));
+            final var oldRuntime = terminal.runtime();
+            final var wrongRuntime = new TargetGenerationRuntimeIndex(oldRuntime.generation(),
+                    oldRuntime.aggregateState(), oldRuntime.currentWorkKind(), null, null, null,
+                    oldRuntime.attemptObligations(), oldRuntime.admissionsUsed(),
+                    oldRuntime.uncertainRetryAdmissionsUsed(),
+                    oldRuntime.possibleDestinationDuplicate(), oldRuntime.runtimeRevision() + 1);
+            final var wrong = new TargetTerminalGenerationRecord(old, terminal.stateVersion(), terminal.terminalCode(),
+                    wrongRuntime, terminal.mutation(), terminal.recoveryLineage());
+            store.write(batch -> batch.put(ColumnFamily.TERMINAL, wrong.key(),
+                    TargetValueEnvelope.encode(TargetTerminalGenerationRecord.VALUE_TYPE, wrong.canonicalBytes())));
+            assertThrows(IllegalArgumentException.class,
+                    () -> TargetCheckpointLedgerAudit.auditOrderStateDependencies(terminalState, view));
         }
     }
 

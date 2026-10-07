@@ -1,6 +1,7 @@
 package com.nereusstream.delay.runtime;
 
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutation;
@@ -12,6 +13,7 @@ import com.nereusstream.delay.protocol.TargetQuotaAttemptBudget;
 import com.nereusstream.delay.protocol.TargetQuotaIdentity;
 import com.nereusstream.delay.protocol.TargetQuotaIncarnation;
 import com.nereusstream.delay.protocol.TargetQuotaMutation;
+import com.nereusstream.delay.protocol.TargetQuotaPayloadOwner;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
 import com.nereusstream.delay.protocol.TargetSourcePosition;
 import com.nereusstream.delay.store.BoundedReadBudget;
@@ -54,16 +56,23 @@ public final class TargetPublishAdmissionStore {
             }
         }
     }
-    /** Recovery proof of current admitted work. It deliberately cannot be supplied as an Applied send snapshot. */
-    public static final class Recovery {
-        private final Applied retained;
+    private record Facts(SystemMutation image, TargetPublishAdmissionBody body,
+            SourcePosition source, RetainedGeneration generation) {}
 
-        private Recovery(Applied retained) { this.retained = retained; }
+    /** Retained admitted facts; the current Message can be newer than the admitted terminal generation. */
+    public static final class Recovery {
+        private final Facts retained;
+
+        private Recovery(Facts retained) { this.retained = retained; }
 
         public SystemMutation image() { return retained.image(); }
         public TargetPublishAdmissionBody body() { return retained.body(); }
         public SourcePosition source() { return retained.source(); }
-        public TargetMessageRecord message() { return retained.message(); }
+        public TargetMessageRecord message() { return retained.generation().current(); }
+        public TargetGenerationRuntimeIndex runtime() { return retained.generation().runtime(); }
+        public java.util.Optional<TargetTerminalGenerationRecord> terminal() {
+            return java.util.Optional.ofNullable(retained.generation().terminal());
+        }
     }
 
     public static final class Prepared {
@@ -124,17 +133,18 @@ public final class TargetPublishAdmissionStore {
     public Applied readApplied(
             final BoundedReadBudget budget, final SystemMutation image,
             final TargetStoreBackend.ReadAuthority authority) {
-        return readCurrent(budget, image, authority, true);
+        final var facts = readFacts(budget, image, authority, true);
+        return new Applied(facts.image(), facts.body(), facts.source(), facts.generation().current());
     }
 
     /** Reads old Owner/Store Admission facts under the current read guard; this never authorizes a first send. */
     public Recovery readRecovery(
             final BoundedReadBudget budget, final SystemMutation image,
             final TargetStoreBackend.ReadAuthority authority) {
-        return new Recovery(readCurrent(budget, image, authority, false));
+        return new Recovery(readFacts(budget, image, authority, false));
     }
 
-    private Applied readCurrent(
+    private Facts readFacts(
             final BoundedReadBudget budget, final SystemMutation image,
             final TargetStoreBackend.ReadAuthority authority, final boolean firstSend) {
         Objects.requireNonNull(image, "image");
@@ -164,10 +174,8 @@ public final class TargetPublishAdmissionStore {
             final var attempt = TargetQuotaAttemptBudget.decodeForStore(
                     budgetKey, TargetValueEnvelope.decode(required(reader, ColumnFamily.META, budgetKey),
                             TargetQuotaAttemptBudget.VALUE_TYPE).payload(), scope.shard());
-            final byte[] key = TargetKeyCodec.message(body.locator().messageId());
-            final var message = TargetMessageRecord.decodeForStore(key,
-                    TargetValueEnvelope.decode(required(reader, ColumnFamily.ID, key), TargetMessageRecord.VALUE_TYPE)
-                            .payload(), scope.shard());
+            final var generation = retainedGeneration(reader, scope, lineage, body.locator());
+            final var runtime = generation.runtime();
             if (first.kind() != TargetResultRecord.Kind.SYSTEM || first.allocation() != null
                     || !Arrays.equals(first.logicalId(), image.systemMutationId())
                     || !Arrays.equals(result.mutationId(), image.systemMutationId())
@@ -183,16 +191,78 @@ public final class TargetPublishAdmissionStore {
                     || !Arrays.equals(attempt.admissionDigest(), image.mutationHash())
                     || attempt.executionBytes() != body.executionBytes()
                     || !attempt.commitment().equals(body.commitment()) || !attempt.allocated().equals(body.allocated())
-                    || !attempt.locator().equals(body.locator()) || !message.locator().equals(body.locator())
-                    || message.runtime().currentWorkKind() != CurrentSendWorkKind.PUBLISHING
-                    || !Arrays.equals(message.runtime().publishAttemptId(), body.publishAttemptId())
-                    || message.runtime().admissionsUsed() != body.attemptNo()
-                    || !message.runtime().attemptObligations().contains(body.obligation())) {
-                throw new IllegalStateException("Target first-send image differs from actual applied work/proof");
+                    || !attempt.locator().equals(body.locator())
+                    || firstSend && generation.terminal() != null
+                    || (runtime.terminal()
+                            ? Integer.compareUnsigned(body.attemptNo(), runtime.admissionsUsed()) > 0
+                            : runtime.currentWorkKind() != CurrentSendWorkKind.PUBLISHING
+                                    || !Arrays.equals(runtime.publishAttemptId(), body.publishAttemptId())
+                                    || runtime.admissionsUsed() != body.attemptNo())
+                    || !runtime.attemptObligations().contains(body.obligation())) {
+                throw new IllegalStateException("Target Admission image differs from actual retained work/proof");
             }
             reader.requireWithinElapsedBudget();
-            return new Applied(image, body, first.mutation().source(), message);
+            return new Facts(image, body, first.mutation().source(), generation);
         }, Objects.requireNonNull(authority, "authority"));
+    }
+
+    record RetainedGeneration(TargetMessageRecord current, TargetTerminalGenerationRecord terminal) {
+        TargetGenerationRuntimeIndex runtime() {
+            return terminal == null ? current.runtime() : terminal.runtime();
+        }
+    }
+
+    /** Shared proof lookup for bounded recovery discovery and the full retained Admission read. */
+    static RetainedGeneration retainedGeneration(
+            TargetStoreBackend.Reader reader, TargetQuotaScope scope, byte[] lineage, TargetMessageLocator locator) {
+        final byte[] key = TargetKeyCodec.message(locator.messageId());
+        final var current = TargetMessageRecord.decodeForStore(key, TargetValueEnvelope.decode(
+                required(reader, ColumnFamily.ID, key), TargetMessageRecord.VALUE_TYPE).payload(), scope.shard());
+        final boolean historical = !current.locator().equals(locator);
+        if (historical && Integer.compareUnsigned(current.locator().generation(), locator.generation()) <= 0) {
+            throw new IllegalStateException("Target retained Admission points to another or future generation");
+        }
+        if (!historical && !current.runtime().terminal()) {
+            return new RetainedGeneration(current, null);
+        }
+        final var terminal = TargetTerminalGenerationRecord.decode(TargetValueEnvelope.decode(
+                required(reader, ColumnFamily.TERMINAL, TargetTerminalGenerationRecord.key(locator)),
+                TargetTerminalGenerationRecord.VALUE_TYPE).payload());
+        if (!terminal.locator().equals(locator) || !Arrays.equals(terminal.recoveryLineage(), lineage)
+                || !historical && (terminal.stateVersion() != current.stateVersion()
+                        || !terminal.runtime().equals(current.runtime()))) {
+            throw new IllegalStateException("Target retained Admission lacks its exact terminal generation");
+        }
+        terminal.mutation().requireAtOrBefore(reader.aggregate().mutation());
+        final byte[] payloadKey = Bytes.concat(
+                new byte[] {TargetKeyCodec.QUOTA_PAYLOAD_OWNER_TAG, TargetKeyCodec.KEY_FORMAT},
+                locator.messageId().bytes());
+        final var payload = TargetQuotaPayloadOwner.decodeForStore(payloadKey, TargetValueEnvelope.decode(
+                required(reader, ColumnFamily.META, payloadKey), TargetQuotaPayloadOwner.VALUE_TYPE).payload(),
+                scope.shard(), scope.tenantScope());
+        terminal.requireOwner(payload);
+        payload.requireMessagePayload(current);
+        payload.mutation().requireAtOrBefore(reader.aggregate().mutation());
+        if (!terminal.runtime().attemptObligations().isEmpty()
+                && payload.phase() != TargetQuotaPayloadOwner.Phase.ACTIVE) {
+            throw new IllegalStateException("unresolved Target terminal Admission lacks active payload ownership");
+        }
+        if (locator.orderingMode() == OrderingMode.DELIVERY_TIME_FIFO
+                && !terminal.runtime().attemptObligations().isEmpty()) {
+            final byte[] queueKey = TargetKeyCodec.state(locator.target());
+            final var queue = TargetQueueState.decode(TargetValueEnvelope.decode(
+                    required(reader, ColumnFamily.META, queueKey), TargetQueueState.VALUE_TYPE).payload());
+            final byte[] orderKey = TargetKeyCodec.orderState(locator.target(), locator.orderingDomain());
+            final var order = TargetOrderState.decodeForStore(orderKey, TargetValueEnvelope.decode(
+                    required(reader, ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE).payload(),
+                    scope.shard(), queue);
+            if (historical) {
+                order.requireTerminalBarrierProjection(terminal);
+            } else {
+                order.requireBarrierProjection(current);
+            }
+        }
+        return new RetainedGeneration(current, terminal);
     }
 
     private static byte[] required(TargetStoreBackend.Reader reader, ColumnFamily family, byte[] key) {

@@ -18609,3 +18609,13 @@ F migration/retirement and central validation remain open.
 Real two-session Oxia also passes four current-source tests: the existing Host takeover loop and current
 terminal PUBLISHED / historical PUBLISHED / historical UNKNOWN. Native Owner guards are real, while
 terminal/replay/Broker/Source/history/time/key authorities remain fixtures; no completion flag is raised.
+
+Target retained Admission recovery now separates actual recovery facts from Applied send snapshots and
+reads current terminal/historical generations with exact result/Budget/source, terminal, payload and strict
+barrier checks. The checkpoint order dependency auditor also resolves old terminal barriers without
+weakening watermark/runtime or attempt-budget accounting checks. Native provider/Host deployment,
+v3 historical window, process/new Store/pins/Floor and post-UNKNOWN resolution remain open.
+Local49 and real two-session Oxia6/main-test style pass; native cases include current terminal/historical
+Host takeover with conservative UNKNOWN and retained obligations/payload/barriers. Provider/transition
+fixtures remain explicit, all completion flags stay false, and exact native image/source/report receipts
+record the bounded fixture concurrency corrections without changing production guards.

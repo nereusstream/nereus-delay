@@ -1,0 +1,299 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+
+> Task :compileTestJava FAILED
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/store/TargetCheckpointRootVerifierTest.java:12: 错误: 找不到符号
+import com.nereusstream.delay.protocol.UncertainRetryAuthority;
+                                      ^
+  符号:   类 UncertainRetryAuthority
+  位置: 程序包 com.nereusstream.delay.protocol
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/store/TargetCheckpointRootVerifierTest.java:157: 错误: 找不到符号
+                    1, 1, UncertainRetryAuthority.NONE, null, null, false);
+                          ^
+  符号:   变量 UncertainRetryAuthority
+  位置: 类 TargetCheckpointRootVerifierTest
+2 个错误
+
+[Incubating] Problems report is available at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':compileTestJava'.
+> Compilation failed; see the compiler output below.
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/store/TargetCheckpointRootVerifierTest.java:12: 错误: 找不到符号
+  import com.nereusstream.delay.protocol.UncertainRetryAuthority;
+                                        ^
+    符号:   类 UncertainRetryAuthority
+    位置: 程序包 com.nereusstream.delay.protocol
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/store/TargetCheckpointRootVerifierTest.java:157: 错误: 找不到符号
+                      1, 1, UncertainRetryAuthority.NONE, null, null, false);
+                            ^
+    符号:   变量 UncertainRetryAuthority
+    位置: 类 TargetCheckpointRootVerifierTest
+  2 个错误
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 16s
+10 actionable tasks: 3 executed, 7 up-to-date
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+
+> Task :checkstyleTest
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:2947: 本行字符数 123个，最多：120个。 [LineLength]
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:7500: 本行字符数 121个，最多：120个。 [LineLength]
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/store/TargetCheckpointRootVerifierTest.java:9:1: 导入 'com.nereusstream.delay.protocol.ShardId' 顺序错误。 [ImportOrder]
+
+> Task :checkstyleTest FAILED
+> Task :checkstyleMain
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':checkstyleTest'.
+> A failure occurred while executing org.gradle.api.plugins.quality.internal.CheckstyleAction
+   > Checkstyle rule violations were found. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/checkstyle/test.html
+     Checkstyle files with violations: 2
+     Checkstyle violations by severity: [error:3]
+
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 1m 11s
+15 actionable tasks: 5 executed, 10 up-to-date
+
+Final semantic focused tests 49/49 (28 Source, 18 Host/fleet, 3 Checkpoint root), zero failure/error/skip; main style passed, test style reported two long lines and one import ordering. XML hashes preserved before native run; the following test-only format correction does not change semantics.
+[
+  {
+    "suite": "com.nereusstream.delay.ownership.TargetWorkerShardFleetRuntimeTest",
+    "tests": "18",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "sha256": "e4b0f9facb878b5cbed3f05f7997968e424b727f92add76887c066ed9e72976d"
+  },
+  {
+    "suite": "com.nereusstream.delay.runtime.TargetCommandStoreTest",
+    "tests": "28",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "sha256": "eb6b6298160e38ebcc1be2ff985ee029f7177d6f767946b51449e5a02eeda942"
+  },
+  {
+    "suite": "com.nereusstream.delay.store.TargetCheckpointRootVerifierTest",
+    "tests": "3",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "sha256": "5db1527fe6446e11afeedcebe9d1b3ab880fc0acb4cddca14861eb9f7c311292"
+  }
+]
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :checkstyleMain UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+
+> Task :checkstyleTest
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/store/TargetCheckpointRootVerifierTest.java:8:1: 导入 'com.nereusstream.delay.protocol.ShardId' 顺序错误。 [ImportOrder]
+
+> Task :checkstyleTest FAILED
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':checkstyleTest'.
+> A failure occurred while executing org.gradle.api.plugins.quality.internal.CheckstyleAction
+   > Checkstyle rule violations were found. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/checkstyle/test.html
+     Checkstyle files with violations: 1
+     Checkstyle violations by severity: [error:1]
+
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 24s
+14 actionable tasks: 3 executed, 11 up-to-date
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :checkstyleMain UP-TO-DATE
+> Task :checkstyleTest
+
+BUILD SUCCESSFUL in 1m 10s
+15 actionable tasks: 4 executed, 11 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+
+Final local after bounded exact-busy harness handling: 49/49 zero failure/error/skip; main/test style passed, BUILD SUCCESSFUL in 1m 10s.
+[
+  {
+    "suite": "com.nereusstream.delay.ownership.TargetWorkerShardFleetRuntimeTest",
+    "tests": "18",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "sha256": "bcbf8c71b96c512e420da91eb75f08573bf55024b104eabea531bafa7cbe7aba"
+  },
+  {
+    "suite": "com.nereusstream.delay.runtime.TargetCommandStoreTest",
+    "tests": "28",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "sha256": "4d76ee65dabca82ac41db4c3ad8fc2698beff96ca667bdf95964be8cc69b3cc5"
+  },
+  {
+    "suite": "com.nereusstream.delay.store.TargetCheckpointRootVerifierTest",
+    "tests": "3",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "sha256": "bcedc6a41872fd937746689cd2522e9e2584f1ab55e0d03beeb65dcba8545058"
+  }
+]
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :checkstyleMain UP-TO-DATE
+
+> Task :checkstyleTest
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:2363: 本行字符数 121个，最多：120个。 [LineLength]
+
+> Task :checkstyleTest FAILED
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':checkstyleTest'.
+> A failure occurred while executing org.gradle.api.plugins.quality.internal.CheckstyleAction
+   > Checkstyle rule violations were found. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/checkstyle/test.html
+     Checkstyle files with violations: 1
+     Checkstyle violations by severity: [error:1]
+
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 1m 8s
+15 actionable tasks: 4 executed, 11 up-to-date
+
+Final freeze-once harness semantics: local49 all pass; one test-only long line wrapped afterward, final native/style below verifies formatting.
+[
+  {
+    "suite": "com.nereusstream.delay.ownership.TargetWorkerShardFleetRuntimeTest",
+    "tests": "18",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "sha256": "985277870e7aacf913a36d5667d13d58c3d6040e28ca1541ebd6ff51801c7a8d"
+  },
+  {
+    "suite": "com.nereusstream.delay.runtime.TargetCommandStoreTest",
+    "tests": "28",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "sha256": "47edcc7880e53613fa649844ec295540bb466de6345201feb20e8302eff08b98"
+  },
+  {
+    "suite": "com.nereusstream.delay.store.TargetCheckpointRootVerifierTest",
+    "tests": "3",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "sha256": "55c4df5bad0947c7e8f2b6008dc5f04905a470a572682a10e0c096cc9f4cc113"
+  }
+]
+
+Command: ./gradlew test --tests 'com.nereusstream.delay.runtime.TargetCommandStoreTest.modifiesActualTimelineOrClaimWithHistoryAndFirstResults' --tests 'com.nereusstream.delay.ownership.TargetWorkerShardFleetRuntimeTest' --tests 'com.nereusstream.delay.store.TargetCheckpointRootVerifierTest' checkstyleMain checkstyleTest --no-daemon --console=plain
+Parent fd1e770092574583bece7728876ffed65408f8b0. Final local49 semantics passed; final native6/main-test style passed on the final source (only test line wrap after the local run).
+Iterations: one mistaken fixture accessor caused compile failure; comparing NV-framed bytes to decoded canonical bytes failed two assertions and was corrected. Legacy Batch.putValue rejects Target NV37; test injection now uses TargetValueEnvelope. Historical barrier failed actual reopen in checkpoint dependency audit; implemented exact terminal lookup and verified existing root tests. A wrong-package test enum import and subsequent formatting/import checks failed before correction. No production gate or assertion weakened.
+Scope: actual Worker/RocksDB/source/first results/quota/barriers and checkpoint root audit, with terminal/replay/Source/Broker/history/time/key/policy fixtures. Not full production history/config, v3 window, JVM/new Store/Floor/evidence/migration certification.
+{
+  "src/main/java/com/nereusstream/delay/runtime/TargetPublishAdmissionStore.java": "cd2aa4ebcb019d49b17f20858fe5c59767ddb18bcab36cdb1a7a868dfe6b4934",
+  "src/main/java/com/nereusstream/delay/runtime/TargetPublishRecoveryDiscovery.java": "a7627cbe8bf4a64920913bfb65df2027e91119ae9ed70432a1c480bd9534630f",
+  "src/main/java/com/nereusstream/delay/store/TargetCheckpointLedgerAudit.java": "f090b3df2e2107a70a9addece179d3586f46825d33a18ef2356e005bc5ecead3",
+  "src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java": "f07d5710817694970d0819e9adec329e51b991c225c263c40f5ba5104580a8b2",
+  "src/test/java/com/nereusstream/delay/store/TargetCheckpointRootVerifierTest.java": "61adf14d57f8a7b1a8a0beb325f918f0e853ef9baff0903db3ba127f23b8dc8a"
+}
+Documentation: ./gradlew checkDocumentation --no-daemon --console=plain; observed BUILD SUCCESSFUL in 1m 4s, six tasks executed. Historical NDIP-1/2 checks do not certify this NDIP-3 runtime.

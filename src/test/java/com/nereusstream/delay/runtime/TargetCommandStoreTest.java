@@ -171,7 +171,7 @@ class TargetCommandStoreTest {
     }
 
     @ParameterizedTest
-    @org.junit.jupiter.params.provider.ValueSource(ints = {12, 15, 17})
+    @org.junit.jupiter.params.provider.ValueSource(ints = {12, 15, 17, 18, 19})
     @org.junit.jupiter.api.Tag("real-service")
     void realOxiaLateTargetOutcomeRetainsTerminalDecision(int mode) throws Exception {
         runRealOxiaTargetOutcome(mode);
@@ -219,7 +219,8 @@ class TargetCommandStoreTest {
         "true,false,false,false,false,true,false,10", "true,false,false,false,false,true,false,11",
         "true,false,false,false,false,true,false,12", "true,false,false,false,false,true,false,13",
         "true,false,false,false,false,true,false,14", "true,false,false,false,false,true,false,15",
-        "true,false,false,false,false,true,false,16", "true,false,false,false,false,true,false,17"
+        "true,false,false,false,false,true,false,16", "true,false,false,false,false,true,false,17",
+        "true,false,false,false,false,true,false,18", "true,false,false,false,false,true,false,19"
     })
     void modifiesActualTimelineOrClaimWithHistoryAndFirstResults(
             boolean claimed,
@@ -2348,14 +2349,31 @@ class TargetCommandStoreTest {
                                         throw new IllegalStateException("owner replacement credit reached commit");
                                     }));
                         };
-                        assertEquals(
-                                TargetWorkerOrdinaryDrr.FreezeStop.READY,
-                                replacementDrr
-                                        .freezeRecoveryFirstPass(
-                                                replacementNow, replacementVisitBudget, replacementRequests)
-                                        .stop());
-                        final var beforeOwnerReplacement = replacementDrr.claimOrdinary(
-                                replacementNow, replacementVisitBudget, replacementRequests);
+                        TargetWorkerOrdinaryDrr.Turn<TargetClaimRecord> beforeOwnerReplacement;
+                        boolean replacementFrozen = false;
+                        final long replacementReadDeadline = System.nanoTime()
+                                + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
+                        while (true) {
+                            claimHost.awaitShardAdmission(otherShard, java.time.Duration.ofMillis(100));
+                            claimHost.awaitShardAdmission(claimWorker.shardId(), java.time.Duration.ofMillis(100));
+                            try {
+                                if (!replacementFrozen) {
+                                    assertEquals(TargetWorkerOrdinaryDrr.FreezeStop.READY,
+                                            replacementDrr.freezeRecoveryFirstPass(
+                                                    replacementNow, replacementVisitBudget, replacementRequests)
+                                                    .stop());
+                                    replacementFrozen = true;
+                                }
+                                beforeOwnerReplacement = replacementDrr.claimOrdinary(
+                                        replacementNow, replacementVisitBudget, replacementRequests);
+                                break;
+                            } catch (com.nereusstream.delay.ownership.TargetWorkerHostRuntime
+                                    .ShardAdmissionBusyException busy) {
+                                if (System.nanoTime() >= replacementReadDeadline) {
+                                    throw busy;
+                                }
+                            }
+                        }
                         assertTrue(beforeOwnerReplacement.claims().isEmpty());
                         assertEquals(TargetWorkerOrdinaryDrr.Stop.CREDIT_WAIT, beforeOwnerReplacement.stop());
 
@@ -2939,13 +2957,21 @@ class TargetCommandStoreTest {
                                         orderAfterCancel.barrier().canonicalBytes());
                                 assertNull(orderAfterCancel.serviceableHead());
                             }
-                            if (publishFailure == 10 || publishFailure == 11) {
+                            if (publishFailure == 10 || publishFailure == 11 || publishFailure >= 18) {
+                                if (publishFailure >= 18) {
+                                    terminalOutcomeFixture(replacementInitialized.backend(), replacementStore,
+                                            otherScope, replacementInitialized.root().recoveryLineage(),
+                                            TargetPublishAdmissionBody.decode(
+                                                    admission.entry().mutation().canonicalBody())
+                                                    .locator(),
+                                            publishFailure == 19);
+                                }
                                 assertRecoveredTargetOutcome(replacementStore, otherScope, replacementWorker,
                                         replacementActive, otherAssignment, leases,
                                         takeoverLeases == null ? leases : takeoverLeases,
                                         takeoverSession == null ? bytes(32, 0xF1) : takeoverSession,
                                         resources, workerClasses, admission, replacementOwnerIdentity[0], keys,
-                                        otherRetryPolicy, publishFailure == 11);
+                                        otherRetryPolicy, publishFailure == 11, publishFailure >= 18);
                                 claimWorker.pauseNewTurns();
                                 claimWorker.closeSource();
                                 return;
@@ -7188,13 +7214,35 @@ class TargetCommandStoreTest {
             OxiaOwnerLeaseStore leases, byte[] session,
             com.nereusstream.delay.store.SharedRocksDbResources resources, WorkClassExecutionRegistry classes,
             TargetAdmissionFixture admission, OwnerIdentity oldOwner, KeyPair keys,
-            com.nereusstream.delay.protocol.RetryPolicySemantic policy, boolean loseOwnerDuringLoad) {
+            com.nereusstream.delay.protocol.RetryPolicySemantic policy, boolean loseOwnerDuringLoad,
+            boolean terminalRecovery) {
         final var admissionImage = admission.entry().mutation();
         final var admitted = TargetPublishAdmissionBody.decode(admissionImage.canonicalBody());
         final byte[] messageKey = TargetKeyCodec.message(admitted.locator().messageId());
         final byte[] budgetKey = Bytes.concat(
                 new byte[] {TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG, TargetKeyCodec.KEY_FORMAT},
                 admitted.publishAttemptId());
+        final byte[] originalMessageBytes = store.get(ColumnFamily.ID, messageKey);
+        final var originalMessage = TargetMessageRecord.decode(TargetValueEnvelope.decode(
+                originalMessageBytes, TargetMessageRecord.VALUE_TYPE).payload());
+        final byte[] terminalKey = TargetTerminalGenerationRecord.key(admitted.locator());
+        final var originalTerminal = terminalRecovery ? TargetTerminalGenerationRecord.decode(
+                TargetValueEnvelope.decode(store.get(ColumnFamily.TERMINAL, terminalKey),
+                        TargetTerminalGenerationRecord.VALUE_TYPE).payload()) : null;
+        final byte[] payloadKey = Bytes.concat(
+                new byte[] {TargetKeyCodec.QUOTA_PAYLOAD_OWNER_TAG, TargetKeyCodec.KEY_FORMAT},
+                admitted.locator().messageId().bytes());
+        final byte[] originalPayload = store.get(ColumnFamily.META, payloadKey);
+        if (terminalRecovery) {
+            final long beforeProof = store.latestSequenceNumber();
+            final var proof = oldWorker.readRecoveryAdmission(budget(), admissionImage, () -> 101);
+            assertArrayEquals(originalTerminal.canonicalBytes(), proof.terminal().orElseThrow().canonicalBytes());
+            assertEquals(originalTerminal.runtime(), proof.runtime());
+            assertArrayEquals(originalMessage.canonicalBytes(), proof.message().canonicalBytes());
+            assertThrows(IllegalStateException.class,
+                    () -> oldWorker.readAppliedAdmission(budget(), admissionImage, () -> 101));
+            assertEquals(beforeProof, store.latestSequenceNumber());
+        }
         final var originalBudget = TargetQuotaAttemptBudget.decode(TargetValueEnvelope.decode(
                 store.get(ColumnFamily.META, budgetKey), TargetQuotaAttemptBudget.VALUE_TYPE).payload());
         oldWorker.pauseNewTurns();
@@ -7256,6 +7304,49 @@ class TargetCommandStoreTest {
                 () -> oldWorker.readRecoveryAdmission(budget(), admissionImage, () -> 102));
         assertThrows(IllegalStateException.class,
                 () -> worker.readAppliedAdmission(budget(), admissionImage, () -> 102));
+        if (terminalRecovery) {
+            final byte[] terminalBytes = store.get(ColumnFamily.TERMINAL, terminalKey);
+            store.write(batch -> batch.delete(ColumnFamily.TERMINAL, terminalKey));
+            final long missing = store.latestSequenceNumber();
+            assertThrows(IllegalStateException.class,
+                    () -> worker.readRecoveryAdmission(budget(), admissionImage, () -> 102));
+            assertThrows(IllegalStateException.class,
+                    () -> worker.discoverPublishRecovery(budget(), null, 1, () -> 102));
+            assertEquals(missing, store.latestSequenceNumber());
+            store.write(batch -> batch.put(ColumnFamily.TERMINAL, terminalKey, terminalBytes));
+            final byte[] orderKey = TargetKeyCodec.orderState(
+                    admitted.locator().target(), admitted.locator().orderingDomain());
+            for (byte[] protectedKey : List.of(payloadKey, orderKey)) {
+                final byte[] protectedValue = store.get(ColumnFamily.META, protectedKey);
+                store.write(batch -> batch.delete(ColumnFamily.META, protectedKey));
+                final long missingPrimary = store.latestSequenceNumber();
+                assertThrows(IllegalStateException.class,
+                        () -> worker.readRecoveryAdmission(budget(), admissionImage, () -> 102));
+                assertThrows(IllegalStateException.class,
+                        () -> worker.discoverPublishRecovery(budget(), null, 1, () -> 102));
+                assertEquals(missingPrimary, store.latestSequenceNumber());
+                store.write(batch -> batch.put(ColumnFamily.META, protectedKey, protectedValue));
+            }
+            if (originalMessage.locator().equals(admitted.locator())) {
+                final var mismatched = new TargetTerminalGenerationRecord(originalTerminal.locator(),
+                        originalTerminal.stateVersion() + 1,
+                        originalTerminal.terminalCode(), originalTerminal.runtime(),
+                        originalTerminal.mutation(), originalTerminal.recoveryLineage());
+                store.write(batch -> batch.put(ColumnFamily.TERMINAL, terminalKey,
+                        TargetValueEnvelope.encode(
+                                TargetTerminalGenerationRecord.VALUE_TYPE, mismatched.canonicalBytes())));
+                final long wrongVersion = store.latestSequenceNumber();
+                assertThrows(IllegalStateException.class,
+                        () -> worker.readRecoveryAdmission(budget(), admissionImage, () -> 102));
+                assertThrows(IllegalStateException.class,
+                        () -> worker.discoverPublishRecovery(budget(), null, 1, () -> 102));
+                assertEquals(wrongVersion, store.latestSequenceNumber());
+                store.write(batch -> batch.put(ColumnFamily.TERMINAL, terminalKey, terminalBytes));
+            }
+            final var proof = worker.readRecoveryAdmission(budget(), admissionImage, () -> 102);
+            assertArrayEquals(originalTerminal.canonicalBytes(), proof.terminal().orElseThrow().canonicalBytes());
+            assertEquals(originalTerminal.runtime(), proof.runtime());
+        }
         final long beforeDiscovery = store.latestSequenceNumber();
         final var discoveryBudget = budget();
         final var discovered = worker.discoverPublishRecovery(discoveryBudget, null, 1, () -> 102);
@@ -7421,9 +7512,35 @@ class TargetCommandStoreTest {
         final long applied = store.latestSequenceNumber();
         final var after = TargetMessageRecord.decode(TargetValueEnvelope.decode(
                 store.get(ColumnFamily.ID, messageKey), TargetMessageRecord.VALUE_TYPE).payload());
-        assertEquals(GenerationAggregateState.UNCERTAIN, after.aggregateState());
-        assertEquals(CurrentSendWorkKind.NONE, after.runtime().currentWorkKind());
-        assertEquals(oldOwner.ownerEpoch(), after.runtime().attemptObligations().getFirst().ownerEpoch());
+        final TargetTerminalGenerationRecord nextTerminal;
+        if (terminalRecovery) {
+            nextTerminal = TargetTerminalGenerationRecord.decode(TargetValueEnvelope.decode(
+                    store.get(ColumnFamily.TERMINAL, terminalKey),
+                    TargetTerminalGenerationRecord.VALUE_TYPE).payload());
+            assertEquals(originalTerminal.terminalCode(), nextTerminal.terminalCode());
+            assertEquals(originalTerminal.mutation(), nextTerminal.mutation());
+            assertEquals(originalTerminal.runtime().aggregateState(),
+                    nextTerminal.runtime().aggregateState());
+            assertEquals(List.of(admitted.obligation().uncertain()),
+                    nextTerminal.runtime().attemptObligations());
+            assertEquals(originalTerminal.runtime().runtimeRevision() + 1,
+                    nextTerminal.runtime().runtimeRevision());
+            if (after.locator().equals(admitted.locator())) {
+                assertEquals(originalMessage.aggregateState(), after.aggregateState());
+                assertEquals(CurrentSendWorkKind.NONE, after.runtime().currentWorkKind());
+                assertEquals(nextTerminal.runtime(), after.runtime());
+                assertEquals(nextTerminal.stateVersion(), after.stateVersion());
+            } else {
+                assertArrayEquals(originalMessageBytes, store.get(ColumnFamily.ID, messageKey));
+                assertEquals(originalTerminal.stateVersion(), nextTerminal.stateVersion());
+            }
+            assertArrayEquals(originalPayload, store.get(ColumnFamily.META, payloadKey));
+        } else {
+            nextTerminal = null;
+            assertEquals(GenerationAggregateState.UNCERTAIN, after.aggregateState());
+            assertEquals(CurrentSendWorkKind.NONE, after.runtime().currentWorkKind());
+            assertEquals(oldOwner.ownerEpoch(), after.runtime().attemptObligations().getFirst().ownerEpoch());
+        }
         final var unknown = TargetQuotaAttemptBudget.decode(TargetValueEnvelope.decode(
                 store.get(ColumnFamily.META, budgetKey), TargetQuotaAttemptBudget.VALUE_TYPE).payload());
         assertEquals(TargetQuotaAttemptBudget.Phase.UNKNOWN, unknown.phase());
@@ -7433,7 +7550,11 @@ class TargetCommandStoreTest {
         final var order = TargetOrderState.decode(TargetValueEnvelope.decode(store.get(ColumnFamily.META,
                 TargetKeyCodec.orderState(after.locator().target(), after.locator().orderingDomain())),
                 TargetOrderState.VALUE_TYPE).payload());
-        order.requireBarrierProjection(after);
+        if (terminalRecovery && !after.locator().equals(admitted.locator())) {
+            order.requireTerminalBarrierProjection(nextTerminal);
+        } else {
+            order.requireBarrierProjection(after);
+        }
         assertNull(order.serviceableHead());
         assertEquals(SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
                 worker.runSourceTurn(new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 102).status());

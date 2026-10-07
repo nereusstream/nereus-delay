@@ -7602,3 +7602,9 @@ current terminal PUBLISHED and historical PUBLISHED/UNKNOWN Source application u
 lease guards. Terminal/replay projection, Broker evidence, Source/history/time/key providers remain fixtures;
 this does not certify production Replay, Broker response-loss or process/new Store recovery. See NDIP-3
 `evidence/e5-terminal-historical-outcome-oxia-real.log` for the current receipt and artifact identity.
+
+The same real Oxia late-Outcome test now additionally runs current terminal and historical Admission
+Owner takeover through Host recovery maintenance. It uses actual lease/session guards and Store reopen/
+checkpoint audit/Source settlement, with explicit terminal/replay transition and Source/history/time/key
+fixtures. Evidence and remaining production/Broker/process/pins/Floor obligations are tracked in NDIP-3
+`evidence/c2-terminal-historical-recovery-focused.log` and `evidence/c2-terminal-historical-recovery-oxia-real.log`.
