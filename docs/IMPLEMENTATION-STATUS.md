@@ -18652,3 +18652,9 @@ encoding smoke pass with explicit Journal/Source/fencing/retention/time/key/curs
 generation/digest checks do not authenticate Broker fencing; post-ownership absence, protected retention/
 pins/Floor, production assembly/recovery/migration and central validation remain open. Completion and
 production flags stay false; NDIP-3 absence receipts retain the initial Docker token EOF and bounded retry.
+
+Two additional actual Store regressions settle an old attempt with another UNCERTAIN and a current
+Claim: success retains the newer obligation in terminal history; failure restores the original uncertain
+retry eligibility/attempt/authority. Claim/charge deletion, immutable newer UNKNOWN Budget/results and
+full reopen ledger audit pass (local47). Direct planner/commit and explicit external authority fixtures
+add no Broker/Source-ACK/Native/process evidence; completion/production flags stay false.

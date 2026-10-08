@@ -229,7 +229,8 @@ class TargetCommandStoreTest {
         "true,false,false,true,false,true,false,27", "true,false,false,true,false,true,false,28",
         "true,false,false,true,false,true,false,29", "true,false,false,true,false,true,false,30",
         "true,false,false,false,false,true,false,31",
-        "true,false,false,false,false,true,false,32", "true,false,false,false,false,true,false,33"
+        "true,false,false,false,false,true,false,32", "true,false,false,false,false,true,false,33",
+        "true,false,false,true,false,true,false,34", "true,false,false,true,false,true,false,35"
     })
     void modifiesActualTimelineOrClaimWithHistoryAndFirstResults(
             boolean claimed,
@@ -1471,7 +1472,7 @@ class TargetCommandStoreTest {
                             otherMembershipAt.offset() + 1,
                             otherMembershipAt.brokerLogAppendTimeEpochMs() + 1);
                     final byte[] otherOrderingDomain = uncertainRetry ? null : bytes(32, 0x8a);
-                    final var otherRetryPolicy = targetOutcomeRetryPolicy(uncertainRetry);
+                    final var otherRetryPolicy = targetOutcomeRetryPolicy(uncertainRetry, publishFailure >= 34 ? 2 : 1);
                     final var otherIntent = CanonicalScheduleIntent.create(
                             destination.ref(),
                             otherRetryPolicy.ref(),
@@ -2966,7 +2967,7 @@ class TargetCommandStoreTest {
                                         orderAfterCancel.barrier().canonicalBytes());
                                 assertNull(orderAfterCancel.serviceableHead());
                             }
-                            if (publishFailure >= 27 && publishFailure <= 30) {
+                            if (publishFailure >= 27 && publishFailure <= 30 || publishFailure >= 34) {
                                 assertEvidenceWithNewerWork(replacementInitialized.backend(), replacementStore,
                                         otherScope, replacementInitialized.root().recoveryLineage(), admission,
                                         replacementOwnerIdentity[0], keys, otherRetryPolicy, capability.ref(),
@@ -7901,8 +7902,9 @@ class TargetCommandStoreTest {
             com.nereusstream.delay.protocol.RetryPolicySemantic policy, ProfileRef capability, int mode) {
         final var image = admission.entry().mutation();
         final var body = TargetPublishAdmissionBody.decode(image.canonicalBody());
-        final boolean newPublisher = mode >= 29;
-        final boolean published = mode == 27 || mode == 29;
+        final boolean newerUncertain = mode == 34 || mode == 35;
+        final boolean newPublisher = mode == 29 || mode == 30;
+        final boolean published = mode == 27 || mode == 29 || mode == 34;
         final var outcomes = new TargetPublishOutcomeStore(backend, scope, lineage, 16, 1, 1);
         final var prior = (KafkaSourcePosition) store.appliedShardLogPosition();
         final var unknownAt = source(prior, prior.offset() + 1, prior.brokerPersistenceTimeEpochMs() + 1);
@@ -7939,13 +7941,13 @@ class TargetCommandStoreTest {
         final var plan = claims.prepareClaim(budget(), selected, owner, next, next + 1_000,
                 body.executionBytes(), bytes(32, 0xD2));
         claims.commit(plan, (a, b, c) -> guard());
-        final var claim = plan.claim();
-        final byte[] claimKey = claim.key();
-        final byte[] chargeKey = claim.chargeKey();
+        var claim = plan.claim();
         SystemMutation newer = null;
+        SystemMutation newerUnknown = null;
+        byte[] newerUnknownBytes = null;
         byte[] newerBudgetKey = null;
         byte[] newerBudgetBytes = null;
-        if (newPublisher) {
+        if (newPublisher || newerUncertain) {
             final var last = (KafkaSourcePosition) store.appliedShardLogPosition();
             final var secondAt = source(last, last.offset() + 1,
                     Math.max(last.brokerPersistenceTimeEpochMs() + 1, next));
@@ -7958,11 +7960,57 @@ class TargetCommandStoreTest {
                             ProtocolTuple.targetMaterializedPublishAdmission(), 10, 10, 100,
                             (e, f, g, h) -> true, (e, f) -> {}));
             assertEquals(ApplyStatus.APPLIED, admissions.commit(admissionPlan, (a, b, c) -> guard()).applyStatus());
+            if (newerUncertain) {
+                final var secondBody = TargetPublishAdmissionBody.decode(newer.canonicalBody());
+                final var secondUnknownAt = source(secondAt, secondAt.offset() + 1,
+                        secondBody.decisionTime().latestEpochMs() + 1);
+                final var secondTime = new TrustedUtcIntervalEvidence(secondUnknownAt.brokerPersistenceTimeEpochMs(),
+                        secondUnknownAt.brokerPersistenceTimeEpochMs() + 1,
+                        TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                        bytes(32, 0xD8), 1, 1, 1, bytes(32, 0xD9), 0, null);
+                final long secondNext = secondTime.latestEpochMs() + RetryJitter.delayMs(RetryJitter.MESSAGE_PUBLISH,
+                        body.locator().messageId(), body.locator().generation(), secondBody.attemptNo(),
+                        policy.retryBackoffCap(secondBody.attemptNo()));
+                final long until = secondUnknownAt.brokerPersistenceTimeEpochMs() + 10_000;
+                newerUnknown = SystemMutation.signed(scope.shard(), SystemMutationType.PUBLISH_OUTCOME, until,
+                        secondBody.publishAttemptId(), PublishOutcomeBody.encodeInitial(scope.shard(), until,
+                                secondBody.publishAttemptId(), 3, 4, StableCode.ENQUEUE_RESULT_UNCERTAIN, null,
+                                new PublishAdmissionBody.ChargeVector(
+                                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0).canonicalBytes(),
+                                secondTime, typedUnknownRetryDecision(policy, body.decisionTime().latestEpochMs(),
+                                        deadline, secondBody.attemptNo(), secondNext,
+                                        StableCode.ENQUEUE_RESULT_UNCERTAIN)),
+                        newer.authorIdentity(), 1, keys.getPrivate());
+                final var secondHistory = new TargetPublishOutcomeVerifier.RetryContext(newer, image, policy);
+                final var secondUnknownPlan = outcomes.prepareFirst(budget(), newerUnknown, secondUnknownAt,
+                        (a, b, c, d) -> new TargetPublishOutcomeVerifier.Authorization(keys.getPublic(),
+                                ProtocolTuple.currentSystemMutation(), owner, 10, 10, 100,
+                                (e, f, g, h) -> true, secondHistory));
+                assertEquals(ApplyStatus.APPLIED,
+                        outcomes.commit(secondUnknownPlan, (a, b, c) -> guard()).applyStatus());
+                newerUnknownBytes = store.get(ColumnFamily.DEDUPE, systemKey(newerUnknown));
+                final var secondRetry = TargetMessageRecord.decode(
+                        TargetValueEnvelope.decode(store.get(ColumnFamily.ID, key),
+                                TargetMessageRecord.VALUE_TYPE).payload());
+                assertEquals(2, secondRetry.runtime().attemptObligations().size());
+                assertTrue(secondRetry.runtime().attemptObligations().stream()
+                        .allMatch(ref -> ref.ledgerState() == AttemptLedgerState.UNCERTAIN));
+                final var secondWork = secondRetry.runtime().timeline();
+                final var secondHead = new com.nereusstream.delay.protocol.TargetHeadRef(secondWork.ordinaryKey(),
+                        body.locator().messageId(), body.locator().generation(),
+                        secondWork.retryEligibilityAtEpochMs());
+                final var secondClaimPlan = claims.prepareClaim(budget(), secondHead, owner, secondNext,
+                        secondNext + 1_000, body.executionBytes(), bytes(32, 0xDA));
+                claims.commit(secondClaimPlan, (a, b, c) -> guard());
+                claim = secondClaimPlan.claim();
+            }
             newerBudgetKey = Bytes.concat(
                     new byte[] {TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG, TargetKeyCodec.KEY_FORMAT},
                     second.attemptId());
             newerBudgetBytes = store.get(ColumnFamily.META, newerBudgetKey);
         }
+        final byte[] claimKey = claim.key();
+        final byte[] chargeKey = claim.chargeKey();
         final var before = TargetMessageRecord.decode(
                 TargetValueEnvelope.decode(store.get(ColumnFamily.ID, key), TargetMessageRecord.VALUE_TYPE).payload());
         final var oldUnknown = store.get(ColumnFamily.DEDUPE, systemKey(unknown));
@@ -8038,10 +8086,11 @@ class TargetCommandStoreTest {
         assertEquals(oldBudget.allocated(), resolvedBudget.allocated());
         assertEquals(0, resolvedBudget.effectiveCharge().amount(CapacityDimension.INFLIGHT_MESSAGES));
         assertNull(resolvedBudget.floorDigest());
-        if (newPublisher) {
+        if (newPublisher || newerUncertain) {
             assertArrayEquals(newerBudgetBytes, store.get(ColumnFamily.META, newerBudgetKey));
             final var secondBody = TargetPublishAdmissionBody.decode(newer.canonicalBody());
-            assertEquals(List.of(secondBody.obligation()), after.runtime().attemptObligations());
+            assertEquals(List.of(newerUncertain ? secondBody.obligation().uncertain() : secondBody.obligation()),
+                    after.runtime().attemptObligations());
             assertEquals(2, after.runtime().admissionsUsed());
             assertEquals(1, after.runtime().uncertainRetryAdmissionsUsed());
             if (published) {
@@ -8051,6 +8100,16 @@ class TargetCommandStoreTest {
                         store.get(ColumnFamily.TERMINAL, TargetTerminalGenerationRecord.key(after.locator())),
                         TargetTerminalGenerationRecord.VALUE_TYPE).payload());
                 assertEquals(after.runtime(), terminal.runtime());
+            } else if (newerUncertain) {
+                assertEquals(GenerationAggregateState.UNCERTAIN, after.aggregateState());
+                assertEquals(CurrentSendWorkKind.TIMELINE, after.runtime().currentWorkKind());
+                final var restored = after.runtime().timeline();
+                assertEquals(TimelineWorkKind.UNCERTAIN_RETRY, restored.workKind());
+                assertEquals(claim.work().retryEligibilityAtEpochMs(), restored.retryEligibilityAtEpochMs());
+                assertEquals(claim.work().candidateAttemptNo(), restored.candidateAttemptNo());
+                assertEquals(claim.work().uncertainRetryAuthority(), restored.uncertainRetryAuthority());
+                assertArrayEquals(claim.work().ordinaryKey(), restored.ordinaryKey());
+                assertFalse(restored.nativeCandidate());
             } else {
                 assertEquals(GenerationAggregateState.PUBLISHING, after.aggregateState());
                 assertArrayEquals(secondBody.publishAttemptId(), after.runtime().publishAttemptId());
@@ -8061,6 +8120,12 @@ class TargetCommandStoreTest {
             assertEquals(TargetQuotaPayloadOwner.Phase.ACTIVE,
                     TargetQuotaPayloadOwner.decode(TargetValueEnvelope.decode(
                     store.get(ColumnFamily.META, payloadKey), TargetQuotaPayloadOwner.VALUE_TYPE).payload()).phase());
+            if (newerUncertain) {
+                assertArrayEquals(newerUnknownBytes, store.get(ColumnFamily.DEDUPE, systemKey(newerUnknown)));
+                final var secondBudget = TargetQuotaAttemptBudget.decode(TargetValueEnvelope.decode(
+                        newerBudgetBytes, TargetQuotaAttemptBudget.VALUE_TYPE).payload());
+                assertEquals(TargetQuotaAttemptBudget.Phase.UNKNOWN, secondBudget.phase());
+            }
         } else if (!published) {
             assertEquals(TimelineWorkKind.DEFINITIVE_RETRY, after.runtime().timeline().workKind());
             assertFalse(after.runtime().timeline().nativeCandidate());
@@ -8874,6 +8939,11 @@ class TargetCommandStoreTest {
     }
 
     private static com.nereusstream.delay.protocol.RetryPolicySemantic targetOutcomeRetryPolicy(boolean retry) {
+        return targetOutcomeRetryPolicy(retry, 1);
+    }
+
+    private static com.nereusstream.delay.protocol.RetryPolicySemantic targetOutcomeRetryPolicy(
+            boolean retry, int maxUncertainRetries) {
         return new com.nereusstream.delay.protocol.RetryPolicySemantic(
                 Bytes.utf8("target-outcome-policy"),
                 1,
@@ -8884,7 +8954,7 @@ class TargetCommandStoreTest {
                 retry
                         ? com.nereusstream.delay.protocol.UncertainPolicy.BOUNDED_RETRY_POSSIBLE_DUPLICATE
                         : com.nereusstream.delay.protocol.UncertainPolicy.HOLD_FOR_EVIDENCE,
-                retry ? 1 : 0,
+                retry ? maxUncertainRetries : 0,
                 com.nereusstream.delay.protocol.DlqExportMode.NOT_CONFIGURED,
                 0,
                 0,
