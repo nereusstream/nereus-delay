@@ -2100,6 +2100,20 @@ An evidence-cursor object has required common keys `evidenceKind`, `destinationL
 
 Cursor arrays use §8's full binary sort key including evidence generation; JSON lexical order is not a substitute.
 
+Format-two Target Pulsar cursor JSON replaces `destinationLaneId`/`laneIncarnation` with one required
+`targetScope` key (base64 of the complete canonical bounded TargetEvidenceScope from §8). Its exact
+lexically sorted key set is `batchIndex,batchSize,entryId,evidenceGeneration,evidenceKind,
+evidenceResourceIncarnation,ledgerId,maxBrokerPersistedAtThroughCursor,physicalPartition,physicalTopic,
+physicalTopicCreationTimestamp,resourceToken,targetScope`. All other scalar/resource/member meanings
+and manifestVersion1 remain unchanged. Mixed Target/Lane keys, unknown fields, noncanonical scope
+bytes and mismatched common resource bytes reject. Target scope source Shard must equal the Manifest/
+Store Shard and storeFormatVersion must be2; format1 admits only legacy Lane cursors. META6 write/open
+and independent Target ledger audit enforce the same scope check. Legacy JSON cursor bytes are
+unchanged, and mixed format2 arrays keep §8's namespace-aware sort. Older closed readers reject the
+new shape; Target-aware reader/artifact activation remains required. This local representation does
+not authenticate Broker retention/pins/Floor, publish Catalog authority or authorize Target restore.
+
+
 Each file object has exactly:
 
 ```text

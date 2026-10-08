@@ -10,6 +10,7 @@ import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.EvidenceCursor;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
+import com.nereusstream.delay.protocol.TargetPartitionId;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.UUID;
@@ -43,6 +44,41 @@ class StoreRuntimeMetadataTest {
                 () -> new StoreRuntimeMetadata(null, null, 1, false, List.of(cursor, cursor)));
         assertThrows(
                 IllegalArgumentException.class, () -> StoreRuntimeMetadata.decode(new byte[] {0x18, 0x01, 0x20, 0x02}));
+    }
+
+    @Test
+    void targetEvidenceSeedsPersistOnlyInTheirExactFormatTwoStore() {
+        final var shard = new ShardId(RouteIncarnation.random(), 2);
+        final var scope = new EvidenceCursor.TargetScope(shard, new TargetPartitionId(fixedBytes(3, 32)),
+                new TargetKeyCodec.Domain(1, 2), fixedBytes(4, 16), fixedBytes(5, 32));
+        final var cursor = EvidenceCursor.targetPulsar(scope, fixedBytes(6, 32), 2, 1, 200,
+                "persistent://tenant/ns/target-journal", 1, 2, 3, 0, 1);
+        final var config = ShardStoreConfig.defaults(tempDir.resolve("target-evidence"));
+        try (var resources = new SharedRocksDbResources(config);
+                var store = ShardStore.openTarget(config, shard, resources)) {
+            store.recordEvidenceCursors(List.of(cursor));
+            assertEquals(List.of(cursor), store.runtimeMetadata().evidenceCursors());
+            final var foreignScope = new EvidenceCursor.TargetScope(new ShardId(RouteIncarnation.random(), 2),
+                    scope.target(), scope.domain(), scope.accountingIncarnation(), scope.producerNameHash());
+            final var foreign = EvidenceCursor.targetPulsar(foreignScope, fixedBytes(6, 32), 2, 1, 200,
+                    cursor.physicalTopic(), 1, 2, 3, 0, 1);
+            final long before = store.latestSequenceNumber();
+            assertThrows(IllegalArgumentException.class, () -> store.recordEvidenceCursors(List.of(foreign)));
+            assertEquals(before, store.latestSequenceNumber());
+        }
+        try (var resources = new SharedRocksDbResources(config);
+                var reopened = ShardStore.openTarget(config, shard, resources)) {
+            assertEquals(List.of(cursor), reopened.runtimeMetadata().evidenceCursors());
+            assertEquals(List.of(cursor), StoreRuntimeMetadata.decodeEvidenceCursors(
+                    TargetValueEnvelope.decode(reopened.get(ColumnFamily.META, KeyCodec.metaFixed(6)), 1).payload()));
+        }
+        final var legacyConfig = ShardStoreConfig.defaults(tempDir.resolve("legacy-evidence"));
+        try (var resources = new SharedRocksDbResources(legacyConfig);
+                var legacy = ShardStore.open(legacyConfig, shard, resources)) {
+            final long before = legacy.latestSequenceNumber();
+            assertThrows(IllegalArgumentException.class, () -> legacy.recordEvidenceCursors(List.of(cursor)));
+            assertEquals(before, legacy.latestSequenceNumber());
+        }
     }
 
     @Test

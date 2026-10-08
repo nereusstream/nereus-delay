@@ -3,6 +3,7 @@ package com.nereusstream.delay.store;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
 import com.nereusstream.delay.protocol.EvidenceCursor;
+import com.nereusstream.delay.protocol.ShardId;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -101,6 +102,16 @@ public record StoreRuntimeMetadata(
             throw new IllegalArgumentException("non-canonical evidence cursor array");
         }
         return List.copyOf(cursors);
+    }
+
+    /** Target cursor seeds belong to one format-two Source Shard; legacy Lane seeds retain their namespace. */
+    static void requireEvidenceCursorScope(
+            final List<EvidenceCursor> cursors, final int storeFormat, final ShardId shard) {
+        for (final var cursor : Objects.requireNonNull(cursors, "cursors")) {
+            if (cursor.isTarget() && (storeFormat != 2 || !cursor.targetScope().sourceShard().equals(shard))) {
+                throw new IllegalArgumentException("Target evidence cursor requires its exact format-two Shard");
+            }
+        }
     }
 
     @Override

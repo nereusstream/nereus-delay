@@ -1,0 +1,243 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+
+> Task :compileTestJava FAILED
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/store/CheckpointManifestTest.java:225: 错误: 找不到符号
+                scope.target(), scope.domain(), scope.accountingIncarnation(), scope.stableProducerNameHash());
+                                                                                    ^
+  符号:   方法 stableProducerNameHash()
+  位置: 类型为TargetScope的变量 scope
+1 个错误
+
+[Incubating] Problems report is available at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':compileTestJava'.
+> Compilation failed; see the compiler output below.
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/store/CheckpointManifestTest.java:225: 错误: 找不到符号
+                  scope.target(), scope.domain(), scope.accountingIncarnation(), scope.stableProducerNameHash());
+                                                                                      ^
+    符号:   方法 stableProducerNameHash()
+    位置: 类型为TargetScope的变量 scope
+  1 个错误
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 14s
+10 actionable tasks: 3 executed, 7 up-to-date
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+
+> Task :test FAILED
+
+CheckpointManifestTest > formatTwoManifestRetainsTargetCursorNamespaceAndRejectsForeignScope() FAILED
+    java.lang.IllegalStateException at CheckpointManifestTest.java:217
+
+1 test completed, 1 failed
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':test'.
+> There were failing tests. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/tests/test/index.html
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 15s
+13 actionable tasks: 3 executed, 10 up-to-date
+Confirmed red failure: java.lang.IllegalStateException: Target evidence cursor has no Lane identity
+java.lang.IllegalStateException: Target evidence cursor has no Lane identity
+	at com.nereusstream.delay.protocol.EvidenceCursor.destinationLaneId(EvidenceCursor.java:246)
+	at com.nereusstream.delay.store.CheckpointManifest.evidenceCursorJson(CheckpointManifest.java:294)
+	at com.nereusstream.delay.store.CheckpointManifest.canonicalJson(CheckpointManifest.java:197)
+	at com.nereusstream.delay.store.CheckpointManifest.canonicalJsonBytes(CheckpointManifest.java:180)
+	at com.nereusstream.delay.store.CheckpointManifestTest.formatTwoManifestRetainsTargetCursorNamespaceAndRejectsForeignScope(CheckpointManifestTest.java:217)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+
+> Task :checkstyleTest
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/store/CheckpointManifestTest.java:215: 本行字符数 121个，最多：120个。 [LineLength]
+
+> Task :checkstyleTest FAILED
+> Task :checkstyleMain
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':checkstyleTest'.
+> A failure occurred while executing org.gradle.api.plugins.quality.internal.CheckstyleAction
+   > Checkstyle rule violations were found. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/checkstyle/test.html
+     Checkstyle files with violations: 1
+     Checkstyle violations by severity: [error:1]
+
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 1m 31s
+15 actionable tasks: 6 executed, 9 up-to-date
+Green XML {"name": "com.nereusstream.delay.protocol.EvidenceCursorTest", "tests": "8", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-08T01:09:32.002Z", "hostname": "liusinandeMacBook-Pro.local", "time": "0.007"} sha256=a96515812fdd432fa951ff49afa7ed00868181c1b5ed572d1eb5bb52b0ac2c5b
+Green XML {"name": "com.nereusstream.delay.runtime.TargetCommandStoreTest", "tests": "44", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-08T01:09:32.010Z", "hostname": "liusinandeMacBook-Pro.local", "time": "56.596"} sha256=f2b67345d936dec27a596cbc74be9f1c0d31d981080a6ed7de1c7d1a68bb601e
+Green XML {"name": "com.nereusstream.delay.store.CheckpointManifestTest", "tests": "11", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-08T01:09:31.893Z", "hostname": "liusinandeMacBook-Pro.local", "time": "0.107"} sha256=a46ab03c16766085c0a18ab6f0023d638a853d7e232484af7cb5e12cb989bbfd
+Green XML {"name": "com.nereusstream.delay.store.StoreRuntimeMetadataTest", "tests": "5", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-08T01:10:28.606Z", "hostname": "liusinandeMacBook-Pro.local", "time": "0.485"} sha256=97433f10711c5f4ccb271cd9b8cede7ec51dbed03ae730711858664841bb2d46
+Green XML {"name": "com.nereusstream.delay.store.TargetCheckpointRootVerifierTest", "tests": "3", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-08T01:10:29.092Z", "hostname": "liusinandeMacBook-Pro.local", "time": "0.472"} sha256=b7c2f1c7846795a60a4fce79a465608f64b887e9a69a33243ecb76ed1d432840
+Focused green: 71 tests, failures/errors/skips=0. One test line wrap follows semantic pass.
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :checkstyleMain UP-TO-DATE
+> Task :checkstyleTest
+
+BUILD SUCCESSFUL in 25s
+15 actionable tasks: 4 executed, 11 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+Legacy recovery XML {"name": "com.nereusstream.delay.store.CheckpointRestoreCoordinatorTest", "tests": "5", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-08T01:11:36.805Z", "hostname": "liusinandeMacBook-Pro.local", "time": "0.66"} sha256=02c22a166759954db2664e78cd3f044eae27b1a48350fb1a12b3844caf95e81e
+Legacy recovery XML {"name": "com.nereusstream.delay.store.CheckpointUploadCoordinatorTest", "tests": "12", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-08T01:11:37.466Z", "hostname": "liusinandeMacBook-Pro.local", "time": "0.044"} sha256=070fa583d231a33cb4007630bf085329c500ef79c09e88d5f86e1bb922a8d71e
+Legacy recovery XML {"name": "com.nereusstream.delay.store.PersistentRecoveryCatalogTest", "tests": "9", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-08T01:11:37.510Z", "hostname": "liusinandeMacBook-Pro.local", "time": "0.22"} sha256=58cf99640e7dd5698181e3c1cdb7324711f2211e086957eba3850d355e8dab1f
+legacy_tests_total=26 failures/errors/skips=0; style pass.
+source_sha256 9dc0a037ab851d90fc90e396807bdbe6b9e07bf317aaab26dee3bb064687bd05 src/main/java/com/nereusstream/delay/store/CheckpointManifest.java
+source_sha256 f4b2b270ade2d68ee3bf78023245aae0bd22fe57372ba7700b31133b775de0c7 src/main/java/com/nereusstream/delay/store/CheckpointManifestJson.java
+source_sha256 55a2e293f370ee849e8d0b0936cf585992226de99994ae6c21998834aaf4af3e src/main/java/com/nereusstream/delay/store/StoreRuntimeMetadata.java
+source_sha256 d3494576406254bafc0bfcf4e4a3787819846500df15b62947612671291c05f3 src/main/java/com/nereusstream/delay/store/ShardStore.java
+source_sha256 3a76de147357dd27645a7b415a2ba4e5f350f782e80e12a855e5691bdd8ccca4 src/main/java/com/nereusstream/delay/store/TargetCheckpointLedgerAudit.java
+source_sha256 4a14b8ed7986f2facc8f53db3cec1349cc4c1ddaba59665ed9a1b8d5ffbb1cd5 src/test/java/com/nereusstream/delay/store/CheckpointManifestTest.java
+source_sha256 c7807ba2af21aa3bd345505a341748b957ab17d4e8b173dc2ea3230bfbdd8569 src/test/java/com/nereusstream/delay/store/StoreRuntimeMetadataTest.java
+Parent 2023793fb17d2c8ddc9ad0afd5c3192e27ae2a95. Red command: ./gradlew test --tests com.nereusstream.delay.store.CheckpointManifestTest.formatTwoManifestRetainsTargetCursorNamespaceAndRejectsForeignScope --no-daemon --console=plain
+Green command: ./gradlew test --tests com.nereusstream.delay.store.CheckpointManifestTest --tests com.nereusstream.delay.store.StoreRuntimeMetadataTest --tests com.nereusstream.delay.store.TargetCheckpointRootVerifierTest --tests com.nereusstream.delay.runtime.TargetCommandStoreTest.modifiesActualTimelineOrClaimWithHistoryAndFirstResults --tests com.nereusstream.delay.protocol.EvidenceCursorTest checkstyleMain checkstyleTest --no-daemon --console=plain
+Legacy command: ./gradlew test --tests com.nereusstream.delay.store.CheckpointUploadCoordinatorTest --tests com.nereusstream.delay.store.CheckpointRestoreCoordinatorTest --tests com.nereusstream.delay.store.PersistentRecoveryCatalogTest checkstyleMain checkstyleTest --no-daemon --console=plain
+Scope: local representation/exact Store Shard checks; actual RocksDB META6 persist/reopen. Store/Source/providers and local manifest objects remain fixtures; no Target Catalog upload/publish/restore/install or Broker retention/pins/Floor authority claimed.
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+
+> Task :testNdip1ImplementationVerifier
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 52.665s
+
+OK
+
+> Task :testNdip1PackageVerifier
+..............
+----------------------------------------------------------------------
+Ran 14 tests in 0.071s
+
+OK
+
+> Task :verifyNdip1HistoricalClosure
+proposal=NDIP-1
+receipt_status=IMPLEMENTED
+lifecycle_authority=true
+implementation=CLOSED
+lifecycle=CLOSED
+certified_commit=b4e077e9978f262cdb93cf3562ea12eee32430e2
+runtime_source_sha256=03ce17ede4b9e70e2f70dd2bbef681087f529159549a4cd979d0d7aa34fa9948
+runtime_source_files=835
+implemented_package_sha256=792ca54e239d884ba6f95315747f565bab57ee0fc02338a77369cb19bbe8e8a7
+staging_run=20260901055333-78920
+deployment=SEPARATE_FUTURE_WORK
+performance_and_scale=SEPARATE_FUTURE_WORK
+production_rollout=SEPARATE_FUTURE_WORK
+production_authority=false
+
+> Task :verifyNdip1PackageAccepted
+proposal=NDIP-1
+receipt_status=ACCEPTED
+authority=true
+package_source_commit=77ffa61136c0cd401244ebea4375a5a18b097b17
+file_sha256 70d9dd7c113fa5f457a20a97996322ef9a2018772efd225aa982c13ec4935140 docs/ndip/NDIP-1/01-调查与决策记录.md
+file_sha256 c167ed42dd29c383c08a8a102f36b0e4deee8ae5c7a5da115a09d04ffcb9fa6f docs/ndip/NDIP-1/02-NDIP-1-Pulsar-Native-Delivery.md
+file_sha256 9affafa81952959d39ed9c09a00abe6b84da4fd3b0b6280422f297684d56f727 docs/ndip/NDIP-1/03-实施计划.md
+file_sha256 2a26c107cd69ee522ea138b3487b8ec206e913acc6ad5b862aa69288ddcaa88e docs/ndip/NDIP-1/04-代码级目标设计.md
+package_sha256=13caab8ecdc201901f06e905f1c0bf9792780e50c6f5948f93abf2bdb8f4d21b
+gate_b=PASS
+implementation=AUTHORIZED
+local_disposable_testing=AUTHORIZED_WITH_EXACT_ATTESTATION
+gate_c=PENDING_DEPLOYMENT
+shadow=BLOCKED_BY_GATE_C
+enabled=BLOCKED_BY_GATE_C_AND_SHADOW_REQUIREMENTS
+
+> Task :verifyNdip2PackageAccepted
+proposal=NDIP-2
+receipt_status=ACCEPTED
+authority=true
+file_sha256 0a105fb2b73d63cabddf42d0ba3d5a9590b4edddd47242495f196bf56d15f642 docs/ndip/NDIP-2/01-NDIP-生命周期与认证源码权威分层.md
+file_sha256 c882ecaa32413cb9e177243cf3efe91b97810c3cc10be81e61e7e458030c4ffa docs/ndip/NDIP-2/02-实施计划.md
+file_sha256 ec1ba68ab3ac91aa667647e6289cd252b99da84d899f42f879821d6e5d7752e9 docs/ndip/NDIP-2/03-代码级目标设计.md
+package_sha256=856e1d768210a31fc9aad811af3a93c1de33189cc03c65bc1e36d57affbf10db
+gate_b=PASS
+implementation=AUTHORIZED
+deployment_authority=false
+
+> Task :checkDocumentation
+
+BUILD SUCCESSFUL in 1m 7s
+6 actionable tasks: 6 executed
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+Final: local71 and legacy26 zero failure/error/skip; main/test Checkstyle pass; checkDocumentation BUILD SUCCESSFUL in 1m 7s. User .gitignore excluded; goal/completion/production flags remain false.

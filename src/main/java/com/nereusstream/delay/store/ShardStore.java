@@ -1598,6 +1598,7 @@ public final class ShardStore implements AutoCloseable {
             validateFixedMetadata(db, handles.get(ColumnFamily.META), shardId);
             final RuntimeMetadataRead runtimeRead = readRuntimeMetadata(db, handles.get(ColumnFamily.META));
             runtimeMetadata = runtimeRead.metadata();
+            StoreRuntimeMetadata.requireEvidenceCursorScope(runtimeMetadata.evidenceCursors(), expectedFormat, shardId);
             StoreRecoveryMetadata recoveryMetadata =
                     readRecoveryMetadata(db, handles.get(ColumnFamily.META), metadata, restoreStoreIncarnation != null);
             final long closedIngressDeadlineThrough = runtimeRead.closedIngressDeadlineThrough();
@@ -2311,6 +2312,7 @@ public final class ShardStore implements AutoCloseable {
     /** Persists the complete, canonically ordered evidence cursor projection. */
     public synchronized void recordEvidenceCursors(final List<EvidenceCursor> cursors) {
         ensureOpen();
+        StoreRuntimeMetadata.requireEvidenceCursorScope(cursors, metadata.storeFormatVersion(), shardId);
         persistRuntimeMetadata(new StoreRuntimeMetadata(
                 runtimeMetadata.lastIngressFenceProofId(),
                 runtimeMetadata.lastCheckpointId(),

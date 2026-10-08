@@ -109,6 +109,11 @@ final class CheckpointManifestJson {
         "physicalTopicCreationTimestamp",
         "resourceToken"
     };
+    private static final String[] TARGET_PULSAR_EVIDENCE_KEYS = {
+        "batchIndex", "batchSize", "entryId", "evidenceGeneration", "evidenceKind", "evidenceResourceIncarnation",
+        "ledgerId", "maxBrokerPersistedAtThroughCursor", "physicalPartition", "physicalTopic",
+        "physicalTopicCreationTimestamp", "resourceToken", "targetScope"
+    };
 
     private CheckpointManifestJson() {}
 
@@ -225,6 +230,20 @@ final class CheckpointManifestJson {
                         decimal(fields.get("maxBrokerPersistedAtThroughCursor"), "maxBrokerPersistedAtThroughCursor"),
                         unsignedDecimal(fields.get("nextOffsetExclusive"), "nextOffsetExclusive"),
                         unsignedDecimal(fields.get("lastObservedLsoExclusive"), "lastObservedLsoExclusive")));
+            } else if (fields.containsKey("targetScope")) {
+                keys(fields, TARGET_PULSAR_EVIDENCE_KEYS, "Target Pulsar evidence cursor");
+                result.add(EvidenceCursor.targetPulsar(
+                        EvidenceCursor.TargetScope.decode(base64(fields.get("targetScope"), "targetScope")),
+                        base64(fields.get("resourceToken"), "resourceToken"),
+                        uint32Number(fields.get("physicalPartition"), "physicalPartition"),
+                        unsignedDecimal(fields.get("evidenceGeneration"), "evidenceGeneration"),
+                        decimal(fields.get("maxBrokerPersistedAtThroughCursor"), "maxBrokerPersistedAtThroughCursor"),
+                        string(fields.get("physicalTopic"), "physicalTopic"),
+                        unsignedDecimal(fields.get("physicalTopicCreationTimestamp"), "physicalTopicCreationTimestamp"),
+                        unsignedDecimal(fields.get("ledgerId"), "ledgerId"),
+                        unsignedDecimal(fields.get("entryId"), "entryId"),
+                        uint32Number(fields.get("batchIndex"), "batchIndex"),
+                        uint32Number(fields.get("batchSize"), "batchSize")));
             } else {
                 keys(fields, PULSAR_EVIDENCE_KEYS, "Pulsar evidence cursor");
                 result.add(EvidenceCursor.pulsar(

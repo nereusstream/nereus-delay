@@ -515,7 +515,8 @@ final class TargetCheckpointLedgerAudit {
                     merge(rebuilt, proof.root().tenantIdentity(), charge);
                 }
                 case 5 -> requireFixedBytes(payload, Bytes.u64beBits(proof.mutationSequence()), "mutation sequence");
-                case 6 -> StoreRuntimeMetadata.decodeEvidenceCursors(payload);
+                case 6 -> StoreRuntimeMetadata.requireEvidenceCursorScope(
+                        StoreRuntimeMetadata.decodeEvidenceCursors(payload), 2, proof.metadata().shardId());
                 case 7 -> requireNonZeroIdentity(payload, 16, "checkpoint identity");
                 case 8 -> Bytes.requireLength(payload, Long.BYTES, "opened Owner epoch");
                 case 9 -> {

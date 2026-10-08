@@ -18658,3 +18658,9 @@ Claim: success retains the newer obligation in terminal history; failure restore
 retry eligibility/attempt/authority. Claim/charge deletion, immutable newer UNKNOWN Budget/results and
 full reopen ledger audit pass (local47). Direct planner/commit and explicit external authority fixtures
 add no Broker/Source-ACK/Native/process evidence; completion/production flags stay false.
+
+Target cursor checkpoint representation now has a closed format2 Manifest JSON branch and exact
+format/Source-Shard checks shared by Manifest, META6 write/open and Target ledger audit. A real failing
+Lane-getter regression is fixed; local71 passes including actual RocksDB seed persist/reopen and wrong
+seed zero-write checks. Legacy JSON remains unchanged. Production seeding/retention/pins/Floor and
+Target Catalog/restore/install remain required; completion/production flags stay false.

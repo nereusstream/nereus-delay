@@ -9,6 +9,7 @@ import com.nereusstream.delay.protocol.EvidenceCursor;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
+import com.nereusstream.delay.protocol.TargetPartitionId;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -201,6 +202,43 @@ class CheckpointManifestTest {
                 () -> CheckpointManifest.decodeCanonicalJson(manifest.canonicalJson()
                         .replace("\"storeFormatVersion\":2", "\"storeFormatVersion\":3")
                         .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+    }
+
+    @Test
+    void formatTwoManifestRetainsTargetCursorNamespaceAndRejectsForeignScope() {
+        final var base = manifestWithFiles(List.of(file("target.sst", 1)), 2);
+        final var scope = new EvidenceCursor.TargetScope(base.shardId(), new TargetPartitionId(filled(32, 7)),
+                new TargetKeyCodec.Domain(3, -1L), filled(16, 8), filled(32, 9));
+        final var target = EvidenceCursor.targetPulsar(scope, filled(32, 10), base.shardId().partition(),
+                -1L, 200, "persistent://tenant/ns/target-journal", Long.MIN_VALUE, -1L, Long.MIN_VALUE, 0, 1);
+        final var lane = EvidenceCursor.pulsar(scope.target().bytes(), scope.accountingIncarnation(), filled(32, 10),
+                base.shardId().partition(), -1L, 200, target.physicalTopic(),
+                Long.MIN_VALUE, -1L, Long.MIN_VALUE, 0, 1);
+        final var manifest = manifestWithCursors(base, 2, List.of(target, lane));
+        final var encoded = manifest.canonicalJsonBytes();
+        final var decoded = CheckpointManifest.decodeCanonicalJson(encoded,
+                new CheckpointManifestLimits(10, 1 << 20, 1 << 20, 1024, 1 << 20, 2, 1024));
+        assertEquals(List.of(lane, target), decoded.evidenceCursors());
+        assertEquals(manifest.canonicalJson(), decoded.canonicalJson());
+        assertTrue(decoded.canonicalJson().contains("\"targetScope\":"));
+        assertThrows(IllegalArgumentException.class, () -> manifestWithCursors(base, 1, List.of(target)));
+        final var foreignScope = new EvidenceCursor.TargetScope(new ShardId(RouteIncarnation.random(), 2),
+                scope.target(), scope.domain(), scope.accountingIncarnation(), scope.producerNameHash());
+        final var foreign = EvidenceCursor.targetPulsar(foreignScope, filled(32, 10), 2, 1, 200,
+                target.physicalTopic(), 1, 2, 3, 0, 1);
+        assertThrows(IllegalArgumentException.class, () -> manifestWithCursors(base, 2, List.of(foreign)));
+        assertThrows(IllegalArgumentException.class, () -> CheckpointManifest.decodeCanonicalJson(
+                manifest.canonicalJson().replace("\"targetScope\":", "\"destinationLaneId\":")
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+    }
+
+    private static CheckpointManifest manifestWithCursors(
+            CheckpointManifest base, int format, List<EvidenceCursor> cursors) {
+        return new CheckpointManifest(base.checkpointId(), base.recoveryLineageId(), base.lineageGeneration(),
+                base.parentCheckpoint(), base.restoredFromCheckpointId(), base.createdBy(), base.createdAt(),
+                base.shardId(), base.dbIdentity(), base.sourceStoreIncarnation(), format, base.shardMutationSequence(),
+                base.appliedShardLogPosition(), base.controlStateDigest(), base.referencedSemanticVersionsDigest(),
+                cursors, base.files());
     }
 
     @Test

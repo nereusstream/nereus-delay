@@ -67,6 +67,7 @@ public record CheckpointManifest(
         if (evidenceCursors == null) {
             throw new IllegalArgumentException("evidenceCursors must not be null");
         }
+        StoreRuntimeMetadata.requireEvidenceCursorScope(evidenceCursors, storeFormatVersion, shardId);
         evidenceCursors = evidenceCursors.stream().sorted().toList();
         for (int index = 1; index < evidenceCursors.size(); index++) {
             if (evidenceCursors.get(index - 1).compareTo(evidenceCursors.get(index)) == 0) {
@@ -291,18 +292,25 @@ public record CheckpointManifest(
         } else {
             field(json, "batchIndex", u32(cursor.normalizedBatchIndex()));
             field(json, "batchSize", u32(cursor.batchSize()));
-            field(json, "destinationLaneId", quote(b64(cursor.destinationLaneId())));
+            if (!cursor.isTarget()) {
+                field(json, "destinationLaneId", quote(b64(cursor.destinationLaneId())));
+            }
             field(json, "entryId", quote(u64Bits(cursor.entryId())));
             field(json, "evidenceGeneration", quote(u64Bits(cursor.evidenceGeneration())));
             field(json, "evidenceKind", quote(cursor.evidenceKind().name()));
             field(json, "evidenceResourceIncarnation", quote(b64(cursor.evidenceResourceIncarnation())));
-            field(json, "laneIncarnation", quote(b64(cursor.laneIncarnation())));
+            if (!cursor.isTarget()) {
+                field(json, "laneIncarnation", quote(b64(cursor.laneIncarnation())));
+            }
             field(json, "ledgerId", quote(u64Bits(cursor.ledgerId())));
             field(json, "maxBrokerPersistedAtThroughCursor", quote(u64(cursor.maxBrokerPersistedAtThroughCursor())));
             field(json, "physicalPartition", u32(cursor.physicalPartition()));
             field(json, "physicalTopic", quote(cursor.physicalTopic()));
             field(json, "physicalTopicCreationTimestamp", quote(u64Bits(cursor.physicalTopicCreationTimestamp())));
             field(json, "resourceToken", quote(b64(cursor.resourceToken())));
+            if (cursor.isTarget()) {
+                field(json, "targetScope", quote(b64(cursor.targetScope().canonicalBytes())));
+            }
         }
         return json.append('}').toString();
     }
