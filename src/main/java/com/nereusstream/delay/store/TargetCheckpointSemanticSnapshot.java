@@ -191,6 +191,16 @@ public final class TargetCheckpointSemanticSnapshot {
         }
     }
 
+    /** Cheap admission identity check; the complete physical ledger is still required before placement. */
+    public void requireCut(StoreMetadata expectedMetadata, SourcePosition expectedSource, long expectedSequence,
+            byte[] expectedLineage) {
+        if (expectedSource == null || !Arrays.equals(metadata.encode(), expectedMetadata.encode())
+                || !Arrays.equals(source.canonicalBytes(), expectedSource.canonicalBytes())
+                || mutationSequence != expectedSequence || !Arrays.equals(lineage, expectedLineage)) {
+            throw new IllegalArgumentException("Target semantic companion request differs from its Store cut");
+        }
+    }
+
     public byte[] snapshotDigest() { return Bytes.copy(digest); }
     public List<ProfileSemanticEnvelope> profiles() { return profiles; }
     public List<RetryPolicySemantic> retryPolicies() { return retries; }

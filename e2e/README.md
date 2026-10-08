@@ -7648,3 +7648,11 @@ P1 Target Journal history also reads real original Broker bytes with UNKNOWN/res
 Source-position fixtures; no actual later Outcome apply is claimed. Guarded cursor closure/active offset
 preservation and existing SEND/Journal assertions remain. NDIP-3 `c5-retained-input-broker` receipts
 separate these slices from full protected history/production recovery validation.
+
+NDIP-3 durable semantic companion regression: the locked K1 Target Source/NOT_FOUND expiry smoke
+now uses its real acknowledged Broker cut through Host/Worker CHECKPOINT admission to atomically
+persist `TARGET-SEMANTICS.pb`, validate the complete physical image and reuse exact bytes without a
+Store write. Semantic values are empty and Owner/intent/protection/control inputs are explicit fixtures;
+this is an unpublished candidate, without upload/Catalog/install authority. Use the existing
+`NEREUS_DELAY_KAFKA_TARGET_SOURCE_ACK_NETWORK_LOSS_ONLY=1` runner and locked checkout/JAR.
+Receipts: `docs/ndip/NDIP-3/evidence/c5-durable-semantic-candidate-*`.

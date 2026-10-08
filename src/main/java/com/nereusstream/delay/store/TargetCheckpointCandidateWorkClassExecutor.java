@@ -72,6 +72,65 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
         return submission;
     }
 
+    /** Queues the exact immutable semantic bytes and limits in the existing CHECKPOINT graph. */
+    public Submission submitSemantic(final SemanticRequest request) {
+        final var semantic = Objects.requireNonNull(request, "request");
+        requireCurrentSemantic(semantic);
+        final byte[] identity = CanonicalProtobuf.message(out -> {
+            CanonicalProtobuf.bytes(out, 1, canonicalIdentity(semantic.candidate()));
+            CanonicalProtobuf.bytes(out, 2, semantic.snapshot().canonicalBytes());
+            CanonicalProtobuf.uint32(out, 3, semantic.limits().maximumRecords());
+            CanonicalProtobuf.uint32(out, 4, semantic.limits().maximumBytes());
+            CanonicalProtobuf.int64(out, 5, semantic.limits().maximumAdmissionFrameBytes());
+        });
+        final var task = new WorkClassTask(WorkClass.CHECKPOINT,
+                "target-semantic-candidate/" + Bytes.hex(Bytes.sha256(TASK_DOMAIN, identity)), identity.length);
+        final var submission = new Submission(task);
+        workClasses.submit(task, () -> executeSemantic(semantic, submission));
+        return submission;
+    }
+
+    private void executeSemantic(final SemanticRequest semantic, final Submission submission) {
+        try {
+            requireCurrentSemantic(semantic);
+            final var request = semantic.candidate();
+            final Path path = Files.exists(request.checkpointPath(), LinkOption.NOFOLLOW_LINKS)
+                    ? store.reuseTargetSemanticCheckpointCandidate(
+                            request.checkpointPath(), request.pending().checkpointId(),
+                            request.pending().recoveryLineageId(), request.physicalLimits(), request.quotaLimits(),
+                            request.ledgerLimits(), semantic.snapshot(), semantic.limits())
+                    : store.createTargetSemanticCheckpointCandidate(
+                            request.checkpointPath(), request.pending().checkpointId(),
+                            request.pending().recoveryLineageId(), request.physicalLimits(), request.quotaLimits(),
+                            request.ledgerLimits(), semantic.snapshot(), semantic.limits());
+            requireCurrentSemantic(semantic);
+            submission.complete(new Outcome(path, null));
+        } catch (RuntimeException failure) {
+            submission.complete(new Outcome(null, failure));
+        } catch (Error failure) {
+            submission.complete(new Outcome(null, failure));
+            throw failure;
+        }
+    }
+
+    private void requireCurrentSemantic(final SemanticRequest request) {
+        requireCurrent(request.candidate());
+        request.snapshot().requireCut(store.metadata(), store.appliedShardLogPosition(), store.shardMutationSequence(),
+                request.candidate().pending().recoveryLineageId());
+        request.protectionGuard().run();
+    }
+
+    public record SemanticRequest(Request candidate, TargetCheckpointSemanticSnapshot snapshot,
+            TargetCheckpointSemanticSnapshot.Limits limits, Runnable protectionGuard) {
+        public SemanticRequest {
+            Objects.requireNonNull(candidate, "candidate");
+            Objects.requireNonNull(snapshot, "snapshot");
+            Objects.requireNonNull(limits, "limits");
+            Objects.requireNonNull(protectionGuard, "protectionGuard");
+            TargetCheckpointSemanticSnapshot.decode(snapshot.canonicalBytes(), limits);
+        }
+    }
+
     private void execute(final Request request, final Submission submission) {
         try {
             requireCurrent(request);

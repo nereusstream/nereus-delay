@@ -166,6 +166,15 @@ public final class TargetCheckpointRootVerifier {
             final CheckpointManifestLimits physicalLimits,
             final QuotaAuditLimits quotaLimits,
             final LedgerAuditLimits ledgerLimits) {
+        return auditLocalCandidate(image, store, expectedLineage, checkpointId, physicalLimits,
+                quotaLimits, ledgerLimits, null, null);
+    }
+
+    static RootProof auditLocalCandidate(final Path image, final ShardStore store, final byte[] expectedLineage,
+            final byte[] checkpointId, final CheckpointManifestLimits physicalLimits,
+            final QuotaAuditLimits quotaLimits, final LedgerAuditLimits ledgerLimits,
+            final TargetCheckpointSemanticSnapshot snapshot,
+            final TargetCheckpointSemanticSnapshot.Limits semanticLimits) {
         Objects.requireNonNull(store, "store");
         Bytes.requireLength(expectedLineage, 16, "expectedLineage");
         Bytes.requireLength(checkpointId, 16, "checkpointId");
@@ -184,14 +193,16 @@ public final class TargetCheckpointRootVerifier {
                 store.shardMutationSequence(),
                 store.latestSequenceNumber(),
                 runtime);
-        return validateImage(
+        final var proof = validateImage(
                 image,
                 store.shardId(),
                 physicalLimits,
                 null,
                 Objects.requireNonNull(quotaLimits, "quotaLimits"),
                 Objects.requireNonNull(ledgerLimits, "ledgerLimits"),
-                expected).root();
+                expected);
+        if (snapshot != null) { snapshot.validateAgainst(proof.dependencies(), semanticLimits); }
+        return proof.root();
     }
 
     /**
@@ -242,6 +253,15 @@ public final class TargetCheckpointRootVerifier {
         final var proof = auditImageDependencies(image, expectedShard, physicalLimits, quotaLimits, ledgerLimits);
         Objects.requireNonNull(snapshot, "snapshot").validateAgainst(proof.dependencies(), semanticLimits);
         return proof;
+    }
+
+    /** Reads the durable companion and compares it with the complete immutable physical image ledger. */
+    public static LedgerProof auditPersistedSemanticSnapshot(final Path image, final ShardId expectedShard,
+            final CheckpointManifestLimits physicalLimits, final QuotaAuditLimits quotaLimits,
+            final LedgerAuditLimits ledgerLimits, final TargetCheckpointSemanticSnapshot.Limits semanticLimits) {
+        final var snapshot = TargetCheckpointSemanticSnapshotFile.read(image, semanticLimits);
+        return auditImageSemanticSnapshot(image, expectedShard, physicalLimits, quotaLimits, ledgerLimits,
+                snapshot, semanticLimits);
     }
 
     private static void requireFormat2Manifest(

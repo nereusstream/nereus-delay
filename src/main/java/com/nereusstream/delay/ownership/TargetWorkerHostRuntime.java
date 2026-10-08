@@ -412,6 +412,21 @@ public final class TargetWorkerHostRuntime {
                         intents, ownerClock, checkpointPath, pending, physicalLimits, quotaLimits, ledgerLimits));
     }
 
+    /** Admits semantic companion creation through the exact host Shard lifecycle and protected Worker cut. */
+    public TargetCheckpointCandidateWorkClassExecutor.Submission submitSemanticCheckpointCandidate(
+            final TargetWorkerShardRuntime expectedShard, final CheckpointUploadIntentAuthority intents,
+            final LongSupplier ownerClock, final Path checkpointPath, final CheckpointUploadIntent pending,
+            final CheckpointManifestLimits physicalLimits,
+            final TargetCheckpointRootVerifier.QuotaAuditLimits quotaLimits,
+            final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits,
+            final com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot snapshot,
+            final com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.Limits semanticLimits,
+            final Runnable protectionGuard) {
+        return withCheckpointAdmission(expectedShard, () -> expectedShard.submitProtectedSemanticCheckpointCandidate(
+                intents, ownerClock, checkpointPath, pending, physicalLimits, quotaLimits, ledgerLimits,
+                snapshot, semanticLimits, protectionGuard));
+    }
+
     /** Claims a selected Target head only on a currently admitted exact Shard instance. */
     public TargetClaimRecord claim(
             final TargetWorkerShardRuntime expectedShard,

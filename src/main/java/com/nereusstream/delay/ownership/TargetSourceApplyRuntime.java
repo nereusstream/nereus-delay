@@ -1030,6 +1030,34 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 checkpointPath, pending, lease, physicalLimits, quotaLimits, ledgerLimits));
     }
 
+    synchronized TargetCheckpointCandidateWorkClassExecutor.Submission submitSemanticCheckpointCandidate(
+            final WorkClassExecutionRegistry registry, final CheckpointUploadIntentAuthority intents,
+            final LongSupplier ownerClock, final Path checkpointPath, final CheckpointUploadIntent pending,
+            final CheckpointManifestLimits physicalLimits,
+            final TargetCheckpointRootVerifier.QuotaAuditLimits quotaLimits,
+            final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits,
+            final com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot snapshot,
+            final com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.Limits semanticLimits,
+            final Runnable sourceCutGuard, final Runnable protectionGuard) {
+        if (workClasses == null || workClasses != Objects.requireNonNull(registry, "registry")) {
+            throw new IllegalStateException("Target semantic candidate requires the bound source WorkClass graph");
+        }
+        final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
+        final var cut = Objects.requireNonNull(sourceCutGuard, "sourceCutGuard");
+        final var protection = Objects.requireNonNull(protectionGuard, "protectionGuard");
+        final Runnable guard = () -> {
+            requireGcOwner(clock);
+            cut.run();
+            protection.run();
+        };
+        guard.run();
+        final var executor = new TargetCheckpointCandidateWorkClassExecutor(
+                registry, store, authorities.leases(), intents, clock, guard);
+        return executor.submitSemantic(new TargetCheckpointCandidateWorkClassExecutor.SemanticRequest(
+                new TargetCheckpointCandidateWorkClassExecutor.Request(checkpointPath, pending, lease,
+                        physicalLimits, quotaLimits, ledgerLimits), snapshot, semanticLimits, guard));
+    }
+
     synchronized OxiaOwnerLeaseStore drainAuthority() {
         return authorities.leases();
     }

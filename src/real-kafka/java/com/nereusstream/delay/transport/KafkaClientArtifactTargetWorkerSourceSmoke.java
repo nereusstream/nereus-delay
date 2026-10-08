@@ -57,8 +57,13 @@ import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import com.nereusstream.delay.scheduler.WorkClassPolicy;
 import com.nereusstream.delay.scheduler.WorkClassRuntimeConfig;
 import com.nereusstream.delay.store.BoundedReadBudget;
+import com.nereusstream.delay.store.CheckpointManifestLimits;
+import com.nereusstream.delay.store.CheckpointUploadIntentStore;
 import com.nereusstream.delay.store.ShardStore;
 import com.nereusstream.delay.store.ShardStoreConfig;
+import com.nereusstream.delay.store.TargetCheckpointRootVerifier;
+import com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot;
+import com.nereusstream.delay.store.TargetCheckpointSemanticSnapshotFile;
 import com.nereusstream.delay.store.TargetStoreBackend;
 import com.nereusstream.delay.store.TargetStoreBackendFailureSmokeBridge;
 import java.lang.reflect.InvocationTargetException;
@@ -1055,6 +1060,9 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                                         + "retry ACKed the retained entry without another Store write.");
                     }
                 }
+                if (host != null && worker.pendingSourceEntry().isEmpty()) {
+                    verifySemanticCandidate(host, worker, store, backend, scope, active, leases, storeRoot);
+                }
             } finally {
                 if (host != null) {
                     final var drained = host.drainAll(
@@ -1122,6 +1130,105 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                     ackInjection.mode());
         }
         return expiryFixtureAfterTurn[0];
+    }
+
+    /** Actual Broker ACK cut/Worker/Store/file path; semantic catalog/protection/intent authorities are fixtures. */
+    private static void verifySemanticCandidate(TargetWorkerHostRuntime host, TargetWorkerShardRuntime worker,
+            ShardStore store, TargetStoreBackend backend, TargetQuotaScope scope, OwnerLease owner,
+            OxiaOwnerLeaseStore leases, Path storeRoot) {
+        final var reads = budget();
+        final var ledgerLimits = new TargetCheckpointRootVerifier.LedgerAuditLimits(4096, 32L << 20, 16_384, 32L << 20);
+        final var dependencies = backend.guardedRead(reads, reader -> {
+            final var bookkeeping = com.nereusstream.delay.protocol.TargetQuotaBookkeeping.decode(
+                    com.nereusstream.delay.store.TargetValueEnvelope.decode(reader.get(
+                            com.nereusstream.delay.store.ColumnFamily.META,
+                            com.nereusstream.delay.protocol.TargetQuotaBookkeeping.keyFor(scope.shard())),
+                            com.nereusstream.delay.protocol.TargetQuotaBookkeeping.VALUE_TYPE).payload());
+            final byte[] key = bookkeeping.owner().key();
+            key[0] = com.nereusstream.delay.store.TargetKeyCodec.QUOTA_INCARNATION_TAG;
+            final var root = com.nereusstream.delay.protocol.TargetQuotaIncarnation.decodeForStore(key,
+                    com.nereusstream.delay.store.TargetValueEnvelope.decode(reader.get(
+                            com.nereusstream.delay.store.ColumnFamily.META, key),
+                            com.nereusstream.delay.protocol.TargetQuotaIncarnation.VALUE_TYPE).payload(),
+                    scope.shard(), scope.tenantScope());
+            final var aggregate = reader.aggregate();
+            return TargetCheckpointRootVerifier.auditLiveStoreDependencies(store,
+                    new TargetCheckpointRootVerifier.RootProof(reader.metadata(), aggregate.mutation().source(),
+                            aggregate.mutation().sequence(), root, bookkeeping, aggregate), ledgerLimits, reads);
+        }, ownerReadAuthority(leases, owner));
+        if (!dependencies.profiles().isEmpty() || !dependencies.retryPolicies().isEmpty()
+                || !dependencies.trustSets().isEmpty() || !dependencies.admissions().isEmpty()) {
+            throw new IllegalStateException("Cancel/NOT_FOUND semantic candidate unexpectedly has version inputs");
+        }
+        final var semanticLimits = new TargetCheckpointSemanticSnapshot.Limits(64, 1 << 20, 1 << 20);
+        final var snapshot = TargetCheckpointSemanticSnapshot.collect(dependencies, List.of(), emptySemanticProfiles(),
+                (ref, at) -> { throw new AssertionError("unexpected Retry Policy input"); },
+                ref -> { throw new AssertionError("unexpected Trust Set input"); }, budget(), semanticLimits, () -> {});
+        final UUID id = UUID.randomUUID();
+        final byte[] checkpointId = java.nio.ByteBuffer.allocate(16).putLong(id.getMostSignificantBits())
+                .putLong(id.getLeastSignificantBits()).array();
+        final long now = System.currentTimeMillis();
+        final var pending = new com.nereusstream.delay.protocol.CheckpointUploadIntent(new ShardSubject(scope.shard()),
+                LINEAGE, checkpointId, new OwnerIdentity(Bytes.utf8("kafka-target-worker-deployment"),
+                        Bytes.utf8("kafka-target-worker-host-run"), owner.ownerEpoch(), owner.leaseToken()),
+                store.metadata().storeIncarnation(), Bytes.sha256(Bytes.utf8(id.toString())), 1, null, null,
+                new com.nereusstream.delay.protocol.ProfileRef(Bytes.utf8("checkpoint-fixture"), 1,
+                        Bytes.sha256(Bytes.utf8("checkpoint-fixture")),
+                        com.nereusstream.delay.protocol.ProfileKind.OBJECT_STORE),
+                new TrustedUtcIntervalEvidence(now, now + 1, TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                        Bytes.sha256(Bytes.utf8("checkpoint-clock-fixture")), 1, 1, 1,
+                        Bytes.sha256(Bytes.utf8("checkpoint-clock-sample")), 0, null), now + 60_000,
+                com.nereusstream.delay.protocol.CheckpointUploadState.PENDING_UPLOAD, 1, null, null);
+        final var intents = new CheckpointUploadIntentStore();
+        intents.create(pending);
+        final var physical = new CheckpointManifestLimits(128, 64L << 20, 64L << 20, 1024, 1 << 20, 128, 1024);
+        final var quota = new TargetCheckpointRootVerifier.QuotaAuditLimits(4096, 32L << 20);
+        final Path path = storeRoot.resolve("semantic-checkpoint");
+        final var first = host.submitSemanticCheckpointCandidate(worker, intents, System::currentTimeMillis,
+                path, pending, physical, quota, ledgerLimits, snapshot, semanticLimits,
+                () -> { if (Thread.holdsLock(store)) { throw new AssertionError("protection under Store lock"); } });
+        host.settlePendingCheckpointTurn(worker, new SchedulerBudget(64, 32L << 20, TimeUnit.SECONDS.toNanos(10)));
+        if (!path.equals(first.outcome().orElseThrow().checkpointPath())) {
+            throw new IllegalStateException("real Broker-cut semantic checkpoint failed",
+                    first.outcome().get().failure());
+        }
+        final long beforeReuse = store.latestSequenceNumber();
+        final var reused = host.submitSemanticCheckpointCandidate(worker, intents, System::currentTimeMillis,
+                path, pending, physical, quota, ledgerLimits, snapshot, semanticLimits, () -> {});
+        host.settlePendingCheckpointTurn(worker, new SchedulerBudget(64, 32L << 20, TimeUnit.SECONDS.toNanos(10)));
+        if (!path.equals(reused.outcome().orElseThrow().checkpointPath()) || store.latestSequenceNumber() != beforeReuse
+                || !Arrays.equals(snapshot.canonicalBytes(), TargetCheckpointSemanticSnapshotFile.read(
+                        path, semanticLimits).canonicalBytes())) {
+            throw new IllegalStateException("real Broker-cut semantic checkpoint reuse changed bytes/Store");
+        }
+        TargetCheckpointRootVerifier.auditPersistedSemanticSnapshot(path, scope.shard(), physical, quota,
+                ledgerLimits, semanticLimits);
+        System.out.println("K1 semantic companion candidate passed: actual Broker ACK cut/Host/Worker/Store/atomic "
+                + "file placement, no-write reuse and physical audit; empty semantics and Owner/intent/protection "
+                + "authorities are explicit fixtures. No upload/Catalog/install authority.");
+    }
+
+    private static com.nereusstream.delay.runtime.ProfileCatalog emptySemanticProfiles() {
+        return new com.nereusstream.delay.runtime.ProfileCatalog() {
+            @Override
+            public com.nereusstream.delay.protocol.ProfileSemanticEnvelope resolve(
+                    com.nereusstream.delay.protocol.ProfileRef reference) {
+                throw new AssertionError("unexpected Profile");
+            }
+            @Override
+            public com.nereusstream.delay.protocol.CredentialBinding resolveBinding(
+                    com.nereusstream.delay.protocol.ProfileRef ref, long generation) {
+                throw new AssertionError("binding");
+            }
+            @Override
+            public com.nereusstream.delay.protocol.CredentialBindingHead resolveHead(
+                    com.nereusstream.delay.protocol.ProfileRef ref) { throw new AssertionError("head"); }
+            @Override
+            public com.nereusstream.delay.protocol.CredentialBindingProtection resolveProtection(
+                    com.nereusstream.delay.protocol.ProfileRef ref, long generation) {
+                throw new AssertionError("protection");
+            }
+        };
     }
 
     private static long runTargetSourceReplayAfterUnknown(

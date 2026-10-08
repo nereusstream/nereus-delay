@@ -145,6 +145,7 @@ import com.nereusstream.delay.store.TargetCheckpointCandidateTestBridge;
 import com.nereusstream.delay.store.TargetCheckpointCandidateWorkClassExecutor;
 import com.nereusstream.delay.store.TargetCheckpointRootVerifier;
 import com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot;
+import com.nereusstream.delay.store.TargetCheckpointSemanticSnapshotFile;
 import com.nereusstream.delay.store.TargetKeyCodec;
 import com.nereusstream.delay.store.TargetStoreBackend;
 import com.nereusstream.delay.store.TargetValueEnvelope;
@@ -1209,6 +1210,75 @@ class TargetQuotaGrantStoreTest {
             candidateClasses.runTurn(new SchedulerBudget(1, queuedReuse.task().bytes(), 1_000));
             assertEquals(candidate, queuedReuse.outcome().orElseThrow().checkpointPath());
             assertEquals(beforeReuse, live.operationStatistics().nativeWriteCalls());
+            final Path semanticCandidate = root.resolve("target-semantic-candidate");
+            final var semanticRequest = new TargetCheckpointCandidateWorkClassExecutor.SemanticRequest(
+                    new TargetCheckpointCandidateWorkClassExecutor.Request(semanticCandidate, pending, candidateOwner,
+                            imageLimits, quotaAuditLimits, ledgerAuditLimits), semantics, semanticLimits,
+                    () -> assertFalse(Thread.holdsLock(live), "protection I/O must stay outside Store locks"));
+            final long beforeSemanticQueue = live.operationStatistics().nativeWriteCalls();
+            final var semanticQueued = candidateExecutor.submitSemantic(semanticRequest);
+            assertTrue(Files.notExists(semanticCandidate));
+            assertEquals(beforeSemanticQueue, live.operationStatistics().nativeWriteCalls());
+            assertTrue(semanticQueued.task().bytes() > semantics.canonicalBytes().length);
+            candidateClasses.runTurn(new SchedulerBudget(1, semanticQueued.task().bytes() - 1, 1_000));
+            assertTrue(semanticQueued.outcome().isEmpty());
+            assertTrue(Files.notExists(semanticCandidate));
+            candidateClasses.runTurn(new SchedulerBudget(1, semanticQueued.task().bytes(), 1_000));
+            assertEquals(semanticCandidate, semanticQueued.outcome().orElseThrow().checkpointPath());
+            assertArrayEquals(semantics.canonicalBytes(), TargetCheckpointSemanticSnapshotFile.read(
+                    semanticCandidate, semanticLimits).canonicalBytes());
+            assertTrue(CheckpointFileInventory.collect(semanticCandidate, imageLimits).stream().anyMatch(file ->
+                    file.name().equals(TargetCheckpointSemanticSnapshotFile.NAME)));
+            TargetCheckpointRootVerifier.auditPersistedSemanticSnapshot(semanticCandidate, scope.shard(), imageLimits,
+                    quotaAuditLimits, ledgerAuditLimits, semanticLimits);
+            final long beforeSemanticReuse = live.operationStatistics().nativeWriteCalls();
+            final var semanticReuse = candidateExecutor.submitSemantic(semanticRequest);
+            candidateClasses.runTurn(new SchedulerBudget(1, semanticReuse.task().bytes(), 1_000));
+            assertEquals(semanticCandidate, semanticReuse.outcome().orElseThrow().checkpointPath());
+            assertEquals(beforeSemanticReuse, live.operationStatistics().nativeWriteCalls());
+            final var plainReuse = candidateExecutor.submitSemantic(new TargetCheckpointCandidateWorkClassExecutor
+                    .SemanticRequest(candidateRequest, semantics, semanticLimits, () -> {}));
+            candidateClasses.runTurn(new SchedulerBudget(1, plainReuse.task().bytes(), 1_000));
+            assertNotNull(plainReuse.outcome().orElseThrow().failure());
+            assertEquals(beforeSemanticReuse, live.operationStatistics().nativeWriteCalls());
+            final var protectedState = new java.util.concurrent.atomic.AtomicBoolean(true);
+            final Path protectionLostPath = root.resolve("target-semantic-lost-protection");
+            final var protectionLost = candidateExecutor.submitSemantic(new TargetCheckpointCandidateWorkClassExecutor
+                    .SemanticRequest(new TargetCheckpointCandidateWorkClassExecutor.Request(protectionLostPath,
+                            pending, candidateOwner, imageLimits, quotaAuditLimits, ledgerAuditLimits),
+                            semantics, semanticLimits, () -> {
+                                if (!protectedState.get()) { throw new IllegalStateException("protection lost"); }
+                            }));
+            protectedState.set(false);
+            candidateClasses.runTurn(new SchedulerBudget(1, protectionLost.task().bytes(), 1_000));
+            assertNotNull(protectionLost.outcome().orElseThrow().failure());
+            assertTrue(Files.notExists(protectionLostPath));
+            assertEquals(beforeSemanticReuse, live.operationStatistics().nativeWriteCalls());
+            final Path semanticOverBudget = root.resolve("target-semantic-over-budget");
+            final var failedSemantic = candidateExecutor.submitSemantic(new TargetCheckpointCandidateWorkClassExecutor
+                    .SemanticRequest(new TargetCheckpointCandidateWorkClassExecutor.Request(semanticOverBudget,
+                            pending, candidateOwner, imageLimits, quotaAuditLimits,
+                            new TargetCheckpointRootVerifier.LedgerAuditLimits(1, 128, 100_000, 64L << 20)),
+                            semantics, semanticLimits, () -> {}));
+            candidateClasses.runTurn(new SchedulerBudget(1, failedSemantic.task().bytes(), 1_000));
+            assertNotNull(failedSemantic.outcome().orElseThrow().failure());
+            assertTrue(Files.notExists(semanticOverBudget));
+            assertArrayEquals(checkpointId, live.runtimeMetadata().lastCheckpointId());
+            try (var staging = Files.list(root.resolve("checkpoint-tmp"))) { assertEquals(0, staging.count()); }
+            final Path semanticFile = semanticCandidate.resolve(TargetCheckpointSemanticSnapshotFile.NAME);
+            final byte[] semanticBefore = Files.readAllBytes(semanticFile);
+            final byte[] semanticCorrupt = semanticBefore.clone();
+            semanticCorrupt[semanticCorrupt.length - 1] ^= 1;
+            Files.write(semanticFile, semanticCorrupt);
+            final long beforeCorruptReuse = live.operationStatistics().nativeWriteCalls();
+            final var corruptSemantic = candidateExecutor.submitSemantic(semanticRequest);
+            candidateClasses.runTurn(new SchedulerBudget(1, corruptSemantic.task().bytes(), 1_000));
+            assertNotNull(corruptSemantic.outcome().orElseThrow().failure());
+            assertEquals(beforeCorruptReuse, live.operationStatistics().nativeWriteCalls());
+            Files.write(semanticFile, semanticBefore);
+            assertThrows(IllegalArgumentException.class, () -> TargetCheckpointSemanticSnapshotFile.read(
+                    semanticCandidate, new TargetCheckpointSemanticSnapshot.Limits(1, 1, 1)));
+            final long beforeStaleCandidate = live.operationStatistics().nativeWriteCalls();
             final var staleIntents = new CheckpointUploadIntentStore();
             staleIntents.create(pending);
             final var staleIntentExecutor = new TargetCheckpointCandidateWorkClassExecutor(
@@ -1238,7 +1308,7 @@ class TargetQuotaGrantStoreTest {
             candidateClasses.runTurn(new SchedulerBudget(1, queuedAfterIntentLoss.task().bytes(), 1_000));
             assertTrue(queuedAfterIntentLoss.outcome().orElseThrow().failure() instanceof IllegalStateException);
             assertTrue(Files.notExists(lostIntentCandidate));
-            assertEquals(beforeReuse, live.operationStatistics().nativeWriteCalls());
+            assertEquals(beforeStaleCandidate, live.operationStatistics().nativeWriteCalls());
             final Path lostOwnerCandidate = root.resolve("target-candidate-lost-owner");
             final var queuedAfterOwnerLoss = candidateExecutor.submit(
                     new TargetCheckpointCandidateWorkClassExecutor.Request(
@@ -1274,7 +1344,7 @@ class TargetQuotaGrantStoreTest {
                             imageLimits,
                             quotaAuditLimits,
                             ledgerAuditLimits));
-            assertEquals(beforeReuse, live.operationStatistics().nativeWriteCalls());
+            assertEquals(beforeStaleCandidate, live.operationStatistics().nativeWriteCalls());
             final long candidateWriteCut = live.latestSequenceNumber();
             live.recordLastCheckpointId(checkpointId);
             assertTrue(Long.compareUnsigned(live.latestSequenceNumber(), candidateWriteCut) > 0);

@@ -582,6 +582,29 @@ public final class TargetWorkerShardRuntime
         return submitted;
     }
 
+    /** Persists exact semantic bytes under this Worker's ACK/GC/Owner cut; the result remains unpublished. */
+    public synchronized TargetCheckpointCandidateWorkClassExecutor.Submission
+            submitProtectedSemanticCheckpointCandidate(
+            final CheckpointUploadIntentAuthority intents, final LongSupplier ownerClock,
+            final Path checkpointPath, final CheckpointUploadIntent pending,
+            final CheckpointManifestLimits physicalLimits,
+            final TargetCheckpointRootVerifier.QuotaAuditLimits quotaLimits,
+            final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits,
+            final com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot snapshot,
+            final com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.Limits semanticLimits,
+            final Runnable protectionGuard) {
+        final var cut = protectCheckpointCut();
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        cut.requireCurrent();
+        final var submitted = target.submitSemanticCheckpointCandidate(workClasses, intents, ownerClock,
+                checkpointPath, pending, physicalLimits, quotaLimits, ledgerLimits, snapshot, semanticLimits,
+                cut::requireCurrent, protectionGuard);
+        pendingCheckpoint = submitted;
+        preparedCheckpointCut = null;
+        return submitted;
+    }
+
     /** Runs one shared bounded turn and releases the local source/maintenance cut only after settlement. */
     public synchronized Optional<TargetCheckpointCandidateWorkClassExecutor.Outcome> runCheckpointTurn(
             final SchedulerBudget budget) {

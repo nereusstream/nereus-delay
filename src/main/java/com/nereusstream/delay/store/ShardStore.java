@@ -2916,6 +2916,39 @@ public final class ShardStore implements AutoCloseable {
         return checkpointPath;
     }
 
+    synchronized Path createTargetSemanticCheckpointCandidate(final Path checkpointPath,
+            final byte[] checkpointId, final byte[] expectedLineage, final CheckpointManifestLimits physicalLimits,
+            final TargetCheckpointRootVerifier.QuotaAuditLimits quotaLimits,
+            final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits,
+            final TargetCheckpointSemanticSnapshot snapshot,
+            final TargetCheckpointSemanticSnapshot.Limits semanticLimits) {
+        requireTargetCandidateInputs(checkpointId, expectedLineage, physicalLimits, quotaLimits, ledgerLimits);
+        snapshot.requireCut(metadata, appliedShardLogPosition(), shardMutationSequence(), expectedLineage);
+        return createCheckpointImage(checkpointPath, checkpointId, 2, candidate -> {
+            TargetCheckpointSemanticSnapshotFile.writeNew(candidate, snapshot, semanticLimits);
+            TargetCheckpointRootVerifier.auditLocalCandidate(candidate, this, expectedLineage, checkpointId,
+                    physicalLimits, quotaLimits, ledgerLimits, snapshot, semanticLimits);
+        });
+    }
+
+    synchronized Path reuseTargetSemanticCheckpointCandidate(final Path checkpointPath,
+            final byte[] checkpointId, final byte[] expectedLineage, final CheckpointManifestLimits physicalLimits,
+            final TargetCheckpointRootVerifier.QuotaAuditLimits quotaLimits,
+            final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits,
+            final TargetCheckpointSemanticSnapshot snapshot,
+            final TargetCheckpointSemanticSnapshot.Limits semanticLimits) {
+        requireTargetCandidateInputs(checkpointId, expectedLineage, physicalLimits, quotaLimits, ledgerLimits);
+        snapshot.requireCut(metadata, appliedShardLogPosition(), shardMutationSequence(), expectedLineage);
+        if (runtimeMetadata.lastCheckpointId() == null
+                || !Bytes.constantTimeEquals(runtimeMetadata.lastCheckpointId(), checkpointId)) {
+            throw new IllegalStateException("Target semantic candidate checkpoint identity differs from live Store");
+        }
+        final var stored = TargetCheckpointSemanticSnapshotFile.requireExact(checkpointPath, snapshot, semanticLimits);
+        TargetCheckpointRootVerifier.auditLocalCandidate(checkpointPath, this, expectedLineage, checkpointId,
+                physicalLimits, quotaLimits, ledgerLimits, stored, semanticLimits);
+        return checkpointPath;
+    }
+
     private void requireTargetCandidateInputs(
             final byte[] checkpointId,
             final byte[] expectedLineage,

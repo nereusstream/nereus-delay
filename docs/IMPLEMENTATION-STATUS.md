@@ -18743,3 +18743,11 @@ completion/production flags stay false.
 Native two-session Oxia12/style passes the actual Owner/Source/Store and offline original-Admission
 correlation paths; richer semantic snapshot/catalog/Broker/protection composition remains unproven.
 Receipt: NDIP-3 `evidence/c5-semantic-snapshot-oxia-real.log`; completion/production flags stay false.
+
+Target semantic companions now persist through exact CHECKPOINT tasks and the existing atomic
+candidate staging/metadata rollback path. Host/exact Worker admission captures a Broker ACK cut and
+holds Source/GC exclusion until settlement; guards stay outside Store locks. Full frame/limit identity,
+forced file/inventory/readback, exact no-write reuse and persisted-image audit are implemented. Local66/
+style and locked K1 real ACK-cut/Host/Worker/Store/file chain pass with empty semantic/Owner/intent/
+protection fixtures. Source control snapshot accounting, lifetime/pins, formal upload/Catalog/install,
+production full semantic/provider and migration/retirement remain open; completion/production flags false.

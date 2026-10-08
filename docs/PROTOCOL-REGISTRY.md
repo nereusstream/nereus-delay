@@ -3036,3 +3036,18 @@ Capability references; object-owner hashes require actual OBJECT_STORE semantics
 visibility is checked during collection with protection guards and finite reads; offline contents alone
 are not historical publication/key/protection/pin proof. Artifact/credential/control/Outcome authority,
 Source-accounted snapshot persistence and formal Manifest/Catalog/install remain required separately.
+
+Target local semantic companion persistence (2026-10-09): the complete bounded canonical snapshot is
+written as regular `TARGET-SEMANTICS.pb` within checkpoint staging using CREATE_NEW/NOFOLLOW and
+file force. The existing directory force/atomic move/parent force publishes only a local unpublished
+candidate. File inventory includes the companion; finite file/total/semantic limits apply. Read requires
+regular NOFOLLOW data of exact finite size, closed decoding and stable length; reuse requires byte-exact
+snapshot and full same-cut image ledger. Missing/corrupt/foreign companions cannot be added to an
+existing plain candidate by reuse. No Source NV/CF/charged control-snapshot format is introduced.
+
+Semantic CHECKPOINT queue identity includes exact candidate identity, full canonical snapshot bytes
+and all semantic limits; byte cost is that exact envelope. Owner/session/intent/Source/protection guards
+run before admission and around action completion outside Store locks. Only local file writing and
+bounded image audit run under the Store lock. Failed staging audit rolls back checkpoint metadata and
+removes owned temp image; failed postguards can leave only an unpublished image. Source-accounted
+control snapshot, protection/pin lifetime, full Manifest/Catalog/install authority remain separate.
