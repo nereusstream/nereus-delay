@@ -7642,3 +7642,9 @@ The real Oxia Target takeover suite verifies retained-input discovery after UNKN
 original Source/envelope, current-stamp rejection and current Worker guards (native12). Broker/history/
 Journal/time/key/cursor providers remain fixtures; this does not prove protected pre-checkpoint Broker
 history or snapshot publication/install. NDIP-3 `c5-target-retained-inputs` receipts capture exact scope.
+
+The locked K1 ACK-network-loss slice now reads its real Store ADMITTED checkpoint-input reference.
+P1 Target Journal history also reads real original Broker bytes with UNKNOWN/resolved Budget and later
+Source-position fixtures; no actual later Outcome apply is claimed. Guarded cursor closure/active offset
+preservation and existing SEND/Journal assertions remain. NDIP-3 `c5-retained-input-broker` receipts
+separate these slices from full protected history/production recovery validation.

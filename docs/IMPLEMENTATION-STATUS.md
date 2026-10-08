@@ -18689,3 +18689,9 @@ reads, locating original SYSTEM/POSITION Source/envelope facts independently of 
 Worker Owner/resource gates are connected; initial ADMITTED recovery behavior remains strict and
 references authorize no SEND. Local48/native Oxia12 pass for ADMITTED/UNKNOWN/awaiting-Floor with
 explicit external fixtures. Full snapshots/protection/provider/Catalog/install/migration remain open.
+
+Locked K1/P1 retained-input history slices pass: actual K1 Worker ADMITTED checkpoint-input proof and
+independent Fetch preserve Store/group; P1 reads real original Admission bytes for declared UNKNOWN/
+resolved Budget/allocation/later-source fixtures (no actual Outcome append/apply). Optional compilers/
+style pass; owned cursors/env cleanup verified. Full protected history/snapshot/provider/pins/Floor/
+Catalog/install/migration composition remains open; no completion/production flags raised.

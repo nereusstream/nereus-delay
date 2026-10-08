@@ -288,6 +288,45 @@ public final class PulsarClientArtifactTargetJournalSmoke {
                     Duration.ofSeconds(15), () -> guards.incrementAndGet());
             require(Arrays.equals(mutation.encodeFrame(), found.encodeFrame()), "P1 history changed original bytes");
             require(guards.get() >= 4, "P1 history omitted authority/lifetime checks");
+            final var retainedConstructor =
+                    com.nereusstream.delay.runtime.TargetPublishRecoveryDiscovery.Reference.class
+                    .getDeclaredConstructor(com.nereusstream.delay.protocol.TargetQuotaAttemptBudget.class,
+                            com.nereusstream.delay.runtime.SystemMutationResult.class,
+                            com.nereusstream.delay.protocol.TargetQuotaMutation.class);
+            retainedConstructor.setAccessible(true);
+            final var laterSource = new com.nereusstream.delay.protocol.PulsarSourcePosition(shard, incarnation, topic,
+                    source.ledgerId(), source.entryId() + 1, 0, 1,
+                    com.nereusstream.delay.protocol.PulsarSourcePosition.EntryKind.NON_BATCH,
+                    source.brokerEntryTimestampEpochMs() + 1);
+            final long[] allocatedAmounts = new long[com.nereusstream.delay.protocol.CapacityDimension.COUNT];
+            allocatedAmounts[com.nereusstream.delay.protocol.CapacityDimension.RESULT_BYTES.wireValue() - 1] = 1;
+            final var allocated = new com.nereusstream.delay.protocol.CapacityVector(allocatedAmounts);
+            final var unknown = budget.unknown(allocated,
+                    new com.nereusstream.delay.protocol.TargetQuotaMutation(2, laterSource, hash("history-unknown")));
+            final var resolvedSource = new com.nereusstream.delay.protocol.PulsarSourcePosition(
+                    shard, incarnation, topic,
+                    source.ledgerId(), source.entryId() + 2, 0, 1,
+                    com.nereusstream.delay.protocol.PulsarSourcePosition.EntryKind.NON_BATCH,
+                    source.brokerEntryTimestampEpochMs() + 2);
+            final var resolved = unknown.resolve(
+                    com.nereusstream.delay.protocol.EvidenceVerificationStatus.VERIFIED_PUBLISHED, allocated,
+                    new com.nereusstream.delay.protocol.TargetQuotaMutation(
+                            3, resolvedSource, hash("history-resolved")));
+            for (final var retainedBudget : java.util.List.of(unknown, resolved)) {
+                final var retainedReference = retainedConstructor.newInstance(retainedBudget, first, stamp);
+                require(retainedReference.source().equals(source), "P1 retained input relabeled the original Source");
+                final var retainedImage = PulsarClientArtifactTargetAdmissionHistory.read(client, guard,
+                        retainedReference, Duration.ofSeconds(15), () -> guards.incrementAndGet());
+                require(Arrays.equals(mutation.encodeFrame(), retainedImage.encodeFrame()),
+                        "P1 retained input changed original bytes after Budget transition/allocation");
+                boolean rejected = false;
+                try {
+                    retainedReference.requireImage(mutation, retainedBudget.mutation().source());
+                } catch (IllegalStateException expected) {
+                    rejected = true;
+                }
+                require(rejected, "P1 retained input accepted the later fixture Source as the Admission");
+            }
             final var activeMessage = active.receive(5, TimeUnit.SECONDS);
             require(activeMessage != null && Arrays.equals(activeMessage.getData(), mutation.encodeFrame()),
                     "owned history seek changed the active source subscription");
@@ -299,6 +338,9 @@ public final class PulsarClientArtifactTargetJournalSmoke {
             System.out.println("P1 exact Target Admission history passed: guarded append/receive/source, "
                     + "inclusive non-durable seek, exact envelope, active source unchanged, cursor closed; "
                     + "retained reference/Owner/time/retention are fixtures, guard calls=" + guards.get());
+            System.out.println("P1 retained input history passed for UNKNOWN/RESOLVED_AWAITING_FLOOR "
+                    + "allocation fixtures; "
+                    + "later Budget Source positions are fixtures, original guarded Broker bytes are real");
         } finally {
             final var deleted = PulsarClientArtifactAdminHttp.request(admin, sourcePath + "?force=true", "DELETE", "");
             require(deleted.statusCode() < 300 || deleted.statusCode() == 404, "owned history source cleanup failed");

@@ -969,6 +969,15 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
             throw new IllegalStateException("Target Broker Admission did not yield its bounded history reference");
         }
         final var reference = page.entries().getFirst();
+        final var retained = worker.discoverCheckpointInputs(
+                new BoundedReadBudget(2048, 16L << 20, 60_000_000_000L, System::nanoTime),
+                null, 1, System::currentTimeMillis);
+        if (retained.entries().size() != 1 || retained.complete()
+                || !retained.entries().getFirst().source().equals(reference.source())
+                || !java.util.Arrays.equals(
+                        retained.entries().getFirst().envelopeDigest(), reference.envelopeDigest())) {
+            throw new IllegalStateException("K1 checkpoint input reference differs from actual admitted Store proof");
+        }
         final var config = new java.util.HashMap<String, Object>();
         config.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap);
         config.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG,
@@ -976,7 +985,8 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
         config.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG,
                 org.apache.kafka.common.serialization.ByteArrayDeserializer.class.getName());
         final var guards = new AtomicInteger();
-        final var recovered = KafkaClientArtifactTargetAdmissionHistory.read(config, topic, reference,
+        final var recovered = KafkaClientArtifactTargetAdmissionHistory.read(
+                config, topic, retained.entries().getFirst(),
                 Duration.ofSeconds(10), () -> {
                     guards.incrementAndGet();
                     // This smoke owns a retained disposable topic. Production must resolve protected history/pins.
@@ -995,7 +1005,8 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
             throw new IllegalStateException("K1 history read advanced the active Worker group offset");
         }
         System.out.println("K1 exact Target Admission history passed: authenticated Fetch/resource, "
-                + "full envelope/source match, independent consumer, no group commit, no Store write, guard calls="
+                + "Worker checkpoint input/initial references agree, full envelope/source match, "
+                + "independent consumer, no group commit, no Store write, guard calls="
                 + guards.get());
         System.out.println("Kafka Target PUBLISH_ADMISSION TCP ACK-loss recovery passed: Broker committed offset "
                 + fixture.position().offset() + " before response loss; same Host retried only ACK without another "
