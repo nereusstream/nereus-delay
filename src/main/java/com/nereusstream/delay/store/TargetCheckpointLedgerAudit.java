@@ -515,8 +515,16 @@ final class TargetCheckpointLedgerAudit {
                     merge(rebuilt, proof.root().tenantIdentity(), charge);
                 }
                 case 5 -> requireFixedBytes(payload, Bytes.u64beBits(proof.mutationSequence()), "mutation sequence");
-                case 6 -> StoreRuntimeMetadata.requireEvidenceCursorScope(
-                        StoreRuntimeMetadata.decodeEvidenceCursors(payload), 2, proof.metadata().shardId());
+                case 6 -> {
+                    final var cursors = StoreRuntimeMetadata.decodeEvidenceCursors(payload);
+                    StoreRuntimeMetadata.requireEvidenceCursorScope(cursors, 2, proof.metadata().shardId());
+                    if (!cursors.isEmpty()) {
+                        final var charge = TargetRecordAccounting.resources(proof.root().accounting().recordCharge(
+                                TargetQuotaAccounting.RecordClass.STATE, key.length, payload.length));
+                        merge(rebuilt, proof.root().identity(), charge);
+                        merge(rebuilt, proof.root().tenantIdentity(), charge);
+                    }
+                }
                 case 7 -> requireNonZeroIdentity(payload, 16, "checkpoint identity");
                 case 8 -> Bytes.requireLength(payload, Long.BYTES, "opened Owner epoch");
                 case 9 -> {

@@ -2113,6 +2113,21 @@ unchanged, and mixed format2 arrays keep §8's namespace-aware sort. Older close
 new shape; Target-aware reader/artifact activation remains required. This local representation does
 not authenticate Broker retention/pins/Floor, publish Catalog authority or authorize Target restore.
 
+Accepted Target EVIDENCE_RESOLUTION seeds its authenticated cursor in META6 in the same sync native
+batch as first results/positions, Budget/ref/order/terminal, quota and Source META3/5. Same-identity
+frontiers advance only by dominance; a late cut preserves the newer retained frontier, incomparable
+cuts reject, and namespace/resource/evidence generations remain separate. All prior frontiers are
+retained; this writer never deletes cursors. Bound remains1024 cursors/1MiB canonical array plus active
+read/write budgets, including the actual META6 encoded write. Rejection, missing authority and immutable
+result replay never seed. In-memory projection installs only after native success; ambiguous response
+fences Store and requires actual reopen. Initialized Target runtime-metadata APIs cannot alter seeds
+outside accounted Source commit. Empty bootstrap META6 is uncharged; nonempty META6 charges actual
+key/payload/NV/artifact STATE once to root/tenant mirror, with the same independent recovery fold.
+Old nonempty unaccounted seeds or accepted unseeded resolutions require controlled protected-history
+migration/backfill, not silent replay repair or scalar Floor release. No new NV/CF/mutation kind;
+production providers/retention/pins/Floor/Target Catalog/install/cursor retirement remain required.
+
+
 
 Each file object has exactly:
 

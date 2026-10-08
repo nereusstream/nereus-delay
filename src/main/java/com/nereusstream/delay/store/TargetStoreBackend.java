@@ -2,6 +2,7 @@ package com.nereusstream.delay.store;
 
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CapacityDimension;
+import com.nereusstream.delay.protocol.EvidenceCursor;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.TargetPartitionId;
 import com.nereusstream.delay.protocol.TargetQuotaAggregate;
@@ -220,9 +221,74 @@ public final class TargetStoreBackend {
         }
     }
 
-    public record Mutation(TargetQuotaTotalsDelta quota, List<Edit> business, IngressFenceChange ingressFence) {
+    /** Complete monotone cursor projection, owned by the Source batch rather than ordinary business edits. */
+    public record EvidenceCursorChange(byte[] before, List<EvidenceCursor> after) {
+        public EvidenceCursorChange {
+            before = before == null ? null : Bytes.copy(before);
+            after = List.copyOf(after);
+            if (after.isEmpty()) {
+                throw new IllegalArgumentException("Source cursor seed must retain a nonempty accepted frontier");
+            }
+            final byte[] encoded = StoreRuntimeMetadata.encodeEvidenceCursors(after);
+            if (encoded.length > StoreRuntimeMetadata.MAX_CANONICAL_BYTES) {
+                throw new IllegalArgumentException("Target evidence cursor seed exceeds its fixed bound");
+            }
+            int successor = 0;
+            for (final var prior : priorCursors(before)) {
+                while (successor < after.size() && after.get(successor).compareTo(prior) < 0) {
+                    successor++;
+                }
+                if (successor == after.size() || !after.get(successor).dominates(prior)) {
+                    throw new IllegalArgumentException("Target Source cursor seed cannot drop or regress a frontier");
+                }
+            }
+        }
+
+        @Override
+        public byte[] before() {
+            return before == null ? null : Bytes.copy(before);
+        }
+
+        public byte[] encodedAfter() {
+            return TargetValueEnvelope.encode(1, StoreRuntimeMetadata.encodeEvidenceCursors(after));
+        }
+
+        private static List<EvidenceCursor> priorCursors(final byte[] before) {
+            return before == null ? List.of() : StoreRuntimeMetadata.decodeEvidenceCursors(
+                    TargetValueEnvelope.decode(before, 1).payload());
+        }
+
+        private static EvidenceCursorChange advance(final byte[] before, final EvidenceCursor accepted) {
+            final var cursors = new ArrayList<>(priorCursors(before));
+            for (int index = 0; index < cursors.size(); index++) {
+                final var prior = cursors.get(index);
+                if (prior.sameIdentity(accepted)) {
+                    if (prior.dominates(accepted)) {
+                        return null;
+                    }
+                    if (!accepted.dominates(prior)) {
+                        throw new IllegalArgumentException(
+                                "authenticated cursor has an incomparable retained frontier");
+                    }
+                    cursors.set(index, accepted);
+                    return new EvidenceCursorChange(before, cursors);
+                }
+            }
+            cursors.add(accepted);
+            cursors.sort(EvidenceCursor::compareTo);
+            return new EvidenceCursorChange(before, cursors);
+        }
+    }
+
+    public record Mutation(
+            TargetQuotaTotalsDelta quota, List<Edit> business,
+            IngressFenceChange ingressFence, EvidenceCursorChange evidenceCursors) {
         public Mutation(final TargetQuotaTotalsDelta quota, final List<Edit> business) {
-            this(quota, business, null);
+            this(quota, business, null, null);
+        }
+
+        public Mutation(final TargetQuotaTotalsDelta quota, final List<Edit> business, final IngressFenceChange fence) {
+            this(quota, business, fence, null);
         }
 
         public Mutation {
@@ -230,6 +296,12 @@ public final class TargetStoreBackend {
             business = List.copyOf(business);
             if (ingressFence != null && quota.counters().mutation().isLocalMutation()) {
                 throw new IllegalArgumentException("only a source mutation may advance the Target fence");
+            }
+            if (evidenceCursors != null) {
+                if (ingressFence != null || quota.counters().mutation().isLocalMutation()) {
+                    throw new IllegalArgumentException("cursor seeds require a separate Source mutation");
+                }
+                StoreRuntimeMetadata.requireEvidenceCursorScope(evidenceCursors.after(), 2, quota.shardScope().shard());
             }
         }
     }
@@ -328,6 +400,13 @@ public final class TargetStoreBackend {
                     : IngressFenceState.decode(
                                     TargetValueEnvelope.decode(raw, 1).payload())
                             .closedThroughEpochMs();
+        }
+
+        /** Caller must have authenticated the accepted cursor against its exact Source evidence operation. */
+        public EvidenceCursorChange advanceEvidenceCursor(final EvidenceCursor accepted) {
+            requireActive();
+            StoreRuntimeMetadata.requireEvidenceCursorScope(List.of(accepted), 2, store.shardId());
+            return EvidenceCursorChange.advance(get(ColumnFamily.META, KeyCodec.metaFixed(6)), accepted);
         }
 
         public int maximumWriteRecords() {
@@ -630,6 +709,11 @@ public final class TargetStoreBackend {
                                 reader.get(ColumnFamily.META, KeyCodec.metaFixed(4)))) {
                     throw new IllegalStateException("Target ingress fence read set changed");
                 }
+                if (mutation.evidenceCursors() != null
+                        && !Arrays.equals(mutation.evidenceCursors().before(),
+                                reader.get(ColumnFamily.META, KeyCodec.metaFixed(6)))) {
+                    throw new IllegalStateException("Target cursor seed read set changed");
+                }
                 return measure(mutation);
             } finally {
                 reader.active = false;
@@ -651,6 +735,11 @@ public final class TargetStoreBackend {
                     bytes, Math.addExact((long) edit.key.length, edit.after == null ? 0 : edit.after.length));
         }
         int records = mutation.business().size();
+        if (mutation.evidenceCursors() != null) {
+            bytes = Math.addExact(bytes, Math.addExact((long) KeyCodec.metaFixed(6).length,
+                    mutation.evidenceCursors().encodedAfter().length));
+            records = Math.incrementExact(records);
+        }
         if (mutation.ingressFence() != null) {
             bytes = Math.addExact(
                     bytes,
@@ -727,6 +816,9 @@ public final class TargetStoreBackend {
                     if (prepared.mutation.ingressFence() != null) {
                         batch.putTargetIngressFence(
                                 prepared.mutation.ingressFence().after());
+                    }
+                    if (prepared.mutation.evidenceCursors() != null) {
+                        batch.putTargetEvidenceCursors(prepared.mutation.evidenceCursors().after());
                     }
                     final var quota = prepared.mutation.quota();
                     for (var change : quota.counters().changes()) {

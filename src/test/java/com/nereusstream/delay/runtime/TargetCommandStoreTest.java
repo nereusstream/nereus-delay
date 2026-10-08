@@ -172,7 +172,7 @@ class TargetCommandStoreTest {
     }
 
     @ParameterizedTest
-    @org.junit.jupiter.params.provider.ValueSource(ints = {12, 15, 17, 18, 19, 20, 24, 26})
+    @org.junit.jupiter.params.provider.ValueSource(ints = {12, 15, 17, 18, 19, 20, 24, 26, 31, 32, 33})
     @org.junit.jupiter.api.Tag("real-service")
     void realOxiaLateTargetOutcomeRetainsTerminalDecision(int mode) throws Exception {
         runRealOxiaTargetOutcome(mode);
@@ -7772,6 +7772,10 @@ class TargetCommandStoreTest {
                 () -> String.valueOf(turn.failure()));
         final var resolved = TargetQuotaAttemptBudget.decode(TargetValueEnvelope.decode(
                 store.get(ColumnFamily.META, attemptKey), TargetQuotaAttemptBudget.VALUE_TYPE).payload());
+        assertEquals(List.of(cursor), store.runtimeMetadata().evidenceCursors());
+        final byte[] cursorSeed = store.get(ColumnFamily.META, com.nereusstream.delay.store.KeyCodec.metaFixed(6));
+        assertEquals(List.of(cursor), com.nereusstream.delay.store.StoreRuntimeMetadata.decodeEvidenceCursors(
+                TargetValueEnvelope.decode(cursorSeed, 1).payload()));
         assertEquals(TargetQuotaAttemptBudget.Phase.RESOLVED_AWAITING_FLOOR, resolved.phase());
         assertEquals(held.commitment(), resolved.commitment());
         assertEquals(held.allocated(), resolved.allocated());
@@ -7812,6 +7816,14 @@ class TargetCommandStoreTest {
         assertEquals(applied, store.latestSequenceNumber());
         assertEquals(2, acknowledgements.get());
         assertTrue(handoff.readApplied(mutation, () -> 102).isPresent());
+        assertArrayEquals(cursorSeed,
+                store.get(ColumnFamily.META, com.nereusstream.delay.store.KeyCodec.metaFixed(6)));
+        TargetStoreBootstrap.reopen(store, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(),
+                (a, b) -> guard());
+        assertEquals(List.of(cursor), store.runtimeMetadata().evidenceCursors());
+        final long beforeSeedBypass = store.latestSequenceNumber();
+        assertThrows(IllegalStateException.class, () -> store.recordEvidenceCursors(List.of()));
+        assertEquals(beforeSeedBypass, store.latestSequenceNumber());
     }
 
     /** Actual atomic Store/Claim/Admission paths; physical/time/key/cursor/commit authorities are fixtures. */

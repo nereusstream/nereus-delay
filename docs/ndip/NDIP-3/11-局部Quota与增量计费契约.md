@@ -2085,3 +2085,12 @@ mirror/total/aggregate真实STATE并验证全部ID/expiry/owner/lineage以及Sto
 ### 2026-09-23 NV40 Close cursor 计费
 
 首次 Close 在源操作中把 NV40 初始值的实际 key、payload、envelope STATE 收到原 Target 与 tenant mirror。field7 是与 Claim field4、expiry field5、closure field6 互斥的同一 raw uint64 本地 ordinal，不推进 source META3/5。Close/expiry 首候选终态批次把游标 before/after 差额和 NV38/expiry/owner 转移一起计入原两 counter、total、aggregate；即使净 STATE 字节为零也持久推进这些账本 revision。空扫描完成只允许 cursor 的 STATE 变化与原 owner/mirror 对称，禁止 payload、target/domain/incarnation cardinality 转移。当前完整关闭汇总及受控迁移计费仍未完成。
+
+### 2026-10-08 META6 seed 的实际STATE费用
+
+空bootstrap cursor array延续零charge。非空META6按root冻结accounting的完整实际
+key+payload+NV+artifact STATE收费，root/tenant mirror同量，before/after差额同Source batch
+更新counter/aggregate，backend另计编码写字节/记录；完整ledger fold同样重建。不能假定
+旧fixed bookkeeping reserve覆盖，也不能通过初始化后普通metadata API改seed。旧非空
+未计费/旧accepted未seed状态需受控protected history/backfill/计费闭合，不静默reprice/
+replay补账或提前释放Floor。局部61/Oxia12范围见[执行记录](04-执行记录.md)。

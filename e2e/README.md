@@ -7626,3 +7626,8 @@ pre-ownership durable retirement, with an independent Target cursor. Fenced Targ
 authority remain fixtures; no physical Broker fence or post-ownership absence is proven. Store Source
 permanent/retry settlement is a separate fixture-backed slice. See NDIP-3 `e5-target-journal-absence`
 receipts, including the initial Docker token EOF and one successful retry.
+
+The real Oxia late-Target Outcome suite adds Journal PUBLISHED/permanent-absence/retry-absence Source
+cursor seeds after takeover (native12). Actual Owner/session/lease/Store/Source/ledger; Journal/Broker/
+fencing/retention/history/time/key/cursor authorities remain fixtures. Whole Source/quota/business/META6
+native failure actual reopen is a separate RocksDB slice. See NDIP-3 `c5-target-source-cursor-seed` receipts.

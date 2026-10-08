@@ -72,6 +72,14 @@ public final class TargetSourceAccounting implements TargetMessageStore.Accounti
             final TargetStoreBackend.Reader reader,
             final List<TargetStoreBackend.Edit> business,
             final TargetStoreBackend.IngressFenceChange fence) {
+        return assemble(reader, business, fence, null);
+    }
+
+    public TargetStoreBackend.Mutation assemble(
+            final TargetStoreBackend.Reader reader,
+            final List<TargetStoreBackend.Edit> business,
+            final TargetStoreBackend.IngressFenceChange fence,
+            final TargetStoreBackend.EvidenceCursorChange cursors) {
         if (business.size() > reader.maximumWriteRecords() || !scope.shard().equals(reader.shardId())) {
             throw new IllegalArgumentException("source accounting record/scope limit mismatch");
         }
@@ -192,6 +200,25 @@ public final class TargetSourceAccounting implements TargetMessageStore.Accounti
             merge(added, rootId, fee);
             merge(added, seed.tenantOwner(), fee);
         }
+        if (cursors != null) {
+            if (priorRoot == null
+                    || !Arrays.equals(cursors.before(), reader.get(ColumnFamily.META, KeyCodec.metaFixed(6)))) {
+                throw new IllegalStateException("Target cursor seed requires its established root and exact before");
+            }
+            final byte[] prior = cursors.before() == null ? new byte[0]
+                    : TargetValueEnvelope.decode(cursors.before(), 1).payload();
+            if (prior.length != 0) {
+                final var fee = TargetRecordAccounting.resources(descriptor.accounting().recordCharge(
+                        TargetQuotaAccounting.RecordClass.STATE, KeyCodec.metaFixed(6).length, prior.length));
+                merge(removed, rootId, fee);
+                merge(removed, seed.tenantOwner(), fee);
+            }
+            final var fee = TargetRecordAccounting.resources(descriptor.accounting().recordCharge(
+                    TargetQuotaAccounting.RecordClass.STATE, KeyCodec.metaFixed(6).length,
+                    TargetValueEnvelope.decode(cursors.encodedAfter(), 1).payload().length));
+            merge(added, rootId, fee);
+            merge(added, seed.tenantOwner(), fee);
+        }
         final var identities = new LinkedHashSet<>(removed.keySet());
         identities.addAll(added.keySet());
         // Both root counters exist even when the bootstrap has no other root-owned business records.
@@ -284,7 +311,7 @@ public final class TargetSourceAccounting implements TargetMessageStore.Accounti
                 reader::counter);
         final var totals = TargetQuotaTotalsDelta.prepare(delta, scope, maximumTargets, reader::total);
         nextRoot.requireRoot(delta.nextAggregate());
-        return new TargetStoreBackend.Mutation(totals, complete, fence);
+        return new TargetStoreBackend.Mutation(totals, complete, fence, cursors);
     }
 
     private void accumulate(

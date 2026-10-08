@@ -18664,3 +18664,10 @@ format/Source-Shard checks shared by Manifest, META6 write/open and Target ledge
 Lane-getter regression is fixed; local71 passes including actual RocksDB seed persist/reopen and wrong
 seed zero-write checks. Legacy JSON remains unchanged. Production seeding/retention/pins/Floor and
 Target Catalog/restore/install remain required; completion/production flags stay false.
+
+Accepted Target Evidence Resolution now seeds monotone META6 frontiers atomically with Source/results/
+Budget/ref/order/quota, charges actual nonempty STATE to root/tenant mirror and audits its recovery fold.
+Local61 and real two-session Oxia12 pass; actual native before/after-failure reopen verifies the whole
+Source/quota/business/META6 batch. External Journal/Broker/fence/retention/Source/history/time/key/cursor
+providers remain fixtures. Old unseeded/unaccounted state requires controlled migration; production
+providers/pins/Floor/Target Catalog/install/retirement remain open, completion/production flags stay false.

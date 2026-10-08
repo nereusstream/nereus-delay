@@ -3346,6 +3346,13 @@ public final class ShardStore implements AutoCloseable {
         /** Adds the Store runtime projection to this same atomic WriteBatch. */
         public void putRuntimeMetadata(final StoreRuntimeMetadata next) throws RocksDBException {
             Objects.requireNonNull(next, "next");
+            StoreRuntimeMetadata.requireEvidenceCursorScope(
+                    next.evidenceCursors(), owner.metadata.storeFormatVersion(), owner.shardId);
+            if (owner.metadata.storeFormatVersion() == 2
+                    && !currentRuntimeMetadata.evidenceCursors().equals(next.evidenceCursors())
+                    && owner.appliedShardLogPosition() != null) {
+                throw new IllegalStateException("initialized Target cursor seeds require accounted Source commit");
+            }
             if (runtimeMetadata != null) {
                 throw new IllegalStateException("Store runtime metadata may be written once per batch");
             }
@@ -3401,6 +3408,20 @@ public final class ShardStore implements AutoCloseable {
                     ValueEnvelope.encode(META_FIXED_VALUE_TYPE, next.canonicalBytes()));
             closedIngressDeadlineThrough = next.closedThroughEpochMs();
             runtimeMetadata = currentRuntimeMetadata.withLastIngressFenceProofId(next.proofId());
+        }
+
+        /** Writes META6 once and installs its in-memory projection only after the native batch succeeds. */
+        void putTargetEvidenceCursors(final List<EvidenceCursor> cursors) throws RocksDBException {
+            StoreRuntimeMetadata.requireEvidenceCursorScope(
+                    cursors, owner.metadata.storeFormatVersion(), owner.shardId);
+            if (owner.metadata.storeFormatVersion() != 2 || runtimeMetadata != null) {
+                throw new IllegalStateException("invalid or competing Target cursor seed update");
+            }
+            batch.put(handle(ColumnFamily.META), KeyCodec.metaFixed(META_EVIDENCE_CURSORS),
+                    ValueEnvelope.encode(META_FIXED_VALUE_TYPE, StoreRuntimeMetadata.encodeEvidenceCursors(cursors)));
+            runtimeMetadata = new StoreRuntimeMetadata(currentRuntimeMetadata.lastIngressFenceProofId(),
+                    currentRuntimeMetadata.lastCheckpointId(), currentRuntimeMetadata.lastOpenedOwnerEpoch(),
+                    false, cursors);
         }
 
         /** Advances the source-ordered ingress fence in the same atomic WriteBatch. */

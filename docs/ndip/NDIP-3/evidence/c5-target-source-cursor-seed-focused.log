@@ -1,0 +1,391 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+
+> Task :compileTestJava FAILED
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:7571: 错误: 找不到符号
+        assertEquals(List.of(cursor), store.runtimeMetadata().evidenceCursors());
+                             ^
+  符号:   变量 cursor
+  位置: 类 TargetCommandStoreTest
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:7573: 错误: 找不到符号
+        assertEquals(List.of(cursor), com.nereusstream.delay.store.StoreRuntimeMetadata.decodeEvidenceCursors(
+                             ^
+  符号:   变量 cursor
+  位置: 类 TargetCommandStoreTest
+2 个错误
+
+[Incubating] Problems report is available at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':compileTestJava'.
+> Compilation failed; see the compiler output below.
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:7571: 错误: 找不到符号
+          assertEquals(List.of(cursor), store.runtimeMetadata().evidenceCursors());
+                               ^
+    符号:   变量 cursor
+    位置: 类 TargetCommandStoreTest
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:7573: 错误: 找不到符号
+          assertEquals(List.of(cursor), com.nereusstream.delay.store.StoreRuntimeMetadata.decodeEvidenceCursors(
+                               ^
+    符号:   变量 cursor
+    位置: 类 TargetCommandStoreTest
+  2 个错误
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 16s
+10 actionable tasks: 3 executed, 7 up-to-date
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [29] true, false, false, false, false, true, false, 20 FAILED
+    org.opentest4j.AssertionFailedError at TargetCommandStoreTest.java:7775
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [30] true, false, false, false, false, true, false, 21 FAILED
+    org.opentest4j.AssertionFailedError at TargetCommandStoreTest.java:7775
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [31] true, false, false, false, false, true, false, 22 FAILED
+    org.opentest4j.AssertionFailedError at TargetCommandStoreTest.java:7775
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [32] true, false, false, false, false, true, false, 23 FAILED
+    org.opentest4j.AssertionFailedError at TargetCommandStoreTest.java:7775
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [33] true, false, false, false, false, true, false, 24 FAILED
+    org.opentest4j.AssertionFailedError at TargetCommandStoreTest.java:7775
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [34] true, false, false, false, false, true, false, 25 FAILED
+    org.opentest4j.AssertionFailedError at TargetCommandStoreTest.java:7775
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [35] true, false, false, false, false, true, false, 26 FAILED
+    org.opentest4j.AssertionFailedError at TargetCommandStoreTest.java:7775
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [40] true, false, false, false, false, true, false, 31 FAILED
+    org.opentest4j.AssertionFailedError at TargetCommandStoreTest.java:7775
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [41] true, false, false, false, false, true, false, 32 FAILED
+    org.opentest4j.AssertionFailedError at TargetCommandStoreTest.java:7775
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [42] true, false, false, false, false, true, false, 33 FAILED
+    org.opentest4j.AssertionFailedError at TargetCommandStoreTest.java:7775
+
+44 tests completed, 10 failed
+
+> Task :test FAILED
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':test'.
+> There were failing tests. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/tests/test/index.html
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 1m 15s
+13 actionable tasks: 3 executed, 10 up-to-date
+Confirmed semantic red: {'name': 'com.nereusstream.delay.runtime.TargetCommandStoreTest', 'tests': '44', 'skipped': '0', 'failures': '10', 'errors': '0', 'timestamp': '2026-10-08T01:23:40.121Z', 'hostname': 'liusinandeMacBook-Pro.local', 'time': '57.344'}
+[29] true, false, false, false, false, true, false, 20 org.opentest4j.AssertionFailedError: expected: <[com.nereusstream.delay.protocol.EvidenceCursor@89440e48]> but was: <[]>
+[30] true, false, false, false, false, true, false, 21 org.opentest4j.AssertionFailedError: expected: <[com.nereusstream.delay.protocol.EvidenceCursor@6e2ae890]> but was: <[]>
+[31] true, false, false, false, false, true, false, 22 org.opentest4j.AssertionFailedError: expected: <[com.nereusstream.delay.protocol.EvidenceCursor@ab01506a]> but was: <[]>
+[32] true, false, false, false, false, true, false, 23 org.opentest4j.AssertionFailedError: expected: <[com.nereusstream.delay.protocol.EvidenceCursor@7a1547ed]> but was: <[]>
+[33] true, false, false, false, false, true, false, 24 org.opentest4j.AssertionFailedError: expected: <[com.nereusstream.delay.protocol.EvidenceCursor@cf5277ad]> but was: <[]>
+[34] true, false, false, false, false, true, false, 25 org.opentest4j.AssertionFailedError: expected: <[com.nereusstream.delay.protocol.EvidenceCursor@43f7e2d6]> but was: <[]>
+[35] true, false, false, false, false, true, false, 26 org.opentest4j.AssertionFailedError: expected: <[com.nereusstream.delay.protocol.EvidenceCursor@3d6fe86e]> but was: <[]>
+[40] true, false, false, false, false, true, false, 31 org.opentest4j.AssertionFailedError: expected: <[com.nereusstream.delay.protocol.EvidenceCursor@173d9d]> but was: <[]>
+[41] true, false, false, false, false, true, false, 32 org.opentest4j.AssertionFailedError: expected: <[com.nereusstream.delay.protocol.EvidenceCursor@e96172fd]> but was: <[]>
+[42] true, false, false, false, false, true, false, 33 org.opentest4j.AssertionFailedError: expected: <[com.nereusstream.delay.protocol.EvidenceCursor@dc51fceb]> but was: <[]>
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+
+> Task :compileTestJava
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/store/TargetStoreBackendTest.java:168: 错误: 找不到符号
+                TargetPartitionId.random(), new TargetKeyCodec.Domain(1, 1), incarnation, bytes(32, 0x41)),
+                                 ^
+  符号:   方法 random()
+  位置: 类 TargetPartitionId
+1 个错误
+
+> Task :compileTestJava FAILED
+
+[Incubating] Problems report is available at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':compileTestJava'.
+> Compilation failed; see the compiler output below.
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/store/TargetStoreBackendTest.java:168: 错误: 找不到符号
+                  TargetPartitionId.random(), new TargetKeyCodec.Domain(1, 1), incarnation, bytes(32, 0x41)),
+                                   ^
+    符号:   方法 random()
+    位置: 类 TargetPartitionId
+  1 个错误
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 20s
+10 actionable tasks: 3 executed, 7 up-to-date
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :checkstyleTest
+
+> Task :checkstyleMain
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/store/TargetStoreBackend.java:266: 本行字符数 121个，最多：120个。 [LineLength]
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/store/TargetStoreBackend.java:735: 本行字符数 122个，最多：120个。 [LineLength]
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/store/ShardStore.java:3415: 本行字符数 121个，最多：120个。 [LineLength]
+
+> Task :checkstyleMain FAILED
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':checkstyleMain'.
+> A failure occurred while executing org.gradle.api.plugins.quality.internal.CheckstyleAction
+   > Checkstyle rule violations were found. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/checkstyle/main.html
+     Checkstyle files with violations: 2
+     Checkstyle violations by severity: [error:3]
+
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 1m 31s
+15 actionable tasks: 5 executed, 10 up-to-date
+First green XML {"name": "com.nereusstream.delay.runtime.TargetCommandStoreTest", "tests": "44", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-08T01:29:08.053Z", "hostname": "liusinandeMacBook-Pro.local", "time": "57.169"} sha256=6122bf1144f6df16fa5a8dfffe0bd39a569dbcb28507e5fee496cbb44f32b5e1
+First green XML {"name": "com.nereusstream.delay.runtime.TargetSourceAccountingTest", "tests": "1", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-08T01:30:05.224Z", "hostname": "liusinandeMacBook-Pro.local", "time": "0.188"} sha256=c7182016b59524e5216f8917cf84f33dcebebe4dc7fe386aaf75c6fbb7c82443
+First green XML {"name": "com.nereusstream.delay.store.StoreRuntimeMetadataTest", "tests": "5", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-08T01:30:05.413Z", "hostname": "liusinandeMacBook-Pro.local", "time": "0.462"} sha256=780990c2dca666372ffeb1af8ca524eca6cc54d1f05cf8ba08145991daf34f7e
+First green XML {"name": "com.nereusstream.delay.store.TargetCheckpointRootVerifierTest", "tests": "3", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-08T01:30:05.876Z", "hostname": "liusinandeMacBook-Pro.local", "time": "0.373"} sha256=0273a92a7061a5bc7e897c350aed1947afa0f4469c1da10ada9f72ca22ad2703
+First green XML {"name": "com.nereusstream.delay.store.TargetStoreBackendTest", "tests": "8", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-08T01:30:06.249Z", "hostname": "liusinandeMacBook-Pro.local", "time": "1.221"} sha256=b9248c4dc6c14fdcf3811b4ec2668df2e7ed9ce3f94e65f736b1975290aed959
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :checkstyleTest
+> Task :checkstyleMain
+
+BUILD SUCCESSFUL in 1m 34s
+15 actionable tasks: 6 executed, 9 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+Final local XML {"name": "com.nereusstream.delay.runtime.TargetCommandStoreTest", "tests": "44", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-08T01:32:20.801Z", "hostname": "liusinandeMacBook-Pro.local", "time": "56.995"} sha256=e663db64aa0dae2d1c04e3e7c05a4649df8d6a2721afe4ffb58f77470bd9d268
+Final local XML {"name": "com.nereusstream.delay.runtime.TargetSourceAccountingTest", "tests": "1", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-08T01:33:17.797Z", "hostname": "liusinandeMacBook-Pro.local", "time": "0.191"} sha256=5fecac2ac027b295f5d66dfe4bbb7de4eaf5163962ffbdd27e7c05d5c2f558fc
+Final local XML {"name": "com.nereusstream.delay.store.StoreRuntimeMetadataTest", "tests": "5", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-08T01:33:17.989Z", "hostname": "liusinandeMacBook-Pro.local", "time": "0.469"} sha256=1f17ae73e05d0c9ea9425c60bc3f7bb60ecf1eca1f5f2b2ca29e048d3eaff645
+Final local XML {"name": "com.nereusstream.delay.store.TargetCheckpointRootVerifierTest", "tests": "3", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-08T01:33:18.459Z", "hostname": "liusinandeMacBook-Pro.local", "time": "0.425"} sha256=e56be013e255e30a23a638b142923045a0437d6229fd947a6e253b4c7c00cd18
+Final local XML {"name": "com.nereusstream.delay.store.TargetStoreBackendTest", "tests": "8", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-08T01:33:18.884Z", "hostname": "liusinandeMacBook-Pro.local", "time": "1.256"} sha256=55f33c13a179e09fad9ab33cefa881541bdd888a6770e1b9819e03a4be25bfc6
+Final local61 zero failure/error/skip with main/test style pass. Native-only parameter annotation adds31/32/33 after local semantic pass; Source helper and production code unchanged thereafter.
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+
+> Task :testNdip1ImplementationVerifier
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 51.223s
+
+OK
+
+> Task :testNdip1PackageVerifier
+..............
+----------------------------------------------------------------------
+Ran 14 tests in 0.069s
+
+OK
+
+> Task :verifyNdip1HistoricalClosure
+proposal=NDIP-1
+receipt_status=IMPLEMENTED
+lifecycle_authority=true
+implementation=CLOSED
+lifecycle=CLOSED
+certified_commit=b4e077e9978f262cdb93cf3562ea12eee32430e2
+runtime_source_sha256=03ce17ede4b9e70e2f70dd2bbef681087f529159549a4cd979d0d7aa34fa9948
+runtime_source_files=835
+implemented_package_sha256=792ca54e239d884ba6f95315747f565bab57ee0fc02338a77369cb19bbe8e8a7
+staging_run=20260901055333-78920
+deployment=SEPARATE_FUTURE_WORK
+performance_and_scale=SEPARATE_FUTURE_WORK
+production_rollout=SEPARATE_FUTURE_WORK
+production_authority=false
+
+> Task :verifyNdip1PackageAccepted
+proposal=NDIP-1
+receipt_status=ACCEPTED
+authority=true
+package_source_commit=77ffa61136c0cd401244ebea4375a5a18b097b17
+file_sha256 70d9dd7c113fa5f457a20a97996322ef9a2018772efd225aa982c13ec4935140 docs/ndip/NDIP-1/01-调查与决策记录.md
+file_sha256 c167ed42dd29c383c08a8a102f36b0e4deee8ae5c7a5da115a09d04ffcb9fa6f docs/ndip/NDIP-1/02-NDIP-1-Pulsar-Native-Delivery.md
+file_sha256 9affafa81952959d39ed9c09a00abe6b84da4fd3b0b6280422f297684d56f727 docs/ndip/NDIP-1/03-实施计划.md
+file_sha256 2a26c107cd69ee522ea138b3487b8ec206e913acc6ad5b862aa69288ddcaa88e docs/ndip/NDIP-1/04-代码级目标设计.md
+package_sha256=13caab8ecdc201901f06e905f1c0bf9792780e50c6f5948f93abf2bdb8f4d21b
+gate_b=PASS
+implementation=AUTHORIZED
+local_disposable_testing=AUTHORIZED_WITH_EXACT_ATTESTATION
+gate_c=PENDING_DEPLOYMENT
+shadow=BLOCKED_BY_GATE_C
+enabled=BLOCKED_BY_GATE_C_AND_SHADOW_REQUIREMENTS
+
+> Task :verifyNdip2PackageAccepted
+proposal=NDIP-2
+receipt_status=ACCEPTED
+authority=true
+file_sha256 0a105fb2b73d63cabddf42d0ba3d5a9590b4edddd47242495f196bf56d15f642 docs/ndip/NDIP-2/01-NDIP-生命周期与认证源码权威分层.md
+file_sha256 c882ecaa32413cb9e177243cf3efe91b97810c3cc10be81e61e7e458030c4ffa docs/ndip/NDIP-2/02-实施计划.md
+file_sha256 ec1ba68ab3ac91aa667647e6289cd252b99da84d899f42f879821d6e5d7752e9 docs/ndip/NDIP-2/03-代码级目标设计.md
+package_sha256=856e1d768210a31fc9aad811af3a93c1de33189cc03c65bc1e36d57affbf10db
+gate_b=PASS
+implementation=AUTHORIZED
+deployment_authority=false
+
+> Task :checkDocumentation
+
+BUILD SUCCESSFUL in 1m 5s
+6 actionable tasks: 6 executed
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+source_sha256={"src/main/java/com/nereusstream/delay/runtime/TargetPublishOutcomeStore.java": "370eb9e5b312112044d0a52bcc182952765d4edb551234440e1d10930a05ff2b", "src/main/java/com/nereusstream/delay/runtime/TargetSourceAccounting.java": "0f9a3b8b0d74c122cf2d37771f0fbcdfa0c02b433db6ef090ce2de792368525c", "src/main/java/com/nereusstream/delay/store/TargetStoreBackend.java": "69642778fee5674930c9a64f0b84c1579f4afb21a150fc7583807248ca96676f", "src/main/java/com/nereusstream/delay/store/ShardStore.java": "db7e2a62c98ee77a4be3f4b9da344df61f5f8875a32532aae15aa5c252d8944f", "src/main/java/com/nereusstream/delay/store/TargetCheckpointLedgerAudit.java": "c062ff34936deca936e9fe6fe66ff68315cecea8c2395b48141eb42d280b7752", "src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java": "349dd458c9b5425b9a76cf7e23440377c07bdf8a2e8a18c6818bfc7bbb610563", "src/test/java/com/nereusstream/delay/store/TargetStoreBackendTest.java": "3d560d2869e017686bf67339172eb10b67aa1fc76628aec79fafa4673263e5f9"}
+Local command: ./gradlew test --tests com.nereusstream.delay.runtime.TargetCommandStoreTest.modifiesActualTimelineOrClaimWithHistoryAndFirstResults --tests com.nereusstream.delay.store.TargetStoreBackendTest --tests com.nereusstream.delay.runtime.TargetSourceAccountingTest --tests com.nereusstream.delay.store.StoreRuntimeMetadataTest --tests com.nereusstream.delay.store.TargetCheckpointRootVerifierTest checkstyleMain checkstyleTest --no-daemon --console=plain
+First documentation run started after a failed patch-script assertion and is not final-doc evidence. Rerunning after all docs/progress/receipt updates.
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+
+> Task :testNdip1ImplementationVerifier
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 50.602s
+
+OK
+
+> Task :testNdip1PackageVerifier
+..............
+----------------------------------------------------------------------
+Ran 14 tests in 0.069s
+
+OK
+
+> Task :verifyNdip1HistoricalClosure
+proposal=NDIP-1
+receipt_status=IMPLEMENTED
+lifecycle_authority=true
+implementation=CLOSED
+lifecycle=CLOSED
+certified_commit=b4e077e9978f262cdb93cf3562ea12eee32430e2
+runtime_source_sha256=03ce17ede4b9e70e2f70dd2bbef681087f529159549a4cd979d0d7aa34fa9948
+runtime_source_files=835
+implemented_package_sha256=792ca54e239d884ba6f95315747f565bab57ee0fc02338a77369cb19bbe8e8a7
+staging_run=20260901055333-78920
+deployment=SEPARATE_FUTURE_WORK
+performance_and_scale=SEPARATE_FUTURE_WORK
+production_rollout=SEPARATE_FUTURE_WORK
+production_authority=false
+
+> Task :verifyNdip1PackageAccepted
+proposal=NDIP-1
+receipt_status=ACCEPTED
+authority=true
+package_source_commit=77ffa61136c0cd401244ebea4375a5a18b097b17
+file_sha256 70d9dd7c113fa5f457a20a97996322ef9a2018772efd225aa982c13ec4935140 docs/ndip/NDIP-1/01-调查与决策记录.md
+file_sha256 c167ed42dd29c383c08a8a102f36b0e4deee8ae5c7a5da115a09d04ffcb9fa6f docs/ndip/NDIP-1/02-NDIP-1-Pulsar-Native-Delivery.md
+file_sha256 9affafa81952959d39ed9c09a00abe6b84da4fd3b0b6280422f297684d56f727 docs/ndip/NDIP-1/03-实施计划.md
+file_sha256 2a26c107cd69ee522ea138b3487b8ec206e913acc6ad5b862aa69288ddcaa88e docs/ndip/NDIP-1/04-代码级目标设计.md
+package_sha256=13caab8ecdc201901f06e905f1c0bf9792780e50c6f5948f93abf2bdb8f4d21b
+gate_b=PASS
+implementation=AUTHORIZED
+local_disposable_testing=AUTHORIZED_WITH_EXACT_ATTESTATION
+gate_c=PENDING_DEPLOYMENT
+shadow=BLOCKED_BY_GATE_C
+enabled=BLOCKED_BY_GATE_C_AND_SHADOW_REQUIREMENTS
+
+> Task :verifyNdip2PackageAccepted
+proposal=NDIP-2
+receipt_status=ACCEPTED
+authority=true
+file_sha256 0a105fb2b73d63cabddf42d0ba3d5a9590b4edddd47242495f196bf56d15f642 docs/ndip/NDIP-2/01-NDIP-生命周期与认证源码权威分层.md
+file_sha256 c882ecaa32413cb9e177243cf3efe91b97810c3cc10be81e61e7e458030c4ffa docs/ndip/NDIP-2/02-实施计划.md
+file_sha256 ec1ba68ab3ac91aa667647e6289cd252b99da84d899f42f879821d6e5d7752e9 docs/ndip/NDIP-2/03-代码级目标设计.md
+package_sha256=856e1d768210a31fc9aad811af3a93c1de33189cc03c65bc1e36d57affbf10db
+gate_b=PASS
+implementation=AUTHORIZED
+deployment_authority=false
+
+> Task :checkDocumentation
+
+BUILD SUCCESSFUL in 1m 5s
+6 actionable tasks: 6 executed
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+Final updated-doc checkDocumentation BUILD SUCCESSFUL in 1m 5s; Local61/Native12/style pass. User .gitignore excluded; completion/production flags stay false.

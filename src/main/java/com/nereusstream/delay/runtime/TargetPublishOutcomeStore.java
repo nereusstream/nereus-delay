@@ -99,6 +99,8 @@ public final class TargetPublishOutcomeStore {
             throw new IllegalArgumentException("Target Outcome mutation/source differs from its Shard scope");
         }
         final SystemMutationResult[] applied = new SystemMutationResult[1];
+        final com.nereusstream.delay.protocol.EvidenceCursor[] acceptedCursor =
+                new com.nereusstream.delay.protocol.EvidenceCursor[1];
         final var sourceAccounting = new TargetSourceAccounting(
                 scope,
                 lineage,
@@ -108,7 +110,8 @@ public final class TargetPublishOutcomeStore {
                 maximumTargets,
                 maximumDomains);
         final TargetMessageStore.AccountingAssembler accounting = grants.wrap(
-                (reader, business) -> sourceAccounting.assemble(reader, business),
+                (reader, business) -> sourceAccounting.assemble(reader, business, null,
+                        acceptedCursor[0] == null ? null : reader.advanceEvidenceCursor(acceptedCursor[0])),
                 TargetQuotaGrantGate.Operation.OUTCOME,
                 null);
         final var batch = messages.prepareAccounted(
@@ -142,6 +145,9 @@ public final class TargetPublishOutcomeStore {
                                 orders = List.of(projection.order());
                             }
                             extra.addAll(projection.extra());
+                            if (mutation.type() == SystemMutationType.EVIDENCE_RESOLUTION) {
+                                acceptedCursor[0] = outcome.evidenceCursor();
+                            }
                         }
                     }
                     final var result = SystemMutationResult.from(
