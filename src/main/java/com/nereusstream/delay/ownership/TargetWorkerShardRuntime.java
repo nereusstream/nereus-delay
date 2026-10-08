@@ -277,6 +277,15 @@ public final class TargetWorkerShardRuntime
         return target.discoverCheckpointInputs(budget, continuation, maximumRows, ownerClock);
     }
 
+    /** Revalidates the retained-input cut under the current Worker and Owner guards. */
+    synchronized void requireCheckpointInputsCurrent(final BoundedReadBudget budget,
+            final com.nereusstream.delay.runtime.TargetPublishRecoveryDiscovery.Cursor cursor,
+            final LongSupplier ownerClock) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        target.requireCheckpointInputsCurrent(budget, cursor, ownerClock);
+    }
+
     /** Install before Host ticks begin. History must return promptly and perform its bounded I/O asynchronously. */
     public synchronized TargetPublishRecoveryMaintenance configurePublishRecoveryMaintenance(
             final TargetPublishOutcomeMutationFactory outcomes, final ShardLogMutationAppender appender,

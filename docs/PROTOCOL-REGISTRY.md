@@ -2975,3 +2975,12 @@ retryUntil/envelope and frozen locator/attempt/commitment, with original body al
 commitment. ADMITTED continues to require exact allocation equality. Continuations bind scan mode and
 physical Store cut; partial pages never prove complete protection. References confer no SEND, history
 retention, pins or checkpoint publication authority.
+
+Target Admission checkpoint input collection (2026-10-08) changes no wire or persistence format.
+`TargetCheckpointAdmissionInputs` collects original signed frames through one asynchronous history
+future and bounded same-cut discovery turns. Input count and total encoded frame bytes are finite;
+partial reads yield without accepting an incomplete set. Every turn and result retrieval revalidates
+the current Worker/Owner and original physical Store cut. A Source/local write or Owner loss invalidates
+the collection, including a previously complete result. History providers own bounded authenticated
+I/O, retention and cleanup; local image correlation is not that authority. Complete inputs still require
+full semantic/control snapshots, a protected Broker cut and formal checkpoint publication/install.

@@ -181,6 +181,23 @@ public final class TargetPublishRecoveryDiscovery {
         }, Objects.requireNonNull(authority, "authority"));
     }
 
+    /** Validates the original retained-input Store cut without advancing its continuation. */
+    public void requireRetainedCursorCurrent(final BoundedReadBudget budget, final Cursor cursor,
+            final TargetStoreBackend.ReadAuthority authority) {
+        if (cursor == null || cursor.owner != this || !cursor.retainedInputs) {
+            throw new IllegalArgumentException("retained input validation requires its exact continuation");
+        }
+        backend.guardedRead(budget, reader -> {
+            reader.requireWithinElapsedBudget();
+            final var cut = new TargetQueueSnapshotReader.Cut(
+                    reader.metadata().storeIncarnation(), reader.nativeSequence());
+            if (!cursor.cut.equals(cut)) {
+                throw new StaleCursor();
+            }
+            return true;
+        }, authority);
+    }
+
     /** Rechecks immutable Budget identity; an applied Outcome can retire this initial queue while history loads. */
     public boolean stillAdmitted(final BoundedReadBudget budget, final Reference reference,
             final TargetStoreBackend.ReadAuthority authority) {

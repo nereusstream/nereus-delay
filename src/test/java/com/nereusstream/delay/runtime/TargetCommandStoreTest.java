@@ -21,6 +21,7 @@ import com.nereusstream.delay.ownership.SourceRecordConsumer;
 import com.nereusstream.delay.ownership.SourceReplayMutation;
 import com.nereusstream.delay.ownership.SourceReplayRecord;
 import com.nereusstream.delay.ownership.SourceReplaySuccessor;
+import com.nereusstream.delay.ownership.TargetCheckpointAdmissionInputs;
 import com.nereusstream.delay.ownership.TargetMessageExpiryWorkClassExecutor;
 import com.nereusstream.delay.ownership.TargetOwnerDrainCoordinator;
 import com.nereusstream.delay.ownership.TargetReservationClosureWorkClassExecutor;
@@ -7663,9 +7664,19 @@ class TargetCommandStoreTest {
                     classes, pending, admissionImage, service, keys, owner, policy,
                     expectedResolution, expectedCursor, publishFailure, journalEvidence);
         }
+        final var lateHistory = new java.util.concurrent.CompletableFuture<SystemMutation>();
+        final var losingOwner = new TargetCheckpointAdmissionInputs(worker, TargetCommandStoreTest::budget,
+                ref -> lateHistory, new TargetCheckpointAdmissionInputs.Limits(4, 32L << 20), () -> 102);
+        assertEquals(TargetCheckpointAdmissionInputs.Status.DISCOVERED, losingOwner.runTurn().status());
+        assertEquals(TargetCheckpointAdmissionInputs.Status.LOADING, losingOwner.runTurn().status());
+        final long beforeOwnerLoss = store.latestSequenceNumber();
+        assertTrue(leases.release(active));
+        lateHistory.complete(admissionImage);
+        assertEquals(TargetCheckpointAdmissionInputs.Status.FAILED, losingOwner.runTurn().status());
+        assertTrue(losingOwner.result().isEmpty());
+        assertEquals(beforeOwnerLoss, store.latestSequenceNumber());
         worker.pauseNewTurns();
         worker.closeSource();
-        assertTrue(leases.release(active));
     }
 
     private static void assertResolvedTargetEvidence(
@@ -7704,7 +7715,8 @@ class TargetCommandStoreTest {
         final byte[] unknownFirstKey = Bytes.concat(
                 new byte[] {TargetKeyCodec.RESULT_SYSTEM_TAG, TargetKeyCodec.KEY_FORMAT}, position.logicalId());
         final byte[] unknownFirstBytes = store.get(ColumnFamily.DEDUPE, unknownFirstKey);
-        assertRetainedAdmissionInput(backend, store, scope, lineage, worker, admission, held);
+        final var collectingUnknown = assertRetainedAdmissionInput(
+                backend, store, scope, lineage, worker, admission, held, keys);
         final var prior = (KafkaSourcePosition) store.appliedShardLogPosition();
         final var at = source(prior, prior.offset() + 1, prior.brokerPersistenceTimeEpochMs() + 1);
         final long observed = Math.max(at.brokerPersistenceTimeEpochMs(), body.decisionTime().latestEpochMs());
@@ -7776,6 +7788,10 @@ class TargetCommandStoreTest {
         final var turn = worker.runSourceTurn(new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 102);
         assertEquals(SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN, turn.status(),
                 () -> String.valueOf(turn.failure()));
+        collectingUnknown.history().complete(admission);
+        assertTrue(collectingUnknown.completed().result().isEmpty());
+        assertEquals(TargetCheckpointAdmissionInputs.Status.FAILED, collectingUnknown.pending().runTurn().status());
+        assertTrue(collectingUnknown.pending().result().isEmpty());
         final var resolved = TargetQuotaAttemptBudget.decode(TargetValueEnvelope.decode(
                 store.get(ColumnFamily.META, attemptKey), TargetQuotaAttemptBudget.VALUE_TYPE).payload());
         assertEquals(List.of(cursor), store.runtimeMetadata().evidenceCursors());
@@ -7830,7 +7846,8 @@ class TargetCommandStoreTest {
         final long beforeSeedBypass = store.latestSequenceNumber();
         assertThrows(IllegalStateException.class, () -> store.recordEvidenceCursors(List.of()));
         assertEquals(beforeSeedBypass, store.latestSequenceNumber());
-        assertRetainedAdmissionInput(backend, store, scope, lineage, worker, admission, resolved);
+        final var collectingResolved = assertRetainedAdmissionInput(
+                backend, store, scope, lineage, worker, admission, resolved, keys);
         final byte[] budgetBefore = store.get(ColumnFamily.META, attemptKey);
         final var firstAdmission = TargetResultRecord.decode(TargetValueEnvelope.decode(
                 store.get(ColumnFamily.DEDUPE, systemKey(admission)), TargetResultRecord.VALUE_TYPE).payload());
@@ -7844,6 +7861,10 @@ class TargetCommandStoreTest {
         assertEquals(budgetBefore.length, budgetAfter.length);
         assertEquals(resolved.effectiveCharge(), changedBudget.effectiveCharge());
         store.write(batch -> batch.put(ColumnFamily.META, attemptKey, budgetAfter));
+        collectingResolved.history().complete(admission);
+        assertTrue(collectingResolved.completed().result().isEmpty());
+        assertEquals(TargetCheckpointAdmissionInputs.Status.FAILED, collectingResolved.pending().runTurn().status());
+        assertTrue(collectingResolved.pending().result().isEmpty());
         assertTrue(assertThrows(IllegalStateException.class, () -> TargetStoreBootstrap.reopen(
                 store, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(), (a, b) -> guard()))
                 .getMessage().contains("retained Budget lacks its exact Admission first result"));
@@ -7852,9 +7873,13 @@ class TargetCommandStoreTest {
                 (a, b) -> guard());
     }
 
-    private static void assertRetainedAdmissionInput(
+    private record CheckpointInputFixture(TargetCheckpointAdmissionInputs pending,
+            java.util.concurrent.CompletableFuture<SystemMutation> history,
+            TargetCheckpointAdmissionInputs completed) {}
+
+    private static CheckpointInputFixture assertRetainedAdmissionInput(
             TargetStoreBackend backend, ShardStore store, TargetQuotaScope scope, byte[] lineage,
-            TargetWorkerShardRuntime worker, SystemMutation admission, TargetQuotaAttemptBudget current) {
+            TargetWorkerShardRuntime worker, SystemMutation admission, TargetQuotaAttemptBudget current, KeyPair keys) {
         final var discovery = new TargetPublishRecoveryDiscovery(backend, scope, lineage);
         final long before = store.latestSequenceNumber();
         final var limited = discovery.scanRetainedInputs(
@@ -7884,7 +7909,47 @@ class TargetCommandStoreTest {
                 () -> discovery.scan(budget(), page.continuation(), 2, (a, b) -> guard()));
         assertTrue(discovery.scanRetainedInputs(budget(), page.continuation(), 2, (a, b) -> guard()).complete());
         assertFalse(discovery.stillAdmitted(budget(), reference, (a, b) -> guard()));
+        final var loaded = new java.util.concurrent.CompletableFuture<SystemMutation>();
+        final var loads = new java.util.concurrent.atomic.AtomicInteger();
+        final var collector = new TargetCheckpointAdmissionInputs(worker, TargetCommandStoreTest::budget, ref -> {
+            assertFalse(Thread.holdsLock(store));
+            assertEquals(reference.source(), ref.source());
+            loads.incrementAndGet();
+            return loaded;
+        }, new TargetCheckpointAdmissionInputs.Limits(4, 32L << 20), () -> 102);
+        assertEquals(TargetCheckpointAdmissionInputs.Status.DISCOVERED, collector.runTurn().status());
+        assertEquals(TargetCheckpointAdmissionInputs.Status.LOADING, collector.runTurn().status());
+        assertEquals(TargetCheckpointAdmissionInputs.Status.LOADING, collector.runTurn().status());
+        assertTrue(collector.result().isEmpty());
+        loaded.complete(admission);
+        assertEquals(TargetCheckpointAdmissionInputs.Status.ACCEPTED, collector.runTurn().status());
+        assertEquals(TargetCheckpointAdmissionInputs.Status.COMPLETE, collector.runTurn().status());
+        final var inputs = collector.result().orElseThrow();
+        assertEquals(1, inputs.size());
+        assertEquals(reference.source(), inputs.getFirst().reference().source());
+        assertArrayEquals(admission.encodeFrame(), inputs.getFirst().image().encodeFrame());
+        assertEquals(1, loads.get());
+        // Same body and author, different envelope: retained first-result correlation must reject it.
+        final var changed = SystemMutation.signed(admission.shardId(), admission.type(),
+                admission.retryUntilEpochMs(), current.publishAttemptId(), admission.canonicalBody(),
+                admission.authorIdentity(), 2, keys.getPrivate());
+        for (final boolean bytesExceeded : List.of(false, true)) {
+            final var rejected = new TargetCheckpointAdmissionInputs(worker, TargetCommandStoreTest::budget,
+                    ref -> java.util.concurrent.CompletableFuture.completedFuture(bytesExceeded ? admission : changed),
+                    new TargetCheckpointAdmissionInputs.Limits(4, bytesExceeded ? 1 : 32L << 20), () -> 102);
+            assertEquals(TargetCheckpointAdmissionInputs.Status.DISCOVERED, rejected.runTurn().status());
+            assertEquals(TargetCheckpointAdmissionInputs.Status.LOADING, rejected.runTurn().status());
+            assertEquals(TargetCheckpointAdmissionInputs.Status.FAILED, rejected.runTurn().status());
+            assertTrue(rejected.result().isEmpty());
+        }
+        final var changingHistory = new java.util.concurrent.CompletableFuture<SystemMutation>();
+        final var changing = new TargetCheckpointAdmissionInputs(worker, TargetCommandStoreTest::budget,
+                ref -> changingHistory, new TargetCheckpointAdmissionInputs.Limits(4, 32L << 20), () -> 102);
+        assertEquals(TargetCheckpointAdmissionInputs.Status.DISCOVERED, changing.runTurn().status());
+        assertEquals(TargetCheckpointAdmissionInputs.Status.LOADING, changing.runTurn().status());
         assertEquals(before, store.latestSequenceNumber());
+        // Caller changes the actual Store while this original-cut collection is waiting for its next turn.
+        return new CheckpointInputFixture(changing, changingHistory, collector);
     }
 
     /** Actual atomic Store/Claim/Admission paths; physical/time/key/cursor/commit authorities are fixtures. */

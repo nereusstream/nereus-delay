@@ -769,6 +769,14 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         return admitted;
     }
 
+    synchronized void requireCheckpointInputsCurrent(final BoundedReadBudget budget,
+            final TargetPublishRecoveryDiscovery.Cursor cursor, final LongSupplier ownerClock) {
+        final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
+        requireGcOwner(clock);
+        publishRecoveryDiscovery.requireRetainedCursorCurrent(budget, cursor, workerReads(clock));
+        requireGcOwner(clock);
+    }
+
     synchronized void requireOutcomeWriter(final SystemMutation mutation, final LongSupplier clock) {
         requireGcOwner(clock);
         final var author = AuthorIdentity.decode(mutation.authorIdentity());

@@ -18695,3 +18695,14 @@ independent Fetch preserve Store/group; P1 reads real original Admission bytes f
 resolved Budget/allocation/later-source fixtures (no actual Outcome append/apply). Optional compilers/
 style pass; owned cursors/env cleanup verified. Full protected history/snapshot/provider/pins/Floor/
 Catalog/install/migration composition remains open; no completion/production flags raised.
+
+Target checkpoint original-Admission collection now has bounded asynchronous turns with finite input/
+frame limits, exact retained-image correlation, current Worker/Owner and unchanged native Store-cut
+checks through result retrieval. Local48/style pass for successful UNKNOWN/awaiting-Floor collection,
+wrong envelopes/byte overflow, late history after actual Source mutation, completed-result invalidation
+and Owner lease release without new Store writes. External history/Broker/protection providers remain
+fixtures; complete semantic/control snapshots and formal protected publication/install stay required.
+
+The same collection regressions pass the native two-session Oxia12 suite, including lease-release
+rejection; Owner/Source/Store are actual, history/Broker/protection providers remain fixtures. Receipt:
+`evidence/c5-target-input-collection-oxia-real.log` in NDIP-3. Full protected publication/install remains open.
