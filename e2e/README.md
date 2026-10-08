@@ -7631,3 +7631,9 @@ The real Oxia late-Target Outcome suite adds Journal PUBLISHED/permanent-absence
 cursor seeds after takeover (native12). Actual Owner/session/lease/Store/Source/ledger; Journal/Broker/
 fencing/retention/history/time/key/cursor authorities remain fixtures. Whole Source/quota/business/META6
 native failure actual reopen is a separate RocksDB slice. See NDIP-3 `c5-target-source-cursor-seed` receipts.
+
+The real Oxia Target takeover suite also validates retained Budget-to-original-Admission first-result
+joins, with same-length/charge resolved-Budget digest corruption rejected by full reopen audit. Native12
+passes; actual Owner/Store/Source/ledger with explicit Broker/Journal/history/time/key/cursor fixtures.
+NDIP-3 `c5-target-admission-first-results` receipts record exact scope and owned cleanup; no Floor or
+production install authority follows.

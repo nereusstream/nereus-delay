@@ -18677,3 +18677,9 @@ exact root-owned APPLIED/OK first System results, canonical body/hash/ID/source/
 captured Native ControlAuthor. Actual Store Source/control/reopen/image checks reject same-length
 valid-encoding body conflicts (local48). External authorities remain fixtures; full control/semantic
 snapshots, production publication/install/Floor/migration/central validation remain open; flags stay false.
+
+Full Target checkpoint ledger audit now binds every retained attempt Budget to its exact original
+APPLIED/OK Owner Admission first result, canonical ID/hash/source and phase ordering. Same-length/
+charge/resolved-phase digest conflicts reject (local49, native two-session Oxia12). External Broker/
+Journal/history/time/key/cursor providers remain fixtures. Original input/history protection, equivalent
+proof after result retirement, full snapshots/production Catalog/install/Floor/migration remain open.

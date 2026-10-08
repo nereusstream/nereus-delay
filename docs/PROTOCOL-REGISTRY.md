@@ -2956,3 +2956,14 @@ match; NV42 additionally matches its full captured ControlAuthor. Existing POSIT
 still applies. This is a cross-ledger invariant, no wire change or local authentication authority. Deleting
 those first results requires an independently retained equivalent proof; current Target recovery fails
 closed without one. Full Target control/semantic snapshot and publication/install authorities remain open.
+
+### Retained Target attempt Budget Admission invariant (2026-10-08)
+
+Every retained Target attempt Budget requires its exact root-owned first SYSTEM result for
+TARGET_PUBLISH_ADMISSION, whose ID is computed from publishAttemptId and frozen admissionDigest
+(the canonical mutationHash). It must be APPLIED/OK, Owner-authored, without allocation attachment,
+with exact ID/hash/first Source bytes. ADMITTED retains the full original mutation stamp; subsequent
+Budget phases strictly follow it. Existing POSITION/result/ref/charge audit remains required. Budget
+resolution does not retire the original first-result/signed-input/history obligation. First-result cleanup
+requires an independently retained equivalent proof; the current full Target audit fails closed without
+one. No wire change, external authentication or Target Catalog/install/Floor authority is implied.

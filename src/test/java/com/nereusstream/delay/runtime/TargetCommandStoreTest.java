@@ -7824,6 +7824,25 @@ class TargetCommandStoreTest {
         final long beforeSeedBypass = store.latestSequenceNumber();
         assertThrows(IllegalStateException.class, () -> store.recordEvidenceCursors(List.of()));
         assertEquals(beforeSeedBypass, store.latestSequenceNumber());
+        final byte[] budgetBefore = store.get(ColumnFamily.META, attemptKey);
+        final var firstAdmission = TargetResultRecord.decode(TargetValueEnvelope.decode(
+                store.get(ColumnFamily.DEDUPE, systemKey(admission)), TargetResultRecord.VALUE_TYPE).payload());
+        final var changedBudget = TargetQuotaAttemptBudget.admit(resolved.locator(), resolved.tenantScope(),
+                resolved.publishAttemptId(), bytes(32, 0xCC), resolved.accounting(), resolved.executionBytes(),
+                resolved.commitment(), held.allocated(), firstAdmission.mutation(), lineage)
+                .unknown(held.allocated(), held.mutation())
+                .resolve(evidence.verificationStatus(), resolved.allocated(), resolved.mutation());
+        final byte[] budgetAfter = TargetValueEnvelope.encode(
+                TargetQuotaAttemptBudget.VALUE_TYPE, changedBudget.canonicalBytes());
+        assertEquals(budgetBefore.length, budgetAfter.length);
+        assertEquals(resolved.effectiveCharge(), changedBudget.effectiveCharge());
+        store.write(batch -> batch.put(ColumnFamily.META, attemptKey, budgetAfter));
+        assertTrue(assertThrows(IllegalStateException.class, () -> TargetStoreBootstrap.reopen(
+                store, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(), (a, b) -> guard()))
+                .getMessage().contains("retained Budget lacks its exact Admission first result"));
+        store.write(batch -> batch.put(ColumnFamily.META, attemptKey, budgetBefore));
+        TargetStoreBootstrap.reopen(store, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(),
+                (a, b) -> guard());
     }
 
     /** Actual atomic Store/Claim/Admission paths; physical/time/key/cursor/commit authorities are fixtures. */

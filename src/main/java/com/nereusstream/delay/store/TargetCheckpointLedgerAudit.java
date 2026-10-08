@@ -200,6 +200,7 @@ final class TargetCheckpointLedgerAudit {
         }
         auditGrantResults(grantActivations, resultRows, proof.root().identity());
         auditControlResults(membershipClosures, nativeControls, resultRows, proof.root().identity());
+        auditAdmissionResults(attemptBudgets, resultRows, proof.root().identity());
         TargetQuotaDelta.audit(proof.aggregate(), counters, rebuilt);
     }
 
@@ -519,6 +520,47 @@ final class TargetCheckpointLedgerAudit {
             requireControlResult(systems, root, control.mutation(), body.retryUntil(), body.logicalIdentity(),
                     body.canonicalBytes(), AuthorIdentity.control(author.operationActorIdHash(),
                             author.authenticatedRoleSetHash(), author.tenantResourceScopeHash()).canonicalBytes());
+        }
+    }
+
+    private static void auditAdmissionResults(
+            final List<TargetQuotaAttemptBudget> attempts,
+            final List<TargetResultLedgerAudit.Stored> resultRows,
+            final TargetQuotaIdentity root) {
+        final Map<String, TargetResultRecord> systems = new HashMap<>();
+        for (final var stored : resultRows) {
+            if (stored.key()[0] == TargetKeyCodec.RESULT_SYSTEM_TAG) {
+                systems.put(HexFormat.of().formatHex(stored.key()), TargetResultRecord.decode(stored.payload()));
+            }
+        }
+        for (final var attempt : attempts) {
+            final var type = SystemMutationType.TARGET_PUBLISH_ADMISSION;
+            final byte[] id = SystemMutation.computeSystemMutationId(
+                    root.shard(), type, attempt.publishAttemptId(), attempt.admissionDigest());
+            final byte[] key = Bytes.concat(
+                    new byte[] {TargetKeyCodec.RESULT_SYSTEM_TAG, TargetKeyCodec.KEY_FORMAT}, id);
+            final var first = systems.get(HexFormat.of().formatHex(key));
+            if (first == null || first.kind() != TargetResultRecord.Kind.SYSTEM || first.allocation() != null
+                    || !first.primaryIdentity().equals(root)) {
+                throw new IllegalStateException("Target retained Budget lacks its exact Admission first result");
+            }
+            first.mutation().requireAtOrBefore(attempt.mutation());
+            if (attempt.phase() == TargetQuotaAttemptBudget.Phase.ADMITTED) {
+                if (!first.mutation().equals(attempt.mutation())) {
+                    throw new IllegalStateException("Target ADMITTED Budget changes its Admission source stamp");
+                }
+            } else {
+                attempt.mutation().requireAfter(first.mutation());
+            }
+            final var result = SystemMutationResult.decode(first.typedPayload());
+            if (result.mutationType() != type || result.applyStatus() != ApplyStatus.APPLIED
+                    || result.stableCode() != StableCode.OK
+                    || AuthorIdentity.decode(result.authorIdentity()).kind() != AuthorIdentity.Kind.OWNER
+                    || !Arrays.equals(result.mutationId(), id)
+                    || !Arrays.equals(result.mutationHash(), attempt.admissionDigest())
+                    || !Arrays.equals(result.appliedSourcePosition(), first.mutation().source().canonicalBytes())) {
+                throw new IllegalStateException("Target retained Budget contradicts its Admission first result");
+            }
         }
     }
 
