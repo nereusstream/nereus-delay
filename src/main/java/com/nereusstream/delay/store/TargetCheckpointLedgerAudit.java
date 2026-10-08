@@ -1,5 +1,6 @@
 package com.nereusstream.delay.store;
 
+import com.nereusstream.delay.protocol.AuthorIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CapacityVector;
 import com.nereusstream.delay.protocol.DelayMessageId;
@@ -9,8 +10,11 @@ import com.nereusstream.delay.protocol.RecoveryFloorRef;
 import com.nereusstream.delay.protocol.RecoveryInstallState;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.StableCode;
+import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
+import com.nereusstream.delay.protocol.TargetMembershipClosureRecord;
 import com.nereusstream.delay.protocol.TargetMessageLocator;
+import com.nereusstream.delay.protocol.TargetNativePolicyControlRecord;
 import com.nereusstream.delay.protocol.TargetQueueState;
 import com.nereusstream.delay.protocol.TargetQuotaAccounting;
 import com.nereusstream.delay.protocol.TargetQuotaAggregate;
@@ -104,6 +108,8 @@ final class TargetCheckpointLedgerAudit {
         final Map<TargetQuotaIdentity, CapacityVector> resultContributions = new HashMap<>();
         final List<TargetResultLedgerAudit.Stored> resultRows = new ArrayList<>();
         final List<TargetQuotaGrantActivation> grantActivations = new ArrayList<>();
+        final List<TargetMembershipClosureRecord> membershipClosures = new ArrayList<>();
+        final List<TargetNativePolicyControlRecord> nativeControls = new ArrayList<>();
         final List<TargetQuotaAttemptBudget> attemptBudgets = new ArrayList<>();
         final List<AttemptProjection> attemptProjections = new ArrayList<>();
         final List<TargetQuotaCounter> counters = new ArrayList<>();
@@ -133,6 +139,12 @@ final class TargetCheckpointLedgerAudit {
                     } else if (family == ColumnFamily.META && type == TargetQuotaAttemptBudget.VALUE_TYPE) {
                         attemptBudgets.add(TargetQuotaAttemptBudget.decodeForStore(
                                 key, payload, proof.metadata().shardId()));
+                    } else if (family == ColumnFamily.META && type == TargetMembershipClosureRecord.VALUE_TYPE) {
+                        membershipClosures.add(TargetMembershipClosureRecord.decodeForStore(
+                                key, payload, proof.metadata().shardId(), proof.root().recoveryLineage()));
+                    } else if (family == ColumnFamily.META && type == TargetNativePolicyControlRecord.VALUE_TYPE) {
+                        nativeControls.add(TargetNativePolicyControlRecord.decodeForStore(
+                                key, payload, proof.metadata().shardId(), proof.root().recoveryLineage()));
                     } else if (family == ColumnFamily.TERMINAL
                             && type == TargetTerminalGenerationRecord.VALUE_TYPE) {
                         final var terminal = TargetTerminalGenerationRecord.decode(payload);
@@ -187,6 +199,7 @@ final class TargetCheckpointLedgerAudit {
             throw new IllegalStateException("Target checkpoint result ledger differs from actual DEDUPE accounting");
         }
         auditGrantResults(grantActivations, resultRows, proof.root().identity());
+        auditControlResults(membershipClosures, nativeControls, resultRows, proof.root().identity());
         TargetQuotaDelta.audit(proof.aggregate(), counters, rebuilt);
     }
 
@@ -481,6 +494,55 @@ final class TargetCheckpointLedgerAudit {
                     && !Arrays.equals(record.allocation().canonicalBytes(), grant.allocation().canonicalBytes())) {
                 throw new IllegalStateException("Target grant activation contradicts its first allocation result");
             }
+        }
+    }
+
+    private static void auditControlResults(
+            final List<TargetMembershipClosureRecord> closures,
+            final List<TargetNativePolicyControlRecord> controls,
+            final List<TargetResultLedgerAudit.Stored> resultRows,
+            final TargetQuotaIdentity root) {
+        final Map<String, TargetResultRecord> systems = new HashMap<>();
+        for (final var stored : resultRows) {
+            if (stored.key()[0] == TargetKeyCodec.RESULT_SYSTEM_TAG) {
+                systems.put(HexFormat.of().formatHex(stored.key()), TargetResultRecord.decode(stored.payload()));
+            }
+        }
+        for (final var closure : closures) {
+            final var body = closure.body();
+            requireControlResult(systems, root, closure.mutation(), body.retryUntil(), body.logicalIdentity(),
+                    body.canonicalBytes(), null);
+        }
+        for (final var control : controls) {
+            final var body = control.body();
+            final var author = control.author();
+            requireControlResult(systems, root, control.mutation(), body.retryUntil(), body.logicalIdentity(),
+                    body.canonicalBytes(), AuthorIdentity.control(author.operationActorIdHash(),
+                            author.authenticatedRoleSetHash(), author.tenantResourceScopeHash()).canonicalBytes());
+        }
+    }
+
+    private static void requireControlResult(
+            final Map<String, TargetResultRecord> systems, final TargetQuotaIdentity root,
+            final com.nereusstream.delay.protocol.TargetQuotaMutation mutation,
+            final long retryUntil, final byte[] logicalIdentity, final byte[] body, final byte[] author) {
+        final var type = SystemMutationType.APPLY_SHARD_CONTROL;
+        final byte[] hash = SystemMutation.computeMutationHash(root.shard(), type, retryUntil, body);
+        final byte[] id = SystemMutation.computeSystemMutationId(root.shard(), type, logicalIdentity, hash);
+        final byte[] key = Bytes.concat(new byte[] {TargetKeyCodec.RESULT_SYSTEM_TAG, TargetKeyCodec.KEY_FORMAT}, id);
+        final var record = systems.get(HexFormat.of().formatHex(key));
+        if (record == null || record.kind() != TargetResultRecord.Kind.SYSTEM || record.allocation() != null
+                || !record.primaryIdentity().equals(root) || !record.mutation().equals(mutation)) {
+            throw new IllegalStateException("Target retained control lacks its exact first System result");
+        }
+        final var result = SystemMutationResult.decode(record.typedPayload());
+        if (result.mutationType() != type || result.applyStatus() != ApplyStatus.APPLIED
+                || result.stableCode() != StableCode.OK || result.retryUntilEpochMs() != retryUntil
+                || !Arrays.equals(result.mutationId(), id) || !Arrays.equals(result.mutationHash(), hash)
+                || !Arrays.equals(result.appliedSourcePosition(), mutation.source().canonicalBytes())
+                || AuthorIdentity.decode(result.authorIdentity()).kind() != AuthorIdentity.Kind.CONTROL
+                || author != null && !Arrays.equals(author, result.authorIdentity())) {
+            throw new IllegalStateException("Target retained control contradicts its first System result");
         }
     }
 

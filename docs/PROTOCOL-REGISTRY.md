@@ -2946,3 +2946,13 @@ is not commit authority; the separate durable cursor is registered below. Existi
 Target-only `meta_cf` key `[0x1d][0x01][TargetId:32]` stores NV40/schema1 `TargetCloseCursorRecord`. Canonical fields: 1 version=1; 2 TargetId[32]; 3 SHA-256 of the first accepted NV39 marker canonical bytes[32]; 4 recovery lineage[16]; 5 nonzero raw uint64 revision; optional 6 after DelayMessageId[32]; 7 phase OPEN=1 or COMPLETE=2; 8 complete canonical TargetQuotaMutation; 9 SHA-256[32] of `"nereus-delay-target-close-cursor\0" || canonicalProtobuf(fields 1..8)`. Revision1 is OPEN with no after and the exact marker mutation; later revisions require an advancing local mutation and the same marker/lineage. The Target and tenant mirror charge actual key, value and NV envelope bytes as STATE. Legacy ValueEnvelope rejects NV40.
 
 TargetQuotaMutation adds optional nonzero raw uint64 field7 for independent Close cursor completion. It is exclusive with local Claim field4, reservation expiry field5 and closure field6, sharing the same ordinal and unchanged maximum width. A terminal materialization can advance the cursor with its field5/6 stamp only when deleting the current first active Target index entry; it marks COMPLETE when no further active entry exists. An empty scan may write COMPLETE under field7 with exact Target/tenant mirror accounting, leaving source META3/5 unchanged. The first cursor is created in the accepted Close marker's source batch. Existing format2 persistent reservations and markers require controlled backfill and accounting before activating this reader.
+
+### Target retained control first-result recovery invariant (2026-10-08)
+
+NV41 membership closure and NV42 Native controls require the exact retained root-owned SYSTEM first
+result under canonical APPLY_SHARD_CONTROL ID/hash computed from their frozen body/logical identity/
+retryUntil. Full Source mutation stamp, APPLIED/OK, no allocation attachment and Control author must
+match; NV42 additionally matches its full captured ControlAuthor. Existing POSITION/result/charge audit
+still applies. This is a cross-ledger invariant, no wire change or local authentication authority. Deleting
+those first results requires an independently retained equivalent proof; current Target recovery fails
+closed without one. Full Target control/semantic snapshot and publication/install authorities remain open.

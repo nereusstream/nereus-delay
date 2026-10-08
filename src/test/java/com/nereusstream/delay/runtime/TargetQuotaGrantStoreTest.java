@@ -3288,6 +3288,40 @@ class TargetQuotaGrantStoreTest {
                             .closedAt()
                             .canonicalBytes(),
                     historical.closedAt().canonicalBytes());
+            final byte[] closureBefore = reopened.get(ColumnFamily.META, closureKey);
+            final var closure = TargetMembershipClosureRecord.decode(closureBytes);
+            final var closeBody = closure.body();
+            final var changedClosure = new TargetMembershipClosureRecord(new TargetMembershipControlBody(
+                    closeBody.shard(), closeBody.retryUntil() + 1, closeBody.controlRef(), closeBody.request()),
+                    closure.mutation(), lineage);
+            final byte[] closureAfter = TargetValueEnvelope.encode(
+                    TargetMembershipClosureRecord.VALUE_TYPE, changedClosure.canonicalBytes());
+            assertEquals(closureBefore.length, closureAfter.length);
+            reopened.write(batch -> batch.put(ColumnFamily.META, closureKey, closureAfter));
+            assertTrue(assertThrows(IllegalStateException.class, () -> TargetStoreBootstrap.reopen(
+                    reopened, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(), (a, b) -> guard()))
+                    .getMessage().contains("retained control lacks its exact first System result"));
+            reopened.write(batch -> batch.put(ColumnFamily.META, closureKey, closureBefore));
+            final var nativeRow = recovered.backend().guardedRead(budget(), reader -> reader.first(
+                    ColumnFamily.META, new byte[] {31, 1}, new byte[] {36, 1}, List.of()), (a, b) -> guard());
+            final var nativeRecord = TargetNativePolicyControlRecord.decode(
+                    TargetValueEnvelope.decode(nativeRow.value(), TargetNativePolicyControlRecord.VALUE_TYPE)
+                            .payload());
+            final var nativeBody = nativeRecord.body();
+            final var changedNative = new TargetNativePolicyControlRecord(new TargetNativePolicyControlBody(
+                    nativeBody.shard(), nativeBody.retryUntil() + 1, nativeBody.controlRef(), nativeBody.request(),
+                    nativeBody.expectedRecordState()), nativeRecord.mutation(), nativeRecord.author(),
+                    nativeRecord.grant(), lineage);
+            final byte[] nativeAfter = TargetValueEnvelope.encode(
+                    TargetNativePolicyControlRecord.VALUE_TYPE, changedNative.canonicalBytes());
+            assertEquals(nativeRow.value().length, nativeAfter.length);
+            reopened.write(batch -> batch.put(ColumnFamily.META, nativeRow.key(), nativeAfter));
+            assertTrue(assertThrows(IllegalStateException.class, () -> TargetStoreBootstrap.reopen(
+                    reopened, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(), (a, b) -> guard()))
+                    .getMessage().contains("retained control lacks its exact first System result"));
+            reopened.write(batch -> batch.put(ColumnFamily.META, nativeRow.key(), nativeRow.value()));
+            TargetStoreBootstrap.reopen(reopened, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(),
+                    (a, b) -> guard());
         }
         final var imageLimits = new CheckpointManifestLimits(100, 64L << 20, 64L << 20, 1024, 1 << 20, 100, 1024);
         final var quotaLimits = new TargetCheckpointRootVerifier.QuotaAuditLimits(1_000, 8L << 20);

@@ -18671,3 +18671,9 @@ Local61 and real two-session Oxia12 pass; actual native before/after-failure reo
 Source/quota/business/META6 batch. External Journal/Broker/fence/retention/Source/history/time/key/cursor
 providers remain fixtures. Old unseeded/unaccounted state requires controlled migration; production
 providers/pins/Floor/Target Catalog/install/retirement remain open, completion/production flags stay false.
+
+Target checkpoint ledger audit now binds membership closure and all five Native control records to
+exact root-owned APPLIED/OK first System results, canonical body/hash/ID/source/retry window and
+captured Native ControlAuthor. Actual Store Source/control/reopen/image checks reject same-length
+valid-encoding body conflicts (local48). External authorities remain fixtures; full control/semantic
+snapshots, production publication/install/Floor/migration/central validation remain open; flags stay false.
