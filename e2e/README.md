@@ -7637,3 +7637,8 @@ joins, with same-length/charge resolved-Budget digest corruption rejected by ful
 passes; actual Owner/Store/Source/ledger with explicit Broker/Journal/history/time/key/cursor fixtures.
 NDIP-3 `c5-target-admission-first-results` receipts record exact scope and owned cleanup; no Floor or
 production install authority follows.
+
+The real Oxia Target takeover suite verifies retained-input discovery after UNKNOWN/Outcome, including
+original Source/envelope, current-stamp rejection and current Worker guards (native12). Broker/history/
+Journal/time/key/cursor providers remain fixtures; this does not prove protected pre-checkpoint Broker
+history or snapshot publication/install. NDIP-3 `c5-target-retained-inputs` receipts capture exact scope.

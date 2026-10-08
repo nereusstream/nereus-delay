@@ -7414,6 +7414,11 @@ class TargetCommandStoreTest {
         assertEquals(1, discovered.entries().size());
         final var reference = discovered.entries().getFirst();
         assertEquals(oldOwner, reference.admittedOwner());
+        final var retainedAdmitted = worker.discoverCheckpointInputs(budget(), null, 1, () -> 102);
+        assertEquals(reference.source(), retainedAdmitted.entries().getFirst().source());
+        assertArrayEquals(reference.envelopeDigest(), retainedAdmitted.entries().getFirst().envelopeDigest());
+        assertThrows(IllegalArgumentException.class, () -> worker.discoverPublishRecovery(
+                budget(), retainedAdmitted.continuation(), 1, () -> 102));
         assertEquals(admission.entry().position(), reference.source());
         assertArrayEquals(Bytes.sha256(admissionImage.canonicalEnvelope()), reference.envelopeDigest());
         assertEquals(admissionImage, reference.requireImage(admissionImage, admission.entry().position()));
@@ -7699,6 +7704,7 @@ class TargetCommandStoreTest {
         final byte[] unknownFirstKey = Bytes.concat(
                 new byte[] {TargetKeyCodec.RESULT_SYSTEM_TAG, TargetKeyCodec.KEY_FORMAT}, position.logicalId());
         final byte[] unknownFirstBytes = store.get(ColumnFamily.DEDUPE, unknownFirstKey);
+        assertRetainedAdmissionInput(backend, store, scope, lineage, worker, admission, held);
         final var prior = (KafkaSourcePosition) store.appliedShardLogPosition();
         final var at = source(prior, prior.offset() + 1, prior.brokerPersistenceTimeEpochMs() + 1);
         final long observed = Math.max(at.brokerPersistenceTimeEpochMs(), body.decisionTime().latestEpochMs());
@@ -7824,6 +7830,7 @@ class TargetCommandStoreTest {
         final long beforeSeedBypass = store.latestSequenceNumber();
         assertThrows(IllegalStateException.class, () -> store.recordEvidenceCursors(List.of()));
         assertEquals(beforeSeedBypass, store.latestSequenceNumber());
+        assertRetainedAdmissionInput(backend, store, scope, lineage, worker, admission, resolved);
         final byte[] budgetBefore = store.get(ColumnFamily.META, attemptKey);
         final var firstAdmission = TargetResultRecord.decode(TargetValueEnvelope.decode(
                 store.get(ColumnFamily.DEDUPE, systemKey(admission)), TargetResultRecord.VALUE_TYPE).payload());
@@ -7843,6 +7850,41 @@ class TargetCommandStoreTest {
         store.write(batch -> batch.put(ColumnFamily.META, attemptKey, budgetBefore));
         TargetStoreBootstrap.reopen(store, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(),
                 (a, b) -> guard());
+    }
+
+    private static void assertRetainedAdmissionInput(
+            TargetStoreBackend backend, ShardStore store, TargetQuotaScope scope, byte[] lineage,
+            TargetWorkerShardRuntime worker, SystemMutation admission, TargetQuotaAttemptBudget current) {
+        final var discovery = new TargetPublishRecoveryDiscovery(backend, scope, lineage);
+        final long before = store.latestSequenceNumber();
+        final var limited = discovery.scanRetainedInputs(
+                new BoundedReadBudget(1, 2 << 20, 10_000_000_000L, System::nanoTime), null, 2, (a, b) -> guard());
+        assertEquals(TargetPublishRecoveryDiscovery.Stop.READ_BUDGET, limited.stop());
+        assertTrue(limited.entries().isEmpty());
+        final var resumed = discovery.scanRetainedInputs(budget(), limited.continuation(), 2, (a, b) -> guard());
+        assertFalse(resumed.entries().isEmpty());
+        final var page = discovery.scanRetainedInputs(budget(), null, 2, (a, b) -> guard());
+        final var reference = page.entries().stream().filter(ref -> Arrays.equals(
+                ref.attempt().publishAttemptId(), current.publishAttemptId())).findFirst().orElseThrow();
+        final var first = TargetResultRecord.decode(TargetValueEnvelope.decode(
+                store.get(ColumnFamily.DEDUPE, systemKey(admission)), TargetResultRecord.VALUE_TYPE).payload());
+        assertEquals(first.mutation().source(), reference.source());
+        final var owned = worker.discoverCheckpointInputs(budget(), null, 2, () -> 102).entries().stream()
+                .filter(ref -> Arrays.equals(ref.attempt().publishAttemptId(), current.publishAttemptId()))
+                .findFirst().orElseThrow();
+        assertEquals(reference.source(), owned.source());
+        assertArrayEquals(reference.envelopeDigest(), owned.envelopeDigest());
+        assertArrayEquals(Bytes.sha256(admission.canonicalEnvelope()), reference.envelopeDigest());
+        assertArrayEquals(admission.canonicalEnvelope(),
+                reference.requireImage(admission, first.mutation().source()).canonicalEnvelope());
+        assertEquals(current.phase(), reference.attempt().phase());
+        assertTrue(reference.source().compareTo(current.mutation().source()) < 0);
+        assertThrows(IllegalStateException.class, () -> reference.requireImage(admission, current.mutation().source()));
+        assertThrows(IllegalArgumentException.class,
+                () -> discovery.scan(budget(), page.continuation(), 2, (a, b) -> guard()));
+        assertTrue(discovery.scanRetainedInputs(budget(), page.continuation(), 2, (a, b) -> guard()).complete());
+        assertFalse(discovery.stillAdmitted(budget(), reference, (a, b) -> guard()));
+        assertEquals(before, store.latestSequenceNumber());
     }
 
     /** Actual atomic Store/Claim/Admission paths; physical/time/key/cursor/commit authorities are fixtures. */

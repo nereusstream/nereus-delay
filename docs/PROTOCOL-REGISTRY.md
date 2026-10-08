@@ -2967,3 +2967,11 @@ Budget phases strictly follow it. Existing POSITION/result/ref/charge audit rema
 resolution does not retire the original first-result/signed-input/history obligation. First-result cleanup
 requires an independently retained equivalent proof; the current full Target audit fails closed without
 one. No wire change, external authentication or Target Catalog/install/Floor authority is implied.
+
+Target retained Admission input discovery (2026-10-08) changes no wire: original SYSTEM/POSITION
+proofs locate Source/envelope identity for every retained Budget phase. Current UNKNOWN/Outcome/Floor
+stamp or allocation is not the original accepted input; fetched bytes must match original ID/hash/author/
+retryUntil/envelope and frozen locator/attempt/commitment, with original body allocation covered by that
+commitment. ADMITTED continues to require exact allocation equality. Continuations bind scan mode and
+physical Store cut; partial pages never prove complete protection. References confer no SEND, history
+retention, pins or checkpoint publication authority.

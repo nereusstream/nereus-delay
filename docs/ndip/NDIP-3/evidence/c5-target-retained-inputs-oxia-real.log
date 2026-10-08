@@ -1,0 +1,119 @@
+Parent=8c88336290ddb2a478f2aa7a49b8ee5b56e16567; Oxia source=37a17bef17202d5fd6e23282da5fd26d94865484; owned project=nereus-delay-retained-inputs-1791428159-87043
+ Image nereus-delay-retained-inputs-1791428159-87043-oxia Building
+#1 [internal] load local bake definitions
+#1 reading from stdin 620B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 1.34kB done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/alpine:3.22
+#3 DONE 7.6s
+
+#4 [internal] load metadata for docker.io/library/golang:1.26-alpine
+#4 DONE 8.3s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 2B done
+#5 DONE 0.0s
+
+#6 [runtime 1/8] FROM docker.io/library/alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
+#6 DONE 0.0s
+
+#7 [build 1/5] FROM docker.io/library/golang:1.26-alpine@sha256:8ac98ca534ac3f51e1f420a1dd2c15e74c75cfa0f23f3ad27eb5d7236c349a0c
+#7 DONE 0.0s
+
+#8 [internal] load build context
+#8 transferring context: 39.30kB 0.0s done
+#8 DONE 0.0s
+
+#9 [runtime 3/8] RUN apk upgrade --no-cache
+#9 CACHED
+
+#10 [runtime 4/8] WORKDIR /oxia
+#10 CACHED
+
+#11 [runtime 2/8] RUN apk add --no-cache bash bash-completion jq
+#11 CACHED
+
+#12 [runtime 7/8] COPY --from=build /src/oxia/conf/dataserver.yaml /oxia/conf/dataserver.yaml
+#12 CACHED
+
+#13 [build 5/5] RUN --mount=type=cache,target=/go/pkg/mod     --mount=type=cache,target=/root/.cache/go-build     make
+#13 CACHED
+
+#14 [runtime 6/8] COPY --from=build /src/oxia/conf/coordinator.yaml /oxia/conf/coordinator.yaml
+#14 CACHED
+
+#15 [build 2/5] RUN apk add --no-cache make git build-base bash
+#15 CACHED
+
+#16 [build 3/5] WORKDIR /src/oxia
+#16 CACHED
+
+#17 [build 4/5] COPY . .
+#17 CACHED
+
+#18 [runtime 5/8] COPY --from=build /src/oxia/bin/oxia /oxia/bin/oxia
+#18 CACHED
+
+#19 [runtime 8/8] RUN oxia completion bash > ~/.bashrc
+#19 CACHED
+
+#20 exporting to image
+#20 exporting layers done
+#20 writing image sha256:2fb02ef65c23d0f86e7413cbe5973459a38309449f7546ad2f65971b327637fa done
+#20 naming to docker.io/library/nereus-delay-retained-inputs-1791428159-87043-oxia done
+#20 DONE 0.0s
+
+#21 resolving provenance for metadata file
+#21 DONE 0.0s
+ Image nereus-delay-retained-inputs-1791428159-87043-oxia Built
+ Network nereus-delay-retained-inputs-1791428159-87043_default Creating
+ Network nereus-delay-retained-inputs-1791428159-87043_default Creating
+ Network nereus-delay-retained-inputs-1791428159-87043_default Created
+ Network nereus-delay-retained-inputs-1791428159-87043_default Created
+ Container nereus-delay-retained-inputs-1791428159-87043-oxia-1 Creating
+ Container nereus-delay-retained-inputs-1791428159-87043-oxia-1 Created
+ Container nereus-delay-retained-inputs-1791428159-87043-oxia-1 Starting
+ Container nereus-delay-retained-inputs-1791428159-87043-oxia-1 Started
+Native Oxia image=sha256:2fb02ef65c23d0f86e7413cbe5973459a38309449f7546ad2f65971b327637fa running=true
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava UP-TO-DATE
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses UP-TO-DATE
+> Task :test
+> Task :checkstyleMain UP-TO-DATE
+> Task :checkstyleTest UP-TO-DATE
+
+BUILD SUCCESSFUL in 1m 8s
+15 actionable tasks: 2 executed, 13 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+ Container nereus-delay-retained-inputs-1791428159-87043-oxia-1 Stopping
+ Container nereus-delay-retained-inputs-1791428159-87043-oxia-1 Stopped
+ Container nereus-delay-retained-inputs-1791428159-87043-oxia-1 Removing
+ Container nereus-delay-retained-inputs-1791428159-87043-oxia-1 Removed
+ Network nereus-delay-retained-inputs-1791428159-87043_default Removing
+ Network nereus-delay-retained-inputs-1791428159-87043_default Removed
+Untagged: nereus-delay-retained-inputs-1791428159-87043-oxia:latest
+Deleted: sha256:2fb02ef65c23d0f86e7413cbe5973459a38309449f7546ad2f65971b327637fa
+Native XML {"name": "com.nereusstream.delay.runtime.TargetCommandStoreTest", "tests": "12", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-08T02:56:23.785Z", "hostname": "liusinandeMacBook-Pro.local", "time": "51.933"} sha256=502e6070d31a236343cf90f1c7dc912985dcfd37388d66128604456626cd9448
+Native12 zero failure/error/skip; external Broker/history/Journal/time/key/cursor authorities remain fixtures.
+Native command: NEREUS_DELAY_OXIA_ENDPOINT=127.0.0.1:16681 NEREUS_DELAY_OXIA_NAMESPACE=default ./gradlew test --tests com.nereusstream.delay.runtime.TargetCommandStoreTest.realOxiaPublishOwnerTakeoverRetainsUncertainBudgetAndBarrier --tests com.nereusstream.delay.runtime.TargetCommandStoreTest.realOxiaLateTargetOutcomeRetainsTerminalDecision checkstyleMain checkstyleTest --no-daemon --console=plain
+Compose: locked Oxia source, port16681, owned project in header, e2e/docker-compose.oxia.yml up -d --build; trap downs own project and removes own image tag.
+source_sha256={"src/main/java/com/nereusstream/delay/runtime/TargetPublishRecoveryDiscovery.java": "8beecdd46169b4ed4d82cc573b1a1d8db679b2a09abfd31377b3aa82643e559e", "src/main/java/com/nereusstream/delay/ownership/TargetSourceApplyRuntime.java": "a6956909ed12aad81565d56a07f2c622471c6418b8b9f54ca30f8688951f847e", "src/main/java/com/nereusstream/delay/ownership/TargetWorkerShardRuntime.java": "98f92e4de45e489827048c7f3fa9872265aed50d953926ef12977d935476caea", "src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java": "5b45482b97a88a1e866819f3df09cd2cbd5a388cdb30ab3d0b28545746c5510c"}

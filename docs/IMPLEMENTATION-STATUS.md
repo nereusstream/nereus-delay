@@ -18683,3 +18683,9 @@ APPLIED/OK Owner Admission first result, canonical ID/hash/source and phase orde
 charge/resolved-phase digest conflicts reject (local49, native two-session Oxia12). External Broker/
 Journal/history/time/key/cursor providers remain fixtures. Original input/history protection, equivalent
 proof after result retirement, full snapshots/production Catalog/install/Floor/migration remain open.
+
+Target checkpoint/history discovery now scans all retained Admission Budgets under bounded same-cut
+reads, locating original SYSTEM/POSITION Source/envelope facts independently of current Budget stamps.
+Worker Owner/resource gates are connected; initial ADMITTED recovery behavior remains strict and
+references authorize no SEND. Local48/native Oxia12 pass for ADMITTED/UNKNOWN/awaiting-Floor with
+explicit external fixtures. Full snapshots/protection/provider/Catalog/install/migration remain open.

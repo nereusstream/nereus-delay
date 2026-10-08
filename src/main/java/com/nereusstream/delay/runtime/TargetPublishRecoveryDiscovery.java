@@ -39,11 +39,14 @@ public final class TargetPublishRecoveryDiscovery {
         private final TargetPublishRecoveryDiscovery owner;
         private final byte[] after;
         private final TargetQueueSnapshotReader.Cut cut;
+        private final boolean retainedInputs;
 
-        private Cursor(TargetPublishRecoveryDiscovery owner, byte[] after, TargetQueueSnapshotReader.Cut cut) {
+        private Cursor(TargetPublishRecoveryDiscovery owner, byte[] after, TargetQueueSnapshotReader.Cut cut,
+                boolean retainedInputs) {
             this.owner = owner;
             this.after = after == null ? null : Bytes.copy(after);
             this.cut = cut;
+            this.retainedInputs = retainedInputs;
         }
     }
 
@@ -61,15 +64,22 @@ public final class TargetPublishRecoveryDiscovery {
     public static final class Reference {
         private final TargetQuotaAttemptBudget attempt;
         private final SystemMutationResult first;
+        private final com.nereusstream.delay.protocol.TargetQuotaMutation admission;
 
         private Reference(TargetQuotaAttemptBudget attempt, SystemMutationResult first) {
+            this(attempt, first, attempt.mutation());
+        }
+
+        private Reference(TargetQuotaAttemptBudget attempt, SystemMutationResult first,
+                com.nereusstream.delay.protocol.TargetQuotaMutation admission) {
             this.attempt = attempt;
             this.first = first;
+            this.admission = admission;
         }
 
         public TargetQuotaAttemptBudget attempt() { return attempt; }
-        public SourcePosition source() { return attempt.mutation().source(); }
-        public byte[] envelopeDigest() { return attempt.mutation().mutationDigest(); }
+        public SourcePosition source() { return admission.source(); }
+        public byte[] envelopeDigest() { return admission.mutationDigest(); }
         public OwnerIdentity admittedOwner() {
             return AuthorIdentity.decode(first.authorIdentity()).asOwnerIdentity();
         }
@@ -93,7 +103,9 @@ public final class TargetPublishRecoveryDiscovery {
                     || !Arrays.equals(body.publishAttemptId(), attempt.publishAttemptId())
                     || body.executionBytes() != attempt.executionBytes()
                     || !body.commitment().equals(attempt.commitment())
-                    || !body.allocated().equals(attempt.allocated())) {
+                    || !attempt.commitment().covers(body.allocated())
+                    || attempt.phase() == TargetQuotaAttemptBudget.Phase.ADMITTED
+                            && !body.allocated().equals(attempt.allocated())) {
                 throw new IllegalStateException("Target recovery history changes its frozen attempt/budget");
             }
             return image;
@@ -119,7 +131,19 @@ public final class TargetPublishRecoveryDiscovery {
     /** Limits scanned rows, including resolved budgets; a partial page never proves absence of pending work. */
     public Page scan(final BoundedReadBudget budget, final Cursor continuation, final int maximumRows,
             final TargetStoreBackend.ReadAuthority authority) {
-        if (maximumRows < 1 || continuation != null && continuation.owner != this) {
+        return scan(budget, continuation, maximumRows, authority, false);
+    }
+
+    /** Checkpoint/input protection includes UNKNOWN and resolved retained budgets; this never authorizes SEND. */
+    public Page scanRetainedInputs(final BoundedReadBudget budget, final Cursor continuation, final int maximumRows,
+            final TargetStoreBackend.ReadAuthority authority) {
+        return scan(budget, continuation, maximumRows, authority, true);
+    }
+
+    private Page scan(final BoundedReadBudget budget, final Cursor continuation, final int maximumRows,
+            final TargetStoreBackend.ReadAuthority authority, final boolean retainedInputs) {
+        if (maximumRows < 1 || continuation != null
+                && (continuation.owner != this || continuation.retainedInputs != retainedInputs)) {
             throw new IllegalArgumentException("invalid Target recovery page limit or foreign continuation");
         }
         return backend.guardedRead(Objects.requireNonNull(budget, "budget"), reader -> {
@@ -136,23 +160,24 @@ public final class TargetPublishRecoveryDiscovery {
                     final var row = reader.first(ColumnFamily.META, lower, UPPER, List.of());
                     if (row == null) {
                         reader.requireWithinElapsedBudget();
-                        return new Page(entries, new Cursor(this, after, cut), Stop.RANGE_END);
+                        return new Page(entries, new Cursor(this, after, cut, retainedInputs), Stop.RANGE_END);
                     }
                     final var attempt = TargetQuotaAttemptBudget.decodeForStore(row.key(),
                             TargetValueEnvelope.decode(row.value(), TargetQuotaAttemptBudget.VALUE_TYPE).payload(),
                             scope.shard());
-                    if (attempt.phase() == TargetQuotaAttemptBudget.Phase.ADMITTED) {
-                        final var reference = verify(reader, attempt);
+                    if (retainedInputs || attempt.phase() == TargetQuotaAttemptBudget.Phase.ADMITTED) {
+                        final var reference = retainedInputs
+                                ? retainedReference(reader, attempt) : verify(reader, attempt);
                         reader.requireWithinElapsedBudget();
                         entries.add(reference);
                     }
                     after = row.key();
                     lower = afterKey(after);
                 } catch (ReadIncompleteException incomplete) {
-                    return new Page(entries, new Cursor(this, after, cut), Stop.READ_BUDGET);
+                    return new Page(entries, new Cursor(this, after, cut, retainedInputs), Stop.READ_BUDGET);
                 }
             }
-            return new Page(entries, new Cursor(this, after, cut), Stop.PAGE_LIMIT);
+            return new Page(entries, new Cursor(this, after, cut, retainedInputs), Stop.PAGE_LIMIT);
         }, Objects.requireNonNull(authority, "authority"));
     }
 
@@ -221,6 +246,46 @@ public final class TargetPublishRecoveryDiscovery {
             throw new IllegalStateException("Target ADMITTED budget lacks its original PUBLISHING obligation");
         }
         return new Reference(attempt, outcome);
+    }
+
+    private Reference retainedReference(
+            final TargetStoreBackend.Reader reader, final TargetQuotaAttemptBudget attempt) {
+        attempt.mutation().requireAtOrBefore(reader.aggregate().mutation());
+        if (!Arrays.equals(attempt.tenantScope(), scope.tenantScope())
+                || !Arrays.equals(attempt.recoveryLineage(), lineage)) {
+            throw new IllegalStateException("Target retained input Budget belongs to another tenant/lineage");
+        }
+        final var root = root(reader);
+        final byte[] id = SystemMutation.computeSystemMutationId(scope.shard(),
+                SystemMutationType.TARGET_PUBLISH_ADMISSION, attempt.publishAttemptId(), attempt.admissionDigest());
+        final var first = result(reader, Bytes.concat(
+                new byte[] {TargetKeyCodec.RESULT_SYSTEM_TAG, TargetKeyCodec.KEY_FORMAT}, id), root);
+        final var position = result(reader, Bytes.concat(
+                new byte[] {TargetKeyCodec.RESULT_POSITION_TAG, TargetKeyCodec.KEY_FORMAT},
+                first.mutation().source().canonicalBytes()), root);
+        position.requireFirst(first);
+        first.mutation().requireAtOrBefore(attempt.mutation());
+        if (attempt.phase() == TargetQuotaAttemptBudget.Phase.ADMITTED) {
+            if (!first.mutation().equals(attempt.mutation())) {
+                throw new IllegalStateException("Target retained ADMITTED input changes its original source");
+            }
+        } else {
+            attempt.mutation().requireAfter(first.mutation());
+        }
+        final var outcome = SystemMutationResult.decode(first.typedPayload());
+        if (first.kind() != TargetResultRecord.Kind.SYSTEM || first.allocation() != null
+                || position.kind() != TargetResultRecord.Kind.POSITION_SYSTEM
+                || !position.mutation().equals(first.mutation())
+                || outcome.applyStatus() != ApplyStatus.APPLIED
+                || outcome.stableCode() != com.nereusstream.delay.protocol.StableCode.OK
+                || outcome.mutationType() != SystemMutationType.TARGET_PUBLISH_ADMISSION
+                || AuthorIdentity.decode(outcome.authorIdentity()).kind() != AuthorIdentity.Kind.OWNER
+                || !Arrays.equals(outcome.mutationId(), id)
+                || !Arrays.equals(outcome.mutationHash(), attempt.admissionDigest())
+                || !Arrays.equals(outcome.appliedSourcePosition(), first.mutation().source().canonicalBytes())) {
+            throw new IllegalStateException("Target retained input lacks its original accepted Admission proof");
+        }
+        return new Reference(attempt, outcome, first.mutation());
     }
 
     private TargetResultRecord result(TargetStoreBackend.Reader reader, byte[] key, TargetQuotaIncarnation root) {

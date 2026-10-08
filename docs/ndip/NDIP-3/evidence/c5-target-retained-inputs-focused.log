@@ -1,0 +1,202 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+
+BUILD SUCCESSFUL in 6s
+4 actionable tasks: 1 executed, 3 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :checkstyleTest
+
+> Task :checkstyleMain
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/runtime/TargetPublishRecoveryDiscovery.java:169: 本行字符数 124个，最多：120个。 [LineLength]
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/runtime/TargetPublishRecoveryDiscovery.java:250: 本行字符数 121个，最多：120个。 [LineLength]
+
+> Task :checkstyleMain FAILED
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':checkstyleMain'.
+> A failure occurred while executing org.gradle.api.plugins.quality.internal.CheckstyleAction
+   > Checkstyle rule violations were found. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/checkstyle/main.html
+     Checkstyle files with violations: 1
+     Checkstyle violations by severity: [error:2]
+
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 1m 29s
+15 actionable tasks: 6 executed, 9 up-to-date
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :checkstyleTest
+> Task :checkstyleMain
+
+BUILD SUCCESSFUL in 1m 30s
+15 actionable tasks: 6 executed, 9 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :checkstyleTest
+> Task :checkstyleMain
+
+BUILD SUCCESSFUL in 1m 28s
+15 actionable tasks: 6 executed, 9 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :checkstyleMain UP-TO-DATE
+> Task :checkstyleTest
+
+BUILD SUCCESSFUL in 1m 27s
+15 actionable tasks: 5 executed, 10 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+Final local XML {"name": "com.nereusstream.delay.runtime.TargetCommandStoreTest", "tests": "44", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-08T02:52:41.837Z", "hostname": "liusinandeMacBook-Pro.local", "time": "57.358"} sha256=638e71aaa289cd121a62601f7a80d20eb82d270a073933b808ade027a19ac0cb
+Final local XML {"name": "com.nereusstream.delay.runtime.TargetQuotaGrantStoreTest", "tests": "1", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-08T02:53:39.196Z", "hostname": "liusinandeMacBook-Pro.local", "time": "0.822"} sha256=08472527a114eabe3a59daf5a0c188f51f03f43662077e6c1b20a24f99ef3f79
+Final local XML {"name": "com.nereusstream.delay.store.TargetCheckpointRootVerifierTest", "tests": "3", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-08T02:53:40.019Z", "hostname": "liusinandeMacBook-Pro.local", "time": "0.393"} sha256=0125fec9e3afa0788850430e3e9726179283b9a99b10dbbb30b649f4b9096842
+local48 failures/errors/skips=0; main/test style pass.
+source_sha256={"src/main/java/com/nereusstream/delay/runtime/TargetPublishRecoveryDiscovery.java": "8beecdd46169b4ed4d82cc573b1a1d8db679b2a09abfd31377b3aa82643e559e", "src/main/java/com/nereusstream/delay/ownership/TargetSourceApplyRuntime.java": "a6956909ed12aad81565d56a07f2c622471c6418b8b9f54ca30f8688951f847e", "src/main/java/com/nereusstream/delay/ownership/TargetWorkerShardRuntime.java": "98f92e4de45e489827048c7f3fa9872265aed50d953926ef12977d935476caea", "src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java": "5b45482b97a88a1e866819f3df09cd2cbd5a388cdb30ab3d0b28545746c5510c"}
+Local command: ./gradlew test --tests com.nereusstream.delay.runtime.TargetCommandStoreTest.modifiesActualTimelineOrClaimWithHistoryAndFirstResults --tests com.nereusstream.delay.runtime.TargetQuotaGrantStoreTest.membershipIssueAndClosePreserveFirstSourceAndAtomicResults --tests com.nereusstream.delay.store.TargetCheckpointRootVerifierTest checkstyleMain checkstyleTest --no-daemon --console=plain
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+
+> Task :testNdip1ImplementationVerifier
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 55.743s
+
+OK
+
+> Task :testNdip1PackageVerifier
+..............
+----------------------------------------------------------------------
+Ran 14 tests in 0.068s
+
+OK
+
+> Task :verifyNdip1HistoricalClosure
+proposal=NDIP-1
+receipt_status=IMPLEMENTED
+lifecycle_authority=true
+implementation=CLOSED
+lifecycle=CLOSED
+certified_commit=b4e077e9978f262cdb93cf3562ea12eee32430e2
+runtime_source_sha256=03ce17ede4b9e70e2f70dd2bbef681087f529159549a4cd979d0d7aa34fa9948
+runtime_source_files=835
+implemented_package_sha256=792ca54e239d884ba6f95315747f565bab57ee0fc02338a77369cb19bbe8e8a7
+staging_run=20260901055333-78920
+deployment=SEPARATE_FUTURE_WORK
+performance_and_scale=SEPARATE_FUTURE_WORK
+production_rollout=SEPARATE_FUTURE_WORK
+production_authority=false
+
+> Task :verifyNdip1PackageAccepted
+proposal=NDIP-1
+receipt_status=ACCEPTED
+authority=true
+package_source_commit=77ffa61136c0cd401244ebea4375a5a18b097b17
+file_sha256 70d9dd7c113fa5f457a20a97996322ef9a2018772efd225aa982c13ec4935140 docs/ndip/NDIP-1/01-调查与决策记录.md
+file_sha256 c167ed42dd29c383c08a8a102f36b0e4deee8ae5c7a5da115a09d04ffcb9fa6f docs/ndip/NDIP-1/02-NDIP-1-Pulsar-Native-Delivery.md
+file_sha256 9affafa81952959d39ed9c09a00abe6b84da4fd3b0b6280422f297684d56f727 docs/ndip/NDIP-1/03-实施计划.md
+file_sha256 2a26c107cd69ee522ea138b3487b8ec206e913acc6ad5b862aa69288ddcaa88e docs/ndip/NDIP-1/04-代码级目标设计.md
+package_sha256=13caab8ecdc201901f06e905f1c0bf9792780e50c6f5948f93abf2bdb8f4d21b
+gate_b=PASS
+implementation=AUTHORIZED
+local_disposable_testing=AUTHORIZED_WITH_EXACT_ATTESTATION
+gate_c=PENDING_DEPLOYMENT
+shadow=BLOCKED_BY_GATE_C
+enabled=BLOCKED_BY_GATE_C_AND_SHADOW_REQUIREMENTS
+
+> Task :verifyNdip2PackageAccepted
+proposal=NDIP-2
+receipt_status=ACCEPTED
+authority=true
+file_sha256 0a105fb2b73d63cabddf42d0ba3d5a9590b4edddd47242495f196bf56d15f642 docs/ndip/NDIP-2/01-NDIP-生命周期与认证源码权威分层.md
+file_sha256 c882ecaa32413cb9e177243cf3efe91b97810c3cc10be81e61e7e458030c4ffa docs/ndip/NDIP-2/02-实施计划.md
+file_sha256 ec1ba68ab3ac91aa667647e6289cd252b99da84d899f42f879821d6e5d7752e9 docs/ndip/NDIP-2/03-代码级目标设计.md
+package_sha256=856e1d768210a31fc9aad811af3a93c1de33189cc03c65bc1e36d57affbf10db
+gate_b=PASS
+implementation=AUTHORIZED
+deployment_authority=false
+
+> Task :checkDocumentation
+
+BUILD SUCCESSFUL in 1m 11s
+6 actionable tasks: 6 executed
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+Final: local48/native12 zero failure/error/skip; main/test style pass; checkDocumentation BUILD SUCCESSFUL in 1m 11s. User .gitignore excluded; flags remain false.

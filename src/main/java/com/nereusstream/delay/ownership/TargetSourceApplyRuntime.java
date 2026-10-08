@@ -750,6 +750,17 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         requireGcOwner(Objects.requireNonNull(ownerClock, "ownerClock"));
     }
 
+    synchronized TargetPublishRecoveryDiscovery.Page discoverCheckpointInputs(
+            final BoundedReadBudget budget, final TargetPublishRecoveryDiscovery.Cursor continuation,
+            final int maximumRows, final LongSupplier ownerClock) {
+        final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
+        requireGcOwner(clock);
+        final var page = publishRecoveryDiscovery.scanRetainedInputs(
+                budget, continuation, maximumRows, workerReads(clock));
+        requireGcOwner(clock);
+        return page;
+    }
+
     synchronized boolean publishRecoveryStillAdmitted(final BoundedReadBudget budget,
             final TargetPublishRecoveryDiscovery.Reference reference, final LongSupplier ownerClock) {
         requireGcOwner(ownerClock);

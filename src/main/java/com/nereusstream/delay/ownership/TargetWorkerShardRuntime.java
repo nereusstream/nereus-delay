@@ -267,6 +267,16 @@ public final class TargetWorkerShardRuntime
         return target.discoverPublishRecovery(budget, continuation, maximumRows, ownerClock);
     }
 
+    /** Enumerates all retained Admission inputs for checkpoint/history protection under this active Worker. */
+    public synchronized com.nereusstream.delay.runtime.TargetPublishRecoveryDiscovery.Page discoverCheckpointInputs(
+            final BoundedReadBudget budget,
+            final com.nereusstream.delay.runtime.TargetPublishRecoveryDiscovery.Cursor continuation,
+            final int maximumRows, final LongSupplier ownerClock) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        return target.discoverCheckpointInputs(budget, continuation, maximumRows, ownerClock);
+    }
+
     /** Install before Host ticks begin. History must return promptly and perform its bounded I/O asynchronously. */
     public synchronized TargetPublishRecoveryMaintenance configurePublishRecoveryMaintenance(
             final TargetPublishOutcomeMutationFactory outcomes, final ShardLogMutationAppender appender,
