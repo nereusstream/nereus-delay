@@ -115,10 +115,12 @@ import com.nereusstream.delay.protocol.TargetPublishAdmissionBody;
 import com.nereusstream.delay.protocol.TargetQueueState;
 import com.nereusstream.delay.protocol.TargetQuotaAggregate;
 import com.nereusstream.delay.protocol.TargetQuotaAttemptBudget;
+import com.nereusstream.delay.protocol.TargetQuotaBookkeeping;
 import com.nereusstream.delay.protocol.TargetQuotaGrant;
 import com.nereusstream.delay.protocol.TargetQuotaGrantActivation;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlBody;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlRequest;
+import com.nereusstream.delay.protocol.TargetQuotaIncarnation;
 import com.nereusstream.delay.protocol.TargetQuotaMutation;
 import com.nereusstream.delay.protocol.TargetQuotaPayloadOwner;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
@@ -139,6 +141,7 @@ import com.nereusstream.delay.store.KeyCodec;
 import com.nereusstream.delay.store.ShardStore;
 import com.nereusstream.delay.store.ShardStoreConfig;
 import com.nereusstream.delay.store.SharedRocksDbResources;
+import com.nereusstream.delay.store.TargetCheckpointDependencies;
 import com.nereusstream.delay.store.TargetCheckpointRootVerifier;
 import com.nereusstream.delay.store.TargetKeyCodec;
 import com.nereusstream.delay.store.TargetStoreBackend;
@@ -6371,12 +6374,22 @@ class TargetCommandStoreTest {
             }
             // Simulate process loss; the source fixture replays this unacknowledged entry after reopen.
         }
-        TargetCheckpointRootVerifier.auditIndependentLedger(
+        final var dependencyProof = TargetCheckpointRootVerifier.auditImageDependencies(
                 physicalDb,
                 scope.shard(),
                 new CheckpointManifestLimits(1_000, 256L << 20, 256L << 20, 1_024, 1 << 20, 1_000, 1_024),
                 new TargetCheckpointRootVerifier.QuotaAuditLimits(100_000, 256L << 20),
                 new TargetCheckpointRootVerifier.LedgerAuditLimits(100_000, 256L << 20, 500_000, 256L << 20));
+        assertFalse(dependencyProof.dependencies().profiles().isEmpty());
+        assertFalse(dependencyProof.dependencies().retryPolicies().isEmpty());
+        assertFalse(dependencyProof.dependencies().controls().isEmpty());
+        assertFalse(dependencyProof.dependencies().trustSets().isEmpty());
+        assertFalse(dependencyProof.dependencies().objectProfileHashes().isEmpty());
+        for (final var hash : dependencyProof.dependencies().objectProfileHashes()) {
+            assertTrue(dependencyProof.dependencies().profiles().stream().anyMatch(profile ->
+                    profile.profileKind() == ProfileKind.OBJECT_STORE && Arrays.equals(hash, profile.semanticHash())));
+        }
+        assertEquals(scope.shard(), dependencyProof.dependencies().root().metadata().shardId());
         final var orphan = TargetMessageRecord.decode(vector("target-identity-vectors.properties", "message.initial"));
         assertFalse(orphan.runtime().terminal());
         assertTrue(orphan.runtime().timeline() != null);
@@ -7792,6 +7805,8 @@ class TargetCommandStoreTest {
         assertTrue(collectingUnknown.completed().result().isEmpty());
         assertEquals(TargetCheckpointAdmissionInputs.Status.FAILED, collectingUnknown.pending().runTurn().status());
         assertTrue(collectingUnknown.pending().result().isEmpty());
+        assertThrows(IllegalArgumentException.class, () -> liveCheckpointDependencies(backend, store, scope)
+                .withAdmissionInputs(collectingUnknown.inputs(), 32L << 20));
         final var resolved = TargetQuotaAttemptBudget.decode(TargetValueEnvelope.decode(
                 store.get(ColumnFamily.META, attemptKey), TargetQuotaAttemptBudget.VALUE_TYPE).payload());
         assertEquals(List.of(cursor), store.runtimeMetadata().evidenceCursors());
@@ -7873,9 +7888,29 @@ class TargetCommandStoreTest {
                 (a, b) -> guard());
     }
 
+    private static TargetCheckpointDependencies liveCheckpointDependencies(
+            TargetStoreBackend backend, ShardStore store, TargetQuotaScope scope) {
+        final var reads = budget();
+        return backend.guardedRead(reads, reader -> {
+            final var bookkeeping = TargetQuotaBookkeeping.decode(TargetValueEnvelope.decode(
+                    reader.get(ColumnFamily.META, TargetQuotaBookkeeping.keyFor(scope.shard())),
+                    TargetQuotaBookkeeping.VALUE_TYPE).payload());
+            final byte[] key = bookkeeping.owner().key();
+            key[0] = TargetKeyCodec.QUOTA_INCARNATION_TAG;
+            final var root = TargetQuotaIncarnation.decodeForStore(key, TargetValueEnvelope.decode(
+                    reader.get(ColumnFamily.META, key), TargetQuotaIncarnation.VALUE_TYPE).payload(),
+                    scope.shard(), scope.tenantScope());
+            final var aggregate = reader.aggregate();
+            final var proof = new TargetCheckpointRootVerifier.RootProof(reader.metadata(),
+                    aggregate.mutation().source(), aggregate.mutation().sequence(), root, bookkeeping, aggregate);
+            return TargetCheckpointRootVerifier.auditLiveStoreDependencies(store, proof,
+                    new TargetCheckpointRootVerifier.LedgerAuditLimits(2048, 32L << 20, 8192, 32L << 20), reads);
+        }, (a, b) -> guard());
+    }
+
     private record CheckpointInputFixture(TargetCheckpointAdmissionInputs pending,
             java.util.concurrent.CompletableFuture<SystemMutation> history,
-            TargetCheckpointAdmissionInputs completed) {}
+            TargetCheckpointAdmissionInputs completed, List<TargetCheckpointAdmissionInputs.Input> inputs) {}
 
     private static CheckpointInputFixture assertRetainedAdmissionInput(
             TargetStoreBackend backend, ShardStore store, TargetQuotaScope scope, byte[] lineage,
@@ -7929,6 +7964,25 @@ class TargetCommandStoreTest {
         assertEquals(reference.source(), inputs.getFirst().reference().source());
         assertArrayEquals(admission.encodeFrame(), inputs.getFirst().image().encodeFrame());
         assertEquals(1, loads.get());
+        final var dependencies = liveCheckpointDependencies(backend, store, scope);
+        assertFalse(dependencies.admissionImagesComplete());
+        assertEquals(1, dependencies.admissions().size());
+        assertEquals(reference.source(), dependencies.admissions().getFirst().first().mutation().source());
+        assertFalse(dependencies.controls().isEmpty());
+        final var complete = dependencies.withAdmissionInputs(inputs, 32L << 20);
+        final var publication = TargetPublishAdmissionBody.decode(admission.canonicalBody()).publication();
+        assertTrue(complete.admissionImagesComplete());
+        assertTrue(complete.profiles().contains(publication.destinationProfile()));
+        assertTrue(complete.profiles().contains(publication.capabilityProfile()));
+        assertTrue(complete.artifactDigests().stream().anyMatch(
+                digest -> Arrays.equals(digest, publication.artifactGenerationSetDigest())));
+        assertArrayEquals(complete.semanticInputsDigest(),
+                dependencies.withAdmissionInputs(inputs, 32L << 20).semanticInputsDigest());
+        assertArrayEquals(dependencies.storedControlsDigest(), complete.storedControlsDigest());
+        assertThrows(IllegalArgumentException.class, () -> dependencies.withAdmissionInputs(List.of(), 32L << 20));
+        assertThrows(IllegalArgumentException.class, () -> dependencies.withAdmissionInputs(inputs, 1));
+        assertThrows(IllegalArgumentException.class,
+                () -> dependencies.withAdmissionInputs(List.of(inputs.getFirst(), inputs.getFirst()), 32L << 20));
         // Same body and author, different envelope: retained first-result correlation must reject it.
         final var changed = SystemMutation.signed(admission.shardId(), admission.type(),
                 admission.retryUntilEpochMs(), current.publishAttemptId(), admission.canonicalBody(),
@@ -7949,7 +8003,7 @@ class TargetCommandStoreTest {
         assertEquals(TargetCheckpointAdmissionInputs.Status.LOADING, changing.runTurn().status());
         assertEquals(before, store.latestSequenceNumber());
         // Caller changes the actual Store while this original-cut collection is waiting for its next turn.
-        return new CheckpointInputFixture(changing, changingHistory, collector);
+        return new CheckpointInputFixture(changing, changingHistory, collector, inputs);
     }
 
     /** Actual atomic Store/Claim/Admission paths; physical/time/key/cursor/commit authorities are fixtures. */
@@ -8268,6 +8322,24 @@ class TargetCommandStoreTest {
             assertEquals(TimelineWorkKind.DEFINITIVE_RETRY, after.runtime().timeline().workKind());
             assertFalse(after.runtime().timeline().nativeCandidate());
             assertTrue(after.runtime().attemptObligations().isEmpty());
+        }
+        if (newPublisher || newerUncertain) {
+            final var references = new TargetPublishRecoveryDiscovery(backend, scope, lineage)
+                    .scanRetainedInputs(budget(), null, 4, (a, b) -> guard()).entries();
+            final var frames = new java.util.ArrayList<TargetCheckpointAdmissionInputs.Input>();
+            for (final var reference : references) {
+                frames.add(new TargetCheckpointAdmissionInputs.Input(reference,
+                        Arrays.equals(reference.attempt().publishAttemptId(), body.publishAttemptId())
+                                ? image : newer));
+            }
+            assertEquals(2, frames.size());
+            final var dependencies = liveCheckpointDependencies(backend, store, scope);
+            final var joined = dependencies.withAdmissionInputs(frames, 32L << 20);
+            assertTrue(joined.admissionImagesComplete());
+            assertArrayEquals(joined.semanticInputsDigest(), dependencies.withAdmissionInputs(
+                    List.of(frames.getLast(), frames.getFirst()), 32L << 20).semanticInputsDigest());
+            assertThrows(IllegalArgumentException.class, () -> dependencies.withAdmissionInputs(
+                    List.of(frames.getFirst(), frames.getFirst()), 32L << 20));
         }
         TargetStoreBootstrap.reopen(store, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(),
                 (a, b) -> guard());

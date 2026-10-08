@@ -1,0 +1,620 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources
+> Task :classes
+
+> Task :checkstyleMain
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/store/TargetCheckpointDependencies.java:19:8: 无用导入 - java.util.ArrayList 。 [UnusedImports]
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/store/TargetCheckpointDependencies.java:26: 本行字符数 121个，最多：120个。 [LineLength]
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/store/TargetCheckpointDependencies.java:82: 本行字符数 121个，最多：120个。 [LineLength]
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/store/TargetCheckpointDependencies.java:87: 本行字符数 122个，最多：120个。 [LineLength]
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/store/TargetCheckpointDependencies.java:111: 本行字符数 122个，最多：120个。 [LineLength]
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/store/TargetCheckpointDependencies.java:197: 本行字符数 124个，最多：120个。 [LineLength]
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/store/TargetCheckpointLedgerAudit.java:141: 本行字符数 123个，最多：120个。 [LineLength]
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/store/TargetCheckpointLedgerAudit.java:143: 本行字符数 126个，最多：120个。 [LineLength]
+
+> Task :checkstyleMain FAILED
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':checkstyleMain'.
+> A failure occurred while executing org.gradle.api.plugins.quality.internal.CheckstyleAction
+   > Checkstyle rule violations were found. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/checkstyle/main.html
+     Checkstyle files with violations: 2
+     Checkstyle violations by severity: [error:8]
+
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 31s
+8 actionable tasks: 4 executed, 4 up-to-date
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes
+
+> Task :checkstyleMain
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/store/TargetCheckpointLedgerAudit.java:20:1: 导入 'com.nereusstream.delay.protocol.TargetMessageLocator' 顺序错误。 [ImportOrder]
+
+> Task :checkstyleMain FAILED
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':checkstyleMain'.
+> A failure occurred while executing org.gradle.api.plugins.quality.internal.CheckstyleAction
+   > Checkstyle rule violations were found. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/checkstyle/main.html
+     Checkstyle files with violations: 1
+     Checkstyle violations by severity: [error:1]
+
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 30s
+8 actionable tasks: 3 executed, 5 up-to-date
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+
+> Task :compileTestJava FAILED
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:7885: 错误: 找不到符号
+            final var bookkeeping = TargetQuotaBookkeeping.decode(TargetValueEnvelope.decode(
+                                    ^
+  符号:   变量 TargetQuotaBookkeeping
+  位置: 类 TargetCommandStoreTest
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:7887: 错误: 找不到符号
+                    TargetQuotaBookkeeping.VALUE_TYPE).payload());
+                    ^
+  符号:   变量 TargetQuotaBookkeeping
+  位置: 类 TargetCommandStoreTest
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:7886: 错误: 找不到符号
+                    reader.get(ColumnFamily.META, TargetQuotaBookkeeping.keyFor(scope.shard())),
+                                                  ^
+  符号:   变量 TargetQuotaBookkeeping
+  位置: 类 TargetCommandStoreTest
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:7890: 错误: 找不到符号
+            final var root = TargetQuotaIncarnation.decodeForStore(key, TargetValueEnvelope.decode(
+                             ^
+  符号:   变量 TargetQuotaIncarnation
+  位置: 类 TargetCommandStoreTest
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:7891: 错误: 找不到符号
+                    reader.get(ColumnFamily.META, key), TargetQuotaIncarnation.VALUE_TYPE).payload(),
+                                                        ^
+  符号:   变量 TargetQuotaIncarnation
+  位置: 类 TargetCommandStoreTest
+5 个错误
+
+[Incubating] Problems report is available at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':compileTestJava'.
+> Compilation failed; see the compiler output below.
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:7885: 错误: 找不到符号
+              final var bookkeeping = TargetQuotaBookkeeping.decode(TargetValueEnvelope.decode(
+                                      ^
+    符号:   变量 TargetQuotaBookkeeping
+    位置: 类 TargetCommandStoreTest
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:7887: 错误: 找不到符号
+                      TargetQuotaBookkeeping.VALUE_TYPE).payload());
+                      ^
+    符号:   变量 TargetQuotaBookkeeping
+    位置: 类 TargetCommandStoreTest
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:7886: 错误: 找不到符号
+                      reader.get(ColumnFamily.META, TargetQuotaBookkeeping.keyFor(scope.shard())),
+                                                    ^
+    符号:   变量 TargetQuotaBookkeeping
+    位置: 类 TargetCommandStoreTest
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:7890: 错误: 找不到符号
+              final var root = TargetQuotaIncarnation.decodeForStore(key, TargetValueEnvelope.decode(
+                               ^
+    符号:   变量 TargetQuotaIncarnation
+    位置: 类 TargetCommandStoreTest
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:7891: 错误: 找不到符号
+                      reader.get(ColumnFamily.META, key), TargetQuotaIncarnation.VALUE_TYPE).payload(),
+                                                          ^
+    符号:   变量 TargetQuotaIncarnation
+    位置: 类 TargetCommandStoreTest
+  5 个错误
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 17s
+10 actionable tasks: 3 executed, 7 up-to-date
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+
+> Task :test
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [1] false, false, false, false, false, false, false, 0 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:6377
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [2] true, false, false, false, false, false, false, 0 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [3] false, true, false, false, false, false, false, 0 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:6377
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [4] true, true, false, false, false, false, false, 0 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [5] true, false, true, false, false, false, false, 0 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [6] true, false, false, true, false, false, false, 0 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [7] true, false, false, true, true, false, false, 0 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [8] true, false, false, false, false, true, false, 0 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [9] true, false, false, false, false, true, true, 0 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [10] true, false, false, false, false, true, false, 1 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [11] true, false, false, false, false, true, false, 2 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [12] true, false, false, false, false, true, false, 3 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [13] true, false, false, false, false, true, false, 4 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [14] true, false, false, false, false, true, false, 5 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [15] true, false, false, false, false, true, false, 6 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [16] true, false, false, false, false, true, false, 7 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [17] true, false, false, false, false, true, false, 8 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [18] true, false, false, false, false, true, false, 9 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [19] true, false, false, false, false, true, false, 10 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [20] true, false, false, false, false, true, false, 11 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [21] true, false, false, false, false, true, false, 12 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [22] true, false, false, false, false, true, false, 13 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [23] true, false, false, false, false, true, false, 14 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [24] true, false, false, false, false, true, false, 15 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [25] true, false, false, false, false, true, false, 16 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [26] true, false, false, false, false, true, false, 17 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [27] true, false, false, false, false, true, false, 18 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [28] true, false, false, false, false, true, false, 19 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [29] true, false, false, false, false, true, false, 20 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [30] true, false, false, false, false, true, false, 21 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [31] true, false, false, false, false, true, false, 22 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [32] true, false, false, false, false, true, false, 23 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [33] true, false, false, false, false, true, false, 24 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [34] true, false, false, false, false, true, false, 25 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [35] true, false, false, false, false, true, false, 26 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [36] true, false, false, true, false, true, false, 27 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [37] true, false, false, true, false, true, false, 28 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [38] true, false, false, true, false, true, false, 29 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [39] true, false, false, true, false, true, false, 30 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [40] true, false, false, false, false, true, false, 31 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [41] true, false, false, false, false, true, false, 32 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [42] true, false, false, false, false, true, false, 33 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [43] true, false, false, true, false, true, false, 34 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetCommandStoreTest > modifiesActualTimelineOrClaimWithHistoryAndFirstResults(boolean, boolean, boolean, boolean, boolean, boolean, boolean, int) > [44] true, false, false, true, false, true, false, 35 FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:2467
+
+TargetQuotaGrantStoreTest > membershipIssueAndClosePreserveFirstSourceAndAtomicResults() FAILED
+    java.lang.IllegalStateException at TargetQuotaGrantStoreTest.java:3287
+
+48 tests completed, 45 failed
+
+> Task :test FAILED
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':test'.
+> There were failing tests. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/tests/test/index.html
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 54s
+13 actionable tasks: 3 executed, 10 up-to-date
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+
+> Task :checkstyleTest
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:8324: 本行字符数 121个，最多：120个。 [LineLength]
+
+> Task :checkstyleTest FAILED
+> Task :checkstyleMain
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':checkstyleTest'.
+> A failure occurred while executing org.gradle.api.plugins.quality.internal.CheckstyleAction
+   > Checkstyle rule violations were found. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/checkstyle/test.html
+     Checkstyle files with violations: 1
+     Checkstyle violations by severity: [error:1]
+
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 1m 42s
+15 actionable tasks: 6 executed, 9 up-to-date
+Focused XML {"name": "com.nereusstream.delay.store.TargetCheckpointRootVerifierTest", "tests": "3", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-08T14:56:11.627Z", "hostname": "liusinandeMacBook-Pro.local", "time": "0.405"} sha256=fe3061cde63579c71f61645ab83311568257ed8eddff1e328dca76d8a4219ee9
+Focused XML {"name": "com.nereusstream.delay.runtime.TargetQuotaGrantStoreTest", "tests": "1", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-08T14:56:10.816Z", "hostname": "liusinandeMacBook-Pro.local", "time": "0.81"} sha256=4798a9fbc0955cdabc6ac2c34f5fc37ec957e55b9282461d514510b932a393fd
+Focused XML {"name": "com.nereusstream.delay.runtime.TargetCommandStoreTest", "tests": "44", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-08T14:55:09.857Z", "hostname": "liusinandeMacBook-Pro.local", "time": "60.958"} sha256=d156c6969b5c60407f32cfc78ea9b6d8025d13210ebc34482f63fab861393d19
+Focused48 zero failure/error/skip. Subsequent test-source edit only wraps a line for style.
+Parent=afad90429bb29b0d21bbde2ebb9d4e4b625134a8
+Focused command: ./gradlew test --tests com.nereusstream.delay.runtime.TargetCommandStoreTest.modifiesActualTimelineOrClaimWithHistoryAndFirstResults --tests com.nereusstream.delay.runtime.TargetQuotaGrantStoreTest.membershipIssueAndClosePreserveFirstSourceAndAtomicResults --tests com.nereusstream.delay.store.TargetCheckpointRootVerifierTest checkstyleMain checkstyleTest --no-daemon --console=plain
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :checkstyleMain UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :checkstyleTest
+
+BUILD SUCCESSFUL in 27s
+14 actionable tasks: 3 executed, 11 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+
+TargetQuotaGrantStoreTest > membershipIssueAndClosePreserveFirstSourceAndAtomicResults() FAILED
+    org.opentest4j.AssertionFailedError at TargetQuotaGrantStoreTest.java:3339
+
+49 tests completed, 1 failed
+
+> Task :test FAILED
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':test'.
+> There were failing tests. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/tests/test/index.html
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 1m 19s
+13 actionable tasks: 3 executed, 10 up-to-date
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+
+> Task :compileTestJava FAILED
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetQuotaGrantStoreTest.java:3345: 错误: 已在方法 membershipIssueAndClosePreserveFirstSourceAndAtomicResults()中定义了变量 request
+                .filter(request -> request.operationKind() == ControlOperationKind.ACTIVATE_TARGET_NATIVE_POLICY)
+                        ^
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetQuotaGrantStoreTest.java:3346: 错误: 已在方法 membershipIssueAndClosePreserveFirstSourceAndAtomicResults()中定义了变量 request
+                .map(request -> request.snapshot().generation()).sorted().toList());
+                     ^
+2 个错误
+
+[Incubating] Problems report is available at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':compileTestJava'.
+> Compilation failed; see the compiler output below.
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetQuotaGrantStoreTest.java:3345: 错误: 已在方法 membershipIssueAndClosePreserveFirstSourceAndAtomicResults()中定义了变量 request
+                  .filter(request -> request.operationKind() == ControlOperationKind.ACTIVATE_TARGET_NATIVE_POLICY)
+                          ^
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetQuotaGrantStoreTest.java:3346: 错误: 已在方法 membershipIssueAndClosePreserveFirstSourceAndAtomicResults()中定义了变量 request
+                  .map(request -> request.snapshot().generation()).sorted().toList());
+                       ^
+  2 个错误
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 15s
+10 actionable tasks: 2 executed, 8 up-to-date
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :checkstyleMain UP-TO-DATE
+
+> Task :checkstyleTest
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetQuotaGrantStoreTest.java:3345: 本行字符数 125个，最多：120个。 [LineLength]
+
+> Task :checkstyleTest FAILED
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':checkstyleTest'.
+> A failure occurred while executing org.gradle.api.plugins.quality.internal.CheckstyleAction
+   > Checkstyle rule violations were found. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/checkstyle/test.html
+     Checkstyle files with violations: 1
+     Checkstyle violations by severity: [error:1]
+
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 28s
+15 actionable tasks: 4 executed, 11 up-to-date
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :checkstyleMain UP-TO-DATE
+> Task :checkstyleTest
+
+BUILD SUCCESSFUL in 1m 28s
+15 actionable tasks: 4 executed, 11 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+Final focused XML {"name": "com.nereusstream.delay.store.TargetCheckpointRootVerifierTest", "tests": "3", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-08T15:12:10.842Z", "hostname": "liusinandeMacBook-Pro.local", "time": "0.355"} sha256=f2392c7dfc068f28c40b5176de7c737d0ba732e3e8949a62a287b50e58371f0e
+Final focused XML {"name": "com.nereusstream.delay.runtime.TargetQuotaGrantStoreTest", "tests": "2", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-08T15:12:08.244Z", "hostname": "liusinandeMacBook-Pro.local", "time": "2.598"} sha256=0a10ca2d90c41c32d0a1a4bcaec9b874517bf0c2729ae0fd2b4e8a533e883737
+Final focused XML {"name": "com.nereusstream.delay.runtime.TargetCommandStoreTest", "tests": "44", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-08T15:11:11.188Z", "hostname": "liusinandeMacBook-Pro.local", "time": "57.054"} sha256=01381e1edb682658c9341a15bee9cc832c19815681b6279841ba1467baaac291
+Final focused49 zero failure/error/skip. Both main/test style checks pass.
+Final command: ./gradlew test --tests com.nereusstream.delay.runtime.TargetCommandStoreTest.modifiesActualTimelineOrClaimWithHistoryAndFirstResults --tests com.nereusstream.delay.runtime.TargetQuotaGrantStoreTest.membershipIssueAndClosePreserveFirstSourceAndAtomicResults --tests com.nereusstream.delay.runtime.TargetQuotaGrantStoreTest.signedFirstGrantCommitsAllocationResultAndPositionWhileExternalFailureMakesNoWrite --tests com.nereusstream.delay.store.TargetCheckpointRootVerifierTest checkstyleMain checkstyleTest --no-daemon --console=plain
+source_sha256={"src/main/java/com/nereusstream/delay/store/TargetCheckpointDependencies.java": "2a250df3ac2c9c469d23cdadd28f9a4b4ee3662f5affaa0a02a468241a98beda", "src/main/java/com/nereusstream/delay/store/TargetCheckpointLedgerAudit.java": "795b73e8beebb6fa1a2f6868ebff7754009c4012d84866e16bb7262a96047864", "src/main/java/com/nereusstream/delay/store/TargetCheckpointRootVerifier.java": "2d05689a361bdedfc0d3b8ddf06b79a2556bdcfd0f20a305bce4f2412700a278", "src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java": "28d297136d09d183269f7005b5375e11b3b48008073475cf5f32255523e6e892", "src/test/java/com/nereusstream/delay/runtime/TargetQuotaGrantStoreTest.java": "1f2ae6e06f0578a49cb0a0747fa9a530ce8092df48ae04e85ed3fade9d9c7a12"}
+
+Documentation command: ./gradlew checkDocumentation --no-daemon --console=plain
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+
+> Task :testNdip1ImplementationVerifier
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 54.075s
+
+OK
+
+> Task :testNdip1PackageVerifier
+..............
+----------------------------------------------------------------------
+Ran 14 tests in 0.075s
+
+OK
+
+> Task :verifyNdip1HistoricalClosure
+proposal=NDIP-1
+receipt_status=IMPLEMENTED
+lifecycle_authority=true
+implementation=CLOSED
+lifecycle=CLOSED
+certified_commit=b4e077e9978f262cdb93cf3562ea12eee32430e2
+runtime_source_sha256=03ce17ede4b9e70e2f70dd2bbef681087f529159549a4cd979d0d7aa34fa9948
+runtime_source_files=835
+implemented_package_sha256=792ca54e239d884ba6f95315747f565bab57ee0fc02338a77369cb19bbe8e8a7
+staging_run=20260901055333-78920
+deployment=SEPARATE_FUTURE_WORK
+performance_and_scale=SEPARATE_FUTURE_WORK
+production_rollout=SEPARATE_FUTURE_WORK
+production_authority=false
+
+> Task :verifyNdip1PackageAccepted
+proposal=NDIP-1
+receipt_status=ACCEPTED
+authority=true
+package_source_commit=77ffa61136c0cd401244ebea4375a5a18b097b17
+file_sha256 70d9dd7c113fa5f457a20a97996322ef9a2018772efd225aa982c13ec4935140 docs/ndip/NDIP-1/01-调查与决策记录.md
+file_sha256 c167ed42dd29c383c08a8a102f36b0e4deee8ae5c7a5da115a09d04ffcb9fa6f docs/ndip/NDIP-1/02-NDIP-1-Pulsar-Native-Delivery.md
+file_sha256 9affafa81952959d39ed9c09a00abe6b84da4fd3b0b6280422f297684d56f727 docs/ndip/NDIP-1/03-实施计划.md
+file_sha256 2a26c107cd69ee522ea138b3487b8ec206e913acc6ad5b862aa69288ddcaa88e docs/ndip/NDIP-1/04-代码级目标设计.md
+package_sha256=13caab8ecdc201901f06e905f1c0bf9792780e50c6f5948f93abf2bdb8f4d21b
+gate_b=PASS
+implementation=AUTHORIZED
+local_disposable_testing=AUTHORIZED_WITH_EXACT_ATTESTATION
+gate_c=PENDING_DEPLOYMENT
+shadow=BLOCKED_BY_GATE_C
+enabled=BLOCKED_BY_GATE_C_AND_SHADOW_REQUIREMENTS
+
+> Task :verifyNdip2PackageAccepted
+proposal=NDIP-2
+receipt_status=ACCEPTED
+authority=true
+file_sha256 0a105fb2b73d63cabddf42d0ba3d5a9590b4edddd47242495f196bf56d15f642 docs/ndip/NDIP-2/01-NDIP-生命周期与认证源码权威分层.md
+file_sha256 c882ecaa32413cb9e177243cf3efe91b97810c3cc10be81e61e7e458030c4ffa docs/ndip/NDIP-2/02-实施计划.md
+file_sha256 ec1ba68ab3ac91aa667647e6289cd252b99da84d899f42f879821d6e5d7752e9 docs/ndip/NDIP-2/03-代码级目标设计.md
+package_sha256=856e1d768210a31fc9aad811af3a93c1de33189cc03c65bc1e36d57affbf10db
+gate_b=PASS
+implementation=AUTHORIZED
+deployment_authority=false
+
+> Task :checkDocumentation
+
+BUILD SUCCESSFUL in 1m 9s
+6 actionable tasks: 6 executed
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html

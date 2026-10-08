@@ -12,9 +12,12 @@ import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
+import com.nereusstream.delay.protocol.TargetChannelIdentity;
 import com.nereusstream.delay.protocol.TargetMembershipClosureRecord;
+import com.nereusstream.delay.protocol.TargetMembershipGrant;
 import com.nereusstream.delay.protocol.TargetMessageLocator;
 import com.nereusstream.delay.protocol.TargetNativePolicyControlRecord;
+import com.nereusstream.delay.protocol.TargetNativePolicyScope;
 import com.nereusstream.delay.protocol.TargetQueueState;
 import com.nereusstream.delay.protocol.TargetQuotaAccounting;
 import com.nereusstream.delay.protocol.TargetQuotaAggregate;
@@ -23,6 +26,7 @@ import com.nereusstream.delay.protocol.TargetQuotaBookkeeping;
 import com.nereusstream.delay.protocol.TargetQuotaCounter;
 import com.nereusstream.delay.protocol.TargetQuotaGrantActivation;
 import com.nereusstream.delay.protocol.TargetQuotaIdentity;
+import com.nereusstream.delay.protocol.TargetQuotaPayloadOwner;
 import com.nereusstream.delay.protocol.TargetQuotaTotal;
 import com.nereusstream.delay.protocol.TargetQuotaUsage;
 import com.nereusstream.delay.protocol.TargetScheduleBinding;
@@ -55,28 +59,29 @@ import org.rocksdb.RocksIterator;
 final class TargetCheckpointLedgerAudit {
     private TargetCheckpointLedgerAudit() {}
 
-    static void audit(
+    static TargetCheckpointDependencies audit(
             final RocksDB db,
             final Map<ColumnFamily, ColumnFamilyHandle> handles,
             final ColumnFamilyHandle defaultHandle,
             final TargetCheckpointRootVerifier.RootProof proof,
             final TargetCheckpointRootVerifier.LedgerAuditLimits limits) {
-        audit(new ImageSource(db, handles, defaultHandle), proof, limits, false);
+        return audit(new ImageSource(db, handles, defaultHandle), proof, limits, false);
     }
 
-    static void auditLive(
+    static TargetCheckpointDependencies auditLive(
             final ShardStore store,
             final BoundedReadBudget readBudget,
             final TargetCheckpointRootVerifier.RootProof proof,
             final TargetCheckpointRootVerifier.LedgerAuditLimits limits) {
-        audit(new StoreSource(store, readBudget, limits.maxRecords()), proof, limits, true);
+        return audit(new StoreSource(store, readBudget, limits.maxRecords()), proof, limits, true);
     }
 
-    private static void audit(
+    private static TargetCheckpointDependencies audit(
             final LedgerSource source,
             final TargetCheckpointRootVerifier.RootProof proof,
             final TargetCheckpointRootVerifier.LedgerAuditLimits limits,
             final boolean auditQuotaRecords) {
+        final var dependencies = new TargetCheckpointDependencies.Builder(proof);
         final var budget = new Budget(limits);
         source.requireDefaultEmpty();
         final TargetRecordAccounting.View view = new TargetRecordAccounting.View() {
@@ -124,6 +129,34 @@ final class TargetCheckpointLedgerAudit {
                 if (!skipInfrastructure(family, key, raw, proof, counters, totals, rebuilt, recovery)) {
                     final int type = TargetStoreBackend.businessType(family, key);
                     final byte[] payload = TargetValueEnvelope.decode(raw, type).payload();
+                    if (family == ColumnFamily.ID && type == TargetScheduleBinding.VALUE_TYPE) {
+                        final var binding = TargetScheduleBinding.decode(payload);
+                        dependencies.binding(binding);
+                    } else if (family == ColumnFamily.META) {
+                        final int tag = Byte.toUnsignedInt(key[0]);
+                        if (tag >= TargetKeyCodec.STATE_TAG && tag <= TargetKeyCodec.NATIVE_POLICY_SNAPSHOT_TAG
+                                || tag == TargetKeyCodec.QUOTA_GRANT_ACTIVATION_TAG
+                                || tag == TargetKeyCodec.CLOSE_TAG || tag == TargetKeyCodec.MEMBERSHIP_CLOSURE_TAG
+                                || tag >= TargetKeyCodec.NATIVE_PUBLISHER_TAG) {
+                            dependencies.control(family, key, type, payload);
+                        }
+                        if (type == TargetMembershipGrant.VALUE_TYPE) {
+                            dependencies.membership(TargetMembershipGrant.decode(payload));
+                        } else if (type == TargetChannelIdentity.VALUE_TYPE) {
+                            dependencies.profile(TargetChannelIdentity.decode(payload).credentialLease().profile());
+                        } else if (type == TargetNativePolicyScope.VALUE_TYPE) {
+                            dependencies.nativeScope(TargetNativePolicyScope.decode(payload));
+                        } else if (type == TargetNativePolicyControlRecord.VALUE_TYPE) {
+                            final var control = TargetNativePolicyControlRecord.decode(payload);
+                            dependencies.nativeScope(control.body().request().scope());
+                            if (control.grant() != null) { dependencies.membership(control.grant()); }
+                        } else if (type == TargetQuotaPayloadOwner.VALUE_TYPE) {
+                            final var owner = TargetQuotaPayloadOwner.decode(payload);
+                            if (owner.objectStoreProfileHash() != null) {
+                                dependencies.objectHash(owner.objectStoreProfileHash());
+                            }
+                        }
+                    }
                     if (family == ColumnFamily.DEDUPE) {
                         resultRows.add(new TargetResultLedgerAudit.Stored(key, type, payload));
                     } else if (family == ColumnFamily.ID && type == TargetMessageRecord.VALUE_TYPE) {
@@ -200,8 +233,9 @@ final class TargetCheckpointLedgerAudit {
         }
         auditGrantResults(grantActivations, resultRows, proof.root().identity());
         auditControlResults(membershipClosures, nativeControls, resultRows, proof.root().identity());
-        auditAdmissionResults(attemptBudgets, resultRows, proof.root().identity());
+        final var admissions = auditAdmissionResults(attemptBudgets, resultRows, proof.root().identity());
         TargetQuotaDelta.audit(proof.aggregate(), counters, rebuilt);
+        return dependencies.finish(admissions);
     }
 
     @FunctionalInterface
@@ -523,7 +557,7 @@ final class TargetCheckpointLedgerAudit {
         }
     }
 
-    private static void auditAdmissionResults(
+    private static List<TargetCheckpointDependencies.Admission> auditAdmissionResults(
             final List<TargetQuotaAttemptBudget> attempts,
             final List<TargetResultLedgerAudit.Stored> resultRows,
             final TargetQuotaIdentity root) {
@@ -533,6 +567,7 @@ final class TargetCheckpointLedgerAudit {
                 systems.put(HexFormat.of().formatHex(stored.key()), TargetResultRecord.decode(stored.payload()));
             }
         }
+        final var admissions = new ArrayList<TargetCheckpointDependencies.Admission>();
         for (final var attempt : attempts) {
             final var type = SystemMutationType.TARGET_PUBLISH_ADMISSION;
             final byte[] id = SystemMutation.computeSystemMutationId(
@@ -561,7 +596,9 @@ final class TargetCheckpointLedgerAudit {
                     || !Arrays.equals(result.appliedSourcePosition(), first.mutation().source().canonicalBytes())) {
                 throw new IllegalStateException("Target retained Budget contradicts its Admission first result");
             }
+            admissions.add(new TargetCheckpointDependencies.Admission(attempt, first));
         }
+        return List.copyOf(admissions);
     }
 
     private static void requireControlResult(

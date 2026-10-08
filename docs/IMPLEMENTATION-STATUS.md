@@ -18706,3 +18706,19 @@ fixtures; complete semantic/control snapshots and formal protected publication/i
 The same collection regressions pass the native two-session Oxia12 suite, including lease-release
 rejection; Owner/Source/Store are actual, history/Broker/protection providers remain fixtures. Receipt:
 `evidence/c5-target-input-collection-oxia-real.log` in NDIP-3. Full protected publication/install remains open.
+
+Target complete ledger audits now also inventory stored controls and locally referenced immutable
+Profile/Retry/Trust-Set/object-profile/artifact inputs in the same finite read. Original first results
+remain distinct from current Budget stamps; exact complete Admission-frame joins add frozen capability/
+credential/artifact references and reject omissions, duplicates, stale Budgets or byte overflow. This is
+a local dependency inventory; authenticated complete snapshots, signed control/Outcome histories,
+protected pins and formal Target publication/restore/install/migration still remain required.
+
+Final local49/main/test style pass with actual Source/Store/reopen and explicit external authorities,
+including large-payload dependencies and retained Native generations. Receipt: NDIP-3
+`evidence/c5-target-dependency-closure-focused.log`; completion and production flags remain false.
+
+The affected complete Target reopen fold passes native Oxia12/style and locked K1 three-Broker
+Source/expiry/Admission ACK-loss recovery plus independent original Admission history. See NDIP-3
+`evidence/c5-target-dependency-closure-oxia-real.log` and `-k1-real.log`; external authorities are explicit
+fixtures and complete authenticated snapshot/publication/install remains open.

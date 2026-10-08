@@ -1123,8 +1123,12 @@ class TargetQuotaGrantStoreTest {
                         .usage());
         final var ledgerAuditLimits =
                 new TargetCheckpointRootVerifier.LedgerAuditLimits(10_000, 64L << 20, 100_000, 64L << 20);
-        TargetCheckpointRootVerifier.auditIndependentLedger(
-                physicalDb, scope.shard(), imageLimits, quotaAuditLimits, ledgerAuditLimits);
+        final var dependencies = TargetCheckpointRootVerifier.auditImageDependencies(
+                physicalDb, scope.shard(), imageLimits, quotaAuditLimits, ledgerAuditLimits).dependencies();
+        assertTrue(dependencies.admissionImagesComplete());
+        assertTrue(dependencies.controls().stream().anyMatch(control ->
+                control.valueType() == TargetQuotaGrantActivation.VALUE_TYPE));
+
         final Path failedCandidate = root.resolve("target-candidate-over-budget");
         final Path unboundedCandidate = root.resolve("target-candidate-unbounded");
         final Path candidate = root.resolve("target-candidate");
@@ -3327,8 +3331,24 @@ class TargetQuotaGrantStoreTest {
         final var quotaLimits = new TargetCheckpointRootVerifier.QuotaAuditLimits(1_000, 8L << 20);
         final var ledgerLimits =
                 new TargetCheckpointRootVerifier.LedgerAuditLimits(10_000, 64L << 20, 100_000, 64L << 20);
-        TargetCheckpointRootVerifier.auditIndependentLedger(
-                physicalDb, scope.shard(), imageLimits, quotaLimits, ledgerLimits);
+        final var controlDependencies = TargetCheckpointRootVerifier.auditImageDependencies(
+                physicalDb, scope.shard(), imageLimits, quotaLimits, ledgerLimits).dependencies();
+        assertTrue(controlDependencies.admissionImagesComplete());
+        assertTrue(controlDependencies.controls().stream().anyMatch(control ->
+                control.valueType() == TargetMembershipClosureRecord.VALUE_TYPE));
+        final var nativeInputs = controlDependencies.controls().stream().filter(control ->
+                control.valueType() == TargetNativePolicyControlRecord.VALUE_TYPE)
+                .map(control -> TargetNativePolicyControlRecord.decode(control.payload())).toList();
+        // Two policy generations and two approved members remain, plus installation and member closure.
+        assertEquals(6, nativeInputs.size());
+        assertEquals(List.of(1L, 2L), nativeInputs.stream().map(control -> control.body().request())
+                .filter(nativeRequest -> nativeRequest.operationKind()
+                        == ControlOperationKind.ACTIVATE_TARGET_NATIVE_POLICY)
+                .map(nativeRequest -> nativeRequest.snapshot().generation()).sorted().toList());
+        assertEquals(2, nativeInputs.stream().filter(control -> control.body().request().operationKind()
+                == ControlOperationKind.APPROVE_TARGET_NATIVE_MEMBER).count());
+        assertFalse(controlDependencies.profiles().isEmpty());
+        assertFalse(controlDependencies.artifactDigests().isEmpty());
         try (var resources = new SharedRocksDbResources(config);
                 var missingPolicy = ShardStore.openTarget(config, scope.shard(), resources)) {
             final long beforeLimitedReopen = missingPolicy.latestSequenceNumber();

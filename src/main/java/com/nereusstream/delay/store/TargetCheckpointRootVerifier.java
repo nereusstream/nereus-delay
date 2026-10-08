@@ -94,7 +94,7 @@ public final class TargetCheckpointRootVerifier {
     /** Reads an immutable RocksDB image under finite physical limits without changing its markers. */
     public static RootProof validate(
             final Path image, final ShardId expectedShard, final CheckpointManifestLimits limits) {
-        return validateImage(image, expectedShard, limits, null, null, null, null);
+        return validateImage(image, expectedShard, limits, null, null, null, null).root();
     }
 
     /** Audits the bounded quota projection graph; independent work ledgers still require a separate fold. */
@@ -104,7 +104,7 @@ public final class TargetCheckpointRootVerifier {
             final CheckpointManifestLimits physicalLimits,
             final QuotaAuditLimits quotaLimits) {
         return validateImage(
-                image, expectedShard, physicalLimits, null, Objects.requireNonNull(quotaLimits), null, null);
+                image, expectedShard, physicalLimits, null, Objects.requireNonNull(quotaLimits), null, null).root();
     }
 
     /** Rebuilds quota usage from bounded actual business records after the quota projection audit. */
@@ -121,11 +121,17 @@ public final class TargetCheckpointRootVerifier {
                 null,
                 Objects.requireNonNull(quotaLimits, "quotaLimits"),
                 Objects.requireNonNull(ledgerLimits, "ledgerLimits"),
-                null);
+                null).root();
     }
 
     /** Folds the live Store ledger inside the exact bounded read plan used to reconstruct its root. */
-    public static void auditLiveStoreLedger(
+    public static void auditLiveStoreLedger(final ShardStore store, final RootProof proof,
+            final LedgerAuditLimits limits, final BoundedReadBudget budget) {
+        auditLiveStoreDependencies(store, proof, limits, budget);
+    }
+
+    /** Captures stored dependencies in that same complete live ledger fold. */
+    public static TargetCheckpointDependencies auditLiveStoreDependencies(
             final ShardStore store,
             final RootProof proof,
             final LedgerAuditLimits limits,
@@ -148,7 +154,7 @@ public final class TargetCheckpointRootVerifier {
                 || proof.mutationSequence() != store.shardMutationSequence()) {
             throw new IllegalArgumentException("Target live ledger proof does not match the active Store frontier");
         }
-        TargetCheckpointLedgerAudit.auditLive(store, budget, proof, limits);
+        return TargetCheckpointLedgerAudit.auditLive(store, budget, proof, limits);
     }
 
     /** Binds a complete local candidate image to the exact live Store cut without granting publication authority. */
@@ -185,7 +191,7 @@ public final class TargetCheckpointRootVerifier {
                 null,
                 Objects.requireNonNull(quotaLimits, "quotaLimits"),
                 Objects.requireNonNull(ledgerLimits, "ledgerLimits"),
-                expected);
+                expected).root();
     }
 
     /**
@@ -195,7 +201,7 @@ public final class TargetCheckpointRootVerifier {
     public static RootProof validateManifestImageIdentity(
             final Path image, final CheckpointManifest manifest, final CheckpointManifestLimits limits) {
         requireFormat2Manifest(manifest, limits);
-        return validateImage(image, manifest.shardId(), limits, manifest, null, null, null);
+        return validateImage(image, manifest.shardId(), limits, manifest, null, null, null).root();
     }
 
     /** Binds Manifest identity and both local audits in one immutable image read. */
@@ -213,7 +219,19 @@ public final class TargetCheckpointRootVerifier {
                 manifest,
                 Objects.requireNonNull(quotaLimits, "quotaLimits"),
                 Objects.requireNonNull(ledgerLimits, "ledgerLimits"),
-                null);
+                null).root();
+    }
+
+    /** A complete local ledger and its stored dependencies; neither proves external authentication or pins. */
+    public record LedgerProof(RootProof root, TargetCheckpointDependencies dependencies) {}
+
+    /** Inventories dependencies in the same immutable image read and finite complete ledger fold. */
+    public static LedgerProof auditImageDependencies(final Path image, final ShardId expectedShard,
+            final CheckpointManifestLimits physicalLimits, final QuotaAuditLimits quotaLimits,
+            final LedgerAuditLimits ledgerLimits) {
+        return validateImage(image, expectedShard, physicalLimits, null,
+                Objects.requireNonNull(quotaLimits, "quotaLimits"),
+                Objects.requireNonNull(ledgerLimits, "ledgerLimits"), null);
     }
 
     private static void requireFormat2Manifest(
@@ -225,7 +243,7 @@ public final class TargetCheckpointRootVerifier {
         manifest.validateLimits(Objects.requireNonNull(limits, "limits"));
     }
 
-    private static RootProof validateImage(
+    private static LedgerProof validateImage(
             final Path image,
             final ShardId expectedShard,
             final CheckpointManifestLimits limits,
@@ -299,6 +317,7 @@ public final class TargetCheckpointRootVerifier {
                 if (quotaLimits != null) {
                     auditQuotaProjections(db, meta, proof, quotaLimits);
                 }
+                TargetCheckpointDependencies dependencies = null;
                 if (ledgerLimits != null) {
                     final Map<ColumnFamily, ColumnFamilyHandle> familyHandles = new EnumMap<>(ColumnFamily.class);
                     for (ColumnFamily family : ColumnFamily.values()) {
@@ -306,9 +325,10 @@ public final class TargetCheckpointRootVerifier {
                     }
                     final ColumnFamilyHandle defaultHandle = handles.get(
                             familyNames.indexOf(new String(RocksDB.DEFAULT_COLUMN_FAMILY, StandardCharsets.UTF_8)));
-                    TargetCheckpointLedgerAudit.audit(db, familyHandles, defaultHandle, proof, ledgerLimits);
+                    dependencies = TargetCheckpointLedgerAudit.audit(
+                            db, familyHandles, defaultHandle, proof, ledgerLimits);
                 }
-                return proof;
+                return new LedgerProof(proof, dependencies);
             } catch (RocksDBException failure) {
                 throw new IllegalArgumentException("cannot open Target checkpoint read-only", failure);
             }

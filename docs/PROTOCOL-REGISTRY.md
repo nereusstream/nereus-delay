@@ -2984,3 +2984,21 @@ the current Worker/Owner and original physical Store cut. A Source/local write o
 the collection, including a previously complete result. History providers own bounded authenticated
 I/O, retention and cleanup; local image correlation is not that authority. Complete inputs still require
 full semantic/control snapshots, a protected Broker cut and formal checkpoint publication/install.
+
+Target checkpoint local dependency inventory (2026-10-08) changes no wire/NV/CF. The complete
+bounded ledger fold now yields stored META control inputs and exact retained Budget/original first
+results alongside the existing root/accounting proof. All retained Schedule/Prepare bindings contribute
+Profile/Retry/Trust-Set versions, object owners contribute required profile hashes, membership/channel/
+Native controls contribute their embedded Profile/artifact references. Conflicting bytes for the same
+immutable id/version reject. Joining signed Admission inputs requires exactly every retained Budget,
+its original Source/envelope/first result and finite total frames; unmaterialized inputs require protected
+historical closure. Frozen publication capability/credential Profile and artifact references are included.
+
+Local inventory digests are domain-separated SHA-256 over canonical sorted fields: semantic-input
+fields repeated 1 ProfileRef, 2 RetryPolicyRef, 3 PayloadProofTrustSetRef, 4 required object-profile hash,
+5 artifact digest; stored-control repeated field1 entries contain 1 CF name UTF-8, 2 key, 3 NV type,
+4 canonical payload. Domains are `nereus-delay-target-checkpoint-semantic-inputs\0` and
+`nereus-delay-target-checkpoint-stored-controls\0`. They are not assigned to Manifest authority fields:
+complete source/control/Outcome histories, external authenticated semantics/protection, control snapshot
+persistence/accounting and formal publication/install still require closure. Admission-image completeness
+alone grants no SEND, authentication, retention, pin or recovery activation authority.
