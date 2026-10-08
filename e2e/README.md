@@ -7620,3 +7620,9 @@ PUBLISHED Journal evidence after a real guarded Target business SEND, including 
 sequence/hash/cursor joins. The matching actual Store Source regression still uses declared Journal/
 Writer/history/time/key/cursor-domain authority fixtures; Broker/Store/production recovery composition
 and protected retention/pins/Floor remain required. See NDIP-3 `e5-target-journal-evidence` receipts.
+
+The locked P1 Target Journal runner additionally generates/decodes Target kind15 absence from an actual
+pre-ownership durable retirement, with an independent Target cursor. Fenced Target channel and retention
+authority remain fixtures; no physical Broker fence or post-ownership absence is proven. Store Source
+permanent/retry settlement is a separate fixture-backed slice. See NDIP-3 `e5-target-journal-absence`
+receipts, including the initial Docker token EOF and one successful retry.

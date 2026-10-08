@@ -539,7 +539,21 @@ additionally joins the full original Target channel/Message/generation/attempt/A
 exact durable PUBLISHED mapping/position/sequence/record SHA256 and covered retained cursor cut.
 The evidence cursor embedded in field1 must equal EvidenceResolution field11. These checks do not
 authenticate Broker history/retention by themselves; pre-resolved Source ResolutionAuthority remains
-mandatory. Target absence/GC/pins/Floor/checkpoint seeds and full production provider remain open.
+mandatory. Target post-ownership absence/GC/pins/Floor/checkpoint seeds and full production provider remain open.
+
+Target pre-ownership Journal absence keeps PublishEvidenceKind15 and its closed fields1..7. A Target
+cursor at field1 selects TargetChannelIdentity at field2; a Lane cursor retains the unchanged legacy
+ChannelResourceIdentity branch. Fields3..6 keep exact attempt identity, prepared hash, stable Producer
+hash and sequence. Field7 is SHA256 of `"nereus-delay-target-journal-retirement-barrier\0" ||
+retained retirement JournalRecord canonical bytes || fenced TargetChannelIdentity canonical bytes ||
+EvidenceCursor canonical bytes`. The complete original mapping/Admission/artifact join, durable retired
+state before OWNERSHIP_STARTED, exact embedded/outer cursor, retained cut coverage and digest are
+required. The fenced channel must retain Shard/Target/domain/accounting incarnation/Producer/evidence
+generation and have a strictly newer unsigned channel generation. This identity value/digest does not
+authenticate actual Broker fencing or protected retention; the independent pre-resolved Source
+ResolutionAuthority remains mandatory. OWNERSHIP_STARTED or PUBLISHED mappings cannot retire through
+this path. Post-ownership absence requires its separate fencing/sequence/retention protocol and remains
+open. No new NV, CF or mutation type is allocated; Target-aware artifact activation remains required.
 
 
 `ChannelResourceIdentity` exact fields: 1 `AdapterKind adapter_kind`; 2 `ChannelKind channel_kind`; 3 `bytes destination_lane_id`=32; 4 `bytes lane_incarnation`=16; 5 `BrokerResourceIdentity target_resource`; 6 `uint32 physical_partition`; 7 `uint64 channel_generation`; 8 `uint32 channel_slot`; 9 `bytes producer_or_transactional_identity`; 10 `bytes producer_or_transactional_identity_sha256`=32; optional 11 `BrokerResourceIdentity evidence_resource`; optional 12 `uint64 evidence_generation`; 13 `bytes resource_guard_attestation_digest`=32; 14 nonzero raw `uint64 credential_binding_generation`; 15 `bytes credential_binding_digest`=32; 16 `bytes resolved_credential_version_fingerprint_digest`=32; 17 `CredentialUseLease credential_use_lease`. Fields 7, 12 and 14 carry complete raw unsigned 64-bit patterns; zero is invalid, but a host signed-integer high bit is not a decode error. Field 10 must equal SHA-256(field 9); evidence fields are both present exactly for a channel kind that requires them. Lease kind must be `DESTINATION_CHANNEL`; fields 14–16 must equal lease fields 5–7, the enclosing holder-scope formula must match, and the certificate validity cannot outlive the lease. Replacing/renewing field 17 requires a checked-incremented channel generation and a new entire identity; it can never mutate one generation in place. Before every first physical Producer call, the Worker validates the live lease/loaded fingerprint locally and closes the gate-to-library-ownership interval within `maximumCredentialAuthorizationToProducerCallAge`. A mismatch cannot reuse or silently relabel the channel: the Lane first loses READY and becomes `BLOCKED(CREDENTIAL_BINDING_DRIFT)`.

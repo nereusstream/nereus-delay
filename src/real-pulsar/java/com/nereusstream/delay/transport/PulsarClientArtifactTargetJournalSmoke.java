@@ -88,6 +88,20 @@ public final class PulsarClientArtifactTargetJournalSmoke {
                 final var slot = PulsarAttemptJournal.ProducerKey.target(channel(shard, physical, 1, 1), physical);
                 final var other = recovered.journal().appendOrReuseCurrent(slot, identity(shard, 2));
                 recovered.journal().retireNotPublished(other.record().mapping().mappingId());
+                final var retiredMapping = other.record().mapping();
+                final var fencedRetirement = channel(shard, physical, 1, 2);
+                final var absent = recovered.journal().targetNotPublishedEvidence(retiredMapping,
+                        fencedRetirement.context().evidenceGeneration(), fencedRetirement);
+                final var decodedAbsent = com.nereusstream.delay.protocol.PublishEvidence.decode(
+                        absent.canonicalBytes());
+                require(decodedAbsent.evidenceKind()
+                        == com.nereusstream.delay.protocol.PublishEvidenceKind.PULSAR_JOURNAL_ABSENCE,
+                        "Target retirement encoded the wrong evidence branch");
+                require(recovered.journal().evidenceCursor(retiredMapping.producer(),
+                        fencedRetirement.context().evidenceGeneration()).orElseThrow().isTarget(),
+                        "Target absence cursor aliased a Lane");
+                System.out.println("Target pre-ownership absence encoded: actual durable retirement, "
+                        + "independent cursor/Target channel; fencing/retention authority are fixtures");
                 final var renewal = PulsarAttemptJournal.ProducerKey.target(channel(shard, physical, 1, 2), physical);
                 final var next = recovered.journal().appendOrReuseCurrent(renewal, identity(shard, 3));
                 require(next.record().mapping().sequenceId() == 1, "renewal reset the sequence domain");

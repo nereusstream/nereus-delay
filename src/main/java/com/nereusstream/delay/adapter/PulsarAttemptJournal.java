@@ -674,6 +674,91 @@ public final class PulsarAttemptJournal {
                 PublishEvidenceKind.PULSAR_JOURNAL_ABSENCE, EvidenceVerificationStatus.VERIFIED_NOT_PUBLISHED, branch);
     }
 
+    /** Target-only pre-ownership retirement; fencing/retention authentication remains outside this ledger. */
+    public synchronized PublishEvidence targetNotPublishedEvidence(
+            final Mapping mapping, final long evidenceGeneration, final TargetChannelIdentity fencedChannel) {
+        requireShard(Objects.requireNonNull(mapping, "mapping"));
+        if (!mapping.producer().isTarget()) {
+            throw conflict("Target absence cannot use a Lane mapping");
+        }
+        final var state = requireMapping(mapping.mappingId());
+        if (!state.mapping.sameCanonical(mapping) || !state.retired || state.retirementRecord == null
+                || state.ownershipStarted || state.published) {
+            throw conflict("Target absence requires an exact pre-ownership durable retirement");
+        }
+        PublishEvidence.requireTargetFencedChannel(mapping.producer().targetChannel(), fencedChannel);
+        final var cursor = evidenceCursor(mapping.producer(), evidenceGeneration).orElseThrow();
+        if (!Objects.equals(fencedChannel.context().evidenceGeneration(), evidenceGeneration)) {
+            throw conflict("Target absence evidence generation differs from its fenced channel");
+        }
+        final byte[] barrier = targetRetirementBarrier(state.retirementRecord, fencedChannel, cursor);
+        final byte[] branch = CanonicalProtobuf.message(out -> {
+            CanonicalProtobuf.bytes(out, 1, cursor.canonicalBytes());
+            CanonicalProtobuf.bytes(out, 2, fencedChannel.canonicalBytes());
+            CanonicalProtobuf.bytes(out, 3,
+                    ExternalDeliveryIdentity.publishAttempt(mapping.publishAttemptId()).canonicalBytes());
+            CanonicalProtobuf.bytes(out, 4, mapping.preparedPublishHash());
+            CanonicalProtobuf.bytes(out, 5, mapping.producer().stableProducerNameHash());
+            CanonicalProtobuf.uint64Bits(out, 6, mapping.sequenceId());
+            CanonicalProtobuf.bytes(out, 7, barrier);
+        });
+        return PublishEvidence.create(PublishEvidenceKind.PULSAR_JOURNAL_ABSENCE,
+                EvidenceVerificationStatus.VERIFIED_NOT_PUBLISHED, branch);
+    }
+
+    /** Exact retained retirement/channel/cursor join; this never upgrades OWNERSHIP_STARTED to NOT_PUBLISHED. */
+    public synchronized void requireTargetNotPublishedEvidence(
+            final Mapping mapping,
+            final com.nereusstream.delay.protocol.TargetOrdinaryPublicationBinding publication,
+            final com.nereusstream.delay.protocol.SourcePosition admissionSource,
+            final EvidenceCursor cursor, final PublishEvidence evidence) {
+        requireShard(Objects.requireNonNull(mapping, "mapping"));
+        if (!mapping.producer().isTarget() || !mapping.isCurrentGeneration()
+                || !Arrays.equals(mapping.producer().targetChannel().canonicalBytes(),
+                        publication.channel().canonicalBytes())
+                || !mapping.delayMessageId().equals(publication.locator().messageId())
+                || mapping.generation() != publication.locator().generation()
+                || !Arrays.equals(mapping.publishAttemptId(), publication.publishAttemptId())
+                || !Arrays.equals(mapping.preparedPublishHash(), publication.preparedPublishHash())
+                || !Arrays.equals(mapping.sourcePosition(), admissionSource.canonicalBytes())
+                || !Arrays.equals(mapping.artifactGenerationSetDigest(), publication.artifactGenerationSetDigest())) {
+            throw conflict("Target retirement mapping differs from its frozen Admission/source");
+        }
+        final var state = requireMapping(mapping.mappingId());
+        if (!state.mapping.sameCanonical(mapping) || !state.retired || state.retirementRecord == null
+                || state.ownershipStarted || state.published) {
+            throw conflict("Target absence lacks its exact pre-ownership retirement");
+        }
+        evidence.requireOrdinaryTargetNotPublishedBinding(publication);
+        if (evidence.evidenceKind() != PublishEvidenceKind.PULSAR_JOURNAL_ABSENCE) {
+            throw conflict("Target retirement requires its Journal absence branch");
+        }
+        final var fields = QueryCodecSupport.read(evidence.branch(), "Target Journal absence");
+        final var embedded = EvidenceCursor.decode(QueryCodecSupport.nested(fields.get(0), 1));
+        final var channel = TargetChannelIdentity.decode(QueryCodecSupport.nested(fields.get(1), 2));
+        final var current = evidenceCursor(mapping.producer(), cursor.evidenceGeneration()).orElseThrow();
+        final var retired = state.retirementRecord.position();
+        if (!Arrays.equals(cursor.canonicalBytes(), embedded.canonicalBytes()) || !current.dominates(cursor)
+                || QueryCodecSupport.uint64Bits(fields.get(5), 6) != mapping.sequenceId()
+                || !Arrays.equals(QueryCodecSupport.fixed(fields.get(6), 7, 32),
+                        targetRetirementBarrier(state.retirementRecord, channel, cursor))
+                || cursor.maxBrokerPersistedAtThroughCursor() < retired.brokerEntryTimestampEpochMs()
+                || Long.compareUnsigned(cursor.ledgerId(), retired.ledgerId()) < 0
+                || cursor.ledgerId() == retired.ledgerId()
+                        && (Long.compareUnsigned(cursor.entryId(), retired.entryId()) < 0
+                                || cursor.entryId() == retired.entryId()
+                                        && Integer.compareUnsigned(
+                                                cursor.normalizedBatchIndex(), retired.batchIndex()) < 0)) {
+            throw conflict("Target absence cursor/barrier does not cover the exact durable retirement");
+        }
+    }
+
+    private static byte[] targetRetirementBarrier(
+            final JournalRecord record, final TargetChannelIdentity channel, final EvidenceCursor cursor) {
+        return Bytes.sha256(Bytes.utf8("nereus-delay-target-journal-retirement-barrier\0"),
+                record.canonicalBytes(), channel.canonicalBytes(), cursor.canonicalBytes());
+    }
+
     private static void validateFencedJournalChannel(
             final ProducerKey producer,
             final ChannelResourceIdentity channel,

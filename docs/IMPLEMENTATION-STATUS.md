@@ -18645,3 +18645,10 @@ actual Target Journal business-SEND/cursor smoke pass; Store Source and real Bro
 separate slices with explicit Writer/time/history/retention/service fixtures. Target absence/GC/Floor
 seeds, specialized verifiers, production assembly, v3 history, process/new Store/F migration and central
 validation are still open; completion and production flags stay false.
+
+Target pre-ownership Journal absence now binds exact durable retirement/mapping/Admission/cursor facts
+and reaches service Source permanent/retry settlement. Local82 tests and locked P1 durable-retirement
+encoding smoke pass with explicit Journal/Source/fencing/retention/time/key/cursor fixtures. Identity/
+generation/digest checks do not authenticate Broker fencing; post-ownership absence, protected retention/
+pins/Floor, production assembly/recovery/migration and central validation remain open. Completion and
+production flags stay false; NDIP-3 absence receipts retain the initial Docker token EOF and bounded retry.

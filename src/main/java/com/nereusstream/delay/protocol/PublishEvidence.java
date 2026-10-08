@@ -176,6 +176,17 @@ public final class PublishEvidence {
     public void requireOrdinaryTargetNotPublishedBinding(final TargetOrdinaryPublicationBinding publication) {
         Objects.requireNonNull(publication, "publication");
         requireBusinessMutation(publication.publishAttemptId(), false);
+        if (evidenceKind == PublishEvidenceKind.PULSAR_JOURNAL_ABSENCE) {
+            final var fields = QueryCodecSupport.read(branch, "Target Journal absence evidence");
+            requireTargetJournalCursor(publication, EvidenceCursor.decode(nested(fields, 1)));
+            final var channel = TargetChannelIdentity.decode(nested(fields, 2));
+            requireTargetFencedChannel(publication.channel(), channel);
+            if (!Arrays.equals(fixed(fields, 4), publication.preparedPublishHash())
+                    || !Arrays.equals(fixed(fields, 5), Bytes.sha256(channel.context().producerIdentity()))) {
+                throw new IllegalArgumentException("Target Journal absence changes its frozen request/Producer");
+            }
+            return;
+        }
         if (evidenceKind != PublishEvidenceKind.BROKER_DEFINITIVE_REJECTION) {
             throw new IllegalStateException("Target absence evidence requires its recovery-domain verifier");
         }
@@ -185,6 +196,23 @@ public final class PublishEvidence {
                 || uint(fields, 3) != publication.physical().physicalPartition()
                 || !Arrays.equals(fixed(fields, 5), publication.preparedPublishHash())) {
             throw new IllegalArgumentException("Target rejection changes its frozen physical request identity");
+        }
+    }
+
+    /** Identity/generation checks only; a channel value is not a Broker fencing receipt. */
+    public static void requireTargetFencedChannel(
+            final TargetChannelIdentity admitted, final TargetChannelIdentity fenced) {
+        final var old = admitted.context();
+        final var current = fenced.context();
+        if (old.kind() != ChannelKind.PULSAR_DEDUP_PRODUCER || current.kind() != old.kind()
+                || !old.sourceShard().equals(current.sourceShard()) || !old.target().equals(current.target())
+                || !old.domain().equals(current.domain())
+                || !Arrays.equals(old.accountingIncarnation(), current.accountingIncarnation())
+                || !Arrays.equals(old.producerIdentity(), current.producerIdentity())
+                || !Objects.equals(old.evidenceGeneration(), current.evidenceGeneration())
+                || Long.compareUnsigned(current.channelGeneration(), old.channelGeneration()) <= 0) {
+            throw new IllegalArgumentException(
+                    "Target fenced channel changes its Producer scope or lacks a new generation");
         }
     }
 
@@ -421,8 +449,16 @@ public final class PublishEvidence {
                 EvidenceCursor.decode(nested(fields, 1)),
                 EvidenceKind.PULSAR_ATTEMPT_JOURNAL_CONTIGUOUS,
                 "Pulsar journal absence");
-        requireChannelAdapter(
-                ChannelResourceIdentity.decode(nested(fields, 2)), AdapterKind.PULSAR, "Pulsar journal absence");
+        final var cursor = EvidenceCursor.decode(nested(fields, 1));
+        if (cursor.isTarget()) {
+            final var channel = TargetChannelIdentity.decode(nested(fields, 2));
+            if (channel.context().kind() != ChannelKind.PULSAR_DEDUP_PRODUCER) {
+                throw new IllegalArgumentException("Target Journal absence requires a dedup channel");
+            }
+        } else {
+            requireChannelAdapter(
+                    ChannelResourceIdentity.decode(nested(fields, 2)), AdapterKind.PULSAR, "Pulsar journal absence");
+        }
         ExternalDeliveryIdentity.decode(nested(fields, 3));
         fixed(fields, 4);
         fixed(fields, 5);

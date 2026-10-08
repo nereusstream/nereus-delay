@@ -66,6 +66,7 @@ import com.nereusstream.delay.protocol.ControlTargetKind;
 import com.nereusstream.delay.protocol.ControlTargetRef;
 import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.DestinationProfileSemantic;
+import com.nereusstream.delay.protocol.EvidenceVerificationStatus;
 import com.nereusstream.delay.protocol.KafkaActivationBarrier;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.MessagePrecondition;
@@ -227,7 +228,8 @@ class TargetCommandStoreTest {
         "true,false,false,false,false,true,false,26",
         "true,false,false,true,false,true,false,27", "true,false,false,true,false,true,false,28",
         "true,false,false,true,false,true,false,29", "true,false,false,true,false,true,false,30",
-        "true,false,false,false,false,true,false,31"
+        "true,false,false,false,false,true,false,31",
+        "true,false,false,false,false,true,false,32", "true,false,false,false,false,true,false,33"
     })
     void modifiesActualTimelineOrClaimWithHistoryAndFirstResults(
             boolean claimed,
@@ -7238,8 +7240,9 @@ class TargetCommandStoreTest {
             boolean terminalRecovery, int publishFailure) {
         final var admissionImage = admission.entry().mutation();
         final var admitted = TargetPublishAdmissionBody.decode(admissionImage.canonicalBody());
-        final var journalEvidence = publishFailure == 31
-                ? targetJournalEvidenceFixture(store, admitted, admission.entry().position()) : null;
+        final var journalEvidence = publishFailure >= 31
+                ? targetJournalEvidenceFixture(
+                        store, admitted, admission.entry().position(), publishFailure != 31) : null;
         final byte[] messageKey = TargetKeyCodec.message(admitted.locator().messageId());
         final byte[] budgetKey = Bytes.concat(
                 new byte[] {TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG, TargetKeyCodec.KEY_FORMAT},
@@ -7329,9 +7332,16 @@ class TargetCommandStoreTest {
                                                         cursor.canonicalBytes());
                                                 assertEquals(admission.entry().position(), first);
                                                 if (journalEvidence != null) {
-                                                    journalEvidence.journal().requireTargetPublishedEvidence(
-                                                            journalEvidence.mapping(), publication,
-                                                            first, cursor, evidence);
+                                                    if (evidence.verificationStatus()
+                                                            == EvidenceVerificationStatus.VERIFIED_PUBLISHED) {
+                                                        journalEvidence.journal().requireTargetPublishedEvidence(
+                                                                journalEvidence.mapping(), publication,
+                                                                first, cursor, evidence);
+                                                    } else {
+                                                        journalEvidence.journal().requireTargetNotPublishedEvidence(
+                                                                journalEvidence.mapping(), publication,
+                                                                first, cursor, evidence);
+                                                    }
                                                 }
                                                 assertTrue(first.compareTo(unknown) < 0
                                                         && unknown.compareTo(resolutionSource) < 0);
@@ -7664,7 +7674,7 @@ class TargetCommandStoreTest {
             int mode, TargetJournalEvidenceFixture journalEvidence) {
         final var body = TargetPublishAdmissionBody.decode(admission.canonicalBody());
         final boolean published = mode == 20 || mode == 23 || mode == 24 || mode == 31;
-        final boolean permanent = mode != 22 && !published;
+        final boolean permanent = mode != 22 && mode != 33 && !published;
         final byte[] messageKey = TargetKeyCodec.message(body.locator().messageId());
         final byte[] beforeBytes = store.get(ColumnFamily.ID, messageKey);
         final var before = TargetMessageRecord.decode(
@@ -7811,7 +7821,7 @@ class TargetCommandStoreTest {
             com.nereusstream.delay.protocol.EvidenceCursor cursor) {}
 
     private static TargetJournalEvidenceFixture targetJournalEvidenceFixture(
-            ShardStore store, TargetPublishAdmissionBody body, SourcePosition source) {
+            ShardStore store, TargetPublishAdmissionBody body, SourcePosition source, boolean absent) {
         final var publication = body.publication();
         final var message = TargetMessageRecord.decode(TargetValueEnvelope.decode(
                 store.get(ColumnFamily.ID, TargetKeyCodec.message(body.locator().messageId())),
@@ -7830,12 +7840,27 @@ class TargetCommandStoreTest {
                         publication, message,
                         com.nereusstream.delay.protocol.PayloadForPublish.inline(message.inlinePayload()),
                         source)).record().mapping();
-        journal.markOwnershipStarted(mapping);
-        journal.markPublished(mapping);
         final long generation = publication.channel().context().evidenceGeneration();
-        final var evidence = journal.publishedEvidence(mapping, generation, null);
+        final com.nereusstream.delay.protocol.PublishEvidence evidence;
+        if (absent) {
+            final var fenced = fencedTargetChannel(publication.channel());
+            assertThrows(com.nereusstream.delay.adapter.PulsarAttemptJournal.JournalException.class,
+                    () -> journal.targetNotPublishedEvidence(mapping, generation, fenced));
+            journal.retireNotPublished(mapping.mappingId());
+            evidence = journal.targetNotPublishedEvidence(mapping, generation, fenced);
+            assertThrows(IllegalArgumentException.class,
+                    () -> journal.targetNotPublishedEvidence(mapping, generation, publication.channel()));
+        } else {
+            journal.markOwnershipStarted(mapping);
+            journal.markPublished(mapping);
+            evidence = journal.publishedEvidence(mapping, generation, null);
+        }
         final var cursor = journal.evidenceCursor(mapping.producer(), generation).orElseThrow();
-        journal.requireTargetPublishedEvidence(mapping, publication, source, cursor, evidence);
+        if (absent) {
+            journal.requireTargetNotPublishedEvidence(mapping, publication, source, cursor, evidence);
+        } else {
+            journal.requireTargetPublishedEvidence(mapping, publication, source, cursor, evidence);
+        }
         assertThrows(IllegalStateException.class, cursor::destinationLaneId);
         final var changedScope = new com.nereusstream.delay.protocol.EvidenceCursor.TargetScope(
                 source.shardId(), publication.locator().target(), publication.locator().domain(),
@@ -7845,9 +7870,29 @@ class TargetCommandStoreTest {
                 cursor.maxBrokerPersistedAtThroughCursor(), cursor.physicalTopic(),
                 cursor.physicalTopicCreationTimestamp(), cursor.ledgerId(), cursor.entryId(),
                 cursor.normalizedBatchIndex(), cursor.batchSize());
-        assertThrows(com.nereusstream.delay.adapter.PulsarAttemptJournal.JournalException.class,
-                () -> journal.requireTargetPublishedEvidence(mapping, publication, source, other, evidence));
+        assertThrows(com.nereusstream.delay.adapter.PulsarAttemptJournal.JournalException.class, () -> {
+            if (absent) {
+                journal.requireTargetNotPublishedEvidence(mapping, publication, source, other, evidence);
+            } else {
+                journal.requireTargetPublishedEvidence(mapping, publication, source, other, evidence);
+            }
+        });
         return new TargetJournalEvidenceFixture(journal, mapping, evidence, cursor);
+    }
+
+    private static com.nereusstream.delay.protocol.TargetChannelIdentity fencedTargetChannel(
+            com.nereusstream.delay.protocol.TargetChannelIdentity admitted) {
+        final var old = admitted.context();
+        final var context = new com.nereusstream.delay.protocol.TargetChannelIdentity.Context(old.sourceShard(),
+                old.target(), old.domain(), old.accountingIncarnation(), old.dispatchCompatibilityRef(),
+                old.controlScopeRef(), old.kind(), old.channelSlot(), old.channelGeneration() + 1,
+                old.evidenceGeneration(), old.resourceGuardAttestationDigest());
+        final var lease = admitted.credentialLease();
+        return new com.nereusstream.delay.protocol.TargetChannelIdentity(context,
+                new com.nereusstream.delay.protocol.CredentialUseLease(lease.profile(), lease.kind(),
+                        context.credentialHolderScope(), lease.secretGeneration(), lease.credentialBindingDigest(),
+                        lease.resolvedCredentialFingerprintDigest(), lease.issuedAt(),
+                        lease.validUntilEpochMs(), lease.protectionRevision()));
     }
 
     private static void assertEvidenceWithNewerWork(

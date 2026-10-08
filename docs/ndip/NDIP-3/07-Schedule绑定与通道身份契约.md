@@ -416,3 +416,11 @@ Source/artifact/命令/hash 与精确范围见 `evidence/e5-target-journal-evide
 `evidence/e5-target-journal-evidence-p1-real.log`。Target absence、专用 transaction/operator
 verifier、完整 cursor checkpoint/Floor seeds/GC、保护性 retention、v3 history、生产装配、
 F 迁移清退及集中验证仍必做，C2/B6/D2/E5 与 completion/production flags 不提升。
+
+### 2026-10-08 Target pre-ownership absence 通道绑定
+
+Target Journal absence 的 field2 使用 TargetChannelIdentity，必须保持原 Producer scope/
+evidence generation 并递增 channel generation；完整 mapping/Admission Source/retirement/cursor
+另行核对。这些字节不构成真实 Broker fencing 或 retention 认证，ResolutionAuthority 必须
+独立认证。OWNERSHIP_STARTED/PUBLISHED 不可通过本路径退休；后续缺席协议仍开放。字段与
+barrier digest recipe 见 PROTOCOL-REGISTRY，测试范围见[执行记录](04-执行记录.md)。
