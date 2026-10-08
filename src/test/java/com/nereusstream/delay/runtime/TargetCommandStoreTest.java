@@ -7993,6 +7993,13 @@ class TargetCommandStoreTest {
                 dependencies.withAdmissionInputs(inputs, 32L << 20).semanticInputsDigest());
         assertArrayEquals(dependencies.storedControlsDigest(), complete.storedControlsDigest());
         assertEquals(dependencies.retryUses(), complete.retryUses());
+        final var images = inputs.stream().map(input -> new TargetCheckpointDependencies.AdmissionImage(
+                input.reference().source(), input.image())).toList();
+        assertArrayEquals(complete.semanticInputsDigest(),
+                dependencies.withAdmissionImages(images, 32L << 20).semanticInputsDigest());
+        assertThrows(IllegalArgumentException.class, () -> dependencies.withAdmissionImages(
+                List.of(new TargetCheckpointDependencies.AdmissionImage(current.mutation().source(), admission)),
+                32L << 20));
         assertThrows(IllegalArgumentException.class, () -> dependencies.withAdmissionInputs(List.of(), 32L << 20));
         assertThrows(IllegalArgumentException.class, () -> dependencies.withAdmissionInputs(inputs, 1));
         assertThrows(IllegalArgumentException.class,

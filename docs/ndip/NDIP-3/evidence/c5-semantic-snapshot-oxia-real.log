@@ -1,0 +1,123 @@
+Parent=182d6b681daa04716edbf7198fe3596f9974e41e; Oxia source=37a17bef17202d5fd6e23282da5fd26d94865484; owned project=nereus-delay-semantic-snapshot-1791477002-60014
+ Image nereus-delay-semantic-snapshot-1791477002-60014-oxia Building
+#1 [internal] load local bake definitions
+#1 reading from stdin 624B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 1.34kB done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/golang:1.26-alpine
+#3 ...
+
+#4 [internal] load metadata for docker.io/library/alpine:3.22
+#4 DONE 2.7s
+
+#3 [internal] load metadata for docker.io/library/golang:1.26-alpine
+#3 DONE 2.8s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 2B done
+#5 DONE 0.0s
+
+#6 [runtime 1/8] FROM docker.io/library/alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
+#6 DONE 0.0s
+
+#7 [build 1/5] FROM docker.io/library/golang:1.26-alpine@sha256:8ac98ca534ac3f51e1f420a1dd2c15e74c75cfa0f23f3ad27eb5d7236c349a0c
+#7 DONE 0.0s
+
+#8 [internal] load build context
+#8 transferring context: 39.30kB 0.0s done
+#8 DONE 0.0s
+
+#9 [runtime 6/8] COPY --from=build /src/oxia/conf/coordinator.yaml /oxia/conf/coordinator.yaml
+#9 CACHED
+
+#10 [runtime 2/8] RUN apk add --no-cache bash bash-completion jq
+#10 CACHED
+
+#11 [build 2/5] RUN apk add --no-cache make git build-base bash
+#11 CACHED
+
+#12 [build 4/5] COPY . .
+#12 CACHED
+
+#13 [build 5/5] RUN --mount=type=cache,target=/go/pkg/mod     --mount=type=cache,target=/root/.cache/go-build     make
+#13 CACHED
+
+#14 [runtime 7/8] COPY --from=build /src/oxia/conf/dataserver.yaml /oxia/conf/dataserver.yaml
+#14 CACHED
+
+#15 [runtime 4/8] WORKDIR /oxia
+#15 CACHED
+
+#16 [build 3/5] WORKDIR /src/oxia
+#16 CACHED
+
+#17 [runtime 3/8] RUN apk upgrade --no-cache
+#17 CACHED
+
+#18 [runtime 5/8] COPY --from=build /src/oxia/bin/oxia /oxia/bin/oxia
+#18 CACHED
+
+#19 [runtime 8/8] RUN oxia completion bash > ~/.bashrc
+#19 CACHED
+
+#20 exporting to image
+#20 exporting layers done
+#20 writing image sha256:5bc593a00aaf921d4e71e699ffd9dd8a95fdff8653e537941da7db1f73947c7b done
+#20 naming to docker.io/library/nereus-delay-semantic-snapshot-1791477002-60014-oxia done
+#20 DONE 0.0s
+
+#21 resolving provenance for metadata file
+#21 DONE 0.0s
+ Image nereus-delay-semantic-snapshot-1791477002-60014-oxia Built
+ Network nereus-delay-semantic-snapshot-1791477002-60014_default Creating
+ Network nereus-delay-semantic-snapshot-1791477002-60014_default Creating
+ Network nereus-delay-semantic-snapshot-1791477002-60014_default Created
+ Network nereus-delay-semantic-snapshot-1791477002-60014_default Created
+ Container nereus-delay-semantic-snapshot-1791477002-60014-oxia-1 Creating
+ Container nereus-delay-semantic-snapshot-1791477002-60014-oxia-1 Created
+ Container nereus-delay-semantic-snapshot-1791477002-60014-oxia-1 Starting
+ Container nereus-delay-semantic-snapshot-1791477002-60014-oxia-1 Started
+Native image=sha256:5bc593a00aaf921d4e71e699ffd9dd8a95fdff8653e537941da7db1f73947c7b; running=true
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava UP-TO-DATE
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses UP-TO-DATE
+> Task :test
+> Task :checkstyleMain UP-TO-DATE
+> Task :checkstyleTest UP-TO-DATE
+
+BUILD SUCCESSFUL in 1m 14s
+15 actionable tasks: 2 executed, 13 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+Native XML {"name": "com.nereusstream.delay.runtime.TargetCommandStoreTest", "tests": "12", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-08T16:30:21.297Z", "hostname": "liusinandeMacBook-Pro.local", "time": "58.339"} sha256=fceba9c44fa16b31c3eca485997b48aac50cbab94b59ebd43b4d1093c3778c26
+Native12 zero failure/error/skip; actual Owner/Source/Store/generic Admission-image joins; snapshot semantic catalogs, history/Broker/time/keys/protection authorities remain fixtures or uncomposed.
+ Container nereus-delay-semantic-snapshot-1791477002-60014-oxia-1 Stopping
+ Container nereus-delay-semantic-snapshot-1791477002-60014-oxia-1 Stopped
+ Container nereus-delay-semantic-snapshot-1791477002-60014-oxia-1 Removing
+ Container nereus-delay-semantic-snapshot-1791477002-60014-oxia-1 Removed
+ Network nereus-delay-semantic-snapshot-1791477002-60014_default Removing
+ Network nereus-delay-semantic-snapshot-1791477002-60014_default Removed
+Untagged: nereus-delay-semantic-snapshot-1791477002-60014-oxia:latest
+Deleted: sha256:5bc593a00aaf921d4e71e699ffd9dd8a95fdff8653e537941da7db1f73947c7b
+Parent=182d6b681daa04716edbf7198fe3596f9974e41e
+source_sha256={"src/main/java/com/nereusstream/delay/store/TargetCheckpointSemanticSnapshot.java": "15bfb81ce5df740674f6465536372189c1b3531aeb0714c4d8d546536ebaee79", "src/main/java/com/nereusstream/delay/store/TargetCheckpointDependencies.java": "9738e7c523de8e70650ea2db93df53936449d04ab4ee7eb6a0e348cc53abf0ba", "src/main/java/com/nereusstream/delay/store/TargetCheckpointRootVerifier.java": "c45885a1eab367cc393dfb7b54eedb7252f9c229d7a19e1d2aed4a4bfc7e92ff", "src/test/java/com/nereusstream/delay/store/TargetCheckpointSemanticSnapshotTest.java": "1bcbdc987017fbdcddc78bb2535374c66ddc02cc79cb88f8f236cd9126b202d4", "src/test/java/com/nereusstream/delay/store/TargetCheckpointSemanticSnapshotTestBridge.java": "4a18d166d1a9693d68a158bcbc8194fa98399c673e1a54053c412f6b12aefb9f", "src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java": "ac36a42fecb2dc7550d79a264bfa0412c9cc946315d3396a04ae78898b902c81", "src/test/java/com/nereusstream/delay/runtime/TargetQuotaGrantStoreTest.java": "5101aca6dccf11224b91e845dc917aa4a6808a1a7cec76ab0fc3e375e3654755"}
+Native command: NEREUS_DELAY_OXIA_ENDPOINT=127.0.0.1:16681 NEREUS_DELAY_OXIA_NAMESPACE=default ./gradlew test --tests com.nereusstream.delay.runtime.TargetCommandStoreTest.realOxiaPublishOwnerTakeoverRetainsUncertainBudgetAndBarrier --tests com.nereusstream.delay.runtime.TargetCommandStoreTest.realOxiaLateTargetOutcomeRetainsTerminalDecision checkstyleMain checkstyleTest --no-daemon --console=plain
+Compose: locked clean Oxia source37a17bef17202d5fd6e23282da5fd26d94865484, port16681, owned project in header; e2e/docker-compose.oxia.yml up -d --build; trap downs own project and removes own image tag.

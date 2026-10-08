@@ -3018,3 +3018,21 @@ races/uncertain responses; session checks bracket every I/O. Resolve requires ma
 Source identity and position at/after original visibility, rejecting same-position canonical conflicts.
 Publication actor/Source authorization and lifetime/protection are required externally; a stored row is
 not that proof and this provider has no delete/retirement path.
+
+Target checkpoint semantic snapshot v1 (2026-10-09) is a bounded companion representation, not a new
+NV/CF or authenticated control activation. Closed canonical fields: 1 version1; 2 complete StoreMetadata;
+3 applied SourcePosition; 4 raw uint64 mutation sequence; 5 recovery lineage[16]; 6 stored-controls
+digest[32]; 7 dependency semantic-input digest[32]; repeated 8 complete ProfileSemanticEnvelope,
+9 RetryPolicySemantic, 10 PayloadProofTrustSetSemantic, 11 original AdmissionImage; 12 SHA-256 of
+`nereus-delay-target-checkpoint-semantic-snapshot\0` plus fields1–11. Profile/Retry/Trust entries sort
+by complete reference canonical bytes; AdmissionImage sorts by its complete canonical bytes and has
+fields1 SourcePosition,2 signed System Mutation frame. Unknown/duplicate/reordered fields, digest/hash
+conflicts and configured finite record/byte/frame ceilings reject, including while parsing outer fields.
+
+Image verification repeats the complete local ledger fold, joins exactly every original Admission to its
+retained first SYSTEM/source/envelope/author/window/frozen Budget and checks physical cut/lineage plus
+both dependency digests. Semantic values cover exactly required versions and transitive Destination
+Capability references; object-owner hashes require actual OBJECT_STORE semantics. Original catalog
+visibility is checked during collection with protection guards and finite reads; offline contents alone
+are not historical publication/key/protection/pin proof. Artifact/credential/control/Outcome authority,
+Source-accounted snapshot persistence and formal Manifest/Catalog/install remain required separately.

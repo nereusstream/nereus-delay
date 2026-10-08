@@ -18730,3 +18730,16 @@ and first visibility with exact CAS/response-loss reread. Local52/style and nati
 real independent concurrent catalog publication/reopen and native Owner/Source/Store. Publication source/
 control/protection authorities remain external/fixtures; full snapshots/Host/providers/pins/Floor/install/
 migration and central validation remain required. Completion/production flags stay false.
+
+TargetCheckpointSemanticSnapshot now closes bounded canonical Profile/Retry/Trust contents and signed
+original Admission frames against an audited image. Collection follows transitive Destination Capability
+references and original Retry Source anchors under finite read/protection guards; offline restore joins
+original first results and frozen Budgets with exact Store/source/sequence/lineage/control/dependency
+checks. Local48/style pass, including actual Source/Store original-image joins, an actual empty-version
+physical checkpoint match and declared pure semantic/catalog fixtures. Complete control/Artifact/
+credential/Outcome authority, persistence/accounting, pins/Floor/Catalog/install/migration remain open;
+completion/production flags stay false.
+
+Native two-session Oxia12/style passes the actual Owner/Source/Store and offline original-Admission
+correlation paths; richer semantic snapshot/catalog/Broker/protection composition remains unproven.
+Receipt: NDIP-3 `evidence/c5-semantic-snapshot-oxia-real.log`; completion/production flags stay false.

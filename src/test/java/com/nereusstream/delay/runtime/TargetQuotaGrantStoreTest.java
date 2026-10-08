@@ -144,6 +144,7 @@ import com.nereusstream.delay.store.SharedRocksDbResources;
 import com.nereusstream.delay.store.TargetCheckpointCandidateTestBridge;
 import com.nereusstream.delay.store.TargetCheckpointCandidateWorkClassExecutor;
 import com.nereusstream.delay.store.TargetCheckpointRootVerifier;
+import com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot;
 import com.nereusstream.delay.store.TargetKeyCodec;
 import com.nereusstream.delay.store.TargetStoreBackend;
 import com.nereusstream.delay.store.TargetValueEnvelope;
@@ -1128,6 +1129,18 @@ class TargetQuotaGrantStoreTest {
         assertTrue(dependencies.admissionImagesComplete());
         assertTrue(dependencies.controls().stream().anyMatch(control ->
                 control.valueType() == TargetQuotaGrantActivation.VALUE_TYPE));
+        assertTrue(dependencies.profiles().isEmpty());
+        assertTrue(dependencies.retryPolicies().isEmpty());
+        assertTrue(dependencies.trustSets().isEmpty());
+        final var semanticLimits = new TargetCheckpointSemanticSnapshot.Limits(64, 1 << 20, 1 << 20);
+        final var semantics = TargetCheckpointSemanticSnapshot.collect(dependencies, List.of(),
+                com.nereusstream.delay.store.TargetCheckpointSemanticSnapshotTestBridge.emptyProfiles(),
+                (ref, at) -> { throw new AssertionError("unexpected Retry Policy"); },
+                ref -> { throw new AssertionError("unexpected Trust Set"); }, budget(), semanticLimits, () -> {});
+        final var decodedSemantics = TargetCheckpointSemanticSnapshot.decode(
+                semantics.canonicalBytes(), semanticLimits);
+        TargetCheckpointRootVerifier.auditImageSemanticSnapshot(physicalDb, scope.shard(), imageLimits,
+                quotaAuditLimits, ledgerAuditLimits, decodedSemantics, semanticLimits);
 
         final Path failedCandidate = root.resolve("target-candidate-over-budget");
         final Path unboundedCandidate = root.resolve("target-candidate-unbounded");

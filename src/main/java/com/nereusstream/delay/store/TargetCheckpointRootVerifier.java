@@ -234,6 +234,16 @@ public final class TargetCheckpointRootVerifier {
                 Objects.requireNonNull(ledgerLimits, "ledgerLimits"), null);
     }
 
+    /** Validates closed semantic contents against the exact fully audited immutable physical image. */
+    public static LedgerProof auditImageSemanticSnapshot(final Path image, final ShardId expectedShard,
+            final CheckpointManifestLimits physicalLimits, final QuotaAuditLimits quotaLimits,
+            final LedgerAuditLimits ledgerLimits, final TargetCheckpointSemanticSnapshot snapshot,
+            final TargetCheckpointSemanticSnapshot.Limits semanticLimits) {
+        final var proof = auditImageDependencies(image, expectedShard, physicalLimits, quotaLimits, ledgerLimits);
+        Objects.requireNonNull(snapshot, "snapshot").validateAgainst(proof.dependencies(), semanticLimits);
+        return proof;
+    }
+
     private static void requireFormat2Manifest(
             final CheckpointManifest manifest, final CheckpointManifestLimits limits) {
         Objects.requireNonNull(manifest, "manifest");

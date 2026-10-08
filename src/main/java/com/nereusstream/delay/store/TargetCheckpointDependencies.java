@@ -1,6 +1,7 @@
 package com.nereusstream.delay.store;
 
 import com.nereusstream.delay.ownership.TargetCheckpointAdmissionInputs;
+import com.nereusstream.delay.protocol.AuthorIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
 import com.nereusstream.delay.protocol.CommandType;
@@ -132,13 +133,51 @@ public final class TargetCheckpointDependencies {
         return List.copyOf(values.values());
     }
 
-    /** Joins every retained attempt to its original image; incomplete or stale inputs cannot prove closure. */
+    /** Original signed snapshot input; this DTO alone carries no history or authentication rights. */
+    public record AdmissionImage(SourcePosition source, SystemMutation image) {
+        public AdmissionImage {
+            TargetSourcePosition.requireBounded(source);
+            Objects.requireNonNull(image, "image");
+        }
+
+        public byte[] canonicalBytes() {
+            return CanonicalProtobuf.message(out -> {
+                CanonicalProtobuf.bytes(out, 1, source.canonicalBytes());
+                CanonicalProtobuf.bytes(out, 2, image.encodeFrame());
+            });
+        }
+    }
+
+    /** Joins every retained attempt to its original image; incomplete or stale references cannot prove closure. */
     public TargetCheckpointDependencies withAdmissionInputs(
             final List<TargetCheckpointAdmissionInputs.Input> inputs, final long maximumFrameBytes) {
         Objects.requireNonNull(inputs, "inputs");
         if (maximumFrameBytes <= 0 || maximumFrameBytes == Long.MAX_VALUE || inputs.size() != admissions.size()) {
+            throw new IllegalArgumentException("Target semantic closure needs finite bytes and every Admission input");
+        }
+        final var expected = new TreeMap<String, TargetQuotaAttemptBudget>();
+        admissions.forEach(admission -> expected.put(Bytes.hex(admission.attempt().publishAttemptId()),
+                admission.attempt()));
+        final var images = new java.util.ArrayList<AdmissionImage>();
+        for (final var input : inputs) {
+            final var attempt = expected.get(Bytes.hex(input.reference().attempt().publishAttemptId()));
+            if (attempt == null || !Arrays.equals(attempt.canonicalBytes(),
+                    input.reference().attempt().canonicalBytes())) {
+                throw new IllegalArgumentException("Target semantic closure has an extra or stale Budget reference");
+            }
+            input.reference().requireImage(input.image(), input.reference().source());
+            images.add(new AdmissionImage(input.reference().source(), input.image()));
+        }
+        return withAdmissionImages(images, maximumFrameBytes);
+    }
+
+    /** Offline restore correlates original first results and frozen Budgets after the full physical ledger audit. */
+    public TargetCheckpointDependencies withAdmissionImages(
+            final List<AdmissionImage> inputs, final long maximumFrameBytes) {
+        Objects.requireNonNull(inputs, "inputs");
+        if (maximumFrameBytes <= 0 || maximumFrameBytes == Long.MAX_VALUE || inputs.size() != admissions.size()) {
             throw new IllegalArgumentException(
-                    "Target semantic closure requires finite bytes and every Admission input");
+                    "Target semantic closure needs finite bytes and every Admission image");
         }
         final Map<String, Admission> pending = new TreeMap<>();
         for (final var admission : admissions) {
@@ -147,25 +186,32 @@ public final class TargetCheckpointDependencies {
         final var builder = new Builder(this);
         long bytes = 0;
         for (final var input : inputs) {
-            final var retained = pending.remove(Bytes.hex(input.reference().attempt().publishAttemptId()));
-            if (retained == null || !Arrays.equals(retained.attempt().canonicalBytes(),
-                    input.reference().attempt().canonicalBytes())) {
-                throw new IllegalArgumentException("Target semantic closure has an extra, duplicate or stale Budget");
-            }
             final var image = input.image();
+            final var body = TargetPublishAdmissionBody.decode(image.canonicalBody());
+            final var retained = pending.remove(Bytes.hex(body.publishAttemptId()));
+            if (retained == null) {
+                throw new IllegalArgumentException("Target semantic closure has an extra or duplicate Admission");
+            }
+            final var attempt = retained.attempt();
             final var first = SystemMutationResult.decode(retained.first().typedPayload());
-            if (!Arrays.equals(retained.first().mutation().source().canonicalBytes(),
-                        input.reference().source().canonicalBytes())
+            if (image.type() != com.nereusstream.delay.protocol.SystemMutationType.TARGET_PUBLISH_ADMISSION
+                    || !Arrays.equals(retained.first().mutation().source().canonicalBytes(),
+                        input.source().canonicalBytes())
                     || !Arrays.equals(Bytes.sha256(image.canonicalEnvelope()),
                         retained.first().mutation().mutationDigest())
                     || !Arrays.equals(first.mutationId(), image.systemMutationId())
                     || !Arrays.equals(first.mutationHash(), image.mutationHash())
                     || !Arrays.equals(first.authorIdentity(), image.authorIdentity())
-                    || first.retryUntilEpochMs() != image.retryUntilEpochMs()) {
-                throw new IllegalArgumentException(
-                        "Target semantic closure changes its original Admission first result");
+                    || first.retryUntilEpochMs() != image.retryUntilEpochMs()
+                    || !body.locator().equals(attempt.locator())
+                    || !body.owner().equals(AuthorIdentity.decode(first.authorIdentity()).asOwnerIdentity())
+                    || body.executionBytes() != attempt.executionBytes()
+                    || !body.commitment().equals(attempt.commitment())
+                    || !attempt.commitment().covers(body.allocated())
+                    || attempt.phase() == TargetQuotaAttemptBudget.Phase.ADMITTED
+                            && !body.allocated().equals(attempt.allocated())) {
+                throw new IllegalArgumentException("Target semantic closure changes its original Admission proof");
             }
-            input.reference().requireImage(image, input.reference().source());
             bytes = Math.addExact(bytes, image.encodeFrame().length);
             if (bytes > maximumFrameBytes) {
                 throw new IllegalArgumentException("Target semantic Admission frames exceed their byte bound");
