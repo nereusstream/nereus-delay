@@ -1,0 +1,122 @@
+Parent=05428f7a42049d4a7b5f35cc32faeb5ddcf448f3; Oxia source=37a17bef17202d5fd6e23282da5fd26d94865484; owned project=nereus-delay-source-retry-1791474694-25243
+ Image nereus-delay-source-retry-1791474694-25243-oxia Building
+#1 [internal] load local bake definitions
+#1 reading from stdin 614B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 1.34kB done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/golang:1.26-alpine
+#3 DONE 2.5s
+
+#4 [internal] load metadata for docker.io/library/alpine:3.22
+#4 DONE 2.5s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 2B done
+#5 DONE 0.0s
+
+#6 [runtime 1/8] FROM docker.io/library/alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
+#6 DONE 0.0s
+
+#7 [build 1/5] FROM docker.io/library/golang:1.26-alpine@sha256:8ac98ca534ac3f51e1f420a1dd2c15e74c75cfa0f23f3ad27eb5d7236c349a0c
+#7 DONE 0.0s
+
+#8 [internal] load build context
+#8 transferring context: 39.30kB 0.0s done
+#8 DONE 0.0s
+
+#9 [runtime 5/8] COPY --from=build /src/oxia/bin/oxia /oxia/bin/oxia
+#9 CACHED
+
+#10 [runtime 3/8] RUN apk upgrade --no-cache
+#10 CACHED
+
+#11 [build 3/5] WORKDIR /src/oxia
+#11 CACHED
+
+#12 [build 2/5] RUN apk add --no-cache make git build-base bash
+#12 CACHED
+
+#13 [build 4/5] COPY . .
+#13 CACHED
+
+#14 [build 5/5] RUN --mount=type=cache,target=/go/pkg/mod     --mount=type=cache,target=/root/.cache/go-build     make
+#14 CACHED
+
+#15 [runtime 6/8] COPY --from=build /src/oxia/conf/coordinator.yaml /oxia/conf/coordinator.yaml
+#15 CACHED
+
+#16 [runtime 2/8] RUN apk add --no-cache bash bash-completion jq
+#16 CACHED
+
+#17 [runtime 4/8] WORKDIR /oxia
+#17 CACHED
+
+#18 [runtime 7/8] COPY --from=build /src/oxia/conf/dataserver.yaml /oxia/conf/dataserver.yaml
+#18 CACHED
+
+#19 [runtime 8/8] RUN oxia completion bash > ~/.bashrc
+#19 CACHED
+
+#20 exporting to image
+#20 exporting layers done
+#20 writing image sha256:d5c8515b6a5a2ca62bee3b0955b0449948174cd09ff5289c09249ed63c6a6ae5 done
+#20 naming to docker.io/library/nereus-delay-source-retry-1791474694-25243-oxia done
+#20 DONE 0.0s
+
+#21 resolving provenance for metadata file
+#21 DONE 0.0s
+ Image nereus-delay-source-retry-1791474694-25243-oxia Built
+ Network nereus-delay-source-retry-1791474694-25243_default Creating
+ Network nereus-delay-source-retry-1791474694-25243_default Creating
+ Network nereus-delay-source-retry-1791474694-25243_default Created
+ Network nereus-delay-source-retry-1791474694-25243_default Created
+ Container nereus-delay-source-retry-1791474694-25243-oxia-1 Creating
+ Container nereus-delay-source-retry-1791474694-25243-oxia-1 Created
+ Container nereus-delay-source-retry-1791474694-25243-oxia-1 Starting
+ Container nereus-delay-source-retry-1791474694-25243-oxia-1 Started
+Native image=sha256:d5c8515b6a5a2ca62bee3b0955b0449948174cd09ff5289c09249ed63c6a6ae5; running=true
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava UP-TO-DATE
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses UP-TO-DATE
+> Task :test
+> Task :checkstyleMain UP-TO-DATE
+> Task :checkstyleTest UP-TO-DATE
+
+BUILD SUCCESSFUL in 1m 18s
+15 actionable tasks: 2 executed, 13 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+Native XML {"name": "com.nereusstream.delay.runtime.OxiaRealRetryPolicyCatalogSmokeTest", "tests": "1", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-08T15:51:54.801Z", "hostname": "liusinandeMacBook-Pro.local", "time": "1.045"} sha256=f52f40fd56bf3f30434b754052b22be270da3f15a4942dda602176b5077e0e9e
+Native XML {"name": "com.nereusstream.delay.runtime.TargetCommandStoreTest", "tests": "12", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-08T15:51:55.849Z", "hostname": "liusinandeMacBook-Pro.local", "time": "60.315"} sha256=ff004b3e92a4629ec8c29acc8bf0d6d837a9bebf9de8956a1545623d892174bc
+Native13 zero failure/error/skip. Real concurrent catalog publication/reopen and two-session Owner/Source/Store; publication source/control/time/keys/history/Broker/protection authorities remain fixtures.
+ Container nereus-delay-source-retry-1791474694-25243-oxia-1 Stopping
+ Container nereus-delay-source-retry-1791474694-25243-oxia-1 Stopped
+ Container nereus-delay-source-retry-1791474694-25243-oxia-1 Removing
+ Container nereus-delay-source-retry-1791474694-25243-oxia-1 Removed
+ Network nereus-delay-source-retry-1791474694-25243_default Removing
+ Network nereus-delay-source-retry-1791474694-25243_default Removed
+Untagged: nereus-delay-source-retry-1791474694-25243-oxia:latest
+Deleted: sha256:d5c8515b6a5a2ca62bee3b0955b0449948174cd09ff5289c09249ed63c6a6ae5
+Parent=05428f7a42049d4a7b5f35cc32faeb5ddcf448f3
+source_sha256={"src/main/java/com/nereusstream/delay/runtime/OxiaSyncRetryPolicyCatalog.java": "8aa953f05776c6d9d42a8e382731432e58741f1f11d5a0796ea560bba5d84bd1", "src/main/java/com/nereusstream/delay/store/TargetCheckpointDependencies.java": "b7cfc303c3a19e3b897c4c89aa217022808a7e4846cc304011b5fe0411e7f507", "src/test/java/com/nereusstream/delay/runtime/OxiaSyncRetryPolicyCatalogTest.java": "277c7327375cde980d624ac48d159aefacdf5cbd57b82682dd8628bb3850a34f", "src/test/java/com/nereusstream/delay/runtime/OxiaRealRetryPolicyCatalogSmokeTest.java": "0052cae5b36274c8588b7ba2117370c18a3c6a289865f4850485b13ab5e17000", "src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java": "9985e5a69ebc080783f5b5dc3be0b4af3db93ca4d34365e6fe5661f091961f60"}
+Publication Source/control authorization and Broker/history/time/key/protection inputs remain external or fixture; no complete production snapshot/pins/Floor/publication/install/migration claimed.
+Native command: NEREUS_DELAY_OXIA_ENDPOINT=127.0.0.1:16681 NEREUS_DELAY_OXIA_NAMESPACE=default ./gradlew test --tests com.nereusstream.delay.runtime.OxiaRealRetryPolicyCatalogSmokeTest --tests com.nereusstream.delay.runtime.TargetCommandStoreTest.realOxiaPublishOwnerTakeoverRetainsUncertainBudgetAndBarrier --tests com.nereusstream.delay.runtime.TargetCommandStoreTest.realOxiaLateTargetOutcomeRetainsTerminalDecision checkstyleMain checkstyleTest --no-daemon --console=plain
+Compose: locked clean Oxia source37a17bef17202d5fd6e23282da5fd26d94865484, port16681, owned project in header; e2e/docker-compose.oxia.yml up -d --build; trap downs own project and removes own image tag.

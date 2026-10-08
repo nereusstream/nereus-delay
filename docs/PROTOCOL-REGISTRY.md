@@ -3002,3 +3002,19 @@ fields repeated 1 ProfileRef, 2 RetryPolicyRef, 3 PayloadProofTrustSetRef, 4 req
 complete source/control/Outcome histories, external authenticated semantics/protection, control snapshot
 persistence/accounting and formal publication/install still require closure. Admission-image completeness
 alone grants no SEND, authentication, retention, pin or recovery activation authority.
+
+Target local checkpoint semantic-input digest adds repeated field6 `RetryUse` (1 complete RetryPolicyRef,
+2 complete original SourcePosition), sorted/unique by complete canonical bytes. Every retained binding
+contributes its original visibility point; joining Admission images preserves this set. These local
+descriptors are not Manifest authority fields and are not a new NV/CF format. Prior five-field digest
+receipts remain historical; source anchors must not be reconstructed from the later checkpoint frontier.
+
+Session-bound Oxia Retry Policy catalog records use key `<prefix>/retry-policy/<ShardSubject canonical
+hex>/<policyId hex>/<unsigned version decimal>`. Closed canonical value fields: 1 schema1, 2 complete
+RetryPolicySemantic, 3 complete first-visible SourcePosition, 4 SHA-256 over domain
+`nereus-delay-oxia-retry-policy\0` plus fields1–3. Values are limited to1MiB. Create uses
+IfRecordDoesNotExist; id/version semantics and first visibility are immutable. Exact reread settles CAS
+races/uncertain responses; session checks bracket every I/O. Resolve requires matching semantic ref,
+Source identity and position at/after original visibility, rejecting same-position canonical conflicts.
+Publication actor/Source authorization and lifetime/protection are required externally; a stored row is
+not that proof and this provider has no delete/retirement path.

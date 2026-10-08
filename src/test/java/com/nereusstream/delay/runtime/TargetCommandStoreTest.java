@@ -6382,6 +6382,19 @@ class TargetCommandStoreTest {
                 new TargetCheckpointRootVerifier.LedgerAuditLimits(100_000, 256L << 20, 500_000, 256L << 20));
         assertFalse(dependencyProof.dependencies().profiles().isEmpty());
         assertFalse(dependencyProof.dependencies().retryPolicies().isEmpty());
+        assertFalse(dependencyProof.dependencies().retryUses().isEmpty());
+        assertEquals(new java.util.HashSet<>(dependencyProof.dependencies().retryPolicies()),
+                dependencyProof.dependencies().retryUses().stream().map(use -> use.reference())
+                        .collect(java.util.stream.Collectors.toSet()));
+        assertTrue(dependencyProof.dependencies().retryUses().stream().anyMatch(use ->
+                use.source().compareTo(dependencyProof.root().source()) < 0));
+        final var retryReads = new java.util.ArrayList<com.nereusstream.delay.protocol.SourcePosition>();
+        assertThrows(IllegalStateException.class, () -> dependencyProof.dependencies().resolveRetryPolicies(
+                (ref, at) -> {
+                    retryReads.add(at);
+                    return null;
+                }, budget(), () -> {}));
+        assertEquals(dependencyProof.dependencies().retryUses().getFirst().source(), retryReads.getFirst());
         assertFalse(dependencyProof.dependencies().controls().isEmpty());
         assertFalse(dependencyProof.dependencies().trustSets().isEmpty());
         assertFalse(dependencyProof.dependencies().objectProfileHashes().isEmpty());
@@ -7979,6 +7992,7 @@ class TargetCommandStoreTest {
         assertArrayEquals(complete.semanticInputsDigest(),
                 dependencies.withAdmissionInputs(inputs, 32L << 20).semanticInputsDigest());
         assertArrayEquals(dependencies.storedControlsDigest(), complete.storedControlsDigest());
+        assertEquals(dependencies.retryUses(), complete.retryUses());
         assertThrows(IllegalArgumentException.class, () -> dependencies.withAdmissionInputs(List.of(), 32L << 20));
         assertThrows(IllegalArgumentException.class, () -> dependencies.withAdmissionInputs(inputs, 1));
         assertThrows(IllegalArgumentException.class,

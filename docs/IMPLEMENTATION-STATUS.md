@@ -18722,3 +18722,11 @@ The affected complete Target reopen fold passes native Oxia12/style and locked K
 Source/expiry/Admission ACK-loss recovery plus independent original Admission history. See NDIP-3
 `evidence/c5-target-dependency-closure-oxia-real.log` and `-k1-real.log`; external authorities are explicit
 fixtures and complete authenticated snapshot/publication/install remains open.
+
+Target dependency inventories now retain every Retry Policy reference's original Source use, and finite
+protected catalog reads resolve at each such point. Later checkpoint visibility cannot repair an earlier
+missing publication. A new session-bound Oxia immutable Retry Policy provider preserves id/version bytes
+and first visibility with exact CAS/response-loss reread. Local52/style and native13/style pass, including
+real independent concurrent catalog publication/reopen and native Owner/Source/Store. Publication source/
+control/protection authorities remain external/fixtures; full snapshots/Host/providers/pins/Floor/install/
+migration and central validation remain required. Completion/production flags stay false.

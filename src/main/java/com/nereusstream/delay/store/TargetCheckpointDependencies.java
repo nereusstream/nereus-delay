@@ -8,12 +8,16 @@ import com.nereusstream.delay.protocol.PayloadProofTrustSetRef;
 import com.nereusstream.delay.protocol.PrepareLargeScheduleBody;
 import com.nereusstream.delay.protocol.ProfileRef;
 import com.nereusstream.delay.protocol.RetryPolicyRef;
+import com.nereusstream.delay.protocol.RetryPolicySemantic;
+import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.TargetMembershipGrant;
 import com.nereusstream.delay.protocol.TargetNativePolicyScope;
 import com.nereusstream.delay.protocol.TargetPublishAdmissionBody;
 import com.nereusstream.delay.protocol.TargetQuotaAttemptBudget;
 import com.nereusstream.delay.protocol.TargetScheduleBinding;
+import com.nereusstream.delay.protocol.TargetSourcePosition;
+import com.nereusstream.delay.runtime.RetryPolicyCatalog;
 import com.nereusstream.delay.runtime.SystemMutationResult;
 import com.nereusstream.delay.runtime.TargetResultRecord;
 import java.util.Arrays;
@@ -46,11 +50,36 @@ public final class TargetCheckpointDependencies {
         }
     }
 
+    /** Each use retains its original visibility point, including old bindings after later policy publication. */
+    public record RetryUse(RetryPolicyRef reference, SourcePosition source) {
+        public RetryUse {
+            Objects.requireNonNull(reference, "reference");
+            TargetSourcePosition.requireBounded(source);
+        }
+
+        public byte[] canonicalBytes() {
+            return CanonicalProtobuf.message(out -> {
+                CanonicalProtobuf.bytes(out, 1, reference.canonicalBytes());
+                CanonicalProtobuf.bytes(out, 2, source.canonicalBytes());
+            });
+        }
+
+        /** Exact semantics must have been visible at this use, independently of a later checkpoint cut. */
+        public RetryPolicySemantic resolve(RetryPolicyCatalog catalog) {
+            final var semantic = Objects.requireNonNull(catalog, "catalog").resolve(reference, source);
+            if (semantic == null || !reference.matches(semantic)) {
+                throw new IllegalStateException("Target Retry Policy is not visible at its original Source use");
+            }
+            return semantic;
+        }
+    }
+
     private final TargetCheckpointRootVerifier.RootProof root;
     private final List<StoredControl> controls;
     private final List<Admission> admissions;
     private final List<ProfileRef> profiles;
     private final List<RetryPolicyRef> retryPolicies;
+    private final List<RetryUse> retryUses;
     private final List<PayloadProofTrustSetRef> trustSets;
     private final List<byte[]> objectProfileHashes;
     private final List<byte[]> artifactDigests;
@@ -62,6 +91,7 @@ public final class TargetCheckpointDependencies {
         this.admissions = List.copyOf(admissions);
         profiles = List.copyOf(builder.profiles.values());
         retryPolicies = List.copyOf(builder.retries.values());
+        retryUses = List.copyOf(builder.retryUses.values());
         trustSets = List.copyOf(builder.trusts.values());
         objectProfileHashes = copies(builder.objectHashes.values().stream().toList());
         artifactDigests = copies(builder.artifacts.values().stream().toList());
@@ -73,10 +103,34 @@ public final class TargetCheckpointDependencies {
     public List<Admission> admissions() { return admissions; }
     public List<ProfileRef> profiles() { return profiles; }
     public List<RetryPolicyRef> retryPolicies() { return retryPolicies; }
+    public List<RetryUse> retryUses() { return retryUses; }
     public List<PayloadProofTrustSetRef> trustSets() { return trustSets; }
     public List<byte[]> objectProfileHashes() { return copies(objectProfileHashes); }
     public List<byte[]> artifactDigests() { return copies(artifactDigests); }
     public boolean admissionImagesComplete() { return admissionImagesComplete; }
+
+    /**
+     * Reads every original use under one finite budget and caller-owned protection guard. Invoke outside Store locks;
+     * providers own I/O deadlines. Never replace an original visibility point with a later checkpoint position.
+     */
+    public List<RetryPolicySemantic> resolveRetryPolicies(final RetryPolicyCatalog catalog,
+            final BoundedReadBudget budget, final Runnable protectionGuard) {
+        Objects.requireNonNull(catalog, "catalog");
+        Objects.requireNonNull(budget, "budget");
+        Objects.requireNonNull(protectionGuard, "protectionGuard").run();
+        final var values = new TreeMap<String, RetryPolicySemantic>();
+        for (final var use : retryUses) {
+            protectionGuard.run();
+            if (!budget.beforeRead()) { throw budget.incomplete(); }
+            final var semantic = use.resolve(catalog);
+            protectionGuard.run();
+            if (!budget.tryCharge(use.canonicalBytes().length, semantic.canonicalBytes().length)
+                    || !budget.beforeTimedWork()) { throw budget.incomplete(); }
+            values.put(Bytes.hex(use.reference().canonicalBytes()), semantic);
+        }
+        protectionGuard.run();
+        return List.copyOf(values.values());
+    }
 
     /** Joins every retained attempt to its original image; incomplete or stale inputs cannot prove closure. */
     public TargetCheckpointDependencies withAdmissionInputs(
@@ -129,6 +183,7 @@ public final class TargetCheckpointDependencies {
             for (final var trust : trustSets) { CanonicalProtobuf.bytes(out, 3, trust.canonicalBytes()); }
             for (final var hash : objectProfileHashes) { CanonicalProtobuf.bytes(out, 4, hash); }
             for (final var digest : artifactDigests) { CanonicalProtobuf.bytes(out, 5, digest); }
+            for (final var use : retryUses) { CanonicalProtobuf.bytes(out, 6, use.canonicalBytes()); }
         });
         return Bytes.sha256(Bytes.utf8("nereus-delay-target-checkpoint-semantic-inputs\0"), fields);
     }
@@ -155,6 +210,7 @@ public final class TargetCheckpointDependencies {
         private final Map<String, StoredControl> controls = new TreeMap<>();
         private final Map<String, ProfileRef> profiles = new TreeMap<>();
         private final Map<String, RetryPolicyRef> retries = new TreeMap<>();
+        private final Map<String, RetryUse> retryUses = new TreeMap<>();
         private final Map<String, PayloadProofTrustSetRef> trusts = new TreeMap<>();
         private final Map<String, byte[]> objectHashes = new TreeMap<>();
         private final Map<String, byte[]> artifacts = new TreeMap<>();
@@ -167,6 +223,7 @@ public final class TargetCheckpointDependencies {
                     control.valueType(), control.payload()); }
             prior.profiles.forEach(this::profile);
             prior.retryPolicies.forEach(this::retry);
+            prior.retryUses.forEach(this::retryUse);
             prior.trustSets.forEach(this::trust);
             prior.objectProfileHashes.forEach(this::objectHash);
             prior.artifactDigests.forEach(this::artifact);
@@ -178,7 +235,7 @@ public final class TargetCheckpointDependencies {
 
         void binding(TargetScheduleBinding binding) {
             profile(binding.intent().profile());
-            retry(binding.intent().retryPolicy());
+            retryUse(new RetryUse(binding.intent().retryPolicy(), binding.bindingSource()));
             if (binding.commandType() == CommandType.PREPARE_LARGE_SCHEDULE) {
                 final var prepare = PrepareLargeScheduleBody.decode(binding.canonicalBody());
                 profile(prepare.objectStoreProfile());
@@ -218,6 +275,14 @@ public final class TargetCheckpointDependencies {
             if (old != null && !old.equals(retry)) {
                 throw new IllegalArgumentException("conflicting immutable Target Retry Policy version");
             }
+        }
+
+        void retryUse(RetryUse use) {
+            retry(use.reference());
+            if (!root.metadata().shardId().equals(use.source().shardId())) {
+                throw new IllegalArgumentException("Target Retry Policy use belongs to another Source Shard");
+            }
+            retryUses.put(Bytes.hex(use.canonicalBytes()), use);
         }
 
         void trust(PayloadProofTrustSetRef trust) {
