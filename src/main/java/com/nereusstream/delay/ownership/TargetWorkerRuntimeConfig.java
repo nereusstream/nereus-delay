@@ -16,6 +16,7 @@ import com.nereusstream.delay.store.WorkerResourceEnvelope;
 import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
@@ -139,6 +140,11 @@ public record TargetWorkerRuntimeConfig(
             Function<ShardId, TargetSourceBacklog.Snapshot> snapshots, TrustedClock clock, LongSupplier nanos,
             BiConsumer<TargetSourceBacklog.Snapshot, Integer> protection) {
         return new TargetSourceBacklogAdmission(backlogGrowth, snapshots, clock, nanos, protection);
+    }
+
+    public TargetSourceBacklogCache newSourceBacklogCache(ThreadPoolExecutor executor, LongSupplier nanos) {
+        return new TargetSourceBacklogCache(store.maxOwnedShards(), backlogGrowth.maximumObservationAgeNanos(),
+                executor, nanos);
     }
 
     public SchedulerBudget sourceTurn() {

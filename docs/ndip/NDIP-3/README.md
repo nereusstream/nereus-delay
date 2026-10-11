@@ -533,3 +533,5 @@ Scheduled Target candidates now capture an exact protected source cut before cre
 2026-10-11 E6后续：系统append窗口接统一配置与真实K1/P1 Source appender，UNKNOWN保留、close代际竞争、共享replacement上限局部实现；K1 scheduled expiry/P1 first-grant Source路径通过。SDK完整资源/率预算与durable reserve独立保留，原Source backlog authority/入口背压及完整provider仍必做，不提升完成状态。
 
 2026-10-11 E6后续：实际Worker Source cut、有限K1/P1原日志prefix frame计数/bytes/oldest timestamp及提交前managed growth gate接入统一配置，单场景Broker和Oxia cut生命周期局部通过。完整distributed ingress/UNKNOWN额度、retention空间/发布缓存/生产provider与cleanup仍必做，本地观测/gate不授予这些权限，状态保持未完成。
+
+2026-10-11 E6后续：Source Query owned read/cleanup、late/failed close原句柄、有限caller executor/cache发布与同进程复用已实现；15局部测试与两套Broker正向Source链通过。Host全刷新/退场、真实故障/backend shutdown、physical/pins/retention与跨Gateway总量/RPC继续必做，不提升完成状态。

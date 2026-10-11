@@ -351,14 +351,45 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
             consumerTransferred[0] = true;
             try {
                 final long beforeBacklog = store.latestSequenceNumber();
-                final var backlog = PulsarClientArtifactTargetSourceBacklog.read(client, guard,
-                        worker.captureSourceBacklogCut(System::currentTimeMillis),
-                        new com.nereusstream.delay.ownership.TargetSourceBacklog.Limits(
-                                8, 2L << 20, 1 << 20, TimeUnit.SECONDS.toNanos(10)), () -> {
-                            if (!leases.current(scope.shard()).orElseThrow().sameIdentity(active)) {
-                                throw new IllegalStateException("P1 backlog fixture lost its Owner/history protection");
-                            }
-                        });
+                final var observerExecutor = new java.util.concurrent.ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS,
+                    new java.util.concurrent.ArrayBlockingQueue<>(1),
+                    new java.util.concurrent.ThreadPoolExecutor.AbortPolicy());
+                final var observerCache = new com.nereusstream.delay.ownership.TargetSourceBacklogCache(
+                        1, TimeUnit.SECONDS.toNanos(15), observerExecutor, System::nanoTime);
+                final com.nereusstream.delay.ownership.TargetSourceBacklog.Snapshot backlog;
+                try {
+                    observerCache.refresh(worker, System::currentTimeMillis, cut -> PulsarClientArtifactTargetSourceBacklog.open(client, guard,
+                    cut,
+                    new com.nereusstream.delay.ownership.TargetSourceBacklog.Limits(
+                            8, 2L << 20, 1 << 20, TimeUnit.SECONDS.toNanos(10)), () -> {
+                        if (!leases.current(scope.shard()).orElseThrow().sameIdentity(active)) {
+                            throw new IllegalStateException("P1 backlog fixture lost its Owner/history protection");
+                        }
+                    }));
+                    final long observerDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
+                    while (observerCache.state(worker.shardId()).status()
+                            != com.nereusstream.delay.ownership.TargetSourceBacklogCache.Status.READY) {
+                        if (observerCache.state(worker.shardId()).failure() != null
+                                || System.nanoTime() >= observerDeadline) {
+                            throw new IllegalStateException("Source observer/cache did not settle",
+                                    observerCache.state(worker.shardId()).failure());
+                        }
+                        Thread.sleep(1);
+                    }
+                    backlog = observerCache.get(worker.shardId());
+                    if (observerCache.get(worker.shardId()) != backlog) {
+                        throw new IllegalStateException("Source cache repeated its SDK observation");
+                    }
+                    observerCache.stop();
+                    if (!observerCache.cleanupComplete()) {
+                        throw new IllegalStateException("Source observer retained native cleanup on success");
+                    }
+                } finally {
+                    observerExecutor.shutdown();
+                    if (!observerExecutor.awaitTermination(15, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("Source observer executor did not terminate");
+                    }
+                }
                 if (backlog.records() != 1 || backlog.bytes() != commandFrame.length
                         || store.latestSequenceNumber() != beforeBacklog) {
                     throw new IllegalStateException("P1 backlog did not count the exact unapplied frame read-only");
