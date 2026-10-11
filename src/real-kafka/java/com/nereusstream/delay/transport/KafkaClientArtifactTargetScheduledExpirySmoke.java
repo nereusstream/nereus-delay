@@ -559,6 +559,10 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
                 final AtomicReference<com.nereusstream.delay.ownership.ShardLogMutationAppender.AppendOutcome>
                         expiryAppendOutcome = new AtomicReference<>();
                 final AtomicReference<Throwable> expiryAppendFailure = new AtomicReference<>();
+                final var workerClasses = KafkaClientArtifactTargetWorkerSourceSmoke.workClasses();
+                final var writerBudget = new com.nereusstream.delay.ownership.SystemWriterAppendBudget(
+                        new com.nereusstream.delay.ownership.SystemWriterAppendBudget.Limits(2, 2L << 20, 1L << 20, 1),
+                        workerClasses, resources);
                 try (var producer = new KafkaProducer<byte[], byte[]>(producerConfig);
                         var appender = new KafkaClientArtifactShardLogMutationAppender(
                                 (GuardedProducer<byte[], byte[]>) producer,
@@ -566,8 +570,7 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
                                 clusterId,
                                 topic,
                                 toUuid(topicId),
-                                Duration.ofSeconds(15))) {
-                    final var workerClasses = KafkaClientArtifactTargetWorkerSourceSmoke.workClasses();
+                                Duration.ofSeconds(15), writerBudget.registerWriter(shard))) {
                     final var maintenance = new TargetWorkerShardRuntime.Maintenance(
                             closeControls,
                             new com.nereusstream.delay.ownership.TargetReservationClosureWorkClassExecutor.Limits(
@@ -863,6 +866,11 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
                         leases.release(active);
                     }
                 }
+                if (!writerBudget.usage().equals(new com.nereusstream.delay.ownership.SystemWriterAppendBudget.Usage(
+                        0, 0, 0))) {
+                    throw new IllegalStateException("closed K1 system writer retained an append-window charge");
+                }
+                System.out.println("K1 system-writer append window settled after exact producer close.");
             }
         } finally {
             leases.current(shard).ifPresent(leases::release);

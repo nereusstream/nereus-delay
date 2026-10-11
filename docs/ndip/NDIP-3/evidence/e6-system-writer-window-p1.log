@@ -1,0 +1,301 @@
+Development scope: bounded system append window; no backlog authority or full physical SDK envelope proof.
+Command: NEREUS_DELAY_PULSAR_TARGET_WORKER_SOURCE_ONLY=1 e2e/run-pulsar-real-client-e2e.sh
+P1_SOURCE=0a2536484cd3932801a98dc88ff112b2df88a1c7
+
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 694B done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/eclipse-temurin:21-jre
+#2 DONE 2.8s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [1/6] FROM docker.io/library/eclipse-temurin:21-jre@sha256:cff19e6215689161eb6162c11b86b0c60ddf802164f2eaf48d570f8fb79a36c5
+#4 DONE 0.0s
+
+#5 [internal] load build context
+#5 transferring context: 224.88MB 3.5s done
+#5 DONE 3.5s
+
+#6 [2/6] WORKDIR /opt/pulsar
+#6 CACHED
+
+#7 [3/6] COPY apache-pulsar-5.0.0-M1-bin.tar.gz /tmp/pulsar.tar.gz
+#7 CACHED
+
+#8 [4/6] COPY pulsar-p1-entrypoint.sh /opt/pulsar/pulsar-p1-entrypoint.sh
+#8 CACHED
+
+#9 [5/6] COPY pulsar-p1-cluster-entrypoint.sh /opt/pulsar/pulsar-p1-cluster-entrypoint.sh
+#9 CACHED
+
+#10 [6/6] RUN tar -xzf /tmp/pulsar.tar.gz --strip-components=1     && rm /tmp/pulsar.tar.gz     && chmod +x /opt/pulsar/bin/*.sh /opt/pulsar/pulsar-p1-entrypoint.sh /opt/pulsar/pulsar-p1-cluster-entrypoint.sh     && mkdir -p /pulsar/data /pulsar/logs
+#10 CACHED
+
+#11 exporting to image
+#11 exporting layers done
+#11 writing image sha256:6d3485378abd04d00ffd6c0d340a66e7eca8120bd6f89bd25fab45363f245cc3 done
+#11 naming to docker.io/library/nereus-delay-pulsar-p1:nereus-delay-pulsar-e2e-1791716060-84999 done
+#11 DONE 0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/u8jfb32w76gwsix555gvoricf
+P1 checkout: 0a2536484cd3932801a98dc88ff112b2df88a1c7
+P1 distribution SHA256: 373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3
+P1 client SHA256:
+57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/../pulsar-worktrees/nereus-delay-p1/pulsar-client/build/libs/pulsar-client-original-5.0.0-M1.jar
+f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/../pulsar-worktrees/nereus-delay-p1/pulsar-client-api/build/libs/pulsar-client-api-5.0.0-M1.jar
+94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/../pulsar-worktrees/nereus-delay-p1/pulsar-common/build/libs/pulsar-common-5.0.0-M1.jar
+P1 image ID: sha256:6d3485378abd04d00ffd6c0d340a66e7eca8120bd6f89bd25fab45363f245cc3
+P1 runtime library count: 341
+Compose project: nereus-delay-pulsar-e2e-1791716060-84999
+P1 ports: broker=19749,web=19750
+Pulsar Worker Oxia authority: 0
+ Network nereus-delay-pulsar-e2e-1791716060-84999_default Creating 
+ Network nereus-delay-pulsar-e2e-1791716060-84999_default Creating 
+ Volume nereus-delay-pulsar-e2e-1791716060-84999_pulsar-data Creating 
+ Volume nereus-delay-pulsar-e2e-1791716060-84999_pulsar-data Creating 
+ Volume nereus-delay-pulsar-e2e-1791716060-84999_pulsar-logs Creating 
+ Volume nereus-delay-pulsar-e2e-1791716060-84999_pulsar-logs Creating 
+ Volume nereus-delay-pulsar-e2e-1791716060-84999_pulsar-data Created 
+ Volume nereus-delay-pulsar-e2e-1791716060-84999_pulsar-data Created 
+ Network nereus-delay-pulsar-e2e-1791716060-84999_default Created 
+ Network nereus-delay-pulsar-e2e-1791716060-84999_default Created 
+ Volume nereus-delay-pulsar-e2e-1791716060-84999_pulsar-logs Created 
+ Volume nereus-delay-pulsar-e2e-1791716060-84999_pulsar-logs Created 
+ Container nereus-delay-pulsar-e2e-1791716060-84999-pulsar-1 Creating 
+ Container nereus-delay-pulsar-e2e-1791716060-84999-pulsar-1 Created 
+ Container nereus-delay-pulsar-e2e-1791716060-84999-pulsar-1 Starting 
+ Container nereus-delay-pulsar-e2e-1791716060-84999-pulsar-1 Started 
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeRealPulsarProto UP-TO-DATE
+> Task :extractRealPulsarProto UP-TO-DATE
+> Task :generateRealPulsarProto NO-SOURCE
+> Task :compileRealPulsar
+> Task :compileRealPulsarJava SKIPPED
+> Task :processRealPulsarProtoResources UP-TO-DATE
+> Task :processRealPulsarResources NO-SOURCE
+> Task :realPulsarClasses UP-TO-DATE
+
+> Task :runRealPulsarTargetWorkerSourceSmoke
+10? 11, 2026 6:54:56 ?? io.opentelemetry.api.GlobalOpenTelemetry maybeAutoConfigureAndSetGlobal
+??: AutoConfiguredOpenTelemetrySdk found on classpath but automatic configuration is disabled. To enable, run your JVM with -Dotel.java.global-autoconfigure.enabled=true
+2026-10-11T18:54:57,241 - INFO  - [pulsar-client-io-1-3:ConnectionPool@297] - Connected to server {channel=[id: 0x03b0888f, L:/127.0.0.1:57583 - R:/127.0.0.1:19749]}
+2026-10-11T18:54:57,391 - INFO  - [pulsar-client-io-1-3:ConsumerStatsRecorderImpl@120] - Starting Pulsar consumer status recorder with config {config={"topicNames":["persistent://public/default/p1-target-source-84999-target-780453e7-29d8-4c9f-90bb-ac55c1041b1d"],"topicsPattern":null,"subscriptionName":"nereus-delay-target-source-7b2ff322-a05b-4cf0-afda-bbc71cf444a1","subscriptionType":"Exclusive","subscriptionProperties":null,"subscriptionMode":"Durable","receiverQueueSize":1,"acknowledgementsGroupTimeMicros":100000,"maxAcknowledgmentGroupSize":1000,"negativeAckRedeliveryDelayMicros":60000000,"negativeAckPrecisionBitCnt":8,"maxTotalReceiverQueueSizeAcrossPartitions":50000,"consumerName":null,"ackTimeoutMillis":0,"tickDurationMillis":1000,"priorityLevel":0,"maxPendingChunkedMessage":10,"autoAckOldestChunkedMessageOnQueueFull":false,"expireTimeOfIncompleteChunkedMessageMillis":60000,"cryptoFailureAction":"FAIL","properties":{},"readCompacted":false,"subscriptionInitialPosition":"Earliest","patternAutoDiscoveryPeriod":60,"regexSubscriptionMode":"PersistentOnly","deadLetterPolicy":null,"retryEnable":false,"autoUpdatePartitions":false,"autoUpdatePartitionsIntervalSeconds":60,"replicateSubscriptionState":null,"resetIncludeHead":false,"batchIndexAckEnabled":true,"ackReceiptEnabled":true,"poolMessages":false,"startPaused":false,"autoScaledReceiverQueueSizeEnabled":false,"topicConfigurations":[],"maxPendingChuckedMessage":10}}
+2026-10-11T18:54:57,402 - INFO  - [pulsar-client-io-1-3:ConsumerStatsRecorderImpl@122] - Pulsar client config {config={"serviceUrl":"pulsar://127.0.0.1:19749","serviceUrlQuarantineInitDurationMs":60000,"serviceUrlQuarantineMaxDurationMs":86400000,"authPluginClassName":null,"authParams":null,"authParamMap":null,"originalPrincipal":null,"operationTimeoutMs":30000,"lookupTimeoutMs":30000,"statsIntervalSeconds":60,"numIoThreads":10,"numListenerThreads":10,"connectionsPerBroker":1,"connectionMaxIdleSeconds":60,"useTcpNoDelay":true,"useTls":false,"tlsKeyFilePath":null,"tlsCertificateFilePath":null,"tlsTrustCertsFilePath":null,"tlsAllowInsecureConnection":false,"tlsHostnameVerificationEnable":false,"sslFactoryPlugin":"org.apache.pulsar.common.util.DefaultPulsarSslFactory","sslFactoryPluginParams":"","concurrentLookupRequest":5000,"maxLookupRequest":50000,"maxLookupRedirects":20,"maxNumberOfRejectedRequestPerConnection":50,"keepAliveIntervalSeconds":30,"connectionTimeoutMs":10000,"requestTimeoutMs":60000,"readTimeoutMs":60000,"autoCertRefreshSeconds":300,"initialBackoffIntervalNanos":100000000,"maxBackoffIntervalNanos":60000000000,"enableBusyWait":false,"listenerName":null,"useKeyStoreTls":false,"sslProvider":null,"tlsKeyStoreType":"JKS","tlsKeyStorePath":null,"tlsKeyStorePassword":null,"tlsTrustStoreType":"JKS","tlsTrustStorePath":null,"tlsTrustStorePassword":null,"tlsCiphers":[],"tlsProtocols":[],"memoryLimitBytes":67108864,"proxyServiceUrl":null,"proxyProtocol":null,"enableTransaction":false,"dnsLookupBindAddress":null,"dnsLookupBindPort":0,"dnsServerAddresses":[],"socks5ProxyAddress":null,"socks5ProxyUsername":null,"socks5ProxyPassword":null,"socks5ProxyScope":"BINARY_ONLY","description":null,"lookupProperties":{},"tracingEnabled":false,"openTelemetry":null}}
+2026-10-11T18:54:57,413 - INFO  - [pulsar-client-io-1-3:ConsumerImpl@893] - Subscribing to topic {channel=null, consumerId=0, consumerName=y51Fe, subscription=nereus-delay-target-source-7b2ff322-a05b-4cf0-afda-bbc71cf444a1, topic=persistent://public/default/p1-target-source-84999-target-780453e7-29d8-4c9f-90bb-ac55c1041b1d}
+2026-10-11T18:54:57,425 - INFO  - [pulsar-client-io-1-3:ConsumerImpl@1073] - Subscribed to topic {channel=[id: 0x03b0888f, L:/127.0.0.1:57583 - R:/127.0.0.1:19749], consumerId=0, consumerName=y51Fe, subscription=nereus-delay-target-source-7b2ff322-a05b-4cf0-afda-bbc71cf444a1, topic=persistent://public/default/p1-target-source-84999-target-780453e7-29d8-4c9f-90bb-ac55c1041b1d}
+2026-10-11T18:54:57,514 - INFO  - [pulsar-client-io-1-3:ProducerStatsRecorderImpl@107] - Starting Pulsar producer perf with config {config={"topicName":"persistent://public/default/p1-target-source-84999-target-780453e7-29d8-4c9f-90bb-ac55c1041b1d","producerName":"target-source-grant","sendTimeoutMs":30000,"blockIfQueueFull":false,"maxPendingMessages":1,"maxPendingMessagesAcrossPartitions":0,"messageRoutingMode":"RoundRobinPartition","hashingScheme":"JavaStringHash","cryptoFailureAction":"FAIL","batchingMaxPublishDelayMicros":1000,"batchingPartitionSwitchFrequencyByPublishDelay":10,"batchingMaxMessages":1000,"batchingMaxBytes":131072,"batchingEnabled":false,"chunkingEnabled":false,"chunkMaxMessageSize":-1,"encryptionKeys":[],"compressionType":"NONE","compressMinMsgBodySize":4096,"initialSequenceId":null,"autoUpdatePartitions":false,"autoUpdatePartitionsIntervalSeconds":60,"multiSchema":true,"accessMode":"Shared","lazyStartPartitionedProducers":false,"properties":{},"initialSubscriptionName":null,"nonPartitionedTopicExpected":false,"replProducer":false}}
+2026-10-11T18:54:57,514 - INFO  - [pulsar-client-io-1-3:ProducerStatsRecorderImpl@109] - Pulsar client config {config={"serviceUrl":"pulsar://127.0.0.1:19749","serviceUrlQuarantineInitDurationMs":60000,"serviceUrlQuarantineMaxDurationMs":86400000,"authPluginClassName":null,"authParams":null,"authParamMap":null,"originalPrincipal":null,"operationTimeoutMs":30000,"lookupTimeoutMs":30000,"statsIntervalSeconds":60,"numIoThreads":10,"numListenerThreads":10,"connectionsPerBroker":1,"connectionMaxIdleSeconds":60,"useTcpNoDelay":true,"useTls":false,"tlsKeyFilePath":null,"tlsCertificateFilePath":null,"tlsTrustCertsFilePath":null,"tlsAllowInsecureConnection":false,"tlsHostnameVerificationEnable":false,"sslFactoryPlugin":"org.apache.pulsar.common.util.DefaultPulsarSslFactory","sslFactoryPluginParams":"","concurrentLookupRequest":5000,"maxLookupRequest":50000,"maxLookupRedirects":20,"maxNumberOfRejectedRequestPerConnection":50,"keepAliveIntervalSeconds":30,"connectionTimeoutMs":10000,"requestTimeoutMs":60000,"readTimeoutMs":60000,"autoCertRefreshSeconds":300,"initialBackoffIntervalNanos":100000000,"maxBackoffIntervalNanos":60000000000,"enableBusyWait":false,"listenerName":null,"useKeyStoreTls":false,"sslProvider":null,"tlsKeyStoreType":"JKS","tlsKeyStorePath":null,"tlsKeyStorePassword":null,"tlsTrustStoreType":"JKS","tlsTrustStorePath":null,"tlsTrustStorePassword":null,"tlsCiphers":[],"tlsProtocols":[],"memoryLimitBytes":67108864,"proxyServiceUrl":null,"proxyProtocol":null,"enableTransaction":false,"dnsLookupBindAddress":null,"dnsLookupBindPort":0,"dnsServerAddresses":[],"socks5ProxyAddress":null,"socks5ProxyUsername":null,"socks5ProxyPassword":null,"socks5ProxyScope":"BINARY_ONLY","description":null,"lookupProperties":{},"tracingEnabled":false,"openTelemetry":null}}
+2026-10-11T18:54:57,520 - INFO  - [pulsar-client-io-1-3:ProducerImpl@2069] - Creating producer {channel=[id: 0x03b0888f, L:/127.0.0.1:57583 - R:/127.0.0.1:19749], producerId=0, producerName=target-source-grant, topic=persistent://public/default/p1-target-source-84999-target-780453e7-29d8-4c9f-90bb-ac55c1041b1d}
+2026-10-11T18:54:57,529 - INFO  - [pulsar-client-io-1-3:ProducerImpl@2139] - Created producer {channel=[id: 0x03b0888f, L:/127.0.0.1:57583 - R:/127.0.0.1:19749], producerId=0, producerName=target-source-grant, topic=persistent://public/default/p1-target-source-84999-target-780453e7-29d8-4c9f-90bb-ac55c1041b1d}
+2026-10-11T18:54:57,567 - INFO  - [main:ProducerStatsRecorderImpl@206] - Publish stats {ackReceivedRate=20.02, batchSize95pct=1.000, batchSize999pct=1.000, batchSize99pct=1.000, batchSizeMax=1.000, batchSizeMed=1.000, failedMessages=0, latency95pctMs=25.000, latency999pctMs=25.000, latency99pctMs=25.000, latencyMaxMs=25.000, latencyMedMs=25.000, msgSize95pctBytes=1328.000, msgSize999pctBytes=1328.000, msgSize99pctBytes=1328.000, msgSizeMaxBytes=1328.000, msgSizeMedBytes=1328.000, pendingMessages=0, producerName=target-source-grant, sendBytesRateMbps=0.20, sendMsgRate=20.02, topic=persistent://public/default/p1-target-source-84999-target-780453e7-29d8-4c9f-90bb-ac55c1041b1d}
+2026-10-11T18:54:57,573 - INFO  - [pulsar-client-io-1-3:ProducerImpl@1288] - Closed Producer {channel=[id: 0x03b0888f, L:/127.0.0.1:57583 - R:/127.0.0.1:19749], producerId=0, producerName=target-source-grant, topic=persistent://public/default/p1-target-source-84999-target-780453e7-29d8-4c9f-90bb-ac55c1041b1d}
+P1 system-writer append window settled after exact producer close (fixture resources).
+2026-10-11T18:54:57,579 - INFO  - [pulsar-client-io-1-3:ProducerStatsRecorderImpl@107] - Starting Pulsar producer perf with config {config={"topicName":"persistent://public/default/p1-target-source-84999-target-780453e7-29d8-4c9f-90bb-ac55c1041b1d","producerName":"target-source-command","sendTimeoutMs":30000,"blockIfQueueFull":false,"maxPendingMessages":1,"maxPendingMessagesAcrossPartitions":0,"messageRoutingMode":"RoundRobinPartition","hashingScheme":"JavaStringHash","cryptoFailureAction":"FAIL","batchingMaxPublishDelayMicros":1000,"batchingPartitionSwitchFrequencyByPublishDelay":10,"batchingMaxMessages":1000,"batchingMaxBytes":131072,"batchingEnabled":false,"chunkingEnabled":false,"chunkMaxMessageSize":-1,"encryptionKeys":[],"compressionType":"NONE","compressMinMsgBodySize":4096,"initialSequenceId":null,"autoUpdatePartitions":false,"autoUpdatePartitionsIntervalSeconds":60,"multiSchema":true,"accessMode":"Shared","lazyStartPartitionedProducers":false,"properties":{},"initialSubscriptionName":null,"nonPartitionedTopicExpected":false,"replProducer":false}}
+2026-10-11T18:54:57,579 - INFO  - [pulsar-client-io-1-3:ProducerStatsRecorderImpl@109] - Pulsar client config {config={"serviceUrl":"pulsar://127.0.0.1:19749","serviceUrlQuarantineInitDurationMs":60000,"serviceUrlQuarantineMaxDurationMs":86400000,"authPluginClassName":null,"authParams":null,"authParamMap":null,"originalPrincipal":null,"operationTimeoutMs":30000,"lookupTimeoutMs":30000,"statsIntervalSeconds":60,"numIoThreads":10,"numListenerThreads":10,"connectionsPerBroker":1,"connectionMaxIdleSeconds":60,"useTcpNoDelay":true,"useTls":false,"tlsKeyFilePath":null,"tlsCertificateFilePath":null,"tlsTrustCertsFilePath":null,"tlsAllowInsecureConnection":false,"tlsHostnameVerificationEnable":false,"sslFactoryPlugin":"org.apache.pulsar.common.util.DefaultPulsarSslFactory","sslFactoryPluginParams":"","concurrentLookupRequest":5000,"maxLookupRequest":50000,"maxLookupRedirects":20,"maxNumberOfRejectedRequestPerConnection":50,"keepAliveIntervalSeconds":30,"connectionTimeoutMs":10000,"requestTimeoutMs":60000,"readTimeoutMs":60000,"autoCertRefreshSeconds":300,"initialBackoffIntervalNanos":100000000,"maxBackoffIntervalNanos":60000000000,"enableBusyWait":false,"listenerName":null,"useKeyStoreTls":false,"sslProvider":null,"tlsKeyStoreType":"JKS","tlsKeyStorePath":null,"tlsKeyStorePassword":null,"tlsTrustStoreType":"JKS","tlsTrustStorePath":null,"tlsTrustStorePassword":null,"tlsCiphers":[],"tlsProtocols":[],"memoryLimitBytes":67108864,"proxyServiceUrl":null,"proxyProtocol":null,"enableTransaction":false,"dnsLookupBindAddress":null,"dnsLookupBindPort":0,"dnsServerAddresses":[],"socks5ProxyAddress":null,"socks5ProxyUsername":null,"socks5ProxyPassword":null,"socks5ProxyScope":"BINARY_ONLY","description":null,"lookupProperties":{},"tracingEnabled":false,"openTelemetry":null}}
+2026-10-11T18:54:57,581 - INFO  - [pulsar-client-io-1-3:ProducerImpl@2069] - Creating producer {channel=[id: 0x03b0888f, L:/127.0.0.1:57583 - R:/127.0.0.1:19749], producerId=1, producerName=target-source-command, topic=persistent://public/default/p1-target-source-84999-target-780453e7-29d8-4c9f-90bb-ac55c1041b1d}
+2026-10-11T18:54:57,584 - INFO  - [pulsar-client-io-1-3:ProducerImpl@2139] - Created producer {channel=[id: 0x03b0888f, L:/127.0.0.1:57583 - R:/127.0.0.1:19749], producerId=1, producerName=target-source-command, topic=persistent://public/default/p1-target-source-84999-target-780453e7-29d8-4c9f-90bb-ac55c1041b1d}
+2026-10-11T18:54:57,589 - INFO  - [main:ProducerStatsRecorderImpl@206] - Publish stats {ackReceivedRate=103.94, batchSize95pct=1.000, batchSize999pct=1.000, batchSize99pct=1.000, batchSizeMax=1.000, batchSizeMed=1.000, failedMessages=0, latency95pctMs=4.000, latency999pctMs=4.000, latency99pctMs=4.000, latencyMaxMs=4.000, latencyMedMs=4.000, msgSize95pctBytes=210.000, msgSize999pctBytes=210.000, msgSize99pctBytes=210.000, msgSizeMaxBytes=210.000, msgSizeMedBytes=210.000, pendingMessages=0, producerName=target-source-command, sendBytesRateMbps=0.17, sendMsgRate=103.94, topic=persistent://public/default/p1-target-source-84999-target-780453e7-29d8-4c9f-90bb-ac55c1041b1d}
+2026-10-11T18:54:57,591 - INFO  - [pulsar-client-io-1-3:ProducerImpl@1288] - Closed Producer {channel=[id: 0x03b0888f, L:/127.0.0.1:57583 - R:/127.0.0.1:19749], producerId=1, producerName=target-source-command, topic=persistent://public/default/p1-target-source-84999-target-780453e7-29d8-4c9f-90bb-ac55c1041b1d}
+2026-10-11T18:54:57,594 - INFO  - [main:ConsumerImpl@2675] - Seeking subscription to {channel=[id: 0x03b0888f, L:/127.0.0.1:57583 - R:/127.0.0.1:19749], consumerId=0, consumerName=y51Fe, seekBy=the message 9:0:-1, subscription=nereus-delay-target-source-7b2ff322-a05b-4cf0-afda-bbc71cf444a1, topic=persistent://public/default/p1-target-source-84999-target-780453e7-29d8-4c9f-90bb-ac55c1041b1d}
+2026-10-11T18:54:57,599 - INFO  - [pulsar-client-io-1-3:ClientCnx@1000] - Broker notification of closed consumer {assignedBrokerUrl=null, assignedBrokerUrlTls=null, channel=[id: 0x03b0888f, L:/127.0.0.1:57583 - R:/127.0.0.1:19749], consumerId=0}
+2026-10-11T18:54:57,600 - INFO  - [pulsar-client-io-1-3:ConnectionHandler@249] - Closed connection - Will try again {connection=[id: 0x03b0888f, L:/127.0.0.1:57583 - R:/127.0.0.1:19749], delaySec=0.097, handler=nereus-delay-target-source-7b2ff322-a05b-4cf0-afda-bbc71cf444a1, hostUrl=null, state=Connecting, topic=persistent://public/default/p1-target-source-84999-target-780453e7-29d8-4c9f-90bb-ac55c1041b1d}
+2026-10-11T18:54:57,612 - INFO  - [pulsar-client-io-1-3:ConsumerImpl@2681] - Successfully reset subscription to {channel=null, consumerId=0, consumerName=y51Fe, seekBy=the message 9:0:-1, subscription=nereus-delay-target-source-7b2ff322-a05b-4cf0-afda-bbc71cf444a1, topic=persistent://public/default/p1-target-source-84999-target-780453e7-29d8-4c9f-90bb-ac55c1041b1d}
+2026-10-11T18:54:57,699 - INFO  - [pulsar-timer-34-1:ConnectionHandler@253] - Reconnecting after timeout {delaySec=0.097, handler=nereus-delay-target-source-7b2ff322-a05b-4cf0-afda-bbc71cf444a1, hostUrl=null, state=Connecting, topic=persistent://public/default/p1-target-source-84999-target-780453e7-29d8-4c9f-90bb-ac55c1041b1d}
+2026-10-11T18:54:57,702 - INFO  - [pulsar-client-io-1-3:ConsumerImpl@893] - Subscribing to topic {channel=null, consumerId=0, consumerName=y51Fe, subscription=nereus-delay-target-source-7b2ff322-a05b-4cf0-afda-bbc71cf444a1, topic=persistent://public/default/p1-target-source-84999-target-780453e7-29d8-4c9f-90bb-ac55c1041b1d}
+2026-10-11T18:54:57,710 - INFO  - [pulsar-client-io-1-3:ConsumerImpl@1073] - Subscribed to topic {channel=[id: 0x03b0888f, L:/127.0.0.1:57583 - R:/127.0.0.1:19749], consumerId=0, consumerName=y51Fe, subscription=nereus-delay-target-source-7b2ff322-a05b-4cf0-afda-bbc71cf444a1, topic=persistent://public/default/p1-target-source-84999-target-780453e7-29d8-4c9f-90bb-ac55c1041b1d}
+2026-10-11T18:54:58,067 - INFO  - [pulsar-client-io-1-3:ConsumerStatsRecorderImpl@120] - Starting Pulsar consumer status recorder with config {config={"topicNames":["persistent://public/default/p1-target-source-84999-target-780453e7-29d8-4c9f-90bb-ac55c1041b1d"],"topicsPattern":null,"subscriptionName":"nereus-target-admission-history-a8051635-de98-4690-ba86-b868bd3123c3","subscriptionType":"Exclusive","subscriptionProperties":null,"subscriptionMode":"NonDurable","receiverQueueSize":1,"acknowledgementsGroupTimeMicros":100000,"maxAcknowledgmentGroupSize":1000,"negativeAckRedeliveryDelayMicros":60000000,"negativeAckPrecisionBitCnt":8,"maxTotalReceiverQueueSizeAcrossPartitions":50000,"consumerName":null,"ackTimeoutMillis":0,"tickDurationMillis":1000,"priorityLevel":0,"maxPendingChunkedMessage":10,"autoAckOldestChunkedMessageOnQueueFull":false,"expireTimeOfIncompleteChunkedMessageMillis":60000,"cryptoFailureAction":"FAIL","properties":{},"readCompacted":false,"subscriptionInitialPosition":"Earliest","patternAutoDiscoveryPeriod":60,"regexSubscriptionMode":"PersistentOnly","deadLetterPolicy":null,"retryEnable":false,"autoUpdatePartitions":false,"autoUpdatePartitionsIntervalSeconds":60,"replicateSubscriptionState":null,"resetIncludeHead":true,"batchIndexAckEnabled":true,"ackReceiptEnabled":false,"poolMessages":false,"startPaused":false,"autoScaledReceiverQueueSizeEnabled":false,"topicConfigurations":[],"maxPendingChuckedMessage":10}}
+2026-10-11T18:54:58,067 - INFO  - [pulsar-client-io-1-3:ConsumerStatsRecorderImpl@122] - Pulsar client config {config={"serviceUrl":"pulsar://127.0.0.1:19749","serviceUrlQuarantineInitDurationMs":60000,"serviceUrlQuarantineMaxDurationMs":86400000,"authPluginClassName":null,"authParams":null,"authParamMap":null,"originalPrincipal":null,"operationTimeoutMs":30000,"lookupTimeoutMs":30000,"statsIntervalSeconds":60,"numIoThreads":10,"numListenerThreads":10,"connectionsPerBroker":1,"connectionMaxIdleSeconds":60,"useTcpNoDelay":true,"useTls":false,"tlsKeyFilePath":null,"tlsCertificateFilePath":null,"tlsTrustCertsFilePath":null,"tlsAllowInsecureConnection":false,"tlsHostnameVerificationEnable":false,"sslFactoryPlugin":"org.apache.pulsar.common.util.DefaultPulsarSslFactory","sslFactoryPluginParams":"","concurrentLookupRequest":5000,"maxLookupRequest":50000,"maxLookupRedirects":20,"maxNumberOfRejectedRequestPerConnection":50,"keepAliveIntervalSeconds":30,"connectionTimeoutMs":10000,"requestTimeoutMs":60000,"readTimeoutMs":60000,"autoCertRefreshSeconds":300,"initialBackoffIntervalNanos":100000000,"maxBackoffIntervalNanos":60000000000,"enableBusyWait":false,"listenerName":null,"useKeyStoreTls":false,"sslProvider":null,"tlsKeyStoreType":"JKS","tlsKeyStorePath":null,"tlsKeyStorePassword":null,"tlsTrustStoreType":"JKS","tlsTrustStorePath":null,"tlsTrustStorePassword":null,"tlsCiphers":[],"tlsProtocols":[],"memoryLimitBytes":67108864,"proxyServiceUrl":null,"proxyProtocol":null,"enableTransaction":false,"dnsLookupBindAddress":null,"dnsLookupBindPort":0,"dnsServerAddresses":[],"socks5ProxyAddress":null,"socks5ProxyUsername":null,"socks5ProxyPassword":null,"socks5ProxyScope":"BINARY_ONLY","description":null,"lookupProperties":{},"tracingEnabled":false,"openTelemetry":null}}
+2026-10-11T18:54:58,069 - INFO  - [pulsar-client-io-1-3:ConsumerImpl@893] - Subscribing to topic {channel=null, consumerId=1, consumerName=OwPvp, subscription=nereus-target-admission-history-a8051635-de98-4690-ba86-b868bd3123c3, topic=persistent://public/default/p1-target-source-84999-target-780453e7-29d8-4c9f-90bb-ac55c1041b1d}
+2026-10-11T18:54:58,073 - INFO  - [pulsar-client-io-1-3:ConsumerImpl@1073] - Subscribed to topic {channel=[id: 0x03b0888f, L:/127.0.0.1:57583 - R:/127.0.0.1:19749], consumerId=1, consumerName=OwPvp, subscription=nereus-target-admission-history-a8051635-de98-4690-ba86-b868bd3123c3, topic=persistent://public/default/p1-target-source-84999-target-780453e7-29d8-4c9f-90bb-ac55c1041b1d}
+2026-10-11T18:54:58,074 - INFO  - [pool-2-thread-1:ConsumerImpl@2675] - Seeking subscription to {channel=[id: 0x03b0888f, L:/127.0.0.1:57583 - R:/127.0.0.1:19749], consumerId=1, consumerName=OwPvp, seekBy=the message 9:0:-1, subscription=nereus-target-admission-history-a8051635-de98-4690-ba86-b868bd3123c3, topic=persistent://public/default/p1-target-source-84999-target-780453e7-29d8-4c9f-90bb-ac55c1041b1d}
+2026-10-11T18:54:58,076 - INFO  - [pulsar-client-io-1-3:ClientCnx@1000] - Broker notification of closed consumer {assignedBrokerUrl=null, assignedBrokerUrlTls=null, channel=[id: 0x03b0888f, L:/127.0.0.1:57583 - R:/127.0.0.1:19749], consumerId=1}
+2026-10-11T18:54:58,076 - INFO  - [pulsar-client-io-1-3:ConnectionHandler@249] - Closed connection - Will try again {connection=[id: 0x03b0888f, L:/127.0.0.1:57583 - R:/127.0.0.1:19749], delaySec=0.101, handler=nereus-target-admission-history-a8051635-de98-4690-ba86-b868bd3123c3, hostUrl=null, state=Connecting, topic=persistent://public/default/p1-target-source-84999-target-780453e7-29d8-4c9f-90bb-ac55c1041b1d}
+2026-10-11T18:54:58,077 - INFO  - [pulsar-client-io-1-3:ConsumerImpl@2681] - Successfully reset subscription to {channel=null, consumerId=1, consumerName=OwPvp, seekBy=the message 9:0:-1, subscription=nereus-target-admission-history-a8051635-de98-4690-ba86-b868bd3123c3, topic=persistent://public/default/p1-target-source-84999-target-780453e7-29d8-4c9f-90bb-ac55c1041b1d}
+2026-10-11T18:54:58,179 - INFO  - [pulsar-timer-34-1:ConnectionHandler@253] - Reconnecting after timeout {delaySec=0.101, handler=nereus-target-admission-history-a8051635-de98-4690-ba86-b868bd3123c3, hostUrl=null, state=Connecting, topic=persistent://public/default/p1-target-source-84999-target-780453e7-29d8-4c9f-90bb-ac55c1041b1d}
+2026-10-11T18:54:58,182 - INFO  - [pulsar-client-io-1-3:ConsumerImpl@893] - Subscribing to topic {channel=null, consumerId=1, consumerName=OwPvp, subscription=nereus-target-admission-history-a8051635-de98-4690-ba86-b868bd3123c3, topic=persistent://public/default/p1-target-source-84999-target-780453e7-29d8-4c9f-90bb-ac55c1041b1d}
+2026-10-11T18:54:58,184 - INFO  - [pulsar-client-io-1-3:ConsumerImpl@1073] - Subscribed to topic {channel=[id: 0x03b0888f, L:/127.0.0.1:57583 - R:/127.0.0.1:19749], consumerId=1, consumerName=OwPvp, subscription=nereus-target-admission-history-a8051635-de98-4690-ba86-b868bd3123c3, topic=persistent://public/default/p1-target-source-84999-target-780453e7-29d8-4c9f-90bb-ac55c1041b1d}
+2026-10-11T18:54:58,208 - INFO  - [pulsar-client-io-1-3:ConsumerImpl@1243] - Closed consumer {channel=[id: 0x03b0888f, L:/127.0.0.1:57583 - R:/127.0.0.1:19749], consumerId=1, consumerName=OwPvp, subscription=nereus-target-admission-history-a8051635-de98-4690-ba86-b868bd3123c3, topic=persistent://public/default/p1-target-source-84999-target-780453e7-29d8-4c9f-90bb-ac55c1041b1d}
+P1 async Control history matched one actual Worker cut; Store unchanged; issuer/Owner/retention/pins remain explicit fixtures.
+2026-10-11T18:54:58,221 - INFO  - [pulsar-client-io-1-3:ConsumerImpl@1243] - Closed consumer {channel=[id: 0x03b0888f, L:/127.0.0.1:57583 - R:/127.0.0.1:19749], consumerId=0, consumerName=y51Fe, subscription=nereus-delay-target-source-7b2ff322-a05b-4cf0-afda-bbc71cf444a1, topic=persistent://public/default/p1-target-source-84999-target-780453e7-29d8-4c9f-90bb-ac55c1041b1d}
+Pulsar Target source factory: first grant at entry 0; Target Cancel applied at entry 1;
+  RocksDB source frontier advanced before receipt-confirmed Pulsar ACK; guard proof verified.
+2026-10-11T18:54:58,230 - INFO  - [main:PulsarClientImpl@999] - Client closing. URL {url=pulsar://127.0.0.1:19749}
+2026-10-11T18:54:58,232 - INFO  - [pulsar-client-io-1-3:ClientCnx@381] - Disconnected {channel=[id: 0x03b0888f, L:/127.0.0.1:57583 ! R:/127.0.0.1:19749]}
+
+BUILD SUCCESSFUL in 27s
+12 actionable tasks: 3 executed, 9 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+Pulsar Target Worker source E2E passed against the locked P1 Broker/client fixture.
+SOURCE_SHA256 25e24c68ba86595f08d7743019b9d75c9122554ce2594fd9c46735b2c816f96c src/main/java/com/nereusstream/delay/ownership/SystemWriterAppendBudget.java
+SOURCE_SHA256 f9c545c9587628ba355ba720768e11e8bc7f0d06c753df854f87f3258c88a725 src/main/java/com/nereusstream/delay/ownership/TargetWorkerRuntimeConfig.java
+SOURCE_SHA256 51c0ce11c1fc5d9ffe29b8e9ca9f1c1ff1977109079462d17bdb2e70a49c794b src/main/java/com/nereusstream/delay/ownership/TargetWorkerRuntimeConfigLoader.java
+SOURCE_SHA256 02eb125a67c6834b743434c7ac67199a194132be34d46d0251faca7ac1cd66c8 src/main/java/com/nereusstream/delay/scheduler/WorkClassExecutionRegistry.java
+SOURCE_SHA256 0cb1f23a73c29a0ef566de369fa2ce2e56c9ad2f2444a4784ccd9c42c4b8b25a src/test/java/com/nereusstream/delay/ownership/SystemWriterAppendBudgetTest.java
+SOURCE_SHA256 6565e63d31896c8aa9dabe29b16f7dcd91e24bbf91336ffa16e3ec79957ee2cd src/test/java/com/nereusstream/delay/ownership/TargetWorkerRuntimeConfigTest.java
+SOURCE_SHA256 044920e830d28ca09740983b4a8ffda45c3064e84b3dbf62a7bc0867a9e3bc9c src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactShardLogMutationAppender.java
+SOURCE_SHA256 351d7a8e4faf5cb8a4ae74afe06d9f61e1558ef60281e1a622f944f5a1f67784 src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetScheduledExpirySmoke.java
+SOURCE_SHA256 7a3358b055b74baf11fc4da53153c9026de6060fd8f0af05797ffe8d9d720abb src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactShardLogMutationAppender.java
+SOURCE_SHA256 0cd86125c425dbc59e80b747897fb0662891f52abc8d109c023d0ee6e88d38ab src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactTargetWorkerSourceSmoke.java
+Runner exited 0; no containers remain for its exact owned compose project. External K1/P1 Git worktrees verified clean.
+
+Final P1 rerun after preserving the original Source-proof-before-frame-encoding order:
+Command: NEREUS_DELAY_PULSAR_TARGET_WORKER_SOURCE_ONLY=1 e2e/run-pulsar-real-client-e2e.sh
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 694B done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/eclipse-temurin:21-jre
+#2 DONE 2.9s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [1/6] FROM docker.io/library/eclipse-temurin:21-jre@sha256:cff19e6215689161eb6162c11b86b0c60ddf802164f2eaf48d570f8fb79a36c5
+#4 DONE 0.0s
+
+#5 [internal] load build context
+#5 transferring context: 224.88MB 2.1s done
+#5 DONE 2.1s
+
+#6 [5/6] COPY pulsar-p1-cluster-entrypoint.sh /opt/pulsar/pulsar-p1-cluster-entrypoint.sh
+#6 CACHED
+
+#7 [2/6] WORKDIR /opt/pulsar
+#7 CACHED
+
+#8 [3/6] COPY apache-pulsar-5.0.0-M1-bin.tar.gz /tmp/pulsar.tar.gz
+#8 CACHED
+
+#9 [4/6] COPY pulsar-p1-entrypoint.sh /opt/pulsar/pulsar-p1-entrypoint.sh
+#9 CACHED
+
+#10 [6/6] RUN tar -xzf /tmp/pulsar.tar.gz --strip-components=1     && rm /tmp/pulsar.tar.gz     && chmod +x /opt/pulsar/bin/*.sh /opt/pulsar/pulsar-p1-entrypoint.sh /opt/pulsar/pulsar-p1-cluster-entrypoint.sh     && mkdir -p /pulsar/data /pulsar/logs
+#10 CACHED
+
+#11 exporting to image
+#11 exporting layers done
+#11 writing image sha256:6d3485378abd04d00ffd6c0d340a66e7eca8120bd6f89bd25fab45363f245cc3 done
+#11 naming to docker.io/library/nereus-delay-pulsar-p1:nereus-delay-pulsar-e2e-1791716716-99722 done
+#11 DONE 0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/qdpymmscttfs2rjasg221r01s
+P1 checkout: 0a2536484cd3932801a98dc88ff112b2df88a1c7
+P1 distribution SHA256: 373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3
+P1 client SHA256:
+57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/../pulsar-worktrees/nereus-delay-p1/pulsar-client/build/libs/pulsar-client-original-5.0.0-M1.jar
+f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/../pulsar-worktrees/nereus-delay-p1/pulsar-client-api/build/libs/pulsar-client-api-5.0.0-M1.jar
+94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/../pulsar-worktrees/nereus-delay-p1/pulsar-common/build/libs/pulsar-common-5.0.0-M1.jar
+P1 image ID: sha256:6d3485378abd04d00ffd6c0d340a66e7eca8120bd6f89bd25fab45363f245cc3
+P1 runtime library count: 341
+Compose project: nereus-delay-pulsar-e2e-1791716716-99722
+P1 ports: broker=19772,web=19773
+Pulsar Worker Oxia authority: 0
+ Network nereus-delay-pulsar-e2e-1791716716-99722_default Creating 
+ Volume nereus-delay-pulsar-e2e-1791716716-99722_pulsar-logs Creating 
+ Volume nereus-delay-pulsar-e2e-1791716716-99722_pulsar-data Creating 
+ Volume nereus-delay-pulsar-e2e-1791716716-99722_pulsar-logs Creating 
+ Volume nereus-delay-pulsar-e2e-1791716716-99722_pulsar-data Creating 
+ Network nereus-delay-pulsar-e2e-1791716716-99722_default Creating 
+ Volume nereus-delay-pulsar-e2e-1791716716-99722_pulsar-logs Created 
+ Volume nereus-delay-pulsar-e2e-1791716716-99722_pulsar-logs Created 
+ Volume nereus-delay-pulsar-e2e-1791716716-99722_pulsar-data Created 
+ Volume nereus-delay-pulsar-e2e-1791716716-99722_pulsar-data Created 
+ Network nereus-delay-pulsar-e2e-1791716716-99722_default Created 
+ Network nereus-delay-pulsar-e2e-1791716716-99722_default Created 
+ Container nereus-delay-pulsar-e2e-1791716716-99722-pulsar-1 Creating 
+ Container nereus-delay-pulsar-e2e-1791716716-99722-pulsar-1 Created 
+ Container nereus-delay-pulsar-e2e-1791716716-99722-pulsar-1 Starting 
+ Container nereus-delay-pulsar-e2e-1791716716-99722-pulsar-1 Started 
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeRealPulsarProto UP-TO-DATE
+> Task :extractRealPulsarProto UP-TO-DATE
+> Task :generateRealPulsarProto NO-SOURCE
+> Task :compileRealPulsar
+> Task :compileRealPulsarJava SKIPPED
+> Task :processRealPulsarProtoResources UP-TO-DATE
+> Task :processRealPulsarResources NO-SOURCE
+> Task :realPulsarClasses UP-TO-DATE
+
+> Task :runRealPulsarTargetWorkerSourceSmoke
+10? 11, 2026 7:05:47 ?? io.opentelemetry.api.GlobalOpenTelemetry maybeAutoConfigureAndSetGlobal
+??: AutoConfiguredOpenTelemetrySdk found on classpath but automatic configuration is disabled. To enable, run your JVM with -Dotel.java.global-autoconfigure.enabled=true
+2026-10-11T19:05:47,882 - INFO  - [pulsar-client-io-1-3:ConnectionPool@297] - Connected to server {channel=[id: 0x8a2f0d06, L:/127.0.0.1:58925 - R:/127.0.0.1:19772]}
+2026-10-11T19:05:48,028 - INFO  - [pulsar-client-io-1-3:ConsumerStatsRecorderImpl@120] - Starting Pulsar consumer status recorder with config {config={"topicNames":["persistent://public/default/p1-target-source-99722-target-da92c970-6dec-4cb8-a15e-12f171b3fc54"],"topicsPattern":null,"subscriptionName":"nereus-delay-target-source-475aec0f-d2e6-4fc5-b38d-c99f296f149d","subscriptionType":"Exclusive","subscriptionProperties":null,"subscriptionMode":"Durable","receiverQueueSize":1,"acknowledgementsGroupTimeMicros":100000,"maxAcknowledgmentGroupSize":1000,"negativeAckRedeliveryDelayMicros":60000000,"negativeAckPrecisionBitCnt":8,"maxTotalReceiverQueueSizeAcrossPartitions":50000,"consumerName":null,"ackTimeoutMillis":0,"tickDurationMillis":1000,"priorityLevel":0,"maxPendingChunkedMessage":10,"autoAckOldestChunkedMessageOnQueueFull":false,"expireTimeOfIncompleteChunkedMessageMillis":60000,"cryptoFailureAction":"FAIL","properties":{},"readCompacted":false,"subscriptionInitialPosition":"Earliest","patternAutoDiscoveryPeriod":60,"regexSubscriptionMode":"PersistentOnly","deadLetterPolicy":null,"retryEnable":false,"autoUpdatePartitions":false,"autoUpdatePartitionsIntervalSeconds":60,"replicateSubscriptionState":null,"resetIncludeHead":false,"batchIndexAckEnabled":true,"ackReceiptEnabled":true,"poolMessages":false,"startPaused":false,"autoScaledReceiverQueueSizeEnabled":false,"topicConfigurations":[],"maxPendingChuckedMessage":10}}
+2026-10-11T19:05:48,039 - INFO  - [pulsar-client-io-1-3:ConsumerStatsRecorderImpl@122] - Pulsar client config {config={"serviceUrl":"pulsar://127.0.0.1:19772","serviceUrlQuarantineInitDurationMs":60000,"serviceUrlQuarantineMaxDurationMs":86400000,"authPluginClassName":null,"authParams":null,"authParamMap":null,"originalPrincipal":null,"operationTimeoutMs":30000,"lookupTimeoutMs":30000,"statsIntervalSeconds":60,"numIoThreads":10,"numListenerThreads":10,"connectionsPerBroker":1,"connectionMaxIdleSeconds":60,"useTcpNoDelay":true,"useTls":false,"tlsKeyFilePath":null,"tlsCertificateFilePath":null,"tlsTrustCertsFilePath":null,"tlsAllowInsecureConnection":false,"tlsHostnameVerificationEnable":false,"sslFactoryPlugin":"org.apache.pulsar.common.util.DefaultPulsarSslFactory","sslFactoryPluginParams":"","concurrentLookupRequest":5000,"maxLookupRequest":50000,"maxLookupRedirects":20,"maxNumberOfRejectedRequestPerConnection":50,"keepAliveIntervalSeconds":30,"connectionTimeoutMs":10000,"requestTimeoutMs":60000,"readTimeoutMs":60000,"autoCertRefreshSeconds":300,"initialBackoffIntervalNanos":100000000,"maxBackoffIntervalNanos":60000000000,"enableBusyWait":false,"listenerName":null,"useKeyStoreTls":false,"sslProvider":null,"tlsKeyStoreType":"JKS","tlsKeyStorePath":null,"tlsKeyStorePassword":null,"tlsTrustStoreType":"JKS","tlsTrustStorePath":null,"tlsTrustStorePassword":null,"tlsCiphers":[],"tlsProtocols":[],"memoryLimitBytes":67108864,"proxyServiceUrl":null,"proxyProtocol":null,"enableTransaction":false,"dnsLookupBindAddress":null,"dnsLookupBindPort":0,"dnsServerAddresses":[],"socks5ProxyAddress":null,"socks5ProxyUsername":null,"socks5ProxyPassword":null,"socks5ProxyScope":"BINARY_ONLY","description":null,"lookupProperties":{},"tracingEnabled":false,"openTelemetry":null}}
+2026-10-11T19:05:48,050 - INFO  - [pulsar-client-io-1-3:ConsumerImpl@893] - Subscribing to topic {channel=null, consumerId=0, consumerName=Y5m0q, subscription=nereus-delay-target-source-475aec0f-d2e6-4fc5-b38d-c99f296f149d, topic=persistent://public/default/p1-target-source-99722-target-da92c970-6dec-4cb8-a15e-12f171b3fc54}
+2026-10-11T19:05:48,064 - INFO  - [pulsar-client-io-1-3:ConsumerImpl@1073] - Subscribed to topic {channel=[id: 0x8a2f0d06, L:/127.0.0.1:58925 - R:/127.0.0.1:19772], consumerId=0, consumerName=Y5m0q, subscription=nereus-delay-target-source-475aec0f-d2e6-4fc5-b38d-c99f296f149d, topic=persistent://public/default/p1-target-source-99722-target-da92c970-6dec-4cb8-a15e-12f171b3fc54}
+2026-10-11T19:05:48,159 - INFO  - [pulsar-client-io-1-3:ProducerStatsRecorderImpl@107] - Starting Pulsar producer perf with config {config={"topicName":"persistent://public/default/p1-target-source-99722-target-da92c970-6dec-4cb8-a15e-12f171b3fc54","producerName":"target-source-grant","sendTimeoutMs":30000,"blockIfQueueFull":false,"maxPendingMessages":1,"maxPendingMessagesAcrossPartitions":0,"messageRoutingMode":"RoundRobinPartition","hashingScheme":"JavaStringHash","cryptoFailureAction":"FAIL","batchingMaxPublishDelayMicros":1000,"batchingPartitionSwitchFrequencyByPublishDelay":10,"batchingMaxMessages":1000,"batchingMaxBytes":131072,"batchingEnabled":false,"chunkingEnabled":false,"chunkMaxMessageSize":-1,"encryptionKeys":[],"compressionType":"NONE","compressMinMsgBodySize":4096,"initialSequenceId":null,"autoUpdatePartitions":false,"autoUpdatePartitionsIntervalSeconds":60,"multiSchema":true,"accessMode":"Shared","lazyStartPartitionedProducers":false,"properties":{},"initialSubscriptionName":null,"nonPartitionedTopicExpected":false,"replProducer":false}}
+2026-10-11T19:05:48,159 - INFO  - [pulsar-client-io-1-3:ProducerStatsRecorderImpl@109] - Pulsar client config {config={"serviceUrl":"pulsar://127.0.0.1:19772","serviceUrlQuarantineInitDurationMs":60000,"serviceUrlQuarantineMaxDurationMs":86400000,"authPluginClassName":null,"authParams":null,"authParamMap":null,"originalPrincipal":null,"operationTimeoutMs":30000,"lookupTimeoutMs":30000,"statsIntervalSeconds":60,"numIoThreads":10,"numListenerThreads":10,"connectionsPerBroker":1,"connectionMaxIdleSeconds":60,"useTcpNoDelay":true,"useTls":false,"tlsKeyFilePath":null,"tlsCertificateFilePath":null,"tlsTrustCertsFilePath":null,"tlsAllowInsecureConnection":false,"tlsHostnameVerificationEnable":false,"sslFactoryPlugin":"org.apache.pulsar.common.util.DefaultPulsarSslFactory","sslFactoryPluginParams":"","concurrentLookupRequest":5000,"maxLookupRequest":50000,"maxLookupRedirects":20,"maxNumberOfRejectedRequestPerConnection":50,"keepAliveIntervalSeconds":30,"connectionTimeoutMs":10000,"requestTimeoutMs":60000,"readTimeoutMs":60000,"autoCertRefreshSeconds":300,"initialBackoffIntervalNanos":100000000,"maxBackoffIntervalNanos":60000000000,"enableBusyWait":false,"listenerName":null,"useKeyStoreTls":false,"sslProvider":null,"tlsKeyStoreType":"JKS","tlsKeyStorePath":null,"tlsKeyStorePassword":null,"tlsTrustStoreType":"JKS","tlsTrustStorePath":null,"tlsTrustStorePassword":null,"tlsCiphers":[],"tlsProtocols":[],"memoryLimitBytes":67108864,"proxyServiceUrl":null,"proxyProtocol":null,"enableTransaction":false,"dnsLookupBindAddress":null,"dnsLookupBindPort":0,"dnsServerAddresses":[],"socks5ProxyAddress":null,"socks5ProxyUsername":null,"socks5ProxyPassword":null,"socks5ProxyScope":"BINARY_ONLY","description":null,"lookupProperties":{},"tracingEnabled":false,"openTelemetry":null}}
+2026-10-11T19:05:48,164 - INFO  - [pulsar-client-io-1-3:ProducerImpl@2069] - Creating producer {channel=[id: 0x8a2f0d06, L:/127.0.0.1:58925 - R:/127.0.0.1:19772], producerId=0, producerName=target-source-grant, topic=persistent://public/default/p1-target-source-99722-target-da92c970-6dec-4cb8-a15e-12f171b3fc54}
+2026-10-11T19:05:48,170 - INFO  - [pulsar-client-io-1-3:ProducerImpl@2139] - Created producer {channel=[id: 0x8a2f0d06, L:/127.0.0.1:58925 - R:/127.0.0.1:19772], producerId=0, producerName=target-source-grant, topic=persistent://public/default/p1-target-source-99722-target-da92c970-6dec-4cb8-a15e-12f171b3fc54}
+2026-10-11T19:05:48,214 - INFO  - [main:ProducerStatsRecorderImpl@206] - Publish stats {ackReceivedRate=19.52, batchSize95pct=1.000, batchSize999pct=1.000, batchSize99pct=1.000, batchSizeMax=1.000, batchSizeMed=1.000, failedMessages=0, latency95pctMs=29.000, latency999pctMs=29.000, latency99pctMs=29.000, latencyMaxMs=29.000, latencyMedMs=29.000, msgSize95pctBytes=1328.000, msgSize999pctBytes=1328.000, msgSize99pctBytes=1328.000, msgSizeMaxBytes=1328.000, msgSizeMedBytes=1328.000, pendingMessages=0, producerName=target-source-grant, sendBytesRateMbps=0.20, sendMsgRate=19.52, topic=persistent://public/default/p1-target-source-99722-target-da92c970-6dec-4cb8-a15e-12f171b3fc54}
+2026-10-11T19:05:48,220 - INFO  - [pulsar-client-io-1-3:ProducerImpl@1288] - Closed Producer {channel=[id: 0x8a2f0d06, L:/127.0.0.1:58925 - R:/127.0.0.1:19772], producerId=0, producerName=target-source-grant, topic=persistent://public/default/p1-target-source-99722-target-da92c970-6dec-4cb8-a15e-12f171b3fc54}
+P1 system-writer append window settled after exact producer close (fixture resources).
+2026-10-11T19:05:48,229 - INFO  - [pulsar-client-io-1-3:ProducerStatsRecorderImpl@107] - Starting Pulsar producer perf with config {config={"topicName":"persistent://public/default/p1-target-source-99722-target-da92c970-6dec-4cb8-a15e-12f171b3fc54","producerName":"target-source-command","sendTimeoutMs":30000,"blockIfQueueFull":false,"maxPendingMessages":1,"maxPendingMessagesAcrossPartitions":0,"messageRoutingMode":"RoundRobinPartition","hashingScheme":"JavaStringHash","cryptoFailureAction":"FAIL","batchingMaxPublishDelayMicros":1000,"batchingPartitionSwitchFrequencyByPublishDelay":10,"batchingMaxMessages":1000,"batchingMaxBytes":131072,"batchingEnabled":false,"chunkingEnabled":false,"chunkMaxMessageSize":-1,"encryptionKeys":[],"compressionType":"NONE","compressMinMsgBodySize":4096,"initialSequenceId":null,"autoUpdatePartitions":false,"autoUpdatePartitionsIntervalSeconds":60,"multiSchema":true,"accessMode":"Shared","lazyStartPartitionedProducers":false,"properties":{},"initialSubscriptionName":null,"nonPartitionedTopicExpected":false,"replProducer":false}}
+2026-10-11T19:05:48,229 - INFO  - [pulsar-client-io-1-3:ProducerStatsRecorderImpl@109] - Pulsar client config {config={"serviceUrl":"pulsar://127.0.0.1:19772","serviceUrlQuarantineInitDurationMs":60000,"serviceUrlQuarantineMaxDurationMs":86400000,"authPluginClassName":null,"authParams":null,"authParamMap":null,"originalPrincipal":null,"operationTimeoutMs":30000,"lookupTimeoutMs":30000,"statsIntervalSeconds":60,"numIoThreads":10,"numListenerThreads":10,"connectionsPerBroker":1,"connectionMaxIdleSeconds":60,"useTcpNoDelay":true,"useTls":false,"tlsKeyFilePath":null,"tlsCertificateFilePath":null,"tlsTrustCertsFilePath":null,"tlsAllowInsecureConnection":false,"tlsHostnameVerificationEnable":false,"sslFactoryPlugin":"org.apache.pulsar.common.util.DefaultPulsarSslFactory","sslFactoryPluginParams":"","concurrentLookupRequest":5000,"maxLookupRequest":50000,"maxLookupRedirects":20,"maxNumberOfRejectedRequestPerConnection":50,"keepAliveIntervalSeconds":30,"connectionTimeoutMs":10000,"requestTimeoutMs":60000,"readTimeoutMs":60000,"autoCertRefreshSeconds":300,"initialBackoffIntervalNanos":100000000,"maxBackoffIntervalNanos":60000000000,"enableBusyWait":false,"listenerName":null,"useKeyStoreTls":false,"sslProvider":null,"tlsKeyStoreType":"JKS","tlsKeyStorePath":null,"tlsKeyStorePassword":null,"tlsTrustStoreType":"JKS","tlsTrustStorePath":null,"tlsTrustStorePassword":null,"tlsCiphers":[],"tlsProtocols":[],"memoryLimitBytes":67108864,"proxyServiceUrl":null,"proxyProtocol":null,"enableTransaction":false,"dnsLookupBindAddress":null,"dnsLookupBindPort":0,"dnsServerAddresses":[],"socks5ProxyAddress":null,"socks5ProxyUsername":null,"socks5ProxyPassword":null,"socks5ProxyScope":"BINARY_ONLY","description":null,"lookupProperties":{},"tracingEnabled":false,"openTelemetry":null}}
+2026-10-11T19:05:48,231 - INFO  - [pulsar-client-io-1-3:ProducerImpl@2069] - Creating producer {channel=[id: 0x8a2f0d06, L:/127.0.0.1:58925 - R:/127.0.0.1:19772], producerId=1, producerName=target-source-command, topic=persistent://public/default/p1-target-source-99722-target-da92c970-6dec-4cb8-a15e-12f171b3fc54}
+2026-10-11T19:05:48,235 - INFO  - [pulsar-client-io-1-3:ProducerImpl@2139] - Created producer {channel=[id: 0x8a2f0d06, L:/127.0.0.1:58925 - R:/127.0.0.1:19772], producerId=1, producerName=target-source-command, topic=persistent://public/default/p1-target-source-99722-target-da92c970-6dec-4cb8-a15e-12f171b3fc54}
+2026-10-11T19:05:48,241 - INFO  - [main:ProducerStatsRecorderImpl@206] - Publish stats {ackReceivedRate=89.90, batchSize95pct=1.000, batchSize999pct=1.000, batchSize99pct=1.000, batchSizeMax=1.000, batchSizeMed=1.000, failedMessages=0, latency95pctMs=4.000, latency999pctMs=4.000, latency99pctMs=4.000, latencyMaxMs=4.000, latencyMedMs=4.000, msgSize95pctBytes=210.000, msgSize999pctBytes=210.000, msgSize99pctBytes=210.000, msgSizeMaxBytes=210.000, msgSizeMedBytes=210.000, pendingMessages=0, producerName=target-source-command, sendBytesRateMbps=0.14, sendMsgRate=89.90, topic=persistent://public/default/p1-target-source-99722-target-da92c970-6dec-4cb8-a15e-12f171b3fc54}
+2026-10-11T19:05:48,242 - INFO  - [pulsar-client-io-1-3:ProducerImpl@1288] - Closed Producer {channel=[id: 0x8a2f0d06, L:/127.0.0.1:58925 - R:/127.0.0.1:19772], producerId=1, producerName=target-source-command, topic=persistent://public/default/p1-target-source-99722-target-da92c970-6dec-4cb8-a15e-12f171b3fc54}
+2026-10-11T19:05:48,246 - INFO  - [main:ConsumerImpl@2675] - Seeking subscription to {channel=[id: 0x8a2f0d06, L:/127.0.0.1:58925 - R:/127.0.0.1:19772], consumerId=0, consumerName=Y5m0q, seekBy=the message 9:0:-1, subscription=nereus-delay-target-source-475aec0f-d2e6-4fc5-b38d-c99f296f149d, topic=persistent://public/default/p1-target-source-99722-target-da92c970-6dec-4cb8-a15e-12f171b3fc54}
+2026-10-11T19:05:48,251 - INFO  - [pulsar-client-io-1-3:ClientCnx@1000] - Broker notification of closed consumer {assignedBrokerUrl=null, assignedBrokerUrlTls=null, channel=[id: 0x8a2f0d06, L:/127.0.0.1:58925 - R:/127.0.0.1:19772], consumerId=0}
+2026-10-11T19:05:48,252 - INFO  - [pulsar-client-io-1-3:ConnectionHandler@249] - Closed connection - Will try again {connection=[id: 0x8a2f0d06, L:/127.0.0.1:58925 - R:/127.0.0.1:19772], delaySec=0.097, handler=nereus-delay-target-source-475aec0f-d2e6-4fc5-b38d-c99f296f149d, hostUrl=null, state=Connecting, topic=persistent://public/default/p1-target-source-99722-target-da92c970-6dec-4cb8-a15e-12f171b3fc54}
+2026-10-11T19:05:48,269 - INFO  - [pulsar-client-io-1-3:ConsumerImpl@2681] - Successfully reset subscription to {channel=null, consumerId=0, consumerName=Y5m0q, seekBy=the message 9:0:-1, subscription=nereus-delay-target-source-475aec0f-d2e6-4fc5-b38d-c99f296f149d, topic=persistent://public/default/p1-target-source-99722-target-da92c970-6dec-4cb8-a15e-12f171b3fc54}
+2026-10-11T19:05:48,351 - INFO  - [pulsar-timer-34-1:ConnectionHandler@253] - Reconnecting after timeout {delaySec=0.097, handler=nereus-delay-target-source-475aec0f-d2e6-4fc5-b38d-c99f296f149d, hostUrl=null, state=Connecting, topic=persistent://public/default/p1-target-source-99722-target-da92c970-6dec-4cb8-a15e-12f171b3fc54}
+2026-10-11T19:05:48,353 - INFO  - [pulsar-client-io-1-3:ConsumerImpl@893] - Subscribing to topic {channel=null, consumerId=0, consumerName=Y5m0q, subscription=nereus-delay-target-source-475aec0f-d2e6-4fc5-b38d-c99f296f149d, topic=persistent://public/default/p1-target-source-99722-target-da92c970-6dec-4cb8-a15e-12f171b3fc54}
+2026-10-11T19:05:48,358 - INFO  - [pulsar-client-io-1-3:ConsumerImpl@1073] - Subscribed to topic {channel=[id: 0x8a2f0d06, L:/127.0.0.1:58925 - R:/127.0.0.1:19772], consumerId=0, consumerName=Y5m0q, subscription=nereus-delay-target-source-475aec0f-d2e6-4fc5-b38d-c99f296f149d, topic=persistent://public/default/p1-target-source-99722-target-da92c970-6dec-4cb8-a15e-12f171b3fc54}
+2026-10-11T19:05:48,708 - INFO  - [pulsar-client-io-1-3:ConsumerStatsRecorderImpl@120] - Starting Pulsar consumer status recorder with config {config={"topicNames":["persistent://public/default/p1-target-source-99722-target-da92c970-6dec-4cb8-a15e-12f171b3fc54"],"topicsPattern":null,"subscriptionName":"nereus-target-admission-history-91944f34-b324-41f4-8b36-1f6358bf9572","subscriptionType":"Exclusive","subscriptionProperties":null,"subscriptionMode":"NonDurable","receiverQueueSize":1,"acknowledgementsGroupTimeMicros":100000,"maxAcknowledgmentGroupSize":1000,"negativeAckRedeliveryDelayMicros":60000000,"negativeAckPrecisionBitCnt":8,"maxTotalReceiverQueueSizeAcrossPartitions":50000,"consumerName":null,"ackTimeoutMillis":0,"tickDurationMillis":1000,"priorityLevel":0,"maxPendingChunkedMessage":10,"autoAckOldestChunkedMessageOnQueueFull":false,"expireTimeOfIncompleteChunkedMessageMillis":60000,"cryptoFailureAction":"FAIL","properties":{},"readCompacted":false,"subscriptionInitialPosition":"Earliest","patternAutoDiscoveryPeriod":60,"regexSubscriptionMode":"PersistentOnly","deadLetterPolicy":null,"retryEnable":false,"autoUpdatePartitions":false,"autoUpdatePartitionsIntervalSeconds":60,"replicateSubscriptionState":null,"resetIncludeHead":true,"batchIndexAckEnabled":true,"ackReceiptEnabled":false,"poolMessages":false,"startPaused":false,"autoScaledReceiverQueueSizeEnabled":false,"topicConfigurations":[],"maxPendingChuckedMessage":10}}
+2026-10-11T19:05:48,709 - INFO  - [pulsar-client-io-1-3:ConsumerStatsRecorderImpl@122] - Pulsar client config {config={"serviceUrl":"pulsar://127.0.0.1:19772","serviceUrlQuarantineInitDurationMs":60000,"serviceUrlQuarantineMaxDurationMs":86400000,"authPluginClassName":null,"authParams":null,"authParamMap":null,"originalPrincipal":null,"operationTimeoutMs":30000,"lookupTimeoutMs":30000,"statsIntervalSeconds":60,"numIoThreads":10,"numListenerThreads":10,"connectionsPerBroker":1,"connectionMaxIdleSeconds":60,"useTcpNoDelay":true,"useTls":false,"tlsKeyFilePath":null,"tlsCertificateFilePath":null,"tlsTrustCertsFilePath":null,"tlsAllowInsecureConnection":false,"tlsHostnameVerificationEnable":false,"sslFactoryPlugin":"org.apache.pulsar.common.util.DefaultPulsarSslFactory","sslFactoryPluginParams":"","concurrentLookupRequest":5000,"maxLookupRequest":50000,"maxLookupRedirects":20,"maxNumberOfRejectedRequestPerConnection":50,"keepAliveIntervalSeconds":30,"connectionTimeoutMs":10000,"requestTimeoutMs":60000,"readTimeoutMs":60000,"autoCertRefreshSeconds":300,"initialBackoffIntervalNanos":100000000,"maxBackoffIntervalNanos":60000000000,"enableBusyWait":false,"listenerName":null,"useKeyStoreTls":false,"sslProvider":null,"tlsKeyStoreType":"JKS","tlsKeyStorePath":null,"tlsKeyStorePassword":null,"tlsTrustStoreType":"JKS","tlsTrustStorePath":null,"tlsTrustStorePassword":null,"tlsCiphers":[],"tlsProtocols":[],"memoryLimitBytes":67108864,"proxyServiceUrl":null,"proxyProtocol":null,"enableTransaction":false,"dnsLookupBindAddress":null,"dnsLookupBindPort":0,"dnsServerAddresses":[],"socks5ProxyAddress":null,"socks5ProxyUsername":null,"socks5ProxyPassword":null,"socks5ProxyScope":"BINARY_ONLY","description":null,"lookupProperties":{},"tracingEnabled":false,"openTelemetry":null}}
+2026-10-11T19:05:48,711 - INFO  - [pulsar-client-io-1-3:ConsumerImpl@893] - Subscribing to topic {channel=null, consumerId=1, consumerName=QtQ0r, subscription=nereus-target-admission-history-91944f34-b324-41f4-8b36-1f6358bf9572, topic=persistent://public/default/p1-target-source-99722-target-da92c970-6dec-4cb8-a15e-12f171b3fc54}
+2026-10-11T19:05:48,715 - INFO  - [pulsar-client-io-1-3:ConsumerImpl@1073] - Subscribed to topic {channel=[id: 0x8a2f0d06, L:/127.0.0.1:58925 - R:/127.0.0.1:19772], consumerId=1, consumerName=QtQ0r, subscription=nereus-target-admission-history-91944f34-b324-41f4-8b36-1f6358bf9572, topic=persistent://public/default/p1-target-source-99722-target-da92c970-6dec-4cb8-a15e-12f171b3fc54}
+2026-10-11T19:05:48,716 - INFO  - [pool-2-thread-1:ConsumerImpl@2675] - Seeking subscription to {channel=[id: 0x8a2f0d06, L:/127.0.0.1:58925 - R:/127.0.0.1:19772], consumerId=1, consumerName=QtQ0r, seekBy=the message 9:0:-1, subscription=nereus-target-admission-history-91944f34-b324-41f4-8b36-1f6358bf9572, topic=persistent://public/default/p1-target-source-99722-target-da92c970-6dec-4cb8-a15e-12f171b3fc54}
+2026-10-11T19:05:48,718 - INFO  - [pulsar-client-io-1-3:ClientCnx@1000] - Broker notification of closed consumer {assignedBrokerUrl=null, assignedBrokerUrlTls=null, channel=[id: 0x8a2f0d06, L:/127.0.0.1:58925 - R:/127.0.0.1:19772], consumerId=1}
+2026-10-11T19:05:48,718 - INFO  - [pulsar-client-io-1-3:ConnectionHandler@249] - Closed connection - Will try again {connection=[id: 0x8a2f0d06, L:/127.0.0.1:58925 - R:/127.0.0.1:19772], delaySec=0.099, handler=nereus-target-admission-history-91944f34-b324-41f4-8b36-1f6358bf9572, hostUrl=null, state=Connecting, topic=persistent://public/default/p1-target-source-99722-target-da92c970-6dec-4cb8-a15e-12f171b3fc54}
+2026-10-11T19:05:48,719 - INFO  - [pulsar-client-io-1-3:ConsumerImpl@2681] - Successfully reset subscription to {channel=null, consumerId=1, consumerName=QtQ0r, seekBy=the message 9:0:-1, subscription=nereus-target-admission-history-91944f34-b324-41f4-8b36-1f6358bf9572, topic=persistent://public/default/p1-target-source-99722-target-da92c970-6dec-4cb8-a15e-12f171b3fc54}
+2026-10-11T19:05:48,819 - INFO  - [pulsar-timer-34-1:ConnectionHandler@253] - Reconnecting after timeout {delaySec=0.099, handler=nereus-target-admission-history-91944f34-b324-41f4-8b36-1f6358bf9572, hostUrl=null, state=Connecting, topic=persistent://public/default/p1-target-source-99722-target-da92c970-6dec-4cb8-a15e-12f171b3fc54}
+2026-10-11T19:05:48,821 - INFO  - [pulsar-client-io-1-3:ConsumerImpl@893] - Subscribing to topic {channel=null, consumerId=1, consumerName=QtQ0r, subscription=nereus-target-admission-history-91944f34-b324-41f4-8b36-1f6358bf9572, topic=persistent://public/default/p1-target-source-99722-target-da92c970-6dec-4cb8-a15e-12f171b3fc54}
+2026-10-11T19:05:48,824 - INFO  - [pulsar-client-io-1-3:ConsumerImpl@1073] - Subscribed to topic {channel=[id: 0x8a2f0d06, L:/127.0.0.1:58925 - R:/127.0.0.1:19772], consumerId=1, consumerName=QtQ0r, subscription=nereus-target-admission-history-91944f34-b324-41f4-8b36-1f6358bf9572, topic=persistent://public/default/p1-target-source-99722-target-da92c970-6dec-4cb8-a15e-12f171b3fc54}
+2026-10-11T19:05:48,848 - INFO  - [pulsar-client-io-1-3:ConsumerImpl@1243] - Closed consumer {channel=[id: 0x8a2f0d06, L:/127.0.0.1:58925 - R:/127.0.0.1:19772], consumerId=1, consumerName=QtQ0r, subscription=nereus-target-admission-history-91944f34-b324-41f4-8b36-1f6358bf9572, topic=persistent://public/default/p1-target-source-99722-target-da92c970-6dec-4cb8-a15e-12f171b3fc54}
+P1 async Control history matched one actual Worker cut; Store unchanged; issuer/Owner/retention/pins remain explicit fixtures.
+2026-10-11T19:05:48,861 - INFO  - [pulsar-client-io-1-3:ConsumerImpl@1243] - Closed consumer {channel=[id: 0x8a2f0d06, L:/127.0.0.1:58925 - R:/127.0.0.1:19772], consumerId=0, consumerName=Y5m0q, subscription=nereus-delay-target-source-475aec0f-d2e6-4fc5-b38d-c99f296f149d, topic=persistent://public/default/p1-target-source-99722-target-da92c970-6dec-4cb8-a15e-12f171b3fc54}
+Pulsar Target source factory: first grant at entry 0; Target Cancel applied at entry 1;
+  RocksDB source frontier advanced before receipt-confirmed Pulsar ACK; guard proof verified.
+2026-10-11T19:05:48,869 - INFO  - [main:PulsarClientImpl@999] - Client closing. URL {url=pulsar://127.0.0.1:19772}
+2026-10-11T19:05:48,871 - INFO  - [pulsar-client-io-1-3:ClientCnx@381] - Disconnected {channel=[id: 0x8a2f0d06, L:/127.0.0.1:58925 ! R:/127.0.0.1:19772]}
+
+BUILD SUCCESSFUL in 23s
+12 actionable tasks: 3 executed, 9 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+Pulsar Target Worker source E2E passed against the locked P1 Broker/client fixture.
+
+FINAL_SOURCE_SHA256 2eeccf90b98c24e34d69ba266738d8f28fcba266bd7dec8594bfbc404118bcdb src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactShardLogMutationAppender.java
+Final P1 runner exited 0 and its owned compose containers are absent.

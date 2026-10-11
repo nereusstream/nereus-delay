@@ -1,6 +1,7 @@
 package com.nereusstream.delay.transport;
 
 import com.nereusstream.delay.ownership.ShardLogMutationAppender;
+import com.nereusstream.delay.ownership.SystemWriterAppendBudget;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.SystemMutation;
@@ -40,6 +41,7 @@ public final class KafkaClientArtifactShardLogMutationAppender implements ShardL
     private final int partition;
     private final ProducerResourceGuard guard;
     private final Duration responseTimeout;
+    private final SystemWriterAppendBudget.Writer writer;
 
     public KafkaClientArtifactShardLogMutationAppender(
             final GuardedProducer<byte[], byte[]> producer,
@@ -48,6 +50,17 @@ public final class KafkaClientArtifactShardLogMutationAppender implements ShardL
             final String physicalTopic,
             final UUID nativeTopicUuid,
             final Duration responseTimeout) {
+        this(producer, shard, authenticatedClusterId, physicalTopic, nativeTopicUuid, responseTimeout, null);
+    }
+
+    public KafkaClientArtifactShardLogMutationAppender(
+            final GuardedProducer<byte[], byte[]> producer,
+            final ShardId shard,
+            final String authenticatedClusterId,
+            final String physicalTopic,
+            final UUID nativeTopicUuid,
+            final Duration responseTimeout,
+            final SystemWriterAppendBudget.Writer writer) {
         this.producer = Objects.requireNonNull(producer, "producer");
         this.shard = Objects.requireNonNull(shard, "shard");
         this.authenticatedClusterId = requireText(authenticatedClusterId, "authenticatedClusterId");
@@ -63,6 +76,10 @@ public final class KafkaClientArtifactShardLogMutationAppender implements ShardL
         if (responseTimeout.isZero() || responseTimeout.isNegative() || responseTimeout.toMillis() <= 0) {
             throw new IllegalArgumentException("responseTimeout must be positive");
         }
+        this.writer = writer;
+        if (writer != null) {
+            writer.bindProducer(producer);
+        }
     }
 
     @Override
@@ -71,13 +88,54 @@ public final class KafkaClientArtifactShardLogMutationAppender implements ShardL
         if (!shard.equals(exact.shardId())) {
             throw new IllegalArgumentException("Kafka Shard Log mutation belongs to another Shard");
         }
+        final var reservation = writer == null ? null : writer.tryReserve(shard).orElse(null);
+        if (writer != null && reservation == null) {
+            return AppendOutcome.definitelyNotPersisted();
+        }
+        try {
+            return appendReserved(exact, reservation);
+        } finally {
+            if (reservation != null) {
+                reservation.callerReturned();
+            }
+        }
+    }
+
+    private AppendOutcome appendReserved(final SystemMutation exact,
+            final SystemWriterAppendBudget.Reservation reservation) {
+        final byte[] frame;
+        try {
+            frame = exact.encodeFrame();
+        } catch (RuntimeException failure) {
+            if (reservation == null) { throw failure; }
+            reservation.sdkCompleted();
+            return AppendOutcome.definitelyNotPersisted();
+        }
+        if (reservation != null && !reservation.frameEncoded(frame.length)) {
+            reservation.sdkCompleted();
+            return AppendOutcome.definitelyNotPersisted();
+        }
         final CompletableFuture<Observation> completion = new CompletableFuture<>();
         try {
-            producer.sendGuarded(
-                    new ProducerRecord<>(physicalTopic, partition, null, exact.encodeFrame()),
-                    guard,
-                    (metadata, failure) -> completion.complete(new Observation(metadata, failure)));
+            final java.util.function.Supplier<java.util.concurrent.Future<GuardedRecordMetadata>> send = () ->
+                    producer.sendGuarded(new ProducerRecord<>(physicalTopic, partition, null, frame), guard,
+                            (metadata, failure) -> {
+                                try {
+                                    completion.complete(new Observation(metadata, failure));
+                                } finally {
+                                    if (reservation != null) { reservation.sdkCompleted(); }
+                                }
+                            });
+            if (writer == null) {
+                send.get();
+            } else if (!writer.invokeSdk(reservation, send).started()) {
+                return AppendOutcome.definitelyNotPersisted();
+            }
         } catch (RuntimeException failure) {
+            final ResourceGuardException proof = unwrap(failure);
+            if (reservation != null && proof != null && proof.definitelyNotPersisted()) {
+                reservation.sdkCompleted();
+            }
             return failure(failure);
         }
         final Observation observation;
@@ -99,7 +157,9 @@ public final class KafkaClientArtifactShardLogMutationAppender implements ShardL
 
     @Override
     public void close() {
+        if (writer != null) { writer.beginClose(); }
         producer.close();
+        if (writer != null) { writer.producerClosed(); }
     }
 
     private AppendOutcome persisted(final GuardedRecordMetadata metadata) {

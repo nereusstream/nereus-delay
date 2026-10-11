@@ -464,25 +464,40 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
             final ShardId shard,
             final SystemMutation mutation)
             throws Exception {
-        try (var appender = new PulsarClientArtifactShardLogMutationAppender(
-                PulsarClientArtifactProducerFactory.create(
-                        client, CLUSTER, INCARNATION, physicalTopic, CREATION_TIMESTAMP, "target-source-grant"),
-                consumer,
-                shard,
-                CLUSTER,
-                INCARNATION,
-                physicalTopic,
-                CREATION_TIMESTAMP,
-                Duration.ofSeconds(15))) {
-            final var outcome = appender.append(mutation);
-            if (outcome.disposition()
-                            != com.nereusstream.delay.ownership.ShardLogMutationAppender.AppendDisposition.PERSISTED
-                    || !(outcome.sourcePosition() instanceof PulsarSourcePosition position)
-                    || !Arrays.equals(position.brokerResourceIncarnation(), guard.resourceIncarnation())
-                    || !physicalTopic.equals(position.physicalTopic())) {
-                throw new IllegalStateException("Pulsar first Target grant was not durably appended");
+        final Path windowRoot = Files.createTempDirectory("nereus-delay-p1-system-writer-window-");
+        try (var resources = PulsarSmokeWorkerResources.open(ShardStoreConfig.defaults(windowRoot))) {
+            final var writerBudget = new com.nereusstream.delay.ownership.SystemWriterAppendBudget(
+                    new com.nereusstream.delay.ownership.SystemWriterAppendBudget.Limits(2, 2L << 20, 1L << 20, 1),
+                    workClasses(), resources);
+            final PulsarSourcePosition appended;
+            try (var appender = new PulsarClientArtifactShardLogMutationAppender(
+                    PulsarClientArtifactProducerFactory.create(
+                            client, CLUSTER, INCARNATION, physicalTopic, CREATION_TIMESTAMP, "target-source-grant"),
+                    consumer,
+                    shard,
+                    CLUSTER,
+                    INCARNATION,
+                    physicalTopic,
+                    CREATION_TIMESTAMP,
+                    Duration.ofSeconds(15), writerBudget.registerWriter(shard))) {
+                final var outcome = appender.append(mutation);
+                if (outcome.disposition()
+                                != com.nereusstream.delay.ownership.ShardLogMutationAppender.AppendDisposition.PERSISTED
+                        || !(outcome.sourcePosition() instanceof PulsarSourcePosition position)
+                        || !Arrays.equals(position.brokerResourceIncarnation(), guard.resourceIncarnation())
+                        || !physicalTopic.equals(position.physicalTopic())) {
+                    throw new IllegalStateException("Pulsar first Target grant was not durably appended");
+                }
+                appended = position;
             }
-            return position;
+            if (!writerBudget.usage().equals(new com.nereusstream.delay.ownership.SystemWriterAppendBudget.Usage(
+                    0, 0, 0))) {
+                throw new IllegalStateException("closed P1 system writer retained an append-window charge");
+            }
+            System.out.println("P1 system-writer append window settled after exact producer close (fixture resources).");
+            return appended;
+        } finally {
+            Files.deleteIfExists(windowRoot);
         }
     }
 

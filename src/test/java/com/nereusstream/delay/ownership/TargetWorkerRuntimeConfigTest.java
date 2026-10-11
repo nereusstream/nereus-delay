@@ -37,6 +37,7 @@ class TargetWorkerRuntimeConfigTest {
     void missingUnknownUnlimitedAndOvercommittedConfigurationRejectsBeforeIo() {
         for (String missing : java.util.List.of("worker.heapBytes", "worker.hardCap.ZOMBIE_BYTES",
                 "scheduling.class.OUTCOME_AND_CONTROL.minimumRecords", "target.maximumSourceFrameBytes",
+                "worker.systemWriterRecords",
                 "recovery.maintenanceTurnBytes", "recovery.maintenanceIntervalNanos")) {
             final var map = values();
             map.remove(missing);
@@ -73,6 +74,14 @@ class TargetWorkerRuntimeConfigTest {
         final var noMaintenance = values();
         noMaintenance.put("recovery.maintenanceIntervalNanos", "0");
         assertThrows(IllegalArgumentException.class, () -> TargetWorkerRuntimeConfigLoader.load(noMaintenance));
+        for (String key : java.util.List.of("worker.systemWriterBytes",
+                "worker.hardCap.SYSTEM_WRITER_RESERVED_RECORDS", "worker.hardCap.PHYSICAL_REQUESTS",
+                "worker.hardCap.ZOMBIE_REQUESTS", "worker.hardCap.ADAPTER_PRODUCERS")) {
+            final var insufficientWriter = values();
+            insufficientWriter.put(key, "1");
+            assertThrows(IllegalArgumentException.class,
+                    () -> TargetWorkerRuntimeConfigLoader.load(insufficientWriter));
+        }
     }
 
     @Test
@@ -140,6 +149,9 @@ class TargetWorkerRuntimeConfigTest {
         v.put("worker.diskSafetyWatermarkBytes", "512");
         v.put("worker.controlReserveBytes", "64");
         v.put("worker.controlReserveRecords", "8");
+        v.put("worker.systemWriterRecords", "2");
+        v.put("worker.systemWriterBytes", "1024");
+        v.put("worker.systemWriterGenerations", "2");
         for (final var dimension : CapacityDimension.values()) {
             long value = 1024;
             if (dimension == CapacityDimension.CONTROL_RESERVE_BYTES) { value = 64; }

@@ -1,6 +1,7 @@
 package com.nereusstream.delay.transport;
 
 import com.nereusstream.delay.ownership.ShardLogMutationAppender;
+import com.nereusstream.delay.ownership.SystemWriterAppendBudget;
 import com.nereusstream.delay.protocol.PulsarSourcePosition;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.SystemMutation;
@@ -40,6 +41,7 @@ public final class PulsarClientArtifactShardLogMutationAppender implements Shard
     private final String physicalTopic;
     private final int partition;
     private final Duration responseTimeout;
+    private final SystemWriterAppendBudget.Writer writer;
 
     public PulsarClientArtifactShardLogMutationAppender(
             final Producer<byte[]> producer,
@@ -50,6 +52,20 @@ public final class PulsarClientArtifactShardLogMutationAppender implements Shard
             final String physicalTopic,
             final long physicalTopicCreationTimestamp,
             final Duration responseTimeout) {
+        this(producer, sourceConsumer, shard, authenticatedClusterId, resourceIncarnation, physicalTopic,
+                physicalTopicCreationTimestamp, responseTimeout, null);
+    }
+
+    public PulsarClientArtifactShardLogMutationAppender(
+            final Producer<byte[]> producer,
+            final GuardedConsumer<?> sourceConsumer,
+            final ShardId shard,
+            final String authenticatedClusterId,
+            final byte[] resourceIncarnation,
+            final String physicalTopic,
+            final long physicalTopicCreationTimestamp,
+            final Duration responseTimeout,
+            final SystemWriterAppendBudget.Writer writer) {
         this.producer = Objects.requireNonNull(producer, "producer");
         this.sourceConsumer = Objects.requireNonNull(sourceConsumer, "sourceConsumer");
         this.shard = Objects.requireNonNull(shard, "shard");
@@ -68,6 +84,8 @@ public final class PulsarClientArtifactShardLogMutationAppender implements Shard
                 || !expectedGuard.equals(sourceConsumer.resourceGuard())) {
             throw new IllegalArgumentException("Pulsar mutation binding is not pinned to one guarded topic");
         }
+        this.writer = writer;
+        if (writer != null) { writer.bindProducer(producer); }
     }
 
     @Override
@@ -76,17 +94,58 @@ public final class PulsarClientArtifactShardLogMutationAppender implements Shard
         if (!shard.equals(exact.shardId())) {
             throw new IllegalArgumentException("Pulsar Shard Log mutation belongs to another Shard");
         }
+        final var reservation = writer == null ? null : writer.tryReserve(shard).orElse(null);
+        if (writer != null && reservation == null) {
+            return AppendOutcome.definitelyNotPersisted();
+        }
+        try {
+            return appendReserved(exact, reservation);
+        } finally {
+            if (reservation != null) { reservation.callerReturned(); }
+        }
+    }
+
+    private AppendOutcome appendReserved(final SystemMutation exact,
+            final SystemWriterAppendBudget.Reservation reservation) {
         final SourceProof before;
         try {
             before = sourceProof();
         } catch (RuntimeException failure) {
+            if (reservation != null) { reservation.sdkCompleted(); }
             return AppendOutcome.unknown();
+        }
+        final byte[] frame;
+        try {
+            frame = exact.encodeFrame();
+        } catch (RuntimeException failure) {
+            if (reservation == null) { throw failure; }
+            reservation.sdkCompleted();
+            return AppendOutcome.definitelyNotPersisted();
+        }
+        if (reservation != null && !reservation.frameEncoded(frame.length)) {
+            reservation.sdkCompleted();
+            return AppendOutcome.definitelyNotPersisted();
         }
         final CompletableFuture<MessageId> completion;
         try {
-            completion = producer.newMessage().value(exact.encodeFrame()).sendAsync();
+            if (writer == null) {
+                completion = producer.newMessage().value(frame).sendAsync();
+            } else {
+                final var handed = writer.invokeSdk(reservation, () -> producer.newMessage().value(frame).sendAsync());
+                if (!handed.started()) { return AppendOutcome.definitelyNotPersisted(); }
+                completion = handed.result();
+            }
         } catch (RuntimeException failure) {
+            if (reservation != null && failure(failure).disposition() == AppendDisposition.DEFINITIVELY_NOT_PERSISTED) {
+                reservation.sdkCompleted();
+            }
             return failure(failure);
+        }
+        if (completion == null) { return AppendOutcome.unknown(); }
+        if (reservation != null) {
+            completion.whenComplete((result, failure) -> {
+                if (!completion.isCancelled()) { reservation.sdkCompleted(); }
+            });
         }
         final MessageId messageId;
         try {
@@ -113,8 +172,10 @@ public final class PulsarClientArtifactShardLogMutationAppender implements Shard
 
     @Override
     public void close() {
+        if (writer != null) { writer.beginClose(); }
         try {
             producer.close();
+            if (writer != null) { writer.producerClosed(); }
         } catch (org.apache.pulsar.client.api.PulsarClientException failure) {
             throw new IllegalStateException("Pulsar guarded mutation producer close failed", failure);
         }

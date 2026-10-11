@@ -67,8 +67,11 @@ public final class TargetWorkerRuntimeConfigLoader {
                 f.number("scheduling.readBytes"), f.number("scheduling.readNanos"));
         final var turn = new SchedulerBudget(f.integer("scheduling.turnMessages"),
                 f.number("scheduling.turnBytes"), f.number("scheduling.turnNanos"));
+        final long maximumFrame = f.number("target.maximumSourceFrameBytes");
+        final var writer = new SystemWriterAppendBudget.Limits(f.integer("worker.systemWriterRecords"),
+                f.number("worker.systemWriterBytes"), maximumFrame, f.integer("worker.systemWriterGenerations"));
         final var config = new TargetWorkerRuntimeConfig(store, resources, new CapacityVector(caps), workClasses,
-                source, f.number("target.maximumSourceFrameBytes"), inventory, ordinary, turn,
+                source, maximumFrame, writer, inventory, ordinary, turn,
                 Duration.ofNanos(f.number("scheduling.recheckNanos")),
                 new SchedulerBudget(f.integer("recovery.maintenanceTurnMessages"),
                         f.number("recovery.maintenanceTurnBytes"), f.number("recovery.maintenanceTurnNanos")),

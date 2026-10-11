@@ -2212,3 +2212,20 @@ protocol costs; the full maximum-legal-mutation envelope remains pending and mus
 before production activation. No numeric release example is certified here. Dynamic Handoff policy,
 strict/retained/producer resources, ingress/backpressure and full provider assembly still need
 integration. This local config is not a placement, pin, publication or deployment authority.
+
+worker.systemWriterRecords/systemWriterBytes/systemWriterGenerations are also required. The system
+append window uses target.maximumSourceFrameBytes and must fit declared system-writer reserve,
+physical/zombie request-byte and producer hard caps. Create it once with config.newSystemWriterBudget
+on the exact configured registry/resources; bind one handle to each owned K1/P1 producer generation.
+Pass that handle to the bounded ShardLogMutationAppender constructor. Admission reserves a maximum
+frame before encoding; oversized/full/closing requests do not enter the SDK or acquire a Source Position.
+An UNKNOWN return keeps its charge until both the append caller and actual SDK completion have ended;
+an ambiguous synchronous failure without callback stays charged until that producer closes successfully.
+Failed close fences new work and retains charges. Replacement writers share the same process window.
+
+This window does not release durable attempt/control quota or certify all SDK/native buffers as freed.
+Keep the full producer-generation physical envelope and composed fixed/transition capacity proof until
+their own cleanup conditions hold; SDK resource-rate provisioning remains required. It also supplies no
+unapplied Source backlog measurement. Actual records/bytes/oldest-age/retention authority and ingress
+backpressure remain open, as does formal provider assembly. The scoped K1 expiry/P1 grant receipts use
+fixture resource/Owner/issuer authorities and do not lift deployment or format2 publication gates.

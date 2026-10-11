@@ -1,0 +1,382 @@
+E6 system append window development evidence
+Baseline d3ebc16a9ef5e2296bb07bc1916d59d0b9ab36f8
+No backlog authority, full SDK/native resource cleanup, central acceptance, or production authority claim.
+
+Initial failed compile/style attempt (wrong P1 original-jar path, corrected):
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :extractIncludeRealKafkaProto UP-TO-DATE
+> Task :extractRealKafkaProto UP-TO-DATE
+> Task :generateRealKafkaProto NO-SOURCE
+> Task :compileRealKafka
+> Task :extractIncludeRealPulsarProto UP-TO-DATE
+> Task :extractRealPulsarProto UP-TO-DATE
+> Task :generateRealPulsarProto NO-SOURCE
+
+> Task :compileRealPulsar FAILED
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactRecoverySourcePositioner.java:15: 错误: 程序包org.apache.pulsar.client.impl不存在
+import org.apache.pulsar.client.impl.BatchMessageIdImpl;
+                                    ^
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactRecoverySourcePositioner.java:16: 错误: 程序包org.apache.pulsar.client.impl不存在
+import org.apache.pulsar.client.impl.MessageIdImpl;
+                                    ^
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactTargetAdmissionHistory.java:29: 错误: 程序包org.apache.pulsar.client.impl不存在
+import org.apache.pulsar.client.impl.BatchMessageIdImpl;
+                                    ^
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactTargetAdmissionHistory.java:30: 错误: 程序包org.apache.pulsar.client.impl不存在
+import org.apache.pulsar.client.impl.MessageIdImpl;
+                                    ^
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactRecoverySourcePositioner.java:149: 错误: 找不到符号
+            return new BatchMessageIdImpl(
+                       ^
+  符号:   类 BatchMessageIdImpl
+  位置: 类 PulsarClientArtifactRecoverySourcePositioner
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactRecoverySourcePositioner.java:157: 错误: 找不到符号
+        return new MessageIdImpl(accepted.ledgerId(), accepted.entryId(), -1);
+                   ^
+  符号:   类 MessageIdImpl
+  位置: 类 PulsarClientArtifactRecoverySourcePositioner
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactTargetAdmissionHistory.java:179: 错误: 找不到符号
+            return new BatchMessageIdImpl(source.ledgerId(), source.entryId(), -1,
+                       ^
+  符号:   类 BatchMessageIdImpl
+  位置: 类 PulsarClientArtifactTargetAdmissionHistory
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactTargetAdmissionHistory.java:182: 错误: 找不到符号
+        return new MessageIdImpl(source.ledgerId(), source.entryId(), -1);
+                   ^
+  符号:   类 MessageIdImpl
+  位置: 类 PulsarClientArtifactTargetAdmissionHistory
+8 个错误
+
+> Task :checkstyleTest
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/ownership/SystemWriterAppendBudgetTest.java:101: 本行字符数 121个，最多：120个。 [LineLength]
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/ownership/SystemWriterAppendBudgetTest.java:111: 本行字符数 121个，最多：120个。 [LineLength]
+
+> Task :checkstyleTest FAILED
+
+> Task :checkstyleMain
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/ownership/TargetWorkerRuntimeConfig.java:4:1: 导入 'com.nereusstream.delay.protocol.CapacityDimension' 顺序错误。 [ImportOrder]
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/ownership/TargetWorkerRuntimeConfig.java:52: 本行字符数 123个，最多：120个。 [LineLength]
+
+> Task :checkstyleMain FAILED
+
+[Incubating] Problems report is available at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/problems/problems-report.html
+
+FAILURE: Build completed with 3 failures.
+
+1: Task failed with an exception.
+-----------
+* What went wrong:
+Execution failed for task ':compileRealPulsar'.
+> Compilation failed; see the compiler output below.
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactRecoverySourcePositioner.java:149: 错误: 找不到符号
+              return new BatchMessageIdImpl(
+                         ^
+    符号:   类 BatchMessageIdImpl
+    位置: 类 PulsarClientArtifactRecoverySourcePositioner
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactRecoverySourcePositioner.java:157: 错误: 找不到符号
+          return new MessageIdImpl(accepted.ledgerId(), accepted.entryId(), -1);
+                     ^
+    符号:   类 MessageIdImpl
+    位置: 类 PulsarClientArtifactRecoverySourcePositioner
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactTargetAdmissionHistory.java:179: 错误: 找不到符号
+              return new BatchMessageIdImpl(source.ledgerId(), source.entryId(), -1,
+                         ^
+    符号:   类 BatchMessageIdImpl
+    位置: 类 PulsarClientArtifactTargetAdmissionHistory
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactTargetAdmissionHistory.java:182: 错误: 找不到符号
+          return new MessageIdImpl(source.ledgerId(), source.entryId(), -1);
+                     ^
+    符号:   类 MessageIdImpl
+    位置: 类 PulsarClientArtifactTargetAdmissionHistory
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactRecoverySourcePositioner.java:15: 错误: 程序包org.apache.pulsar.client.impl不存在
+  import org.apache.pulsar.client.impl.BatchMessageIdImpl;
+                                      ^
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactRecoverySourcePositioner.java:16: 错误: 程序包org.apache.pulsar.client.impl不存在
+  import org.apache.pulsar.client.impl.MessageIdImpl;
+                                      ^
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactTargetAdmissionHistory.java:29: 错误: 程序包org.apache.pulsar.client.impl不存在
+  import org.apache.pulsar.client.impl.BatchMessageIdImpl;
+                                      ^
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactTargetAdmissionHistory.java:30: 错误: 程序包org.apache.pulsar.client.impl不存在
+  import org.apache.pulsar.client.impl.MessageIdImpl;
+                                      ^
+  8 个错误
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+==============================================================================
+
+2: Task failed with an exception.
+-----------
+* What went wrong:
+Execution failed for task ':checkstyleTest'.
+> A failure occurred while executing org.gradle.api.plugins.quality.internal.CheckstyleAction
+   > Checkstyle rule violations were found. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/checkstyle/test.html
+     Checkstyle files with violations: 1
+     Checkstyle violations by severity: [error:2]
+
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+==============================================================================
+
+3: Task failed with an exception.
+-----------
+* What went wrong:
+Execution failed for task ':checkstyleMain'.
+> A failure occurred while executing org.gradle.api.plugins.quality.internal.CheckstyleAction
+   > Checkstyle rule violations were found. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/checkstyle/main.html
+     Checkstyle files with violations: 1
+     Checkstyle violations by severity: [error:2]
+
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+==============================================================================
+
+BUILD FAILED in 42s
+21 actionable tasks: 9 executed, 12 up-to-date
+
+Corrected locked-SDK compile/tests/styles command output:
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :extractIncludeRealKafkaProto UP-TO-DATE
+> Task :extractRealKafkaProto UP-TO-DATE
+> Task :generateRealKafkaProto NO-SOURCE
+> Task :compileRealKafka
+> Task :extractIncludeRealPulsarProto UP-TO-DATE
+> Task :extractRealPulsarProto UP-TO-DATE
+> Task :generateRealPulsarProto NO-SOURCE
+> Task :compileRealPulsar
+> Task :checkstyleTest
+> Task :checkstyleMain
+
+BUILD SUCCESSFUL in 34s
+21 actionable tasks: 8 executed, 13 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+
+Corrected compile command: GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew test --tests com.nereusstream.delay.ownership.SystemWriterAppendBudgetTest --tests com.nereusstream.delay.ownership.TargetWorkerRuntimeConfigTest checkstyleMain checkstyleTest compileRealKafka compileRealPulsar -PkafkaClientJar=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1/clients/build/libs/kafka-clients-4.4.0-SNAPSHOT.jar -PpulsarClientClasspath=/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-client/build/libs/pulsar-client-original-5.0.0-M1.jar:/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-client-api/build/libs/pulsar-client-api-5.0.0-M1.jar:/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-common/build/libs/pulsar-common-5.0.0-M1.jar --no-daemon --console=plain
+
+Final development command: GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew test --tests com.nereusstream.delay.ownership.SystemWriterAppendBudgetTest --tests com.nereusstream.delay.ownership.TargetWorkerRuntimeConfigTest checkstyleMain checkstyleTest --no-daemon --console=plain
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :checkstyleMain UP-TO-DATE
+> Task :checkstyleTest
+
+BUILD SUCCESSFUL in 34s
+15 actionable tasks: 4 executed, 11 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+
+ownership.SystemWriterAppendBudgetTest {"tests": "3", "failures": "0", "errors": "0", "skipped": "0", "timestamp": "2026-10-11T10:58:19.361Z"}
+XML_SHA256 ba3e6cafe91ea071464264a62b9f80bc2ee6302330001b22285673137d84264b build/test-results/test/TEST-com.nereusstream.delay.ownership.SystemWriterAppendBudgetTest.xml
+
+ownership.TargetWorkerRuntimeConfigTest {"tests": "4", "failures": "0", "errors": "0", "skipped": "0", "timestamp": "2026-10-11T10:58:19.652Z"}
+XML_SHA256 f45110aa63b13dbd38137d712ae1d6bbc5eb157bd70e14ce0b2de525d311b1d5 build/test-results/test/TEST-com.nereusstream.delay.ownership.TargetWorkerRuntimeConfigTest.xml
+FILE_SHA256 25e24c68ba86595f08d7743019b9d75c9122554ce2594fd9c46735b2c816f96c src/main/java/com/nereusstream/delay/ownership/SystemWriterAppendBudget.java
+FILE_SHA256 f9c545c9587628ba355ba720768e11e8bc7f0d06c753df854f87f3258c88a725 src/main/java/com/nereusstream/delay/ownership/TargetWorkerRuntimeConfig.java
+FILE_SHA256 51c0ce11c1fc5d9ffe29b8e9ca9f1c1ff1977109079462d17bdb2e70a49c794b src/main/java/com/nereusstream/delay/ownership/TargetWorkerRuntimeConfigLoader.java
+FILE_SHA256 02eb125a67c6834b743434c7ac67199a194132be34d46d0251faca7ac1cd66c8 src/main/java/com/nereusstream/delay/scheduler/WorkClassExecutionRegistry.java
+FILE_SHA256 0cb1f23a73c29a0ef566de369fa2ce2e56c9ad2f2444a4784ccd9c42c4b8b25a src/test/java/com/nereusstream/delay/ownership/SystemWriterAppendBudgetTest.java
+FILE_SHA256 6565e63d31896c8aa9dabe29b16f7dcd91e24bbf91336ffa16e3ec79957ee2cd src/test/java/com/nereusstream/delay/ownership/TargetWorkerRuntimeConfigTest.java
+FILE_SHA256 044920e830d28ca09740983b4a8ffda45c3064e84b3dbf62a7bc0867a9e3bc9c src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactShardLogMutationAppender.java
+FILE_SHA256 351d7a8e4faf5cb8a4ae74afe06d9f61e1558ef60281e1a622f944f5a1f67784 src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetScheduledExpirySmoke.java
+FILE_SHA256 7a3358b055b74baf11fc4da53153c9026de6060fd8f0af05797ffe8d9d720abb src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactShardLogMutationAppender.java
+FILE_SHA256 0cd86125c425dbc59e80b747897fb0662891f52abc8d109c023d0ee6e88d38ab src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactTargetWorkerSourceSmoke.java
+FILE_SHA256 1c83ae777c364be833f7c8ff31f1fdeb28dafd5eb3998f0246e7d226a543cbe0 /Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1/clients/build/libs/kafka-clients-4.4.0-SNAPSHOT.jar
+FILE_SHA256 57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c /Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-client/build/libs/pulsar-client-original-5.0.0-M1.jar
+FILE_SHA256 f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394 /Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-client-api/build/libs/pulsar-client-api-5.0.0-M1.jar
+FILE_SHA256 94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8 /Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-common/build/libs/pulsar-common-5.0.0-M1.jar
+
+Command: GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew checkDocumentation --no-daemon --console=plain
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+
+> Task :testNdip1ImplementationVerifier
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 60.124s
+
+OK
+
+> Task :testNdip1PackageVerifier
+..............
+----------------------------------------------------------------------
+Ran 14 tests in 0.080s
+
+OK
+
+> Task :verifyNdip1HistoricalClosure
+proposal=NDIP-1
+receipt_status=IMPLEMENTED
+lifecycle_authority=true
+implementation=CLOSED
+lifecycle=CLOSED
+certified_commit=b4e077e9978f262cdb93cf3562ea12eee32430e2
+runtime_source_sha256=03ce17ede4b9e70e2f70dd2bbef681087f529159549a4cd979d0d7aa34fa9948
+runtime_source_files=835
+implemented_package_sha256=792ca54e239d884ba6f95315747f565bab57ee0fc02338a77369cb19bbe8e8a7
+staging_run=20260901055333-78920
+deployment=SEPARATE_FUTURE_WORK
+performance_and_scale=SEPARATE_FUTURE_WORK
+production_rollout=SEPARATE_FUTURE_WORK
+production_authority=false
+
+> Task :verifyNdip1PackageAccepted
+proposal=NDIP-1
+receipt_status=ACCEPTED
+authority=true
+package_source_commit=77ffa61136c0cd401244ebea4375a5a18b097b17
+file_sha256 70d9dd7c113fa5f457a20a97996322ef9a2018772efd225aa982c13ec4935140 docs/ndip/NDIP-1/01-调查与决策记录.md
+file_sha256 c167ed42dd29c383c08a8a102f36b0e4deee8ae5c7a5da115a09d04ffcb9fa6f docs/ndip/NDIP-1/02-NDIP-1-Pulsar-Native-Delivery.md
+file_sha256 9affafa81952959d39ed9c09a00abe6b84da4fd3b0b6280422f297684d56f727 docs/ndip/NDIP-1/03-实施计划.md
+file_sha256 2a26c107cd69ee522ea138b3487b8ec206e913acc6ad5b862aa69288ddcaa88e docs/ndip/NDIP-1/04-代码级目标设计.md
+package_sha256=13caab8ecdc201901f06e905f1c0bf9792780e50c6f5948f93abf2bdb8f4d21b
+gate_b=PASS
+implementation=AUTHORIZED
+local_disposable_testing=AUTHORIZED_WITH_EXACT_ATTESTATION
+gate_c=PENDING_DEPLOYMENT
+shadow=BLOCKED_BY_GATE_C
+enabled=BLOCKED_BY_GATE_C_AND_SHADOW_REQUIREMENTS
+
+> Task :verifyNdip2PackageAccepted
+proposal=NDIP-2
+receipt_status=ACCEPTED
+authority=true
+file_sha256 0a105fb2b73d63cabddf42d0ba3d5a9590b4edddd47242495f196bf56d15f642 docs/ndip/NDIP-2/01-NDIP-生命周期与认证源码权威分层.md
+file_sha256 c882ecaa32413cb9e177243cf3efe91b97810c3cc10be81e61e7e458030c4ffa docs/ndip/NDIP-2/02-实施计划.md
+file_sha256 ec1ba68ab3ac91aa667647e6289cd252b99da84d899f42f879821d6e5d7752e9 docs/ndip/NDIP-2/03-代码级目标设计.md
+package_sha256=856e1d768210a31fc9aad811af3a93c1de33189cc03c65bc1e36d57affbf10db
+gate_b=PASS
+implementation=AUTHORIZED
+deployment_authority=false
+
+> Task :checkDocumentation
+
+BUILD SUCCESSFUL in 1m 18s
+6 actionable tasks: 6 executed
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+
+Final Source order preservation patch: P1 sourceProof remains before frame encoding; prior hashes above belong to their earlier development checks. Final P1 Broker rerun is in e6-system-writer-window-p1.log.
+FINAL_SOURCE_SHA256 2eeccf90b98c24e34d69ba266738d8f28fcba266bd7dec8594bfbc404118bcdb src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactShardLogMutationAppender.java
+
+Final source-bound docs check: GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew checkDocumentation --no-daemon --console=plain
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+
+> Task :testNdip1ImplementationVerifier
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 58.149s
+
+OK
+
+> Task :testNdip1PackageVerifier
+..............
+----------------------------------------------------------------------
+Ran 14 tests in 0.076s
+
+OK
+
+> Task :verifyNdip1HistoricalClosure
+proposal=NDIP-1
+receipt_status=IMPLEMENTED
+lifecycle_authority=true
+implementation=CLOSED
+lifecycle=CLOSED
+certified_commit=b4e077e9978f262cdb93cf3562ea12eee32430e2
+runtime_source_sha256=03ce17ede4b9e70e2f70dd2bbef681087f529159549a4cd979d0d7aa34fa9948
+runtime_source_files=835
+implemented_package_sha256=792ca54e239d884ba6f95315747f565bab57ee0fc02338a77369cb19bbe8e8a7
+staging_run=20260901055333-78920
+deployment=SEPARATE_FUTURE_WORK
+performance_and_scale=SEPARATE_FUTURE_WORK
+production_rollout=SEPARATE_FUTURE_WORK
+production_authority=false
+
+> Task :verifyNdip1PackageAccepted
+proposal=NDIP-1
+receipt_status=ACCEPTED
+authority=true
+package_source_commit=77ffa61136c0cd401244ebea4375a5a18b097b17
+file_sha256 70d9dd7c113fa5f457a20a97996322ef9a2018772efd225aa982c13ec4935140 docs/ndip/NDIP-1/01-调查与决策记录.md
+file_sha256 c167ed42dd29c383c08a8a102f36b0e4deee8ae5c7a5da115a09d04ffcb9fa6f docs/ndip/NDIP-1/02-NDIP-1-Pulsar-Native-Delivery.md
+file_sha256 9affafa81952959d39ed9c09a00abe6b84da4fd3b0b6280422f297684d56f727 docs/ndip/NDIP-1/03-实施计划.md
+file_sha256 2a26c107cd69ee522ea138b3487b8ec206e913acc6ad5b862aa69288ddcaa88e docs/ndip/NDIP-1/04-代码级目标设计.md
+package_sha256=13caab8ecdc201901f06e905f1c0bf9792780e50c6f5948f93abf2bdb8f4d21b
+gate_b=PASS
+implementation=AUTHORIZED
+local_disposable_testing=AUTHORIZED_WITH_EXACT_ATTESTATION
+gate_c=PENDING_DEPLOYMENT
+shadow=BLOCKED_BY_GATE_C
+enabled=BLOCKED_BY_GATE_C_AND_SHADOW_REQUIREMENTS
+
+> Task :verifyNdip2PackageAccepted
+proposal=NDIP-2
+receipt_status=ACCEPTED
+authority=true
+file_sha256 0a105fb2b73d63cabddf42d0ba3d5a9590b4edddd47242495f196bf56d15f642 docs/ndip/NDIP-2/01-NDIP-生命周期与认证源码权威分层.md
+file_sha256 c882ecaa32413cb9e177243cf3efe91b97810c3cc10be81e61e7e458030c4ffa docs/ndip/NDIP-2/02-实施计划.md
+file_sha256 ec1ba68ab3ac91aa667647e6289cd252b99da84d899f42f879821d6e5d7752e9 docs/ndip/NDIP-2/03-代码级目标设计.md
+package_sha256=856e1d768210a31fc9aad811af3a93c1de33189cc03c65bc1e36d57affbf10db
+gate_b=PASS
+implementation=AUTHORIZED
+deployment_authority=false
+
+> Task :checkDocumentation
+
+BUILD SUCCESSFUL in 1m 14s
+6 actionable tasks: 6 executed
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html

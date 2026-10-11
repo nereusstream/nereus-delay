@@ -1,5 +1,6 @@
 package com.nereusstream.delay.ownership;
 
+import com.nereusstream.delay.protocol.CapacityDimension;
 import com.nereusstream.delay.protocol.CapacityVector;
 import com.nereusstream.delay.protocol.ShardCapacityEnvelope;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
@@ -23,6 +24,7 @@ public record TargetWorkerRuntimeConfig(
         WorkClassRuntimeConfig workClasses,
         TargetSourceApplyRuntime.Limits source,
         long maximumSourceFrameBytes,
+        SystemWriterAppendBudget.Limits systemWriter,
         TargetWorkerTargetInventory.Limits inventory,
         TargetWorkerOrdinaryDrr.Limits ordinary,
         SchedulerBudget ordinaryTurn,
@@ -35,6 +37,7 @@ public record TargetWorkerRuntimeConfig(
         Objects.requireNonNull(hardCaps, "hardCaps");
         Objects.requireNonNull(workClasses, "workClasses");
         Objects.requireNonNull(source, "source");
+        Objects.requireNonNull(systemWriter, "systemWriter");
         Objects.requireNonNull(inventory, "inventory");
         Objects.requireNonNull(ordinary, "ordinary");
         Objects.requireNonNull(ordinaryTurn, "ordinaryTurn");
@@ -44,6 +47,22 @@ public record TargetWorkerRuntimeConfig(
         resources.validate(store);
         WorkerCapacityAdmission.requireFits(resources, hardCaps, List.of(),
                 CapacityVector.empty(), CapacityVector.empty());
+        if (systemWriter.maximumFrameBytes() != maximumSourceFrameBytes
+                || systemWriter.writers() > hardCaps.amount(CapacityDimension.ADAPTER_PRODUCERS)) {
+            throw new IllegalArgumentException("system writer limits differ from configured Source/producer envelope");
+        }
+        for (var dimension : List.of(CapacityDimension.SYSTEM_WRITER_RESERVED_RECORDS,
+                CapacityDimension.PHYSICAL_REQUESTS, CapacityDimension.ZOMBIE_REQUESTS)) {
+            if (systemWriter.records() > hardCaps.amount(dimension)) {
+                throw new IllegalArgumentException("system writer records exceed " + dimension);
+            }
+        }
+        for (var dimension : List.of(CapacityDimension.SYSTEM_WRITER_RESERVED_BYTES,
+                CapacityDimension.PHYSICAL_BYTES, CapacityDimension.ZOMBIE_BYTES)) {
+            if (systemWriter.bytes() > hardCaps.amount(dimension)) {
+                throw new IllegalArgumentException("system writer bytes exceed " + dimension);
+            }
+        }
         if (inventory.maximumShards() != store.maxOwnedShards()) {
             throw new IllegalArgumentException("Target inventory Shard limit must equal the Worker ownership limit");
         }
@@ -96,6 +115,12 @@ public record TargetWorkerRuntimeConfig(
 
     public WorkClassExecutionRegistry newWorkClasses(LongSupplier clock) {
         return new WorkClassExecutionRegistry(workClasses, Objects.requireNonNull(clock, "clock"));
+    }
+
+    public SystemWriterAppendBudget newSystemWriterBudget(
+            WorkClassExecutionRegistry classes, SharedRocksDbResources sharedResources) {
+        requireRuntime(classes, sharedResources);
+        return new SystemWriterAppendBudget(systemWriter, classes, sharedResources);
     }
 
     public SchedulerBudget sourceTurn() {

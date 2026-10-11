@@ -185,7 +185,8 @@ public final class WorkClassExecutionRegistry {
     public enum WorkerSingleton {
         STORE_RESOURCE_ENVELOPE,
         CLAIM_EXECUTION_ADMISSION,
-        DESTINATION_PHYSICAL_ADMISSION
+        DESTINATION_PHYSICAL_ADMISSION,
+        SYSTEM_WRITER_APPEND_BUDGET
     }
 
     private record TaskKey(WorkClass workClass, String taskId) {
