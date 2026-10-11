@@ -357,6 +357,17 @@ class TargetQuotaGrantStoreTest {
                                 ignored -> { throw new AssertionError("old GC cannot expire"); },
                                 ignored -> { throw new AssertionError("old GC cannot complete Close"); },
                                 System::currentTimeMillis));
+                final var oldControlHistory = new java.util.concurrent.CompletableFuture<SystemMutation>();
+                final var oldControls = new com.nereusstream.delay.ownership.TargetCheckpointControlInputs(oldWorker,
+                        TargetQuotaGrantStoreTest::budget,
+                        new TargetCheckpointRootVerifier.LedgerAuditLimits(4096, 32L << 20, 16_384, 32L << 20),
+                        ref -> oldControlHistory,
+                        new com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Limits(64, 1 << 20),
+                        System::currentTimeMillis);
+                assertEquals(com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.CAPTURED,
+                        oldControls.runTurn().status());
+                assertEquals(com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.LOADING,
+                        oldControls.runTurn().status());
                 final var oldPending = oldWorker.runMaintenanceTurn(new SchedulerBudget(1, 1, 60_000_000_000L));
                 assertTrue(oldPending.pending());
                 assertEquals(TargetReservationGcRuntime.Lane.CLOSE, oldPending.lane());
@@ -368,6 +379,11 @@ class TargetQuotaGrantStoreTest {
                 assertEquals(TargetReservationClosureWorkClassExecutor.Kind.FAILED,
                         oldFailed.closeResult().orElseThrow().kind());
                 assertTrue(oldRuntime.fenced());
+                assertEquals(com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.FAILED,
+                        oldControls.runTurn().status());
+                oldControlHistory.completeExceptionally(
+                        new IllegalStateException("history completed after session loss"));
+                assertTrue(oldControls.result().isEmpty());
                 assertEquals(beforeOldLoss, store.latestSequenceNumber());
                 assertEquals(TargetReservationClosureStore.Progress.OPEN,
                         new TargetReservationClosureStore(backend, scope, lineage, 1, controls)
@@ -2334,6 +2350,8 @@ class TargetQuotaGrantStoreTest {
             final var sourceHost = TargetWorkerHostTestBridge.withoutMaintenanceTimer(
                     workerClasses, store.sharedResources(), List.of(sourceHostWorker));
             TargetWorkerHostTestBridge.drainChanges(sourceHost);
+            final var controlCollection = assertControlCollection(sourceHostWorker, store,
+                    List.of(signedRoot.mutation(), signedTarget.mutation(), member.mutation()));
             final var nativeScope = new TargetNativePolicyScope(
                     bytes(32, 0x78),
                     actor.tenantResourceScopeHash(),
@@ -2370,6 +2388,11 @@ class TargetQuotaGrantStoreTest {
                     loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100)
                             .status());
             assertEquals(beforeNativeInstallRevision + 1, sourceHost.targetQueueChangeRevision());
+            controlCollection.late().complete(controlCollection.selected());
+            assertEquals(com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.FAILED,
+                    controlCollection.pending().runTurn().status());
+            assertTrue(controlCollection.pending().result().isEmpty());
+            assertTrue(controlCollection.complete().result().isEmpty());
             final var installChanges = TargetWorkerHostTestBridge.drainChanges(sourceHost);
             assertFalse(installChanges.inventoryDirty());
             assertTrue(installChanges.businessRecheck());
@@ -3221,6 +3244,18 @@ class TargetQuotaGrantStoreTest {
                 assertTrue(hostMetricEvents.stream().anyMatch(event -> event.metric()
                                 == BoundedAsyncMetricExporter.Metric.TARGET_INVENTORY_ACTIVE_MESSAGE_DEPTH
                         && event.value() > 0));
+                final var localPendingHistory = new java.util.concurrent.CompletableFuture<SystemMutation>();
+                final var localCut = new com.nereusstream.delay.ownership.TargetCheckpointControlInputs(
+                        sourceHostWorker, TargetQuotaGrantStoreTest::budget,
+                        new TargetCheckpointRootVerifier.LedgerAuditLimits(4096, 32L << 20, 16_384, 32L << 20),
+                        ref -> localPendingHistory,
+                        new com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Limits(64, 1 << 20),
+                        () -> 100);
+                assertEquals(com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.CAPTURED,
+                        localCut.runTurn().status());
+                assertEquals(com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.LOADING,
+                        localCut.runTurn().status());
+                final var sourceBeforeRevoke = store.appliedShardLogPosition();
                 sourceHostWorker.revokeClaim(
                         budget(),
                         sourceCreatedClaim,
@@ -3229,6 +3264,11 @@ class TargetQuotaGrantStoreTest {
                         (a, b, c) -> guard(),
                         () -> 100);
                 assertNull(store.get(ColumnFamily.INFLIGHT, sourceCreatedClaim.key()));
+                assertEquals(sourceBeforeRevoke, store.appliedShardLogPosition());
+                assertEquals(com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.FAILED,
+                        localCut.runTurn().status());
+                localPendingHistory.completeExceptionally(new IllegalStateException("history completed after revoke"));
+                assertTrue(localCut.result().isEmpty());
             } finally {
                 try {
                     if (!hostLoopClosed && hostLoop != null) {
@@ -3747,6 +3787,83 @@ class TargetQuotaGrantStoreTest {
                 base.referencedSemanticVersionsDigest(),
                 cursors,
                 base.files());
+    }
+
+    private record ControlCollectionFixture(
+            com.nereusstream.delay.ownership.TargetCheckpointControlInputs pending,
+            java.util.concurrent.CompletableFuture<SystemMutation> late, SystemMutation selected,
+            com.nereusstream.delay.ownership.TargetCheckpointControlInputs complete) {}
+
+    private static ControlCollectionFixture assertControlCollection(TargetWorkerShardRuntime worker, ShardStore store,
+            List<SystemMutation> originals) {
+        final long before = store.latestSequenceNumber();
+        final var audit = new TargetCheckpointRootVerifier.LedgerAuditLimits(4096, 32L << 20, 16_384, 32L << 20);
+        final var bounds = new com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Limits(8, 1 << 20);
+        final var limited = new com.nereusstream.delay.ownership.TargetCheckpointControlInputs(worker,
+                () -> new BoundedReadBudget(1, 1 << 20, 10_000_000_000L, System::nanoTime), audit,
+                ref -> { throw new AssertionError("incomplete cut read history"); }, bounds, () -> 100);
+        assertEquals(com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.READ_YIELD,
+                limited.runTurn().status());
+        final var overCount = new com.nereusstream.delay.ownership.TargetCheckpointControlInputs(worker,
+                TargetQuotaGrantStoreTest::budget, audit,
+                ref -> { throw new AssertionError("over-count cut read history"); },
+                new com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Limits(1, 1 << 20), () -> 100);
+        assertEquals(com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.FAILED,
+                overCount.runTurn().status());
+        final var loading = new java.util.concurrent.CompletableFuture<SystemMutation>();
+        final var calls = new java.util.concurrent.atomic.AtomicInteger();
+        final var firstImage = new java.util.concurrent.atomic.AtomicReference<SystemMutation>();
+        final com.nereusstream.delay.ownership.TargetCheckpointControlInputs.History history = ref -> {
+            assertFalse(Thread.holdsLock(store));
+            final var expected = originals.stream().filter(image -> Arrays.equals(image.systemMutationId(),
+                    SystemMutationResult.decode(ref.first().typedPayload()).mutationId())).findFirst().orElseThrow();
+            calls.incrementAndGet();
+            if (firstImage.compareAndSet(null, expected)) { return loading; }
+            return java.util.concurrent.CompletableFuture.completedFuture(expected);
+        };
+        final var collecting = new com.nereusstream.delay.ownership.TargetCheckpointControlInputs(worker,
+                TargetQuotaGrantStoreTest::budget, audit, history, bounds, () -> 100);
+        assertEquals(com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.CAPTURED,
+                collecting.runTurn().status());
+        final var opening = collecting.runTurn();
+        assertEquals(com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.LOADING,
+                opening.status(), () -> String.valueOf(opening.failure()));
+        assertEquals(com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.LOADING,
+                collecting.runTurn().status());
+        assertEquals(1, calls.get());
+        assertTrue(collecting.result().isEmpty());
+        loading.complete(firstImage.get());
+        for (int turn = 0; turn < 16; turn++) {
+            if (collecting.runTurn().status()
+                    == com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.COMPLETE) { break; }
+        }
+        final var result = collecting.result().orElseThrow();
+        assertEquals(3, result.inputs().size());
+        assertEquals(3, result.cut().dependencies().controlResults().size());
+        assertEquals(3, calls.get());
+        final var tooBig = new com.nereusstream.delay.ownership.TargetCheckpointControlInputs(worker,
+                TargetQuotaGrantStoreTest::budget, audit, ref -> java.util.concurrent.CompletableFuture.completedFuture(
+                        originals.stream().filter(image -> Arrays.equals(image.systemMutationId(),
+                                SystemMutationResult.decode(ref.first().typedPayload()).mutationId()))
+                                .findFirst().orElseThrow()),
+                new com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Limits(8, 1), () -> 100);
+        tooBig.runTurn();
+        tooBig.runTurn();
+        assertEquals(com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.FAILED,
+                tooBig.runTurn().status());
+        final var late = new java.util.concurrent.CompletableFuture<SystemMutation>();
+        final var selected = new java.util.concurrent.atomic.AtomicReference<SystemMutation>();
+        final var pending = new com.nereusstream.delay.ownership.TargetCheckpointControlInputs(worker,
+                TargetQuotaGrantStoreTest::budget, audit, ref -> {
+                    selected.set(originals.stream().filter(image -> Arrays.equals(image.systemMutationId(),
+                            SystemMutationResult.decode(ref.first().typedPayload()).mutationId()))
+                            .findFirst().orElseThrow());
+                    return late;
+                }, bounds, () -> 100);
+        pending.runTurn();
+        pending.runTurn();
+        assertEquals(before, store.latestSequenceNumber());
+        return new ControlCollectionFixture(pending, late, selected.get(), collecting);
     }
 
     private static void assertManifestBindingFailure(

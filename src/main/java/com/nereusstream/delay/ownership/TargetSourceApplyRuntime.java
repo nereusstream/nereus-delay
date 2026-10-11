@@ -63,13 +63,16 @@ import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.CheckpointManifestLimits;
 import com.nereusstream.delay.store.CheckpointUploadIntentAuthority;
+import com.nereusstream.delay.store.ColumnFamily;
 import com.nereusstream.delay.store.ReadIncompleteException;
 import com.nereusstream.delay.store.ShardStore;
 import com.nereusstream.delay.store.SharedRocksDbResources;
 import com.nereusstream.delay.store.StoreMetadata;
 import com.nereusstream.delay.store.TargetCheckpointCandidateWorkClassExecutor;
 import com.nereusstream.delay.store.TargetCheckpointRootVerifier;
+import com.nereusstream.delay.store.TargetKeyCodec;
 import com.nereusstream.delay.store.TargetStoreBackend;
+import com.nereusstream.delay.store.TargetValueEnvelope;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Objects;
@@ -775,6 +778,58 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         requireGcOwner(clock);
         publishRecoveryDiscovery.requireRetainedCursorCurrent(budget, cursor, workerReads(clock));
         requireGcOwner(clock);
+    }
+
+    synchronized TargetCheckpointControlInputs.Cut captureCheckpointControlInputs(final BoundedReadBudget budget,
+            final com.nereusstream.delay.store.TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits,
+            final LongSupplier ownerClock) {
+        requireGcOwner(ownerClock);
+        final var captured = backend.guardedRead(budget, reader -> {
+            final var bookkeeping = com.nereusstream.delay.protocol.TargetQuotaBookkeeping.decode(
+                    TargetValueEnvelope.decode(reader.get(ColumnFamily.META,
+                            com.nereusstream.delay.protocol.TargetQuotaBookkeeping.keyFor(scope.shard())),
+                            com.nereusstream.delay.protocol.TargetQuotaBookkeeping.VALUE_TYPE).payload());
+            final byte[] rootKey = bookkeeping.owner().key();
+            rootKey[0] = TargetKeyCodec.QUOTA_INCARNATION_TAG;
+            final var root = TargetQuotaIncarnation.decodeForStore(rootKey,
+                    TargetValueEnvelope.decode(reader.get(ColumnFamily.META, rootKey),
+                            TargetQuotaIncarnation.VALUE_TYPE).payload(), scope.shard(), scope.tenantScope());
+            final var aggregate = reader.aggregate();
+            if (!bookkeeping.owner().equals(root.identity())
+                    || !Arrays.equals(bookkeeping.tenantScope(), scope.tenantScope())
+                    || !Arrays.equals(bookkeeping.accounting().canonicalBytes(), root.accounting().canonicalBytes())
+                    || !Arrays.equals(root.recoveryLineage(), lineage)
+                    || aggregate.mutation() == null) {
+                throw new IllegalStateException("Control input cut has inconsistent root/bookkeeping/lineage");
+            }
+            root.latestMutation().requireAtOrBefore(aggregate.mutation());
+            bookkeeping.mutation().requireAtOrBefore(aggregate.mutation());
+            final var proof = new com.nereusstream.delay.store.TargetCheckpointRootVerifier.RootProof(reader.metadata(),
+                    aggregate.mutation().source(), aggregate.mutation().sequence(), root, bookkeeping, aggregate);
+            final var dependencies = com.nereusstream.delay.store.TargetCheckpointRootVerifier
+                    .auditLiveStoreDependencies(store, proof, ledgerLimits, budget);
+            reader.requireWithinElapsedBudget();
+            return new TargetCheckpointControlInputs.Cut(this,
+                    new TargetQueueSnapshotReader.Cut(reader.metadata().storeIncarnation(), reader.nativeSequence()),
+                    dependencies);
+        }, workerReads(ownerClock));
+        requireGcOwner(ownerClock);
+        return captured;
+    }
+
+    synchronized void requireCheckpointControlInputsCurrent(final BoundedReadBudget budget,
+            final TargetCheckpointControlInputs.Cut cut, final LongSupplier ownerClock) {
+        requireGcOwner(ownerClock);
+        if (cut.owner != this) { throw new IllegalArgumentException("Control history cut belongs to another Worker"); }
+        backend.guardedRead(budget, reader -> {
+            if (!cut.view.equals(new TargetQueueSnapshotReader.Cut(
+                    reader.metadata().storeIncarnation(), reader.nativeSequence()))) {
+                throw new IllegalStateException("Control history cut changed its physical Store view");
+            }
+            reader.requireWithinElapsedBudget();
+            return Boolean.TRUE;
+        }, workerReads(ownerClock));
+        requireGcOwner(ownerClock);
     }
 
     synchronized void requireOutcomeWriter(final SystemMutation mutation, final LongSupplier clock) {

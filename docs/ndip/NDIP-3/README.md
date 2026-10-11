@@ -1,5 +1,10 @@
 # NDIP-3 工作包：目标分区队列收敛与调度热路径改造
 
+2026-10-11后续：Control history的异步collector已绑定一次实际Worker/Store物理cut，
+Source/local写及Owner失权使pending或完成结果失效；真实Oxia双session定向2项与样式
+通过。真实Broker异步provider/清理/pins、完整语义与发布/恢复组合及迁移清退仍待实施，
+完成flags与集中验证延期保持。
+
 2026-10-11后续：K1/P1 Target factories已接typed Control reader及真实独立history读取，
 首结果/full Source关联、K1 group/Store不变与schema2文件链、P1 META10/cursor关闭专项
 通过；local3/optional/styles通过。外部issuer/Owner/retention/pins仍是fixture，生产认证、

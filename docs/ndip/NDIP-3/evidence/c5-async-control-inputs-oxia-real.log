@@ -1,0 +1,735 @@
+2026-10-11 main baseline c9b0f761d255554ae9be3545ce696a760047fec8; locked Oxia37a17bef17202d5fd6e23282da5fd26d94865484.
+Owned compose project ndip3-async-control-1791705988-13528, localhost16683, e2e/docker-compose.oxia.yml.
+Selected test command: NEREUS_DELAY_OXIA_ENDPOINT=127.0.0.1:16683 NEREUS_DELAY_OXIA_NAMESPACE=default GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew test --tests 'com.nereusstream.delay.runtime.TargetQuotaGrantStoreTest.realOxiaOwnerTakeoverReopensTargetRootAndCompletesCloseGc' --tests 'com.nereusstream.delay.runtime.TargetQuotaGrantStoreTest.membershipIssueAndClosePreserveFirstSourceAndAtomicResults' checkstyleMain checkstyleTest --no-daemon --console=plain
+Build stdout was bounded/truncated by the tool; image metadata, selected test completion and owned cleanup follow. No truncated build output is used as test authority.
+Source 37a17bef17202d5fd6e23282da5fd26d94865484; owned compose project ndip3-async-control-1791705988-13528.
+Warning: truncated output (original token count: 14611)
+Total output lines: 1222
+
+#3 ...
+
+#4 [internal] load metadata for docker.io/library/alpine:3.22
+#4 DONE 2.9s
+
+#3 [internal] load metadata for docker.io/library/golang:1.26-alpine
+#3 DONE 5.3s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 2B done
+#5 DONE 0.0s
+
+#6 [runtime 1/8] FROM docker.io/library/alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
+#6 DONE 0.0s
+
+#7 [build 1/5] FROM docker.io/library/golang:1.26-alpine@sha256:3082400e369fa24d5fc60bca20edab3f6d604e0c5a690ec66b295eff4dd87ade
+#7 resolve docker.io/library/golang:1.26-alpine@sha256:3082400e369fa24d5fc60bca20edab3f6d604e0c5a690ec66b295eff4dd87ade done
+#7 sha256:3082400e369fa24d5fc60bca20edab3f6d604e0c5a690ec66b295eff4dd87ade 10.29kB / 10.29kB done
+#7 sha256:dccc7a8faa4dbaabed38c2ebb7a7bd24c342f2b0ee0fc1a0d2bd41b0243513ad 1.92kB / 1.92kB done
+#7 sha256:28bca9e5fa765e9407c4576c61cf98c514b5547b6e0f814beeb38c19ce682562 2.21kB / 2.21kB done
+#7 sha256:5258cfc7b8cfd861ec79320847f08e8174a42164ecef7bd82fcad140be0d237b 0B / 249.81kB 0.1s
+#7 sha256:d035f39de3c6ef146b1aeb1e916d3e2a8e98c2ce563984191d3492463253e95f 0B / 64.25MB 0.1s
+#7 sha256:348001e198c43bff043472eaf391b2d76f1f1c3939a6af3021a11d86617e0e17 0B / 126B 0.1s
+#7 ...
+
+#8 [internal] load build context
+#8 transferring context: 186.34MB 1.5s done
+#8 DONE 1.5s
+
+#7 [build 1/5] FROM docker.io/library/golang:1.26-alpine@sha256:3082400e369fa24d5fc60bca20edab3f6d604e0c5a690ec66b295eff4dd87ade
+#7 sha256:d035f39de3c6ef146b1aeb1e916d3e2a8e98c2ce563984191d3492463253e95f 4.19MB / 64.25MB 2.2s
+#7 sha256:d035f39de3c6ef146b1aeb1e916d3e2a8e98c2ce563984191d3492463253e95f 9.44MB / 64.25MB 2.5s
+#7 sha256:348001e198c43bff043472eaf391b2d76f1f1c3939a6af3021a11d86617e0e17 126B / 126B 2.6s done
+#7 sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1 0B / 32B 2.7s
+#7 sha256:d035f39de3c6ef146b1aeb1e916d3e2a8e98c2ce563984191d3492463253e95f 13.63MB / 64.25MB 2.9s
+#7 sha256:d035f39de3c6ef146b1aeb1e916d3e2a8e98c2ce563984191d3492463253e95f 20.97MB / 64.25MB 3.3s
+#7 sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1 32B / 32B 3.1s done
+#7 extracting sha256:5258cfc7b8cfd861ec79320847f08e8174a42164ecef7bd82fcad140be0d237b
+#7 sha256:5258cfc7b8cfd861ec79320847f08e8174a42164ecef7bd82fcad140be0d237b 249.81kB / 249.81kB 3.5s done
+#7 sha256:d035f39de3c6ef146b1aeb1e916d3e2a8e98c2ce563984191d3492463253e95f 28.31MB / 64.25MB 3.6s
+#7 extracting sha256:5258cfc7b8cfd861ec79320847f08e8174a42164ecef7bd82fcad140be0d237b 0.0s done
+#7 sha256:d035f39de3c6ef146b1aeb1e916d3e2a8e98c2ce563984191d3492463253e95f 33.55MB / 64.25MB 4.1s
+#7 sha256:d035f39de3c6ef146b1aeb1e916d3e2a8e98c2ce563984191d3492463253e95f 37.75MB / 64.25MB 4.3s
+#7 sha256:d035f39de3c6ef146b1aeb1e916d3e2a8e98c2ce563984191d3492463253e95f 41.94MB / 64.25MB 4.5s
+#7 sha256:d035f39de3c6ef146b1aeb1e916d3e2a8e98c2ce563984191d3492463253e95f 48.23MB / 64.25MB 4.9s
+#7 sha256:d035f39de3c6ef146b1aeb1e916d3e2a8e98c2ce563984191d3492463253e95f 54.53MB / 64.25MB 5.4s
+#7 sha256:d035f39de3c6ef146b1aeb1e916d3e2a8e98c2ce563984191d3492463253e95f 58.72MB / 64.25MB 5.6s
+#7 sha256:d035f39de3c6ef146b1aeb1e916d3e2a8e98c2ce563984191d3492463253e95f 62.91MB / 64.25MB 5.8s
+#7 extracting sha256:d035f39de3c6ef146b1aeb1e916d3e2a8e98c2ce563984191d3492463253e95f
+#7 sha256:d035f39de3c6ef146b1aeb1e916d3e2a8e98c2ce563984191d3492463253e95f 64.25MB / 64.25MB 5.9s done
+#7 extracting sha256:d035f39de3c6ef146b1aeb1e916d3e2a8e98c2ce563984191d3492463253e95f 4.4s done
+#7 extracting sha256:348001e198c43bff043472eaf391b2d76f1f1c3939a6af3021a11d86617e0e17
+#7 extracting sha256:348001e198c43bff043472eaf391b2d76f1f1c3939a6af3021a11d86617e0e17 done
+#7 extracting sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1 done
+#7 DONE 10.6s
+
+#9 [build 2/5] RUN apk add --no-cache make git build-base bash
+#9 3.187 ( 1/37) Installing ncurses-terminfo-base (6.6_p20260516-r0)
+#9 3.385 ( 2/37) Installing libncursesw (6.6_p20260516-r0)
+#9 3.598 ( 3/37) Installing readline (8.3.3-r1)
+#9 3.790 ( 4/37) Installing bash (5.3.9-r1)
+#9 4.003   Executing bash-5.3.9-r1.post-install
+#9 4.005 ( 5/37) Installing libgcc (15.2.0-r5)
+#9 4.198 ( 6/37) Installing jansson (2.15.0-r0)
+#9 4.401 ( 7/37) Installing libstdc++ (15.2.0-r5)
+#9 4.628 ( 8/37) Installing zstd-libs (1.5.7-r2)
+#9 4.833 ( 9/37) Installing binutils (2.45.1-r1)
+#9 5.181 (10/37) Installing libmagic (5.47-r2)
+#9 5.389 (11/37) Installing file (5.47-r2)
+#9 5.571 (12/37) Installing libgcc-static (15.2.0-r5)
+#9 5.838 (13/37) Installing libgomp (15.2.0-r5)
+#9 6.054 (14/37) Installing libatomic (15.2.0-r5)
+#9 6.239 (15/37) Installing gmp (6.3.0-r4)
+#9 6.450 (16/37) Installing isl26 (0.26-r2)
+#9 6.868 (17/37) Installing mpfr4 (4.2.2-r0)
+#9 7.067 (18/37) Installing mpc1 (1.3.1-r1)
+#9 7.250 (19/37) Installing gcc (15.2.0-r5)
+#9 10.07 (20/37) Installing libstdc++-dev (15.2.0-r5)
+#9 10.43 (21/37) Installing musl-dev (1.2.6-r2)
+#9 10.73 (22/37) Installing g++ (15.2.0-r5)
+#9 11.69 (23/37) Installing make (4.4.1-r4)
+#9 11.88 (24/37) Installing fortify-headers (3.0.1-r2)
+#9 12.07 (25/37) Installing patch (2.8-r0)
+#9 12.26 (26/37) Installing build-base (0.5-r4)
+#9 12.26 (27/37) Installing brotli-libs (1.2.0-r1)
+#9 12.47 (28/37) Installing c-ares (1.34.8-r0)
+#9 12.66 (29/37) Installing libunistring (1.4.2-r0)
+#9 12.88 (30/37) Installing libidn2 (2.3.8-r0)
+#9 13.07 (31/37) Installing nghttp2-libs (1.70.0-r0)
+#9 13.26 (32/37) Installing libpsl (0.21.5-r3)
+#9 13.44 (33/37) Installing libcurl (8.22.0-r0)
+#9 13.66 (34/37) Installing libexpat (2.8.5-r0)
+#9 13.86 (35/37) Installing pcre2 (10.49-r0)
+#9 14.06 (36/37) Installing git (2.54.0-r0)
+#9 14.40 (37/37) Installing git-init-template (2.54.0-r0)
+#9 14.61 Executing busybox-1.37.0-r31.trigger
+#9 14.62 OK: 264.0 MiB in 54 packages
+#9 DONE 15.5s
+
+#10 [build 3/5] WORKDIR /src/oxia
+#10 DONE 0.0s
+
+#11 [build 4/5] COPY . .
+#11 DONE 0.3s
+
+#12 [build 5/5] RUN --mount=type=cache,target=/go/pkg/mod     --mount=type=cache,target=/root/.cache/go-build     make
+#12 0.093 go build -tags disable_trap -ldflags "-X main.version=0.16.3-167-g37a17bef" -v -o bin/oxia ./cmd
+#12 21.04 go: downloading github.com/spf13/cobra v1.10.1
+#12 21.04 go: downloading go.uber.org/automaxprocs v1.6.0
+#12 21.04 go: downloading google.golang.org/grpc v1.82.1
+#12 21.04 go: downloading github.com/cockroachdb/pebble/v2 v2.1.0
+#12 21.04 go: downloading github.com/bmizerany/perks v0.0.0-20230307044200-03f9df79da1e
+#12 21.04 go: downloading golang.org/x/time v0.11.0
+#12 21.04 go: downloading github.com/c-bata/go-prompt v0.2.6
+#12 21.04 go: downloading github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51
+#12 21.66 go: downloading github.com/fsnotify/fsnotify v1.4.7
+#12 21.84 go: downloading github.com/spf13/viper v1.4.0
+#12 21.88 go: downloading github.com/rs/zerolog v1.34.0
+#12 21.93 go: downloading github.com/samber/slog-zerolog/v2 v2.7.3
+#12 22.66 go: downloading google.golang.org/protobuf v1.36.11
+#12 22.76 go: downloading google.golang.org/genproto/googleapis/rpc v0.0.0-20260414002931-afd174a4e478
+#12 22.79 go: downloading github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0
+#12 22.79 go: downloading github.com/pkg/errors v0.9.1
+#12 22.79 go: downloading github.com/stretchr/testify v1.11.1
+#12 22.80 go: downloading gopkg.in/yaml.v3 v3.0.1
+#12 23.09 go: downloading google.golang.org/genproto v0.0.0-20250218202821-56aae31c358a
+#12 23.10 go: downloading github.com/cenkalti/backoff/v4 v4.3.0
+#12 23.10 go: downloading github.com/dgraph-io/ristretto v0.2.0
+#12 23.10 go: downloading github.com/emirpasic/gods/v2 v2.0.0-alpha
+#12 23.11 go: downloading github.com/google/uuid v1.6.0
+#12 23.11 go: downloading go.opentelemetry.io/otel v1.43.0
+#12 23.11 go: downloading go.opentelemetry.io/otel/metric v1.43.0
+#12 23.77 go: downloading go.uber.org/multierr v1.11.0
+#12 23.81 go: downloading github.com/spf13/pflag v1.0.9
+#12 23.84 go: downloading github.com/mattn/go-runewidth v0.0.9
+#12 23.84 go: downloading golang.org/x/sys v0.45.0
+#12 24.06 go: downloading github.com/invopop/jsonschema v0.13.0
+#12 24.06 go: downloading github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10
+#12 24.11 go: downloading github.com/prometheus/client_golang v1.23.2
+#12 24.13 go: downloading github.com/hashicorp/hcl v1.0.0
+#12 24.38 go: downloading github.com/magiconair/properties v1.8.0
+#12 24.56 go: downloading github.com/mitchellh/mapstructure v1.5.0
+#12 24.58 go: downloading github.com/pelletier/go-toml v1.2.0
+#12 24.58 go: downloading github.com/spf13/afero v1.10.0
+#12 24.69 go: downloading github.com/spf13/cast v1.3.0
+#12 24.69 go: downloading github.com/spf13/jwalterweatherman v1.0.0
+#12 24.70 go: downloading gopkg.in/yaml.v2 v2.4.0
+#12 24.73 go: downloading github.com/mattn/go-colorable v0.1.14
+#12 24.91 go: downloading golang.org/x/net v0.55.0
+#12 24.92 go: downloading github.com/samber/slog-common v0.18.1
+#12 24.92 go: downloading github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
+#12 24.92 go: downloading github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2
+#12 24.93 go: downloading github.com/stretchr/objx v0.5.2
+#12 24.93 go: downloading github.com/HdrHistogram/hdrhistogram-go v1.1.2
+#12 24.93 go: downloading github.com/cockroachdb/errors v1.12.0
+#12 25.15 go: downloading github.com/cockroachdb/tokenbucket v0.0.0-20250429170803-42689b6311bb
+#12 25.15 go: downloading github.com/pkg/term v1.2.0-beta.2
+#12 25.15 go: downloading github.com/go-logr/logr v1.4.3
+#12 25.17 go: downloading go.opentelemetry.io/otel/trace v1.43.0
+#12 25.20 go: downloading go.opentelemetry.io/otel/exporters/prometheus v0.65.0
+#12 25.20 go: downloading go.opentelemetry.io/otel/sdk/metric v1.43.0
+#12 25.26 go: downloading github.com/coreos/go-oidc/v3 v3.17.0
+#12 25.26 go: downloading github.com/dustin/go-humanize v1.0.1
+#12 25.34 go: downloading github.com/edsrzf/mmap-go v1.2.0
+#12 25.34 go: downloading golang.org/x/exp v0.0.0-20250506013437-ce4c2cf36ca6
+#12 25.36 go: downloading github.com/cockroachdb/crlib v0.0.0-20241112164430-1264a2edc35b
+#12 25.41 go: downloading github.com/cockroachdb/redact v1.1.6
+#12 25.42 go: downloading go.opentelemetry.io/otel/sdk v1.43.0
+#12 25.46 go: downloading github.com/wk8/go-ordered-map/v2 v2.1.8
+#12 25.54 go: downloading github.com/beorn7/perks v1.0.1
+#12 25.56 go: downloading github.com/cespare/xxhash/v2 v2.3.0
+#12 25.56 go: downloading github.com/prometheus/client_model v0.6.2
+#12 25.56 go: downloading github.com/prometheus/common v0.67.5
+#12 25.61 go: downloading github.com/prometheus/procfs v0.20.1
+#12 25.64 go: downloading github.com/mattn/go-isatty v0.0.20
+#12 25.66 go: downloading github.com/zeebo/xxh3 v1.0.2
+#12 25.73 go: downloading golang.org/x/text v0.37.0
+#12 25.75 go: downloading github.com/cespare/xxhash v1.1.0
+#12 25.77 go: downloading github.com/samber/lo v1.50.0
+#12 25.83 go: downloading github.com/cockroachdb/swiss v0.0.0-20251224182025-b0f6560f979b
+#12 25.85 go: downloading github.com/go-logr/stdr v1.2.2
+#12 25.86 go: downloading go.opentelemetry.io/auto/sdk v1.2.1
+#12 25.96 go: downloading github.com/cockroachdb/logtags v0.0.0-20241215232642-bb51bb14a506
+#12 26.13 go: downloading github.com/getsentry/sentry-go v0.32.0
+#12 26.14 go: downloading github.com/prometheus/otlptranslator v1.0.0
+#12 26.14 go: downloading github.com/gogo/protobuf v1.3.2
+#12 26.14 go: downloading github.com/RaduBerinde/axisds v0.0.0-20250419182453-5135a0650657
+#12 26.36 go: downloading github.com/go-jose/go-jose/v4 v4.1.4
+#12 26.36 go: downloading golang.org/x/oauth2 v0.36.0
+#12 26.43 go: downloading sigs.k8s.io/yaml v1.6.0
+#12 26.43 go: downloading github.com/juju/fslock v0.0.0-20160525022230-4d5c94c67b4b
+#12 26.48 go: downloading k8s.io/api v0.34.2
+#12 26.48 go: downloading k8s.io/apimachinery v0.34.2
+#12 26.60 go: downloading k8s.io/client-go v0.34.2
+#12 26.79 go: downloading k8s.io/klog/v2 v2.130.1
+#12 26.79 go: downloading github.com/hashicorp/raft v1.7.3
+#12 26.79 go: downloading github.com/magodo/slog2hclog v0.0.0-20240614031327-090ebd72a033
+#12 27.09 go: downloading githu…8611 tokens truncated….30 github.com/oxia-db/oxia/cmd/admin/namespace
+#12 49.31 github.com/oxia-db/oxia/cmd/client/sequenceupdates
+#12 49.32 github.com/oxia-db/oxia/cmd/admin
+#12 49.32 github.com/oxia-db/oxia/cmd/client/shell/admin
+#12 49.33 github.com/oxia-db/oxia/cmd/client/shell/client
+#12 49.34 k8s.io/apimachinery/pkg/util/managedfields
+#12 49.34 k8s.io/client-go/rest
+#12 49.34 github.com/oxia-db/oxia/cmd/client
+#12 49.36 github.com/cockroachdb/errors/errbase
+#12 49.38 internal/goroot
+#12 49.39 golang.org/x/sys/execabs
+#12 49.39 github.com/oxia-db/oxia/cmd/client/shell
+#12 49.42 go/build
+#12 49.45 github.com/cockroachdb/crlib/crbytes
+#12 49.48 github.com/cockroachdb/errors/markers
+#12 49.49 github.com/cockroachdb/errors/barriers
+#12 49.49 github.com/cockroachdb/errors/contexttags
+#12 49.50 github.com/cockroachdb/errors/join
+#12 49.52 github.com/cockroachdb/errors/secondary
+#12 49.52 github.com/cockroachdb/errors/hintdetail
+#12 49.53 github.com/cockroachdb/errors/domains
+#12 49.53 github.com/cockroachdb/errors/assert
+#12 49.55 github.com/cockroachdb/errors/issuelink
+#12 49.55 k8s.io/client-go/openapi
+#12 49.55 k8s.io/client-go/testing
+#12 49.56 k8s.io/client-go/util/apply
+#12 49.56 k8s.io/client-go/tools/auth
+#12 49.58 k8s.io/client-go/tools/cache
+#12 49.59 github.com/cockroachdb/errors/safedetails
+#12 49.60 k8s.io/client-go/tools/clientcmd
+#12 49.60 github.com/cockroachdb/errors/telemetrykeys
+#12 49.63 github.com/cockroachdb/pebble/v2/internal/humanize
+#12 49.64 github.com/cockroachdb/pebble/v2/internal/treeprinter
+#12 49.65 github.com/getsentry/sentry-go
+#12 49.65 github.com/cockroachdb/swiss
+#12 49.66 github.com/RaduBerinde/axisds
+#12 49.69 github.com/RaduBerinde/btreemap
+#12 49.70 github.com/cockroachdb/crlib/crstrings
+#12 49.73 github.com/RaduBerinde/axisds/regiontree
+#12 49.74 github.com/cockroachdb/pebble/v2/internal/binfmt
+#12 49.79 github.com/cockroachdb/pebble/v2/internal/crc
+#12 49.81 github.com/golang/snappy
+#12 49.82 github.com/klauspost/compress/s2
+#12 49.90 github.com/cockroachdb/pebble/v2/internal/intern
+#12 49.91 k8s.io/client-go/gentype
+#12 49.94 github.com/cockroachdb/pebble/v2/internal/genericcache
+#12 49.97 github.com/cockroachdb/pebble/v2/internal/lsmview
+#12 49.99 github.com/cockroachdb/pebble/v2/internal/manual
+#12 50.00 github.com/cockroachdb/tokenbucket
+#12 50.05 github.com/oxia-db/oxia/common/cache
+#12 50.07 github.com/oxia-db/oxia/oxiad/common/crc
+#12 50.07 github.com/emirpasic/gods/v2/lists
+#12 50.09 github.com/emirpasic/gods/v2/lists/doublylinkedlist
+#12 50.10 k8s.io/client-go/listers
+#12 50.10 github.com/oxia-db/oxia/oxiad/coordinator/rpc
+#12 50.11 github.com/cockroachdb/errors/withstack
+#12 50.14 k8s.io/client-go/listers/admissionregistration/v1
+#12 50.14 k8s.io/client-go/listers/admissionregistration/v1alpha1
+#12 50.23 k8s.io/client-go/listers/admissionregistration/v1beta1
+#12 50.23 k8s.io/client-go/listers/apiserverinternal/v1alpha1
+#12 50.25 k8s.io/client-go/listers/certificates/v1alpha1
+#12 50.25 k8s.io/client-go/listers/coordination/v1
+#12 50.26 k8s.io/client-go/listers/coordination/v1alpha2
+#12 50.27 k8s.io/client-go/listers/coordination/v1beta1
+#12 50.28 k8s.io/client-go/listers/flowcontrol/v1
+#12 50.28 k8s.io/client-go/listers/flowcontrol/v1beta1
+#12 50.29 k8s.io/client-go/listers/flowcontrol/v1beta2
+#12 50.29 k8s.io/client-go/listers/flowcontrol/v1beta3
+#12 50.29 k8s.io/client-go/listers/rbac/v1
+#12 50.31 k8s.io/client-go/listers/rbac/v1alpha1
+#12 50.31 k8s.io/client-go/listers/rbac/v1beta1
+#12 50.31 k8s.io/client-go/listers/resource/v1alpha3
+#12 50.32 github.com/cockroachdb/errors/errutil
+#12 50.32 github.com/cockroachdb/errors/report
+#12 50.41 github.com/cockroachdb/errors
+#12 50.47 github.com/cockroachdb/errors/oserror
+#12 50.49 github.com/cockroachdb/pebble/v2/vfs
+#12 50.50 github.com/cockroachdb/pebble/v2/internal/dsl
+#12 50.79 github.com/cockroachdb/pebble/v2/internal/base
+#12 50.83 github.com/cockroachdb/pebble/v2/objstorage/remote
+#12 50.89 github.com/cockroachdb/pebble/v2/vfs/atomicfs
+#12 51.01 github.com/cockroachdb/pebble/v2/batchrepr
+#12 51.04 github.com/cockroachdb/pebble/v2/internal/arenaskl
+#12 51.05 github.com/cockroachdb/pebble/v2/internal/batchskl
+#12 51.10 github.com/cockroachdb/pebble/v2/internal/cache
+#12 51.10 github.com/cockroachdb/pebble/v2/internal/invalidating
+#12 51.13 github.com/cockroachdb/pebble/v2/internal/keyspan
+#12 51.15 github.com/cockroachdb/pebble/v2/internal/problemspans
+#12 51.23 github.com/cockroachdb/pebble/v2/internal/strparse
+#12 51.25 github.com/cockroachdb/pebble/v2/bloom
+#12 51.26 github.com/cockroachdb/pebble/v2/objstorage/objstorageprovider/sharedcache
+#12 51.28 github.com/cockroachdb/pebble/v2/record
+#12 51.35 github.com/cockroachdb/pebble/v2/objstorage
+#12 51.39 github.com/cockroachdb/pebble/v2/objstorage/objstorageprovider/objiotracing
+#12 51.41 github.com/cockroachdb/pebble/v2/objstorage/objstorageprovider/remoteobjcat
+#12 51.43 k8s.io/api/apps/v1
+#12 51.48 k8s.io/api/apps/v1beta1
+#12 51.61 k8s.io/api/apps/v1beta2
+#12 51.63 k8s.io/api/autoscaling/v1
+#12 51.65 k8s.io/api/autoscaling/v2
+#12 51.82 k8s.io/api/autoscaling/v2beta1
+#12 51.86 k8s.io/api/autoscaling/v2beta2
+#12 51.97 k8s.io/api/batch/v1
+#12 52.02 k8s.io/api/certificates/v1
+#12 52.13 k8s.io/api/certificates/v1beta1
+#12 52.19 k8s.io/api/discovery/v1
+#12 52.23 k8s.io/api/discovery/v1beta1
+#12 52.26 k8s.io/api/events/v1
+#12 52.30 k8s.io/api/batch/v1beta1
+#12 52.31 k8s.io/api/events/v1beta1
+#12 52.32 k8s.io/api/extensions/v1beta1
+#12 52.34 k8s.io/api/networking/v1
+#12 52.35 k8s.io/api/networking/v1beta1
+#12 52.37 k8s.io/api/node/v1
+#12 52.39 k8s.io/api/node/v1alpha1
+#12 52.42 k8s.io/api/node/v1beta1
+#12 52.43 k8s.io/api/resource/v1
+#12 52.47 k8s.io/api/resource/v1beta1
+#12 52.49 k8s.io/api/resource/v1beta2
+#12 52.53 k8s.io/api/scheduling/v1
+#12 52.63 k8s.io/api/scheduling/v1alpha1
+#12 52.68 k8s.io/api/scheduling/v1beta1
+#12 52.73 k8s.io/api/storage/v1
+#12 52.77 k8s.io/api/storage/v1alpha1
+#12 52.81 k8s.io/api/storage/v1beta1
+#12 53.03 k8s.io/api/storagemigration/v1alpha1
+#12 53.06 k8s.io/client-go/tools/reference
+#12 53.18 k8s.io/client-go/listers/apps/v1
+#12 53.25 k8s.io/client-go/listers/apps/v1beta1
+#12 53.28 k8s.io/client-go/listers/apps/v1beta2
+#12 53.28 k8s.io/client-go/listers/autoscaling/v1
+#12 53.29 k8s.io/client-go/listers/autoscaling/v2
+#12 53.30 k8s.io/client-go/listers/autoscaling/v2beta1
+#12 53.31 k8s.io/client-go/listers/autoscaling/v2beta2
+#12 53.31 k8s.io/client-go/listers/batch/v1
+#12 53.32 k8s.io/client-go/listers/batch/v1beta1
+#12 53.32 k8s.io/client-go/listers/certificates/v1
+#12 53.32 k8s.io/client-go/listers/certificates/v1beta1
+#12 53.33 k8s.io/client-go/kubernetes/scheme
+#12 53.33 k8s.io/client-go/listers/core/v1
+#12 53.36 k8s.io/client-go/listers/discovery/v1
+#12 53.36 k8s.io/client-go/listers/discovery/v1beta1
+#12 53.37 k8s.io/client-go/listers/events/v1
+#12 53.37 k8s.io/client-go/listers/events/v1beta1
+#12 53.38 k8s.io/client-go/discovery
+#12 53.38 k8s.io/client-go/kubernetes/typed/authentication/v1
+#12 53.38 k8s.io/client-go/kubernetes/typed/authentication/v1alpha1
+#12 53.38 k8s.io/client-go/kubernetes/typed/authentication/v1beta1
+#12 53.40 k8s.io/client-go/kubernetes/typed/authorization/v1
+#12 53.40 k8s.io/client-go/kubernetes/typed/authorization/v1beta1
+#12 53.44 k8s.io/client-go/listers/extensions/v1beta1
+#12 53.44 k8s.io/client-go/listers/networking/v1
+#12 53.46 k8s.io/client-go/listers/networking/v1beta1
+#12 53.49 k8s.io/client-go/applyconfigurations/meta/v1
+#12 53.49 k8s.io/client-go/listers/node/v1
+#12 53.50 k8s.io/client-go/listers/node/v1alpha1
+#12 53.50 k8s.io/client-go/listers/node/v1beta1
+#12 53.51 k8s.io/client-go/listers/policy/v1
+#12 53.51 k8s.io/client-go/listers/policy/v1beta1
+#12 53.52 k8s.io/client-go/listers/resource/v1
+#12 53.53 k8s.io/client-go/listers/resource/v1beta1
+#12 53.53 k8s.io/client-go/listers/resource/v1beta2
+#12 53.53 k8s.io/client-go/listers/scheduling/v1
+#12 53.53 k8s.io/client-go/listers/scheduling/v1alpha1
+#12 53.55 k8s.io/client-go/listers/scheduling/v1beta1
+#12 53.56 k8s.io/client-go/listers/storage/v1
+#12 53.56 k8s.io/client-go/listers/storage/v1alpha1
+#12 53.57 k8s.io/client-go/listers/storage/v1beta1
+#12 53.57 k8s.io/client-go/listers/storagemigration/v1alpha1
+#12 53.57 github.com/cockroachdb/pebble/v2/objstorage/objstorageprovider
+#12 53.59 k8s.io/client-go/applyconfigurations/admissionregistration/v1
+#12 53.59 k8s.io/client-go/applyconfigurations/apiserverinternal/v1alpha1
+#12 53.62 k8s.io/client-go/applyconfigurations/autoscaling/v1
+#12 53.62 k8s.io/client-go/applyconfigurations/autoscaling/v2
+#12 53.62 k8s.io/client-go/applyconfigurations/autoscaling/v2beta1
+#12 53.62 k8s.io/client-go/applyconfigurations/core/v1
+#12 53.71 k8s.io/client-go/kubernetes/typed/apiserverinternal/v1alpha1
+#12 53.72 k8s.io/client-go/applyconfigurations/autoscaling/v2beta2
+#12 53.73 k8s.io/client-go/kubernetes/typed/autoscaling/v1
+#12 53.74 k8s.io/client-go/kubernetes/typed/admissionregistration/v1
+#12 53.75 k8s.io/client-go/applyconfigurations/admissionregistration/v1alpha1
+#12 53.75 k8s.io/client-go/applyconfigurations/admissionregistration/v1beta1
+#12 53.77 k8s.io/client-go/kubernetes/typed/autoscaling/v2
+#12 53.80 k8s.io/client-go/kubernetes/typed/autoscaling/v2beta1
+#12 53.82 k8s.io/client-go/kubernetes/typed/autoscaling/v2beta2
+#12 53.86 k8s.io/client-go/applyconfigurations/certificates/v1
+#12 53.88 k8s.io/client-go/applyconfigurations/certificates/v1alpha1
+#12 53.91 k8s.io/client-go/applyconfigurations/certificates/v1beta1
+#12 53.91 k8s.io/client-go/kubernetes/typed/admissionregistration/v1alpha1
+#12 53.92 k8s.io/client-go/applyconfigurations/coordination/v1
+#12 53.95 k8s.io/client-go/kubernetes/typed/certificates/v1
+#12 53.96 k8s.io/client-go/kubernetes/typed/admissionregistration/v1beta1
+#12 53.96 k8s.io/client-go/applyconfigurations/coordination/v1alpha2
+#12 53.97 k8s.io/client-go/kubernetes/typed/certificates/v1alpha1
+#12 54.03 k8s.io/client-go/kubernetes/typed/coordination/v1
+#12 54.04 k8s.io/client-go/applyconfigurations/coordination/v1beta1
+#12 54.07 k8s.io/client-go/kubernetes/typed/certificates/v1beta1
+#12 54.10 k8s.io/client-go/applyconfigurations/flowcontrol/v1
+#12 54.10 k8s.io/client-go/kubernetes/typed/coordination/v1alpha2
+#12 54.11 k8s.io/client-go/applyconfigurations/flowcontrol/v1beta1
+#12 54.12 k8s.io/client-go/applyconfigurations/flowcontrol/v1beta2
+#12 54.19 k8s.io/client-go/applyconfigurations/flowcontrol/v1beta3
+#12 54.20 k8s.io/client-go/kubernetes/typed/coordination/v1beta1
+#12 54.22 k8s.io/client-go/applyconfigurations/policy/v1
+#12 54.24 k8s.io/client-go/kubernetes/typed/flowcontrol/v1beta1
+#12 54.24 k8s.io/client-go/kubernetes/typed/flowcontrol/v1
+#12 54.33 k8s.io/client-go/kubernetes/typed/policy/v1
+#12 54.34 k8s.io/client-go/kubernetes/typed/flowcontrol/v1beta2
+#12 54.35 k8s.io/client-go/applyconfigurations/policy/v1beta1
+#12 54.37 k8s.io/client-go/applyconfigurations/rbac/v1
+#12 54.37 k8s.io/client-go/kubernetes/typed/flowcontrol/v1beta3
+#12 54.37 k8s.io/client-go/applyconfigurations/rbac/v1alpha1
+#12 54.38 k8s.io/client-go/applyconfigurations/apps/v1
+#12 54.41 k8s.io/client-go/applyconfigurations/apps/v1beta1
+#12 54.42 k8s.io/client-go/applyconfigurations/apps/v1beta2
+#12 54.47 k8s.io/client-go/applyconfigurations/batch/v1
+#12 54.47 k8s.io/client-go/kubernetes/typed/core/v1
+#12 54.48 k8s.io/client-go/applyconfigurations/discovery/v1
+#12 54.48 k8s.io/client-go/applyconfigurations/discovery/v1beta1
+#12 54.49 k8s.io/client-go/applyconfigurations/events/v1
+#12 54.60 k8s.io/client-go/kubernetes/typed/discovery/v1
+#12 54.61 k8s.io/client-go/kubernetes/typed/apps/v1beta1
+#12 54.61 k8s.io/client-go/kubernetes/typed/discovery/v1beta1
+#12 54.61 k8s.io/client-go/kubernetes/typed/events/v1
+#12 54.62 k8s.io/client-go/kubernetes/typed/apps/v1
+#12 54.66 k8s.io/client-go/kubernetes/typed/apps/v1beta2
+#12 54.67 k8s.io/client-go/applyconfigurations/events/v1beta1
+#12 54.68 k8s.io/client-go/kubernetes/typed/batch/v1
+#12 54.71 k8s.io/client-go/applyconfigurations/batch/v1beta1
+#12 54.72 k8s.io/client-go/applyconfigurations/extensions/v1beta1
+#12 54.77 k8s.io/client-go/applyconfigurations/networking/v1
+#12 54.81 k8s.io/client-go/kubernetes/typed/events/v1beta1
+#12 54.92 k8s.io/client-go/applyconfigurations/networking/v1beta1
+#12 54.94 k8s.io/client-go/kubernetes/typed/batch/v1beta1
+#12 54.95 k8s.io/client-go/applyconfigurations/node/v1
+#12 54.97 k8s.io/client-go/applyconfigurations/node/v1alpha1
+#12 54.98 k8s.io/client-go/applyconfigurations/node/v1beta1
+#12 55.00 k8s.io/client-go/kubernetes/typed/networking/v1
+#12 55.03 k8s.io/client-go/kubernetes/typed/extensions/v1beta1
+#12 55.04 k8s.io/client-go/kubernetes/typed/node/v1
+#12 55.07 k8s.io/client-go/kubernetes/typed/policy/v1beta1
+#12 55.08 k8s.io/client-go/kubernetes/typed/rbac/v1
+#12 55.10 k8s.io/client-go/kubernetes/typed/networking/v1beta1
+#12 55.10 k8s.io/client-go/kubernetes/typed/node/v1beta1
+#12 55.12 k8s.io/client-go/kubernetes/typed/rbac/v1alpha1
+#12 55.13 k8s.io/client-go/kubernetes/typed/node/v1alpha1
+#12 55.19 k8s.io/client-go/applyconfigurations/rbac/v1beta1
+#12 55.23 k8s.io/client-go/applyconfigurations/resource/v1
+#12 55.25 k8s.io/client-go/applyconfigurations/resource/v1alpha3
+#12 55.27 k8s.io/client-go/applyconfigurations/resource/v1beta1
+#12 55.31 k8s.io/client-go/applyconfigurations/resource/v1beta2
+#12 55.31 k8s.io/client-go/kubernetes/typed/rbac/v1beta1
+#12 55.32 k8s.io/client-go/applyconfigurations/scheduling/v1
+#12 55.33 k8s.io/client-go/applyconfigurations/scheduling/v1alpha1
+#12 55.33 k8s.io/client-go/applyconfigurations/scheduling/v1beta1
+#12 55.36 k8s.io/client-go/kubernetes/typed/resource/v1alpha3
+#12 55.45 k8s.io/client-go/kubernetes/typed/scheduling/v1
+#12 55.45 k8s.io/client-go/kubernetes/typed/resource/v1
+#12 55.45 k8s.io/client-go/kubernetes/typed/scheduling/v1beta1
+#12 55.46 k8s.io/client-go/kubernetes/typed/scheduling/v1alpha1
+#12 55.47 k8s.io/client-go/kubernetes/typed/resource/v1beta1
+#12 55.48 k8s.io/client-go/applyconfigurations/storage/v1
+#12 55.49 k8s.io/client-go/applyconfigurations/storage/v1alpha1
+#12 55.49 k8s.io/client-go/kubernetes/typed/resource/v1beta2
+#12 55.51 k8s.io/client-go/applyconfigurations/storage/v1beta1
+#12 55.56 k8s.io/client-go/applyconfigurations/storagemigration/v1alpha1
+#12 55.65 k8s.io/client-go/kubernetes/typed/storage/v1alpha1
+#12 55.67 k8s.io/client-go/kubernetes/typed/storagemigration/v1alpha1
+#12 55.69 k8s.io/client-go/kubernetes/typed/storage/v1
+#12 55.72 k8s.io/client-go/kubernetes/typed/storage/v1beta1
+#12 55.95 k8s.io/client-go/kubernetes
+#12 56.29 k8s.io/client-go/informers/internalinterfaces
+#12 56.33 k8s.io/client-go/tools/leaderelection/resourcelock
+#12 56.54 k8s.io/client-go/informers/admissionregistration/v1
+#12 56.54 k8s.io/client-go/informers/admissionregistration/v1alpha1
+#12 56.79 k8s.io/client-go/informers/admissionregistration/v1beta1
+#12 56.85 k8s.io/client-go/informers/apiserverinternal/v1alpha1
+#12 57.02 k8s.io/client-go/informers/apps/v1
+#12 57.12 k8s.io/client-go/informers/apiserverinternal
+#12 57.14 k8s.io/client-go/informers/admissionregistration
+#12 57.34 k8s.io/client-go/informers/apps/v1beta1
+#12 57.38 k8s.io/client-go/informers/apps/v1beta2
+#12 57.41 k8s.io/client-go/informers/autoscaling/v1
+#12 57.65 k8s.io/client-go/informers/autoscaling/v2
+#12 57.67 k8s.io/client-go/informers/apps
+#12 57.68 k8s.io/client-go/informers/autoscaling/v2beta1
+#12 57.69 k8s.io/client-go/informers/autoscaling/v2beta2
+#12 57.92 k8s.io/client-go/informers/batch/v1
+#12 57.93 k8s.io/client-go/informers/batch/v1beta1
+#12 57.95 k8s.io/client-go/informers/certificates/v1
+#12 57.95 k8s.io/client-go/informers/autoscaling
+#12 58.18 k8s.io/client-go/informers/certificates/v1alpha1
+#12 58.20 k8s.io/client-go/informers/certificates/v1beta1
+#12 58.24 k8s.io/client-go/informers/batch
+#12 58.25 k8s.io/client-go/informers/coordination/v1
+#12 58.25 k8s.io/client-go/informers/coordination/v1alpha2
+#12 58.47 k8s.io/client-go/informers/coordination/v1beta1
+#12 58.47 k8s.io/client-go/informers/certificates
+#12 58.49 k8s.io/client-go/informers/core/v1
+#12 58.54 k8s.io/client-go/informers/discovery/v1
+#12 58.55 k8s.io/client-go/informers/discovery/v1beta1
+#12 58.63 k8s.io/client-go/informers/events/v1
+#12 58.70 k8s.io/client-go/informers/events/v1beta1
+#12 58.75 k8s.io/client-go/informers/extensions/v1beta1
+#12 58.85 k8s.io/client-go/informers/coordination
+#12 58.87 k8s.io/client-go/informers/flowcontrol/v1
+#12 58.90 k8s.io/client-go/informers/discovery
+#12 58.96 k8s.io/client-go/informers/core
+#12 59.03 k8s.io/client-go/informers/flowcontrol/v1beta1
+#12 59.11 k8s.io/client-go/informers/events
+#12 59.14 k8s.io/client-go/informers/flowcontrol/v1beta2
+#12 59.15 k8s.io/client-go/informers/flowcontrol/v1beta3
+#12 59.15 k8s.io/client-go/informers/networking/v1
+#12 59.16 k8s.io/client-go/informers/extensions
+#12 59.23 k8s.io/client-go/informers/networking/v1beta1
+#12 59.34 k8s.io/client-go/informers/node/v1
+#12 59.39 k8s.io/client-go/informers/node/v1alpha1
+#12 59.39 k8s.io/client-go/informers/node/v1beta1
+#12 59.44 k8s.io/client-go/informers/flowcontrol
+#12 59.48 k8s.io/client-go/informers/policy/v1
+#12 59.52 k8s.io/client-go/informers/policy/v1beta1
+#12 59.53 k8s.io/client-go/informers/networking
+#12 59.65 k8s.io/client-go/informers/rbac/v1
+#12 59.68 k8s.io/client-go/informers/rbac/v1alpha1
+#12 59.73 k8s.io/client-go/informers/node
+#12 59.74 k8s.io/client-go/informers/rbac/v1beta1
+#12 59.77 k8s.io/client-go/informers/resource/v1
+#12 59.78 k8s.io/client-go/informers/resource/v1alpha3
+#12 59.78 k8s.io/client-go/informers/policy
+#12 59.97 k8s.io/client-go/informers/resource/v1beta1
+#12 59.97 k8s.io/client-go/informers/resource/v1beta2
+#12 60.03 k8s.io/client-go/informers/scheduling/v1
+#12 60.03 k8s.io/client-go/informers/rbac
+#12 60.08 k8s.io/client-go/informers/scheduling/v1alpha1
+#12 60.09 k8s.io/client-go/informers/scheduling/v1beta1
+#12 60.10 k8s.io/client-go/informers/storage/v1
+#12 60.31 k8s.io/client-go/informers/storage/v1alpha1
+#12 60.32 k8s.io/client-go/informers/resource
+#12 60.34 k8s.io/client-go/informers/storage/v1beta1
+#12 60.35 k8s.io/client-go/informers/storagemigration/v1alpha1
+#12 60.39 k8s.io/client-go/informers/scheduling
+#12 60.61 k8s.io/client-go/informers/storagemigration
+#12 60.69 k8s.io/client-go/informers/storage
+#12 60.94 k8s.io/client-go/informers
+#12 61.39 k8s.io/client-go/tools/leaderelection
+#12 61.80 github.com/oxia-db/oxia/oxiad/coordinator/metadata/provider/kubernetes
+#12 62.58 github.com/minio/minlz
+#12 62.73 github.com/cockroachdb/pebble/v2/internal/sstableinternal
+#12 62.77 github.com/cockroachdb/pebble/v2/internal/rangedel
+#12 62.79 github.com/cockroachdb/pebble/v2/internal/rangekey
+#12 62.81 github.com/cockroachdb/pebble/v2/internal/testkeys
+#12 62.83 github.com/cockroachdb/pebble/v2/sstable/virtual
+#12 62.85 github.com/cockroachdb/pebble/v2/internal/private
+#12 62.85 github.com/cockroachdb/pebble/v2/wal
+#12 62.86 github.com/emirpasic/gods/v2/sets/linkedhashset
+#12 62.95 github.com/oxia-db/oxia/oxiad/coordinator/runtime/action
+#12 62.98 github.com/oxia-db/oxia/oxiad/coordinator/runtime/controller
+#12 63.01 github.com/oxia-db/oxia/common/channel
+#12 63.01 github.com/emirpasic/gods/v2/lists/arraylist
+#12 63.01 github.com/oxia-db/oxia/oxiad/coordinator/runtime/controller/dataserver
+#12 63.02 github.com/oxia-db/oxia/common
+#12 63.04 github.com/hashicorp/hcl/hcl/strconv
+#12 63.05 github.com/magiconair/properties
+#12 63.06 github.com/hashicorp/hcl/hcl/token
+#12 63.07 github.com/pelletier/go-toml
+#12 63.07 github.com/oxia-db/oxia/oxiad/coordinator/runtime/balancer/model
+#12 63.08 github.com/hashicorp/hcl/hcl/ast
+#12 63.09 github.com/hashicorp/hcl/hcl/scanner
+#12 63.09 github.com/hashicorp/hcl/json/token
+#12 63.12 github.com/hashicorp/hcl/json/scanner
+#12 63.12 github.com/spf13/afero/internal/common
+#12 63.12 github.com/hashicorp/hcl/hcl/parser
+#12 63.14 github.com/spf13/afero/mem
+#12 63.15 github.com/hashicorp/hcl/json/parser
+#12 63.15 golang.org/x/text/runes
+#12 63.17 github.com/hashicorp/hcl/hcl/printer
+#12 63.20 github.com/spf13/cast
+#12 63.20 github.com/hashicorp/hcl
+#12 63.21 github.com/spf13/afero
+#12 63.24 github.com/oxia-db/oxia/oxiad/coordinator/runtime/balancer/selector
+#12 63.25 github.com/oxia-db/oxia/oxiad/coordinator/runtime/balancer/state
+#12 63.29 github.com/spf13/jwalterweatherman
+#12 63.30 gopkg.in/yaml.v2
+#12 63.31 github.com/oxia-db/oxia/cmd/health
+#12 63.34 github.com/HdrHistogram/hdrhistogram-go
+#12 63.41 github.com/bmizerany/perks/quantile
+#12 63.41 github.com/oxia-db/oxia/common/proto/compat
+#12 63.42 github.com/oxia-db/oxia/oxiad/coordinator/runtime/balancer/selector/single
+#12 63.44 github.com/oxia-db/oxia/oxiad/coordinator/runtime/balancer/selector/leader
+#12 63.44 github.com/oxia-db/oxia/cmd/perf
+#12 63.44 github.com/oxia-db/oxia/oxiad/common/feature
+#12 63.46 github.com/emirpasic/gods/v2/trees
+#12 63.48 github.com/emirpasic/gods/v2/trees/redblacktree
+#12 63.52 github.com/edsrzf/mmap-go
+#12 63.59 github.com/oxia-db/oxia/oxiad/dataserver/assignment
+#12 63.60 github.com/oxia-db/oxia/oxiad/dataserver/wal/codec
+#12 63.61 github.com/oxia-db/oxia/oxiad/dataserver/rpc
+#12 63.62 github.com/spf13/viper
+#12 63.64 go.uber.org/automaxprocs/internal/cgroups
+#12 63.64 github.com/oxia-db/oxia/oxiad/dataserver/wal
+#12 63.64 github.com/oxia-db/oxia/oxiad/coordinator/runtime/balancer/selector/ensemble
+#12 63.68 go.uber.org/automaxprocs/internal/runtime
+#12 63.69 go.uber.org/automaxprocs/maxprocs
+#12 63.82 github.com/oxia-db/oxia/oxiad/dataserver/constant
+#12 63.82 github.com/oxia-db/oxia/cmd/wal/perf
+#12 63.82 github.com/oxia-db/oxia/cmd/wal/scan
+#12 63.82 github.com/oxia-db/oxia/cmd/wal/truncate
+#12 63.85 github.com/oxia-db/oxia/cmd/wal
+#12 66.30 github.com/DataDog/zstd
+#12 66.42 github.com/cockroachdb/pebble/v2/internal/compression
+#12 66.44 github.com/cockroachdb/pebble/v2/sstable/block
+#12 66.56 github.com/cockroachdb/pebble/v2/sstable/valblk
+#12 66.56 github.com/cockroachdb/pebble/v2/sstable/rowblk
+#12 66.56 github.com/cockroachdb/pebble/v2/sstable/colblk
+#12 66.70 github.com/cockroachdb/pebble/v2/sstable/blob
+#12 66.78 github.com/cockroachdb/pebble/v2/internal/blobtest
+#12 66.80 github.com/cockroachdb/pebble/v2/sstable
+#12 67.16 github.com/cockroachdb/pebble/v2/rangekey
+#12 67.16 github.com/cockroachdb/pebble/v2/sstable/compressionanalyzer
+#12 67.16 github.com/cockroachdb/pebble/v2/internal/manifest
+#12 67.48 github.com/cockroachdb/pebble/v2/internal/overlap
+#12 67.48 github.com/cockroachdb/pebble/v2/internal/keyspan/keyspanimpl
+#12 67.48 github.com/cockroachdb/pebble/v2/internal/compact
+#12 67.48 github.com/cockroachdb/pebble/v2/tool/logs
+#12 67.55 github.com/cockroachdb/pebble/v2/internal/rangekeystack
+#12 67.67 github.com/cockroachdb/pebble/v2
+#12 68.78 github.com/oxia-db/oxia/oxiad/dataserver/database/kvstore
+#12 68.78 github.com/cockroachdb/pebble/v2/cockroachkvs
+#12 68.83 github.com/cockroachdb/pebble/v2/tool
+#12 69.04 github.com/oxia-db/oxia/oxiad/coordinator/metadata/provider/raft
+#12 69.04 github.com/oxia-db/oxia/oxiad/dataserver/database
+#12 69.11 github.com/oxia-db/oxia/oxiad/coordinator/metadata
+#12 69.20 github.com/oxia-db/oxia/oxiad/dataserver/controller/statemachine
+#12 69.23 github.com/oxia-db/oxia/oxiad/dataserver/controller/lead
+#12 69.31 github.com/oxia-db/oxia/cmd/pebble
+#12 69.36 github.com/oxia-db/oxia/oxiad/coordinator/runtime/autosplit
+#12 69.36 github.com/oxia-db/oxia/oxiad/coordinator/runtime/balancer
+#12 69.36 github.com/oxia-db/oxia/oxiad/coordinator/runtime/controller/shard
+#12 69.41 github.com/oxia-db/oxia/oxiad/dataserver/controller/follow
+#12 69.54 github.com/oxia-db/oxia/oxiad/dataserver/controller
+#12 69.61 github.com/oxia-db/oxia/oxiad/dataserver
+#12 69.63 github.com/oxia-db/oxia/oxiad/coordinator/runtime
+#12 69.76 github.com/oxia-db/oxia/cmd/server
+#12 69.76 github.com/oxia-db/oxia/cmd/standalone
+#12 69.78 github.com/oxia-db/oxia/oxiad/coordinator/reconciler
+#12 69.89 github.com/oxia-db/oxia/oxiad/coordinator
+#12 70.03 github.com/oxia-db/oxia/cmd/coordinator
+#12 70.13 github.com/oxia-db/oxia/cmd
+#12 DONE 75.3s
+
+#13 [runtime 2/8] RUN apk add --no-cache bash bash-completion jq
+#13 CACHED
+
+#14 [runtime 3/8] RUN apk upgrade --no-cache
+#14 CACHED
+
+#15 [runtime 4/8] WORKDIR /oxia
+#15 CACHED
+
+#16 [runtime 5/8] COPY --from=build /src/oxia/bin/oxia /oxia/bin/oxia
+#16 DONE 0.1s
+
+#17 [runtime 6/8] COPY --from=build /src/oxia/conf/coordinator.yaml /oxia/conf/coordinator.yaml
+#17 DONE 0.0s
+
+#18 [runtime 7/8] COPY --from=build /src/oxia/conf/dataserver.yaml /oxia/conf/dataserver.yaml
+#18 DONE 0.0s
+
+#19 [runtime 8/8] RUN oxia completion bash > ~/.bashrc
+#19 DONE 0.1s
+
+#20 exporting to image
+#20 exporting layers 0.1s done
+#20 writing image sha256:1b7d906c4a08bbf6cc450dda035c48c6b23c94525de8a9d9e0c86bba087cde05 done
+#20 naming to docker.io/library/ndip3-async-control-1791705988-13528-oxia done
+#20 DONE 0.1s
+
+#21 resolving provenance for metadata file
+#21 DONE 0.0s
+ Image ndip3-async-control-1791705988-13528-oxia Built 
+ Network ndip3-async-control-1791705988-13528_default Creating 
+ Network ndip3-async-control-1791705988-13528_default Creating 
+ Network ndip3-async-control-1791705988-13528_default Created 
+ Network ndip3-async-control-1791705988-13528_default Created 
+ Container ndip3-async-control-1791705988-13528-oxia-1 Creating 
+ Container ndip3-async-control-1791705988-13528-oxia-1 Created 
+ Container ndip3-async-control-1791705988-13528-oxia-1 Starting 
+ Container ndip3-async-control-1791705988-13528-oxia-1 Started 
+[{"ID":"sha256:1b7d906c4a08bbf6cc450dda035c48c6b23c94525de8a9d9e0c86bba087cde05","ContainerName":"ndip3-async-control-1791705988-13528-oxia-1","Repository":"ndip3-async-control-1791705988-13528-oxia","Tag":"latest","Platform":"linux/arm64","Size":109160019,"Created":"2026-10-11T08:08:15.961694426Z","LastTagTime":"2026-10-11T08:08:16.109011967Z"}]
+
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :checkstyleMain UP-TO-DATE
+> Task :checkstyleTest
+
+BUILD SUCCESSFUL in 29s
+15 actionable tasks: 4 executed, 11 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+ Container ndip3-async-control-1791705988-13528-oxia-1 Stopping 
+ Container ndip3-async-control-1791705988-13528-oxia-1 Stopped 
+ Container ndip3-async-control-1791705988-13528-oxia-1 Removing 
+ Container ndip3-async-control-1791705988-13528-oxia-1 Removed 
+ Network ndip3-async-control-1791705988-13528_default Removing 
+ Network ndip3-async-control-1791705988-13528_default Removed 
+Untagged: ndip3-async-control-1791705988-13528-oxia:latest
+Deleted: sha256:1b7d906c4a08bbf6cc450dda035c48c6b23c94525de8a9d9e0c86bba087cde05
+
+Actual Owner/Source/Store cut validation; history futures/issuer/pins remain fixtures. No production/publication/install promotion.
+
+XML {"name": "com.nereusstream.delay.runtime.TargetQuotaGrantStoreTest", "tests": "2", "failures": "0", "errors": "0", "skipped": "0", "timestamp": "2026-10-11T08:08:34.208Z"} sha256=c116867f44981c913b6feee0382f8c75de97dd7277f1e8284b98917bb8ab9d2c
+src/main/java/com/nereusstream/delay/ownership/TargetCheckpointControlInputs.java sha256=0abef7adf21fafbf4984407007f423c48670231a7e4c229781ba2aa54f96e488
+src/main/java/com/nereusstream/delay/ownership/TargetSourceApplyRuntime.java sha256=5b4ba41d5369040bb3271485845fce73786576df465b511792a5c5ca85819d92
+src/main/java/com/nereusstream/delay/ownership/TargetWorkerShardRuntime.java sha256=1427354d6f5c84e3c46835e698a82ba3d2bf696cc657c047fa550cc973d14d5e

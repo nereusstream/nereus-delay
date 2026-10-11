@@ -286,6 +286,21 @@ public final class TargetWorkerShardRuntime
         target.requireCheckpointInputsCurrent(budget, cursor, ownerClock);
     }
 
+    synchronized TargetCheckpointControlInputs.Cut captureCheckpointControlInputs(final BoundedReadBudget budget,
+            final com.nereusstream.delay.store.TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits,
+            final LongSupplier ownerClock) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        return target.captureCheckpointControlInputs(budget, ledgerLimits, ownerClock);
+    }
+
+    synchronized void requireCheckpointControlInputsCurrent(final BoundedReadBudget budget,
+            final TargetCheckpointControlInputs.Cut cut, final LongSupplier ownerClock) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        target.requireCheckpointControlInputsCurrent(budget, cut, ownerClock);
+    }
+
     /** Install before Host ticks begin. History must return promptly and perform its bounded I/O asynchronously. */
     public synchronized TargetPublishRecoveryMaintenance configurePublishRecoveryMaintenance(
             final TargetPublishOutcomeMutationFactory outcomes, final ShardLogMutationAppender appender,
