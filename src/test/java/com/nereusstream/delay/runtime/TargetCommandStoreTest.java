@@ -66,6 +66,7 @@ import com.nereusstream.delay.protocol.ControlRole;
 import com.nereusstream.delay.protocol.ControlRoleSet;
 import com.nereusstream.delay.protocol.ControlTargetKind;
 import com.nereusstream.delay.protocol.ControlTargetRef;
+import com.nereusstream.delay.protocol.CredentialBinding;
 import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.DestinationProfileSemantic;
 import com.nereusstream.delay.protocol.EvidenceVerificationStatus;
@@ -169,6 +170,11 @@ class TargetCommandStoreTest {
     private byte[] connectedOwnerSession;
     private OxiaOwnerLeaseStore takeoverLeases;
     private byte[] takeoverSession;
+    private boolean checkpointAdmissionImages;
+
+    private record CheckpointImageContext(List<ProfileSemanticEnvelope> profiles,
+            List<TargetCheckpointDependencies.ControlImage> controls,
+            InMemoryControlTargetRegistrationAuthority registrations, ControlAuthorizationContext actor) {}
 
     @org.junit.jupiter.api.Test
     @org.junit.jupiter.api.Tag("real-service")
@@ -208,11 +214,13 @@ class TargetCommandStoreTest {
     @org.junit.jupiter.api.Test
     @org.junit.jupiter.api.Tag("real-service")
     void realOxiaCheckpointAdmissionAuthenticationPreservesUnknownAndResolvedOriginalSource() throws Exception {
+        checkpointAdmissionImages = true;
         runRealOxiaTargetOutcome(31);
     }
 
     @org.junit.jupiter.api.Test
     void checkpointAdmissionAuthenticationPreservesUnknownAndResolvedOriginalSource() throws Exception {
+        checkpointAdmissionImages = true;
         modifiesActualTimelineOrClaimWithHistoryAndFirstResults(
                 true, false, false, false, false, true, false, 31);
     }
@@ -1334,26 +1342,51 @@ class TargetCommandStoreTest {
                         null);
                 final var otherSigned = signed(otherGrantRequest, bytes(32, 0x82), actor, keys);
                 registrations.register(otherSigned.control());
+                final var checkpointControls = new java.util.ArrayList<TargetCheckpointDependencies.ControlImage>();
+                final var checkpointContext = checkpointAdmissionImages
+                        ? new CheckpointImageContext(List.of(destination, capability), checkpointControls,
+                                registrations, actor) : null;
+                checkpointControls.add(new TargetCheckpointDependencies.ControlImage(
+                        otherSource, otherSigned.mutation()));
                 try (var otherStore = ShardStore.openTarget(config, otherShard, resources)) {
-                    final var otherInitialized = TargetStoreBootstrap.commit(
-                            TargetStoreBootstrap.prepare(
-                                    otherStore,
-                                    otherScope,
-                                    bytes(16, 0xcd),
-                                    new TargetStoreBackend.WriteLimits(64, 2 << 20),
-                                    budget(),
-                                    otherSigned.control(),
-                                    otherSigned.mutation(),
+                    final TargetStoreBootstrap.Prepared otherPrepared;
+                    if (checkpointContext == null) {
+                        otherPrepared = TargetStoreBootstrap.prepare(
+                            otherStore,
+                            otherScope,
+                            bytes(16, 0xcd),
+                            new TargetStoreBackend.WriteLimits(64, 2 << 20),
+                            budget(),
+                            otherSigned.control(),
+                            otherSigned.mutation(),
+                            otherSource,
+                            authority(
+                                    registrations,
+                                    keys,
+                                    actor,
                                     otherSource,
-                                    authority(
-                                            registrations,
-                                            keys,
-                                            actor,
-                                            otherSource,
-                                            otherGrantRequest,
-                                            (a, b, c, d) -> {}),
-                                    (a, b, c) -> {}),
-                            (a, b, c) -> guard());
+                                    otherGrantRequest,
+                                    (a, b, c, d) -> {}),
+                            (a, b, c) -> {});
+                    } else {
+                        final var initialSnapshot = com.nereusstream.delay.protocol.TargetControlSnapshotInput.signed(
+                                otherScope, bytes(16, 0xcd), otherGrantRequest.next().digest(), otherSource,
+                                Bytes.sha256(otherSigned.mutation().canonicalEnvelope()),
+                                List.of(ProtocolTuple.currentSystemMutation(),
+                                        ProtocolTuple.targetMaterializedPublishAdmission()), List.of(),
+                                1, keys.getPrivate());
+                        otherPrepared = TargetStoreBootstrap.prepareWithControlSnapshot(otherStore, otherScope,
+                                bytes(16, 0xcd), new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(),
+                                otherSigned.control(), otherSigned.mutation(), otherSource,
+                                authority(registrations, keys, actor, otherSource, otherGrantRequest,
+                                        (a, b, c, d) -> {}),
+                                (a, b, c) -> {}, initialSnapshot, (input, control, mutation, at) -> {
+                                    assertFalse(Thread.holdsLock(otherStore));
+                                    assertEquals(otherSource, at);
+                                    return keys.getPublic();
+                                });
+                    }
+                    final var otherInitialized = TargetStoreBootstrap.commit(otherPrepared, (a, b, c) -> guard());
                     final var otherTargetGrantRequest = new TargetQuotaGrantControlRequest(
                             new TargetQuotaGrant(
                                     otherScope.forTarget(physical.id()),
@@ -1371,6 +1404,8 @@ class TargetCommandStoreTest {
                             source(otherSource, otherSource.offset() + 1, otherSource.brokerLogAppendTimeEpochMs() + 1);
                     final var otherBackend = otherInitialized.backend();
                     final var otherLineage = otherInitialized.root().recoveryLineage();
+                    checkpointControls.add(new TargetCheckpointDependencies.ControlImage(
+                            otherGrantAt, otherTargetSigned.mutation()));
                     final var otherGrants = new TargetQuotaGrantStore(otherBackend, otherScope, otherLineage, 16, 1);
                     assertEquals(
                             StableCode.OK,
@@ -1582,6 +1617,8 @@ class TargetCommandStoreTest {
                             otherScheduleAt,
                             otherScheduleAt.offset() + 1,
                             otherScheduleAt.brokerLogAppendTimeEpochMs() + 1);
+                    checkpointControls.add(new TargetCheckpointDependencies.ControlImage(
+                            otherTargetGrantAt, otherTargetGrantSigned.mutation()));
                     final var otherPhysicalGrants = new TargetQuotaGrantStore(
                             otherBackend, otherScope, otherLineage, 16, 1);
                     assertEquals(
@@ -1696,7 +1733,7 @@ class TargetCommandStoreTest {
                             otherTargetMembershipAt.brokerLogAppendTimeEpochMs() + 1);
                     final var otherTargetIntent = CanonicalScheduleIntent.create(
                             destination.ref(),
-                            priorIntent.retryPolicy(),
+                            checkpointContext == null ? priorIntent.retryPolicy() : otherRetryPolicy.ref(),
                             otherTargetDeliverAt,
                             otherTargetDeliverAt + 2000,
                             priorIntent.deliveryMode(),
@@ -3011,7 +3048,8 @@ class TargetCommandStoreTest {
                                         takeoverLeases == null ? leases : takeoverLeases,
                                         takeoverSession == null ? bytes(32, 0xF1) : takeoverSession,
                                         resources, workerClasses, admission, replacementOwnerIdentity[0], keys,
-                                        otherRetryPolicy, publishFailure == 11, terminalRecovery, publishFailure);
+                                        otherRetryPolicy, publishFailure == 11, terminalRecovery, publishFailure,
+                                        checkpointContext);
                                 claimWorker.pauseNewTurns();
                                 claimWorker.closeSource();
                                 return;
@@ -7278,7 +7316,7 @@ class TargetCommandStoreTest {
             com.nereusstream.delay.store.SharedRocksDbResources resources, WorkClassExecutionRegistry classes,
             TargetAdmissionFixture admission, OwnerIdentity oldOwner, KeyPair keys,
             com.nereusstream.delay.protocol.RetryPolicySemantic policy, boolean loseOwnerDuringLoad,
-            boolean terminalRecovery, int publishFailure) {
+            boolean terminalRecovery, int publishFailure, CheckpointImageContext checkpointContext) {
         final var admissionImage = admission.entry().mutation();
         final var admitted = TargetPublishAdmissionBody.decode(admissionImage.canonicalBody());
         final var journalEvidence = publishFailure >= 31
@@ -7701,7 +7739,7 @@ class TargetCommandStoreTest {
         if (publishFailure >= 20) {
             assertResolvedTargetEvidence(reopened.backend(), store, scope, reopened.root().recoveryLineage(), worker,
                     classes, pending, admissionImage, service, keys, owner, policy,
-                    expectedResolution, expectedCursor, publishFailure, journalEvidence);
+                    expectedResolution, expectedCursor, publishFailure, journalEvidence, checkpointContext);
         }
         final var lateHistory = new java.util.concurrent.CompletableFuture<SystemMutation>();
         final var losingOwner = new TargetCheckpointAdmissionInputs(worker, TargetCommandStoreTest::budget,
@@ -7727,7 +7765,7 @@ class TargetCommandStoreTest {
             java.util.concurrent.atomic.AtomicReference<com.nereusstream.delay.protocol.PublishEvidence>
                     expectedEvidence,
             java.util.concurrent.atomic.AtomicReference<com.nereusstream.delay.protocol.EvidenceCursor> expectedCursor,
-            int mode, TargetJournalEvidenceFixture journalEvidence) {
+            int mode, TargetJournalEvidenceFixture journalEvidence, CheckpointImageContext checkpointContext) {
         final var body = TargetPublishAdmissionBody.decode(admission.canonicalBody());
         final boolean published = mode == 20 || mode == 23 || mode == 24 || mode == 31;
         final boolean permanent = mode != 22 && mode != 33 && !published;
@@ -7755,7 +7793,7 @@ class TargetCommandStoreTest {
                 new byte[] {TargetKeyCodec.RESULT_SYSTEM_TAG, TargetKeyCodec.KEY_FORMAT}, position.logicalId());
         final byte[] unknownFirstBytes = store.get(ColumnFamily.DEDUPE, unknownFirstKey);
         final var collectingUnknown = assertRetainedAdmissionInput(
-                backend, store, scope, lineage, worker, admission, held, keys);
+                backend, store, scope, lineage, worker, admission, held, keys, policy, checkpointContext);
         final var prior = (KafkaSourcePosition) store.appliedShardLogPosition();
         final var at = source(prior, prior.offset() + 1, prior.brokerPersistenceTimeEpochMs() + 1);
         final long observed = Math.max(at.brokerPersistenceTimeEpochMs(), body.decisionTime().latestEpochMs());
@@ -7888,7 +7926,7 @@ class TargetCommandStoreTest {
         assertThrows(IllegalStateException.class, () -> store.recordEvidenceCursors(List.of()));
         assertEquals(beforeSeedBypass, store.latestSequenceNumber());
         final var collectingResolved = assertRetainedAdmissionInput(
-                backend, store, scope, lineage, worker, admission, resolved, keys);
+                backend, store, scope, lineage, worker, admission, resolved, keys, policy, checkpointContext);
         final byte[] budgetBefore = store.get(ColumnFamily.META, attemptKey);
         final var firstAdmission = TargetResultRecord.decode(TargetValueEnvelope.decode(
                 store.get(ColumnFamily.DEDUPE, systemKey(admission)), TargetResultRecord.VALUE_TYPE).payload());
@@ -7940,7 +7978,8 @@ class TargetCommandStoreTest {
 
     private static CheckpointInputFixture assertRetainedAdmissionInput(
             TargetStoreBackend backend, ShardStore store, TargetQuotaScope scope, byte[] lineage,
-            TargetWorkerShardRuntime worker, SystemMutation admission, TargetQuotaAttemptBudget current, KeyPair keys) {
+            TargetWorkerShardRuntime worker, SystemMutation admission, TargetQuotaAttemptBudget current, KeyPair keys,
+            com.nereusstream.delay.protocol.RetryPolicySemantic policy, CheckpointImageContext checkpointContext) {
         final var discovery = new TargetPublishRecoveryDiscovery(backend, scope, lineage);
         final long before = store.latestSequenceNumber();
         final var limited = discovery.scanRetainedInputs(
@@ -8098,14 +8137,107 @@ class TargetCommandStoreTest {
             assertEquals(TargetCheckpointAdmissionInputs.Status.FAILED, rejected.runTurn().status());
             assertTrue(rejected.result().isEmpty());
         }
+        if (checkpointContext != null) {
+            assertNonemptyAdmissionImage(store, scope, lineage, dependencies, images, current, keys, policy,
+                    checkpointContext, originalHistory, originalAuthority);
+        }
+        final long beforeChangingHistory = store.latestSequenceNumber();
         final var changingHistory = new java.util.concurrent.CompletableFuture<SystemMutation>();
         final var changing = new TargetCheckpointAdmissionInputs(worker, TargetCommandStoreTest::budget,
                 ref -> changingHistory, new TargetCheckpointAdmissionInputs.Limits(4, 32L << 20), () -> 102);
         assertEquals(TargetCheckpointAdmissionInputs.Status.DISCOVERED, changing.runTurn().status());
         assertEquals(TargetCheckpointAdmissionInputs.Status.LOADING, changing.runTurn().status());
-        assertEquals(before, store.latestSequenceNumber());
+        assertEquals(beforeChangingHistory, store.latestSequenceNumber());
         // Caller changes the actual Store while this original-cut collection is waiting for its next turn.
         return new CheckpointInputFixture(changing, changingHistory, collector, inputs);
+    }
+
+    /** Full immutable nonempty image read; catalog/history/key/permission providers remain test fixtures. */
+    private static void assertNonemptyAdmissionImage(ShardStore store, TargetQuotaScope scope, byte[] lineage,
+            TargetCheckpointDependencies dependencies, List<TargetCheckpointDependencies.AdmissionImage> images,
+            TargetQuotaAttemptBudget current, KeyPair keys,
+            com.nereusstream.delay.protocol.RetryPolicySemantic policy, CheckpointImageContext context,
+            TargetCheckpointDependencies.AdmissionHistoryAuthority history,
+            TargetPublishAdmissionVerifier.Authority admissions) {
+        final var physicalLimits = new CheckpointManifestLimits(1_000, 256L << 20, 256L << 20,
+                1_024, 32 << 20, 1_000, 1_024);
+        final var quotaLimits = new TargetCheckpointRootVerifier.QuotaAuditLimits(100_000, 256L << 20);
+        final var ledgerLimits = new TargetCheckpointRootVerifier.LedgerAuditLimits(
+                100_000, 256L << 20, 500_000, 256L << 20);
+        final var semanticLimits = new com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.Limits(
+                256, 32 << 20, 32L << 20);
+        final ProfileCatalog profiles = new ProfileCatalog() {
+            @Override
+            public ProfileSemanticEnvelope resolve(ProfileRef ref) {
+                return context.profiles().stream().filter(value -> value.ref().equals(ref)).findFirst().orElse(null);
+            }
+
+            @Override
+            public CredentialBinding resolveBinding(ProfileRef ref, long generation) {
+                throw new AssertionError("semantic collection must not read private credentials");
+            }
+
+            @Override
+            public com.nereusstream.delay.protocol.CredentialBindingHead resolveHead(ProfileRef ref) {
+                throw new AssertionError("semantic collection must not read mutable credential head");
+            }
+
+            @Override
+            public com.nereusstream.delay.protocol.CredentialBindingProtection resolveProtection(
+                    ProfileRef ref, long generation) {
+                throw new AssertionError("protection belongs to the external fixture guard");
+            }
+        };
+        final var controls = new com.nereusstream.delay.store.TargetCheckpointControlAuthority(
+                context.registrations(), (version, at) -> version == 1 ? keys.getPublic() : null,
+                (input, first) -> {},
+                (registered, input) -> new com.nereusstream.delay.store.TargetCheckpointControlAuthority.Authorization(
+                        context.actor(), ignored -> true), budget(), () -> assertFalse(Thread.holdsLock(store)));
+        final var semantics = com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.collect(
+                dependencies, images, profiles, (ref, at) -> ref.matches(policy) ? policy : null,
+                ref -> { throw new AssertionError("inline fixture has no Trust Set"); }, budget(), semanticLimits,
+                () -> assertFalse(Thread.holdsLock(store)))
+                .withControlInputs(dependencies, context.controls(), budget(), semanticLimits, controls,
+                        () -> assertFalse(Thread.holdsLock(store)));
+        final byte[] checkpointId = bytes(16, 0x40 + current.phase().ordinal());
+        final Path image = store.dbPath().getParent().resolve("admission-image-" + current.phase());
+        com.nereusstream.delay.store.TargetCheckpointCandidateTestBridge.createSemantic(store, image, checkpointId,
+                lineage, physicalLimits, quotaLimits, ledgerLimits, semantics, semanticLimits);
+        final long afterCreate = store.latestSequenceNumber();
+        final var files = com.nereusstream.delay.store.CheckpointFileInventory.collect(image, physicalLimits).stream()
+                .map(file -> new com.nereusstream.delay.store.CheckpointManifest.FileEntry(file.name(), file.length(),
+                        file.checksum(), Bytes.utf8("candidate/" + file.name()), Bytes.utf8("immutable-1"), null))
+                .toList();
+        final var manifest = new com.nereusstream.delay.store.CheckpointManifest(checkpointId, lineage, 0, null, null,
+                new com.nereusstream.delay.store.CheckpointManifest.CreatedBy(bytes(8, 0x41), bytes(8, 0x42),
+                        store.runtimeMetadata().lastOpenedOwnerEpoch()),
+                new com.nereusstream.delay.store.CheckpointManifest.CreatedAt(
+                        900, 1_000, "CERTIFIED_HOST_CLOCK", bytes(8, 0x43), 1, 2, 3, bytes(32, 0x44), 0, null),
+                scope.shard(), store.metadata().dbIdentity(), store.metadata().storeIncarnationUuid(), 2,
+                store.shardMutationSequence(), store.appliedShardLogPosition(), semantics.snapshotDigest(),
+                semantics.semanticInputsDigest(), store.runtimeMetadata().evidenceCursors(), files);
+        final var originalControlProof = TargetCheckpointRootVerifier.auditManifestControlAuthentication(
+                image, manifest,
+                physicalLimits, quotaLimits, ledgerLimits, semanticLimits, controls,
+                (input, registered, mutation, at) -> keys.getPublic());
+        final var proof = TargetCheckpointRootVerifier.auditManifestAdmissionAuthentication(image, manifest,
+                physicalLimits, quotaLimits, ledgerLimits, semanticLimits, budget(), history, admissions,
+                () -> assertFalse(Thread.holdsLock(store)));
+        assertEquals(1, proof.dependencies().admissions().size());
+        assertEquals(current.phase(), proof.dependencies().admissions().getFirst().attempt().phase());
+        assertEquals(current.effectiveCharge(),
+                proof.dependencies().admissions().getFirst().attempt().effectiveCharge());
+        assertEquals(dependencies.admissions().getFirst().first().mutation().source(),
+                proof.dependencies().admissions().getFirst().first().mutation().source());
+        assertEquals(originalControlProof.root().source(), proof.root().source());
+        assertEquals(afterCreate, store.latestSequenceNumber());
+        assertThrows(IllegalArgumentException.class,
+                () -> TargetCheckpointRootVerifier.auditManifestAdmissionAuthentication(image, manifest,
+                        physicalLimits, quotaLimits, ledgerLimits, semanticLimits, budget(), history,
+                        (a, b, c, d) -> null, () -> {}));
+        assertEquals(afterCreate, store.latestSequenceNumber());
+        System.out.println("Nonempty Target Manifest/image Control and Admission authentication passed for "
+                + current.phase() + "; original first Source/charge retained.");
     }
 
     /** Actual atomic Store/Claim/Admission paths; physical/time/key/cursor/commit authorities are fixtures. */

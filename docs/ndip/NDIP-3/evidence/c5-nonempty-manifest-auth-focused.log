@@ -1,0 +1,314 @@
+C5 nonempty immutable Target Manifest/companion authentication scoped receipt.
+Baseline e3d2ce6d23d74e3be2cfe774dbfcff5eea91decd; main, single agent.
+Existing production APIs unchanged; dedicated test fixture/bootstrap/catalog and test bridge expanded. All format2 publication/install/Floor gates remain blocked; centralized validation deferred.
+
+Command: GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew test --tests com.nereusstream.delay.runtime.TargetCommandStoreTest.checkpointAdmissionAuthenticationPreservesUnknownAndResolvedOriginalSource [verified/corrected also checkstyleTest] --no-daemon --console=plain
+
+/private/tmp/ndip3-nonempty-manifest-focused.log
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+
+> Task :compileTestJava
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:1392: 错误: 找不到符号
+                            otherGrantAt, otherTargetSigned.mutation()));
+                            ^
+  符号:   变量 otherGrantAt
+  位置: 类 TargetCommandStoreTest
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:1392: 错误: 找不到符号
+                            otherGrantAt, otherTargetSigned.mutation()));
+                                          ^
+  符号:   变量 otherTargetSigned
+  位置: 类 TargetCommandStoreTest
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:1402: 错误: 找不到符号
+                                                    otherGrantAt,
+                                                    ^
+  符号:   变量 otherGrantAt
+  位置: 类 TargetCommandStoreTest
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:1400: 错误: 找不到符号
+                                                    otherTargetSigned.control(),
+                                                    ^
+  符号:   变量 otherTargetSigned
+  位置: 类 TargetCommandStoreTest
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:1401: 错误: 找不到符号
+                                                    otherTargetSigned.mutation(),
+                                                    ^
+  符号:   变量 otherTargetSigned
+  位置: 类 TargetCommandStoreTest
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:1407: 错误: 找不到符号
+                                                            otherGrantAt,
+                                                            ^
+  符号:   变量 otherGrantAt
+  位置: 类 TargetCommandStoreTest
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:1408: 错误: 找不到符号
+                                                            otherTargetGrantRequest,
+                                                            ^
+  符号:   变量 otherTargetGrantRequest
+  位置: 类 TargetCommandStoreTest
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:1417: 错误: 找不到符号
+                                                    otherTargetGrantRequest
+                                                    ^
+  符号:   变量 otherTargetGrantRequest
+  位置: 类 TargetCommandStoreTest
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:1432: 错误: 找不到符号
+                            otherGrantAt, otherGrantAt.offset() + 1, otherGrantAt.brokerLogAppendTimeEpochMs() + 1);
+                            ^
+  符号:   变量 otherGrantAt
+  位置: 类 TargetCommandStoreTest
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:1432: 错误: 找不到符号
+                            otherGrantAt, otherGrantAt.offset() + 1, otherGrantAt.brokerLogAppendTimeEpochMs() + 1);
+                                          ^
+  符号:   变量 otherGrantAt
+  位置: 类 TargetCommandStoreTest
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:1432: 错误: 找不到符号
+                            otherGrantAt, otherGrantAt.offset() + 1, otherGrantAt.brokerLogAppendTimeEpochMs() + 1);
+                                                                     ^
+  符号:   变量 otherGrantAt
+  位置: 类 TargetCommandStoreTest
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:1549: 错误: 找不到符号
+                            .activate(capability.ref(), otherGrantAt);
+                                                        ^
+  符号:   变量 otherGrantAt
+  位置: 类 TargetCommandStoreTest
+12 个错误
+
+> Task :compileTestJava FAILED
+
+[Incubating] Problems report is available at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':compileTestJava'.
+> Compilation failed; see the compiler output below.
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:1392: 错误: 找不到符号
+                              otherGrantAt, otherTargetSigned.mutation()));
+                              ^
+    符号:   变量 otherGrantAt
+    位置: 类 TargetCommandStoreTest
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:1392: 错误: 找不到符号
+                              otherGrantAt, otherTargetSigned.mutation()));
+                                            ^
+    符号:   变量 otherTargetSigned
+    位置: 类 TargetCommandStoreTest
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:1402: 错误: 找不到符号
+                                                      otherGrantAt,
+                                                      ^
+    符号:   变量 otherGrantAt
+    位置: 类 TargetCommandStoreTest
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:1400: 错误: 找不到符号
+                                                      otherTargetSigned.control(),
+                                                      ^
+    符号:   变量 otherTargetSigned
+    位置: 类 TargetCommandStoreTest
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:1401: 错误: 找不到符号
+                                                      otherTargetSigned.mutation(),
+                                                      ^
+    符号:   变量 otherTargetSigned
+    位置: 类 TargetCommandStoreTest
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:1407: 错误: 找不到符号
+                                                              otherGrantAt,
+                                                              ^
+    符号:   变量 otherGrantAt
+    位置: 类 TargetCommandStoreTest
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:1408: 错误: 找不到符号
+                                                              otherTargetGrantRequest,
+                                                              ^
+    符号:   变量 otherTargetGrantRequest
+    位置: 类 TargetCommandStoreTest
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:1417: 错误: 找不到符号
+                                                      otherTargetGrantRequest
+                                                      ^
+    符号:   变量 otherTargetGrantRequest
+    位置: 类 TargetCommandStoreTest
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:1432: 错误: 找不到符号
+                              otherGrantAt, otherGrantAt.offset() + 1, otherGrantAt.brokerLogAppendTimeEpochMs() + 1);
+                              ^
+    符号:   变量 otherGrantAt
+    位置: 类 TargetCommandStoreTest
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:1432: 错误: 找不到符号
+                              otherGrantAt, otherGrantAt.offset() + 1, otherGrantAt.brokerLogAppendTimeEpochMs() + 1);
+                                            ^
+    符号:   变量 otherGrantAt
+    位置: 类 TargetCommandStoreTest
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:1432: 错误: 找不到符号
+                              otherGrantAt, otherGrantAt.offset() + 1, otherGrantAt.brokerLogAppendTimeEpochMs() + 1);
+                                                                       ^
+    符号:   变量 otherGrantAt
+    位置: 类 TargetCommandStoreTest
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:1549: 错误: 找不到符号
+                              .activate(capability.ref(), otherGrantAt);
+                                                          ^
+    符号:   变量 otherGrantAt
+    位置: 类 TargetCommandStoreTest
+  12 个错误
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 18s
+10 actionable tasks: 3 executed, 7 up-to-date
+
+/private/tmp/ndip3-nonempty-manifest-verified.log
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+
+> Task :test
+
+TargetCommandStoreTest > checkpointAdmissionAuthenticationPreservesUnknownAndResolvedOriginalSource() FAILED
+    java.lang.IllegalStateException at TargetCommandStoreTest.java:8196
+
+1 test completed, 1 failed
+
+> Task :test FAILED
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':test'.
+> There were failing tests. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/tests/test/index.html
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 20s
+13 actionable tasks: 3 executed, 10 up-to-date
+
+/private/tmp/ndip3-nonempty-manifest-catalog.log
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :checkstyleTest
+
+BUILD SUCCESSFUL in 30s
+14 actionable tasks: 4 executed, 10 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+
+First compile omitted existing target-grant declarations during test-only bootstrap extraction; restored exact prior declarations. Next actual image failed closed on an unresolved synthetic Retry Policy reference. Dedicated focused Schedule now uses its real resolvable original policy before Source submission; no stored-record rewrite or weaker catalog guard. The normal parameter matrix keeps legacy bootstrap/intent data. Final local one test and test style pass, exercising two Budget phases in the same scenario.
+LOCAL_XML {"tests": "1", "failures": "0", "errors": "0", "skipped": "0"} SHA256=93c4b271459a1e48163d3f35ddcefad3765fc3a7f96c885801878ee9bfd14740
+SYSTEM_OUT:
+Nonempty Target Manifest/image Control and Admission authentication passed for UNKNOWN; original first Source/charge retained.
+Nonempty Target Manifest/image Control and Admission authentication passed for RESOLVED_AWAITING_FLOOR; original first Source/charge retained.
+
+SOURCE_SHA256 c482e2577ed1186e1bd26622a13ee5d562810d96ffd338120479a7f9549b2059 src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java
+SOURCE_SHA256 e92f59f315444f2252118f965b2a46a6ba44be23418050021f48f4b63ae15f53 src/test/java/com/nereusstream/delay/store/TargetCheckpointCandidateTestBridge.java
+SOURCE_SHA256 28dcf6c7dab58ab12b4e336ca332638fa7e13a3921ee14b1e989aca3e02d19ac src/main/java/com/nereusstream/delay/store/TargetCheckpointRootVerifier.java
+SOURCE_SHA256 bdc9a770ca4192ae813868f25e48cd8789ec0f01af6af0c80a55b7716a0bc738 src/main/java/com/nereusstream/delay/store/TargetCheckpointDependencies.java
+SOURCE_SHA256 69520fa38eb584d2030855e368746d42545fba2820cc844774bb818df577ff23 src/main/java/com/nereusstream/delay/store/TargetCheckpointSemanticSnapshot.java
+SOURCE_SHA256 1cfe92f61b6d99bf519cb48410a89e30eda04bca99dac7571bf82b2d59c92f9a src/main/java/com/nereusstream/delay/store/TargetCheckpointControlAuthority.java
+SOURCE_SHA256 3fd53c4a96a3090442fb4e80ba2ffa7a6de39c99354206b6ca805255d0efa1b9 src/main/java/com/nereusstream/delay/store/ShardStore.java
+
+Scope: dedicated first grant atomically persists signed META10; actual Schedules/Claim/materialized Admission/UNKNOWN/resolution feed complete guarded ledger, actual Profile/Retry values, original Control/Admission frames and bounded schema2 companion. Existing atomic checkpoint primitive writes an immutable candidate, complete file inventory produces a Manifest draft, physical/ledger/companion re-read executes Control/initial and nonempty Admission authentication. Both UNKNOWN and RESOLVED_AWAITING_FLOOR retain original first Source, Budget phase and effective charge; auth after creation makes zero live writes. Unavailable original Admission authority rejects. Object refs are immutable test placeholders, no upload/catalog/download/install. History/reader/Profile/key/roles/time/materialization/pins are fixtures. Old unmaterialized closure and complete semantic/Outcome/Artifact/credential/protection/production paths remain required.
+
+Command: GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew checkDocumentation --no-daemon --console=plain
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+
+> Task :testNdip1ImplementationVerifier
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 55.878s
+
+OK
+
+> Task :testNdip1PackageVerifier
+..............
+----------------------------------------------------------------------
+Ran 14 tests in 0.075s
+
+OK
+
+> Task :verifyNdip1HistoricalClosure
+proposal=NDIP-1
+receipt_status=IMPLEMENTED
+lifecycle_authority=true
+implementation=CLOSED
+lifecycle=CLOSED
+certified_commit=b4e077e9978f262cdb93cf3562ea12eee32430e2
+runtime_source_sha256=03ce17ede4b9e70e2f70dd2bbef681087f529159549a4cd979d0d7aa34fa9948
+runtime_source_files=835
+implemented_package_sha256=792ca54e239d884ba6f95315747f565bab57ee0fc02338a77369cb19bbe8e8a7
+staging_run=20260901055333-78920
+deployment=SEPARATE_FUTURE_WORK
+performance_and_scale=SEPARATE_FUTURE_WORK
+production_rollout=SEPARATE_FUTURE_WORK
+production_authority=false
+
+> Task :verifyNdip1PackageAccepted
+proposal=NDIP-1
+receipt_status=ACCEPTED
+authority=true
+package_source_commit=77ffa61136c0cd401244ebea4375a5a18b097b17
+file_sha256 70d9dd7c113fa5f457a20a97996322ef9a2018772efd225aa982c13ec4935140 docs/ndip/NDIP-1/01-调查与决策记录.md
+file_sha256 c167ed42dd29c383c08a8a102f36b0e4deee8ae5c7a5da115a09d04ffcb9fa6f docs/ndip/NDIP-1/02-NDIP-1-Pulsar-Native-Delivery.md
+file_sha256 9affafa81952959d39ed9c09a00abe6b84da4fd3b0b6280422f297684d56f727 docs/ndip/NDIP-1/03-实施计划.md
+file_sha256 2a26c107cd69ee522ea138b3487b8ec206e913acc6ad5b862aa69288ddcaa88e docs/ndip/NDIP-1/04-代码级目标设计.md
+package_sha256=13caab8ecdc201901f06e905f1c0bf9792780e50c6f5948f93abf2bdb8f4d21b
+gate_b=PASS
+implementation=AUTHORIZED
+local_disposable_testing=AUTHORIZED_WITH_EXACT_ATTESTATION
+gate_c=PENDING_DEPLOYMENT
+shadow=BLOCKED_BY_GATE_C
+enabled=BLOCKED_BY_GATE_C_AND_SHADOW_REQUIREMENTS
+
+> Task :verifyNdip2PackageAccepted
+proposal=NDIP-2
+receipt_status=ACCEPTED
+authority=true
+file_sha256 0a105fb2b73d63cabddf42d0ba3d5a9590b4edddd47242495f196bf56d15f642 docs/ndip/NDIP-2/01-NDIP-生命周期与认证源码权威分层.md
+file_sha256 c882ecaa32413cb9e177243cf3efe91b97810c3cc10be81e61e7e458030c4ffa docs/ndip/NDIP-2/02-实施计划.md
+file_sha256 ec1ba68ab3ac91aa667647e6289cd252b99da84d899f42f879821d6e5d7752e9 docs/ndip/NDIP-2/03-代码级目标设计.md
+package_sha256=856e1d768210a31fc9aad811af3a93c1de33189cc03c65bc1e36d57affbf10db
+gate_b=PASS
+implementation=AUTHORIZED
+deployment_authority=false
+
+> Task :checkDocumentation
+
+BUILD SUCCESSFUL in 1m 12s
+6 actionable tasks: 6 executed
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html

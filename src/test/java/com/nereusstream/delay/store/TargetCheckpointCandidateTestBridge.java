@@ -29,4 +29,12 @@ public final class TargetCheckpointCandidateTestBridge {
         return store.reuseTargetCheckpointCandidate(
                 path, checkpointId, lineage, physicalLimits, quotaLimits, ledgerLimits);
     }
+
+    public static Path createSemantic(ShardStore store, Path path, byte[] checkpointId, byte[] lineage,
+            CheckpointManifestLimits physicalLimits, TargetCheckpointRootVerifier.QuotaAuditLimits quotaLimits,
+            TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits, TargetCheckpointSemanticSnapshot snapshot,
+            TargetCheckpointSemanticSnapshot.Limits semanticLimits) {
+        return store.createTargetSemanticCheckpointCandidate(path, checkpointId, lineage, physicalLimits,
+                quotaLimits, ledgerLimits, snapshot, semanticLimits);
+    }
 }
