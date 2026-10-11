@@ -534,7 +534,12 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
                                                     },
                                                     KafkaClientArtifactTargetWorkerSourceSmoke.ownerCommitAuthority(
                                                             leases, active));
-                                        }),
+                                        },
+                                        entry -> new TargetSourceApplyRuntime.OutcomeControl(
+                                                (actualScope, writer, mutation, source) -> {
+                                                    throw new AssertionError("expired Outcome must reject before authority");
+                                                }, KafkaClientArtifactTargetWorkerSourceSmoke.ownerCommitAuthority(
+                                                        leases, active))),
                         new TargetSourceApplyRuntime.Limits(2048, 16L << 20, 60_000_000_000L, 16, 1),
                         System::nanoTime);
                 final var consumer = KafkaClientArtifactTargetWorkerSourceSmoke.newSourceConsumer(
@@ -875,6 +880,8 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
                             + committed.offset() + ". Grant, membership, Owner, signing and time authorities"
                             + " are explicit test fixtures. expiryAuthorityResolutions="
                             + expiryAuthorityResolutions.get() + ".");
+                    verifyRejectedOutcomeHistory(admin, bootstrap, topic, groupId, host, worker, store, scope,
+                            active, keys, leases, appender);
                     }
                 } catch (Exception | Error failure) {
                     primaryFailure = failure;
@@ -1483,6 +1490,90 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
 
         private KafkaSourcePosition position() {
             return (KafkaSourcePosition) sourceEntry.position();
+        }
+    }
+
+    private static void verifyRejectedOutcomeHistory(Admin admin, String bootstrap, String topic, String group,
+            TargetWorkerHostRuntime host, TargetWorkerShardRuntime worker, ShardStore store, TargetQuotaScope scope,
+            com.nereusstream.delay.ownership.OwnerLease active, KeyPair keys, OxiaOwnerLeaseStore leases,
+            com.nereusstream.delay.ownership.ShardLogMutationAppender appender) throws Exception {
+        final byte[] placeholder = com.nereusstream.delay.protocol.CanonicalProtobuf.message(out ->
+                com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(out, 1, new byte[] {1}));
+        final var evidence = new TrustedUtcIntervalEvidence(1, 2,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("k1-expired-outcome-fixture"),
+                1, 1, 1, KafkaClientArtifactTargetWorkerSourceSmoke.bytes(32, 0x71), 0, null);
+        final byte[] body = com.nereusstream.delay.protocol.PublishOutcomeBody.encodeInitial(scope.shard(), 1,
+                KafkaClientArtifactTargetWorkerSourceSmoke.bytes(32, 0x72), 3, 4, StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, null,
+                placeholder, evidence, placeholder);
+        final var decoded = com.nereusstream.delay.protocol.PublishOutcomeBody.decode(body);
+        final var mutation = SystemMutation.signed(scope.shard(), SystemMutationType.PUBLISH_OUTCOME, 1,
+                decoded.initialLogicalOperationIdentity(), body,
+                AuthorIdentity.owner(Bytes.utf8("k1-expired-owner-deployment"), Bytes.utf8("k1-expired-owner-run"),
+                        active.ownerEpoch(), Bytes.sha256(active.leaseToken())).canonicalBytes(), 1, keys.getPrivate());
+        final var append = appender.append(mutation);
+        if (append.disposition()
+                != com.nereusstream.delay.ownership.ShardLogMutationAppender.AppendDisposition.PERSISTED) {
+            throw new IllegalStateException("K1 rejected Outcome fixture did not persist its Source frame");
+        }
+        final var turn = KafkaClientArtifactTargetWorkerSourceSmoke.runUntilAppliedByHost(host);
+        if (turn.appliedOutcome().systemMutationResult().applyStatus() != ApplyStatus.REJECTED
+                || turn.appliedOutcome().systemMutationResult().stableCode()
+                        != StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED) {
+            throw new IllegalStateException("K1 expired Outcome did not persist rejected first result/ACK");
+        }
+        final long before = store.latestSequenceNumber();
+        final var partition = new TopicPartition(topic, scope.shard().partition());
+        final var committed = admin.listConsumerGroupOffsets(group).partitionsToOffsetAndMetadata()
+                .get(10, TimeUnit.SECONDS).get(partition).offset();
+        final Runnable guard = () -> {
+            if (Thread.holdsLock(store) || store.latestSequenceNumber() != before
+                    || !leases.current(scope.shard()).orElseThrow().sameIdentity(active)) {
+                throw new IllegalStateException("K1 Outcome history lost actual Owner/Worker cut");
+            }
+        };
+        final var executor = new java.util.concurrent.ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS,
+                new java.util.concurrent.ArrayBlockingQueue<>(1),
+                new java.util.concurrent.ThreadPoolExecutor.AbortPolicy());
+        try {
+            final var collector = new com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs(worker,
+                    KafkaClientArtifactTargetWorkerSourceSmoke::budget,
+                    new com.nereusstream.delay.store.TargetCheckpointRootVerifier.LedgerAuditLimits(
+                            4096, 32L << 20, 16_384, 32L << 20),
+                    ref -> KafkaClientArtifactTargetAdmissionHistory.readOutcomeAsync(Map.of(
+                            ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap,
+                            ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, org.apache.kafka.common.serialization.ByteArrayDeserializer.class.getName(),
+                            ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, org.apache.kafka.common.serialization.ByteArrayDeserializer.class.getName()),
+                            topic, ref, Duration.ofSeconds(10), guard, executor),
+                    new com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs.Limits(8, 2L << 20),
+                    System::currentTimeMillis);
+            final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
+            while (true) {
+                final var result = collector.runTurn();
+                if (result.failure() != null || System.nanoTime() >= deadline) {
+                    throw new IllegalStateException("K1 original Outcome history did not complete", result.failure());
+                }
+                if (result.status() == com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs.Status.COMPLETE) {
+                    break;
+                }
+                Thread.sleep(1);
+            }
+            final var collected = collector.result().orElseThrow();
+            if (collected.inputs().size() != 1 || store.latestSequenceNumber() != before
+                    || !Arrays.equals(mutation.canonicalEnvelope(),
+                            collected.inputs().getFirst().image().canonicalEnvelope())
+                    || admin.listConsumerGroupOffsets(group).partitionsToOffsetAndMetadata()
+                            .get(10, TimeUnit.SECONDS).get(partition).offset() != committed) {
+                throw new IllegalStateException("K1 Outcome history changed original bytes, Store or group offset");
+            }
+            collected.cut().dependencies().requireOutcomeImages(collected.inputs(), 2L << 20,
+                    KafkaClientArtifactTargetWorkerSourceSmoke.budget(), (input, first) -> null, guard);
+            System.out.println("K1 real rejected Outcome Source/apply/ACK and independent bounded history matched "
+                    + "one actual Worker cut; active group and Store unchanged by history.");
+        } finally {
+            executor.shutdown();
+            if (!executor.awaitTermination(15, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("K1 Outcome history executor did not terminate");
+            }
         }
     }
 

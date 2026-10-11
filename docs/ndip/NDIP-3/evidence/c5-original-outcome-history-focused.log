@@ -1,0 +1,342 @@
+C5 actual original Outcome Source history scoped receipt.
+Baseline 5867db701ebfe70af267d9ba9f32a2f16c35d2ee; main, single agent.
+Central acceptance deferred; all format2 publication/install/Floor/production gates remain blocked.
+
+Commands: GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew test --tests com.nereusstream.delay.runtime.TargetCommandStoreTest.checkpointAdmissionAuthenticationPreservesUnknownAndResolvedOriginalSource --tests com.nereusstream.delay.ownership.OwnedSourceCursorTest checkstyleMain checkstyleTest compileRealPulsar -PpulsarClientClasspath=<locked three P1 jars listed in P1 receipt> --no-daemon --console=plain
+K1 compile: ./gradlew compileRealKafka -PkafkaClientJar=<locked jar listed in K1 receipt> --no-daemon --console=plain
+
+/private/tmp/ndip3-outcome-history-compile.log
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources
+> Task :classes
+> Task :extractIncludeRealPulsarProto UP-TO-DATE
+> Task :extractRealPulsarProto UP-TO-DATE
+> Task :generateRealPulsarProto NO-SOURCE
+> Task :compileRealPulsar
+> Task :extractIncludeRealKafkaProto UP-TO-DATE
+> Task :extractRealKafkaProto UP-TO-DATE
+> Task :generateRealKafkaProto NO-SOURCE
+> Task :compileRealKafka
+
+BUILD SUCCESSFUL in 19s
+13 actionable tasks: 5 executed, 8 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+
+/private/tmp/ndip3-outcome-history-focused.log
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+
+> Task :checkstyleTest
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:8171: 本行字符数 125个，最多：120个。 [LineLength]
+
+> Task :checkstyleTest FAILED
+> Task :checkstyleMain
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':checkstyleTest'.
+> A failure occurred while executing org.gradle.api.plugins.quality.internal.CheckstyleAction
+   > Checkstyle rule violations were found. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/checkstyle/test.html
+     Checkstyle files with violations: 1
+     Checkstyle violations by severity: [error:1]
+
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 36s
+15 actionable tasks: 6 executed, 9 up-to-date
+
+/private/tmp/ndip3-outcome-history-verified.log
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :checkstyleMain UP-TO-DATE
+> Task :extractIncludeRealPulsarProto UP-TO-DATE
+> Task :extractRealPulsarProto UP-TO-DATE
+> Task :generateRealPulsarProto NO-SOURCE
+> Task :compileRealPulsar
+> Task :checkstyleTest
+
+BUILD SUCCESSFUL in 30s
+18 actionable tasks: 5 executed, 13 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+
+/private/tmp/ndip3-outcome-history-k1-final-compile.log
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeRealKafkaProto UP-TO-DATE
+> Task :extractRealKafkaProto UP-TO-DATE
+> Task :generateRealKafkaProto NO-SOURCE
+
+> Task :compileRealKafka FAILED
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetScheduledExpirySmoke.java:735: 错误: 程序包org.apache.kafka.common.serialization.org.apache.kafka.common.serialization不存在
+                                org.apache.kafka.common.serialization.org.apache.kafka.common.serialization.ByteArrayDeserializer.class.getName(),
+                                                                                                           ^
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetScheduledExpirySmoke.java:737: 错误: 程序包org.apache.kafka.common.serialization.org.apache.kafka.common.serialization不存在
+                                org.apache.kafka.common.serialization.org.apache.kafka.common.serialization.ByteArrayDeserializer.class.getName()), topic,
+                                                                                                           ^
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetScheduledExpirySmoke.java:1057: 错误: 程序包org.apache.kafka.common.serialization.org.apache.kafka.common.serialization不存在
+                org.apache.kafka.common.serialization.org.apache.kafka.common.serialization.ByteArrayDeserializer.class.getName());
+                                                                                           ^
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetScheduledExpirySmoke.java:1059: 错误: 程序包org.apache.kafka.common.serialization.org.apache.kafka.common.serialization不存在
+                org.apache.kafka.common.serialization.org.apache.kafka.common.serialization.ByteArrayDeserializer.class.getName());
+                                                                                           ^
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetScheduledExpirySmoke.java:1504: 错误: 找不到符号
+                1, 1, 1, bytes(32, 0x71), 0, null);
+                         ^
+  符号:   方法 bytes(int,int)
+  位置: 类 KafkaClientArtifactTargetScheduledExpirySmoke
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetScheduledExpirySmoke.java:1506: 错误: 找不到符号
+                bytes(32, 0x72), 3, 4, StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, null,
+                ^
+  符号:   方法 bytes(int,int)
+  位置: 类 KafkaClientArtifactTargetScheduledExpirySmoke
+6 个错误
+
+[Incubating] Problems report is available at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':compileRealKafka'.
+> Compilation failed; see the compiler output below.
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetScheduledExpirySmoke.java:1504: 错误: 找不到符号
+                  1, 1, 1, bytes(32, 0x71), 0, null);
+                           ^
+    符号:   方法 bytes(int,int)
+    位置: 类 KafkaClientArtifactTargetScheduledExpirySmoke
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetScheduledExpirySmoke.java:1506: 错误: 找不到符号
+                  bytes(32, 0x72), 3, 4, StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, null,
+                  ^
+    符号:   方法 bytes(int,int)
+    位置: 类 KafkaClientArtifactTargetScheduledExpirySmoke
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetScheduledExpirySmoke.java:735: 错误: 程序包org.apache.kafka.common.serialization.org.apache.kafka.common.serialization不存在
+                                  org.apache.kafka.common.serialization.org.apache.kafka.common.serialization.ByteArrayDeserializer.class.getName(),
+                                                                                                             ^
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetScheduledExpirySmoke.java:737: 错误: 程序包org.apache.kafka.common.serialization.org.apache.kafka.common.serialization不存在
+                                  org.apache.kafka.common.serialization.org.apache.kafka.common.serialization.ByteArrayDeserializer.class.getName()), topic,
+                                                                                                             ^
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetScheduledExpirySmoke.java:1057: 错误: 程序包org.apache.kafka.common.serialization.org.apache.kafka.common.serialization不存在
+                  org.apache.kafka.common.serialization.org.apache.kafka.common.serialization.ByteArrayDeserializer.class.getName());
+                                                                                             ^
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetScheduledExpirySmoke.java:1059: 错误: 程序包org.apache.kafka.common.serialization.org.apache.kafka.common.serialization不存在
+                  org.apache.kafka.common.serialization.org.apache.kafka.common.serialization.ByteArrayDeserializer.class.getName());
+                                                                                             ^
+  6 个错误
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 16s
+10 actionable tasks: 2 executed, 8 up-to-date
+
+/private/tmp/ndip3-outcome-history-k1-fixed-compile.log
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeRealKafkaProto UP-TO-DATE
+> Task :extractRealKafkaProto UP-TO-DATE
+> Task :generateRealKafkaProto NO-SOURCE
+
+> Task :compileRealKafka FAILED
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetScheduledExpirySmoke.java:1504: 错误: 找不到符号
+                1, 1, 1, bytes(32, 0x71), 0, null);
+                         ^
+  符号:   方法 bytes(int,int)
+  位置: 类 KafkaClientArtifactTargetScheduledExpirySmoke
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetScheduledExpirySmoke.java:1506: 错误: 找不到符号
+                bytes(32, 0x72), 3, 4, StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, null,
+                ^
+  符号:   方法 bytes(int,int)
+  位置: 类 KafkaClientArtifactTargetScheduledExpirySmoke
+2 个错误
+
+[Incubating] Problems report is available at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':compileRealKafka'.
+> Compilation failed; see the compiler output below.
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetScheduledExpirySmoke.java:1504: 错误: 找不到符号
+                  1, 1, 1, bytes(32, 0x71), 0, null);
+                           ^
+    符号:   方法 bytes(int,int)
+    位置: 类 KafkaClientArtifactTargetScheduledExpirySmoke
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetScheduledExpirySmoke.java:1506: 错误: 找不到符号
+                  bytes(32, 0x72), 3, 4, StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, null,
+                  ^
+    符号:   方法 bytes(int,int)
+    位置: 类 KafkaClientArtifactTargetScheduledExpirySmoke
+  2 个错误
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 16s
+10 actionable tasks: 2 executed, 8 up-to-date
+
+/private/tmp/ndip3-outcome-history-k1-corrected-compile.log
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeRealKafkaProto UP-TO-DATE
+> Task :extractRealKafkaProto UP-TO-DATE
+> Task :generateRealKafkaProto NO-SOURCE
+> Task :compileRealKafka
+
+BUILD SUCCESSFUL in 16s
+10 actionable tasks: 2 executed, 8 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+
+Initial local functional case passed but one test long line failed style; corrected. K1 fixture compile failed duplicated qualified deserializer names, then unavailable local byte helper; restored original qualified names and reused existing package fixture bytes helper. Final local CommandStore1/OwnedCursor3 =4, zero failure/error/skip, main/test styles and locked K1/P1 compilation pass. No assertions or valid selectors weakened.
+LOCAL_XML TargetCommandStoreTest {"tests": "1", "failures": "0", "errors": "0", "skipped": "0"} SHA256=629abd52f86de62e5c3e253e335a856c74f80b1fb722dec96662822ff6bef054
+LOCAL_XML OwnedSourceCursorTest {"tests": "3", "failures": "0", "errors": "0", "skipped": "0"} SHA256=08b2e8f81b4737d24addccefd31eb29d248989ba77ec5fbe4fbcf268eea03feb
+SOURCE_SHA256 80778cbd8c1bd7ce63d4c2f33fb83866cac3eb28c095694de3f7ec652f9f8e56 src/main/java/com/nereusstream/delay/ownership/TargetCheckpointOutcomeInputs.java
+SOURCE_SHA256 8c67ebedf197753a0b4c00cc5cc7b34a9b88403aa5124f3fae5e13c5432ba31f src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetAdmissionHistory.java
+SOURCE_SHA256 bbf286d44da954bca532783534aeb3ead7bcc57edbe4b48cb5d8089555ccb379 src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactTargetAdmissionHistory.java
+SOURCE_SHA256 8ece58af5cf6db6db6e8c2a2c917220d27441d7ed627a2ae0126b366e966b36e src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetScheduledExpirySmoke.java
+SOURCE_SHA256 12d65b5a1ac6c7856ba51cae56bf5bf723f5c5060ab403e5f3107ced381611d1 src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactTargetWorkerSourceSmoke.java
+SOURCE_SHA256 5c08fec9c0040be279274df6a85528cd123f1c3370bde41ab34cefa3ba6a3f35 src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java
+SOURCE_SHA256 638caee6e41a93eeb49e8e2fcf4b06d46e086391e242bcbb3c3bcbe6945398e5 src/main/java/com/nereusstream/delay/ownership/OwnedSourceCursor.java
+
+Scope: Outcome collector captures one actual full Worker/Owner/Store ledger cut, one caller-owned bounded pending history future per turn, exact reference correlation, finite count/frame budget and final cut validation. Actual completed/pending collection rejects after real local checkpoint metadata write even without Source advancement. K1/P1 history APIs use existing independent guarded bounded cursor paths and caller finite AbortPolicy executors, include queue residence in deadlines; accepted result requires confirmed cursor cleanup. P1 raw opening/close tracked by OwnedSourceCursor, late/failed cleanup retains process-local CleanupFailure; failed opening requires explicit original-client backend-owner shutdown, never automatic shared-client close. K1 close failure retains exact private consumer and bounded retry. Actual SDK close/late-open/constructor faults not injected here, full physical/pin/backend authority remains required.
+
+Command: GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew checkDocumentation --no-daemon --console=plain
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+
+> Task :testNdip1ImplementationVerifier
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 55.390s
+
+OK
+
+> Task :testNdip1PackageVerifier
+..............
+----------------------------------------------------------------------
+Ran 14 tests in 0.078s
+
+OK
+
+> Task :verifyNdip1HistoricalClosure
+proposal=NDIP-1
+receipt_status=IMPLEMENTED
+lifecycle_authority=true
+implementation=CLOSED
+lifecycle=CLOSED
+certified_commit=b4e077e9978f262cdb93cf3562ea12eee32430e2
+runtime_source_sha256=03ce17ede4b9e70e2f70dd2bbef681087f529159549a4cd979d0d7aa34fa9948
+runtime_source_files=835
+implemented_package_sha256=792ca54e239d884ba6f95315747f565bab57ee0fc02338a77369cb19bbe8e8a7
+staging_run=20260901055333-78920
+deployment=SEPARATE_FUTURE_WORK
+performance_and_scale=SEPARATE_FUTURE_WORK
+production_rollout=SEPARATE_FUTURE_WORK
+production_authority=false
+
+> Task :verifyNdip1PackageAccepted
+proposal=NDIP-1
+receipt_status=ACCEPTED
+authority=true
+package_source_commit=77ffa61136c0cd401244ebea4375a5a18b097b17
+file_sha256 70d9dd7c113fa5f457a20a97996322ef9a2018772efd225aa982c13ec4935140 docs/ndip/NDIP-1/01-调查与决策记录.md
+file_sha256 c167ed42dd29c383c08a8a102f36b0e4deee8ae5c7a5da115a09d04ffcb9fa6f docs/ndip/NDIP-1/02-NDIP-1-Pulsar-Native-Delivery.md
+file_sha256 9affafa81952959d39ed9c09a00abe6b84da4fd3b0b6280422f297684d56f727 docs/ndip/NDIP-1/03-实施计划.md
+file_sha256 2a26c107cd69ee522ea138b3487b8ec206e913acc6ad5b862aa69288ddcaa88e docs/ndip/NDIP-1/04-代码级目标设计.md
+package_sha256=13caab8ecdc201901f06e905f1c0bf9792780e50c6f5948f93abf2bdb8f4d21b
+gate_b=PASS
+implementation=AUTHORIZED
+local_disposable_testing=AUTHORIZED_WITH_EXACT_ATTESTATION
+gate_c=PENDING_DEPLOYMENT
+shadow=BLOCKED_BY_GATE_C
+enabled=BLOCKED_BY_GATE_C_AND_SHADOW_REQUIREMENTS
+
+> Task :verifyNdip2PackageAccepted
+proposal=NDIP-2
+receipt_status=ACCEPTED
+authority=true
+file_sha256 0a105fb2b73d63cabddf42d0ba3d5a9590b4edddd47242495f196bf56d15f642 docs/ndip/NDIP-2/01-NDIP-生命周期与认证源码权威分层.md
+file_sha256 c882ecaa32413cb9e177243cf3efe91b97810c3cc10be81e61e7e458030c4ffa docs/ndip/NDIP-2/02-实施计划.md
+file_sha256 ec1ba68ab3ac91aa667647e6289cd252b99da84d899f42f879821d6e5d7752e9 docs/ndip/NDIP-2/03-代码级目标设计.md
+package_sha256=856e1d768210a31fc9aad811af3a93c1de33189cc03c65bc1e36d57affbf10db
+gate_b=PASS
+implementation=AUTHORIZED
+deployment_authority=false
+
+> Task :checkDocumentation
+
+BUILD SUCCESSFUL in 1m 11s
+6 actionable tasks: 6 executed
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html

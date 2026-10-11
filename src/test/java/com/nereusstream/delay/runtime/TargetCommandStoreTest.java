@@ -8154,6 +8154,45 @@ class TargetCommandStoreTest {
             assertNonemptyAdmissionImage(store, scope, lineage, dependencies, images, current, keys, policy,
                     checkpointContext, originalHistory, originalAuthority);
         }
+        if (checkpointContext != null) {
+            final var completedOutcomes = new com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs(worker,
+                    TargetCommandStoreTest::budget,
+                    new TargetCheckpointRootVerifier.LedgerAuditLimits(2048, 32L << 20, 8192, 32L << 20),
+                    ref -> java.util.concurrent.CompletableFuture.completedFuture(checkpointContext.outcomes().stream()
+                            .filter(input -> Arrays.equals(input.image().systemMutationId(),
+                                    SystemMutationResult.decode(ref.first().typedPayload()).mutationId()))
+                            .findFirst().orElseThrow().image()),
+                    new com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs.Limits(8, 32L << 20), () -> 102);
+            assertEquals(com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs.Status.CAPTURED,
+                    completedOutcomes.runTurn().status());
+            for (int turns = 0; turns < 16; turns++) {
+                final var outcomeTurn = completedOutcomes.runTurn();
+                assertNull(outcomeTurn.failure());
+                if (outcomeTurn.status()
+                        == com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs.Status.COMPLETE) {
+                    break;
+                }
+            }
+            final var outcomeInputs = completedOutcomes.result().orElseThrow();
+            assertEquals(checkpointContext.outcomes().size(), outcomeInputs.inputs().size());
+            final var pendingOutcome = new java.util.concurrent.CompletableFuture<SystemMutation>();
+            final var pendingOutcomes = new com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs(worker,
+                    TargetCommandStoreTest::budget,
+                    new TargetCheckpointRootVerifier.LedgerAuditLimits(2048, 32L << 20, 8192, 32L << 20),
+                    ref -> pendingOutcome,
+                    new com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs.Limits(8, 32L << 20), () -> 102);
+            pendingOutcomes.runTurn();
+            assertEquals(com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs.Status.LOADING,
+                    pendingOutcomes.runTurn().status());
+            store.write(batch -> batch.put(ColumnFamily.META,
+                    com.nereusstream.delay.store.KeyCodec.metaFixed(7),
+                    com.nereusstream.delay.store.ValueEnvelope.encode(1, bytes(16, 0x51))));
+            assertTrue(completedOutcomes.result().isEmpty());
+            pendingOutcome.complete(checkpointContext.outcomes().getFirst().image());
+            assertEquals(com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs.Status.FAILED,
+                    pendingOutcomes.runTurn().status());
+            assertTrue(pendingOutcomes.result().isEmpty());
+        }
         final long beforeChangingHistory = store.latestSequenceNumber();
         final var changingHistory = new java.util.concurrent.CompletableFuture<SystemMutation>();
         final var changing = new TargetCheckpointAdmissionInputs(worker, TargetCommandStoreTest::budget,

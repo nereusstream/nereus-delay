@@ -81,6 +81,43 @@ public final class KafkaClientArtifactTargetAdmissionHistory {
         }, pool);
     }
 
+    /** Exact original Outcome history, including rejected first results, on an independent no-commit cursor. */
+    public static SystemMutation readOutcome(final Map<String, Object> configuration, final String physicalTopic,
+            final TargetCheckpointDependencies.OutcomeReference reference, final Duration timeout,
+            final Runnable historyGuard) {
+        final var ref = Objects.requireNonNull(reference, "reference");
+        return read(configuration, physicalTopic, ref.source(), timeout, historyGuard, MAX_FRAME_BYTES,
+                ref::requireImage);
+    }
+
+    /** Caller owns a bounded executor and all operation/pin obligations, including after cancellation or failure. */
+    public static java.util.concurrent.CompletableFuture<SystemMutation> readOutcomeAsync(
+            final Map<String, Object> configuration, final String physicalTopic,
+            final TargetCheckpointDependencies.OutcomeReference reference, final Duration timeout,
+            final Runnable historyGuard, final java.util.concurrent.ThreadPoolExecutor executor) {
+        final var config = new HashMap<>(Objects.requireNonNull(configuration, "configuration"));
+        final var ref = Objects.requireNonNull(reference, "reference");
+        final var guard = Objects.requireNonNull(historyGuard, "historyGuard");
+        final var pool = Objects.requireNonNull(executor, "executor");
+        if (pool.getMaximumPoolSize() == Integer.MAX_VALUE
+                || (long) pool.getQueue().size() + pool.getQueue().remainingCapacity() >= Integer.MAX_VALUE
+                || pool.getRejectedExecutionHandler().getClass()
+                        != java.util.concurrent.ThreadPoolExecutor.AbortPolicy.class) {
+            throw new IllegalArgumentException("history executor must have finite threads/queue and abort on overflow");
+        }
+        final long timeoutMs = Objects.requireNonNull(timeout, "timeout").toMillis();
+        if (timeoutMs < 1 || timeoutMs > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException("async history timeout must fit a positive millisecond int");
+        }
+        final long started = System.nanoTime();
+        guard.run();
+        return java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+            final long remaining = timeoutMs * 1_000_000L - (System.nanoTime() - started);
+            if (remaining < 1_000_000L) { throw new IllegalStateException("queued K1 history deadline expired"); }
+            return readOutcome(config, physicalTopic, ref, Duration.ofNanos(remaining), guard);
+        }, pool);
+    }
+
     private static SystemMutation read(final Map<String, Object> configuration, final String physicalTopic,
             final SourcePosition expectedSource, final Duration timeout, final Runnable historyGuard,
             final int maximumFrameBytes,
@@ -156,10 +193,32 @@ public final class KafkaClientArtifactTargetAdmissionHistory {
         try {
             consumer.close(CloseOptions.timeout(timeout));
         } catch (RuntimeException | Error closeFailure) {
-            if (failure == null) {
-                throw closeFailure;
-            }
-            failure.addSuppressed(closeFailure);
+            final var retained = new CleanupFailure(consumer, timeout, failure == null ? closeFailure : failure);
+            if (failure != null && closeFailure != failure) { retained.addSuppressed(closeFailure); }
+            throw retained;
         }
     }
+
+    /** Exact private cursor remains charged after failed close; retry never opens a replacement. */
+    public static final class CleanupFailure extends IllegalStateException {
+        private static final long serialVersionUID = 1L;
+        private final transient GuardedConsumer<byte[], byte[]> consumer;
+        private final transient Duration timeout;
+        private boolean complete;
+
+        private CleanupFailure(GuardedConsumer<byte[], byte[]> consumer, Duration timeout, Throwable failure) {
+            super("K1 Source history cleanup is not confirmed", failure);
+            this.consumer = consumer;
+            this.timeout = timeout;
+        }
+
+        public synchronized boolean cleanupComplete() { return complete; }
+        public synchronized void retryClose() {
+            if (!complete) {
+                consumer.close(CloseOptions.timeout(timeout));
+                complete = true;
+            }
+        }
+    }
+
 }

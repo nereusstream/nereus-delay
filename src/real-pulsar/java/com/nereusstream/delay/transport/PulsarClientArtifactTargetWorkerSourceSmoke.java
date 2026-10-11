@@ -309,6 +309,8 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                         throw new AssertionError("Cancel cannot resolve Pulsar payload proof authority");
                     },
                     ownerCommitAuthority(leases, active));
+            final var successor = new java.util.concurrent.atomic.AtomicReference<SourceReplaySuccessor>(
+                    seekBoundarySuccessor(rootPosition, commandMessageId));
             final var sourceRuntime = new TargetSourceApplyRuntime(
                     initialized,
                     store,
@@ -316,7 +318,7 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                     active,
                     new TargetSourceApplyRuntime.Authorities(
                             leases,
-                            seekBoundarySuccessor(rootPosition, commandMessageId),
+                            (previous, current) -> successor.get().isSuccessor(previous, current),
                             entry -> { throw new AssertionError("unexpected Pulsar quota grant after activation"); },
                             entry -> { throw new AssertionError("unexpected Pulsar Target time fence"); },
                             entry -> { throw new AssertionError("unexpected Pulsar Target expiry control"); },
@@ -324,7 +326,12 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                             entry -> { throw new AssertionError("unexpected Pulsar membership control"); },
                             ownerCommitAuthority(leases, active),
                             ownerReadAuthority(leases, active),
-                            entry -> commandControl),
+                            entry -> commandControl,
+                            entry -> { throw new AssertionError("unexpected P1 Native policy"); },
+                            entry -> { throw new AssertionError("unexpected P1 Admission"); },
+                            entry -> new TargetSourceApplyRuntime.OutcomeControl((actualScope, writer, mutation, at) -> {
+                                throw new AssertionError("expired Outcome must reject before historical authority");
+                            }, ownerCommitAuthority(leases, active))),
                     new TargetSourceApplyRuntime.Limits(2048, 16L << 20, 60_000_000_000L, 16, 1),
                     System::nanoTime);
             final var maintenance = new TargetWorkerShardRuntime.Maintenance(
@@ -440,6 +447,8 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                     throw new IllegalStateException("Pulsar Target Store did not durably advance before ACK");
                 }
                 verifyControlHistory(client, guard, store, worker, scope, leases, active, signingKeys);
+                verifyRejectedOutcomeHistory(client, consumer, guard, physicalTopic, host, worker, store, scope,
+                        leases, active, signingKeys, successor);
                 // The service owns this exact client. After the last primary ACK, test a real failed SUBSCRIBE
                 // and service shutdown; no timeout handler may close a shared primary client automatically.
                 rejectObservation.set(true);
@@ -515,6 +524,85 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    private static void verifyRejectedOutcomeHistory(PulsarClient client, GuardedConsumer<byte[]> primary,
+            TopicResourceGuard resource, String topic, TargetWorkerHostRuntime host, TargetWorkerShardRuntime worker,
+            ShardStore store, TargetQuotaScope scope, OxiaOwnerLeaseStore leases, OwnerLease active, KeyPair keys,
+            java.util.concurrent.atomic.AtomicReference<SourceReplaySuccessor> successor) throws Exception {
+        final byte[] placeholder = com.nereusstream.delay.protocol.CanonicalProtobuf.message(out ->
+                com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(out, 1, new byte[] {1}));
+        final var evidence = new com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence(1, 2,
+                com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                Bytes.utf8("p1-expired-outcome-fixture"), 1, 1, 1, bytes(32, 0x71), 0, null);
+        final byte[] body = com.nereusstream.delay.protocol.PublishOutcomeBody.encodeInitial(scope.shard(), 1,
+                bytes(32, 0x72), 3, 4, StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, null,
+                placeholder, evidence, placeholder);
+        final var decoded = com.nereusstream.delay.protocol.PublishOutcomeBody.decode(body);
+        final var mutation = SystemMutation.signed(scope.shard(), SystemMutationType.PUBLISH_OUTCOME, 1,
+                decoded.initialLogicalOperationIdentity(), body,
+                AuthorIdentity.owner(Bytes.utf8("p1-expired-owner-deployment"), Bytes.utf8("p1-expired-owner-run"),
+                        active.ownerEpoch(), Bytes.sha256(active.leaseToken())).canonicalBytes(), 1, keys.getPrivate());
+        final var previous = store.appliedShardLogPosition();
+        final var appended = appendFirstGrant(client, primary, resource, topic, scope.shard(), mutation);
+        final var priorSuccessor = successor.get();
+        successor.set((before, after) -> before.equals(previous) && after instanceof PulsarSourcePosition actual
+                && actual.ledgerId() == appended.ledgerId() && actual.entryId() == appended.entryId()
+                && actual.normalizedBatchIndex() == appended.normalizedBatchIndex()
+                || priorSuccessor.isSuccessor(before, after));
+        final var turn = runUntilApplied(host, scope.shard());
+        if (turn.appliedOutcome().systemMutationResult().applyStatus()
+                        != com.nereusstream.delay.runtime.ApplyStatus.REJECTED
+                || turn.appliedOutcome().systemMutationResult().stableCode()
+                        != StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED) {
+            throw new IllegalStateException("P1 expired Outcome did not retain its rejected first Source result");
+        }
+        final long beforeHistory = store.latestSequenceNumber();
+        final Runnable protection = () -> {
+            if (Thread.holdsLock(store) || store.latestSequenceNumber() != beforeHistory
+                    || !leases.current(scope.shard()).orElseThrow().sameIdentity(active)) {
+                throw new IllegalStateException("P1 Outcome history lost actual Worker/Owner cut");
+            }
+        };
+        final var executor = new java.util.concurrent.ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS,
+                new java.util.concurrent.ArrayBlockingQueue<>(1),
+                new java.util.concurrent.ThreadPoolExecutor.AbortPolicy());
+        try {
+            final var collector = new com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs(worker,
+                    PulsarClientArtifactTargetWorkerSourceSmoke::budget,
+                    new com.nereusstream.delay.store.TargetCheckpointRootVerifier.LedgerAuditLimits(
+                            4096, 32L << 20, 16_384, 32L << 20),
+                    ref -> PulsarClientArtifactTargetAdmissionHistory.readOutcomeAsync(client, resource, ref,
+                            Duration.ofSeconds(10), protection, executor),
+                    new com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs.Limits(8, 2L << 20),
+                    System::currentTimeMillis);
+            final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
+            while (true) {
+                final var observed = collector.runTurn();
+                if (observed.failure() != null || System.nanoTime() >= deadline) {
+                    throw new IllegalStateException("P1 Outcome history did not complete", observed.failure());
+                }
+                if (observed.status() == com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs.Status.COMPLETE) {
+                    break;
+                }
+                Thread.sleep(1);
+            }
+            final var collected = collector.result().orElseThrow();
+            if (collected.inputs().size() != 1 || store.latestSequenceNumber() != beforeHistory
+                    || !Arrays.equals(collected.inputs().getFirst().image().canonicalEnvelope(),
+                            mutation.canonicalEnvelope())) {
+                throw new IllegalStateException("P1 original rejected Outcome history changed frame or Store");
+            }
+            collected.cut().dependencies().requireOutcomeImages(collected.inputs(), 2L << 20, budget(),
+                    (input, first) -> { protection.run(); return null; }, protection);
+            System.out.println("P1 real rejected Outcome Source/apply/ACK and bounded independent history matched "
+                    + "one actual Worker cut; primary cursor/Store unchanged by history.");
+        } finally {
+            executor.shutdown();
+            if (!executor.awaitTermination(15, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("P1 Outcome history executor did not terminate");
             }
         }
     }

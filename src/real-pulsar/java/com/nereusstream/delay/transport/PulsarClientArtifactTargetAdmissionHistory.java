@@ -84,6 +84,43 @@ public final class PulsarClientArtifactTargetAdmissionHistory {
         }, pool);
     }
 
+    /** Exact original Outcome history, including rejected first results, on an independent no-ACK cursor. */
+    public static SystemMutation readOutcome(final PulsarClient client, final TopicResourceGuard resource,
+            final TargetCheckpointDependencies.OutcomeReference reference, final Duration timeout,
+            final Runnable historyGuard) {
+        final var ref = Objects.requireNonNull(reference, "reference");
+        return read(client, resource, ref.source(), timeout, historyGuard, MAX_FRAME_BYTES, ref::requireImage);
+    }
+
+    /** Caller owns a bounded executor and operation/pin obligations; cancellation is not native-cursor cleanup. */
+    public static java.util.concurrent.CompletableFuture<SystemMutation> readOutcomeAsync(final PulsarClient client,
+            final TopicResourceGuard resource, final TargetCheckpointDependencies.OutcomeReference reference,
+            final Duration timeout, final Runnable historyGuard,
+            final java.util.concurrent.ThreadPoolExecutor executor) {
+        Objects.requireNonNull(client, "client");
+        Objects.requireNonNull(resource, "resource");
+        final var ref = Objects.requireNonNull(reference, "reference");
+        final var guard = Objects.requireNonNull(historyGuard, "historyGuard");
+        final var pool = Objects.requireNonNull(executor, "executor");
+        if (pool.getMaximumPoolSize() == Integer.MAX_VALUE
+                || (long) pool.getQueue().size() + pool.getQueue().remainingCapacity() >= Integer.MAX_VALUE
+                || pool.getRejectedExecutionHandler().getClass()
+                        != java.util.concurrent.ThreadPoolExecutor.AbortPolicy.class) {
+            throw new IllegalArgumentException("history executor must have finite threads/queue and abort on overflow");
+        }
+        final long timeoutMs = Objects.requireNonNull(timeout, "timeout").toMillis();
+        if (timeoutMs < 1 || timeoutMs > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException("async history timeout must fit a positive millisecond int");
+        }
+        final long started = System.nanoTime();
+        guard.run();
+        return java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+            final long remaining = timeoutMs * 1_000_000L - (System.nanoTime() - started);
+            if (remaining < 1_000_000L) { throw new IllegalStateException("queued P1 history deadline expired"); }
+            return readOutcome(client, resource, ref, Duration.ofNanos(remaining), guard);
+        }, pool);
+    }
+
     private static SystemMutation read(final PulsarClient client, final TopicResourceGuard resource,
             final SourcePosition expectedSource, final Duration timeout, final Runnable historyGuard,
             final int maximumFrameBytes,
@@ -111,6 +148,7 @@ public final class PulsarClientArtifactTargetAdmissionHistory {
                 .startMessageIdInclusive()
                 .resourceGuard(Objects.requireNonNull(resource, "resource"))
                 .subscribeAsync();
+        final var cleanup = new com.nereusstream.delay.ownership.OwnedSourceCursor<>(opening, Consumer::closeAsync);
         Consumer<byte[]> nativeConsumer = null;
         Throwable failure = null;
         try {
@@ -157,12 +195,41 @@ public final class PulsarClientArtifactTargetAdmissionHistory {
             failure = fatal;
             throw fatal;
         } finally {
-            if (nativeConsumer == null) {
-                // A timeout does not cancel Broker creation; close any late-created owned cursor.
-                opening.whenComplete((late, error) -> { if (late != null) { late.closeAsync(); } });
-            } else {
-                close(nativeConsumer, timeoutMs, failure);
+            try {
+                cleanup.requestClose().get(timeoutMs, TimeUnit.MILLISECONDS);
+            } catch (Exception unconfirmed) {
+                if (unconfirmed instanceof InterruptedException) { Thread.currentThread().interrupt(); }
+                final var retained = new CleanupFailure(cleanup, client,
+                        failure == null ? unconfirmed : failure);
+                if (failure != null && unconfirmed != failure) { retained.addSuppressed(unconfirmed); }
+                throw retained;
             }
+        }
+    }
+
+    /** Retains exact native cleanup; callback/result failure alone cannot release provider pins/charges. */
+    public static final class CleanupFailure extends IllegalStateException {
+        private static final long serialVersionUID = 1L;
+        private final transient com.nereusstream.delay.ownership.OwnedSourceCursor<?> cleanup;
+        private final transient PulsarClient client;
+
+        private CleanupFailure(com.nereusstream.delay.ownership.OwnedSourceCursor<?> cleanup,
+                PulsarClient client, Throwable failure) {
+            super("P1 Source history cleanup is not confirmed", failure);
+            this.cleanup = cleanup;
+            this.client = client;
+        }
+
+        public boolean cleanupComplete() { return cleanup.cleanupComplete(); }
+        public Throwable cleanupFailure() { return cleanup.cleanupFailure(); }
+        public java.util.concurrent.CompletableFuture<Void> retryClose() { return cleanup.retryClose(); }
+
+        /** Explicit original-client backend-owner shutdown only; never automatic shared-client timeout cleanup. */
+        public java.util.concurrent.CompletableFuture<Void> closeClientBackendAfterFailedOpen() {
+            if (!cleanup.failedOpenNeedsBackendShutdown()) {
+                throw new IllegalStateException("history operation has no failed-open backend shutdown obligation");
+            }
+            return client.closeAsync().thenRun(cleanup::backendShutdownCompleted);
         }
     }
 
@@ -182,17 +249,4 @@ public final class PulsarClientArtifactTargetAdmissionHistory {
         return new MessageIdImpl(source.ledgerId(), source.entryId(), -1);
     }
 
-    private static void close(Consumer<byte[]> consumer, long timeoutMs, Throwable failure) {
-        try {
-            consumer.closeAsync().get(timeoutMs, TimeUnit.MILLISECONDS);
-        } catch (Exception closeFailure) {
-            if (closeFailure instanceof InterruptedException) {
-                Thread.currentThread().interrupt();
-            }
-            if (failure == null) {
-                throw new IllegalStateException("P1 owned history cursor close was not confirmed", closeFailure);
-            }
-            failure.addSuppressed(closeFailure);
-        }
-    }
 }
