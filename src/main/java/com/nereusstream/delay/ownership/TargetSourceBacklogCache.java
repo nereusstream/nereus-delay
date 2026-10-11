@@ -23,6 +23,15 @@ public final class TargetSourceBacklogCache {
     private final LongSupplier clock;
     private final Map<ShardId, Entry> entries = new HashMap<>();
     private boolean stopping;
+    private Object host;
+
+    public synchronized void bindHost(final Object selectedHost) {
+        final var selected = Objects.requireNonNull(selectedHost, "selectedHost");
+        if (host != null && host != selected) {
+            throw new IllegalArgumentException("Source observer cache is already owned by another Host");
+        }
+        host = selected;
+    }
 
     public TargetSourceBacklogCache(final int maximumShards, final long maximumAgeNanos,
             final ThreadPoolExecutor executor, final LongSupplier clock) {
@@ -57,6 +66,9 @@ public final class TargetSourceBacklogCache {
         synchronized (this) {
             if (stopping) { throw new IllegalStateException("Source backlog cache is stopping"); }
             final var previous = entries.get(shard);
+            if (previous != null && previous.withdrawn) {
+                throw new IllegalStateException("Source observer Shard withdrawn; settle/remove before replacement");
+            }
             if (previous != null && !previous.settled) { return false; }
             if (previous == null && entries.size() >= maximumShards) {
                 throw new IllegalStateException("Source backlog cache Shard ownership bound reached");
@@ -65,14 +77,30 @@ public final class TargetSourceBacklogCache {
             entries.put(shard, selected);
         }
         try {
+            executor.execute(() -> prepareAndRead(shard, selected, capture, factory));
+            return true;
+        } catch (RuntimeException | Error failure) {
+            synchronized (this) { selected.failure = failure; selected.settled = true; }
+            throw failure;
+        }
+    }
+
+    private void prepareAndRead(final ShardId shard, final Entry selected,
+            final Supplier<TargetSourceBacklog.Cut> capture,
+            final Function<TargetSourceBacklog.Cut, TargetSourceBacklogRead> factory) {
+        try {
+            synchronized (this) {
+                if (stopping || selected.withdrawn) {
+                    throw new IllegalStateException("Source observer withdrawn before cut/provider preparation");
+                }
+            }
             final var cut = Objects.requireNonNull(capture.get(), "actual Source cut");
             if (!cut.applied().shardId().equals(shard)) {
                 throw new IllegalArgumentException("Source observation captured another Shard");
             }
             final var operation = Objects.requireNonNull(factory.apply(cut), "Source backlog read operation");
             synchronized (this) { selected.operation = operation; }
-            executor.execute(() -> read(selected, cut));
-            return true;
+            read(selected, cut);
         } catch (RuntimeException | Error failure) {
             synchronized (this) { selected.failure = failure; }
             if (selected.operation == null) {
@@ -80,7 +108,6 @@ public final class TargetSourceBacklogCache {
             } else {
                 close(selected, false);
             }
-            throw failure;
         }
     }
 
@@ -89,7 +116,8 @@ public final class TargetSourceBacklogCache {
         final TargetSourceBacklog.Snapshot snapshot;
         synchronized (this) {
             final var entry = entries.get(Objects.requireNonNull(shard, "shard"));
-            if (stopping || entry == null || entry.published == null || !entry.settled || entry.failure != null) {
+            if (stopping || entry == null || entry.withdrawn || entry.published == null
+                    || !entry.settled || entry.failure != null) {
                 throw new IllegalStateException("Source backlog observation is unavailable or not cleaned up");
             }
             snapshot = entry.published;
@@ -106,7 +134,7 @@ public final class TargetSourceBacklogCache {
         final var entry = Objects.requireNonNull(entries.get(shard), "Source observer entry");
         final var cleanupFailure = entry.operation == null ? null : entry.operation.cleanupFailure();
         final var failure = entry.failure == null ? cleanupFailure : entry.failure;
-        final var status = stopping ? Status.STOPPING : entry.settled
+        final var status = stopping || entry.withdrawn ? Status.STOPPING : entry.settled
                 ? failure == null ? Status.READY : Status.FAILED
                 : entry.readEnded ? Status.CLEANUP_PENDING : Status.LOADING;
         return new State(status, failure, entry.settled);
@@ -138,6 +166,28 @@ public final class TargetSourceBacklogCache {
         return stopping && entries.values().stream().allMatch(entry -> entry.settled);
     }
 
+    public synchronized boolean cleanupComplete(final ShardId shard) {
+        final var entry = entries.get(shard);
+        return entry == null || entry.settled;
+    }
+
+    public void withdraw(final ShardId shard) {
+        final Entry entry;
+        synchronized (this) {
+            entry = entries.get(Objects.requireNonNull(shard, "shard"));
+            if (entry == null) { return; }
+            entry.withdrawn = true;
+            entry.published = null;
+        }
+        if (!entry.settled && entry.operation != null) { executor.execute(() -> close(entry, false)); }
+    }
+
+    public void requireBounds(final int shards, final long ageNanos) {
+        if (maximumShards != shards || maximumAgeNanos != ageNanos) {
+            throw new IllegalArgumentException("Source observer cache differs from the configured Worker bounds");
+        }
+    }
+
     public synchronized void remove(final ShardId shard) {
         final var entry = entries.get(shard);
         if (entry != null && !entry.settled) {
@@ -150,7 +200,9 @@ public final class TargetSourceBacklogCache {
         try {
             cut.requireCurrent();
             synchronized (this) {
-                if (stopping) { throw new IllegalStateException("Source observation stopped before SDK read"); }
+                if (stopping || entry.withdrawn) {
+                    throw new IllegalStateException("Source observation stopped before SDK read");
+                }
             }
             final var candidate = Objects.requireNonNull(entry.operation.read(), "Source observation result");
             if (candidate.cut() != cut) { throw new IllegalStateException("Source observation returned another cut"); }
@@ -187,7 +239,7 @@ public final class TargetSourceBacklogCache {
         final TargetSourceBacklog.Snapshot candidate;
         synchronized (this) {
             if (cleanupFailure != null) { entry.failure = cleanupFailure; }
-            candidate = stopping || entry.failure != null ? null : entry.candidate;
+            candidate = stopping || entry.withdrawn || entry.failure != null ? null : entry.candidate;
         }
         Throwable changed = null;
         if (candidate != null) {
@@ -197,7 +249,7 @@ public final class TargetSourceBacklogCache {
         synchronized (this) {
             entry.settled = true;
             if (changed != null) { entry.failure = changed; }
-            if (!stopping && entry.failure == null) { entry.published = candidate; }
+            if (!stopping && !entry.withdrawn && entry.failure == null) { entry.published = candidate; }
         }
     }
 
@@ -208,5 +260,6 @@ public final class TargetSourceBacklogCache {
         private Throwable failure;
         private boolean readEnded;
         private boolean settled;
+        private boolean withdrawn;
     }
 }

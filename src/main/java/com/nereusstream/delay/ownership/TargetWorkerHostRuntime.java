@@ -78,6 +78,7 @@ public final class TargetWorkerHostRuntime {
     }
 
     public enum Status {
+        PENDING_SOURCE_OBSERVATION,
         PENDING_CHECKPOINT,
         PENDING_SOURCE,
         PENDING_GC,
@@ -152,6 +153,67 @@ public final class TargetWorkerHostRuntime {
     private TargetWorkerTargetInventory.Snapshot pendingTargetInventory;
     private boolean stopping;
     private boolean drainAllActive;
+    private TargetSourceBacklogCache sourceObservationCache;
+    private java.util.function.BiFunction<TargetWorkerShardRuntime, TargetSourceBacklog.Cut,
+            TargetSourceBacklogRead> sourceObservationFactory;
+    private LongSupplier sourceObservationOwnerClock;
+    private int sourceObservationCursor;
+
+    /** One shared cache/provider for the admitted fleet; maintenance only queues one bounded refresh per tick. */
+    public synchronized void configureSourceObservations(final TargetSourceBacklogCache cache,
+            final java.util.function.BiFunction<TargetWorkerShardRuntime, TargetSourceBacklog.Cut,
+                    TargetSourceBacklogRead> factory, final LongSupplier ownerClock) {
+        if (stopping || sourceObservationCache != null) {
+            throw new IllegalStateException("Target Host Source observer is stopping or already configured");
+        }
+        final var selected = Objects.requireNonNull(cache, "cache");
+        if (runtimeConfig != null) {
+            selected.requireBounds(runtimeConfig.store().maxOwnedShards(),
+                    runtimeConfig.backlogGrowth().maximumObservationAgeNanos());
+        }
+        final var selectedFactory = Objects.requireNonNull(factory, "factory");
+        final var selectedClock = Objects.requireNonNull(ownerClock, "ownerClock");
+        selected.bindHost(this);
+        maintenanceLoop.configureSourceObservationTurn(this::runNextSourceObservationTurn);
+        sourceObservationCache = selected;
+        sourceObservationFactory = selectedFactory;
+        sourceObservationOwnerClock = selectedClock;
+    }
+
+    public synchronized boolean runNextSourceObservationTurn() {
+        if (stopping || sourceObservationCache == null) { return false; }
+        final int count = shards.size();
+        for (int visited = 0; visited < count; visited++) {
+            if (sourceObservationCursor >= count) { sourceObservationCursor = 0; }
+            final var shard = shards.get(sourceObservationCursor++);
+            if (shard instanceof TargetWorkerShardRuntime worker && !withdrawn.contains(shard.shardId())
+                    && !completed.containsKey(shard.shardId()) && !draining.contains(shard.shardId())) {
+                return sourceObservationCache.refresh(worker, sourceObservationOwnerClock,
+                        cut -> sourceObservationFactory.apply(worker, cut));
+            }
+        }
+        return false;
+    }
+
+    public synchronized Optional<TargetSourceBacklogRead> pendingSourceObservation(final ShardId shard) {
+        return sourceObservationCache == null ? Optional.empty() : sourceObservationCache.pendingOperation(shard);
+    }
+
+    public synchronized void retrySourceObservationCleanup(final ShardId shard) {
+        if (sourceObservationCache == null) { throw new IllegalStateException("Target Host has no Source observer"); }
+        sourceObservationCache.retryCleanup(shard);
+    }
+
+    private ShardDrain stopSourceObservationForDrain(final Shard shard) {
+        final TargetSourceBacklogCache cache;
+        synchronized (this) { cache = sourceObservationCache; }
+        if (cache == null) { return null; }
+        cache.withdraw(shard.shardId());
+        if (!cache.cleanupComplete(shard.shardId())) {
+            return new ShardDrain(shard.shardId(), Status.PENDING_SOURCE_OBSERVATION, null, null, null, null);
+        }
+        return null;
+    }
 
     /** Starts bounded reservation and message-expiry ticks for one exact Worker graph. */
     public static TargetWorkerHostRuntime start(
@@ -794,6 +856,7 @@ public final class TargetWorkerHostRuntime {
                 && (!withdrawn.contains(shardId) || draining.contains(shardId) || !completed.containsKey(shardId))) {
             throw new IllegalStateException("Target host cannot replace a live or incompletely drained shard");
         }
+        if (sourceObservationCache != null) { sourceObservationCache.remove(shardId); }
         bindTargetQueueChangeSignal(shard);
         if (shard instanceof TargetWorkerShardRuntime worker && ordinaryTargetCacheLimit > 0) {
             worker.configureTargetQueueHeadCache(ordinaryTargetCacheLimit);
@@ -836,6 +899,7 @@ public final class TargetWorkerHostRuntime {
                 currentOrdinaryLoop.close();
             }
             maintenanceLoop.close();
+            if (sourceObservationCache != null) { sourceObservationCache.stop(); }
             final List<Shard> drainShards;
             synchronized (this) {
                 while (!draining.isEmpty()) {
@@ -855,7 +919,9 @@ public final class TargetWorkerHostRuntime {
                 synchronized (this) {
                     prior = completed.get(shard.shardId());
                 }
-                final ShardDrain result = prior != null ? prior : drainOne(shard, request, sourceBudget, ownerClock);
+                final ShardDrain observation = prior == null ? stopSourceObservationForDrain(shard) : null;
+                final ShardDrain result = prior != null ? prior : observation != null ? observation
+                        : drainOne(shard, request, sourceBudget, ownerClock);
                 if (result.complete()) {
                     synchronized (this) {
                         completed.put(shard.shardId(), result);
@@ -925,6 +991,8 @@ public final class TargetWorkerHostRuntime {
         }
         ShardDrain result = null;
         try {
+            result = stopSourceObservationForDrain(shard);
+            if (result != null) { return result; }
             result = drainOne(shard, request, sourceBudget, ownerClock);
             return result;
         } finally {

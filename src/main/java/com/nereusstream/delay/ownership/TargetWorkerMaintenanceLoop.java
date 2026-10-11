@@ -23,6 +23,16 @@ public final class TargetWorkerMaintenanceLoop implements AutoCloseable {
     private volatile boolean closed;
     private volatile Thread activeTurnThread;
     private ScheduledFuture<?> scheduled;
+    private volatile Runnable sourceObservationTurn;
+
+    void configureSourceObservationTurn(final Runnable turn) {
+        synchronized (this) {
+            if (closed || sourceObservationTurn != null) {
+                throw new IllegalStateException("Target maintenance Source observer is closed or already configured");
+            }
+            sourceObservationTurn = Objects.requireNonNull(turn, "turn");
+        }
+    }
 
     /**
      * Starts one daemon maintenance scheduler. The failure callback is diagnostic; the host must
@@ -161,6 +171,13 @@ public final class TargetWorkerMaintenanceLoop implements AutoCloseable {
                                 }
                             }
                         } catch (RuntimeException | Error caught) {
+                            firstFailure.compareAndSet(null, caught);
+                            failure = combineFailures(failure, caught);
+                        }
+                    }
+                    if (!(failure instanceof Error) && sourceObservationTurn != null) {
+                        try { sourceObservationTurn.run(); }
+                        catch (RuntimeException | Error caught) {
                             firstFailure.compareAndSet(null, caught);
                             failure = combineFailures(failure, caught);
                         }

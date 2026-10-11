@@ -109,6 +109,61 @@ class TargetSourceBacklogCacheTest {
         }
     }
 
+    @Test
+    void withdrawCannotPublishLateResultOrReuseShardUntilCleanupAndExplicitRemoval() throws Exception {
+        final var cut = cut(new AtomicBoolean(true));
+        final var operation = new Operation(snapshot(cut));
+        try (var executor = executor()) {
+            final var cache = new TargetSourceBacklogCache(1, 1000, executor, () -> 0);
+            cache.refresh(shard, () -> cut, ignored -> operation);
+            assertTrue(operation.readEntered.await(5, TimeUnit.SECONDS));
+            cache.withdraw(shard);
+            assertThrows(IllegalStateException.class, () -> cache.get(shard));
+            assertFalse(cache.cleanupComplete(shard));
+            assertThrows(IllegalStateException.class, () -> cache.refresh(shard, () -> cut, ignored -> operation));
+            assertThrows(IllegalStateException.class, () -> cache.remove(shard));
+            operation.cleanup.complete(null);
+            await(() -> cache.cleanupComplete(shard));
+            assertThrows(IllegalStateException.class, () -> cache.get(shard));
+            cache.remove(shard);
+            final var replacement = new Operation(snapshot(cut));
+            cache.refresh(shard, () -> cut, ignored -> replacement);
+            assertTrue(replacement.readEntered.await(5, TimeUnit.SECONDS));
+            replacement.cleanup.complete(null);
+            await(() -> cache.state(shard).status() == TargetSourceBacklogCache.Status.READY);
+            assertSame(replacement.snapshot, cache.get(shard));
+        }
+    }
+
+    @Test
+    void stoppedQueuedWorkCannotCaptureCutOrOpenSdkAndCacheHasOneHostOwner() throws Exception {
+        final var cut = cut(new AtomicBoolean(true));
+        final var release = new CountDownLatch(1);
+        final var entered = new CountDownLatch(1);
+        try (var executor = executor()) {
+            executor.execute(() -> {
+                entered.countDown();
+                try { release.await(); }
+                catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+            });
+            assertTrue(entered.await(5, TimeUnit.SECONDS));
+            final var cache = new TargetSourceBacklogCache(1, 1000, executor, () -> 0);
+            final Object host = new Object();
+            cache.bindHost(host);
+            cache.bindHost(host);
+            assertThrows(IllegalArgumentException.class, () -> cache.bindHost(new Object()));
+            cache.refresh(shard, () -> { throw new AssertionError("stopped queued work captured a cut"); },
+                    ignored -> { throw new AssertionError("stopped queued work opened an SDK cursor"); });
+            cache.stop();
+            assertFalse(cache.cleanupComplete());
+            release.countDown();
+            await(cache::cleanupComplete);
+            assertThrows(IllegalStateException.class, () -> cache.get(shard));
+        } finally {
+            release.countDown();
+        }
+    }
+
     private TargetSourceBacklog.Cut cut(AtomicBoolean active) {
         return new TargetSourceBacklog.Cut(source, () -> {
             if (!active.get()) { throw new IllegalStateException("Source cut changed"); }

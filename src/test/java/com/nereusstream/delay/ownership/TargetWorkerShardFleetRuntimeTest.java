@@ -984,6 +984,75 @@ class TargetWorkerShardFleetRuntimeTest {
         }
     }
 
+    @Test
+    void sourceObserverCleanupPrecedesShardOwnerDrainAndStopsWholeHostRelease() throws Exception {
+        final var registry = registry();
+        final var observerExecutor = new java.util.concurrent.ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS,
+                new java.util.concurrent.ArrayBlockingQueue<>(8),
+                new java.util.concurrent.ThreadPoolExecutor.AbortPolicy());
+        final var maintenanceExecutor = Executors.newSingleThreadScheduledExecutor();
+        final var cleanup = new java.util.concurrent.CompletableFuture<Void>();
+        final var readEntered = new CountDownLatch(1);
+        try (observerExecutor;
+                var resources = new SharedRocksDbResources(
+                        ShardStoreConfig.defaults(tempDir.resolve("observer-drain")))) {
+            final var shard = new StubShard(new ShardId(RouteIncarnation.random(), 0), registry, resources);
+            final var fleet = new TargetWorkerShardFleetRuntime(registry, resources, shard);
+            final var budget = new SchedulerBudget(1, 1000, 1_000_000);
+            final var loop = new TargetWorkerMaintenanceLoop(
+                    fleet, budget, Duration.ofDays(1), ignored -> {}, maintenanceExecutor);
+            final var host = new TargetWorkerHostRuntime(fleet, loop, List.of(shard));
+            final var cache = new TargetSourceBacklogCache(1, 1000, observerExecutor, () -> 0);
+            host.configureSourceObservations(cache,
+                    (worker, cut) -> { throw new AssertionError("stub Shard cannot open production observer"); },
+                    () -> 100);
+            final var source = new KafkaSourcePosition(shard.shardId(), "cluster", UUID.randomUUID(), 1, 1, 100);
+            final var cut = new TargetSourceBacklog.Cut(source, () -> {});
+            final var collector = new TargetSourceBacklog.Collector(cut,
+                    new TargetSourceBacklog.Limits(8, 1024, 128, 1000), () -> 0, () -> {});
+            collector.add(source, 8);
+            final var snapshot = collector.finish(source);
+            final var operation = new TargetSourceBacklogRead() {
+                @Override
+                public TargetSourceBacklog.Snapshot read() { readEntered.countDown(); return snapshot; }
+                @Override
+                public java.util.concurrent.CompletableFuture<Void> requestClose() { return cleanup.copy(); }
+                @Override
+                public java.util.concurrent.CompletableFuture<Void> retryClose() { return cleanup.copy(); }
+                @Override
+                public boolean cleanupComplete() { return cleanup.isDone(); }
+                @Override
+                public Throwable cleanupFailure() { return null; }
+            };
+            cache.refresh(shard.shardId(), () -> cut, ignored -> operation);
+            assertTrue(readEntered.await(5, TimeUnit.SECONDS));
+            final var request = new TargetOwnerDrainCoordinator.Request(1000, budget);
+            assertEquals(TargetWorkerHostRuntime.Status.PENDING_SOURCE_OBSERVATION,
+                    host.drainShard(shard, request, budget, () -> 100).status());
+            assertEquals(0, shard.drainCalls.get());
+            assertTrue(host.pendingSourceObservation(shard.shardId()).isPresent());
+            final var replacement = new StubShard(shard.shardId(), registry, resources);
+            assertThrows(IllegalStateException.class, () -> host.admitShard(replacement, replacement));
+            assertEquals(TargetWorkerHostRuntime.Status.PENDING_SOURCE_OBSERVATION,
+                    host.drainAll(request, budget, () -> 100).shards().getFirst().status());
+            assertEquals(0, shard.drainCalls.get());
+            cleanup.complete(null);
+            final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            while (!cache.cleanupComplete()) {
+                if (System.nanoTime() >= deadline) { throw new IllegalStateException("observer did not clean up"); }
+                Thread.sleep(1);
+            }
+            final var complete = host.drainAll(request, budget, () -> 100);
+            assertTrue(complete.complete());
+            assertEquals(TargetWorkerHostRuntime.Status.RELEASED, complete.shards().getFirst().status());
+            assertEquals(1, shard.drainCalls.get());
+            assertThrows(IllegalStateException.class, () -> cache.get(shard.shardId()));
+        } finally {
+            cleanup.complete(null);
+            maintenanceExecutor.shutdownNow();
+        }
+    }
+
     private static WorkClassExecutionRegistry registry() {
         final var policies = new EnumMap<WorkClass, WorkClassPolicy>(WorkClass.class);
         for (WorkClass workClass : WorkClass.values()) {
