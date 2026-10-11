@@ -346,6 +346,28 @@ public final class TargetCheckpointRootVerifier {
 
     private record ManifestCompanion(LedgerProof ledger, TargetCheckpointSemanticSnapshot snapshot) {}
 
+    /** Must authenticate every original semantic/control/input/evidence and keep all image/Source/pin rights held. */
+    @FunctionalInterface
+    public interface ImageAuthority {
+        void requireAuthenticated(CheckpointManifest manifest, LedgerProof ledger,
+                TargetCheckpointSemanticSnapshot snapshot);
+    }
+
+    /** One complete immutable image audit followed by mandatory external authentication outside Store monitors. */
+    public static LedgerProof auditManifestImageAuthentication(final Path image, final CheckpointManifest manifest,
+            final CheckpointManifestLimits physicalLimits, final QuotaAuditLimits quotaLimits,
+            final LedgerAuditLimits ledgerLimits, final TargetCheckpointSemanticSnapshot.Limits semanticLimits,
+            final ImageAuthority authority, final Runnable protection) {
+        Objects.requireNonNull(authority, "authority");
+        Objects.requireNonNull(protection, "protection").run();
+        final var verified = auditManifestCompanion(image, manifest, physicalLimits, quotaLimits, ledgerLimits,
+                semanticLimits);
+        protection.run();
+        authority.requireAuthenticated(manifest, verified.ledger(), verified.snapshot());
+        protection.run();
+        return verified.ledger();
+    }
+
     private static ManifestCompanion auditManifestCompanion(final Path image, final CheckpointManifest manifest,
             final CheckpointManifestLimits physicalLimits, final QuotaAuditLimits quotaLimits,
             final LedgerAuditLimits ledgerLimits, final TargetCheckpointSemanticSnapshot.Limits semanticLimits) {

@@ -8376,6 +8376,74 @@ class TargetCommandStoreTest {
                 physicalLimits, quotaLimits, ledgerLimits, semanticLimits, budget(), outcomeAuthority,
                 () -> assertFalse(Thread.holdsLock(store)));
         assertEquals(context.outcomes().size(), outcomeProof.dependencies().outcomeResults().size());
+        final var stageAuthentications = new java.util.concurrent.atomic.AtomicInteger();
+        final TargetCheckpointRootVerifier.ImageAuthority completeFixture = (candidate, ledger, snapshot) -> {
+            assertFalse(Thread.holdsLock(store));
+            assertArrayEquals(manifest.manifestSha256(), candidate.manifestSha256());
+            controls.authenticateSnapshot(ledger.dependencies(), snapshot, semanticLimits,
+                    (input, registered, mutation, at) -> keys.getPublic());
+            ledger.dependencies().authenticateAdmissionImages(snapshot.admissions(), 32L << 20, budget(),
+                    history, admissions, () -> assertFalse(Thread.holdsLock(store)));
+            snapshot.authenticateProfiles(ledger.dependencies(), semanticLimits, budget(),
+                    (ref, originalUse) -> profiles.resolve(ref), () -> assertFalse(Thread.holdsLock(store)));
+            snapshot.authenticateOutcomes(ledger.dependencies(), semanticLimits, budget(), outcomeAuthority,
+                    () -> assertFalse(Thread.holdsLock(store)));
+            stageAuthentications.incrementAndGet();
+            // Reader/Profile/issuer/Artifact/credential/pin authorities remain explicit test fixtures.
+        };
+        final Path shardRoot = store.dbPath().getParent().getParent().getParent();
+        final byte[] activeBefore;
+        try {
+            activeBefore = java.nio.file.Files.readAllBytes(shardRoot.resolve("ACTIVE"));
+        } catch (java.io.IOException unavailable) {
+            throw new AssertionError("fixture has no durable ACTIVE pointer", unavailable);
+        }
+        final var stageConfig = ShardStoreConfig.defaults(shardRoot.getParent().getParent().getParent());
+        final Path stagedWorkspace;
+        try (var stage = ShardStore.openTargetCheckpointRestoreStage(stageConfig, scope.shard(),
+                store.sharedResources(), image, manifest, physicalLimits, quotaLimits, ledgerLimits,
+                semanticLimits, completeFixture, () -> assertFalse(Thread.holdsLock(store)))) {
+            final var restored = stage.store();
+            stagedWorkspace = restored.dbPath().getParent();
+            assertFalse(restored.dbPath().equals(store.dbPath()));
+            assertArrayEquals(store.metadata().encode(), restored.metadata().encode());
+            assertEquals(store.appliedShardLogPosition(), restored.appliedShardLogPosition());
+            assertEquals(store.shardMutationSequence(), restored.shardMutationSequence());
+            TargetStoreBootstrap.reopen(restored, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(),
+                    (a, b) -> guard());
+            assertEquals(2, stageAuthentications.get());
+        }
+        assertFalse(java.nio.file.Files.exists(stagedWorkspace));
+        try {
+            assertArrayEquals(activeBefore, java.nio.file.Files.readAllBytes(shardRoot.resolve("ACTIVE")));
+        } catch (java.io.IOException unavailable) {
+            throw new AssertionError("private stage changed ACTIVE publication", unavailable);
+        }
+        assertEquals(afterCreate, store.latestSequenceNumber());
+        final var missingStageRights = new IllegalStateException("restore image/pin authority unavailable");
+        assertSame(missingStageRights, assertThrows(IllegalStateException.class,
+                () -> ShardStore.openTargetCheckpointRestoreStage(stageConfig, scope.shard(),
+                        store.sharedResources(), image, manifest, physicalLimits, quotaLimits, ledgerLimits,
+                        semanticLimits, (candidate, ledger, snapshot) -> { throw missingStageRights; }, () -> {})));
+        final var copyAuthentications = new java.util.concurrent.atomic.AtomicInteger();
+        final var postCopyRefusal = new IllegalStateException("copied image protection/authority lost");
+        assertSame(postCopyRefusal, assertThrows(IllegalStateException.class,
+                () -> ShardStore.openTargetCheckpointRestoreStage(stageConfig, scope.shard(), store.sharedResources(),
+                        image, manifest, physicalLimits, quotaLimits, ledgerLimits, semanticLimits,
+                        (candidate, ledger, snapshot) -> {
+                            if (copyAuthentications.incrementAndGet() == 2) { throw postCopyRefusal; }
+                            completeFixture.requireAuthenticated(candidate, ledger, snapshot);
+                        }, () -> {})));
+        assertEquals(2, copyAuthentications.get());
+        try (var privateStages = java.nio.file.Files.list(shardRoot.resolve("target-restore-tmp"))) {
+            assertEquals(0, privateStages.count());
+            assertArrayEquals(activeBefore, java.nio.file.Files.readAllBytes(shardRoot.resolve("ACTIVE")));
+        } catch (java.io.IOException failure) {
+            throw new AssertionError("failed Target stage did not clean only its private directory", failure);
+        }
+        assertEquals(afterCreate, store.latestSequenceNumber());
+
+
         final var unavailableRetry = new com.nereusstream.delay.store.TargetCheckpointOutcomeAuthority(
                 dependencies, images, context.outcomes(), 32L << 20, outcomeHistory,
                 (a, b, mutation, source) -> {

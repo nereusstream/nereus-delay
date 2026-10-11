@@ -24,6 +24,7 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.EnumSet;
@@ -278,6 +279,118 @@ public final class ShardStore implements AutoCloseable {
         } catch (RuntimeException | Error failure) {
             cleanupFailedLegacyReplayCopy(config, shardId, workspace, opened, failure);
             throw failure;
+        }
+    }
+
+    /**
+     * Opens an authenticated format-2 checkpoint only as a private restore preparation. No ACTIVE pointer,
+     * owned-Shard registration, new incarnation or Source/replay/installation authority is published.
+     */
+    public static TargetCheckpointRestoreStage openTargetCheckpointRestoreStage(ShardStoreConfig config,
+            ShardId shardId, SharedRocksDbResources resources, Path checkpointPath, CheckpointManifest manifest,
+            CheckpointManifestLimits physicalLimits, TargetCheckpointRootVerifier.QuotaAuditLimits quotaLimits,
+            TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits,
+            TargetCheckpointSemanticSnapshot.Limits semanticLimits,
+            TargetCheckpointRootVerifier.ImageAuthority authentication, Runnable protection) {
+        Objects.requireNonNull(config, "config");
+        Objects.requireNonNull(resources, "resources").requireConfig(config);
+        Objects.requireNonNull(authentication, "authentication");
+        Objects.requireNonNull(protection, "protection");
+        if (!Objects.requireNonNull(shardId, "shardId").equals(manifest.shardId())) {
+            throw new IllegalArgumentException("Target restore stage belongs to another Shard");
+        }
+        Path workspace = null;
+        ShardStore opened = null;
+        try (var permit = resources.acquireCheckpointDownloadPermit()) {
+            permit.requireActive(resources);
+            final var source = TargetCheckpointRootVerifier.auditManifestImageAuthentication(checkpointPath, manifest,
+                    physicalLimits, quotaLimits, ledgerLimits, semanticLimits, authentication, protection);
+            final Path stageRoot = prepareShardRoot(config, shardId).resolve("target-restore-tmp");
+            ensureRealDirectory(stageRoot);
+            workspace = stageRoot.resolve(UUID.randomUUID().toString());
+            Files.createDirectory(workspace);
+            final Path copiedDb = workspace.resolve("db");
+            protection.run();
+            copyTree(checkpointPath, copiedDb);
+            final var copied = TargetCheckpointRootVerifier.auditManifestImageAuthentication(copiedDb, manifest,
+                    physicalLimits, quotaLimits, ledgerLimits, semanticLimits, authentication, protection);
+            if (!Arrays.equals(source.root().metadata().encode(), copied.root().metadata().encode())
+                    || !Arrays.equals(source.root().source().canonicalBytes(), copied.root().source().canonicalBytes())
+                    || source.root().mutationSequence() != copied.root().mutationSequence()
+                    || !Arrays.equals(source.root().aggregate().canonicalBytes(),
+                            copied.root().aggregate().canonicalBytes())) {
+                throw new IOException("Target restore stage differs from the authenticated source image");
+            }
+            opened = openAtPath(config, shardId, copiedDb, resources, null, false, false, 2, false);
+            if (!Arrays.equals(opened.metadata().encode(), source.root().metadata().encode())
+                    || !Arrays.equals(opened.appliedShardLogPosition().canonicalBytes(),
+                            source.root().source().canonicalBytes())
+                    || opened.shardMutationSequence() != source.root().mutationSequence()) {
+                throw new IOException("Target restore stage identity changed during open");
+            }
+            protection.run();
+            return new TargetCheckpointRestoreStage(opened, workspace, stageRoot, protection);
+        } catch (IOException | RocksDBException failure) {
+            cleanupFailedTargetRestoreStage(workspace, opened, failure);
+            throw new IllegalStateException("cannot prepare private Target checkpoint restore stage", failure);
+        } catch (RuntimeException | Error failure) {
+            cleanupFailedTargetRestoreStage(workspace, opened, failure);
+            throw failure;
+        }
+    }
+
+    private static void cleanupFailedTargetRestoreStage(Path workspace, ShardStore opened, Throwable failure) {
+        if (closeForRestoreCleanup(opened, failure) && workspace != null) {
+            try {
+                requireTargetRestoreWorkspace(workspace, workspace.getParent());
+                deleteTree(workspace);
+                forceDirectory(workspace.getParent());
+            }
+            catch (IOException | RuntimeException | Error cleanup) { failure.addSuppressed(cleanup); }
+        }
+    }
+
+    private static void requireTargetRestoreWorkspace(Path workspace, Path stageRoot) throws IOException {
+        if (!workspace.getParent().equals(stageRoot) || !stageRoot.getFileName().toString().equals("target-restore-tmp")
+                || Files.isSymbolicLink(stageRoot) || Files.isSymbolicLink(workspace)
+                || !Files.isDirectory(stageRoot, LinkOption.NOFOLLOW_LINKS)) {
+            throw new IOException("Target restore workspace is no longer a private directory");
+        }
+    }
+
+    /** Private writable preparation only; caller requires separate protected replay and final installation. */
+    public static final class TargetCheckpointRestoreStage implements AutoCloseable {
+        private final ShardStore store;
+        private final Path workspace;
+        private final Path stageRoot;
+        private final Runnable protection;
+        private boolean closed;
+
+        private TargetCheckpointRestoreStage(ShardStore store, Path workspace, Path stageRoot, Runnable protection) {
+            this.store = store;
+            this.workspace = workspace;
+            this.stageRoot = stageRoot;
+            this.protection = protection;
+        }
+
+        public synchronized ShardStore store() {
+            if (closed) { throw new IllegalStateException("Target restore stage is closed"); }
+            protection.run();
+            return store;
+        }
+
+        @Override
+        public synchronized void close() {
+            if (closed) { return; }
+            if (!store.isClosed()) { store.close(); }
+            try {
+                requireTargetRestoreWorkspace(workspace, stageRoot);
+                deleteTree(workspace);
+                forceDirectory(stageRoot);
+                closed = true;
+            } catch (IOException failure) {
+                throw new IllegalStateException("cannot remove private Target restore stage", failure);
+            }
         }
     }
 

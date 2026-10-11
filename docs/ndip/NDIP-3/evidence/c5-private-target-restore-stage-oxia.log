@@ -1,0 +1,158 @@
+C5 authenticated private Target restore preparation scoped receipt.
+Baseline d9d8bca15f83e7d0fbd5321627d0962fb73e301f; main, single agent.
+No new incarnation/ACTIVE/owned-Shard/Source replay/install/publication/Floor authority; central validation deferred.
+
+Command: bash /private/tmp/ndip3-target-restore-stage-native.sh > /private/tmp/ndip3-target-restore-stage-native.log 2>&1
+Selector:
+#!/bin/bash
+set -euo pipefail
+cd /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay
+export NEREUS_DELAY_OXIA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/oxia
+[[ "$(git -C "$NEREUS_DELAY_OXIA_CHECKOUT" rev-parse HEAD)" == 37a17bef17202d5fd6e23282da5fd26d94865484 ]]
+[[ -z "$(git -C "$NEREUS_DELAY_OXIA_CHECKOUT" status --porcelain)" ]]
+export NEREUS_DELAY_OXIA_E2E_PORT="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
+project="ndip3-target-stage-oxia-$$"
+cleanup() { docker compose -f e2e/docker-compose.oxia.yml -p "$project" down --volumes --remove-orphans; }
+trap cleanup EXIT
+echo "Owned project=$project endpoint=localhost:$NEREUS_DELAY_OXIA_E2E_PORT checkout=37a17bef17202d5fd6e23282da5fd26d94865484"
+docker compose -f e2e/docker-compose.oxia.yml -p "$project" build oxia
+docker compose -f e2e/docker-compose.oxia.yml -p "$project" up -d oxia
+healthy=0
+for attempt in {1..60}; do
+  if docker compose -f e2e/docker-compose.oxia.yml -p "$project" exec -T oxia oxia health --host 127.0.0.1 --port 6648 --timeout 2s; then healthy=1; break; fi
+  sleep 0.5
+done
+[[ "$healthy" == 1 ]]
+NEREUS_DELAY_OXIA_ENDPOINT="localhost:$NEREUS_DELAY_OXIA_E2E_PORT" NEREUS_DELAY_OXIA_NAMESPACE=default \
+  GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew test --rerun \
+  --tests com.nereusstream.delay.runtime.TargetCommandStoreTest.realOxiaCheckpointAdmissionAuthenticationPreservesUnknownAndResolvedOriginalSource \
+  checkstyleTest --no-daemon --console=plain
+
+SCRIPT_SHA256 853de5e6dda5a9a01fe20062b68fb3c179a243e99f7482b10c7a6f7fd7363791
+OXIA_HEAD 37a17bef17202d5fd6e23282da5fd26d94865484; clean before/after.
+DOCKERFILE_SHA256 042de74dba92d5ebefd69a281c529e19d13f49ad94b4de7163b9df9ce5c82ef0
+COMPOSE_SHA256 6bfc9680f5b373210c8ca623d6cdc50d113bc484a0a7fdc5a3a3ce1d7ceda39e
+
+Raw output:
+Owned project=ndip3-target-stage-oxia-85079 endpoint=localhost:58296 checkout=37a17bef17202d5fd6e23282da5fd26d94865484
+ Image ndip3-target-stage-oxia-85079-oxia Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 588B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 1.34kB done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/alpine:3.22
+#3 ...
+
+#4 [internal] load metadata for docker.io/library/golang:1.26-alpine
+#4 DONE 2.8s
+
+#3 [internal] load metadata for docker.io/library/alpine:3.22
+#3 DONE 2.8s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 2B done
+#5 DONE 0.0s
+
+#6 [runtime 1/8] FROM docker.io/library/alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
+#6 DONE 0.0s
+
+#7 [build 1/5] FROM docker.io/library/golang:1.26-alpine@sha256:3082400e369fa24d5fc60bca20edab3f6d604e0c5a690ec66b295eff4dd87ade
+#7 DONE 0.0s
+
+#8 [internal] load build context
+#8 transferring context: 39.30kB 0.0s done
+#8 DONE 0.0s
+
+#9 [runtime 6/8] COPY --from=build /src/oxia/conf/coordinator.yaml /oxia/conf/coordinator.yaml
+#9 CACHED
+
+#10 [build 4/5] COPY . .
+#10 CACHED
+
+#11 [build 5/5] RUN --mount=type=cache,target=/go/pkg/mod     --mount=type=cache,target=/root/.cache/go-build     make
+#11 CACHED
+
+#12 [runtime 7/8] COPY --from=build /src/oxia/conf/dataserver.yaml /oxia/conf/dataserver.yaml
+#12 CACHED
+
+#13 [build 3/5] WORKDIR /src/oxia
+#13 CACHED
+
+#14 [build 2/5] RUN apk add --no-cache make git build-base bash
+#14 CACHED
+
+#15 [runtime 4/8] WORKDIR /oxia
+#15 CACHED
+
+#16 [runtime 5/8] COPY --from=build /src/oxia/bin/oxia /oxia/bin/oxia
+#16 CACHED
+
+#17 [runtime 3/8] RUN apk upgrade --no-cache
+#17 CACHED
+
+#18 [runtime 2/8] RUN apk add --no-cache bash bash-completion jq
+#18 CACHED
+
+#19 [runtime 8/8] RUN oxia completion bash > ~/.bashrc
+#19 CACHED
+
+#20 exporting to image
+#20 exporting layers done
+#20 writing image sha256:79aa767c122590135756964f5211c7b00b780f9add44b71ab13a1e963af945d9 done
+#20 naming to docker.io/library/ndip3-target-stage-oxia-85079-oxia done
+#20 DONE 0.0s
+
+#21 resolving provenance for metadata file
+#21 DONE 0.0s
+ Image ndip3-target-stage-oxia-85079-oxia Built 
+ Network ndip3-target-stage-oxia-85079_default Creating 
+ Network ndip3-target-stage-oxia-85079_default Creating 
+ Network ndip3-target-stage-oxia-85079_default Created 
+ Network ndip3-target-stage-oxia-85079_default Created 
+ Container ndip3-target-stage-oxia-85079-oxia-1 Creating 
+ Container ndip3-target-stage-oxia-85079-oxia-1 Created 
+ Container ndip3-target-stage-oxia-85079-oxia-1 Starting 
+ Container ndip3-target-stage-oxia-85079-oxia-1 Started 
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava UP-TO-DATE
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses UP-TO-DATE
+> Task :test
+> Task :checkstyleTest UP-TO-DATE
+
+BUILD SUCCESSFUL in 28s
+14 actionable tasks: 2 executed, 12 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+ Container ndip3-target-stage-oxia-85079-oxia-1 Stopping 
+ Container ndip3-target-stage-oxia-85079-oxia-1 Stopped 
+ Container ndip3-target-stage-oxia-85079-oxia-1 Removing 
+ Container ndip3-target-stage-oxia-85079-oxia-1 Removed 
+ Network ndip3-target-stage-oxia-85079_default Removing 
+ Network ndip3-target-stage-oxia-85079_default Removed 
+
+NATIVE_XML {"tests": "1", "failures": "0", "errors": "0", "skipped": "0"} SHA256=4766823fa4ad2b4dc55047eb70b33204d01abcd18c5fa66c469193e77dc353be
+SOURCE_SHA256 e68e8cab96fe29e74184967f2d23205ab4b46a5b64a238bad4453de8fb748ae7 src/main/java/com/nereusstream/delay/store/ShardStore.java
+SOURCE_SHA256 a40be52524641644938b1b8606d257747de0e930eb63b2866a919ed9993a374a src/main/java/com/nereusstream/delay/store/TargetCheckpointRootVerifier.java
+SOURCE_SHA256 1e2005839001fb28611a0d8dbaf531bc2ecd88133eb89228c8c1a244665fdbf1 src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java
+SOURCE_SHA256 f2a453e2b97657d4f9383f0daed18e4cf135c81d94b557d3e71104743facddf8 src/main/java/com/nereusstream/delay/store/TargetCheckpointOutcomeAuthority.java
+SOURCE_SHA256 cdab002096ffaaed52706403addf042ccbb07f6fd85a94f71b2f09d99f8d5528 src/main/java/com/nereusstream/delay/store/TargetCheckpointSemanticSnapshot.java
+
+Actual single mode31 Owner/cut/SourceProfile --rerun scenario exercises nonempty schema3 image/private copy/auth/reopen/cleanup for UNKNOWN and resolved. Same fixture as local case, not new independent recovery matrix. Native Owner/cut/metadata does not certify complete callback history/key/actor/Artifact/credential/pin/projection rights or Catalog/RecoveryPin/install. Exit0; owned service/network/volumes trap cleanup, only unrelated connector remains.
