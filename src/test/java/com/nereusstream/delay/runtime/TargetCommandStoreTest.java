@@ -8555,7 +8555,9 @@ class TargetCommandStoreTest {
                 quotaLimits, ledgerLimits, semanticLimits, completeFixture, () -> assertFalse(Thread.holdsLock(store)));
         com.nereusstream.delay.store.TargetCheckpointCandidateTestBridge.publishTargetFixture(
                 store.sharedResources(), context.workClasses(), publicationImage, physicalLimits,
-                store.dbPath().getParent().resolve("publication-" + current.phase()));
+                store.dbPath().getParent().resolve("publication-" + current.phase()),
+                (installed, recovery) -> assertPublishedTargetRecovery(installed, scope, current,
+                        context.outcomes().getFirst().image(), recovery, ledgerLimits));
         assertEquals(afterCreate, store.latestSequenceNumber());
 
         final var unavailableRetry = new com.nereusstream.delay.store.TargetCheckpointOutcomeAuthority(
@@ -10313,6 +10315,43 @@ class TargetCommandStoreTest {
         assertEquals(ShardLifecycleState.ACTIVE_FOR_COMMANDS, recovery.activeLease().state());
         assertTrue(recovery.runTurn().complete());
         System.out.println("C5 protected Target Source duplicate recovery phase=" + retained.phase());
+    }
+
+    private static void assertPublishedTargetRecovery(ShardStore store, TargetQuotaScope scope,
+            TargetQuotaAttemptBudget budget, SystemMutation original,
+            com.nereusstream.delay.store.TargetCheckpointCandidateTestBridge.PublishedRecovery recovery,
+            TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits) {
+        final var at = (KafkaSourcePosition) store.appliedShardLogPosition();
+        final var next = new KafkaSourcePosition(at.shardId(), at.authenticatedClusterId(), at.nativeTopicUuid(),
+                at.offset() + 1, at.leaderEpoch(), at.brokerLogAppendTimeEpochMs());
+        final byte[] retained = store.get(ColumnFamily.META, budget.key());
+        final var root = TargetStoreBootstrap.reopen(store, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20),
+                budget(), (a, b) -> guard(), ledgerLimits);
+        final var authorities = new TargetSourceApplyRuntime.Authorities(recovery.leases(),
+                SourceReplaySuccessor.strictKafka(), entry -> { throw new AssertionError("duplicate grant provider"); },
+                entry -> { throw new AssertionError("duplicate Fence provider"); },
+                entry -> { throw new AssertionError("duplicate expiry provider"); },
+                entry -> { throw new AssertionError("duplicate Close provider"); },
+                entry -> { throw new AssertionError("duplicate membership provider"); },
+                (a, b, mutation) -> guard(), (a, b) -> guard(),
+                entry -> { throw new AssertionError("duplicate Command provider"); });
+        final var coordinator = new com.nereusstream.delay.ownership.TargetOwnerRecoveryCoordinator(store, root,
+                recovery.assignment(), recovery.acquiring(), authorities,
+                new TargetSourceApplyRuntime.Limits(4096, 32L << 20, 60_000_000_000L, 16, 1),
+                com.nereusstream.delay.ownership.SourceReplayCursor.of(
+                        List.of(new SourceReplayMutation(original, next, null, null)).iterator()),
+                recovery.catalog(), recovery.pin(), () -> {},
+                new com.nereusstream.delay.ownership.ReplayTurnBudget(1, 32L << 20, 60_000_000_000L),
+                recovery.workClasses(), System::currentTimeMillis, System::nanoTime,
+                TargetCommandStoreTest::budget, ledgerLimits);
+        assertTrue(coordinator.runTurn().complete());
+        assertEquals(next, store.appliedShardLogPosition());
+        assertArrayEquals(retained, store.get(ColumnFamily.META, budget.key()));
+        assertEquals(ShardLifecycleState.ACTIVE_FOR_COMMANDS, coordinator.activeLease().state());
+        assertEquals(recovery.pin(), recovery.catalog().activeRecoveryPin().orElseThrow());
+        assertTrue(recovery.leases().release(coordinator.activeLease()));
+        System.out.println("C5 exact published Target -> Catalog Pin -> File download/new incarnation -> "
+                + "Source duplicate catch-up/ACTIVE; phase=" + budget.phase() + ", frozen Budget preserved.");
     }
 
     private static BoundedReadBudget budget() {

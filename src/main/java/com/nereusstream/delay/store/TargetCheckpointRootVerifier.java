@@ -387,6 +387,13 @@ public final class TargetCheckpointRootVerifier {
 
         /** Short recheck of held permissions/pins at the CAS boundary; provider acquisition happens before it. */
         public void requireCurrent() { protection.run(); }
+
+        /** Preserves the exact authenticated image's finite limits/authority for its private restore copy. */
+        public ShardStore.TargetRestoreAuthentication restoreAuthentication(BoundedReadBudget installationBudget) {
+            requireCurrent();
+            return new ShardStore.TargetRestoreAuthentication(quota, ledger, semantic, authority, protection,
+                    Objects.requireNonNull(installationBudget, "installationBudget"));
+        }
     }
 
     public static AuthenticatedImage authenticateImage(Path image, CheckpointManifest manifest,

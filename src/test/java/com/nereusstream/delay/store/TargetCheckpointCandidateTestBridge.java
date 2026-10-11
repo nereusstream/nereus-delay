@@ -135,7 +135,8 @@ public final class TargetCheckpointCandidateTestBridge {
     /** Exact local Catalog baseline fixture; real image/File Object Store/WorkClass publication is exercised. */
     public static void publishTargetFixture(SharedRocksDbResources resources,
             com.nereusstream.delay.scheduler.WorkClassExecutionRegistry registry,
-            TargetCheckpointRootVerifier.AuthenticatedImage image, CheckpointManifestLimits limits, Path objectRoot) {
+            TargetCheckpointRootVerifier.AuthenticatedImage image, CheckpointManifestLimits limits, Path objectRoot,
+            java.util.function.BiConsumer<ShardStore, PublishedRecovery> recover) {
         final var manifest = image.manifest();
         final var catalog = new RecoveryCatalog();
         final var baselineId = java.util.Arrays.copyOf(manifest.checkpointId(), 16);
@@ -210,6 +211,62 @@ public final class TargetCheckpointCandidateTestBridge {
                 new CheckpointDownloadRequest(manifest, published.uploadIntent().publishedManifest()), downloaded);
         org.junit.jupiter.api.Assertions.assertEquals(manifest.files().size(),
                 CheckpointFileInventory.collect(downloaded, limits).size());
+        final var source = (com.nereusstream.delay.protocol.KafkaSourcePosition) manifest.appliedShardLogPosition();
+        final var assignment = new com.nereusstream.delay.ownership.SourceAssignment(manifest.shardId(),
+                com.nereusstream.delay.protocol.Bytes.sha256(manifest.manifestSha256(), new byte[] {1}), 1,
+                new com.nereusstream.delay.protocol.KafkaActivationBarrier(manifest.shardId(),
+                        source.authenticatedClusterId(), source.nativeTopicUuid(), source.offset() + 2));
+        final var leases = nativeSession == null
+                ? new com.nereusstream.delay.ownership.OxiaOwnerLeaseStore(
+                        new com.nereusstream.delay.ownership.InMemoryOwnerLeaseStore())
+                : new com.nereusstream.delay.ownership.OxiaOwnerLeaseStore(nativeSession.backend());
+        final byte[] recoverySession = nativeSession == null
+                ? manifest.manifestSha256() : nativeSession.sessionIdentity();
+        com.nereusstream.delay.ownership.OwnerLease acquiring;
+        do {
+            acquiring = leases.acquire(assignment, "published-target-recovery", recoverySession,
+                    System.currentTimeMillis(), 60_000).orElseThrow();
+            if (Long.compareUnsigned(acquiring.ownerEpoch(), manifest.createdBy().ownerEpoch()) > 0) { break; }
+            org.junit.jupiter.api.Assertions.assertTrue(leases.release(acquiring));
+        } while (true);
+        // This is a test-authorized Floor, not authority to release any UNKNOWN reserve or production protection.
+        final var floor = authority.advanceFloor(manifest.checkpointId(), 2, manifest.evidenceCursors());
+        final var candidate = new com.nereusstream.delay.protocol.RecoveryCandidateRef(
+                com.nereusstream.delay.protocol.RecoveryCandidateKind.CATALOG_CHECKPOINT,
+                manifest.recoveryLineageId(), manifest.checkpointId(), manifest.manifestSha256(), null);
+        final var pin = new RecoveryPin(manifest.checkpointId(), new com.nereusstream.delay.protocol.ShardSubject(
+                manifest.shardId()), new com.nereusstream.delay.protocol.OwnerIdentity(owner.deploymentId(),
+                owner.workerRunId(), acquiring.ownerEpoch(), com.nereusstream.delay.protocol.Bytes.sha256(
+                        acquiring.leaseToken())), candidate, floor, floor.catalogGeneration(), recoverySession);
+        org.junit.jupiter.api.Assertions.assertEquals(pin, authority.createRecoveryPin(pin));
+        final var restoreConfig = ShardStoreConfig.defaults(
+                objectRoot.resolveSibling(objectRoot.getFileName() + "-restore"));
+        try (var restoreResources = new SharedRocksDbResources(restoreConfig)) {
+            final var restoreRegistry = restorationWorkClasses();
+            final var restore = new CheckpointRestoreCoordinator(restoreConfig, manifest.shardId(), restoreResources,
+                    new FilesystemCheckpointDownloadAdapter(objectRoot, limits), authority, limits);
+            final var handoff = new CheckpointRestoreWorkClassExecutor(restoreRegistry, restore);
+            final var attempt = handoff.submit(new CheckpointRestoreWorkClassExecutor.RestoreRequest(
+                    new CheckpointDownloadRequest(manifest, published.uploadIntent().publishedManifest()), pin,
+                    image.restoreAuthentication(new BoundedReadBudget(8192, 64L << 20,
+                            60_000_000_000L, System::nanoTime))));
+            restoreRegistry.runTurn(new com.nereusstream.delay.scheduler.SchedulerBudget(
+                    1, attempt.task().bytes(), 1_000_000));
+            final var result = attempt.outcome().orElseThrow();
+            if (result.failure() != null) {
+                throw new AssertionError("published Target restore failed", result.failure());
+            }
+            try (var installed = result.restored()) {
+                org.junit.jupiter.api.Assertions.assertNotEquals(manifest.sourceStoreIncarnation(),
+                        installed.metadata().storeIncarnationUuid());
+                recover.accept(installed, new PublishedRecovery(authority, pin, leases, acquiring,
+                        assignment, restoreRegistry));
+            }
+            org.junit.jupiter.api.Assertions.assertEquals(0, restoreResources.registeredPhysicalUsageSources());
+        }
+        org.junit.jupiter.api.Assertions.assertEquals(pin, authority.activeRecoveryPin().orElseThrow());
+        authority.releaseRecoveryPin(pin);
+        org.junit.jupiter.api.Assertions.assertTrue(authority.activeRecoveryPin().isEmpty());
         if (nativeSession != null) {
             final var reopened = new OxiaSyncCheckpointPublicationBackend(nativeSession, prefix, limits);
             org.junit.jupiter.api.Assertions.assertArrayEquals(manifest.canonicalJsonBytes(),
@@ -225,5 +282,26 @@ public final class TargetCheckpointCandidateTestBridge {
                 catch (java.io.IOException failure) { throw new AssertionError("native publication close", failure); }
             }
         }
+    }
+
+    public record PublishedRecovery(RecoveryCatalogAuthority catalog, RecoveryPin pin,
+            com.nereusstream.delay.ownership.OxiaOwnerLeaseStore leases,
+            com.nereusstream.delay.ownership.OwnerLease acquiring,
+            com.nereusstream.delay.ownership.SourceAssignment assignment,
+            com.nereusstream.delay.scheduler.WorkClassExecutionRegistry workClasses) {}
+
+    private static com.nereusstream.delay.scheduler.WorkClassExecutionRegistry restorationWorkClasses() {
+        final var policies = new java.util.EnumMap<com.nereusstream.delay.scheduler.WorkClass,
+                com.nereusstream.delay.scheduler.WorkClassPolicy>(com.nereusstream.delay.scheduler.WorkClass.class);
+        for (var work : com.nereusstream.delay.scheduler.WorkClass.values()) {
+            final boolean protectedClass = work != com.nereusstream.delay.scheduler.WorkClass.QUERY
+                    && work != com.nereusstream.delay.scheduler.WorkClass.CHECKPOINT;
+            policies.put(work, new com.nereusstream.delay.scheduler.WorkClassPolicy(1, 1, 1_000_000, 1,
+                    1_000_000, 1_000, protectedClass ? 1 : 0, protectedClass ? 1 : 0,
+                    work == com.nereusstream.delay.scheduler.WorkClass.LEASE_FENCE));
+        }
+        return new com.nereusstream.delay.scheduler.WorkClassExecutionRegistry(
+                new com.nereusstream.delay.scheduler.WorkClassRuntimeConfig(policies, 100, 100, 16, 2_000_000),
+                () -> 0);
     }
 }

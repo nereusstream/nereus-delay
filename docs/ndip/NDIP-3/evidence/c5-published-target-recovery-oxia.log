@@ -1,0 +1,199 @@
+C5 exact published Target recovery scoped receipt.
+Baseline b1b9a1150224fe0d10a4077899e624aeb42971f4; main/single agent.
+Same PUBLISHED resource/Catalog/Pin/File download/install/Source duplicate/full audit/Owner activation; baseline/Floor permissions/Source barrier-tail/full provider rights remain fixtures. No whole Broker/production/central/Floor authority.
+
+Command: bash /private/tmp/ndip3-published-target-recovery-native.sh > /private/tmp/ndip3-published-target-recovery-native.log 2>&1
+Selector:
+#!/bin/bash
+set -euo pipefail
+cd /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay
+export NEREUS_DELAY_OXIA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/oxia
+[[ "$(git -C "$NEREUS_DELAY_OXIA_CHECKOUT" rev-parse HEAD)" == 37a17bef17202d5fd6e23282da5fd26d94865484 ]]
+[[ -z "$(git -C "$NEREUS_DELAY_OXIA_CHECKOUT" status --porcelain)" ]]
+export NEREUS_DELAY_OXIA_E2E_PORT="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
+project="ndip3-published-target-recovery-oxia-$$"
+cleanup() { docker compose -f e2e/docker-compose.oxia.yml -p "$project" down --volumes --remove-orphans; }
+trap cleanup EXIT
+echo "Owned project=$project endpoint=localhost:$NEREUS_DELAY_OXIA_E2E_PORT checkout=37a17bef17202d5fd6e23282da5fd26d94865484"
+docker compose -f e2e/docker-compose.oxia.yml -p "$project" build oxia
+docker compose -f e2e/docker-compose.oxia.yml -p "$project" up -d oxia
+healthy=0
+for attempt in {1..60}; do
+  if docker compose -f e2e/docker-compose.oxia.yml -p "$project" exec -T oxia oxia health --host 127.0.0.1 --port 6648 --timeout 2s; then healthy=1; break; fi
+  sleep 0.5
+done
+[[ "$healthy" == 1 ]]
+NEREUS_DELAY_OXIA_ENDPOINT="localhost:$NEREUS_DELAY_OXIA_E2E_PORT" NEREUS_DELAY_OXIA_NAMESPACE=default \
+  GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew test --rerun \
+  --tests com.nereusstream.delay.runtime.TargetCommandStoreTest.realOxiaCheckpointAdmissionAuthenticationPreservesUnknownAndResolvedOriginalSource \
+  checkstyleTest --no-daemon --console=plain
+
+SOURCE_SHA256 eee275a32951d7234c653df67703cbc709f7cb3fe18193f6cb61cdb27d9943cc src/main/java/com/nereusstream/delay/store/TargetCheckpointRootVerifier.java
+SOURCE_SHA256 ff10ee4a971badecd471b6716100dcaab910d2af3a55ec0638fc3321804be046 src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java
+SOURCE_SHA256 9e09045f2ac291f623f94492ef098d29edbbcfbe9220e42acc27585987c5175d src/test/java/com/nereusstream/delay/store/TargetCheckpointCandidateTestBridge.java
+SCRIPT_SHA256 5971675f3c78fd90ba4a36753fc31280d03f63ded299633ff62fb5e701a2366f /private/tmp/ndip3-published-target-recovery-native.sh
+DOCKERFILE_SHA256 042de74dba92d5ebefd69a281c529e19d13f49ad94b4de7163b9df9ce5c82ef0 /Users/liusinan/apps/ideaproject/nereusstream/oxia/Dockerfile
+COMPOSE_SHA256 6bfc9680f5b373210c8ca623d6cdc50d113bc484a0a7fdc5a3a3ce1d7ceda39e e2e/docker-compose.oxia.yml
+XML_SHA256 629013fd9abbd7abf2e616012d3b58ef1a01e0173e8ef0dfa6a1dd0f4b708712 build/test-results/test/TEST-com.nereusstream.delay.runtime.TargetCommandStoreTest.xml
+OXIA_HEAD 37a17bef17202d5fd6e23282da5fd26d94865484; clean before/after.
+XML {'tests': '1', 'failures': '0', 'errors': '0', 'skipped': '0'}
+Raw output:
+Owned project=ndip3-published-target-recovery-oxia-20682 endpoint=localhost:51769 checkout=37a17bef17202d5fd6e23282da5fd26d94865484
+ Image ndip3-published-target-recovery-oxia-20682-oxia Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 614B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 1.34kB done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/golang:1.26-alpine
+#3 DONE 2.8s
+
+#4 [internal] load metadata for docker.io/library/alpine:3.22
+#4 DONE 2.8s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 2B done
+#5 DONE 0.0s
+
+#6 [runtime 1/8] FROM docker.io/library/alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
+#6 DONE 0.0s
+
+#7 [build 1/5] FROM docker.io/library/golang:1.26-alpine@sha256:3082400e369fa24d5fc60bca20edab3f6d604e0c5a690ec66b295eff4dd87ade
+#7 DONE 0.0s
+
+#8 [internal] load build context
+#8 transferring context: 39.30kB 0.0s done
+#8 DONE 0.0s
+
+#9 [build 2/5] RUN apk add --no-cache make git build-base bash
+#9 CACHED
+
+#10 [runtime 2/8] RUN apk add --no-cache bash bash-completion jq
+#10 CACHED
+
+#11 [runtime 7/8] COPY --from=build /src/oxia/conf/dataserver.yaml /oxia/conf/dataserver.yaml
+#11 CACHED
+
+#12 [build 3/5] WORKDIR /src/oxia
+#12 CACHED
+
+#13 [runtime 4/8] WORKDIR /oxia
+#13 CACHED
+
+#14 [runtime 6/8] COPY --from=build /src/oxia/conf/coordinator.yaml /oxia/conf/coordinator.yaml
+#14 CACHED
+
+#15 [runtime 5/8] COPY --from=build /src/oxia/bin/oxia /oxia/bin/oxia
+#15 CACHED
+
+#16 [build 4/5] COPY . .
+#16 CACHED
+
+#17 [runtime 3/8] RUN apk upgrade --no-cache
+#17 CACHED
+
+#18 [build 5/5] RUN --mount=type=cache,target=/go/pkg/mod     --mount=type=cache,target=/root/.cache/go-build     make
+#18 CACHED
+
+#19 [runtime 8/8] RUN oxia completion bash > ~/.bashrc
+#19 CACHED
+
+#20 exporting to image
+#20 exporting layers done
+#20 writing image sha256:016aef6d92282cbce9c85951df0c4d1f4b4d3053871da58e791e963b3bca91d6 done
+#20 naming to docker.io/library/ndip3-published-target-recovery-oxia-20682-oxia done
+#20 DONE 0.0s
+
+#21 resolving provenance for metadata file
+#21 DONE 0.0s
+ Image ndip3-published-target-recovery-oxia-20682-oxia Built 
+ Network ndip3-published-target-recovery-oxia-20682_default Creating 
+ Network ndip3-published-target-recovery-oxia-20682_default Creating 
+ Network ndip3-published-target-recovery-oxia-20682_default Created 
+ Network ndip3-published-target-recovery-oxia-20682_default Created 
+ Container ndip3-published-target-recovery-oxia-20682-oxia-1 Creating 
+ Container ndip3-published-target-recovery-oxia-20682-oxia-1 Created 
+ Container ndip3-published-target-recovery-oxia-20682-oxia-1 Starting 
+ Container ndip3-published-target-recovery-oxia-20682-oxia-1 Started 
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava UP-TO-DATE
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses UP-TO-DATE
+> Task :test
+> Task :checkstyleTest UP-TO-DATE
+
+BUILD SUCCESSFUL in 34s
+14 actionable tasks: 2 executed, 12 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+ Container ndip3-published-target-recovery-oxia-20682-oxia-1 Stopping 
+ Container ndip3-published-target-recovery-oxia-20682-oxia-1 Stopped 
+ Container ndip3-published-target-recovery-oxia-20682-oxia-1 Removing 
+ Container ndip3-published-target-recovery-oxia-20682-oxia-1 Removed 
+ Network ndip3-published-target-recovery-oxia-20682_default Removing 
+ Network ndip3-published-target-recovery-oxia-20682_default Removed 
+
+XML:
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.nereusstream.delay.runtime.TargetCommandStoreTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-10-11T21:14:08.695Z" hostname="liusinandeMacBook-Pro.local" time="15.999">
+  <properties/>
+  <testcase name="realOxiaCheckpointAdmissionAuthenticationPreservesUnknownAndResolvedOriginalSource()" classname="com.nereusstream.delay.runtime.TargetCommandStoreTest" time="15.99"/>
+  <system-out><![CDATA[Native Oxia Profile semantics visibility authenticated original uses and rejected later-only publication for UNKNOWN
+C5 protected Target Source duplicate recovery phase=UNKNOWN
+C5 exact published Target -> Catalog Pin -> File download/new incarnation -> Source duplicate catch-up/ACTIVE; phase=UNKNOWN, frozen Budget preserved.
+C5 real Oxia Target PUBLISHED intent/catalog CAS and independent reread; exact File Object Store image downloaded, remaining permission/bootstrap authority is fixture.
+Nonempty Target Manifest/image Control and Admission authentication passed for UNKNOWN; original first Source/charge retained.
+Native Oxia Profile semantics visibility authenticated original uses and rejected later-only publication for RESOLVED_AWAITING_FLOOR
+C5 protected Target Source duplicate recovery phase=RESOLVED_AWAITING_FLOOR
+C5 exact published Target -> Catalog Pin -> File download/new incarnation -> Source duplicate catch-up/ACTIVE; phase=RESOLVED_AWAITING_FLOOR, frozen Budget preserved.
+C5 real Oxia Target PUBLISHED intent/catalog CAS and independent reread; exact File Object Store image downloaded, remaining permission/bootstrap authority is fixture.
+Nonempty Target Manifest/image Control and Admission authentication passed for RESOLVED_AWAITING_FLOOR; original first Source/charge retained.
+]]></system-out>
+  <system-err><![CDATA[[oxia-client-async-1-1] INFO io.oxia.client.grpc.ConnectionManager - Creating managed GRPC connection address=localhost:51769 connectionKey=0 connectionId=1
+[grpc-nio-worker-ELG-4-2] INFO io.oxia.client.session.Session - Session created shard=0 sessionId=0 clientIdentity=target-publish-owner-a
+[oxia-write-batcher-0-3-1] INFO io.oxia.client.grpc.ManagedWriteStream - Opened write stream shard=0 pendingWrites=1
+[oxia-client-async-6-1] INFO io.oxia.client.grpc.ConnectionManager - Creating managed GRPC connection address=localhost:51769 connectionKey=0 connectionId=2
+[grpc-nio-worker-ELG-4-5] INFO io.oxia.client.session.Session - Session created shard=0 sessionId=2 clientIdentity=target-publish-owner-b
+[oxia-write-batcher-0-8-1] INFO io.oxia.client.grpc.ManagedWriteStream - Opened write stream shard=0 pendingWrites=1
+[oxia-client-async-9-1] INFO io.oxia.client.grpc.ConnectionManager - Creating managed GRPC connection address=localhost:51769 connectionKey=0 connectionId=3
+[grpc-nio-worker-ELG-4-4] INFO io.oxia.client.session.Session - Session created shard=0 sessionId=19 clientIdentity=checkpoint-original-profile/b31e74a1-d50e-4082-ab9d-124916198a44
+[oxia-write-batcher-0-11-1] INFO io.oxia.client.grpc.ManagedWriteStream - Opened write stream shard=0 pendingWrites=1
+[grpc-nio-worker-ELG-4-4] INFO io.oxia.client.session.Session - Session closed shard=0 sessionId=19 clientIdentity=checkpoint-original-profile/b31e74a1-d50e-4082-ab9d-124916198a44
+[Test worker] INFO io.oxia.client.grpc.ManagedWriteStream - Closing write stream shard=0 pendingWrites=0
+[oxia-client-async-12-1] INFO io.oxia.client.grpc.ConnectionManager - Creating managed GRPC connection address=localhost:51769 connectionKey=0 connectionId=4
+[grpc-nio-worker-ELG-4-10] INFO io.oxia.client.session.Session - Session created shard=0 sessionId=26 clientIdentity=target-image-publication
+[oxia-write-batcher-0-14-1] INFO io.oxia.client.grpc.ManagedWriteStream - Opened write stream shard=0 pendingWrites=1
+[grpc-nio-worker-ELG-4-10] INFO io.oxia.client.session.Session - Session closed shard=0 sessionId=26 clientIdentity=target-image-publication
+[Test worker] INFO io.oxia.client.grpc.ManagedWriteStream - Closing write stream shard=0 pendingWrites=0
+[oxia-client-async-15-1] INFO io.oxia.client.grpc.ConnectionManager - Creating managed GRPC connection address=localhost:51769 connectionKey=0 connectionId=5
+[grpc-nio-worker-ELG-4-8] INFO io.oxia.client.session.Session - Session created shard=0 sessionId=49 clientIdentity=checkpoint-original-profile/53ea5e5c-bab2-4cc0-a2e7-7f32c7ca62c4
+[oxia-write-batcher-0-17-1] INFO io.oxia.client.grpc.ManagedWriteStream - Opened write stream shard=0 pendingWrites=1
+[grpc-nio-worker-ELG-4-8] INFO io.oxia.client.session.Session - Session closed shard=0 sessionId=49 clientIdentity=checkpoint-original-profile/53ea5e5c-bab2-4cc0-a2e7-7f32c7ca62c4
+[Test worker] INFO io.oxia.client.grpc.ManagedWriteStream - Closing write stream shard=0 pendingWrites=0
+[oxia-client-async-18-1] INFO io.oxia.client.grpc.ConnectionManager - Creating managed GRPC connection address=localhost:51769 connectionKey=0 connectionId=6
+[grpc-nio-worker-ELG-4-4] INFO io.oxia.client.session.Session - Session created shard=0 sessionId=56 clientIdentity=target-image-publication
+[oxia-write-batcher-0-20-1] INFO io.oxia.client.grpc.ManagedWriteStream - Opened write stream shard=0 pendingWrites=1
+[grpc-nio-worker-ELG-4-4] INFO io.oxia.client.session.Session - Session closed shard=0 sessionId=56 clientIdentity=target-image-publication
+[Test worker] INFO io.oxia.client.grpc.ManagedWriteStream - Closing write stream shard=0 pendingWrites=0
+[grpc-nio-worker-ELG-4-5] INFO io.oxia.client.session.Session - Session closed shard=0 sessionId=2 clientIdentity=target-publish-owner-b
+[Test worker] INFO io.oxia.client.grpc.ManagedWriteStream - Closing write stream shard=0 pendingWrites=0
+[grpc-nio-worker-ELG-4-2] INFO io.oxia.client.session.Session - Session closed shard=0 sessionId=0 clientIdentity=target-publish-owner-a
+[Test worker] INFO io.oxia.client.grpc.ManagedWriteStream - Closing write stream shard=0 pendingWrites=0
+]]></system-err>
+</testsuite>
