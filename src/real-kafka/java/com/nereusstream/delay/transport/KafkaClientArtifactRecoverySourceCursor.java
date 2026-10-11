@@ -39,11 +39,15 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
     private final TopicPartition topicPartition;
     private final ConsumerResourceGuard expectedGuard;
     private final Duration pollTimeout;
+    private final boolean target;
+    private final int maximumFrameBytes;
+    private final Runnable protection;
     private final ArrayDeque<BufferedRecord> buffered = new ArrayDeque<>();
     private SourceReplayEntry current;
     private int emptyPollsBeforeActivationBarrier;
     private boolean activationBarrierReached;
     private boolean closed;
+    private boolean failed;
 
     public KafkaClientArtifactRecoverySourceCursor(
             final GuardedConsumer<byte[], byte[]> consumer,
@@ -51,6 +55,27 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
             final String physicalTopic,
             final long startOffsetInclusive,
             final Duration pollTimeout) {
+        this(consumer, assignment, physicalTopic, startOffsetInclusive, pollTimeout, false, Integer.MAX_VALUE, () -> {});
+    }
+
+    /**
+     * Explicit Target reader. Caller owns/configures this guarded manual consumer with finite Fetch buffers,
+     * disabled auto commit, one max-poll record and held Source/Owner/session/credential/retention protections.
+     */
+    public static KafkaClientArtifactRecoverySourceCursor forTarget(GuardedConsumer<byte[], byte[]> consumer,
+            SourceAssignment assignment, String physicalTopic, long startOffsetInclusive, Duration pollTimeout,
+            int maximumFrameBytes, Runnable protection) {
+        if (maximumFrameBytes <= 0) { throw new IllegalArgumentException("Target recovery frame bound must be positive"); }
+        return new KafkaClientArtifactRecoverySourceCursor(consumer, assignment, physicalTopic, startOffsetInclusive,
+                pollTimeout, true, maximumFrameBytes, Objects.requireNonNull(protection, "protection"));
+    }
+
+    private KafkaClientArtifactRecoverySourceCursor(GuardedConsumer<byte[], byte[]> consumer, SourceAssignment assignment,
+            String physicalTopic, long startOffsetInclusive, Duration pollTimeout, boolean target, int maximumFrameBytes,
+            Runnable protection) {
+        this.target = target;
+        this.maximumFrameBytes = maximumFrameBytes;
+        this.protection = protection;
         this.consumer = Objects.requireNonNull(consumer, "consumer");
         final SourceAssignment accepted = Objects.requireNonNull(assignment, "assignment");
         if (!(accepted.activationBarrier() instanceof KafkaActivationBarrier barrier)) {
@@ -78,26 +103,49 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
             throw new IllegalArgumentException("Kafka guarded recovery consumer has a different resource guard");
         }
         activationBarrierReached = Long.compareUnsigned(startOffsetInclusive, barrier.exclusiveOffset()) >= 0;
+        protection.run();
         consumer.assign(java.util.List.of(topicPartition));
         consumer.seek(topicPartition, startOffsetInclusive);
+        protection.run();
     }
 
     @Override
     public synchronized boolean hasNext() {
         ensureOpen();
+        try {
+            return load();
+        } catch (RuntimeException | Error failure) {
+            if (target) { failed = true; }
+            throw failure;
+        }
+    }
+
+    private boolean load() {
+        protection.run();
+        if (!expectedGuard.equals(consumer.resourceGuard())) {
+            throw new IllegalStateException("Kafka recovery resource guard changed");
+        }
         if (current != null) {
             return true;
         }
+        if (target && activationBarrierReached) { return false; }
         while (buffered.isEmpty()) {
             final GuardedConsumerRecords<byte[], byte[]> records = consumer.pollGuarded(pollTimeout);
             final GuardedFetchEvidence evidence = KafkaClientArtifactFetchEvidence.requireBatch(records, expectedGuard);
+            if (target && records.count() > 1) {
+                throw new IllegalStateException("Target recovery Fetch exceeds its one-record look-ahead bound");
+            }
             for (ConsumerRecord<byte[], byte[]> record : records.records(topicPartition)) {
                 KafkaClientArtifactFetchEvidence.requireRecord(record, evidence, expectedGuard);
                 buffered.addLast(new BufferedRecord(record, evidence));
             }
             if (records.isEmpty()) {
                 if (activationBarrierReached) {
+                    protection.run();
                     return false;
+                }
+                if (target) {
+                    throw new IllegalStateException("Target recovery Source was unavailable before its poll deadline");
                 }
                 if (++emptyPollsBeforeActivationBarrier >= MAX_EMPTY_POLLS_BEFORE_ACTIVATION_BARRIER) {
                     throw new IllegalStateException("Kafka recovery source did not reach the activation barrier after "
@@ -120,8 +168,15 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
                     record.offset(),
                     record.leaderEpoch().orElse(null),
                     record.timestamp());
-            current = KafkaClientArtifactSourceRecordDecoder.decode(requireValue(record), shard, position, null, null);
+            final byte[] value = requireValue(record);
+            if (target && value.length > maximumFrameBytes) {
+                throw new IllegalStateException("Target recovery Source frame exceeds its declared byte bound");
+            }
+            current = target
+                    ? KafkaClientArtifactSourceRecordDecoder.decodeTarget(value, shard, position, null, null)
+                    : KafkaClientArtifactSourceRecordDecoder.decode(value, shard, position, null, null);
             activationBarrierReached = activationBarrier.reachedBy(position);
+            protection.run();
             return true;
         } catch (RuntimeException | Error failure) {
             buffered.addFirst(fetched);
@@ -142,8 +197,24 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
     @Override
     public synchronized void close() {
         if (!closed) {
+            failed = true;
+            if (target) { consumer.close(org.apache.kafka.clients.consumer.CloseOptions.timeout(pollTimeout)); }
+            else { consumer.close(); }
             closed = true;
-            consumer.close();
+        }
+    }
+
+    /** Rechecks this exact native Source identity and the caller-held protection without reading or committing. */
+    public synchronized void requireCurrent() {
+        ensureOpen();
+        try {
+            protection.run();
+            if (!expectedGuard.equals(consumer.resourceGuard())) {
+                throw new IllegalStateException("Kafka recovery resource guard changed");
+            }
+        } catch (RuntimeException | Error failure) {
+            if (target) { failed = true; }
+            throw failure;
         }
     }
 
@@ -163,8 +234,8 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
     }
 
     private void ensureOpen() {
-        if (closed) {
-            throw new IllegalStateException("Kafka recovery source is closed");
+        if (closed || failed) {
+            throw new IllegalStateException("Kafka recovery source is closed or failed; retain it only for cleanup");
         }
     }
 

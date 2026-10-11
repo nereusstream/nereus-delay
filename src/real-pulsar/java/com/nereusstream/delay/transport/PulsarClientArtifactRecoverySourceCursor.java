@@ -37,13 +37,19 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
     private final PulsarActivationBarrier barrier;
     private final String physicalTopic;
     private final int receiveTimeoutMs;
+    private final boolean target;
+    private final int maximumFrameBytes;
+    private final Runnable protection;
+    private final com.nereusstream.delay.ownership.OwnedSourceCursor<GuardedConsumer<byte[]>> cleanup;
     private Message<byte[]> buffered;
     private SourceReplayEntry current;
     private PulsarSourcePosition successorAnchor;
     private PulsarSourcePosition successorPrevious;
     private PulsarSourcePosition successorCurrent;
     private boolean hasDelivered;
+    private PulsarSourcePosition lastDelivered;
     private boolean closed;
+    private boolean failed;
 
     public PulsarClientArtifactRecoverySourceCursor(
             final GuardedConsumer<byte[]> consumer,
@@ -51,7 +57,27 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
             final SourceAssignment assignment,
             final String physicalTopic,
             final Duration receiveTimeout) {
+        this(consumer, expectedGuard, assignment, physicalTopic, receiveTimeout, false, Integer.MAX_VALUE, () -> {});
+    }
+
+    /** Explicit Target decoder and finite frame boundary; caller owns the guarded no-ACK consumer and all pins. */
+    public static PulsarClientArtifactRecoverySourceCursor forTarget(GuardedConsumer<byte[]> consumer,
+            TopicResourceGuard expectedGuard, SourceAssignment assignment, String physicalTopic, Duration receiveTimeout,
+            int maximumFrameBytes, Runnable protection) {
+        if (maximumFrameBytes <= 0) { throw new IllegalArgumentException("Target recovery frame bound must be positive"); }
+        return new PulsarClientArtifactRecoverySourceCursor(consumer, expectedGuard, assignment, physicalTopic,
+                receiveTimeout, true, maximumFrameBytes, Objects.requireNonNull(protection, "protection"));
+    }
+
+    private PulsarClientArtifactRecoverySourceCursor(GuardedConsumer<byte[]> consumer, TopicResourceGuard expectedGuard,
+            SourceAssignment assignment, String physicalTopic, Duration receiveTimeout, boolean target,
+            int maximumFrameBytes, Runnable protection) {
+        this.target = target;
+        this.maximumFrameBytes = maximumFrameBytes;
+        this.protection = protection;
         this.consumer = Objects.requireNonNull(consumer, "consumer");
+        cleanup = new com.nereusstream.delay.ownership.OwnedSourceCursor<>(
+                java.util.concurrent.CompletableFuture.completedFuture(consumer), GuardedConsumer::closeAsync);
         this.expectedGuard = Objects.requireNonNull(expectedGuard, "expectedGuard");
         this.assignment = Objects.requireNonNull(assignment, "assignment");
         if (!(assignment.activationBarrier() instanceof PulsarActivationBarrier pulsarBarrier)) {
@@ -70,7 +96,9 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
             throw new IllegalArgumentException("receiveTimeout must fit a positive millisecond int");
         }
         this.receiveTimeoutMs = (int) timeoutMs;
+        protection.run();
         requireProof();
+        protection.run();
     }
 
     /**
@@ -111,10 +139,22 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
     @Override
     public synchronized boolean hasNext() {
         ensureOpen();
+        try {
+            return load();
+        } catch (RuntimeException | Error failure) {
+            if (target) { failed = true; }
+            throw failure;
+        }
+    }
+
+    private boolean load() {
+        protection.run();
         if (current != null) {
+            requireProof();
             return true;
         }
         final SourceProof before = requireProof();
+        if (target && (barrier.empty() || lastDelivered != null && barrier.reachedBy(lastDelivered))) { return false; }
         final Message<byte[]> message;
         if (buffered != null) {
             message = buffered;
@@ -126,6 +166,11 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
             }
         }
         if (message == null) {
+            requireProof();
+            protection.run();
+            if (target && !barrier.empty()) {
+                throw new IllegalStateException("Target recovery Source was unavailable before its receive deadline");
+            }
             return false;
         }
         try {
@@ -133,14 +178,16 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
             if (!before.equals(after)) {
                 throw new IllegalStateException("Pulsar recovery proof changed during receive");
             }
-            current = PulsarClientArtifactSourceRecordConsumer.decodeReplayRecord(
-                    message,
-                    assignment.shardId(),
-                    physicalTopic,
-                    after.attestation(),
-                    after.generation(),
-                    after.digest());
+            if (target && (message.getData() == null || message.getData().length > maximumFrameBytes)) {
+                throw new IllegalStateException("Target recovery Source frame exceeds its declared byte bound");
+            }
+            current = target
+                    ? PulsarClientArtifactSourceRecordConsumer.decodeTargetReplayRecord(message, assignment.shardId(),
+                            physicalTopic, after.attestation(), after.generation(), after.digest())
+                    : PulsarClientArtifactSourceRecordConsumer.decodeReplayRecord(message, assignment.shardId(),
+                            physicalTopic, after.attestation(), after.generation(), after.digest());
             buffered = null;
+            protection.run();
             return true;
         } catch (RuntimeException | Error failure) {
             buffered = message;
@@ -154,6 +201,7 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
             throw new NoSuchElementException("Pulsar recovery source is exhausted");
         }
         final SourceReplayEntry result = current;
+        lastDelivered = (PulsarSourcePosition) result.position();
         if (successorAnchor != null) {
             if (!(result.position() instanceof PulsarSourcePosition position)) {
                 throw new IllegalStateException("Pulsar recovery cursor produced a foreign position kind");
@@ -169,12 +217,35 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
     @Override
     public synchronized void close() {
         if (!closed) {
-            closed = true;
+            failed = true;
             try {
-                consumer.close();
+                if (target) {
+                    cleanup.retryClose().get(receiveTimeoutMs, TimeUnit.MILLISECONDS);
+                } else {
+                    consumer.close();
+                }
+                closed = true;
             } catch (PulsarClientException failure) {
                 throw new IllegalStateException("Pulsar guarded recovery close failed", failure);
+            } catch (InterruptedException failure) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Pulsar guarded recovery close interrupted", failure);
+            } catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException failure) {
+                throw new IllegalStateException("Pulsar guarded recovery close is unconfirmed; retain exact cursor", failure);
             }
+        }
+    }
+
+    /** Rechecks the exact connection/attestation and caller-held Source protection without receive or ACK. */
+    public synchronized void requireCurrent() {
+        ensureOpen();
+        try {
+            protection.run();
+            requireProof();
+            protection.run();
+        } catch (RuntimeException | Error failure) {
+            if (target) { failed = true; }
+            throw failure;
         }
     }
 
@@ -229,8 +300,8 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
     }
 
     private void ensureOpen() {
-        if (closed) {
-            throw new IllegalStateException("Pulsar guarded recovery source is closed");
+        if (closed || failed) {
+            throw new IllegalStateException("Pulsar recovery source is closed or failed; retain it only for cleanup");
         }
     }
 

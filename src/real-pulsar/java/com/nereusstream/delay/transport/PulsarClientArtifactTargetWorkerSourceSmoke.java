@@ -7,6 +7,7 @@ import com.nereusstream.delay.ownership.OxiaOwnerLeaseStore;
 import com.nereusstream.delay.ownership.ShardLifecycleState;
 import com.nereusstream.delay.ownership.SourceApplyCoordinator;
 import com.nereusstream.delay.ownership.SourceReplayRecord;
+import com.nereusstream.delay.ownership.SourceReplayMutation;
 import com.nereusstream.delay.ownership.SourceReplaySuccessor;
 import com.nereusstream.delay.ownership.TargetSourceApplyRuntime;
 import com.nereusstream.delay.ownership.TargetWorkerHostRuntime;
@@ -75,6 +76,7 @@ import org.apache.pulsar.client.api.GuardedConsumer;
 import org.apache.pulsar.client.api.MessageIdAdv;
 import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.PulsarClient;
+import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.TopicResourceGuard;
 
@@ -597,12 +599,78 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
             }
             collected.cut().dependencies().requireOutcomeImages(collected.inputs(), 2L << 20, budget(),
                     (input, first) -> { protection.run(); return null; }, protection);
+            verifyTargetRecoveryCursor(client, resource, topic, store, mutation, protection);
+            if (store.latestSequenceNumber() != beforeHistory) {
+                throw new IllegalStateException("P1 no-ACK recovery cursor changed primary Store");
+            }
             System.out.println("P1 real rejected Outcome Source/apply/ACK and bounded independent history matched "
                     + "one actual Worker cut; primary cursor/Store unchanged by history.");
         } finally {
             executor.shutdown();
             if (!executor.awaitTermination(15, TimeUnit.SECONDS)) {
                 throw new IllegalStateException("P1 Outcome history executor did not terminate");
+            }
+        }
+    }
+
+    private static void verifyTargetRecoveryCursor(PulsarClient client, TopicResourceGuard resource, String topic,
+            ShardStore store, SystemMutation expectedOutcome, Runnable protection) throws Exception {
+        protection.run();
+        final var opening = client.newConsumer(Schema.BYTES).topic(topic)
+                .subscriptionName("target-recovery-fixture-" + UUID.randomUUID())
+                .subscriptionType(org.apache.pulsar.client.api.SubscriptionType.Exclusive)
+                .subscriptionMode(org.apache.pulsar.client.api.SubscriptionMode.NonDurable)
+                .subscriptionInitialPosition(org.apache.pulsar.client.api.SubscriptionInitialPosition.Earliest)
+                .receiverQueueSize(1).autoUpdatePartitions(false).startMessageIdInclusive().resourceGuard(resource)
+                .subscribeAsync();
+        final var owned = new com.nereusstream.delay.ownership.OwnedSourceCursor<>(opening,
+                org.apache.pulsar.client.api.Consumer::closeAsync);
+        PulsarClientArtifactRecoverySourceCursor cursor = null;
+        try {
+            final var nativeConsumer = opening.get(10, TimeUnit.SECONDS);
+            if (!(nativeConsumer instanceof GuardedConsumer<?>)) {
+                throw new IllegalStateException("P1 recovery fixture lacks guarded consumer");
+            }
+            @SuppressWarnings("unchecked")
+            final var consumer = (GuardedConsumer<byte[]>) nativeConsumer;
+            final var positioned = PulsarClientArtifactRecoverySourcePositioner.seekAfter(consumer, resource, topic,
+                    store.shardId(), Optional.empty(), Duration.ofSeconds(10));
+            final var end = (PulsarSourcePosition) store.appliedShardLogPosition();
+            final var barrier = new PulsarActivationBarrier(store.shardId(), resource.resourceIncarnation(), topic,
+                    end.ledgerId(), end.entryId(), end.normalizedBatchIndex(), end.batchSize(),
+                    positioned.connectionGeneration(), positioned.attestationDigest(), false);
+            final var assignment = new com.nereusstream.delay.ownership.SourceAssignment(store.shardId(),
+                    Bytes.sha256(Bytes.utf8("p1-native-recovery-fixture")), 1, barrier);
+            cursor = PulsarClientArtifactRecoverySourceCursor.forTarget(consumer, resource, assignment, topic,
+                    Duration.ofSeconds(10), 2 << 20, protection);
+            int read = 0;
+            boolean targetControl = false;
+            boolean outcome = false;
+            while (cursor.hasNext()) {
+                cursor.requireCurrent();
+                final var entry = cursor.next();
+                if (entry instanceof SourceReplayMutation system) {
+                    if (read == 0) {
+                        targetControl = com.nereusstream.delay.protocol.TargetQuotaGrantControlBody
+                                .decode(system.mutation().canonicalBody()).request().next().scope().shard()
+                                .equals(store.shardId());
+                    }
+                    if (entry.position().equals(end)) {
+                        outcome = Arrays.equals(system.mutation().canonicalEnvelope(), expectedOutcome.canonicalEnvelope());
+                    }
+                }
+                read++;
+            }
+            cursor.requireCurrent();
+            if (read != 3 || !targetControl || !outcome) {
+                throw new IllegalStateException("P1 Target recovery did not read complete grant/Command/Outcome cut");
+            }
+            System.out.println("P1 guarded non-durable Target no-ACK recovery cursor read exact real "
+                    + "Control/Command/Outcome through post-seek attested barrier; primary Store unchanged.");
+        } finally {
+            if (cursor != null) { cursor.close(); }
+            else {
+                owned.requestClose().get(10, TimeUnit.SECONDS);
             }
         }
     }

@@ -898,12 +898,21 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
                         }
                         if (host != null) {
                             try {
-                                final var drained = host.drainAll(
+                                final long drainDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
+                                TargetWorkerHostRuntime.Result drained;
+                                do {
+                                drained = host.drainAll(
                                         new com.nereusstream.delay.ownership.TargetOwnerDrainCoordinator.Request(
                                                 Math.addExact(System.currentTimeMillis(), 60_000),
                                                 new SchedulerBudget(64, 4L << 20, TimeUnit.SECONDS.toNanos(10))),
                                         new SchedulerBudget(64, 4L << 20, TimeUnit.SECONDS.toNanos(10)),
                                         System::currentTimeMillis);
+                                if (!drained.complete() && drained.shards().size() == 1
+                                        && drained.shards().getFirst().status()
+                                                == TargetWorkerHostRuntime.Status.PENDING_SOURCE_OBSERVATION) {
+                                    Thread.sleep(1);
+                                } else { break; }
+                                } while (System.nanoTime() < drainDeadline);
                                 if (!drained.complete()
                                         || drained.shards().size() != 1
                                         || drained.shards().getFirst().status()
@@ -1567,6 +1576,12 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
             }
             collected.cut().dependencies().requireOutcomeImages(collected.inputs(), 2L << 20,
                     KafkaClientArtifactTargetWorkerSourceSmoke.budget(), (input, first) -> null, guard);
+            verifyTargetRecoveryCursor(bootstrap, topic, store, mutation, guard);
+            if (store.latestSequenceNumber() != before
+                    || admin.listConsumerGroupOffsets(group).partitionsToOffsetAndMetadata()
+                            .get(10, TimeUnit.SECONDS).get(partition).offset() != committed) {
+                throw new IllegalStateException("Target no-commit recovery cursor changed primary group/Store");
+            }
             System.out.println("K1 real rejected Outcome Source/apply/ACK and independent bounded history matched "
                     + "one actual Worker cut; active group and Store unchanged by history.");
         } finally {
@@ -1574,6 +1589,59 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
             if (!executor.awaitTermination(15, TimeUnit.SECONDS)) {
                 throw new IllegalStateException("K1 Outcome history executor did not terminate");
             }
+        }
+    }
+
+    private static void verifyTargetRecoveryCursor(String bootstrap, String topic, ShardStore store,
+            SystemMutation expectedOutcome, Runnable protection) {
+        final var end = (KafkaSourcePosition) store.appliedShardLogPosition();
+        final var assignment = new com.nereusstream.delay.ownership.SourceAssignment(store.shardId(),
+                Bytes.sha256(Bytes.utf8("k1-native-recovery-fixture")), 1,
+                new com.nereusstream.delay.protocol.KafkaActivationBarrier(store.shardId(),
+                        end.authenticatedClusterId(), end.nativeTopicUuid(), end.offset() + 1));
+        final Map<String, Object> configuration = Map.of(
+                ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap,
+                ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, org.apache.kafka.common.serialization.ByteArrayDeserializer.class.getName(),
+                ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, org.apache.kafka.common.serialization.ByteArrayDeserializer.class.getName(),
+                ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 1,
+                ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "none",
+                ConsumerConfig.ISOLATION_LEVEL_CONFIG, "read_committed",
+                ConsumerConfig.MAX_PARTITION_FETCH_BYTES_CONFIG, 2 << 20,
+                ConsumerConfig.FETCH_MAX_BYTES_CONFIG, 2 << 20);
+        final var nativeConsumer = KafkaClientArtifactSourceConsumerFactory.create(configuration,
+                end.authenticatedClusterId(), topic, end.nativeTopicUuid(), store.shardId().partition());
+        KafkaClientArtifactRecoverySourceCursor cursor = null;
+        try {
+            cursor = KafkaClientArtifactRecoverySourceCursor.forTarget(nativeConsumer, assignment, topic, 0,
+                    Duration.ofSeconds(10), 2 << 20, protection);
+            long expectedOffset = 0;
+            boolean targetControl = false;
+            boolean outcome = false;
+            while (cursor.hasNext()) {
+                cursor.requireCurrent();
+                final var entry = cursor.next();
+                if (!(entry.position() instanceof KafkaSourcePosition at) || at.offset() != expectedOffset++) {
+                    throw new IllegalStateException("K1 Target recovery cursor skipped its real Source sequence");
+                }
+                if (entry instanceof SourceReplayMutation system) {
+                    if (system.mutation().type() == SystemMutationType.APPLY_SHARD_CONTROL && at.offset() == 0) {
+                        targetControl = TargetQuotaGrantControlBody.decode(system.mutation().canonicalBody())
+                                .request().next().scope().shard().equals(store.shardId());
+                    }
+                    if (system.position().equals(end)) {
+                        outcome = Arrays.equals(system.mutation().canonicalEnvelope(), expectedOutcome.canonicalEnvelope());
+                    }
+                }
+            }
+            cursor.requireCurrent();
+            if (!targetControl || !outcome || expectedOffset != end.offset() + 1) {
+                throw new IllegalStateException("K1 Target recovery did not read complete grant/Outcome cut");
+            }
+            System.out.println("K1 guarded Target no-commit recovery cursor read exact real Control/Command/Outcome "
+                    + "Source sequence through barrier; primary Store/group unchanged.");
+        } finally {
+            if (cursor != null) { cursor.close(); }
+            else { nativeConsumer.close(org.apache.kafka.clients.consumer.CloseOptions.timeout(Duration.ofSeconds(10))); }
         }
     }
 
