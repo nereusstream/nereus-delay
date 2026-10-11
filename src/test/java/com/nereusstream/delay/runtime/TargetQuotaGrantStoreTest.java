@@ -145,6 +145,7 @@ import com.nereusstream.delay.store.ShardStoreConfig;
 import com.nereusstream.delay.store.SharedRocksDbResources;
 import com.nereusstream.delay.store.TargetCheckpointCandidateTestBridge;
 import com.nereusstream.delay.store.TargetCheckpointCandidateWorkClassExecutor;
+import com.nereusstream.delay.store.TargetCheckpointControlAuthority;
 import com.nereusstream.delay.store.TargetCheckpointRootVerifier;
 import com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot;
 import com.nereusstream.delay.store.TargetCheckpointSemanticSnapshotFile;
@@ -522,6 +523,7 @@ class TargetQuotaGrantStoreTest {
                 null,
                 null);
         final var keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final var snapshotKeys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         final var actor = new ControlAuthorizationContext(
                 bytes(32, 0xa1), ControlRoleSet.of(ControlRole.PLATFORM_OPERATOR), bytes(32, 0xa2));
         final var operation = signed(request, bytes(32, 0x72), actor, keys);
@@ -612,7 +614,6 @@ class TargetQuotaGrantStoreTest {
                             (a, b, c) -> {}));
             assertEquals(withOrphan, store.latestSequenceNumber());
             store.write(batch -> batch.delete(ColumnFamily.META, orphanKey));
-            final var snapshotKeys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
             final var snapshot = TargetControlSnapshotInput.signed(scope, lineage, rootRequest.next().digest(),
                     earlier, Bytes.sha256(rootOperation.mutation().canonicalEnvelope()),
                     List.of(ProtocolTuple.currentSystemMutation()), List.of(), 1, snapshotKeys.getPrivate());
@@ -1468,6 +1469,97 @@ class TargetQuotaGrantStoreTest {
                                 semanticManifest, imageLimits, quotaAuditLimits, ledgerAuditLimits, semanticLimits))
                         .getMessage().contains("initial reader/control snapshot"));
             } else {
+                final long beforeAuthenticationWrites = live.operationStatistics().nativeWriteCalls();
+                final var initialAuthentications = new java.util.concurrent.atomic.AtomicInteger();
+                final TargetStoreBootstrap.InitialControlAuthority originalReader = (input, preparedControl,
+                        originalMutation, originalSource) -> {
+                    assertFalse(Thread.holdsLock(live));
+                    assertEquals(earlier, originalSource);
+                    assertEquals(earlier, input.source());
+                    assertArrayEquals(rootOperation.control().canonicalBytes(), preparedControl.canonicalBytes());
+                    assertArrayEquals(rootOperation.mutation().canonicalEnvelope(),
+                            originalMutation.canonicalEnvelope());
+                    initialAuthentications.incrementAndGet();
+                    return snapshotKeys.getPublic(); // Distinct from the original Control issuer key.
+                };
+                final var authenticatedManifest = TargetCheckpointRootVerifier.auditManifestControlAuthentication(
+                        semanticCandidate, semanticManifest, imageLimits, quotaAuditLimits, ledgerAuditLimits,
+                        semanticLimits, originalControlAuthority, originalReader);
+                assertEquals(live.shardMutationSequence(), authenticatedManifest.root().mutationSequence());
+                assertEquals(1, initialAuthentications.get());
+                if (controlEndpoint != null && !controlEndpoint.isBlank()) {
+                    final String manifestPrefix = "checkpoint-manifest-control/" + UUID.randomUUID();
+                    try (var client = OxiaSyncOwnerLeaseBackend.connect(controlEndpoint, "default", manifestPrefix,
+                            Duration.ofSeconds(15), manifestPrefix + "/owner")) {
+                        final var registered =
+                                new com.nereusstream.delay.ownership.OxiaControlTargetRegistrationAuthority(
+                                new com.nereusstream.delay.ownership.OxiaSyncControlTargetRegistrationBackend(
+                                        client, manifestPrefix + "/registry"));
+                        registered.register(rootOperation.control());
+                        registered.register(operation.control());
+                        final var nativeAuthority = new TargetCheckpointControlAuthority(
+                                registered, (version, at) -> version == 1 ? keys.getPublic() : null,
+                                (input, first) -> {},
+                                (preparedControl, input) -> new TargetCheckpointControlAuthority.Authorization(
+                                        actor, ignored -> true), budget(),
+                                client.backend()::assertConnectedSession);
+                        final var nativeProof = TargetCheckpointRootVerifier.auditManifestControlAuthentication(
+                                semanticCandidate, semanticManifest, imageLimits, quotaAuditLimits, ledgerAuditLimits,
+                                semanticLimits, nativeAuthority, originalReader);
+                        assertEquals(authenticatedManifest.root().mutationSequence(),
+                                nativeProof.root().mutationSequence());
+                        System.out.println("Native Oxia immutable registrations authenticated Target Manifest Controls "
+                                + "and distinct initial reader issuer on the actual RocksDB image.");
+                    }
+                }
+                assertTrue(assertThrows(IllegalArgumentException.class,
+                        () -> TargetCheckpointRootVerifier.auditManifestControlAuthentication(semanticCandidate,
+                                semanticManifest, imageLimits, quotaAuditLimits, ledgerAuditLimits, semanticLimits,
+                                originalControlAuthority, (input, registered, mutation, at) -> keys.getPublic()))
+                        .getMessage().contains("snapshot issuer signature invalid"));
+                final var readerRefusal = new IllegalStateException("original reader/Profile permission unavailable");
+                assertSame(readerRefusal, assertThrows(IllegalStateException.class,
+                        () -> TargetCheckpointRootVerifier.auditManifestControlAuthentication(semanticCandidate,
+                                semanticManifest, imageLimits, quotaAuditLimits, ledgerAuditLimits, semanticLimits,
+                                originalControlAuthority, (input, registered, mutation, at) -> {
+                                    throw readerRefusal;
+                                })));
+                final var missingRegistry = new com.nereusstream.delay.store.TargetCheckpointControlAuthority(
+                        new InMemoryControlTargetRegistrationAuthority(), (version, at) -> keys.getPublic(),
+                        (input, first) -> {}, (registered, input) -> {
+                            throw new AssertionError("missing registration reached Source authorization");
+                        }, budget(), () -> {});
+                assertThrows(IllegalStateException.class,
+                        () -> TargetCheckpointRootVerifier.auditManifestControlAuthentication(semanticCandidate,
+                                semanticManifest, imageLimits, quotaAuditLimits, ledgerAuditLimits, semanticLimits,
+                                missingRegistry, originalReader));
+                final var smallAuthenticationBudget = new com.nereusstream.delay.store.TargetCheckpointControlAuthority(
+                        registrations, (version, at) -> keys.getPublic(), (input, first) -> {},
+                        (registered, input) -> new com.nereusstream.delay.store.TargetCheckpointControlAuthority
+                                .Authorization(actor, ignored -> true),
+                        new BoundedReadBudget(1, 1 << 20, 1_000_000, () -> 0), () -> {});
+                assertThrows(com.nereusstream.delay.store.ReadIncompleteException.class,
+                        () -> TargetCheckpointRootVerifier.auditManifestControlAuthentication(semanticCandidate,
+                                semanticManifest, imageLimits, quotaAuditLimits, ledgerAuditLimits, semanticLimits,
+                                smallAuthenticationBudget, originalReader));
+                final var heldProtection = new java.util.concurrent.atomic.AtomicBoolean(true);
+                final var protectedAuthority = new com.nereusstream.delay.store.TargetCheckpointControlAuthority(
+                        registrations, (version, at) -> keys.getPublic(), (input, first) -> {},
+                        (registered, input) -> new com.nereusstream.delay.store.TargetCheckpointControlAuthority
+                                .Authorization(actor, ignored -> true), budget(), () -> {
+                            assertFalse(Thread.holdsLock(live));
+                            if (!heldProtection.get()) {
+                                throw new IllegalStateException("history/pin protection lost");
+                            }
+                        });
+                assertThrows(IllegalStateException.class,
+                        () -> TargetCheckpointRootVerifier.auditManifestControlAuthentication(semanticCandidate,
+                                semanticManifest, imageLimits, quotaAuditLimits, ledgerAuditLimits, semanticLimits,
+                                protectedAuthority, (input, registered, mutation, at) -> {
+                                    heldProtection.set(false);
+                                    return snapshotKeys.getPublic();
+                                }));
+                assertEquals(beforeAuthenticationWrites, live.operationStatistics().nativeWriteCalls());
                 final var manifestProof = TargetCheckpointRootVerifier.auditManifestSemanticSnapshot(
                         semanticCandidate, semanticManifest, imageLimits, quotaAuditLimits, ledgerAuditLimits,
                         semanticLimits);

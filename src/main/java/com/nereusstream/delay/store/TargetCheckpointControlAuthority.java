@@ -12,13 +12,17 @@ import com.nereusstream.delay.protocol.QueryCodecSupport;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationBodyCodec;
 import com.nereusstream.delay.protocol.SystemMutationType;
+import com.nereusstream.delay.protocol.TargetInitialControlSnapshot;
+import com.nereusstream.delay.protocol.TargetQuotaGrantControlBody;
 import com.nereusstream.delay.runtime.ApplyStatus;
 import com.nereusstream.delay.runtime.SystemMutationResult;
 import com.nereusstream.delay.runtime.TargetQuotaGrantControlVerifier;
 import com.nereusstream.delay.runtime.TargetResultRecord;
+import com.nereusstream.delay.runtime.TargetStoreBootstrap;
 import java.security.PublicKey;
 import java.util.Arrays;
 import java.util.Objects;
+import java.util.TreeMap;
 
 /** Exact retained Control authentication; external original-Source key/role/scope/history protection is mandatory. */
 public final class TargetCheckpointControlAuthority implements TargetCheckpointDependencies.ControlImageAuthority {
@@ -66,6 +70,12 @@ public final class TargetCheckpointControlAuthority implements TargetCheckpointD
 
     @Override
     public PublicKey authenticate(TargetCheckpointDependencies.ControlImage input, TargetResultRecord first) {
+        final var verified = authenticateControl(input, first);
+        return verified == null ? null : verified.key();
+    }
+
+    private AuthenticatedControl authenticateControl(TargetCheckpointDependencies.ControlImage input,
+            TargetResultRecord first) {
         protection.run();
         final var result = SystemMutationResult.decode(first.typedPayload());
         final var image = input.image();
@@ -117,8 +127,74 @@ public final class TargetCheckpointControlAuthority implements TargetCheckpointD
         final var authorization = Objects.requireNonNull(source.resolve(registered, input), "Source authorization");
         ControlOperationAuthorization.authorize(registered, authorization.actor(), authorization.scope());
         after();
-        return imageKey;
+        return new AuthenticatedControl(registered, imageKey);
     }
+
+    /**
+     * Reauthenticates the persisted initial reader/Profile input and every original Control on this image cut.
+     * Invoke outside live Store monitors. Snapshot issuer trust/reader set/Profile pins are distinct from Control
+     * issuer trust and must be established at the original initial Source, never at the later checkpoint cut.
+     */
+    public void authenticateSnapshot(TargetCheckpointDependencies dependencies,
+            TargetCheckpointSemanticSnapshot snapshot, TargetCheckpointSemanticSnapshot.Limits limits,
+            TargetStoreBootstrap.InitialControlAuthority initialAuthority) {
+        Objects.requireNonNull(initialAuthority, "initialAuthority");
+        if (snapshot.schemaVersion() != 2) {
+            throw new IllegalArgumentException("Control authentication requires complete original-Control schema 2");
+        }
+        snapshot.validateAgainst(dependencies, limits);
+        final var initial = dependencies.controls().stream().filter(control -> control.family() == ColumnFamily.META
+                && Arrays.equals(control.key(), KeyCodec.metaFixed(10)))
+                .map(control -> TargetInitialControlSnapshot.decode(control.payload())).findFirst()
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Control authentication lacks initial reader snapshot"));
+        final var firstResults = new TreeMap<String, TargetResultRecord>();
+        for (var first : dependencies.controlResults()) {
+            firstResults.put(Bytes.hex(SystemMutationResult.decode(first.typedPayload()).mutationId()), first);
+        }
+        boolean initialAuthenticated = false;
+        for (var input : dependencies.correlateControlImages(snapshot.controls(), limits.maximumBytes())) {
+            final var first = firstResults.remove(Bytes.hex(input.image().systemMutationId()));
+            before();
+            if (!budget.tryCharge(input.source().canonicalBytes().length, input.image().encodeFrame().length)) {
+                throw budget.incomplete();
+            }
+            final var authenticated = authenticateControl(input, first);
+            if (Arrays.equals(initial.initialGrant().systemMutationId(), input.image().systemMutationId())) {
+                if (authenticated == null) {
+                    throw new IllegalArgumentException("initial Control was not APPLIED/authenticated");
+                }
+                final var original = TargetQuotaGrantControlBody.decode(input.image().canonicalBody());
+                if (!Arrays.equals(initial.initialGrant().request().canonicalBytes(),
+                        original.request().canonicalBytes())
+                        || !initial.initialGrant().controlRef().equals(original.controlRef())
+                        || !Arrays.equals(initial.authorIdentity(), input.image().authorIdentity())) {
+                    throw new IllegalArgumentException("initial snapshot changes the original signed Shard grant");
+                }
+                initial.input().requireInitial(dependencies.root().root().scope(),
+                        dependencies.root().root().recoveryLineage(), original.request().next(), input.source(),
+                        Bytes.sha256(input.image().canonicalEnvelope()));
+                before();
+                if (!budget.tryCharge(initial.key().length, initial.input().canonicalBytes().length)) {
+                    throw budget.incomplete();
+                }
+                final var key = initialAuthority.authenticate(initial.input(), authenticated.registered(),
+                        input.image(), input.source());
+                after();
+                if (key == null || !initial.input().verifySignature(key)) {
+                    throw new IllegalArgumentException("initial reader/control snapshot issuer signature invalid");
+                }
+                initialAuthenticated = true;
+            }
+            after();
+        }
+        if (!initialAuthenticated) {
+            throw new IllegalArgumentException("initial reader snapshot has no authenticated original Control");
+        }
+        after();
+    }
+
+    private record AuthenticatedControl(PreparedControlOperation registered, PublicKey key) {}
 
     private void before() {
         protection.run();

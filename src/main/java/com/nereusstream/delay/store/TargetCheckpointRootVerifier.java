@@ -272,6 +272,30 @@ public final class TargetCheckpointRootVerifier {
     public static LedgerProof auditManifestSemanticSnapshot(final Path image, final CheckpointManifest manifest,
             final CheckpointManifestLimits physicalLimits, final QuotaAuditLimits quotaLimits,
             final LedgerAuditLimits ledgerLimits, final TargetCheckpointSemanticSnapshot.Limits semanticLimits) {
+        return auditManifestCompanion(image, manifest, physicalLimits, quotaLimits, ledgerLimits, semanticLimits)
+                .ledger();
+    }
+
+    /** Original Control/initial reader authentication after the same immutable Manifest/companion image audit. */
+    public static LedgerProof auditManifestControlAuthentication(final Path image, final CheckpointManifest manifest,
+            final CheckpointManifestLimits physicalLimits, final QuotaAuditLimits quotaLimits,
+            final LedgerAuditLimits ledgerLimits, final TargetCheckpointSemanticSnapshot.Limits semanticLimits,
+            final TargetCheckpointControlAuthority controls,
+            final com.nereusstream.delay.runtime.TargetStoreBootstrap.InitialControlAuthority initialAuthority) {
+        Objects.requireNonNull(controls, "controls");
+        Objects.requireNonNull(initialAuthority, "initialAuthority");
+        final var verified = auditManifestCompanion(image, manifest, physicalLimits, quotaLimits, ledgerLimits,
+                semanticLimits);
+        controls.authenticateSnapshot(verified.ledger().dependencies(), verified.snapshot(), semanticLimits,
+                initialAuthority);
+        return verified.ledger();
+    }
+
+    private record ManifestCompanion(LedgerProof ledger, TargetCheckpointSemanticSnapshot snapshot) {}
+
+    private static ManifestCompanion auditManifestCompanion(final Path image, final CheckpointManifest manifest,
+            final CheckpointManifestLimits physicalLimits, final QuotaAuditLimits quotaLimits,
+            final LedgerAuditLimits ledgerLimits, final TargetCheckpointSemanticSnapshot.Limits semanticLimits) {
         requireFormat2Manifest(manifest, physicalLimits);
         Objects.requireNonNull(semanticLimits, "semanticLimits");
         final var proof = validateImage(image, manifest.shardId(), physicalLimits, manifest,
@@ -292,7 +316,7 @@ public final class TargetCheckpointRootVerifier {
         if (!Bytes.constantTimeEquals(manifest.referencedSemanticVersionsDigest(), snapshot.semanticInputsDigest())) {
             throw new IllegalArgumentException("Target Manifest semantic-version digest differs from its companion");
         }
-        return proof;
+        return new ManifestCompanion(proof, snapshot);
     }
 
     private static void requireFormat2Manifest(
