@@ -8551,8 +8551,53 @@ class TargetCommandStoreTest {
             }
         }
         assertEquals(afterCreate, store.latestSequenceNumber());
-        final var publicationImage = TargetCheckpointRootVerifier.authenticateImage(image, manifest, physicalLimits,
-                quotaLimits, ledgerLimits, semanticLimits, completeFixture, () -> assertFalse(Thread.holdsLock(store)));
+        final var created = manifest.createdAt();
+        final var creationEvidence = new TrustedUtcIntervalEvidence(created.earliestEpochMs(), created.latestEpochMs(),
+                TrustedUtcIntervalEvidence.Source.valueOf(created.source()), created.sourceId(),
+                created.sourceConfigGeneration(), created.sampleSequence(), created.monotonicAnchorNs(),
+                created.sourceEvidenceSha256(), created.sourceKeyVersion(), created.sourceSignature());
+        final var creator = new OwnerIdentity(manifest.createdBy().deploymentId(), manifest.createdBy().workerRunId(),
+                manifest.createdBy().ownerEpoch(), bytes(32, 0x60));
+        final var objectProfile = new ProfileRef(Bytes.utf8("candidate-image-test"), 1, bytes(32, 0x61),
+                com.nereusstream.delay.protocol.ProfileKind.OBJECT_STORE);
+        final var candidatePending = new com.nereusstream.delay.protocol.CheckpointUploadIntent(
+                new com.nereusstream.delay.protocol.ShardSubject(scope.shard()), lineage, checkpointId, creator,
+                store.metadata().storeIncarnation(), bytes(32, 0x62), 1, null, null, objectProfile, creationEvidence,
+                10_000, com.nereusstream.delay.protocol.CheckpointUploadState.PENDING_UPLOAD, 1, null, null);
+        final var candidateImage = new TargetCheckpointRootVerifier.CandidateImage(image, candidatePending, 0,
+                manifest.files(), physicalLimits, quotaLimits, ledgerLimits, semanticLimits, completeFixture,
+                () -> assertFalse(Thread.holdsLock(store)));
+        final var publicationImage = TargetCheckpointRootVerifier.authenticateCandidate(candidateImage);
+        assertArrayEquals(manifest.canonicalJsonBytes(), publicationImage.manifest().canonicalJsonBytes());
+        final var wrongCreator = new OwnerIdentity(creator.deploymentId(), creator.workerRunId(),
+                creator.ownerEpoch() + 1, creator.leaseFencingDigest());
+        final var wrongPending = new com.nereusstream.delay.protocol.CheckpointUploadIntent(candidatePending.shard(),
+                lineage, checkpointId, wrongCreator, store.metadata().storeIncarnation(), bytes(32, 0x62), 1,
+                null, null, objectProfile, creationEvidence, 10_000,
+                com.nereusstream.delay.protocol.CheckpointUploadState.PENDING_UPLOAD, 1, null, null);
+        assertTrue(assertThrows(IllegalArgumentException.class,
+                () -> TargetCheckpointRootVerifier.authenticateCandidate(
+                        new TargetCheckpointRootVerifier.CandidateImage(
+                        image, wrongPending, 0, manifest.files(), physicalLimits, quotaLimits, ledgerLimits,
+                        semanticLimits, (a, b, c) -> { throw new AssertionError("wrong creator reached authority"); },
+                        () -> {}))).getMessage().contains("metadata differs"));
+        final var changedFiles = new java.util.ArrayList<>(manifest.files());
+        final var originalFile = changedFiles.getFirst();
+        changedFiles.set(0, new com.nereusstream.delay.store.CheckpointManifest.FileEntry(originalFile.name(),
+                originalFile.length(), bytes(32, 0), originalFile.objectKey(), originalFile.objectVersion(),
+                originalFile.etag()));
+        assertTrue(assertThrows(IllegalArgumentException.class,
+                () -> TargetCheckpointRootVerifier.authenticateCandidate(
+                        new TargetCheckpointRootVerifier.CandidateImage(
+                        image, candidatePending, 0, changedFiles, physicalLimits, quotaLimits, ledgerLimits,
+                        semanticLimits, (a, b, c) -> { throw new AssertionError("wrong file reached authority"); },
+                        () -> {}))).getMessage().contains("file inventory does not match"));
+        final var noCandidateRights = new IllegalStateException("candidate image rights unavailable");
+        assertSame(noCandidateRights, assertThrows(IllegalStateException.class,
+                () -> TargetCheckpointRootVerifier.authenticateCandidate(
+                        new TargetCheckpointRootVerifier.CandidateImage(
+                        image, candidatePending, 0, manifest.files(), physicalLimits, quotaLimits, ledgerLimits,
+                        semanticLimits, completeFixture, () -> { throw noCandidateRights; }))));
         com.nereusstream.delay.store.TargetCheckpointCandidateTestBridge.publishTargetFixture(
                 store.sharedResources(), context.workClasses(), publicationImage, physicalLimits,
                 store.dbPath().getParent().resolve("publication-" + current.phase()),

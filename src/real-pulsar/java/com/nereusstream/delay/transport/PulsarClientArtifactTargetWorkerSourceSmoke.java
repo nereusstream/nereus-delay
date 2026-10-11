@@ -612,16 +612,12 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
         final var files = CheckpointFileInventory.collect(candidateResult.checkpointPath(), physical).stream()
                 .map(file -> new CheckpointManifest.FileEntry(file.name(), file.length(), file.checksum(),
                         Bytes.utf8("p1-image/" + file.name()), Bytes.utf8("immutable-1"), null)).toList();
-        final var manifest = new CheckpointManifest(checkpointId, pending.recoveryLineageId(), 0, null, null,
-                new CheckpointManifest.CreatedBy(owner.deploymentId(), owner.workerRunId(), owner.ownerEpoch()),
-                new CheckpointManifest.CreatedAt(now - 1, now, "CERTIFIED_HOST_CLOCK", bytes(8, 0x65),
-                        1, 1, 1, bytes(32, 0x66), 0, null), scope.shard(), store.metadata().dbIdentity(),
-                store.metadata().storeIncarnationUuid(), 2, store.shardMutationSequence(),
-                store.appliedShardLogPosition(), snapshot.snapshotDigest(), snapshot.semanticInputsDigest(),
-                store.runtimeMetadata().evidenceCursors(), files);
         final var historyClient = new java.util.concurrent.atomic.AtomicReference<PulsarClient>(client);
-        final var image = TargetCheckpointRootVerifier.authenticateImage(candidateResult.checkpointPath(), manifest,
-                physical, quota, ledgerLimits, semanticLimits, (candidateManifest, ledger, semantic) -> {
+        final var authentications = new java.util.concurrent.atomic.AtomicInteger();
+        final var descriptor = new TargetCheckpointRootVerifier.CandidateImage(candidateResult.checkpointPath(),
+                pending, 0, files, physical, quota, ledgerLimits, semanticLimits,
+                (candidateManifest, ledger, semantic) -> {
+                    authentications.incrementAndGet();
                     if (!semantic.profiles().isEmpty() || !semantic.admissions().isEmpty()
                             || !semantic.outcomes().isEmpty() || ledger.root().mutationSequence() != 1) {
                         throw new IllegalStateException("P1 fixture accepts only its initial grant image");
@@ -644,19 +640,29 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
         final var catalog = new RecoveryCatalog();
         // Registered UploadIntent requires base generation 1. This synthetic historical Catalog entry is a
         // fixture only; it neither converts a physical Store nor implements fresh-empty Catalog bootstrap.
-        catalog.publish(new CheckpointManifest(bytes(16, 0x68), manifest.recoveryLineageId(), 0, null, null,
-                manifest.createdBy(), manifest.createdAt(), manifest.shardId(), manifest.dbIdentity(),
-                manifest.sourceStoreIncarnation(), 1, manifest.shardMutationSequence(),
-                manifest.appliedShardLogPosition(), manifest.controlStateDigest(),
-                manifest.referencedSemanticVersionsDigest(), List.of(), manifest.files()), 0);
+        final var baseline = new CheckpointManifest(bytes(16, 0x68), pending.recoveryLineageId(), 0, null, null,
+                new CheckpointManifest.CreatedBy(owner.deploymentId(), owner.workerRunId(), owner.ownerEpoch()),
+                new CheckpointManifest.CreatedAt(now - 1, now, "CERTIFIED_HOST_CLOCK", bytes(8, 0x65),
+                        1, 1, 1, bytes(32, 0x66), 0, null), scope.shard(), store.metadata().dbIdentity(),
+                store.metadata().storeIncarnationUuid(), 1, store.shardMutationSequence(),
+                store.appliedShardLogPosition(), snapshot.snapshotDigest(), snapshot.semanticInputsDigest(),
+                List.of(), files);
+        catalog.publish(baseline, 0);
         final Path objects = root.resolve("recovery-objects");
         final var publisher = new TargetCheckpointPublicationWorkClassExecutor(classes,
                 new CheckpointPublicationCoordinator(resources, intents, physical, catalog));
-        final var publication = publisher.submit(pending, image, 1, System.currentTimeMillis(),
-                new FilesystemCheckpointUploadAdapter(objects, "p1-fixture", physical));
+        final var publication = publisher.submitCandidate(descriptor, () -> {
+            if (authentications.get() == 0) { throw new AssertionError("publication clock sampled before image auth"); }
+            return System.currentTimeMillis();
+        }, new FilesystemCheckpointUploadAdapter(objects, "p1-fixture", physical));
+        if (authentications.get() != 0 || publication.outcome().isPresent()
+                || publication.authenticatedImage().isPresent()) {
+            throw new IllegalStateException("P1 candidate publication performed work during queue admission");
+        }
         classes.runTurn(new SchedulerBudget(1, publication.task().bytes(), TimeUnit.SECONDS.toNanos(10)));
         final var published = publication.outcome().orElseThrow();
         if (published.failure() != null) { throw new IllegalStateException("P1 upload", published.failure()); }
+        final var image = publication.authenticatedImage().orElseThrow();
         return new PublishedCheckpoint(image, published.published().uploadIntent().publishedManifest(),
                 catalog, physical, objects, ledgerLimits, historyClient);
     }

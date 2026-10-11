@@ -1,6 +1,9 @@
 package com.nereusstream.delay.store;
 
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.CheckpointUploadIntent;
+import com.nereusstream.delay.protocol.CheckpointUploadState;
+import com.nereusstream.delay.protocol.RecoveryCandidateRef;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.SourcePositionCodec;
@@ -406,6 +409,91 @@ public final class TargetCheckpointRootVerifier {
         return result;
     }
 
+    /** Raw candidate request only; construction performs no image/provider I/O or authentication. */
+    public record CandidateImage(Path image, CheckpointUploadIntent pending, long lineageGeneration,
+            List<CheckpointManifest.FileEntry> fileObjects, CheckpointManifestLimits physical,
+            QuotaAuditLimits quota, LedgerAuditLimits ledger, TargetCheckpointSemanticSnapshot.Limits semantic,
+            ImageAuthority authority, Runnable protection) {
+        public CandidateImage {
+            image = Objects.requireNonNull(image, "image").toAbsolutePath().normalize();
+            Objects.requireNonNull(pending, "pending");
+            if (pending.state() != CheckpointUploadState.PENDING_UPLOAD
+                    || (pending.parentCheckpointId() == null) != (lineageGeneration == 0)) {
+                throw new IllegalArgumentException("Target candidate requires pending intent and exact lineage shape");
+            }
+            fileObjects = List.copyOf(Objects.requireNonNull(fileObjects, "fileObjects"));
+            requireFinitePhysicalLimits(physical);
+            if (fileObjects.isEmpty() || fileObjects.size() > physical.maxFiles()) {
+                throw new IllegalArgumentException("Target candidate file objects exceed their finite bound");
+            }
+            long bytes = 0;
+            for (var file : fileObjects) {
+                physical.validateFile(file.name(), file.length());
+                if (file.objectKey().length > physical.maxObjectIdentityBytes()
+                        || file.objectVersion().length > physical.maxObjectIdentityBytes()
+                        || file.etag() != null && file.etag().length > physical.maxObjectIdentityBytes()) {
+                    throw new IllegalArgumentException("Target candidate object identity exceeds its finite bound");
+                }
+                bytes = Math.addExact(bytes, file.length());
+            }
+            if (bytes > physical.maxTotalFileBytes()) {
+                throw new IllegalArgumentException("Target candidate declared bytes exceed their finite bound");
+            }
+            Objects.requireNonNull(quota, "quota");
+            Objects.requireNonNull(ledger, "ledger");
+            Objects.requireNonNull(semantic, "semantic");
+            Objects.requireNonNull(authority, "authority");
+            Objects.requireNonNull(protection, "protection");
+        }
+    }
+
+    /**
+     * Builds a complete Manifest from this immutable candidate's actual native metadata and companion, then
+     * performs mandatory full external authentication. Invoke in the existing CHECKPOINT WorkClass; caller
+     * supplies exact provider object identities and holds all original image/Owner/Source/pin protections.
+     */
+    public static AuthenticatedImage authenticateCandidate(CandidateImage request) {
+        final var candidate = Objects.requireNonNull(request, "request");
+        candidate.protection().run();
+        final var inspected = inspectImage(candidate.image(), candidate.pending().shard().shardId(),
+                candidate.physical(), null, candidate.quota(), candidate.ledger(), null, true);
+        candidate.protection().run();
+        final var proof = inspected.ledger().root();
+        final var pending = candidate.pending();
+        final var fields = inspected.manifestFields();
+        if (!Arrays.equals(fields.checkpointId(), pending.checkpointId())
+                || fields.ownerEpoch() != pending.owner().ownerEpoch()
+                || !Arrays.equals(proof.metadata().storeIncarnation(), pending.sourceStoreIncarnation())
+                || !Arrays.equals(proof.root().recoveryLineage(), pending.recoveryLineageId())) {
+            throw new IllegalArgumentException("Target candidate metadata differs from its exact upload intent");
+        }
+        final var snapshot = TargetCheckpointSemanticSnapshotFile.read(candidate.image(), candidate.semantic());
+        snapshot.validateAgainst(inspected.ledger().dependencies(), candidate.semantic());
+        candidate.protection().run();
+        final var time = pending.checkpointCreatedAt();
+        final var parent = pending.parentCheckpointId() == null ? null : new CheckpointManifest.ParentCheckpoint(
+                pending.parentCheckpointId(), Bytes.hex(pending.parentManifestSha256()));
+        final var signature = time.sourceSignature();
+        final var manifest = new CheckpointManifest(fields.checkpointId(), pending.recoveryLineageId(),
+                candidate.lineageGeneration(), parent, fields.restoredFromCheckpointId(),
+                new CheckpointManifest.CreatedBy(pending.owner().deploymentId(), pending.owner().workerRunId(),
+                        fields.ownerEpoch()),
+                new CheckpointManifest.CreatedAt(time.earliestEpochMs(), time.latestEpochMs(), time.source().name(),
+                        time.sourceId(), time.sourceConfigGeneration(), time.sampleSequence(), time.monotonicAnchorNs(),
+                        time.sourceEvidenceSha256(), time.sourceKeyVersion(), signature.length == 0 ? null : signature),
+                proof.metadata().shardId(), proof.metadata().dbIdentity(), proof.metadata().storeIncarnationUuid(),
+                proof.metadata().storeFormatVersion(), proof.mutationSequence(), proof.source(),
+                snapshot.snapshotDigest(), snapshot.semanticInputsDigest(), fields.evidenceCursors(),
+                candidate.fileObjects());
+        return authenticateImage(candidate.image(), manifest, candidate.physical(), candidate.quota(),
+                candidate.ledger(), candidate.semantic(), candidate.authority(), candidate.protection());
+    }
+
+    private record ManifestFields(byte[] checkpointId, long ownerEpoch,
+            List<com.nereusstream.delay.protocol.EvidenceCursor> evidenceCursors, byte[] restoredFromCheckpointId) {}
+
+    private record ImageInspection(LedgerProof ledger, ManifestFields manifestFields) {}
+
     /** One complete immutable image audit followed by mandatory external authentication outside Store monitors. */
     public static LedgerProof auditManifestImageAuthentication(final Path image, final CheckpointManifest manifest,
             final CheckpointManifestLimits physicalLimits, final QuotaAuditLimits quotaLimits,
@@ -467,6 +555,13 @@ public final class TargetCheckpointRootVerifier {
             final QuotaAuditLimits quotaLimits,
             final LedgerAuditLimits ledgerLimits,
             final CandidateIdentity candidate) {
+        return inspectImage(image, expectedShard, limits, manifest, quotaLimits, ledgerLimits, candidate, false)
+                .ledger();
+    }
+
+    private static ImageInspection inspectImage(Path image, ShardId expectedShard, CheckpointManifestLimits limits,
+            CheckpointManifest manifest, QuotaAuditLimits quotaLimits, LedgerAuditLimits ledgerLimits,
+            CandidateIdentity candidate, boolean requireManifestFields) {
         Objects.requireNonNull(image, "image");
         Objects.requireNonNull(expectedShard, "expectedShard");
         requireFinitePhysicalLimits(limits);
@@ -544,7 +639,19 @@ public final class TargetCheckpointRootVerifier {
                     dependencies = TargetCheckpointLedgerAudit.audit(
                             db, familyHandles, defaultHandle, proof, ledgerLimits);
                 }
-                return new LedgerProof(proof, dependencies);
+                ManifestFields fields = null;
+                if (requireManifestFields) {
+                    final var checkpoint = requiredFixed(db, meta, 7, "checkpoint identity");
+                    final var epoch = requiredFixed(db, meta, 8, "opened Owner epoch");
+                    Bytes.requireLength(epoch, Long.BYTES, "opened Owner epoch");
+                    final var cursors = StoreRuntimeMetadata.decodeEvidenceCursors(
+                            requiredFixed(db, meta, 6, "evidence cursors"));
+                    final var base = db.get(meta, KeyCodec.metaRecovery(1));
+                    final var restoredFrom = base == null ? null : RecoveryCandidateRef.decode(
+                            TargetValueEnvelope.decode(base, FIXED_VALUE_TYPE).payload()).checkpointId();
+                    fields = new ManifestFields(checkpoint, Bytes.readU64be(epoch, 0), cursors, restoredFrom);
+                }
+                return new ImageInspection(new LedgerProof(proof, dependencies), fields);
             } catch (RocksDBException failure) {
                 throw new IllegalArgumentException("cannot open Target checkpoint read-only", failure);
             }
