@@ -164,6 +164,17 @@ public final class TargetWorkerShardRuntime
         target.requireRuntimeLimits(expected.source());
     }
 
+    public synchronized TargetSourceBacklog.Cut captureSourceBacklogCut(final LongSupplier ownerClock) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        final var captured = target.captureSourceBacklogCut(Objects.requireNonNull(ownerClock, "ownerClock"));
+        return new TargetSourceBacklog.Cut(captured.applied(), () -> {
+            synchronized (TargetWorkerShardRuntime.this) { requireNewTurnsAdmitted(); }
+            resources.requireRuntimeBusinessAdmission();
+            captured.requireCurrent();
+        });
+    }
+
     public synchronized SourceApplyCoordinator.TurnResult runSourceTurn(
             final SchedulerBudget budget, final LongSupplier ownerClock) {
         requireNewTurnsAdmitted();

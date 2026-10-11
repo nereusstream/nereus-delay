@@ -466,6 +466,7 @@ class TargetQuotaGrantStoreTest {
                             ignored -> { throw new AssertionError("empty Close cannot materialize"); },
                             ignored -> { throw new AssertionError("empty Close cannot expire"); },
                             cursorDelta::set, System::currentTimeMillis));
+            final var backlogCut = worker.captureSourceBacklogCut(System::currentTimeMillis);
             final long beforeGc = reopened.latestSequenceNumber();
             final var pending = worker.runMaintenanceTurn(new SchedulerBudget(1, 1, 60_000_000_000L));
             assertTrue(pending.pending());
@@ -488,7 +489,9 @@ class TargetQuotaGrantStoreTest {
                     worker.runMaintenanceTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L))
                             .closeResult().orElseThrow().kind());
             assertEquals(beforeGc + 5, reopened.latestSequenceNumber());
+            backlogCut.requireCurrent(); // Local GC/Claims do not change the unapplied Source prefix.
             assertTrue(leases.release(replacement));
+            assertThrows(IllegalStateException.class, backlogCut::requireCurrent);
         }
     }
 

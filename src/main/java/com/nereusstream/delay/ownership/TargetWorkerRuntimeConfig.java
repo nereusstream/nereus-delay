@@ -3,10 +3,12 @@ package com.nereusstream.delay.ownership;
 import com.nereusstream.delay.protocol.CapacityDimension;
 import com.nereusstream.delay.protocol.CapacityVector;
 import com.nereusstream.delay.protocol.ShardCapacityEnvelope;
+import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClass;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import com.nereusstream.delay.scheduler.WorkClassRuntimeConfig;
+import com.nereusstream.delay.semantic.TrustedClock;
 import com.nereusstream.delay.store.ShardStoreConfig;
 import com.nereusstream.delay.store.SharedRocksDbResources;
 import com.nereusstream.delay.store.WorkerCapacityAdmission;
@@ -14,6 +16,8 @@ import com.nereusstream.delay.store.WorkerResourceEnvelope;
 import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.BiConsumer;
+import java.util.function.Function;
 import java.util.function.LongSupplier;
 
 /** One explicit Target Worker configuration; no guessed resource defaults or publication/placement authority. */
@@ -25,6 +29,8 @@ public record TargetWorkerRuntimeConfig(
         TargetSourceApplyRuntime.Limits source,
         long maximumSourceFrameBytes,
         SystemWriterAppendBudget.Limits systemWriter,
+        TargetSourceBacklog.Limits backlogRead,
+        TargetSourceBacklogAdmission.Limits backlogGrowth,
         TargetWorkerTargetInventory.Limits inventory,
         TargetWorkerOrdinaryDrr.Limits ordinary,
         SchedulerBudget ordinaryTurn,
@@ -38,6 +44,8 @@ public record TargetWorkerRuntimeConfig(
         Objects.requireNonNull(workClasses, "workClasses");
         Objects.requireNonNull(source, "source");
         Objects.requireNonNull(systemWriter, "systemWriter");
+        Objects.requireNonNull(backlogRead, "backlogRead");
+        Objects.requireNonNull(backlogGrowth, "backlogGrowth");
         Objects.requireNonNull(inventory, "inventory");
         Objects.requireNonNull(ordinary, "ordinary");
         Objects.requireNonNull(ordinaryTurn, "ordinaryTurn");
@@ -47,6 +55,10 @@ public record TargetWorkerRuntimeConfig(
         resources.validate(store);
         WorkerCapacityAdmission.requireFits(resources, hardCaps, List.of(),
                 CapacityVector.empty(), CapacityVector.empty());
+        if (backlogRead.maximumFrameBytes() != maximumSourceFrameBytes
+                || backlogGrowth.bytes() < maximumSourceFrameBytes) {
+            throw new IllegalArgumentException("Source backlog configuration cannot serve the declared frame");
+        }
         if (systemWriter.maximumFrameBytes() != maximumSourceFrameBytes
                 || systemWriter.writers() > hardCaps.amount(CapacityDimension.ADAPTER_PRODUCERS)) {
             throw new IllegalArgumentException("system writer limits differ from configured Source/producer envelope");
@@ -121,6 +133,12 @@ public record TargetWorkerRuntimeConfig(
             WorkClassExecutionRegistry classes, SharedRocksDbResources sharedResources) {
         requireRuntime(classes, sharedResources);
         return new SystemWriterAppendBudget(systemWriter, classes, sharedResources);
+    }
+
+    public TargetSourceBacklogAdmission newSourceIngressAdmission(
+            Function<ShardId, TargetSourceBacklog.Snapshot> snapshots, TrustedClock clock, LongSupplier nanos,
+            BiConsumer<TargetSourceBacklog.Snapshot, Integer> protection) {
+        return new TargetSourceBacklogAdmission(backlogGrowth, snapshots, clock, nanos, protection);
     }
 
     public SchedulerBudget sourceTurn() {

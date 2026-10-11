@@ -70,8 +70,16 @@ public final class TargetWorkerRuntimeConfigLoader {
         final long maximumFrame = f.number("target.maximumSourceFrameBytes");
         final var writer = new SystemWriterAppendBudget.Limits(f.integer("worker.systemWriterRecords"),
                 f.number("worker.systemWriterBytes"), maximumFrame, f.integer("worker.systemWriterGenerations"));
+        if (maximumFrame >= Integer.MAX_VALUE) {
+            throw new IllegalArgumentException("target.maximumSourceFrameBytes must fit a finite native frame int");
+        }
+        final var backlog = new TargetSourceBacklog.Limits(f.integer("target.backlogReadRecords"),
+                f.number("target.backlogReadBytes"), (int) maximumFrame, f.number("target.backlogReadNanos"));
+        final var growth = new TargetSourceBacklogAdmission.Limits(f.number("target.maximumUnappliedRecords"),
+                f.number("target.maximumUnappliedBytes"), f.number("target.maximumUnappliedAgeMillis"),
+                f.number("target.maximumBacklogObservationAgeNanos"));
         final var config = new TargetWorkerRuntimeConfig(store, resources, new CapacityVector(caps), workClasses,
-                source, maximumFrame, writer, inventory, ordinary, turn,
+                source, maximumFrame, writer, backlog, growth, inventory, ordinary, turn,
                 Duration.ofNanos(f.number("scheduling.recheckNanos")),
                 new SchedulerBudget(f.integer("recovery.maintenanceTurnMessages"),
                         f.number("recovery.maintenanceTurnBytes"), f.number("recovery.maintenanceTurnNanos")),

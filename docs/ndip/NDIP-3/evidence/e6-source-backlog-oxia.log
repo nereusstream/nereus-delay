@@ -1,0 +1,234 @@
+E6 Source backlog scoped development evidence; baseline 9be39aeefa61261f3a402d67df28757e113680ac.
+Actual framed-value counts are not physical retention space or distributed admission authority.
+
+Recorded /private/tmp/ndip3-source-backlog-oxia.log
+ Image ndip3-source-backlog-1791719468-42534-oxia Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 604B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 1.34kB done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/golang:1.26-alpine
+#3 DONE 3.2s
+
+#4 [internal] load metadata for docker.io/library/alpine:3.22
+#4 DONE 3.3s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 2B done
+#5 DONE 0.0s
+
+#6 [runtime 1/8] FROM docker.io/library/alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
+#6 DONE 0.0s
+
+#7 [build 1/5] FROM docker.io/library/golang:1.26-alpine@sha256:3082400e369fa24d5fc60bca20edab3f6d604e0c5a690ec66b295eff4dd87ade
+#7 DONE 0.0s
+
+#8 [internal] load build context
+#8 transferring context: 39.30kB 0.0s done
+#8 DONE 0.0s
+
+#9 [runtime 6/8] COPY --from=build /src/oxia/conf/coordinator.yaml /oxia/conf/coordinator.yaml
+#9 CACHED
+
+#10 [build 5/5] RUN --mount=type=cache,target=/go/pkg/mod     --mount=type=cache,target=/root/.cache/go-build     make
+#10 CACHED
+
+#11 [runtime 4/8] WORKDIR /oxia
+#11 CACHED
+
+#12 [runtime 3/8] RUN apk upgrade --no-cache
+#12 CACHED
+
+#13 [build 4/5] COPY . .
+#13 CACHED
+
+#14 [build 2/5] RUN apk add --no-cache make git build-base bash
+#14 CACHED
+
+#15 [runtime 5/8] COPY --from=build /src/oxia/bin/oxia /oxia/bin/oxia
+#15 CACHED
+
+#16 [runtime 2/8] RUN apk add --no-cache bash bash-completion jq
+#16 CACHED
+
+#17 [build 3/5] WORKDIR /src/oxia
+#17 CACHED
+
+#18 [runtime 7/8] COPY --from=build /src/oxia/conf/dataserver.yaml /oxia/conf/dataserver.yaml
+#18 CACHED
+
+#19 [runtime 8/8] RUN oxia completion bash > ~/.bashrc
+#19 CACHED
+
+#20 exporting to image
+#20 exporting layers done
+#20 writing image sha256:cb7a08d78dc1fcb9de62c6390976b4ae8b4d3725d2cab65798376ee68790f4de done
+#20 naming to docker.io/library/ndip3-source-backlog-1791719468-42534-oxia done
+#20 DONE 0.0s
+
+#21 resolving provenance for metadata file
+#21 DONE 0.0s
+ Image ndip3-source-backlog-1791719468-42534-oxia Built 
+ Network ndip3-source-backlog-1791719468-42534_default Creating 
+ Network ndip3-source-backlog-1791719468-42534_default Creating 
+ Network ndip3-source-backlog-1791719468-42534_default Created 
+ Network ndip3-source-backlog-1791719468-42534_default Created 
+ Container ndip3-source-backlog-1791719468-42534-oxia-1 Creating 
+ Container ndip3-source-backlog-1791719468-42534-oxia-1 Created 
+ Container ndip3-source-backlog-1791719468-42534-oxia-1 Starting 
+ Container ndip3-source-backlog-1791719468-42534-oxia-1 Started 
+oxia-1  | [90mOct 11 11:51:13.125832[0m [32mINF[0m [1mStarting Oxia standalone[0m [36mconfig=[0m{"DataServerOptions":{"featureFlags":{},"observability":{"log":{},"metric":{"bindAddress":"0.0.0.0:8080","enabled":null,"tls":{"enabled":null}}},"replication":{"tls":{"enabled":null}},"scheduler":{"checksum":{}},"server":{"internal":{"auth":{},"bindAddress":"","tls":{"enabled":null}},"public":{"auth":{},"bindAddress":"0.0.0.0:6648","tls":{"enabled":null}}},"storage":{"database":{"dir":"/tmp/nereus-delay-oxia-e2e/db","readCacheSizeMB":100},"notification":{"retention":"1h0m0s"},"wal":{"dir":"/tmp/nereus-delay-oxia-e2e/wal","retention":"1h0m0s","sync":true}}},"KeySorting":2,"NotificationsEnabled":true,"NumShards":1}
+oxia-1  | [90mOct 11 11:51:13.143513[0m [32mINF[0m [1mFound 0 WALs[0m [36mcomponent=[0mpebble [36mshard=[0m0
+oxia-1  | [90mOct 11 11:51:13.165508[0m [32mINF[0m [1mCreated leader controller[0m [36mcomponent=[0mleader-controller [36mnamespace=[0mdefault [36mshard=[0m0 [36mterm=[0m-1
+oxia-1  | [90mOct 11 11:51:13.176310[0m [32mINF[0m [1mLeader successfully initialized in new term[0m [36mcomponent=[0mleader-controller [36mlast-entry=[0m{"offset":"-1","term":"-1"} [36mnamespace=[0mdefault [36mshard=[0m0 [36mterm=[0m0
+oxia-1  | [90mOct 11 11:51:13.176482[0m [32mINF[0m [1mApplying all pending entries to database[0m [36mcommit-offset=[0m-1 [36mcomponent=[0mleader-controller [36mhead-offset=[0m-1 [36mnamespace=[0mdefault [36mshard=[0m0 [36mterm=[0m0
+oxia-1  | [90mOct 11 11:51:13.176536[0m [32mINF[0m [1mAll sessions[0m [36mcomponent=[0msession-manager [36mcount=[0m0 [36mnamespace=[0mdefault [36mshard=[0m0 [36mterm=[0m0
+oxia-1  | [90mOct 11 11:51:13.176549[0m [32mINF[0m [1mStarted leading the shard[0m [36mcomponent=[0mleader-controller [36mhead-offset=[0m-1 [36mnamespace=[0mdefault [36mshard=[0m0 [36mterm=[0m0
+oxia-1  | [90mOct 11 11:51:13.176611[0m [32mINF[0m [1mUpdate shard assignments.[0m [36mcomponent=[0mshard-assignment-dispatcher
+oxia-1  | [90mOct 11 11:51:13.181490[0m [32mINF[0m [1mStarted Grpc server[0m [36mbindAddress=[0m[::]:6648 [36mgrpc-server=[0mpublic
+oxia-1  | [90mOct 11 11:51:13.181675[0m [32mINF[0m [1mServing Prometheus metrics at http://localhost:8080/metrics[0m
+ Container ndip3-source-backlog-1791719468-42534-oxia-1 Stopping 
+ Container ndip3-source-backlog-1791719468-42534-oxia-1 Stopped 
+ Container ndip3-source-backlog-1791719468-42534-oxia-1 Removing 
+ Container ndip3-source-backlog-1791719468-42534-oxia-1 Removed 
+ Network ndip3-source-backlog-1791719468-42534_default Removing 
+ Network ndip3-source-backlog-1791719468-42534_default Removed 
+Untagged: ndip3-source-backlog-1791719468-42534-oxia:latest
+Deleted: sha256:cb7a08d78dc1fcb9de62c6390976b4ae8b4d3725d2cab65798376ee68790f4de
+
+Recorded /private/tmp/ndip3-source-backlog-oxia-fixed.log
+ Image ndip3-source-backlog-1791719816-48052-oxia Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 604B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 1.34kB done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/alpine:3.22
+#3 DONE 2.5s
+
+#4 [internal] load metadata for docker.io/library/golang:1.26-alpine
+#4 DONE 3.3s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 2B done
+#5 DONE 0.0s
+
+#6 [runtime 1/8] FROM docker.io/library/alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
+#6 DONE 0.0s
+
+#7 [build 1/5] FROM docker.io/library/golang:1.26-alpine@sha256:3082400e369fa24d5fc60bca20edab3f6d604e0c5a690ec66b295eff4dd87ade
+#7 DONE 0.0s
+
+#8 [internal] load build context
+#8 transferring context: 39.30kB 0.0s done
+#8 DONE 0.0s
+
+#9 [runtime 5/8] COPY --from=build /src/oxia/bin/oxia /oxia/bin/oxia
+#9 CACHED
+
+#10 [runtime 3/8] RUN apk upgrade --no-cache
+#10 CACHED
+
+#11 [runtime 7/8] COPY --from=build /src/oxia/conf/dataserver.yaml /oxia/conf/dataserver.yaml
+#11 CACHED
+
+#12 [build 3/5] WORKDIR /src/oxia
+#12 CACHED
+
+#13 [build 2/5] RUN apk add --no-cache make git build-base bash
+#13 CACHED
+
+#14 [build 5/5] RUN --mount=type=cache,target=/go/pkg/mod     --mount=type=cache,target=/root/.cache/go-build     make
+#14 CACHED
+
+#15 [runtime 2/8] RUN apk add --no-cache bash bash-completion jq
+#15 CACHED
+
+#16 [runtime 4/8] WORKDIR /oxia
+#16 CACHED
+
+#17 [runtime 6/8] COPY --from=build /src/oxia/conf/coordinator.yaml /oxia/conf/coordinator.yaml
+#17 CACHED
+
+#18 [build 4/5] COPY . .
+#18 CACHED
+
+#19 [runtime 8/8] RUN oxia completion bash > ~/.bashrc
+#19 CACHED
+
+#20 exporting to image
+#20 exporting layers done
+#20 writing image sha256:05189412866764688ff7915f84403321d2157f70eaa3a6ff70d1486bdd9615d7 done
+#20 naming to docker.io/library/ndip3-source-backlog-1791719816-48052-oxia done
+#20 DONE 0.0s
+
+#21 resolving provenance for metadata file
+#21 DONE 0.0s
+ Image ndip3-source-backlog-1791719816-48052-oxia Built 
+ Network ndip3-source-backlog-1791719816-48052_default Creating 
+ Network ndip3-source-backlog-1791719816-48052_default Creating 
+ Network ndip3-source-backlog-1791719816-48052_default Created 
+ Network ndip3-source-backlog-1791719816-48052_default Created 
+ Container ndip3-source-backlog-1791719816-48052-oxia-1 Creating 
+ Container ndip3-source-backlog-1791719816-48052-oxia-1 Created 
+ Container ndip3-source-backlog-1791719816-48052-oxia-1 Starting 
+ Container ndip3-source-backlog-1791719816-48052-oxia-1 Started 
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava UP-TO-DATE
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses UP-TO-DATE
+> Task :test
+
+BUILD SUCCESSFUL in 25s
+13 actionable tasks: 2 executed, 11 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+ Container ndip3-source-backlog-1791719816-48052-oxia-1 Stopping 
+ Container ndip3-source-backlog-1791719816-48052-oxia-1 Stopped 
+ Container ndip3-source-backlog-1791719816-48052-oxia-1 Removing 
+ Container ndip3-source-backlog-1791719816-48052-oxia-1 Removed 
+ Network ndip3-source-backlog-1791719816-48052_default Removing 
+ Network ndip3-source-backlog-1791719816-48052_default Removed 
+Untagged: ndip3-source-backlog-1791719816-48052-oxia:latest
+Deleted: sha256:05189412866764688ff7915f84403321d2157f70eaa3a6ff70d1486bdd9615d7
+
+Actual native test XML captured before subsequent test tasks:
+{'tests': '1', 'failures': '0', 'errors': '0', 'skipped': '0', 'timestamp': '2026-10-11T11:57:23.298Z'}
+['realOxiaOwnerTakeoverReopensTargetRootAndCompletesCloseGc()']
+XML_SHA256 a20167de1cea13d49587e7388ec11402eaa63bcb8b260eeff19d370afdbee974
+
+Source files for this milestone (scope remains the recorded native task):
+SOURCE_SHA256 c9cb13d2e1f3274b415a0d46a08714e0d68b853d15d901389d86d014a93d61f0 src/main/java/com/nereusstream/delay/ownership/TargetSourceBacklog.java
+SOURCE_SHA256 66f016f6070848bfb0f26baa46582ef724375896ae91a6d391cd822573f8c25e src/main/java/com/nereusstream/delay/ownership/TargetSourceBacklogAdmission.java
+SOURCE_SHA256 9577dacf7f4a86bfdf2c21e848aa51ea8eb128eac686a8f6a056fab6a7fff015 src/main/java/com/nereusstream/delay/ownership/TargetSourceApplyRuntime.java
+SOURCE_SHA256 9a601ef88ebbaac441274b57099076967f9173759fd1343db5d2199bb486f7f9 src/main/java/com/nereusstream/delay/ownership/TargetWorkerShardRuntime.java
+SOURCE_SHA256 9c1e0577fd937812473a17c76330b66933f56d92398e6122001614f20e60f9e3 src/main/java/com/nereusstream/delay/ownership/TargetWorkerRuntimeConfig.java
+SOURCE_SHA256 729fbcd9485ab7501601bc0e16fb73e11983974b535a568012bdfb4438f7384c src/main/java/com/nereusstream/delay/ownership/TargetWorkerRuntimeConfigLoader.java
+SOURCE_SHA256 9169c58222ccb2a34efc74045558b4f7c4e4a4cb37c15eb6449130fe75f48a66 src/main/java/com/nereusstream/delay/submission/ManagedSourceIngressAdmission.java
+SOURCE_SHA256 b2ad2cbe0a2029f6258a223f3fc1d101c4463edf38529674ebb6daad98fd7db3 src/main/java/com/nereusstream/delay/submission/RouteBoundSubmissionTransportPlanResolver.java
+SOURCE_SHA256 feeded5c44b5266f100ed6d00dfa1cb11b065c224241bada58be9be9700d0386 src/test/java/com/nereusstream/delay/ownership/TargetSourceBacklogTest.java
+SOURCE_SHA256 52edb45f6064a9265aa8da0c614b163e62f0cc47032fdb583cdc4226d599e8c0 src/test/java/com/nereusstream/delay/ownership/TargetWorkerRuntimeConfigTest.java
+SOURCE_SHA256 53fadc8be101c20b8b9b44d187ac050dfed4361b07e25ac85de90f4addfa360f src/test/java/com/nereusstream/delay/runtime/TargetQuotaGrantStoreTest.java
+Native task exited 0 after its recorded fix; exact owned compose containers cleaned, temporary selector removed.
+Oxia source lock 37a17bef17202d5fd6e23282da5fd26d94865484
+Command after owned healthy fixture setup: NEREUS_DELAY_OXIA_ENDPOINT=localhost:16673 NEREUS_DELAY_OXIA_NAMESPACE=default GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew test --rerun --tests com.nereusstream.delay.runtime.TargetQuotaGrantStoreTest.realOxiaOwnerTakeoverReopensTargetRootAndCompletesCloseGc --no-daemon --console=plain

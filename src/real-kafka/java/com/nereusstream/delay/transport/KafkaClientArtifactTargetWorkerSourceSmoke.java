@@ -1621,6 +1621,11 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
 
     private static KafkaSourcePosition readInitialControlSource(String bootstrap, String clusterId, String topic,
             UUID topicId, ShardId shard, SystemMutation expected, long offset) {
+        return readExactSourceFrame(bootstrap, clusterId, topic, topicId, shard, expected.encodeFrame(), offset);
+    }
+
+    static KafkaSourcePosition readExactSourceFrame(String bootstrap, String clusterId, String topic,
+            UUID topicId, ShardId shard, byte[] expectedFrame, long offset) {
         final var nativeConsumer = newSourceConsumer(bootstrap, "target-initial-probe-" + UUID.randomUUID(),
                 clusterId, topic, topicId, shard, AckMode.NO_INJECTION);
         try (var reader = KafkaClientArtifactSourceRecordConsumer.forTarget(nativeConsumer, clusterId, topicId,
@@ -1630,10 +1635,14 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
             while (System.nanoTime() < deadline) {
                 final var polled = reader.poll();
                 if (polled.isEmpty()) { continue; }
-                if (!(polled.get().entry() instanceof com.nereusstream.delay.ownership.SourceReplayMutation mutation)
-                        || !(mutation.position() instanceof KafkaSourcePosition source) || source.offset() != offset
-                        || !Arrays.equals(expected.encodeFrame(), mutation.mutation().encodeFrame())) {
-                    throw new IllegalStateException("initial Target grant differs from actual guarded Fetch/decoder");
+                final var entry = polled.get().entry();
+                final byte[] actualFrame = entry instanceof com.nereusstream.delay.ownership.SourceReplayMutation mutation
+                        ? mutation.mutation().encodeFrame()
+                        : com.nereusstream.delay.protocol.CommandCodec.encodeFrame(
+                                ((com.nereusstream.delay.ownership.SourceReplayRecord) entry).command());
+                if (!(entry.position() instanceof KafkaSourcePosition source) || source.offset() != offset
+                        || !Arrays.equals(expectedFrame, actualFrame)) {
+                    throw new IllegalStateException("Source frame differs from actual guarded Fetch/decoder");
                 }
                 return source;
             }

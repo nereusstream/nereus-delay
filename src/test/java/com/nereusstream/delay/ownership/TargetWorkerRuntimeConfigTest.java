@@ -195,6 +195,13 @@ class TargetWorkerRuntimeConfigTest {
         v.put("target.inventoryReadBytes", "4096");
         v.put("target.inventoryReadNanos", "1000");
         v.put("target.maximumSourceFrameBytes", "1024");
+        v.put("target.backlogReadRecords", "8");
+        v.put("target.backlogReadBytes", "8192");
+        v.put("target.backlogReadNanos", "1000");
+        v.put("target.maximumUnappliedRecords", "4");
+        v.put("target.maximumUnappliedBytes", "4096");
+        v.put("target.maximumUnappliedAgeMillis", "1000");
+        v.put("target.maximumBacklogObservationAgeNanos", "1000");
         v.put("scheduling.quantumBytes", "256");
         v.put("scheduling.maximumCostBytes", "1024");
         v.put("scheduling.sendEnvelopeBytes", "1024");

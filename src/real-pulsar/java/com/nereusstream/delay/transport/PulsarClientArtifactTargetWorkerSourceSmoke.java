@@ -350,6 +350,20 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                     maintenance);
             consumerTransferred[0] = true;
             try {
+                final long beforeBacklog = store.latestSequenceNumber();
+                final var backlog = PulsarClientArtifactTargetSourceBacklog.read(client, guard,
+                        worker.captureSourceBacklogCut(System::currentTimeMillis),
+                        new com.nereusstream.delay.ownership.TargetSourceBacklog.Limits(
+                                8, 2L << 20, 1 << 20, TimeUnit.SECONDS.toNanos(10)), () -> {
+                            if (!leases.current(scope.shard()).orElseThrow().sameIdentity(active)) {
+                                throw new IllegalStateException("P1 backlog fixture lost its Owner/history protection");
+                            }
+                        });
+                if (backlog.records() != 1 || backlog.bytes() != commandFrame.length
+                        || store.latestSequenceNumber() != beforeBacklog) {
+                    throw new IllegalStateException("P1 backlog did not count the exact unapplied frame read-only");
+                }
+                System.out.println("P1 Source backlog: one actual unapplied frame; primary cursor/Store unchanged.");
                 final SourceApplyCoordinator.TurnResult result = runUntilApplied(worker);
                 final boolean exactCommand = result.entry() instanceof SourceReplayRecord replay
                         && replay.command().equals(command);

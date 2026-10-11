@@ -291,7 +291,9 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
                 scheduleBuildTime,
                 schedule.commandId().bytes(),
                 com.nereusstream.delay.protocol.CommandCodec.encodeFrame(schedule));
-        final KafkaSourcePosition schedulePosition = position(scheduleMetadata, shard, clusterId, topicId);
+        final KafkaSourcePosition schedulePosition = KafkaClientArtifactTargetWorkerSourceSmoke.readExactSourceFrame(
+                bootstrap, clusterId, topic, toUuid(topicId), shard,
+                com.nereusstream.delay.protocol.CommandCodec.encodeFrame(schedule), scheduleMetadata.offset());
         requireOffset(scheduleMetadata.offset(), 3, "Schedule");
 
         final long barrierOffset = 4;
@@ -713,6 +715,25 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
                                 expiryAppendFailure.get());
                     }
                     final SourceApplyCoordinator.TurnResult turn;
+                    final long beforeBacklog = store.latestSequenceNumber();
+                    final var backlog = KafkaClientArtifactTargetSourceBacklog.read(Map.of(
+                                    ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap,
+                                    ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG,
+                                    org.apache.kafka.common.serialization.ByteArrayDeserializer.class.getName(),
+                                    ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG,
+                                    org.apache.kafka.common.serialization.ByteArrayDeserializer.class.getName()), topic,
+                            worker.captureSourceBacklogCut(System::currentTimeMillis),
+                            new com.nereusstream.delay.ownership.TargetSourceBacklog.Limits(
+                                    8, 2L << 20, 1 << 20, TimeUnit.SECONDS.toNanos(10)), () -> {
+                                if (!leases.current(shard).orElseThrow().sameIdentity(active)) {
+                                    throw new IllegalStateException("K1 backlog fixture lost Owner/history protection");
+                                }
+                            });
+                    if (backlog.records() != 1 || backlog.bytes() <= 0
+                            || store.latestSequenceNumber() != beforeBacklog) {
+                        throw new IllegalStateException("K1 backlog did not count its exact unapplied Source frame");
+                    }
+                    System.out.println("K1 Source backlog: one actual unapplied frame; Store/group unaffected.");
                     if (expiryNetworkAckLoss) {
                         Files.writeString(ackHoldFile, "hold\n");
                         final var ackUnknown =

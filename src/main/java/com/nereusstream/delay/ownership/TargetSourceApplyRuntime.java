@@ -631,6 +631,22 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         }
     }
 
+    synchronized TargetSourceBacklog.Cut captureSourceBacklogCut(final LongSupplier ownerClock) {
+        requireGcOwner(ownerClock);
+        final var applied = Objects.requireNonNull(store.appliedShardLogPosition(), "initialized Target Source");
+        final var cut = new TargetSourceBacklog.Cut(applied, () -> {
+            requireGcOwner(ownerClock);
+            if (!Arrays.equals(applied.canonicalBytes(),
+                    Objects.requireNonNull(store.appliedShardLogPosition(), "initialized Target Source")
+                            .canonicalBytes())) {
+                throw new IllegalStateException("Target Source backlog cut advanced during observation");
+            }
+            requireGcOwner(ownerClock);
+        });
+        cut.requireCurrent();
+        return cut;
+    }
+
     /**
      * Commits one selected Target head under the active Owner and Store graph. The supplied write
      * authority must also protect current time, policy, permits and the complete Owner identity.

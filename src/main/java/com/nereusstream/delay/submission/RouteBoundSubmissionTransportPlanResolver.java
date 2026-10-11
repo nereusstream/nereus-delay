@@ -35,6 +35,7 @@ public final class RouteBoundSubmissionTransportPlanResolver implements Submissi
     private final RouteSnapshotProvider routes;
     private final TrustedClock trustedClock;
     private final PulsarNativePreparedRecordValidator nativePreparedRecordValidator;
+    private final ManagedSourceIngressAdmission sourceIngress;
 
     public RouteBoundSubmissionTransportPlanResolver(
             final RouteSnapshotProvider routes, final TrustedClock trustedClock) {
@@ -46,9 +47,18 @@ public final class RouteBoundSubmissionTransportPlanResolver implements Submissi
             final RouteSnapshotProvider routes,
             final TrustedClock trustedClock,
             final PulsarNativePreparedRecordValidator nativePreparedRecordValidator) {
+        this(routes, trustedClock, nativePreparedRecordValidator, null);
+    }
+
+    public RouteBoundSubmissionTransportPlanResolver(
+            final RouteSnapshotProvider routes,
+            final TrustedClock trustedClock,
+            final PulsarNativePreparedRecordValidator nativePreparedRecordValidator,
+            final ManagedSourceIngressAdmission sourceIngress) {
         this.routes = Objects.requireNonNull(routes, "routes");
         this.trustedClock = Objects.requireNonNull(trustedClock, "trustedClock");
         this.nativePreparedRecordValidator = nativePreparedRecordValidator;
+        this.sourceIngress = sourceIngress;
     }
 
     @Override
@@ -64,6 +74,7 @@ public final class RouteBoundSubmissionTransportPlanResolver implements Submissi
         final byte[] frame = submission.managedFrame();
         final PreparedCommand command = decodeCanonical(frame);
         final RouteSnapshot route = exactRoute(tenant, command);
+        if (sourceIngress != null) { sourceIngress.requireAllowed(command, route, frame.length); }
         final int partition = command.shardId().partition();
         final CredentialBindingKey binding = credentialBinding(route.credentialBinding());
         if (route.ingress() instanceof KafkaIngressRouteResource kafka) {
