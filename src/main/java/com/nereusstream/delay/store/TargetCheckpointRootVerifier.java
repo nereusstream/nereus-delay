@@ -264,6 +264,37 @@ public final class TargetCheckpointRootVerifier {
                 snapshot, semanticLimits);
     }
 
+    /**
+     * Binds a complete format-2 Manifest to the persisted schema-2 companion and physical ledger. The control-state
+     * digest is the complete companion digest; the semantic-version digest is its Target dependency inventory.
+     * This is a bounded read of an immutable image, not original-Source authentication or publication/install rights.
+     */
+    public static LedgerProof auditManifestSemanticSnapshot(final Path image, final CheckpointManifest manifest,
+            final CheckpointManifestLimits physicalLimits, final QuotaAuditLimits quotaLimits,
+            final LedgerAuditLimits ledgerLimits, final TargetCheckpointSemanticSnapshot.Limits semanticLimits) {
+        requireFormat2Manifest(manifest, physicalLimits);
+        Objects.requireNonNull(semanticLimits, "semanticLimits");
+        final var proof = validateImage(image, manifest.shardId(), physicalLimits, manifest,
+                Objects.requireNonNull(quotaLimits, "quotaLimits"),
+                Objects.requireNonNull(ledgerLimits, "ledgerLimits"), null);
+        if (proof.dependencies().controls().stream().noneMatch(control -> control.family() == ColumnFamily.META
+                && Arrays.equals(control.key(), KeyCodec.metaFixed(10)))) {
+            throw new IllegalArgumentException("Target Manifest requires its initial reader/control snapshot");
+        }
+        final var snapshot = TargetCheckpointSemanticSnapshotFile.read(image, semanticLimits);
+        if (snapshot.schemaVersion() != 2) {
+            throw new IllegalArgumentException("Target Manifest requires complete original-Control schema 2");
+        }
+        snapshot.validateAgainst(proof.dependencies(), semanticLimits);
+        if (!Bytes.constantTimeEquals(manifest.controlStateDigest(), snapshot.snapshotDigest())) {
+            throw new IllegalArgumentException("Target Manifest control-state digest differs from its companion");
+        }
+        if (!Bytes.constantTimeEquals(manifest.referencedSemanticVersionsDigest(), snapshot.semanticInputsDigest())) {
+            throw new IllegalArgumentException("Target Manifest semantic-version digest differs from its companion");
+        }
+        return proof;
+    }
+
     private static void requireFormat2Manifest(
             final CheckpointManifest manifest, final CheckpointManifestLimits limits) {
         Objects.requireNonNull(manifest, "manifest");

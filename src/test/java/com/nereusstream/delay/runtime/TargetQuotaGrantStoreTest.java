@@ -1450,6 +1450,68 @@ class TargetQuotaGrantStoreTest {
                     file.name().equals(TargetCheckpointSemanticSnapshotFile.NAME)));
             TargetCheckpointRootVerifier.auditPersistedSemanticSnapshot(semanticCandidate, scope.shard(), imageLimits,
                     quotaAuditLimits, ledgerAuditLimits, semanticLimits);
+            final var semanticInventory = CheckpointFileInventory.collect(semanticCandidate, imageLimits).stream()
+                    .map(file -> new CheckpointManifest.FileEntry(file.name(), file.length(), file.checksum(),
+                            Bytes.utf8("target-draft/" + file.name()), Bytes.utf8("immutable-version-1"), null))
+                    .toList();
+            final var semanticManifest = new CheckpointManifest(pending.checkpointId(), lineage, 0, null, null,
+                    new CheckpointManifest.CreatedBy(pending.owner().deploymentId(), pending.owner().workerRunId(),
+                            live.runtimeMetadata().lastOpenedOwnerEpoch()),
+                    new CheckpointManifest.CreatedAt(900, 1_000, "CERTIFIED_HOST_CLOCK", bytes(8, 0x43),
+                            1, 2, 3, bytes(32, 0x44), 0, null), scope.shard(), live.metadata().dbIdentity(),
+                    live.metadata().storeIncarnationUuid(), 2, live.shardMutationSequence(),
+                    live.appliedShardLogPosition(), semantics.snapshotDigest(), dependencies.semanticInputsDigest(),
+                    live.runtimeMetadata().evidenceCursors(), semanticInventory);
+            if (!withSnapshot) {
+                assertTrue(assertThrows(IllegalArgumentException.class,
+                        () -> TargetCheckpointRootVerifier.auditManifestSemanticSnapshot(semanticCandidate,
+                                semanticManifest, imageLimits, quotaAuditLimits, ledgerAuditLimits, semanticLimits))
+                        .getMessage().contains("initial reader/control snapshot"));
+            } else {
+                final var manifestProof = TargetCheckpointRootVerifier.auditManifestSemanticSnapshot(
+                        semanticCandidate, semanticManifest, imageLimits, quotaAuditLimits, ledgerAuditLimits,
+                        semanticLimits);
+                assertEquals(live.shardMutationSequence(), manifestProof.root().mutationSequence());
+                assertArrayEquals(semantics.semanticInputsDigest(),
+                        manifestProof.dependencies().semanticInputsDigest());
+                final long beforeManifestChecks = live.operationStatistics().nativeWriteCalls();
+                assertTrue(assertThrows(IllegalArgumentException.class,
+                        () -> TargetCheckpointRootVerifier.auditManifestSemanticSnapshot(semanticCandidate,
+                                copyManifestDigests(semanticManifest, bytes(32, 0x71),
+                                        semanticManifest.referencedSemanticVersionsDigest()),
+                                imageLimits, quotaAuditLimits, ledgerAuditLimits, semanticLimits))
+                        .getMessage().contains("control-state digest"));
+                assertTrue(assertThrows(IllegalArgumentException.class,
+                        () -> TargetCheckpointRootVerifier.auditManifestSemanticSnapshot(semanticCandidate,
+                                copyManifestDigests(semanticManifest, semanticManifest.controlStateDigest(),
+                                        bytes(32, 0x72)),
+                                imageLimits, quotaAuditLimits, ledgerAuditLimits, semanticLimits))
+                        .getMessage().contains("semantic-version digest"));
+                final Path companion = semanticCandidate.resolve(TargetCheckpointSemanticSnapshotFile.NAME);
+                final byte[] completeCompanion = Files.readAllBytes(companion);
+                try {
+                    // A self-consistent schema-1 companion and matching file hashes still omit original Controls.
+                    Files.write(companion, componentSemantics.canonicalBytes());
+                    final var componentInventory = CheckpointFileInventory.collect(semanticCandidate, imageLimits)
+                            .stream()
+                            .map(file -> new CheckpointManifest.FileEntry(file.name(), file.length(), file.checksum(),
+                                    Bytes.utf8("target-draft/" + file.name()), Bytes.utf8("immutable-version-1"), null))
+                            .toList();
+                    final var componentManifest = copyManifestDigests(
+                            copyManifest(semanticManifest, semanticManifest.checkpointId(),
+                                    semanticManifest.dbIdentity(), semanticManifest.shardMutationSequence(),
+                                    semanticManifest.appliedShardLogPosition(), componentInventory),
+                            componentSemantics.snapshotDigest(), componentSemantics.semanticInputsDigest());
+                    assertTrue(assertThrows(IllegalArgumentException.class,
+                            () -> TargetCheckpointRootVerifier.auditManifestSemanticSnapshot(semanticCandidate,
+                                    componentManifest, imageLimits, quotaAuditLimits, ledgerAuditLimits,
+                                    semanticLimits))
+                            .getMessage().contains("complete original-Control schema 2"));
+                } finally {
+                    Files.write(companion, completeCompanion);
+                }
+                assertEquals(beforeManifestChecks, live.operationStatistics().nativeWriteCalls());
+            }
             final long beforeSemanticReuse = live.operationStatistics().nativeWriteCalls();
             final var semanticReuse = candidateExecutor.submitSemantic(semanticRequest);
             candidateClasses.runTurn(new SchedulerBudget(1, semanticReuse.task().bytes(), 1_000));
@@ -3793,6 +3855,16 @@ class TargetQuotaGrantStoreTest {
                 1,
                 null,
                 null);
+    }
+
+    private static CheckpointManifest copyManifestDigests(CheckpointManifest manifest,
+            byte[] controlDigest, byte[] semanticDigest) {
+        return new CheckpointManifest(manifest.checkpointId(), manifest.recoveryLineageId(),
+                manifest.lineageGeneration(), manifest.parentCheckpoint(), manifest.restoredFromCheckpointId(),
+                manifest.createdBy(), manifest.createdAt(), manifest.shardId(), manifest.dbIdentity(),
+                manifest.sourceStoreIncarnation(), manifest.storeFormatVersion(), manifest.shardMutationSequence(),
+                manifest.appliedShardLogPosition(), controlDigest, semanticDigest, manifest.evidenceCursors(),
+                manifest.files());
     }
 
     private static CheckpointManifest copyManifest(

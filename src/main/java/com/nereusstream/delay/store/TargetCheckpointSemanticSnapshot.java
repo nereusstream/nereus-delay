@@ -233,6 +233,8 @@ public final class TargetCheckpointSemanticSnapshot {
     }
 
     public byte[] snapshotDigest() { return Bytes.copy(digest); }
+    /** Exact Target dependency-version inventory; values still require original visibility/authentication. */
+    public byte[] semanticInputsDigest() { return Bytes.copy(dependenciesDigest); }
     public int schemaVersion() { return version; }
     public List<ProfileSemanticEnvelope> profiles() { return profiles; }
     public List<RetryPolicySemantic> retryPolicies() { return retries; }
