@@ -6,9 +6,10 @@ import com.nereusstream.delay.ownership.OwnerLease;
 import com.nereusstream.delay.ownership.OxiaOwnerLeaseStore;
 import com.nereusstream.delay.ownership.ShardLifecycleState;
 import com.nereusstream.delay.ownership.SourceApplyCoordinator;
-import com.nereusstream.delay.ownership.SourceReplayRecord;
 import com.nereusstream.delay.ownership.SourceReplayMutation;
+import com.nereusstream.delay.ownership.SourceReplayRecord;
 import com.nereusstream.delay.ownership.SourceReplaySuccessor;
+import com.nereusstream.delay.ownership.TargetOwnerRecoveryCoordinator;
 import com.nereusstream.delay.ownership.TargetSourceApplyRuntime;
 import com.nereusstream.delay.ownership.TargetWorkerHostRuntime;
 import com.nereusstream.delay.ownership.TargetWorkerOwnerActivation;
@@ -17,6 +18,9 @@ import com.nereusstream.delay.protocol.AuthorIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CapacityDimension;
 import com.nereusstream.delay.protocol.CapacityVector;
+import com.nereusstream.delay.protocol.CheckpointResource;
+import com.nereusstream.delay.protocol.CheckpointUploadIntent;
+import com.nereusstream.delay.protocol.CheckpointUploadState;
 import com.nereusstream.delay.protocol.CommandId;
 import com.nereusstream.delay.protocol.ControlAuthor;
 import com.nereusstream.delay.protocol.ControlAuthorizationContext;
@@ -27,10 +31,14 @@ import com.nereusstream.delay.protocol.ControlTargetKind;
 import com.nereusstream.delay.protocol.ControlTargetRef;
 import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.MessagePrecondition;
+import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.PreparedCommand;
 import com.nereusstream.delay.protocol.PreparedControlOperation;
 import com.nereusstream.delay.protocol.PulsarActivationBarrier;
 import com.nereusstream.delay.protocol.PulsarSourcePosition;
+import com.nereusstream.delay.protocol.RecoveryCandidateKind;
+import com.nereusstream.delay.protocol.RecoveryCandidateRef;
+import com.nereusstream.delay.protocol.RecoveryPin;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.SelfRoutingId;
 import com.nereusstream.delay.protocol.ShardId;
@@ -44,6 +52,7 @@ import com.nereusstream.delay.protocol.TargetQuotaGrantControlBody;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlRequest;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
 import com.nereusstream.delay.protocol.TargetQuotaUsage;
+import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.runtime.TargetCloseStore;
 import com.nereusstream.delay.runtime.TargetCommandStore;
 import com.nereusstream.delay.runtime.TargetQuotaGrantControlVerifier;
@@ -54,8 +63,25 @@ import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import com.nereusstream.delay.scheduler.WorkClassPolicy;
 import com.nereusstream.delay.scheduler.WorkClassRuntimeConfig;
 import com.nereusstream.delay.store.BoundedReadBudget;
+import com.nereusstream.delay.store.CheckpointDownloadRequest;
+import com.nereusstream.delay.store.CheckpointFileInventory;
+import com.nereusstream.delay.store.CheckpointManifest;
+import com.nereusstream.delay.store.CheckpointManifestLimits;
+import com.nereusstream.delay.store.CheckpointPublicationCoordinator;
+import com.nereusstream.delay.store.CheckpointRestoreCoordinator;
+import com.nereusstream.delay.store.CheckpointRestoreWorkClassExecutor;
+import com.nereusstream.delay.store.CheckpointUploadIntentStore;
+import com.nereusstream.delay.store.FilesystemCheckpointDownloadAdapter;
+import com.nereusstream.delay.store.FilesystemCheckpointUploadAdapter;
+import com.nereusstream.delay.store.RecoveryCatalog;
 import com.nereusstream.delay.store.ShardStore;
 import com.nereusstream.delay.store.ShardStoreConfig;
+import com.nereusstream.delay.store.SharedRocksDbResources;
+import com.nereusstream.delay.store.TargetCheckpointCandidateWorkClassExecutor;
+import com.nereusstream.delay.store.TargetCheckpointControlAuthority;
+import com.nereusstream.delay.store.TargetCheckpointPublicationWorkClassExecutor;
+import com.nereusstream.delay.store.TargetCheckpointRootVerifier;
+import com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot;
 import com.nereusstream.delay.store.TargetStoreBackend;
 import java.net.http.HttpClient;
 import java.net.http.HttpResponse;
@@ -76,8 +102,8 @@ import org.apache.pulsar.client.api.GuardedConsumer;
 import org.apache.pulsar.client.api.MessageIdAdv;
 import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.PulsarClient;
-import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.api.PulsarClientException;
+import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.api.TopicResourceGuard;
 
 /** Real P1 source-factory to Target Store apply/ACK smoke with explicit test-only authorities. */
@@ -99,7 +125,7 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
         final HttpClient admin = HttpClient.newHttpClient();
         createTopic(admin, adminUrl, topic);
         try (PulsarClient client = PulsarClientArtifactClientBuilder.builder(serviceUrl).build()) {
-            runTargetSourceTurn(client, physicalTopic);
+            runTargetSourceTurn(client, physicalTopic, serviceUrl);
             System.out.println(
                     "Pulsar Target source factory: first grant at entry 0; Target Cancel applied at entry 1;");
             System.out.println(
@@ -111,7 +137,7 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
 
     private static void runTargetSourceTurn(
             final PulsarClient client,
-            final String physicalTopic)
+            final String physicalTopic, final String serviceUrl)
             throws Exception {
         final TopicResourceGuard guard = new TopicResourceGuard(CLUSTER, INCARNATION, CREATION_TIMESTAMP);
         final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
@@ -189,7 +215,7 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                         consumer,
                         activeHolder,
                         consumerTransferred,
-                        storeRoot);
+                        storeRoot, serviceUrl);
             } finally {
                 deleteTree(storeRoot);
             }
@@ -227,7 +253,7 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
             final GuardedConsumer<byte[]> consumer,
             final OwnerLease[] activeHolder,
             final boolean[] consumerTransferred,
-            final Path storeRoot)
+            final Path storeRoot, final String serviceUrl)
             throws Exception {
         final var config = ShardStoreConfig.defaults(storeRoot);
         final var registration = new InMemoryControlTargetRegistrationAuthority();
@@ -359,6 +385,9 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                     sourceRuntime,
                     maintenance);
             consumerTransferred[0] = true;
+            final var checkpoint = captureInitialCheckpoint(client, guard, store, worker, workerClasses, resources,
+                    scope, leases, active, signingKeys, registration, actor, storeRoot);
+            PulsarSourcePosition recoveryTip = null;
             TargetWorkerHostRuntime host = null;
             java.util.concurrent.ThreadPoolExecutor observerExecutor = null;
             try {
@@ -451,6 +480,7 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                 verifyControlHistory(client, guard, store, worker, scope, leases, active, signingKeys);
                 verifyRejectedOutcomeHistory(client, consumer, guard, physicalTopic, host, worker, store, scope,
                         leases, active, signingKeys, successor);
+                recoveryTip = (PulsarSourcePosition) store.appliedShardLogPosition();
                 // The service owns this exact client. After the last primary ACK, test a real failed SUBSCRIBE
                 // and service shutdown; no timeout handler may close a shared primary client automatically.
                 rejectObservation.set(true);
@@ -527,8 +557,279 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                     }
                 }
             }
+            if (recoveryTip == null) { throw new IllegalStateException("P1 original Source tip was not recorded"); }
+            try (PulsarClient recoveryClient = PulsarClientArtifactClientBuilder.builder(serviceUrl).build()) {
+                checkpoint.historyClient().set(recoveryClient);
+                recoverPublishedCheckpoint(recoveryClient, guard, physicalTopic, checkpoint, scope, leases, command,
+                        recoveryTip, storeRoot);
+            } finally { checkpoint.historyClient().set(null); }
         }
     }
+
+    /** Actual P1 grant cut and File image; global Catalog history/permissions remain explicit test fixtures. */
+    private static PublishedCheckpoint captureInitialCheckpoint(PulsarClient client, TopicResourceGuard resource,
+            ShardStore store, TargetWorkerShardRuntime worker, WorkClassExecutionRegistry classes,
+            SharedRocksDbResources resources, TargetQuotaScope scope, OxiaOwnerLeaseStore leases, OwnerLease active,
+            KeyPair keys, InMemoryControlTargetRegistrationAuthority registration, ControlAuthorizationContext actor,
+            Path root) throws Exception {
+        final var collected = verifyControlHistory(client, resource, store, worker, scope, leases, active, keys);
+        final var dependencies = collected.cut().dependencies();
+        final var physical = new CheckpointManifestLimits(1_000, 256L << 20, 256L << 20,
+                1_024, 4 << 20, 1_000, 1_024);
+        final var quota = new TargetCheckpointRootVerifier.QuotaAuditLimits(4096, 32L << 20);
+        final var ledgerLimits = new TargetCheckpointRootVerifier.LedgerAuditLimits(4096, 32L << 20, 16_384, 32L << 20);
+        final var semanticLimits = new TargetCheckpointSemanticSnapshot.Limits(64, 1 << 20, 1 << 20);
+        final var snapshot = TargetCheckpointSemanticSnapshot.collect(dependencies, List.of(),
+                new com.nereusstream.delay.runtime.InMemoryProfileCatalog(),
+                new com.nereusstream.delay.runtime.InMemoryRetryPolicyCatalog(),
+                new com.nereusstream.delay.runtime.InMemoryPayloadProofTrustSetCatalog(), budget(), semanticLimits,
+                () -> {}).withControlInputs(dependencies, collected.inputs(), budget(), semanticLimits,
+                        (input, first) -> keys.getPublic(), () -> {});
+        final byte[] checkpointId = bytes(16, 0x61);
+        final long now = System.currentTimeMillis();
+        final var owner = new OwnerIdentity(bytes(8, 0x62), bytes(8, 0x63), active.ownerEpoch(), active.leaseToken());
+        final var profile = new com.nereusstream.delay.protocol.ProfileRef(Bytes.utf8("p1-checkpoint-fixture"), 1,
+                bytes(32, 0x64), com.nereusstream.delay.protocol.ProfileKind.OBJECT_STORE);
+        final var evidence = new TrustedUtcIntervalEvidence(now - 1, now,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, bytes(8, 0x65), 1, 1, 1,
+                bytes(32, 0x66), 0, null);
+        final var pending = new CheckpointUploadIntent(new ShardSubject(scope.shard()),
+                dependencies.root().root().recoveryLineage(), checkpointId, owner, store.metadata().storeIncarnation(),
+                bytes(32, 0x67), 1, null, null, profile, evidence, now + 60_000,
+                CheckpointUploadState.PENDING_UPLOAD, 1, null, null);
+        final var intents = new CheckpointUploadIntentStore();
+        intents.create(pending);
+        final var candidate = new TargetCheckpointCandidateWorkClassExecutor(classes, store, leases, intents,
+                System::currentTimeMillis);
+        final var placed = candidate.submitSemantic(new TargetCheckpointCandidateWorkClassExecutor.SemanticRequest(
+                new TargetCheckpointCandidateWorkClassExecutor.Request(root.resolve("recovery-image"), pending,
+                        active, physical, quota, ledgerLimits), snapshot, semanticLimits, () -> {}));
+        classes.runTurn(new SchedulerBudget(1, placed.task().bytes(), TimeUnit.SECONDS.toNanos(10)));
+        final var candidateResult = placed.outcome().orElseThrow();
+        if (candidateResult.failure() != null) {
+            throw new IllegalStateException("P1 image", candidateResult.failure());
+        }
+        final var files = CheckpointFileInventory.collect(candidateResult.checkpointPath(), physical).stream()
+                .map(file -> new CheckpointManifest.FileEntry(file.name(), file.length(), file.checksum(),
+                        Bytes.utf8("p1-image/" + file.name()), Bytes.utf8("immutable-1"), null)).toList();
+        final var manifest = new CheckpointManifest(checkpointId, pending.recoveryLineageId(), 0, null, null,
+                new CheckpointManifest.CreatedBy(owner.deploymentId(), owner.workerRunId(), owner.ownerEpoch()),
+                new CheckpointManifest.CreatedAt(now - 1, now, "CERTIFIED_HOST_CLOCK", bytes(8, 0x65),
+                        1, 1, 1, bytes(32, 0x66), 0, null), scope.shard(), store.metadata().dbIdentity(),
+                store.metadata().storeIncarnationUuid(), 2, store.shardMutationSequence(),
+                store.appliedShardLogPosition(), snapshot.snapshotDigest(), snapshot.semanticInputsDigest(),
+                store.runtimeMetadata().evidenceCursors(), files);
+        final var historyClient = new java.util.concurrent.atomic.AtomicReference<PulsarClient>(client);
+        final var image = TargetCheckpointRootVerifier.authenticateImage(candidateResult.checkpointPath(), manifest,
+                physical, quota, ledgerLimits, semanticLimits, (candidateManifest, ledger, semantic) -> {
+                    if (!semantic.profiles().isEmpty() || !semantic.admissions().isEmpty()
+                            || !semantic.outcomes().isEmpty() || ledger.root().mutationSequence() != 1) {
+                        throw new IllegalStateException("P1 fixture accepts only its initial grant image");
+                    }
+                    final var controls = new TargetCheckpointControlAuthority(registration,
+                            (version, at) -> version == 1 ? keys.getPublic() : null,
+                            (input, first) -> {
+                                final var original = PulsarClientArtifactTargetAdmissionHistory.readControl(
+                                        java.util.Objects.requireNonNull(historyClient.get(), "owned history client"),
+                                        resource, ledger.dependencies().controlReferences().getFirst(),
+                                        Duration.ofSeconds(10), () -> {});
+                                if (!Arrays.equals(original.canonicalEnvelope(), input.image().canonicalEnvelope())) {
+                                    throw new IllegalStateException("P1 image no longer matches original Broker grant");
+                                }
+                            }, (registered, input) -> new TargetCheckpointControlAuthority.Authorization(actor,
+                                    prepared -> true), budget(), () -> {});
+                    controls.authenticateSnapshot(ledger.dependencies(), semantic, semanticLimits,
+                            (input, registered, mutation, at) -> keys.getPublic());
+                }, () -> {});
+        final var catalog = new RecoveryCatalog();
+        // Registered UploadIntent requires base generation 1. This synthetic historical Catalog entry is a
+        // fixture only; it neither converts a physical Store nor implements fresh-empty Catalog bootstrap.
+        catalog.publish(new CheckpointManifest(bytes(16, 0x68), manifest.recoveryLineageId(), 0, null, null,
+                manifest.createdBy(), manifest.createdAt(), manifest.shardId(), manifest.dbIdentity(),
+                manifest.sourceStoreIncarnation(), 1, manifest.shardMutationSequence(),
+                manifest.appliedShardLogPosition(), manifest.controlStateDigest(),
+                manifest.referencedSemanticVersionsDigest(), List.of(), manifest.files()), 0);
+        final Path objects = root.resolve("recovery-objects");
+        final var publisher = new TargetCheckpointPublicationWorkClassExecutor(classes,
+                new CheckpointPublicationCoordinator(resources, intents, physical, catalog));
+        final var publication = publisher.submit(pending, image, 1, System.currentTimeMillis(),
+                new FilesystemCheckpointUploadAdapter(objects, "p1-fixture", physical));
+        classes.runTurn(new SchedulerBudget(1, publication.task().bytes(), TimeUnit.SECONDS.toNanos(10)));
+        final var published = publication.outcome().orElseThrow();
+        if (published.failure() != null) { throw new IllegalStateException("P1 upload", published.failure()); }
+        return new PublishedCheckpoint(image, published.published().uploadIntent().publishedManifest(),
+                catalog, physical, objects, ledgerLimits, historyClient);
+    }
+
+    /** New Owner/native delivery pair/installed Store share one exact published image and Source cut. */
+    private static void recoverPublishedCheckpoint(PulsarClient client, TopicResourceGuard resource, String topic,
+            PublishedCheckpoint checkpoint, TargetQuotaScope scope, OxiaOwnerLeaseStore leases, PreparedCommand command,
+            PulsarSourcePosition tip, Path root) throws Exception {
+        final var opening = client.newConsumer(Schema.BYTES).topic(topic)
+                .subscriptionName("target-installed-recovery-" + UUID.randomUUID())
+                .subscriptionType(org.apache.pulsar.client.api.SubscriptionType.Exclusive)
+                .subscriptionMode(org.apache.pulsar.client.api.SubscriptionMode.NonDurable)
+                .subscriptionInitialPosition(org.apache.pulsar.client.api.SubscriptionInitialPosition.Earliest)
+                .receiverQueueSize(1).autoUpdatePartitions(false).startMessageIdInclusive().resourceGuard(resource)
+                .subscribeAsync();
+        final var owned = new com.nereusstream.delay.ownership.OwnedSourceCursor<>(opening,
+                org.apache.pulsar.client.api.Consumer::closeAsync);
+        PulsarClientArtifactRecoverySourceCursor cursor = null;
+        OwnerLease acquired = null;
+        RecoveryPin pin = null;
+        final var manifest = checkpoint.image().manifest();
+        try {
+            final var nativeConsumer = opening.get(10, TimeUnit.SECONDS);
+            if (!(nativeConsumer instanceof GuardedConsumer<?>)) {
+                throw new IllegalStateException("P1 installed recovery lacks guarded Source");
+            }
+            @SuppressWarnings("unchecked")
+            final var consumer = (GuardedConsumer<byte[]>) nativeConsumer;
+            final var after = (PulsarSourcePosition) manifest.appliedShardLogPosition();
+            final var positioned = PulsarClientArtifactRecoverySourcePositioner.seekAfter(consumer, resource, topic,
+                    scope.shard(), Optional.of(after), Duration.ofSeconds(10));
+            final var assignment = new com.nereusstream.delay.ownership.SourceAssignment(scope.shard(),
+                    Bytes.sha256(Bytes.utf8("p1-installed-recovery-" + UUID.randomUUID())), 2,
+                    new PulsarActivationBarrier(scope.shard(), resource.resourceIncarnation(), topic, tip.ledgerId(),
+                            tip.entryId(), tip.normalizedBatchIndex(), tip.batchSize(),
+                            positioned.connectionGeneration(), positioned.attestationDigest(), false));
+            acquired = leases.acquire(assignment, "p1-installed-recovery", bytes(32, 0x69),
+                    System.currentTimeMillis(), 60_000).orElseThrow();
+            if (Long.compareUnsigned(acquired.ownerEpoch(), manifest.createdBy().ownerEpoch()) <= 0) {
+                throw new IllegalStateException("P1 installed recovery did not acquire a newer Owner epoch");
+            }
+            final var floor = checkpoint.catalog().advanceFloor(manifest.checkpointId(), 2, manifest.evidenceCursors());
+            pin = checkpoint.catalog().createRecoveryPin(new RecoveryPin(bytes(16, 0x6a),
+                    new ShardSubject(scope.shard()), new OwnerIdentity(bytes(8, 0x6b), bytes(8, 0x6c),
+                            acquired.ownerEpoch(), acquired.leaseToken()),
+                    new RecoveryCandidateRef(RecoveryCandidateKind.CATALOG_CHECKPOINT, manifest.recoveryLineageId(),
+                            manifest.checkpointId(), manifest.manifestSha256(), null), floor, 3, bytes(32, 0x6d)));
+            cursor = PulsarClientArtifactRecoverySourceCursor.forTarget(consumer, resource, assignment, topic,
+                    Duration.ofSeconds(10), 2 << 20, () -> {});
+            final var successor = cursor.successorAfter(after);
+            final var replay = cursor.replayCursor();
+            final var config = ShardStoreConfig.defaults(root.resolve("recovered-store"));
+            final var classes = workClasses();
+            try (var resources = PulsarSmokeWorkerResources.open(config)) {
+                final var restore = new CheckpointRestoreWorkClassExecutor(classes, new CheckpointRestoreCoordinator(
+                        config, scope.shard(), resources,
+                        new FilesystemCheckpointDownloadAdapter(checkpoint.objects(), checkpoint.limits()),
+                        checkpoint.catalog(), checkpoint.limits()));
+                final var submitted = restore.submit(new CheckpointRestoreWorkClassExecutor.RestoreRequest(
+                        new CheckpointDownloadRequest(manifest, checkpoint.resource()), pin,
+                        checkpoint.image().restoreAuthentication(budget())));
+                classes.runTurn(new SchedulerBudget(1, submitted.task().bytes(), TimeUnit.SECONDS.toNanos(10)));
+                final var installed = submitted.outcome().orElseThrow();
+                if (installed.failure() != null) { throw new IllegalStateException("P1 install", installed.failure()); }
+                try (var store = installed.restored()) {
+                    if (store.metadata().storeIncarnationUuid().equals(manifest.sourceStoreIncarnation())) {
+                        throw new IllegalStateException("P1 restore reused its source Store incarnation");
+                    }
+                    final var owner = acquired;
+                    final TargetStoreBackend.CommitAuthority commits = (metadata, actualScope, mutation) ->
+                            new TargetStoreBackend.CommitGuard() {
+                                @Override
+                                public void requireCurrent() {
+                                    final var current = leases.current(scope.shard()).orElseThrow();
+                                    if (!owner.sameIdentity(current) || !current.validAt(System.currentTimeMillis())) {
+                                        throw new IllegalStateException("P1 recovery Owner changed");
+                                    }
+                                    replay.requireCurrent();
+                                }
+                                @Override
+                                public void close() {}
+                            };
+                    final var reopened = TargetStoreBootstrap.reopen(store, scope,
+                            new TargetStoreBackend.WriteLimits(128, 4 << 20), budget(),
+                            (metadata, actualScope) -> commits.acquire(metadata, actualScope, null),
+                            checkpoint.ledgerLimits());
+                    final var closes = new TargetCloseStore(reopened.backend(), scope,
+                            manifest.recoveryLineageId(), 16, 1)
+                            .reservationControls((reader, binding) -> Optional.empty());
+                    final var policy = new TargetCommandStore.Policy(scope, 600_000, 600_000, 10_000,
+                            Set.of(command.protocolTuple()), new TargetCommandStore.DeliveryWindow(60_000, 1, 600_000));
+                    final var commands = new TargetSourceApplyRuntime.CommandControl(policy,
+                            (reader, binding, position) -> false, closes,
+                            (incoming, position) -> { throw new AssertionError("recovery Cancel cannot Schedule"); },
+                            (binding, position) -> { throw new AssertionError("recovery Cancel has no payload"); },
+                            commits);
+                    final var authorities = new TargetSourceApplyRuntime.Authorities(leases, successor,
+                            entry -> { throw new AssertionError("unexpected recovery grant"); },
+                            entry -> { throw new AssertionError("unexpected recovery Fence"); },
+                            entry -> { throw new AssertionError("unexpected recovery expiry"); },
+                            entry -> { throw new AssertionError("unexpected recovery Close"); },
+                            entry -> { throw new AssertionError("unexpected recovery membership"); }, commits,
+                            (metadata, actualScope) -> commits.acquire(metadata, actualScope, null), entry -> commands,
+                            entry -> { throw new AssertionError("unexpected recovery Native policy"); },
+                            entry -> { throw new AssertionError("unexpected recovery Admission"); },
+                            entry -> new TargetSourceApplyRuntime.OutcomeControl(
+                                    (actualScope, writer, mutation, at) -> {
+                                        throw new AssertionError("expired recovered Outcome must reject "
+                                                + "before history");
+                                    }, commits));
+                    final var recovery = new TargetOwnerRecoveryCoordinator(store, reopened, assignment, owner,
+                            authorities, new TargetSourceApplyRuntime.Limits(2048, 16L << 20,
+                                    TimeUnit.SECONDS.toNanos(60), 16, 1), replay, checkpoint.catalog(), pin, () -> {},
+                            new com.nereusstream.delay.ownership.ReplayTurnBudget(1, 4L << 20,
+                                    TimeUnit.SECONDS.toNanos(10)), classes, System::currentTimeMillis, System::nanoTime,
+                            PulsarClientArtifactTargetWorkerSourceSmoke::budget, checkpoint.ledgerLimits());
+                    // The subscription resumes inclusively: the exact grant anchor is a physical redelivery,
+                    // not a missing/extra business operation. Preserve it and let the existing replay path prove it.
+                    final var duplicate = recovery.runTurn();
+                    if (duplicate.complete() || duplicate.outcomes().size() != 1
+                            || duplicate.outcomes().getFirst().systemMutationResult() == null
+                            || duplicate.outcomes().getFirst().systemMutationResult().stableCode() != StableCode.OK
+                            || !after.equals(store.appliedShardLogPosition()) || store.shardMutationSequence() != 1) {
+                        throw new IllegalStateException("P1 exact resume anchor changed checkpoint business state");
+                    }
+                    final var first = recovery.runTurn();
+                    if (first.complete() || first.outcomes().size() != 1
+                            || first.outcomes().getFirst().commandResult() == null
+                            || first.outcomes().getFirst().commandResult().stableCode() != StableCode.NOT_FOUND
+                            || store.shardMutationSequence() != 2) {
+                        throw new IllegalStateException("P1 installed Store did not first-apply its real Cancel");
+                    }
+                    final var second = recovery.runTurn();
+                    if (!second.complete() || second.outcomes().size() != 1
+                            || second.outcomes().getFirst().systemMutationResult() == null
+                            || second.outcomes().getFirst().systemMutationResult().stableCode()
+                                    != StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED
+                            || !tip.equals(store.appliedShardLogPosition()) || store.shardMutationSequence() != 3
+                            || store.recoveryMetadata().installState().phase()
+                                    != com.nereusstream.delay.protocol.RecoveryInstallPhase.OPEN
+                            || recovery.activeLease().state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS
+                            || replay.hasNext()) {
+                        throw new IllegalStateException("P1 installed Store did not complete exact real "
+                                + "Source recovery");
+                    }
+                    System.out.println("P1 exact published grant image -> File download/new Store incarnation -> "
+                            + "guarded no-ACK exact resume redelivery/first Cancel/rejected Outcome "
+                            + "-> OPEN/new Owner ACTIVE.");
+                }
+                if (resources.registeredPhysicalUsageSources() != 0) {
+                    throw new IllegalStateException("P1 restored Store physical usage registration leaked");
+                }
+            }
+        } finally {
+            if (cursor != null) { cursor.close(); }
+            else { owned.requestClose().get(10, TimeUnit.SECONDS); }
+            if (acquired != null) {
+                final var current = leases.current(scope.shard()).orElseThrow();
+                if (!current.sameIdentity(acquired) || !leases.release(current)) {
+                    throw new IllegalStateException("P1 recovery Owner release was not confirmed");
+                }
+            }
+            if (pin != null) { checkpoint.catalog().releaseRecoveryPin(pin); }
+        }
+        if (leases.current(scope.shard()).isPresent() || checkpoint.catalog().activeRecoveryPin().isPresent()) {
+            throw new IllegalStateException("P1 recovery Owner/Pin cleanup incomplete");
+        }
+    }
+
+    private record PublishedCheckpoint(TargetCheckpointRootVerifier.AuthenticatedImage image,
+            CheckpointResource resource, RecoveryCatalog catalog, CheckpointManifestLimits limits, Path objects,
+            TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits,
+            java.util.concurrent.atomic.AtomicReference<PulsarClient> historyClient) {}
 
     private static void verifyRejectedOutcomeHistory(PulsarClient client, GuardedConsumer<byte[]> primary,
             TopicResourceGuard resource, String topic, TargetWorkerHostRuntime host, TargetWorkerShardRuntime worker,
@@ -686,7 +987,8 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
     }
 
     /** Actual P1 history/resource/Store correlation; issuer, Owner and retention/pin authorities are fixtures. */
-    private static void verifyControlHistory(PulsarClient client, TopicResourceGuard resource, ShardStore store,
+    private static com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Result verifyControlHistory(
+            PulsarClient client, TopicResourceGuard resource, ShardStore store,
             TargetWorkerShardRuntime worker, TargetQuotaScope scope, OxiaOwnerLeaseStore leases, OwnerLease active,
             KeyPair signingKeys) throws Exception {
         final long before = store.latestSequenceNumber();
@@ -740,6 +1042,7 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
         }
         System.out.println("P1 async Control history matched one actual Worker cut; Store unchanged; "
                 + "issuer/Owner/retention/pins remain explicit fixtures.");
+        return collected;
     }
 
     private static PulsarSourcePosition appendFirstGrant(
