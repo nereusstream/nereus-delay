@@ -613,7 +613,13 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
         final TargetExpiryFixture[] expiryFixtureAfterTurn = new TargetExpiryFixture[1];
         try (var resources = KafkaSmokeWorkerResources.open(config);
                 var store = ShardStore.openTarget(config, scope.shard(), resources)) {
-            final var prepared = TargetStoreBootstrap.prepare(
+            final var initialControl = com.nereusstream.delay.protocol.TargetControlSnapshotInput.signed(
+                    scope, LINEAGE, com.nereusstream.delay.protocol.TargetQuotaGrantControlBody.decode(
+                            rootControl.mutation().canonicalBody()).request().next().digest(), source,
+                    Bytes.sha256(rootControl.mutation().canonicalEnvelope()),
+                    List.of(com.nereusstream.delay.protocol.ProtocolTuple.currentSystemMutation()), List.of(),
+                    1, signingKeys.getPrivate());
+            final var prepared = TargetStoreBootstrap.prepareWithControlSnapshot(
                     store,
                     scope,
                     LINEAGE,
@@ -631,9 +637,26 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                                 || !Arrays.equals(stamp.source().canonicalBytes(), source.canonicalBytes())) {
                             throw new IllegalStateException("test StartAuthority received another root/source batch");
                         }
+                    }, initialControl, (input, control, mutation, at) -> {
+                        if (Thread.holdsLock(store)
+                                || !Arrays.equals(input.canonicalBytes(), initialControl.canonicalBytes())
+                                || !Arrays.equals(at.canonicalBytes(), source.canonicalBytes())) {
+                            throw new IllegalStateException("initial snapshot fixture lost its Source/lock boundary");
+                        }
+                        return signingKeys.getPublic();
                     });
             final var initialized = TargetStoreBootstrap.commit(
                     prepared, ownerCommitAuthority(leases, acquiring));
+            final var persistedControl = com.nereusstream.delay.protocol.TargetInitialControlSnapshot.decode(
+                    com.nereusstream.delay.store.TargetValueEnvelope.decode(store.get(
+                            com.nereusstream.delay.store.ColumnFamily.META,
+                            com.nereusstream.delay.store.KeyCodec.metaFixed(10)), 1).payload());
+            if (!Arrays.equals(initialControl.canonicalBytes(), persistedControl.input().canonicalBytes())
+                    || !persistedControl.input().verifySignature(signingKeys.getPublic())) {
+                throw new IllegalStateException("real K1 first grant did not persist its exact signed control input");
+            }
+            System.out.println("K1 initial control snapshot persisted in first Source/root/result/quota batch: "
+                    + "real grant Source and Store; issuer/reader-set/profile-pin authority is an explicit fixture.");
             final var active = TargetWorkerOwnerActivation.activate(
                     initialized, store, assignment, acquiring, leases, System::currentTimeMillis);
             activeHolder[0] = active;

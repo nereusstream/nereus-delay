@@ -5,6 +5,8 @@ import com.nereusstream.delay.protocol.PreparedControlOperation;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutation;
+import com.nereusstream.delay.protocol.TargetControlSnapshotInput;
+import com.nereusstream.delay.protocol.TargetInitialControlSnapshot;
 import com.nereusstream.delay.protocol.TargetQuotaAggregate;
 import com.nereusstream.delay.protocol.TargetQuotaBookkeeping;
 import com.nereusstream.delay.protocol.TargetQuotaGrantActivation;
@@ -222,6 +224,40 @@ public final class TargetStoreBootstrap {
             final SourcePosition source,
             final TargetQuotaGrantControlVerifier.Authority grants,
             final StartAuthority start) {
+        return prepareInitial(store, scope, lineage, limits, budget, control, mutation, source, grants, start,
+                null, null);
+    }
+
+    /** Authenticates issuer/reader set/immutable profile pins before any Store read or mutation. */
+    @FunctionalInterface
+    public interface InitialControlAuthority {
+        java.security.PublicKey authenticate(TargetControlSnapshotInput snapshot, PreparedControlOperation control,
+                SystemMutation mutation, SourcePosition source);
+    }
+
+    /** Complete initial-control form; old Source grant bytes and their fixed projection fees are unchanged. */
+    public static Prepared prepareWithControlSnapshot(final ShardStore store, final TargetQuotaScope scope,
+            final byte[] lineage, final TargetStoreBackend.WriteLimits limits, final BoundedReadBudget budget,
+            final PreparedControlOperation control, final SystemMutation mutation, final SourcePosition source,
+            final TargetQuotaGrantControlVerifier.Authority grants, final StartAuthority start,
+            final TargetControlSnapshotInput snapshot, final InitialControlAuthority snapshotAuthority) {
+        return prepareInitial(store, scope, lineage, limits, budget, control, mutation, source, grants, start,
+                Objects.requireNonNull(snapshot, "snapshot"),
+                Objects.requireNonNull(snapshotAuthority, "snapshotAuthority"));
+    }
+
+    private static Prepared prepareInitial(
+            final ShardStore store,
+            final TargetQuotaScope scope,
+            final byte[] lineage,
+            final TargetStoreBackend.WriteLimits limits,
+            final BoundedReadBudget budget,
+            final PreparedControlOperation control,
+            final SystemMutation mutation,
+            final SourcePosition source,
+            final TargetQuotaGrantControlVerifier.Authority grants,
+            final StartAuthority start, final TargetControlSnapshotInput snapshot,
+            final InitialControlAuthority snapshotAuthority) {
         Objects.requireNonNull(store, "store");
         Objects.requireNonNull(scope, "scope");
         Objects.requireNonNull(grants, "grantAuthority");
@@ -236,6 +272,14 @@ public final class TargetStoreBootstrap {
                 || request.prior() != null
                 || !scope.shard().equals(source.shardId())) {
             throw new IllegalArgumentException("bootstrap requires the first exact Shard grant and source");
+        }
+        if (snapshot != null) {
+            snapshot.requireInitial(scope, lineage, request.next(), source, Bytes.sha256(mutation.canonicalEnvelope()));
+            final var key = Objects.requireNonNull(snapshotAuthority.authenticate(snapshot, control, mutation, source),
+                    "snapshot issuer key");
+            if (!snapshot.verifySignature(key)) {
+                throw new IllegalArgumentException("Target snapshot signature invalid");
+            }
         }
         final var stamp = new TargetQuotaMutation(1, source, Bytes.sha256(mutation.canonicalEnvelope()));
         final var prepared = new Prepared[1];
@@ -275,10 +319,7 @@ public final class TargetStoreBootstrap {
                 };
                 final var first = TargetResultRecord.system(root, outcome, stamp, null, results);
                 final var position = TargetResultRecord.position(root, first, stamp, results);
-                final var complete = new TargetSourceAccounting(scope, lineage, source, stamp.mutationDigest(), 2, 1, 1)
-                        .assemble(
-                                reader,
-                                List.of(
+                final var edits = new java.util.ArrayList<TargetStoreBackend.Edit>(List.of(
                                         reader.replace(
                                                 ColumnFamily.META,
                                                 root.key(),
@@ -299,6 +340,15 @@ public final class TargetStoreBootstrap {
                                                 position.key(),
                                                 TargetResultRecord.VALUE_TYPE,
                                                 position.canonicalBytes())));
+                if (snapshot != null) {
+                    final var persisted = new TargetInitialControlSnapshot(snapshot, root.identity(), stamp,
+                            change.after(), mutation.authorIdentity());
+                    edits.add(reader.replace(ColumnFamily.META, persisted.key(),
+                            TargetInitialControlSnapshot.VALUE_TYPE,
+                            persisted.canonicalBytes()));
+                }
+                final var complete = new TargetSourceAccounting(scope, lineage, source, stamp.mutationDigest(), 2, 1, 1)
+                        .assemble(reader, edits);
                 if (!request.next()
                         .limit()
                         .permitsGrowth(

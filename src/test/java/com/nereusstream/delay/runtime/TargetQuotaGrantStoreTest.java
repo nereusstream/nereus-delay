@@ -93,7 +93,9 @@ import com.nereusstream.delay.protocol.SystemMutationType;
 import com.nereusstream.delay.protocol.TargetCloseBody;
 import com.nereusstream.delay.protocol.TargetCloseRequest;
 import com.nereusstream.delay.protocol.TargetControlScope;
+import com.nereusstream.delay.protocol.TargetControlSnapshotInput;
 import com.nereusstream.delay.protocol.TargetDispatchCompatibility;
+import com.nereusstream.delay.protocol.TargetInitialControlSnapshot;
 import com.nereusstream.delay.protocol.TargetMembershipClosureRecord;
 import com.nereusstream.delay.protocol.TargetMembershipControlBody;
 import com.nereusstream.delay.protocol.TargetMembershipControlRequest;
@@ -474,8 +476,10 @@ class TargetQuotaGrantStoreTest {
         }
     }
 
-    @Test
-    void signedFirstGrantCommitsAllocationResultAndPositionWhileExternalFailureMakesNoWrite() throws Exception {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void signedFirstGrantCommitsAllocationResultAndPositionWhileExternalFailureMakesNoWrite(boolean withSnapshot)
+            throws Exception {
         final var template = TargetQuotaGrantActivation.decode(raw("target.initial.activation"));
         final var request = template.request();
         final var origin = (KafkaSourcePosition) template.mutation().source();
@@ -583,22 +587,75 @@ class TargetQuotaGrantStoreTest {
                             (a, b, c) -> {}));
             assertEquals(withOrphan, store.latestSequenceNumber());
             store.write(batch -> batch.delete(ColumnFamily.META, orphanKey));
-            final var ready = TargetStoreBootstrap.prepare(
-                    store,
-                    scope,
-                    lineage,
-                    limits,
-                    budget(),
-                    rootOperation.control(),
-                    rootOperation.mutation(),
-                    earlier,
-                    rootAuthority,
-                    (a, b, c) -> {});
+            final var snapshotKeys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+            final var snapshot = TargetControlSnapshotInput.signed(scope, lineage, rootRequest.next().digest(),
+                    earlier, Bytes.sha256(rootOperation.mutation().canonicalEnvelope()),
+                    List.of(ProtocolTuple.currentSystemMutation()), List.of(), 1, snapshotKeys.getPrivate());
+            final long beforeSnapshotFailure = store.latestSequenceNumber();
+            if (withSnapshot) {
+                assertThrows(IllegalArgumentException.class, () -> TargetStoreBootstrap.prepareWithControlSnapshot(
+                        store, scope, lineage, limits, budget(), rootOperation.control(), rootOperation.mutation(),
+                        earlier, rootAuthority, (a, b, c) -> {}, snapshot,
+                        (input, control, mutation, at) -> keys.getPublic()));
+                final var laterSnapshot = TargetControlSnapshotInput.signed(scope, lineage, rootRequest.next().digest(),
+                        origin, Bytes.sha256(rootOperation.mutation().canonicalEnvelope()),
+                        List.of(ProtocolTuple.currentSystemMutation()), List.of(), 1, snapshotKeys.getPrivate());
+                assertThrows(IllegalArgumentException.class, () -> TargetStoreBootstrap.prepareWithControlSnapshot(
+                        store, scope, lineage, limits, budget(), rootOperation.control(), rootOperation.mutation(),
+                        earlier, rootAuthority, (a, b, c) -> {}, laterSnapshot,
+                        (input, control, mutation, at) -> {
+                            throw new AssertionError("wrong Source reached authority");
+                        }));
+                assertEquals(beforeSnapshotFailure, store.latestSequenceNumber());
+            }
+            final var ready = withSnapshot
+                    ? TargetStoreBootstrap.prepareWithControlSnapshot(store, scope, lineage, limits, budget(),
+                            rootOperation.control(), rootOperation.mutation(), earlier, rootAuthority,
+                            (a, b, c) -> {}, snapshot, (input, control, mutation, at) -> {
+                                assertFalse(Thread.holdsLock(store));
+                                assertArrayEquals(snapshot.canonicalBytes(), input.canonicalBytes());
+                                return snapshotKeys.getPublic();
+                            })
+                    : TargetStoreBootstrap.prepare(store, scope, lineage, limits, budget(), rootOperation.control(),
+                            rootOperation.mutation(), earlier, rootAuthority, (a, b, c) -> {});
             final var initialized = TargetStoreBootstrap.commit(ready, (a, b, c) -> guard());
             final var backend = initialized.backend();
             final var shard = initialized.root();
             assertEquals(ApplyStatus.APPLIED, initialized.result().applyStatus());
             assertEquals(1, store.shardMutationSequence());
+            final byte[] initialSnapshotRaw = store.get(ColumnFamily.META, KeyCodec.metaFixed(10));
+            if (withSnapshot) {
+                final var persisted = TargetInitialControlSnapshot.decode(TargetValueEnvelope.decode(
+                        initialSnapshotRaw, 1).payload());
+                assertArrayEquals(snapshot.canonicalBytes(), persisted.input().canonicalBytes());
+                assertEquals(shard.identity(), persisted.root());
+                assertEquals(earlier, persisted.mutation().source());
+                assertTrue(persisted.input().verifySignature(snapshotKeys.getPublic()));
+                final long charged = shard.accounting().recordCharge(TargetQuotaAccounting.RecordClass.STATE,
+                        KeyCodec.metaFixed(10).length, persisted.canonicalBytes().length)
+                        .amount(CapacityDimension.LOGICAL_STATE_BYTES);
+                assertTrue(charged > persisted.canonicalBytes().length);
+                final var reopenedRoot = TargetStoreBootstrap.reopen(store, scope, limits, budget(), (a, b) -> guard());
+                assertEquals(shard.identity(), reopenedRoot.root().identity());
+                assertArrayEquals(initialSnapshotRaw, store.get(ColumnFamily.META, KeyCodec.metaFixed(10)));
+                final var otherAuthor = AuthorIdentity.control(bytes(32, 0x19), actor.roleSet().digest(),
+                        actor.tenantResourceScopeHash()).canonicalBytes();
+                final var transplanted = new TargetInitialControlSnapshot(persisted.input(), persisted.root(),
+                        persisted.mutation(), persisted.initialGrant(), otherAuthor);
+                assertEquals(initialSnapshotRaw.length,
+                        TargetValueEnvelope.encode(1, transplanted.canonicalBytes()).length);
+                store.write(batch -> batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(10),
+                        transplanted.canonicalBytes()));
+                assertTrue(assertThrows(IllegalStateException.class, () -> TargetStoreBootstrap.reopen(
+                        store, scope, limits, budget(), (a, b) -> guard())).getMessage().contains("Control author"));
+                store.write(batch -> batch.delete(ColumnFamily.META, KeyCodec.metaFixed(10)));
+                assertThrows(IllegalStateException.class, () -> TargetStoreBootstrap.reopen(
+                        store, scope, limits, budget(), (a, b) -> guard()));
+                store.write(batch -> batch.put(ColumnFamily.META, KeyCodec.metaFixed(10), initialSnapshotRaw));
+                TargetStoreBootstrap.reopen(store, scope, limits, budget(), (a, b) -> guard());
+            } else {
+                assertNull(initialSnapshotRaw);
+            }
             final long afterBootstrap = store.latestSequenceNumber();
             assertThrows(IllegalStateException.class, () -> TargetStoreBootstrap.commit(ready, (a, b, c) -> guard()));
             assertThrows(
@@ -1440,18 +1497,18 @@ class TargetQuotaGrantStoreTest {
             final long beforeRejectedControl = corrupt.latestSequenceNumber();
             assertThrows(IllegalStateException.class, () -> corrupt.recordControlSnapshot(legacyControl));
             assertEquals(beforeRejectedControl, corrupt.latestSequenceNumber());
+            final byte[] originalControl = corrupt.get(ColumnFamily.META, KeyCodec.metaFixed(10));
             corrupt.write(batch -> batch.putValue(
                     ColumnFamily.META, 1, KeyCodec.metaFixed(10), legacyControl.canonicalBytes()));
-        }
-        assertTrue(assertThrows(
-                        IllegalArgumentException.class,
-                        () -> TargetCheckpointRootVerifier.auditIndependentLedger(
-                                physicalDb, scope.shard(), imageLimits, quotaAuditLimits, ledgerAuditLimits))
-                .getMessage()
-                .contains("unknown Target checkpoint fixed metadata key"));
-        try (var resources = new SharedRocksDbResources(config);
-                var restored = ShardStore.openTarget(config, scope.shard(), resources)) {
-            restored.write(batch -> batch.delete(ColumnFamily.META, KeyCodec.metaFixed(10)));
+            corrupt.flushAndSync();
+            assertTrue(assertThrows(IllegalArgumentException.class,
+                    () -> TargetCheckpointRootVerifier.auditIndependentLedger(
+                            physicalDb, scope.shard(), imageLimits, quotaAuditLimits, ledgerAuditLimits))
+                    .getMessage().contains("Target initial control snapshot"));
+            corrupt.write(batch -> {
+                if (originalControl == null) { batch.delete(ColumnFamily.META, KeyCodec.metaFixed(10)); }
+                else { batch.put(ColumnFamily.META, KeyCodec.metaFixed(10), originalControl); }
+            });
         }
         TargetCheckpointRootVerifier.auditIndependentLedger(
                 physicalDb, scope.shard(), imageLimits, quotaAuditLimits, ledgerAuditLimits);

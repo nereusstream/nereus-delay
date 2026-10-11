@@ -63,5 +63,5 @@ digest 和 receipt 的 canonical 规则由已接受的
 - [`NDIP-2`](NDIP-2/README.md)：Accepted；定义 lifecycle closure、environment/release 分轨和
   scoped certified runtime-source authority，不授予 deployment authority。
 
-- [`NDIP-3`](NDIP-3/README.md)：Draft；用户已授权完整 A–F、29 个切片实施，A0/A1 已验证，当前执行 A2。
+- [`NDIP-3`](NDIP-3/README.md)：Draft；用户已授权完整 A–F、29 个切片实施。文件状态为 5 VERIFIED、20 IN_PROGRESS、4 PLANNED；当前接续 C5 Source 初始控制快照与计费，集中验证延期，完整实现/迁移清退/production authority 未完成。
   Target 新契约、完整实现、Broker 验证与环境迁移分别跟踪，不借用 NDIP-1 历史 authority。

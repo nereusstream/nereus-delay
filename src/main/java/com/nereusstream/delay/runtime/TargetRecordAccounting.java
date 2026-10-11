@@ -8,6 +8,7 @@ import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.TargetChannelIdentity;
 import com.nereusstream.delay.protocol.TargetControlScope;
 import com.nereusstream.delay.protocol.TargetDispatchCompatibility;
+import com.nereusstream.delay.protocol.TargetInitialControlSnapshot;
 import com.nereusstream.delay.protocol.TargetMembershipClosureRecord;
 import com.nereusstream.delay.protocol.TargetMembershipGrant;
 import com.nereusstream.delay.protocol.TargetMembershipPolicy;
@@ -16,6 +17,7 @@ import com.nereusstream.delay.protocol.TargetNativePolicyScope;
 import com.nereusstream.delay.protocol.TargetNativePolicySnapshot;
 import com.nereusstream.delay.protocol.TargetPartitionId;
 import com.nereusstream.delay.protocol.TargetQueueState;
+import com.nereusstream.delay.protocol.TargetQuotaAccounting;
 import com.nereusstream.delay.protocol.TargetQuotaAttemptBudget;
 import com.nereusstream.delay.protocol.TargetQuotaBookkeeping;
 import com.nereusstream.delay.protocol.TargetQuotaClaimCharge;
@@ -96,6 +98,20 @@ public final class TargetRecordAccounting {
         }
         final Charge result;
         switch (value.valueType()) {
+            case TargetInitialControlSnapshot.VALUE_TYPE -> {
+                requireFamily(family, ColumnFamily.META);
+                final var snapshot = TargetInitialControlSnapshot.decode(payload);
+                if (!Arrays.equals(key, snapshot.key()) || !snapshot.root().equals(root.owner())
+                        || !snapshot.input().scope().equals(scope)
+                        || !Arrays.equals(snapshot.input().lineage(), lineage)) {
+                    throw new IllegalStateException("Target initial control accounting crosses key/root/scope");
+                }
+                snapshot.mutation().requireAtOrBefore(operation);
+                final var owner = descriptor(root.owner());
+                result = new Charge(owner, resources(owner.accounting().recordCharge(
+                        TargetQuotaAccounting.RecordClass.STATE, key.length, payload.length)));
+            }
+
             case TargetReservationRecord.VALUE_TYPE -> {
                 final var reservation = TargetReservationRecord.decode(payload);
                 final boolean expiryIndex = family == ColumnFamily.TIMELINE;

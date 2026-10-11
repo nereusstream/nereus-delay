@@ -13,6 +13,7 @@ import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
 import com.nereusstream.delay.protocol.TargetChannelIdentity;
+import com.nereusstream.delay.protocol.TargetInitialControlSnapshot;
 import com.nereusstream.delay.protocol.TargetMembershipClosureRecord;
 import com.nereusstream.delay.protocol.TargetMembershipGrant;
 import com.nereusstream.delay.protocol.TargetMessageLocator;
@@ -115,6 +116,7 @@ final class TargetCheckpointLedgerAudit {
         final List<TargetQuotaGrantActivation> grantActivations = new ArrayList<>();
         final List<TargetMembershipClosureRecord> membershipClosures = new ArrayList<>();
         final List<TargetNativePolicyControlRecord> nativeControls = new ArrayList<>();
+        final List<TargetInitialControlSnapshot> initialControls = new ArrayList<>();
         final List<TargetQuotaAttemptBudget> attemptBudgets = new ArrayList<>();
         final List<AttemptProjection> attemptProjections = new ArrayList<>();
         final List<TargetQuotaCounter> counters = new ArrayList<>();
@@ -134,6 +136,12 @@ final class TargetCheckpointLedgerAudit {
                         dependencies.binding(binding);
                     } else if (family == ColumnFamily.META) {
                         final int tag = Byte.toUnsignedInt(key[0]);
+                        if (Arrays.equals(key, KeyCodec.metaFixed(10))) {
+                            final var snapshot = TargetInitialControlSnapshot.decode(payload);
+                            initialControls.add(snapshot);
+                            dependencies.control(family, key, type, payload);
+                            snapshot.input().profiles().forEach(dependencies::profile);
+                        }
                         if (tag >= TargetKeyCodec.STATE_TAG && tag <= TargetKeyCodec.NATIVE_POLICY_SNAPSHOT_TAG
                                 || tag == TargetKeyCodec.QUOTA_GRANT_ACTIVATION_TAG
                                 || tag == TargetKeyCodec.CLOSE_TAG || tag == TargetKeyCodec.MEMBERSHIP_CLOSURE_TAG
@@ -232,6 +240,23 @@ final class TargetCheckpointLedgerAudit {
             throw new IllegalStateException("Target checkpoint result ledger differs from actual DEDUPE accounting");
         }
         auditGrantResults(grantActivations, resultRows, proof.root().identity());
+        for (final var snapshot : initialControls) {
+            if (!snapshot.root().equals(proof.root().identity())
+                    || !snapshot.input().scope().equals(proof.root().scope())
+                    || !Arrays.equals(snapshot.input().lineage(), proof.root().recoveryLineage())) {
+                throw new IllegalStateException("Target initial control snapshot crosses its root/lineage/scope");
+            }
+            snapshot.mutation().requireAtOrBefore(proof.aggregate().mutation());
+            auditGrantResults(List.of(snapshot.initialGrant()), resultRows, proof.root().identity());
+            final var first = resultRows.stream().filter(row -> Arrays.equals(row.key(), Bytes.concat(
+                    new byte[] {TargetKeyCodec.RESULT_SYSTEM_TAG, 1}, snapshot.initialGrant().systemMutationId())))
+                    .findFirst().orElseThrow();
+            final var firstAuthor = SystemMutationResult.decode(
+                    TargetResultRecord.decode(first.payload()).typedPayload()).authorIdentity();
+            if (!Arrays.equals(snapshot.authorIdentity(), firstAuthor)) {
+                throw new IllegalStateException("Target initial control snapshot changes its original Control author");
+            }
+        }
         auditControlResults(membershipClosures, nativeControls, resultRows, proof.root().identity());
         final var admissions = auditAdmissionResults(attemptBudgets, resultRows, proof.root().identity());
         TargetQuotaDelta.audit(proof.aggregate(), counters, rebuilt);
@@ -639,7 +664,7 @@ final class TargetCheckpointLedgerAudit {
         }
         final int tag = Byte.toUnsignedInt(key[0]);
         if (tag == 1) {
-            if (key.length != 3 || Byte.toUnsignedInt(key[2]) == 0 || Byte.toUnsignedInt(key[2]) > 9) {
+            if (key.length != 3 || Byte.toUnsignedInt(key[2]) == 0 || Byte.toUnsignedInt(key[2]) > 10) {
                 throw new IllegalArgumentException("unknown Target checkpoint fixed metadata key");
             }
             final byte[] payload = TargetValueEnvelope.decode(raw, 1).payload();
@@ -673,6 +698,7 @@ final class TargetCheckpointLedgerAudit {
                         throw new IllegalArgumentException("Target checkpoint has an invalid clean-close marker");
                     }
                 }
+                case 10 -> { return false; }
                 default -> throw new IllegalArgumentException("unknown Target checkpoint fixed metadata key");
             }
             return true;

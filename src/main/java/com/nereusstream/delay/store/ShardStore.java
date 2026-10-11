@@ -1589,8 +1589,15 @@ public final class ShardStore implements AutoCloseable {
             }
             final byte[] controlSnapshotBytes =
                     optionalFixedValue(db, handles.get(ColumnFamily.META), META_CONTROL_SNAPSHOT);
-            final CompatibleControlSnapshot controlSnapshot =
-                    controlSnapshotBytes == null ? null : CompatibleControlSnapshot.decode(controlSnapshotBytes);
+            final CompatibleControlSnapshot controlSnapshot = expectedFormat == 1 && controlSnapshotBytes != null
+                    ? CompatibleControlSnapshot.decode(controlSnapshotBytes) : null;
+            if (expectedFormat == 2 && controlSnapshotBytes != null) {
+                final var targetControl = com.nereusstream.delay.protocol.TargetInitialControlSnapshot.decode(
+                        controlSnapshotBytes);
+                if (!shardId.equals(targetControl.input().scope().shard())) {
+                    throw new IllegalStateException("persisted Target control snapshot belongs to another Shard");
+                }
+            }
             if (controlSnapshot != null
                     && !shardId.equals(controlSnapshot.shard().shardId())) {
                 throw new IllegalStateException("persisted control snapshot belongs to another shard");

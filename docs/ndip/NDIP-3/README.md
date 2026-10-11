@@ -1,5 +1,10 @@
 # NDIP-3 工作包：目标分区队列收敛与调度热路径改造
 
+2026-10-11接续：首条SHARD grant的Source批次已原子持久化/计费Target初始控制快照
+（META10），当前local15/style通过，历史K1 receipt保留原fixture范围。后续完整signed
+control/Outcome历史、生产catalog/Artifact/credential/pins、正式发布/恢复安装与迁移清退
+仍未完成；implementation/central/production三个flags为false，集中验证延期策略保留。
+
 > **当前执行阶段：先完成全部实际运行代码，最后集中测试（用户于 2026-09-08 调整）。**
 > 保持当前模型、单 agent、直接 main、分阶段 scoped commit/push。先贯通原 29 切片的
 > 代码、运行路径装配、配置及迁移/清退工具；完整回归、真实 Broker、性能、故障恢复

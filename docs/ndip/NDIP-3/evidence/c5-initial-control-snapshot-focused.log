@@ -1,0 +1,451 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+
+BUILD SUCCESSFUL in 5s
+4 actionable tasks: 1 executed, 3 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+
+> Task :compileJava FAILED
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/runtime/TargetRecordAccounting.java:111: 错误: 程序包TargetQuotaAccounting不存在
+                        TargetQuotaAccounting.RecordClass.STATE, key.length, payload.length)));
+                                             ^
+1 个错误
+
+[Incubating] Problems report is available at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':compileJava'.
+> Compilation failed; see the compiler output below.
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/runtime/TargetRecordAccounting.java:111: 错误: 程序包TargetQuotaAccounting不存在
+                          TargetQuotaAccounting.RecordClass.STATE, key.length, payload.length)));
+                                               ^
+  1 个错误
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 5s
+4 actionable tasks: 1 executed, 3 up-to-date
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources
+> Task :classes
+
+> Task :checkstyleMain
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/runtime/TargetStoreBootstrap.java:245: 本行字符数 126个，最多：120个。 [LineLength]
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/runtime/TargetStoreBootstrap.java:279: 本行字符数 124个，最多：120个。 [LineLength]
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/runtime/TargetStoreBootstrap.java:343: 本行字符数 121个，最多：120个。 [LineLength]
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/runtime/TargetRecordAccounting.java:26:1: 导入 'com.nereusstream.delay.protocol.TargetQuotaAccounting' 顺序错误。 [ImportOrder]
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/runtime/TargetRecordAccounting.java:27:1: 导入 'com.nereusstream.delay.protocol.TargetInitialControlSnapshot' 顺序错误。 [ImportOrder]
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/protocol/TargetControlSnapshotInput.java:29: 本行字符数 121个，最多：120个。 [LineLength]
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/protocol/TargetControlSnapshotInput.java:112: 本行字符数 123个，最多：120个。 [LineLength]
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/protocol/TargetControlSnapshotInput.java:145: 本行字符数 121个，最多：120个。 [LineLength]
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/protocol/TargetControlSnapshotInput.java:146: 本行字符数 124个，最多：120个。 [LineLength]
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/protocol/TargetControlSnapshotInput.java:150: 本行字符数 124个，最多：120个。 [LineLength]
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/store/TargetStoreBackend.java:734: 本行字符数 122个，最多：120个。 [LineLength]
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/store/TargetCheckpointLedgerAudit.java:255: 本行字符数 127个，最多：120个。 [LineLength]
+
+> Task :checkstyleMain FAILED
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':checkstyleMain'.
+> A failure occurred while executing org.gradle.api.plugins.quality.internal.CheckstyleAction
+   > Checkstyle rule violations were found. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/checkstyle/main.html
+     Checkstyle files with violations: 5
+     Checkstyle violations by severity: [error:12]
+
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 29s
+8 actionable tasks: 4 executed, 4 up-to-date
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+
+> Task :test
+
+TargetQuotaGrantStoreTest > signedFirstGrantCommitsAllocationResultAndPositionWhileExternalFailureMakesNoWrite(boolean) > [1] false FAILED
+    org.opentest4j.AssertionFailedError at TargetQuotaGrantStoreTest.java:1479
+
+TargetQuotaGrantStoreTest > signedFirstGrantCommitsAllocationResultAndPositionWhileExternalFailureMakesNoWrite(boolean) > [2] true FAILED
+    org.opentest4j.AssertionFailedError at TargetQuotaGrantStoreTest.java:1479
+
+2 tests completed, 2 failed
+
+> Task :test FAILED
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':test'.
+> There were failing tests. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/tests/test/index.html
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 24s
+13 actionable tasks: 4 executed, 9 up-to-date
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+
+BUILD SUCCESSFUL in 20s
+13 actionable tasks: 3 executed, 10 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava UP-TO-DATE
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses UP-TO-DATE
+> Task :test
+
+> Task :checkstyleMain
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/runtime/TargetStoreBootstrap.java:346: 本行字符数 121个，最多：120个。 [LineLength]
+
+> Task :checkstyleTest
+
+> Task :checkstyleMain
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/protocol/TargetInitialControlSnapshot.java:26: 本行字符数 132个，最多：120个。 [LineLength]
+
+> Task :checkstyleMain FAILED
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':checkstyleMain'.
+> A failure occurred while executing org.gradle.api.plugins.quality.internal.CheckstyleAction
+   > Checkstyle rule violations were found. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/checkstyle/main.html
+     Checkstyle files with violations: 2
+     Checkstyle violations by severity: [error:2]
+
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 1m 34s
+15 actionable tasks: 5 executed, 10 up-to-date
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes
+> Task :extractIncludeRealKafkaProto UP-TO-DATE
+> Task :extractRealKafkaProto UP-TO-DATE
+> Task :generateRealKafkaProto NO-SOURCE
+> Task :compileRealKafka
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava UP-TO-DATE
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses UP-TO-DATE
+> Task :compileRealKafkaJava SKIPPED
+> Task :processRealKafkaProtoResources UP-TO-DATE
+> Task :processRealKafkaResources UP-TO-DATE
+> Task :realKafkaClasses UP-TO-DATE
+
+> Task :checkstyleRealKafka
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetWorkerSourceSmoke.java:641: 本行字符数 126个，最多：120个。 [LineLength]
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetWorkerSourceSmoke.java:643: 本行字符数 124个，最多：120个。 [LineLength]
+
+> Task :checkstyleRealKafka FAILED
+> Task :checkstyleTest
+> Task :checkstyleMain
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':checkstyleRealKafka'.
+> A failure occurred while executing org.gradle.api.plugins.quality.internal.CheckstyleAction
+   > Checkstyle rule violations were found. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/checkstyle/realKafka.html
+     Checkstyle files with violations: 1
+     Checkstyle violations by severity: [error:2]
+
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 30s
+20 actionable tasks: 6 executed, 14 up-to-date
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeRealKafkaProto UP-TO-DATE
+> Task :extractRealKafkaProto UP-TO-DATE
+> Task :generateRealKafkaProto NO-SOURCE
+> Task :compileRealKafka
+> Task :checkstyleMain UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava UP-TO-DATE
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses UP-TO-DATE
+> Task :checkstyleTest UP-TO-DATE
+> Task :compileRealKafkaJava SKIPPED
+> Task :processRealKafkaProtoResources UP-TO-DATE
+> Task :processRealKafkaResources UP-TO-DATE
+> Task :realKafkaClasses UP-TO-DATE
+> Task :checkstyleRealKafka
+
+BUILD SUCCESSFUL in 20s
+20 actionable tasks: 3 executed, 17 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+Focused XML {"name": "com.nereusstream.delay.store.TargetStoreBackendTest", "tests": "8", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-08T18:08:06.517Z", "hostname": "liusinandeMacBook-Pro.local", "time": "1.423"} sha256=40c7e70133207be223874c9b771cbfae5831cf60afa393bb82040b7cb6659a34
+Focused XML {"name": "com.nereusstream.delay.store.TargetCheckpointSemanticSnapshotTest", "tests": "2", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-08T18:08:06.511Z", "hostname": "liusinandeMacBook-Pro.local", "time": "0.005"} sha256=e2512e4ad6a33ace448e25f07c404f902cd8601970a7563d19e3b24c09956655
+Focused XML {"name": "com.nereusstream.delay.runtime.TargetQuotaGrantStoreTest", "tests": "3", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-08T18:08:01.848Z", "hostname": "liusinandeMacBook-Pro.local", "time": "4.663"} sha256=ae929e4e63bf731445d64544c38ce276d5ce18015f113f7a6cf5ae2f07a2cdb8
+Focused XML {"name": "com.nereusstream.delay.runtime.TargetCommandStoreTest", "tests": "44", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-08T18:07:03.738Z", "hostname": "liusinandeMacBook-Pro.local", "time": "58.109"} sha256=58ed6bb9508c36d6b316f4e4de113ce88b6371ecf9ac30c88016ac00d0e61ab8
+Focused57 zero failure/error/skip. Main/test/optional styles passed after line wrapping.
+
+2026-10-11 continuation revalidation on main, baseline 17c837c0bc804f679951a6ffad1b646f7a80976b.
+Command: GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew test --tests 'com.nereusstream.delay.runtime.TargetQuotaGrantStoreTest.signedFirstGrantCommitsAllocationResultAndPositionWhileExternalFailureMakesNoWrite' checkstyleMain checkstyleTest --no-daemon --console=plain
+Downloading https://services.gradle.org/distributions/gradle-9.4.1-bin.zip
+.............10%.............20%.............30%.............40%.............50%.............60%..............70%.............80%.............90%.............100%
+
+Welcome to Gradle 9.4.1!
+
+Here are the highlights of this release:
+ - Java 26 support
+ - Non-class-based JVM tests
+ - Enhanced console progress bar
+
+For more details see https://docs.gradle.org/9.4.1/release-notes.html
+
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :checkstyleMain UP-TO-DATE
+
+> Task :checkstyleTest
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetQuotaGrantStoreTest.java:606: 本行字符数 124个，最多：120个。 [LineLength]
+
+> Task :checkstyleTest FAILED
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':checkstyleTest'.
+> A failure occurred while executing org.gradle.api.plugins.quality.internal.CheckstyleAction
+   > Checkstyle rule violations were found. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/checkstyle/test.html
+     Checkstyle files with violations: 1
+     Checkstyle violations by severity: [error:1]
+
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 2m 11s
+15 actionable tasks: 4 executed, 11 up-to-date
+
+Store regression XML {'tests': '2', 'failures': '0', 'errors': '0', 'skipped': '0', 'timestamp': '2026-10-11T06:54:08.855Z'} sha256=3a0019aed410d049a48310ff9649ab2d62fb980461d9948f97b5a9851f10340b
+Store tests pass; combined command failed only on a newly introduced 124-character test line, subsequently wrapped.
+
+Command: GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew test --tests 'com.nereusstream.delay.protocol.TargetInitialControlSnapshotTest' --tests 'com.nereusstream.delay.store.TargetStoreBackendTest' --tests 'com.nereusstream.delay.store.TargetCheckpointSemanticSnapshotTest' checkstyleMain checkstyleTest --no-daemon --console=plain
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :checkstyleMain UP-TO-DATE
+> Task :checkstyleTest
+
+BUILD SUCCESSFUL in 27s
+15 actionable tasks: 4 executed, 11 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+Current XML {"name": "com.nereusstream.delay.protocol.TargetInitialControlSnapshotTest", "tests": "3", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-11T06:55:06.495Z"} sha256=de654aabd44a0b6cc49b079dc3a3e79dab2d1f09080888e34d6da536fab9fc9c
+Current XML {"name": "com.nereusstream.delay.store.TargetStoreBackendTest", "tests": "8", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-11T06:55:06.737Z"} sha256=f339d5f26b2ca95cd072ed1f02023c0aaed05375b32b9f67ab4878d6e19b3d1d
+Current XML {"name": "com.nereusstream.delay.store.TargetCheckpointSemanticSnapshotTest", "tests": "2", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-11T06:55:06.710Z"} sha256=6bb5cc9643f35294464179202257ccd9713bd86ab33a6142e4034c89d3a66b2e
+src/main/java/com/nereusstream/delay/protocol/TargetControlSnapshotInput.java sha256=eb7d17ebd13ff16e1258bdbc8da9b154bb48ae246b0fa41595ade82a107d277d
+src/main/java/com/nereusstream/delay/protocol/TargetInitialControlSnapshot.java sha256=53f9ef65f17198a250419a44cdfec2fa7d40d4c23b4516c68e2090fd53670d2c
+src/main/java/com/nereusstream/delay/runtime/TargetRecordAccounting.java sha256=820d959d50144f9ed6fe213c729384485c450eb857f801e37d4113329b004cec
+src/main/java/com/nereusstream/delay/runtime/TargetStoreBootstrap.java sha256=1c014b890732da0f33922ebb1231b2de8714649e430ba9d5f34a3db97fdccdbd
+src/main/java/com/nereusstream/delay/store/ShardStore.java sha256=3fd53c4a96a3090442fb4e80ba2ffa7a6de39c99354206b6ca805255d0efa1b9
+src/main/java/com/nereusstream/delay/store/TargetCheckpointLedgerAudit.java sha256=ec64c2dcef6cbfeb8a2dcbd08fb2d427c3f4d3318b7dfce102f19a06645030f8
+src/main/java/com/nereusstream/delay/store/TargetStoreBackend.java sha256=36dd14476b8417660f0286c4b36cf7e9833c2abcb512ee711cee2976180b47cb
+Current local validation: Store2 + codec3 + Backend8 + semantic2, zero failures/errors/skips; main/test styles pass. K1 receipt above is historical and was not rerun in this continuation. No central validation or production promotion.
+
+Command: GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew checkDocumentation --no-daemon --console=plain
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+
+> Task :testNdip1ImplementationVerifier
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 54.748s
+
+OK
+
+> Task :testNdip1PackageVerifier
+..............
+----------------------------------------------------------------------
+Ran 14 tests in 0.072s
+
+OK
+
+> Task :verifyNdip1HistoricalClosure
+proposal=NDIP-1
+receipt_status=IMPLEMENTED
+lifecycle_authority=true
+implementation=CLOSED
+lifecycle=CLOSED
+certified_commit=b4e077e9978f262cdb93cf3562ea12eee32430e2
+runtime_source_sha256=03ce17ede4b9e70e2f70dd2bbef681087f529159549a4cd979d0d7aa34fa9948
+runtime_source_files=835
+implemented_package_sha256=792ca54e239d884ba6f95315747f565bab57ee0fc02338a77369cb19bbe8e8a7
+staging_run=20260901055333-78920
+deployment=SEPARATE_FUTURE_WORK
+performance_and_scale=SEPARATE_FUTURE_WORK
+production_rollout=SEPARATE_FUTURE_WORK
+production_authority=false
+
+> Task :verifyNdip1PackageAccepted
+proposal=NDIP-1
+receipt_status=ACCEPTED
+authority=true
+package_source_commit=77ffa61136c0cd401244ebea4375a5a18b097b17
+file_sha256 70d9dd7c113fa5f457a20a97996322ef9a2018772efd225aa982c13ec4935140 docs/ndip/NDIP-1/01-调查与决策记录.md
+file_sha256 c167ed42dd29c383c08a8a102f36b0e4deee8ae5c7a5da115a09d04ffcb9fa6f docs/ndip/NDIP-1/02-NDIP-1-Pulsar-Native-Delivery.md
+file_sha256 9affafa81952959d39ed9c09a00abe6b84da4fd3b0b6280422f297684d56f727 docs/ndip/NDIP-1/03-实施计划.md
+file_sha256 2a26c107cd69ee522ea138b3487b8ec206e913acc6ad5b862aa69288ddcaa88e docs/ndip/NDIP-1/04-代码级目标设计.md
+package_sha256=13caab8ecdc201901f06e905f1c0bf9792780e50c6f5948f93abf2bdb8f4d21b
+gate_b=PASS
+implementation=AUTHORIZED
+local_disposable_testing=AUTHORIZED_WITH_EXACT_ATTESTATION
+gate_c=PENDING_DEPLOYMENT
+shadow=BLOCKED_BY_GATE_C
+enabled=BLOCKED_BY_GATE_C_AND_SHADOW_REQUIREMENTS
+
+> Task :verifyNdip2PackageAccepted
+proposal=NDIP-2
+receipt_status=ACCEPTED
+authority=true
+file_sha256 0a105fb2b73d63cabddf42d0ba3d5a9590b4edddd47242495f196bf56d15f642 docs/ndip/NDIP-2/01-NDIP-生命周期与认证源码权威分层.md
+file_sha256 c882ecaa32413cb9e177243cf3efe91b97810c3cc10be81e61e7e458030c4ffa docs/ndip/NDIP-2/02-实施计划.md
+file_sha256 ec1ba68ab3ac91aa667647e6289cd252b99da84d899f42f879821d6e5d7752e9 docs/ndip/NDIP-2/03-代码级目标设计.md
+package_sha256=856e1d768210a31fc9aad811af3a93c1de33189cc03c65bc1e36d57affbf10db
+gate_b=PASS
+implementation=AUTHORIZED
+deployment_authority=false
+
+> Task :checkDocumentation
+
+BUILD SUCCESSFUL in 1m 10s
+6 actionable tasks: 6 executed
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+
+Current documentation checks pass; NDIP-2 deployment_authority remains false.

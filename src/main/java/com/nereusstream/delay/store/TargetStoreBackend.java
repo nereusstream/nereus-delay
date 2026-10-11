@@ -728,6 +728,18 @@ public final class TargetStoreBackend {
         final var keys = new HashSet<String>();
         long bytes = 0;
         for (var edit : mutation.business()) {
+            if (edit.family == ColumnFamily.META && Arrays.equals(edit.key, KeyCodec.metaFixed(10))) {
+                final var stamp = mutation.quota().counters().mutation();
+                if (edit.before != null || edit.after == null || stamp.isLocalMutation() || stamp.sequence() != 1) {
+                    throw new IllegalArgumentException(
+                            "Target initial control snapshot requires its first Source batch");
+                }
+                final var snapshot = com.nereusstream.delay.protocol.TargetInitialControlSnapshot.decode(
+                        TargetValueEnvelope.decode(edit.after, 1).payload());
+                if (!snapshot.mutation().equals(stamp)) {
+                    throw new IllegalArgumentException("Target initial control snapshot changed its Source stamp");
+                }
+            }
             if (!keys.add(edit.family.name() + ':' + HexFormat.of().formatHex(edit.key))) {
                 throw new IllegalArgumentException("duplicate Target business edit key");
             }
@@ -1035,6 +1047,7 @@ public final class TargetStoreBackend {
         if (key.length < 3 || key[1] != 1) {
             throw new IllegalArgumentException("invalid Target business key");
         }
+        if (family == ColumnFamily.META && Arrays.equals(key, KeyCodec.metaFixed(10))) { return 1; }
         final int tag = Byte.toUnsignedInt(key[0]);
         final int type =
                 switch (family) {
