@@ -3087,3 +3087,14 @@ unpublished component evidence; schema2 adds original controls but grants no pro
 Same-cut companion staging, force, inventory and exact reuse remain unchanged. Complete Outcome history,
 production issuer/catalog/Artifact/credential/pins, Manifest/Catalog/restore/install/Floor and protected migration
 remain separate obligations; format2 publication/recovery gates are not relaxed.
+
+Target Source transport reader/history integration (2026-10-11): explicit K1/P1 Target Worker factories
+select `forTarget` consumers using `SystemMutation.decodeTargetFrame` for System records; default Lane
+constructors/decoders keep the previous Control kind boundary. Target Control identities remain derived
+from closed typed bodies, with other registered System/Command paths unchanged. Opaque ControlReference
+locators are derived only from a complete actual Target ledger fold and validate exact original
+Source/envelope/id/hash/author/window. The existing K1/P1 history adapters expose `readControl` over a
+dedicated manual consumer/no commits or owned non-durable cursor/no ACKs, finite deadline/close and
+mandatory external lifetime guard. Control frame size is bounded by the maximum registered typed Target
+Control body plus1024 bytes for the outer signed envelope/frame. A returned frame authenticates neither
+the issuer nor registry/RBAC/pins; caller authority and protected snapshot assembly remain required.

@@ -73,6 +73,7 @@ import java.nio.file.Path;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.EnumMap;
@@ -293,13 +294,8 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                 siblingCommandMetadata = null;
             }
 
-            final var source = new KafkaSourcePosition(
-                    shard,
-                    clusterId,
-                    toUuid(topicId),
-                    rootMetadata.offset(),
-                    null,
-                    rootMetadata.timestamp());
+            final var source = readInitialControlSource(bootstrap, clusterId, topic, toUuid(topicId), shard,
+                    rootMutation, rootMetadata.offset());
             final var assignment = new com.nereusstream.delay.ownership.SourceAssignment(
                     shard,
                     Bytes.sha256(Bytes.utf8("target-source-assignment-" + UUID.randomUUID())),
@@ -332,13 +328,9 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                         : Files.createTempDirectory("nereus-delay-kafka-target-source-");
                 final CheckedAction siblingProgress = exerciseSibling
                         ? () -> {
-                            final var siblingSource = new KafkaSourcePosition(
-                                    siblingShard,
-                                    clusterId,
-                                    toUuid(topicId),
-                                    siblingRootMetadata.offset(),
-                                    null,
-                                    siblingRootMetadata.timestamp());
+                            final var siblingSource = readInitialControlSource(bootstrap, clusterId, topic,
+                                    toUuid(topicId), siblingShard, siblingRootControl.mutation(),
+                                    siblingRootMetadata.offset());
                             final var siblingAssignment = new com.nereusstream.delay.ownership.SourceAssignment(
                                     siblingShard,
                                     Bytes.sha256(Bytes.utf8("target-source-assignment-" + UUID.randomUUID())),
@@ -1084,7 +1076,8 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                     }
                 }
                 if (host != null && worker.pendingSourceEntry().isEmpty()) {
-                    verifySemanticCandidate(host, worker, store, backend, scope, active, leases, storeRoot);
+                    verifySemanticCandidate(host, worker, store, backend, scope, active, leases, storeRoot,
+                            admin, bootstrap, topic, groupId, signingKeys);
                 }
             } finally {
                 if (host != null) {
@@ -1158,7 +1151,8 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
     /** Actual Broker ACK cut/Worker/Store/file path; semantic catalog/protection/intent authorities are fixtures. */
     private static void verifySemanticCandidate(TargetWorkerHostRuntime host, TargetWorkerShardRuntime worker,
             ShardStore store, TargetStoreBackend backend, TargetQuotaScope scope, OwnerLease owner,
-            OxiaOwnerLeaseStore leases, Path storeRoot) {
+            OxiaOwnerLeaseStore leases, Path storeRoot, Admin admin, String bootstrap, String physicalTopic,
+            String groupId, KeyPair signingKeys) throws Exception {
         final var reads = budget();
         final var ledgerLimits = new TargetCheckpointRootVerifier.LedgerAuditLimits(4096, 32L << 20, 16_384, 32L << 20);
         final var dependencies = backend.guardedRead(reads, reader -> {
@@ -1184,9 +1178,40 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
             throw new IllegalStateException("Cancel/NOT_FOUND semantic candidate unexpectedly has version inputs");
         }
         final var semanticLimits = new TargetCheckpointSemanticSnapshot.Limits(64, 1 << 20, 1 << 20);
-        final var snapshot = TargetCheckpointSemanticSnapshot.collect(dependencies, List.of(), emptySemanticProfiles(),
+        final var component = TargetCheckpointSemanticSnapshot.collect(dependencies, List.of(), emptySemanticProfiles(),
                 (ref, at) -> { throw new AssertionError("unexpected Retry Policy input"); },
                 ref -> { throw new AssertionError("unexpected Trust Set input"); }, budget(), semanticLimits, () -> {});
+        final Map<String, Object> historyConfig = Map.of(
+                ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap, ConsumerConfig.GROUP_ID_CONFIG, groupId,
+                ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName(),
+                ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
+        final var committedBefore = admin.listConsumerGroupOffsets(groupId).partitionsToOffsetAndMetadata()
+                .get(10, TimeUnit.SECONDS);
+        final long beforeHistory = store.latestSequenceNumber();
+        final Runnable historyGuard = () -> {
+            final var current = leases.current(scope.shard()).orElseThrow();
+            if (Thread.holdsLock(store) || !owner.sameIdentity(current)
+                    || current.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS
+                    || !current.validAt(System.currentTimeMillis()) || store.latestSequenceNumber() != beforeHistory) {
+                throw new IllegalStateException("Control history lost its test Owner/Store-lock boundary");
+            }
+        };
+        final var inputs = new ArrayList<com.nereusstream.delay.store.TargetCheckpointDependencies.ControlImage>();
+        for (final var ref : dependencies.controlReferences()) {
+            final var image = KafkaClientArtifactTargetAdmissionHistory.readControl(historyConfig, physicalTopic,
+                    ref, Duration.ofSeconds(10), historyGuard);
+            inputs.add(new com.nereusstream.delay.store.TargetCheckpointDependencies.ControlImage(
+                    ref.source(), image));
+        }
+        final var snapshot = component.withControlInputs(dependencies, inputs, budget(), semanticLimits,
+                (input, first) -> { historyGuard.run(); return signingKeys.getPublic(); }, historyGuard);
+        if (snapshot.schemaVersion() != 2 || inputs.size() != 1 || store.latestSequenceNumber() != beforeHistory
+                || !committedBefore.equals(admin.listConsumerGroupOffsets(groupId)
+                        .partitionsToOffsetAndMetadata().get(10, TimeUnit.SECONDS))) {
+            throw new IllegalStateException("Control history changed the active group/Store or omitted the root input");
+        }
+        System.out.println("K1 original Control history matched full Source/first result; group/Store unchanged; "
+                + "schema2 snapshot uses explicit issuer/history protection fixtures.");
         final UUID id = UUID.randomUUID();
         final byte[] checkpointId = java.nio.ByteBuffer.allocate(16).putLong(id.getMostSignificantBits())
                 .putLong(id.getLeastSignificantBits()).array();
@@ -1584,6 +1609,28 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
         if (committed == null || committed.offset() != expectedOffset) {
             throw new IllegalStateException("Kafka source group offset mismatch: expected " + expectedOffset
                     + " but was " + (committed == null ? null : committed.offset()));
+        }
+    }
+
+    private static KafkaSourcePosition readInitialControlSource(String bootstrap, String clusterId, String topic,
+            UUID topicId, ShardId shard, SystemMutation expected, long offset) {
+        final var nativeConsumer = newSourceConsumer(bootstrap, "target-initial-probe-" + UUID.randomUUID(),
+                clusterId, topic, topicId, shard, AckMode.NO_INJECTION);
+        try (var reader = KafkaClientArtifactSourceRecordConsumer.forTarget(nativeConsumer, clusterId, topicId,
+                shard, topic, Duration.ofSeconds(5))) {
+            nativeConsumer.seek(new TopicPartition(topic, shard.partition()), offset);
+            final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+            while (System.nanoTime() < deadline) {
+                final var polled = reader.poll();
+                if (polled.isEmpty()) { continue; }
+                if (!(polled.get().entry() instanceof com.nereusstream.delay.ownership.SourceReplayMutation mutation)
+                        || !(mutation.position() instanceof KafkaSourcePosition source) || source.offset() != offset
+                        || !Arrays.equals(expected.encodeFrame(), mutation.mutation().encodeFrame())) {
+                    throw new IllegalStateException("initial Target grant differs from actual guarded Fetch/decoder");
+                }
+                return source;
+            }
+            throw new IllegalStateException("initial Target grant Source was unavailable before its deadline");
         }
     }
 

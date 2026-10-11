@@ -169,6 +169,7 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
             final Path storeRoot = Files.createTempDirectory("nereus-delay-pulsar-target-source-");
             try {
                 runWithTargetStore(
+                        client,
                         guard,
                         physicalTopic,
                         scope,
@@ -206,6 +207,7 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
     }
 
     private static void runWithTargetStore(
+            final PulsarClient client,
             final TopicResourceGuard guard,
             final String physicalTopic,
             final TargetQuotaScope scope,
@@ -247,7 +249,13 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
         final var workerClasses = workClasses();
         try (var resources = PulsarSmokeWorkerResources.open(config);
                 var store = ShardStore.openTarget(config, scope.shard(), resources)) {
-            final var prepared = TargetStoreBootstrap.prepare(
+            final var initialInput = com.nereusstream.delay.protocol.TargetControlSnapshotInput.signed(scope,
+                    bytes(16, 0x31), TargetQuotaGrantControlBody.decode(rootControl.mutation().canonicalBody())
+                            .request().next().digest(), rootPosition,
+                    Bytes.sha256(rootControl.mutation().canonicalEnvelope()),
+                    List.of(com.nereusstream.delay.protocol.ProtocolTuple.currentSystemMutation()), List.of(),
+                    1, signingKeys.getPrivate());
+            final var prepared = TargetStoreBootstrap.prepareWithControlSnapshot(
                     store,
                     scope,
                     bytes(16, 0x31),
@@ -265,6 +273,13 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                                 || !Arrays.equals(mutation.source().canonicalBytes(), rootPosition.canonicalBytes())) {
                             throw new IllegalStateException("test Pulsar StartAuthority received another root/source");
                         }
+                    }, initialInput, (input, control, mutation, at) -> {
+                        if (Thread.holdsLock(store)
+                                || !Arrays.equals(input.canonicalBytes(), initialInput.canonicalBytes())
+                                || !rootPosition.equals(at)) {
+                            throw new IllegalStateException("P1 initial input lost its Source/Store-lock boundary");
+                        }
+                        return signingKeys.getPublic();
                     });
             final var initialized = TargetStoreBootstrap.commit(
                     prepared, ownerCommitAuthority(leases, acquiring));
@@ -365,6 +380,7 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                         || store.shardMutationSequence() != 2) {
                     throw new IllegalStateException("Pulsar Target Store did not durably advance before ACK");
                 }
+                verifyControlHistory(client, guard, store, initialized.backend(), scope, leases, active, signingKeys);
             } finally {
                 if (worker.pendingSourceEntry().isEmpty()) {
                     worker.pauseNewTurns();
@@ -381,6 +397,59 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                 }
             }
         }
+    }
+
+    /** Actual P1 history/resource/Store correlation; issuer, Owner and retention/pin authorities are fixtures. */
+    private static void verifyControlHistory(PulsarClient client, TopicResourceGuard resource, ShardStore store,
+            TargetStoreBackend backend, TargetQuotaScope scope, OxiaOwnerLeaseStore leases, OwnerLease active,
+            KeyPair signingKeys) {
+        final var reads = budget();
+        final var dependencies = backend.guardedRead(reads, reader -> {
+            final var bookkeeping = com.nereusstream.delay.protocol.TargetQuotaBookkeeping.decode(
+                    com.nereusstream.delay.store.TargetValueEnvelope.decode(reader.get(
+                            com.nereusstream.delay.store.ColumnFamily.META,
+                            com.nereusstream.delay.protocol.TargetQuotaBookkeeping.keyFor(scope.shard())),
+                            com.nereusstream.delay.protocol.TargetQuotaBookkeeping.VALUE_TYPE).payload());
+            final byte[] rootKey = bookkeeping.owner().key();
+            rootKey[0] = com.nereusstream.delay.store.TargetKeyCodec.QUOTA_INCARNATION_TAG;
+            final var root = com.nereusstream.delay.protocol.TargetQuotaIncarnation.decodeForStore(rootKey,
+                    com.nereusstream.delay.store.TargetValueEnvelope.decode(reader.get(
+                            com.nereusstream.delay.store.ColumnFamily.META, rootKey),
+                            com.nereusstream.delay.protocol.TargetQuotaIncarnation.VALUE_TYPE).payload(),
+                    scope.shard(), scope.tenantScope());
+            final var aggregate = reader.aggregate();
+            return com.nereusstream.delay.store.TargetCheckpointRootVerifier.auditLiveStoreDependencies(store,
+                    new com.nereusstream.delay.store.TargetCheckpointRootVerifier.RootProof(reader.metadata(),
+                            aggregate.mutation().source(), aggregate.mutation().sequence(), root,
+                            bookkeeping, aggregate),
+                    new com.nereusstream.delay.store.TargetCheckpointRootVerifier.LedgerAuditLimits(
+                            4096, 32L << 20, 16_384, 32L << 20), reads);
+        }, ownerReadAuthority(leases, active));
+        final long before = store.latestSequenceNumber();
+        final Runnable historyGuard = () -> {
+            final var current = leases.current(scope.shard()).orElseThrow();
+            if (Thread.holdsLock(store) || !active.sameIdentity(current)
+                    || current.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS
+                    || !current.validAt(System.currentTimeMillis())
+                    || store.latestSequenceNumber() != before) {
+                throw new IllegalStateException("P1 Control history lost its fixture Owner/Store cut");
+            }
+        };
+        final var inputs = new java.util.ArrayList<
+                com.nereusstream.delay.store.TargetCheckpointDependencies.ControlImage>();
+        for (final var reference : dependencies.controlReferences()) {
+            final var image = PulsarClientArtifactTargetAdmissionHistory.readControl(client, resource, reference,
+                    Duration.ofSeconds(10), historyGuard);
+            inputs.add(new com.nereusstream.delay.store.TargetCheckpointDependencies.ControlImage(
+                    reference.source(), image));
+        }
+        if (dependencies.requireControlImages(inputs, 1 << 20, budget(),
+                (input, first) -> { historyGuard.run(); return signingKeys.getPublic(); }, historyGuard).size() != 1
+                || store.latestSequenceNumber() != before) {
+            throw new IllegalStateException("P1 Control history omitted the first grant or changed Store state");
+        }
+        System.out.println("P1 original Control history matched full Source/first result; Store unchanged; "
+                + "issuer/Owner/retention/pins remain explicit fixtures.");
     }
 
     private static PulsarSourcePosition appendFirstGrant(

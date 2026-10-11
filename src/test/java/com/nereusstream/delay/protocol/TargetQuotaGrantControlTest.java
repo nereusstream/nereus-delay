@@ -70,6 +70,8 @@ class TargetQuotaGrantControlTest {
             final var mutation = signed(body, actor, key, 1);
             assertArrayEquals(mutation.canonicalEnvelope(),
                     SystemMutation.decodeTargetControlFrame(mutation.encodeFrame()).canonicalEnvelope());
+            assertArrayEquals(mutation.canonicalEnvelope(),
+                    SystemMutation.decodeTargetFrame(mutation.encodeFrame()).canonicalEnvelope());
             assertArrayEquals(hex(name + ".mutationHash"), mutation.mutationHash());
             assertArrayEquals(hex(name + ".mutationId"), mutation.systemMutationId());
             assertArrayEquals(hex(name + ".envelope"), mutation.canonicalEnvelope());

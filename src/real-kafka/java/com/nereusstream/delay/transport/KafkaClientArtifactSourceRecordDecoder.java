@@ -37,6 +37,22 @@ final class KafkaClientArtifactSourceRecordDecoder {
         };
     }
 
+    /** Explicit format-2 Source path; the default reader retains its legacy Control kind boundary. */
+    static SourceReplayEntry decodeTarget(final byte[] frame, final ShardId shard, final SourcePosition position,
+            final Long sourceConnectionGeneration, final byte[] guardAttestationDigest) {
+        if (!shard.equals(position.shardId())) {
+            throw new IllegalArgumentException("Target Source position belongs to another Shard");
+        }
+        if (ShardLogFrame.decode(frame).recordKind() != ShardLogFrame.SYSTEM_MUTATION_KIND) {
+            return decode(frame, shard, position, sourceConnectionGeneration, guardAttestationDigest);
+        }
+        final var mutation = SystemMutation.decodeTargetFrame(frame);
+        if (!shard.equals(mutation.shardId())) {
+            throw new IllegalArgumentException("Target Source mutation belongs to another Shard");
+        }
+        return new SourceReplayMutation(mutation, position, sourceConnectionGeneration, guardAttestationDigest);
+    }
+
     private static SourceReplayRecord command(
             final byte[] frame,
             final ShardId shard,

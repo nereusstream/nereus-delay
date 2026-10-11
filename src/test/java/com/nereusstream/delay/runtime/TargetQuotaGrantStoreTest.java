@@ -1198,6 +1198,14 @@ class TargetQuotaGrantStoreTest {
         final var dependencies = TargetCheckpointRootVerifier.auditImageDependencies(
                 physicalDb, scope.shard(), imageLimits, quotaAuditLimits, ledgerAuditLimits).dependencies();
         assertEquals(3, dependencies.controlResults().size());
+        assertEquals(3, dependencies.controlReferences().size());
+        for (final var reference : dependencies.controlReferences()) {
+            final var original = controlImages.stream().filter(input ->
+                    Arrays.equals(input.image().systemMutationId(), SystemMutationResult.decode(
+                            reference.first().typedPayload()).mutationId())).findFirst().orElseThrow();
+            assertArrayEquals(original.image().canonicalEnvelope(),
+                    reference.requireImage(original.image(), original.source()).canonicalEnvelope());
+        }
         assertTrue(dependencies.controlResults().stream().anyMatch(firstResult ->
                 SystemMutationResult.decode(firstResult.typedPayload()).applyStatus() == ApplyStatus.REJECTED));
         final var checkedControls = dependencies.requireControlImages(controlImages, 1 << 20, budget(),

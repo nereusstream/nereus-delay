@@ -2,9 +2,15 @@ package com.nereusstream.delay.transport;
 
 import com.nereusstream.delay.ownership.SourceReplayMutation;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
+import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.SystemMutation;
+import com.nereusstream.delay.protocol.TargetCloseBody;
+import com.nereusstream.delay.protocol.TargetMembershipControlBody;
+import com.nereusstream.delay.protocol.TargetNativePolicyControlBody;
 import com.nereusstream.delay.protocol.TargetPublishAdmissionBody;
+import com.nereusstream.delay.protocol.TargetQuotaGrantControlBody;
 import com.nereusstream.delay.runtime.TargetPublishRecoveryDiscovery;
+import com.nereusstream.delay.store.TargetCheckpointDependencies;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
@@ -15,9 +21,12 @@ import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.GuardedConsumer;
 import org.apache.kafka.common.TopicPartition;
 
-/** Exact K1 Admission history read using a dedicated manual-assignment consumer, with no offset commit path. */
+/** Exact K1 Target Source history read using a dedicated manual-assignment consumer, with no offset commit path. */
 public final class KafkaClientArtifactTargetAdmissionHistory {
     public static final int MAX_FRAME_BYTES = 2 * TargetPublishAdmissionBody.MAX_MATERIALIZED_BYTES + 2048;
+    public static final int MAX_CONTROL_FRAME_BYTES = 1024 + Math.max(
+            Math.max(TargetQuotaGrantControlBody.MAX_CANONICAL_BYTES, TargetMembershipControlBody.MAX_CANONICAL_BYTES),
+            Math.max(TargetNativePolicyControlBody.MAX_CANONICAL_BYTES, TargetCloseBody.MAX_CANONICAL_BYTES));
 
     private KafkaClientArtifactTargetAdmissionHistory() {}
 
@@ -31,9 +40,26 @@ public final class KafkaClientArtifactTargetAdmissionHistory {
             final TargetPublishRecoveryDiscovery.Reference reference, final Duration timeout,
             final Runnable historyGuard) {
         final var ref = Objects.requireNonNull(reference, "reference");
+        return read(configuration, physicalTopic, ref.source(), timeout, historyGuard, MAX_FRAME_BYTES,
+                ref::requireImage);
+    }
+
+    /** Reads an exact original Control input, including rejected first results, without altering the active group. */
+    public static SystemMutation readControl(final Map<String, Object> configuration, final String physicalTopic,
+            final TargetCheckpointDependencies.ControlReference reference, final Duration timeout,
+            final Runnable historyGuard) {
+        final var ref = Objects.requireNonNull(reference, "reference");
+        return read(configuration, physicalTopic, ref.source(), timeout, historyGuard, MAX_CONTROL_FRAME_BYTES,
+                ref::requireImage);
+    }
+
+    private static SystemMutation read(final Map<String, Object> configuration, final String physicalTopic,
+            final SourcePosition expectedSource, final Duration timeout, final Runnable historyGuard,
+            final int maximumFrameBytes,
+            final java.util.function.BiFunction<SystemMutation, SourcePosition, SystemMutation> requireImage) {
         final var guard = Objects.requireNonNull(historyGuard, "historyGuard");
-        if (!(ref.source() instanceof KafkaSourcePosition expected)) {
-            throw new IllegalArgumentException("K1 history requires a Kafka Admission source");
+        if (!(expectedSource instanceof KafkaSourcePosition expected)) {
+            throw new IllegalArgumentException("K1 history requires a Kafka Source locator");
         }
         final long timeoutMs = Objects.requireNonNull(timeout, "timeout").toMillis();
         if (timeoutMs < 1 || timeoutMs > Integer.MAX_VALUE) {
@@ -45,8 +71,8 @@ public final class KafkaClientArtifactTargetAdmissionHistory {
         config.remove(ConsumerConfig.GROUP_INSTANCE_ID_CONFIG);
         config.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "none");
         config.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 1);
-        config.put(ConsumerConfig.MAX_PARTITION_FETCH_BYTES_CONFIG, MAX_FRAME_BYTES);
-        config.put(ConsumerConfig.FETCH_MAX_BYTES_CONFIG, MAX_FRAME_BYTES);
+        config.put(ConsumerConfig.MAX_PARTITION_FETCH_BYTES_CONFIG, maximumFrameBytes);
+        config.put(ConsumerConfig.FETCH_MAX_BYTES_CONFIG, maximumFrameBytes);
         config.put(ConsumerConfig.DEFAULT_API_TIMEOUT_MS_CONFIG, (int) timeoutMs);
         config.put(ConsumerConfig.REQUEST_TIMEOUT_MS_CONFIG, (int) timeoutMs);
         guard.run();
@@ -64,28 +90,28 @@ public final class KafkaClientArtifactTargetAdmissionHistory {
                 guard.run();
                 final long remaining = timeoutNanos - (System.nanoTime() - started);
                 if (remaining <= 0) {
-                    throw new IllegalStateException("K1 Admission history was unavailable before its deadline");
+                    throw new IllegalStateException("K1 Target Source history was unavailable before its deadline");
                 }
                 final var records = consumer.pollGuarded(Duration.ofNanos(remaining));
                 final var evidence = KafkaClientArtifactFetchEvidence.requireBatch(records, resource);
                 for (var record : records.records(partition)) {
                     KafkaClientArtifactFetchEvidence.requireRecord(record, evidence, resource);
                     if (record.offset() != expected.offset() || record.timestamp() < 0
-                            || record.value() == null || record.value().length > MAX_FRAME_BYTES) {
-                        throw new IllegalStateException("K1 history lacks the exact bounded retained Admission record");
+                            || record.value() == null || record.value().length > maximumFrameBytes) {
+                        throw new IllegalStateException("K1 history lacks the exact bounded retained Source record");
                     }
                     final var source = new KafkaSourcePosition(expected.shardId(), expected.authenticatedClusterId(),
                             expected.nativeTopicUuid(), record.offset(), record.leaderEpoch().orElse(null),
                             record.timestamp());
-                    final var decoded = KafkaClientArtifactSourceRecordDecoder.decode(
+                    final var decoded = KafkaClientArtifactSourceRecordDecoder.decodeTarget(
                             record.value(), expected.shardId(), source, null, null);
                     if (!(decoded instanceof SourceReplayMutation mutation)) {
-                        throw new IllegalStateException("K1 Admission history returned a Command");
+                        throw new IllegalStateException("K1 Target Source history returned a Command");
                     }
-                    final var image = ref.requireImage(mutation.mutation(), source);
+                    final var image = requireImage.apply(mutation.mutation(), source);
                     guard.run();
                     if (System.nanoTime() - started >= timeoutNanos) {
-                        throw new IllegalStateException("K1 Admission history verification exceeded its deadline");
+                        throw new IllegalStateException("K1 Target Source history verification exceeded its deadline");
                     }
                     return image;
                 }

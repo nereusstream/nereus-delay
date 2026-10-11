@@ -106,6 +106,9 @@ public final class TargetCheckpointDependencies {
     public List<StoredControl> controls() { return controls; }
     /** Every retained APPLY_SHARD_CONTROL first result, including durable rejections. */
     public List<TargetResultRecord> controlResults() { return controlResults; }
+    public List<ControlReference> controlReferences() {
+        return controlResults.stream().map(ControlReference::new).toList();
+    }
     public List<Admission> admissions() { return admissions; }
     public List<ProfileRef> profiles() { return profiles; }
     public List<RetryPolicyRef> retryPolicies() { return retryPolicies; }
@@ -171,6 +174,34 @@ public final class TargetCheckpointDependencies {
         }
     }
 
+    /** Exact original input locator derived only from this complete actual ledger fold. No SEND/GC authority. */
+    public static final class ControlReference {
+        private final TargetResultRecord first;
+
+        private ControlReference(TargetResultRecord first) { this.first = first; }
+
+        public SourcePosition source() { return first.mutation().source(); }
+        public TargetResultRecord first() { return first; }
+        public byte[] envelopeDigest() { return first.mutation().mutationDigest(); }
+
+        public SystemMutation requireImage(SystemMutation image, SourcePosition actualSource) {
+            Objects.requireNonNull(image, "image");
+            TargetSourcePosition.requireBounded(actualSource);
+            final var result = SystemMutationResult.decode(first.typedPayload());
+            if (image.type() != SystemMutationType.APPLY_SHARD_CONTROL
+                    || !Arrays.equals(actualSource.canonicalBytes(), source().canonicalBytes())
+                    || !Arrays.equals(Bytes.sha256(image.canonicalEnvelope()), envelopeDigest())
+                    || !Arrays.equals(result.mutationId(), image.systemMutationId())
+                    || !Arrays.equals(result.mutationHash(), image.mutationHash())
+                    || !Arrays.equals(result.authorIdentity(), image.authorIdentity())
+                    || !Arrays.equals(result.appliedSourcePosition(), actualSource.canonicalBytes())
+                    || result.retryUntilEpochMs() != image.retryUntilEpochMs()) {
+                throw new IllegalArgumentException("Target Control input differs from its exact first result/Source");
+            }
+            return image;
+        }
+    }
+
     /**
      * Authenticates original Source history/protection outside Store locks. APPLIED requires its authorized issuer
      * key/Control author; a durable rejection may retain an invalid signature/author and return no issuer key.
@@ -232,16 +263,7 @@ public final class TargetCheckpointDependencies {
             final var image = input.image();
             final var first = pending.remove(Bytes.hex(image.systemMutationId()));
             if (first == null) { throw new IllegalArgumentException("extra or duplicate Target Control input"); }
-            final var result = SystemMutationResult.decode(first.typedPayload());
-            if (!Arrays.equals(input.source().canonicalBytes(), first.mutation().source().canonicalBytes())
-                    || !Arrays.equals(Bytes.sha256(image.canonicalEnvelope()), first.mutation().mutationDigest())
-                    || !Arrays.equals(result.mutationId(), image.systemMutationId())
-                    || !Arrays.equals(result.mutationHash(), image.mutationHash())
-                    || !Arrays.equals(result.authorIdentity(), image.authorIdentity())
-                    || !Arrays.equals(result.appliedSourcePosition(), input.source().canonicalBytes())
-                    || result.retryUntilEpochMs() != image.retryUntilEpochMs()) {
-                throw new IllegalArgumentException("Target Control input differs from its exact first result/Source");
-            }
+            new ControlReference(first).requireImage(image, input.source());
             bytes = Math.addExact(bytes, image.encodeFrame().length);
             if (bytes > maximumFrameBytes) {
                 throw new IllegalArgumentException("Target Control inputs exceed their byte bound");

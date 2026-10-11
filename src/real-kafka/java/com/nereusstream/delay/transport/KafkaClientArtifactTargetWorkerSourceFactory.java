@@ -56,7 +56,7 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
 
         final KafkaClientArtifactSourceRecordConsumer source;
         try {
-            source = new KafkaClientArtifactSourceRecordConsumer(
+            source = KafkaClientArtifactSourceRecordConsumer.forTarget(
                     exactConsumer,
                     barrier.authenticatedClusterId(),
                     barrier.nativeTopicUuid(),

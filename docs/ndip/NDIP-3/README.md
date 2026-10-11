@@ -1,5 +1,10 @@
 # NDIP-3 工作包：目标分区队列收敛与调度热路径改造
 
+2026-10-11后续：K1/P1 Target factories已接typed Control reader及真实独立history读取，
+首结果/full Source关联、K1 group/Store不变与schema2文件链、P1 META10/cursor关闭专项
+通过；local3/optional/styles通过。外部issuer/Owner/retention/pins仍是fixture，生产认证、
+异步同cut history组装及发布/恢复/迁移清退与集中验收继续开放，状态与门禁不提升。
+
 2026-10-11后续：schema2将原Control Source frames纳入现有semantic companion的精确image
 关联、落盘与复用；schema1仍可读、未发布。当前local62/style通过；生产history/reader、
 完整control/Outcome/Artifact/credential/pins与正式发布/恢复义务仍开放，不提升状态。

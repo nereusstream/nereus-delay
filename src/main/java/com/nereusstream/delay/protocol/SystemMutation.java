@@ -211,6 +211,17 @@ public final class SystemMutation {
         return decodeEnvelope(decoded.canonicalEnvelope(), logicalIdentity);
     }
 
+    /** Target Source reader derives Target Control identities while keeping other registered mutation decoding. */
+    public static SystemMutation decodeTargetFrame(final byte[] frame) {
+        final var decoded = ShardLogFrame.decode(frame);
+        if (decoded.recordKind() != ShardLogFrame.SYSTEM_MUTATION_KIND) {
+            throw new IllegalArgumentException("frame is not a Target System Mutation");
+        }
+        final var fields = readEnvelope(decoded.canonicalEnvelope());
+        return fields.type() == SystemMutationType.APPLY_SHARD_CONTROL
+                ? decodeTargetControlFrame(frame) : decodeFrame(frame);
+    }
+
     /**
      * Decodes a frame and validates the logical operation identity supplied by the operation-specific caller.
      * The identity is deliberately not duplicated in the wire envelope; the registry derives it from the body

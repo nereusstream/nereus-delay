@@ -41,6 +41,7 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
     private PulsarSourcePosition lastAcknowledged;
     private SourceConnectionProof lastAckProof;
     private boolean closed;
+    private final boolean target;
 
     public PulsarClientArtifactSourceRecordConsumer(
             final GuardedConsumer<byte[]> consumer,
@@ -48,6 +49,21 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
             final ShardId shard,
             final String physicalTopic,
             final Duration receiveTimeout) {
+        this(consumer, expectedGuard, shard, physicalTopic, receiveTimeout, false);
+    }
+
+    /** Explicit Target writer input path; the legacy constructor retains its Control reader boundary. */
+    public static PulsarClientArtifactSourceRecordConsumer forTarget(final GuardedConsumer<byte[]> consumer,
+            final TopicResourceGuard expectedGuard, final ShardId shard, final String physicalTopic,
+            final Duration receiveTimeout) {
+        return new PulsarClientArtifactSourceRecordConsumer(consumer, expectedGuard, shard, physicalTopic,
+                receiveTimeout, true);
+    }
+
+    private PulsarClientArtifactSourceRecordConsumer(final GuardedConsumer<byte[]> consumer,
+            final TopicResourceGuard expectedGuard, final ShardId shard, final String physicalTopic,
+            final Duration receiveTimeout, final boolean target) {
+        this.target = target;
         this.consumer = Objects.requireNonNull(consumer, "consumer");
         this.expectedGuard = Objects.requireNonNull(expectedGuard, "expectedGuard");
         this.shard = Objects.requireNonNull(shard, "shard");
@@ -114,7 +130,7 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
                     physicalTopic,
                     afterReceive.attestation(),
                     afterReceive.generation(),
-                    afterReceive.digest());
+                    afterReceive.digest(), target);
             buffered = null;
             bufferedProof = null;
             inFlight = message;
@@ -234,11 +250,27 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
             final TopicResourceGuardAttestation attestation,
             final long generation,
             final byte[] digest) {
+        return decodeReplayRecord(message, shard, physicalTopic, attestation, generation, digest, false);
+    }
+
+    static SourceReplayEntry decodeTargetReplayRecord(final Message<byte[]> message, final ShardId shard,
+            final String physicalTopic, final TopicResourceGuardAttestation attestation, final long generation,
+            final byte[] digest) {
+        return decodeReplayRecord(message, shard, physicalTopic, attestation, generation, digest, true);
+    }
+
+    private static SourceReplayEntry decodeReplayRecord(final Message<byte[]> message, final ShardId shard,
+            final String physicalTopic, final TopicResourceGuardAttestation attestation, final long generation,
+            final byte[] digest, final boolean target) {
         if (!physicalTopic.equals(message.getTopicName())) {
             throw new IllegalArgumentException("Pulsar source message belongs to another physical topic");
         }
-        return PulsarClientArtifactSourceRecordDecoder.decode(
-                requireData(message), shard, position(message, shard, physicalTopic, attestation), generation, digest);
+        final var source = position(message, shard, physicalTopic, attestation);
+        return target
+                ? PulsarClientArtifactSourceRecordDecoder.decodeTarget(requireData(message), shard, source,
+                        generation, digest)
+                : PulsarClientArtifactSourceRecordDecoder.decode(
+                        requireData(message), shard, source, generation, digest);
     }
 
     private static PulsarSourcePosition position(

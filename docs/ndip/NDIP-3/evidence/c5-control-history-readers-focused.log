@@ -1,0 +1,317 @@
+2026-10-11 main baseline b11d5be17d2b15e2a2bca14c0250f85cb350ce4a; K1 05849884ca81fad767fda058444d1e17c7f9cbf9; P1 0a2536484cd3932801a98dc88ff112b2df88a1c7.
+
+compile invocation output:
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources
+> Task :classes
+> Task :extractIncludeRealKafkaProto UP-TO-DATE
+> Task :extractRealKafkaProto UP-TO-DATE
+> Task :generateRealKafkaProto NO-SOURCE
+> Task :compileRealKafka
+> Task :extractIncludeRealPulsarProto UP-TO-DATE
+> Task :extractRealPulsarProto UP-TO-DATE
+> Task :generateRealPulsarProto NO-SOURCE
+> Task :compileRealPulsar
+> Task :compileRealKafkaJava SKIPPED
+> Task :processRealKafkaProtoResources UP-TO-DATE
+> Task :processRealKafkaResources UP-TO-DATE
+> Task :realKafkaClasses UP-TO-DATE
+> Task :compileRealPulsarJava SKIPPED
+> Task :processRealPulsarProtoResources UP-TO-DATE
+> Task :processRealPulsarResources NO-SOURCE
+> Task :realPulsarClasses UP-TO-DATE
+
+> Task :checkstyleRealKafka
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetAdmissionHistory.java:43: 本行字符数 123个，最多：120个。 [LineLength]
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactSourceRecordConsumer.java:120: 本行字符数 124个，最多：120个。 [LineLength]
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetWorkerSourceSmoke.java:1210: 本行字符数 121个，最多：120个。 [LineLength]
+
+> Task :checkstyleRealPulsar FAILED
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactSourceRecordConsumer.java:272: 本行字符数 122个，最多：120个。 [LineLength]
+
+> Task :checkstyleRealKafka FAILED
+> Task :checkstyleMain
+
+FAILURE: Build completed with 2 failures.
+
+1: Task failed with an exception.
+-----------
+* What went wrong:
+Execution failed for task ':checkstyleRealPulsar'.
+> A failure occurred while executing org.gradle.api.plugins.quality.internal.CheckstyleAction
+   > Checkstyle rule violations were found. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/checkstyle/realPulsar.html
+     Checkstyle files with violations: 1
+     Checkstyle violations by severity: [error:1]
+
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+==============================================================================
+
+2: Task failed with an exception.
+-----------
+* What went wrong:
+Execution failed for task ':checkstyleRealKafka'.
+> A failure occurred while executing org.gradle.api.plugins.quality.internal.CheckstyleAction
+   > Checkstyle rule violations were found. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/checkstyle/realKafka.html
+     Checkstyle files with violations: 3
+     Checkstyle violations by severity: [error:3]
+
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+==============================================================================
+
+BUILD FAILED in 34s
+19 actionable tasks: 8 executed, 11 up-to-date
+
+compile-final invocation output:
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeRealKafkaProto UP-TO-DATE
+> Task :extractRealKafkaProto UP-TO-DATE
+> Task :generateRealKafkaProto NO-SOURCE
+
+> Task :compileRealKafka FAILED
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetWorkerSourceSmoke.java:1193: 错误: 找不到符号
+            if (Thread.holdsLock(store) || !owner.sameIdentity(current) || current.state() != ShardLifecycleState.ACTIVE
+                                                                                                                 ^
+  符号:   变量 ACTIVE
+  位置: 类 ShardLifecycleState
+1 个错误
+
+[Incubating] Problems report is available at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':compileRealKafka'.
+> Compilation failed; see the compiler output below.
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetWorkerSourceSmoke.java:1193: 错误: 找不到符号
+              if (Thread.holdsLock(store) || !owner.sameIdentity(current) || current.state() != ShardLifecycleState.ACTIVE
+                                                                                                                   ^
+    符号:   变量 ACTIVE
+    位置: 类 ShardLifecycleState
+  1 个错误
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 16s
+10 actionable tasks: 2 executed, 8 up-to-date
+
+compile-green invocation output:
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeRealKafkaProto UP-TO-DATE
+> Task :extractRealKafkaProto UP-TO-DATE
+> Task :generateRealKafkaProto NO-SOURCE
+
+> Task :compileRealKafka FAILED
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetWorkerSourceSmoke.java:1194: 错误: 找不到符号
+            if (Thread.holdsLock(store) || !owner.sameIdentity(current) || current.state() != ShardLifecycleState.ACTIVE
+                                                                                                                 ^
+  符号:   变量 ACTIVE
+  位置: 类 ShardLifecycleState
+1 个错误
+
+[Incubating] Problems report is available at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':compileRealKafka'.
+> Compilation failed; see the compiler output below.
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetWorkerSourceSmoke.java:1194: 错误: 找不到符号
+              if (Thread.holdsLock(store) || !owner.sameIdentity(current) || current.state() != ShardLifecycleState.ACTIVE
+                                                                                                                   ^
+    符号:   变量 ACTIVE
+    位置: 类 ShardLifecycleState
+  1 个错误
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 15s
+10 actionable tasks: 2 executed, 8 up-to-date
+
+compile-verified invocation output:
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeRealKafkaProto UP-TO-DATE
+> Task :extractRealKafkaProto UP-TO-DATE
+> Task :generateRealKafkaProto NO-SOURCE
+> Task :compileRealKafka
+> Task :extractIncludeRealPulsarProto UP-TO-DATE
+> Task :extractRealPulsarProto UP-TO-DATE
+> Task :generateRealPulsarProto NO-SOURCE
+> Task :compileRealPulsar
+> Task :checkstyleMain UP-TO-DATE
+> Task :compileRealKafkaJava SKIPPED
+> Task :processRealKafkaProtoResources UP-TO-DATE
+> Task :processRealKafkaResources UP-TO-DATE
+> Task :realKafkaClasses UP-TO-DATE
+> Task :compileRealPulsarJava SKIPPED
+> Task :processRealPulsarProtoResources UP-TO-DATE
+> Task :processRealPulsarResources NO-SOURCE
+> Task :realPulsarClasses UP-TO-DATE
+> Task :checkstyleRealPulsar
+> Task :checkstyleRealKafka
+
+BUILD SUCCESSFUL in 19s
+19 actionable tasks: 5 executed, 14 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+
+focused invocation output:
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :checkstyleMain UP-TO-DATE
+> Task :checkstyleTest
+
+BUILD SUCCESSFUL in 32s
+15 actionable tasks: 4 executed, 11 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+Local 3 tests; optional K1/P1 compile and main/test/optional styles pass. Initial optional failures were line wrapping and ACTIVE literal corrected to ACTIVE_FOR_COMMANDS (including duplicate-import correction). No failure was weakened/skipped.
+XML {"name": "com.nereusstream.delay.protocol.TargetQuotaGrantControlTest", "tests": "1", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-11T07:40:28.726Z"} sha256=5dded08149aa96120ad59a729de95a9b94a03c08f6023b127580b8ba62336c71
+XML {"name": "com.nereusstream.delay.runtime.TargetQuotaGrantStoreTest", "tests": "2", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-11T07:40:28.860Z"} sha256=3646a732056f8dff8bb3104d38a59f262d02081ef053736e2e9283205ce8f6fb
+
+Executed compile/style command (same selectors for each invocation above):
+GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew compileRealKafka compileRealPulsar checkstyleMain checkstyleRealKafka checkstyleRealPulsar -PkafkaClientJar=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1/clients/build/libs/kafka-clients-4.4.0-SNAPSHOT.jar -PpulsarClientClasspath=/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-client/build/libs/pulsar-client-original-5.0.0-M1.jar:/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-client-api/build/libs/pulsar-client-api-5.0.0-M1.jar:/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-common/build/libs/pulsar-common-5.0.0-M1.jar --no-daemon --console=plain
+Executed local test command: GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew test --tests 'com.nereusstream.delay.runtime.TargetQuotaGrantStoreTest.signedFirstGrantCommitsAllocationResultAndPositionWhileExternalFailureMakesNoWrite' --tests 'com.nereusstream.delay.protocol.TargetQuotaGrantControlTest.allRequestBodyMutationAndActivationBranchesMatchIndependentVectors' checkstyleMain checkstyleTest --no-daemon --console=plain
+src/main/java/com/nereusstream/delay/protocol/SystemMutation.java sha256=574f10d211d4e9176dade2bbf03f982cc40d76257f46b7aa45aace554b6fa22a
+src/main/java/com/nereusstream/delay/store/TargetCheckpointDependencies.java sha256=35e3223bd7e4f8ba76a3539181b06961f621db2a10e7e08890d3cbf0386603b6
+src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactSourceRecordConsumer.java sha256=de60b6eb2531e7faf351c4d36cd3179b10a072e1540dda300d426daa87097139
+src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactSourceRecordDecoder.java sha256=ca57a36b0bc81be2540078abe2ec4a0eb0ac9b506fc418c96e0d1fa37e5407b8
+src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetAdmissionHistory.java sha256=d8a65f44387bd7dd628efe90b9552cde7ec94b2d333e23b7d5257c4b7572c94d
+src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetWorkerSourceFactory.java sha256=8c8e92d4f74b4fb4fe425fbfdc280c840cc20339e32290dd1ab769a4aadf922a
+src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetWorkerSourceSmoke.java sha256=ba28e01d7af7025f712e0d67166dd20837836427554580d8ad895de458b81c17
+src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactSourceRecordConsumer.java sha256=9295b109717a35014d42020e3b7d6354d9e44ea687d4991282494feed16f250c
+src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactSourceRecordDecoder.java sha256=7886c02fe5d9f8b8e2d11e451379415349bd445ae18cdab92fc958cdef8431b6
+src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactTargetAdmissionHistory.java sha256=b736726cdfb0736e8be7fdc5b0395e025575654ba3c74473e68f1775d4d014d9
+src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactTargetWorkerSourceFactory.java sha256=b6c79797172338436d8268160d2460a5315203a9d679460209da3ef24f113926
+src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactTargetWorkerSourceSmoke.java sha256=4a429eb008ea748ce45db4a1845ca455517f3fd51312dfb7b2dcf9d7a456bca2
+
+Command: GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew checkDocumentation --no-daemon --console=plain
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+
+> Task :testNdip1ImplementationVerifier
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 53.290s
+
+OK
+
+> Task :testNdip1PackageVerifier
+..............
+----------------------------------------------------------------------
+Ran 14 tests in 0.073s
+
+OK
+
+> Task :verifyNdip1HistoricalClosure
+proposal=NDIP-1
+receipt_status=IMPLEMENTED
+lifecycle_authority=true
+implementation=CLOSED
+lifecycle=CLOSED
+certified_commit=b4e077e9978f262cdb93cf3562ea12eee32430e2
+runtime_source_sha256=03ce17ede4b9e70e2f70dd2bbef681087f529159549a4cd979d0d7aa34fa9948
+runtime_source_files=835
+implemented_package_sha256=792ca54e239d884ba6f95315747f565bab57ee0fc02338a77369cb19bbe8e8a7
+staging_run=20260901055333-78920
+deployment=SEPARATE_FUTURE_WORK
+performance_and_scale=SEPARATE_FUTURE_WORK
+production_rollout=SEPARATE_FUTURE_WORK
+production_authority=false
+
+> Task :verifyNdip1PackageAccepted
+proposal=NDIP-1
+receipt_status=ACCEPTED
+authority=true
+package_source_commit=77ffa61136c0cd401244ebea4375a5a18b097b17
+file_sha256 70d9dd7c113fa5f457a20a97996322ef9a2018772efd225aa982c13ec4935140 docs/ndip/NDIP-1/01-调查与决策记录.md
+file_sha256 c167ed42dd29c383c08a8a102f36b0e4deee8ae5c7a5da115a09d04ffcb9fa6f docs/ndip/NDIP-1/02-NDIP-1-Pulsar-Native-Delivery.md
+file_sha256 9affafa81952959d39ed9c09a00abe6b84da4fd3b0b6280422f297684d56f727 docs/ndip/NDIP-1/03-实施计划.md
+file_sha256 2a26c107cd69ee522ea138b3487b8ec206e913acc6ad5b862aa69288ddcaa88e docs/ndip/NDIP-1/04-代码级目标设计.md
+package_sha256=13caab8ecdc201901f06e905f1c0bf9792780e50c6f5948f93abf2bdb8f4d21b
+gate_b=PASS
+implementation=AUTHORIZED
+local_disposable_testing=AUTHORIZED_WITH_EXACT_ATTESTATION
+gate_c=PENDING_DEPLOYMENT
+shadow=BLOCKED_BY_GATE_C
+enabled=BLOCKED_BY_GATE_C_AND_SHADOW_REQUIREMENTS
+
+> Task :verifyNdip2PackageAccepted
+proposal=NDIP-2
+receipt_status=ACCEPTED
+authority=true
+file_sha256 0a105fb2b73d63cabddf42d0ba3d5a9590b4edddd47242495f196bf56d15f642 docs/ndip/NDIP-2/01-NDIP-生命周期与认证源码权威分层.md
+file_sha256 c882ecaa32413cb9e177243cf3efe91b97810c3cc10be81e61e7e458030c4ffa docs/ndip/NDIP-2/02-实施计划.md
+file_sha256 ec1ba68ab3ac91aa667647e6289cd252b99da84d899f42f879821d6e5d7752e9 docs/ndip/NDIP-2/03-代码级目标设计.md
+package_sha256=856e1d768210a31fc9aad811af3a93c1de33189cc03c65bc1e36d57affbf10db
+gate_b=PASS
+implementation=AUTHORIZED
+deployment_authority=false
+
+> Task :checkDocumentation
+
+BUILD SUCCESSFUL in 1m 8s
+6 actionable tasks: 6 executed
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+
+Documentation passes; NDIP-2 deployment_authority stays false; no status/flag/format2-gate promotion.

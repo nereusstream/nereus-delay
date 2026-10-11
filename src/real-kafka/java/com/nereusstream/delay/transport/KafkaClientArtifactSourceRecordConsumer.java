@@ -40,6 +40,7 @@ public final class KafkaClientArtifactSourceRecordConsumer implements SourceReco
     private final TopicPartition topicPartition;
     private final ConsumerResourceGuard expectedGuard;
     private final Duration pollTimeout;
+    private final boolean target;
     private final ArrayDeque<BufferedRecord> buffered = new ArrayDeque<>();
     private BufferedRecord inFlight;
     private KafkaSourcePosition lastAcknowledged;
@@ -52,6 +53,21 @@ public final class KafkaClientArtifactSourceRecordConsumer implements SourceReco
             final ShardId shard,
             final String physicalTopic,
             final Duration pollTimeout) {
+        this(consumer, authenticatedClusterId, nativeTopicUuid, shard, physicalTopic, pollTimeout, false);
+    }
+
+    /** Explicit Target writer input path; the legacy constructor retains its Control reader boundary. */
+    public static KafkaClientArtifactSourceRecordConsumer forTarget(final GuardedConsumer<byte[], byte[]> consumer,
+            final String authenticatedClusterId, final UUID nativeTopicUuid, final ShardId shard,
+            final String physicalTopic, final Duration pollTimeout) {
+        return new KafkaClientArtifactSourceRecordConsumer(consumer, authenticatedClusterId, nativeTopicUuid,
+                shard, physicalTopic, pollTimeout, true);
+    }
+
+    private KafkaClientArtifactSourceRecordConsumer(final GuardedConsumer<byte[], byte[]> consumer,
+            final String authenticatedClusterId, final UUID nativeTopicUuid, final ShardId shard,
+            final String physicalTopic, final Duration pollTimeout, final boolean target) {
+        this.target = target;
         this.consumer = Objects.requireNonNull(consumer, "consumer");
         this.authenticatedClusterId = Objects.requireNonNull(authenticatedClusterId, "authenticatedClusterId");
         this.nativeTopicUuid = Objects.requireNonNull(nativeTopicUuid, "nativeTopicUuid");
@@ -100,8 +116,10 @@ public final class KafkaClientArtifactSourceRecordConsumer implements SourceReco
                     record.offset(),
                     record.leaderEpoch().orElse(null),
                     record.timestamp());
-            final SourceReplayEntry entry =
-                    KafkaClientArtifactSourceRecordDecoder.decode(requireValue(record), shard, position, null, null);
+            final SourceReplayEntry entry = target
+                    ? KafkaClientArtifactSourceRecordDecoder.decodeTarget(
+                            requireValue(record), shard, position, null, null)
+                    : KafkaClientArtifactSourceRecordDecoder.decode(requireValue(record), shard, position, null, null);
             inFlight = fetched;
             return Optional.of(new PolledSourceRecord(
                     entry, (candidate, ignoredOutcome) -> acknowledge(fetched, entry, candidate)));

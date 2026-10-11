@@ -55,7 +55,7 @@ public final class PulsarClientArtifactTargetWorkerSourceFactory {
 
         final PulsarClientArtifactSourceRecordConsumer source;
         try {
-            source = new PulsarClientArtifactSourceRecordConsumer(
+            source = PulsarClientArtifactSourceRecordConsumer.forTarget(
                     exactConsumer, guard, assignment.shardId(), topic, Objects.requireNonNull(receiveTimeout));
         } catch (RuntimeException | Error failure) {
             closeConsumerAfterFailure(exactConsumer, failure);

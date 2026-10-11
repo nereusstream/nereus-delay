@@ -3,9 +3,15 @@ package com.nereusstream.delay.transport;
 import com.nereusstream.delay.ownership.SourceReplayMutation;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.PulsarSourcePosition;
+import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.SystemMutation;
+import com.nereusstream.delay.protocol.TargetCloseBody;
+import com.nereusstream.delay.protocol.TargetMembershipControlBody;
+import com.nereusstream.delay.protocol.TargetNativePolicyControlBody;
 import com.nereusstream.delay.protocol.TargetPublishAdmissionBody;
+import com.nereusstream.delay.protocol.TargetQuotaGrantControlBody;
 import com.nereusstream.delay.runtime.TargetPublishRecoveryDiscovery;
+import com.nereusstream.delay.store.TargetCheckpointDependencies;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Objects;
@@ -26,6 +32,9 @@ import org.apache.pulsar.client.impl.MessageIdImpl;
 /** P1 exact history read on an owned non-durable cursor; active Worker subscriptions and ACK state are untouched. */
 public final class PulsarClientArtifactTargetAdmissionHistory {
     public static final int MAX_FRAME_BYTES = 2 * TargetPublishAdmissionBody.MAX_MATERIALIZED_BYTES + 2048;
+    public static final int MAX_CONTROL_FRAME_BYTES = 1024 + Math.max(
+            Math.max(TargetQuotaGrantControlBody.MAX_CANONICAL_BYTES, TargetMembershipControlBody.MAX_CANONICAL_BYTES),
+            Math.max(TargetNativePolicyControlBody.MAX_CANONICAL_BYTES, TargetCloseBody.MAX_CANONICAL_BYTES));
 
     private PulsarClientArtifactTargetAdmissionHistory() {}
 
@@ -35,8 +44,23 @@ public final class PulsarClientArtifactTargetAdmissionHistory {
             final TargetPublishRecoveryDiscovery.Reference reference, final Duration timeout,
             final Runnable historyGuard) {
         final var ref = Objects.requireNonNull(reference, "reference");
+        return read(client, resource, ref.source(), timeout, historyGuard, MAX_FRAME_BYTES, ref::requireImage);
+    }
+
+    /** Exact original Control history on an owned cursor; this does not authenticate the Control issuer. */
+    public static SystemMutation readControl(final PulsarClient client, final TopicResourceGuard resource,
+            final TargetCheckpointDependencies.ControlReference reference, final Duration timeout,
+            final Runnable historyGuard) {
+        final var ref = Objects.requireNonNull(reference, "reference");
+        return read(client, resource, ref.source(), timeout, historyGuard, MAX_CONTROL_FRAME_BYTES, ref::requireImage);
+    }
+
+    private static SystemMutation read(final PulsarClient client, final TopicResourceGuard resource,
+            final SourcePosition expectedSource, final Duration timeout, final Runnable historyGuard,
+            final int maximumFrameBytes,
+            final java.util.function.BiFunction<SystemMutation, SourcePosition, SystemMutation> requireImage) {
         final var guard = Objects.requireNonNull(historyGuard, "historyGuard");
-        if (!(ref.source() instanceof PulsarSourcePosition expected)
+        if (!(expectedSource instanceof PulsarSourcePosition expected)
                 || !Arrays.equals(expected.brokerResourceIncarnation(), resource.resourceIncarnation())) {
             throw new IllegalArgumentException("P1 history requires its exact Pulsar source/resource incarnation");
         }
@@ -75,8 +99,8 @@ public final class PulsarClientArtifactTargetAdmissionHistory {
             guard.run();
             final var message = consumer.receive(Math.toIntExact(remainingMs(started, timeoutNanos)),
                     TimeUnit.MILLISECONDS);
-            if (message == null || message.getData() == null || message.getData().length > MAX_FRAME_BYTES) {
-                throw new IllegalStateException("P1 history lacks the exact bounded retained Admission record");
+            if (message == null || message.getData() == null || message.getData().length > maximumFrameBytes) {
+                throw new IllegalStateException("P1 history lacks the exact bounded retained Source record");
             }
             final var after = PulsarClientArtifactRecoverySourcePositioner.requireCurrentProof(consumer,
                     resource, expected.physicalTopic(), expected.shardId().partition());
@@ -84,13 +108,13 @@ public final class PulsarClientArtifactTargetAdmissionHistory {
                     || !Bytes.constantTimeEquals(before.attestationDigest(), after.attestationDigest())) {
                 throw new IllegalStateException("P1 history guard proof changed during receive");
             }
-            final var decoded = PulsarClientArtifactSourceRecordConsumer.decodeReplayRecord(message,
+            final var decoded = PulsarClientArtifactSourceRecordConsumer.decodeTargetReplayRecord(message,
                     expected.shardId(), expected.physicalTopic(), after.attestation(),
                     after.connectionGeneration(), after.attestationDigest());
             if (!(decoded instanceof SourceReplayMutation mutation)) {
-                throw new IllegalStateException("P1 Admission history returned a Command");
+                throw new IllegalStateException("P1 Target Source history returned a Command");
             }
-            final var image = ref.requireImage(mutation.mutation(), mutation.position());
+            final var image = requireImage.apply(mutation.mutation(), mutation.position());
             guard.run();
             remainingMs(started, timeoutNanos);
             return image;
@@ -99,7 +123,7 @@ public final class PulsarClientArtifactTargetAdmissionHistory {
             if (failed instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
             }
-            throw new IllegalStateException("P1 exact Admission history read failed", failed);
+            throw new IllegalStateException("P1 exact Target Source history read failed", failed);
         } catch (Error fatal) {
             failure = fatal;
             throw fatal;
@@ -116,7 +140,7 @@ public final class PulsarClientArtifactTargetAdmissionHistory {
     private static long remainingMs(long started, long timeoutNanos) {
         final long remaining = timeoutNanos - (System.nanoTime() - started);
         if (remaining <= 0) {
-            throw new IllegalStateException("P1 Admission history deadline exhausted");
+            throw new IllegalStateException("P1 Target Source history deadline exhausted");
         }
         return Math.max(1, TimeUnit.NANOSECONDS.toMillis(remaining));
     }
