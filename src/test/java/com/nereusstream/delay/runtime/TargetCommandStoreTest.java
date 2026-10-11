@@ -8442,7 +8442,108 @@ class TargetCommandStoreTest {
             throw new AssertionError("failed Target stage did not clean only its private directory", failure);
         }
         assertEquals(afterCreate, store.latestSequenceNumber());
-
+        final var floor = new com.nereusstream.delay.protocol.RecoveryFloorRef(lineage, checkpointId,
+                manifest.manifestSha256(), 1, manifest.appliedShardLogPosition(), manifest.shardMutationSequence(),
+                manifest.evidenceCursors());
+        final var candidate = new com.nereusstream.delay.protocol.RecoveryCandidateRef(
+                com.nereusstream.delay.protocol.RecoveryCandidateKind.CATALOG_CHECKPOINT,
+                lineage, checkpointId, manifest.manifestSha256(), null);
+        final var pin = new com.nereusstream.delay.protocol.RecoveryPin(bytes(16, 0x51),
+                new com.nereusstream.delay.protocol.ShardSubject(scope.shard()),
+                new OwnerIdentity(bytes(8, 0x52), bytes(8, 0x53), 3, bytes(32, 0x54)), candidate, floor, 1,
+                bytes(32, 0x55));
+        final var activePin = new java.util.concurrent.atomic.AtomicReference<>(pin);
+        final var catalog = com.nereusstream.delay.store.TargetCheckpointCandidateTestBridge
+                .restoreCatalogFixture(manifest, activePin);
+        final var failedConfig = ShardStoreConfig.defaults(stageConfig.rootPath()
+                .resolve("target-install-failed-" + current.phase()));
+        try (var restoreResources = new SharedRocksDbResources(failedConfig)) {
+            final Runnable revokeAfterMove = () -> {
+                assertFalse(Thread.holdsLock(store));
+                final Path incarnations = failedConfig.rootPath().resolve("shards")
+                        .resolve(scope.shard().routeIncarnation().uuid().toString())
+                        .resolve(Integer.toUnsignedString(scope.shard().partition())).resolve("incarnations");
+                if (java.nio.file.Files.exists(incarnations)) {
+                    try (var entries = java.nio.file.Files.list(incarnations)) {
+                        if (entries.anyMatch(path -> java.nio.file.Files.isRegularFile(path.resolve("db/CURRENT")))) {
+                            activePin.set(null);
+                        }
+                    } catch (java.io.IOException failure) { throw new IllegalStateException(failure); }
+                }
+            };
+            final var authentication = new ShardStore.TargetRestoreAuthentication(quotaLimits, ledgerLimits,
+                    semanticLimits, completeFixture, revokeAfterMove, budget());
+            final var failure = assertThrows(IllegalStateException.class,
+                    () -> com.nereusstream.delay.store.TargetCheckpointCandidateTestBridge
+                            .restoreTargetThroughWorkClass(
+                            failedConfig, scope.shard(), restoreResources, image, manifest, catalog, pin,
+                            physicalLimits, authentication, workClasses()));
+            assertNull(activePin.get());
+            assertTrue(failure.getCause().getMessage().contains("RecoveryPin is no longer active"));
+            assertEquals(0, restoreResources.registeredPhysicalUsageSources());
+            try (var filesAfterFailure = java.nio.file.Files.walk(failedConfig.rootPath())) {
+                assertFalse(filesAfterFailure.anyMatch(path -> path.getFileName().toString().equals("ACTIVE")
+                        || path.getFileName().toString().equals("CURRENT")));
+            } catch (java.io.IOException unavailable) { throw new AssertionError(unavailable); }
+        }
+        activePin.set(pin);
+        final var restoreConfig = ShardStoreConfig.defaults(stageConfig.rootPath()
+                .resolve("target-installed-" + current.phase()));
+        try (var restoreResources = new SharedRocksDbResources(restoreConfig)) {
+            final var authentication = new ShardStore.TargetRestoreAuthentication(quotaLimits, ledgerLimits,
+                    semanticLimits, completeFixture, () -> assertFalse(Thread.holdsLock(store)), budget());
+            try (var restored = com.nereusstream.delay.store.TargetCheckpointCandidateTestBridge
+                    .restoreTargetThroughWorkClass(
+                    restoreConfig, scope.shard(), restoreResources, image, manifest, catalog, pin,
+                    physicalLimits, authentication, workClasses())) {
+                assertNotEquals(store.metadata().storeIncarnationUuid(), restored.metadata().storeIncarnationUuid());
+                assertArrayEquals(store.metadata().dbIdentity(), restored.metadata().dbIdentity());
+                assertEquals(store.appliedShardLogPosition(), restored.appliedShardLogPosition());
+                assertEquals(store.shardMutationSequence(), restored.shardMutationSequence());
+                assertArrayEquals(store.get(ColumnFamily.META, current.key()),
+                        restored.get(ColumnFamily.META, current.key()));
+                assertNotNull(restored.get(ColumnFamily.META, current.key()));
+                final var reopened = TargetStoreBootstrap.reopen(restored, scope,
+                        new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(), (a, b) -> guard());
+                final var position = (KafkaSourcePosition) restored.appliedShardLogPosition();
+                final var assignment = new SourceAssignment(scope.shard(), bytes(32, 0x56), 1,
+                        new KafkaActivationBarrier(scope.shard(), position.authenticatedClusterId(),
+                                position.nativeTopicUuid(), position.offset()));
+                final var activationLeases = new OxiaOwnerLeaseStore(new InMemoryOwnerLeaseStore());
+                final var acquiring = activationLeases.acquire(assignment, "pending-install-owner",
+                        bytes(32, 0x57), 1, 10_000).orElseThrow();
+                final long installedSequence = restored.latestSequenceNumber();
+                assertThrows(IllegalStateException.class, () -> TargetWorkerOwnerActivation.activate(
+                        reopened, restored, assignment, acquiring, activationLeases, () -> 1));
+                assertEquals(installedSequence, restored.latestSequenceNumber());
+                assertEquals(ShardLifecycleState.ACQUIRING,
+                        activationLeases.current(scope.shard()).orElseThrow().state());
+                assertArrayEquals(originalControlProof.root().root().canonicalBytes(),
+                        reopened.root().canonicalBytes());
+                assertEquals(com.nereusstream.delay.protocol.RecoveryInstallPhase.INSTALLED,
+                        restored.recoveryMetadata().installState().phase());
+                assertFalse(restored.hasReusableRecoveryProof());
+                assertArrayEquals(restored.metadata().storeIncarnation(),
+                        restored.recoveryMetadata().lineageBase().storeIncarnation());
+                assertEquals(floor, restored.recoveryMetadata().lastObservedFloor());
+                assertTrue(java.nio.file.Files.isRegularFile(restored.dbPath().getParent().getParent()
+                        .getParent().resolve("ACTIVE")));
+                assertEquals(1, restoreResources.registeredPhysicalUsageSources());
+                assertThrows(IllegalStateException.class,
+                        () -> com.nereusstream.delay.store.TargetCheckpointCandidateTestBridge.restoreTarget(
+                                restoreConfig, scope.shard(), restoreResources, image, manifest, catalog, pin,
+                                physicalLimits, authentication));
+            }
+            assertEquals(0, restoreResources.registeredPhysicalUsageSources());
+            try (var reopened = ShardStore.openTarget(restoreConfig, scope.shard(), restoreResources)) {
+                assertEquals(com.nereusstream.delay.protocol.RecoveryInstallPhase.INSTALLED,
+                        reopened.recoveryMetadata().installState().phase());
+                assertFalse(reopened.hasReusableRecoveryProof());
+                TargetStoreBootstrap.reopen(reopened, scope,
+                        new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(), (a, b) -> guard());
+            }
+        }
+        assertEquals(afterCreate, store.latestSequenceNumber());
 
         final var unavailableRetry = new com.nereusstream.delay.store.TargetCheckpointOutcomeAuthority(
                 dependencies, images, context.outcomes(), 32L << 20, outcomeHistory,

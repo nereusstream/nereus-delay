@@ -54,7 +54,16 @@ public final class CheckpointRestoreCoordinator {
      * download-to-install interval enters the bounded CHECKPOINT class.
      */
     ShardStore restore(final CheckpointDownloadRequest request, final RecoveryPin pin) {
-        requireRestoreSubmission(request, pin);
+        return restore(request, pin, null);
+    }
+
+    ShardStore restore(final CheckpointDownloadRequest request, final RecoveryPin pin,
+            final ShardStore.TargetRestoreAuthentication authentication) {
+        requireRestoreSubmission(request, pin, authentication);
+        if (authentication != null) {
+            authentication.protection().run();
+            ShardStore.validateRecoveryPin(shardId, request.manifest(), catalog, pin);
+        }
         final Path downloadRoot = config.rootPath()
                 .toAbsolutePath()
                 .normalize()
@@ -82,8 +91,11 @@ public final class CheckpointRestoreCoordinator {
                 throw new IllegalStateException("checkpoint downloader returned an invalid target directory");
             }
             validateDownloadedInventory(materialized, request.manifest());
-            restored = ShardStore.restoreFromCheckpointWithDownloadPermit(
-                    config, shardId, resources, materialized, request.manifest(), catalog, pin, limits, downloadPermit);
+            restored = authentication == null
+                    ? ShardStore.restoreFromCheckpointWithDownloadPermit(config, shardId, resources, materialized,
+                            request.manifest(), catalog, pin, limits, downloadPermit)
+                    : ShardStore.restoreTargetFromCheckpointWithDownloadPermit(config, shardId, resources, materialized,
+                            request.manifest(), catalog, pin, limits, downloadPermit, authentication);
             deleteTree(attemptRoot);
             return restored;
         } catch (RuntimeException | Error failure) {
@@ -113,12 +125,20 @@ public final class CheckpointRestoreCoordinator {
      * provider; the physical restore repeats the same check after queue wait.
      */
     void requireRestoreSubmission(final CheckpointDownloadRequest request, final RecoveryPin pin) {
+        requireRestoreSubmission(request, pin, null);
+    }
+
+    void requireRestoreSubmission(final CheckpointDownloadRequest request, final RecoveryPin pin,
+            final ShardStore.TargetRestoreAuthentication target) {
         final CheckpointDownloadRequest exact = Objects.requireNonNull(request, "request");
         if (!shardId.equals(exact.manifest().shardId())) {
             throw new IllegalArgumentException("checkpoint restore request belongs to another shard");
         }
-        if (exact.manifest().storeFormatVersion() != 1) {
-            throw new IllegalArgumentException("checkpoint restore requires the supported format-1 install path");
+        if (exact.manifest().storeFormatVersion() != (target == null ? 1 : 2)) {
+            throw new IllegalArgumentException("checkpoint restore requires its explicitly supported format/authority");
+        }
+        if (target != null && (pin == null || catalog == null)) {
+            throw new IllegalArgumentException("Target restore requires its published Catalog and exact RecoveryPin");
         }
         if (pin != null && catalog == null) {
             throw new IllegalArgumentException("RecoveryPin requires a catalog authority");

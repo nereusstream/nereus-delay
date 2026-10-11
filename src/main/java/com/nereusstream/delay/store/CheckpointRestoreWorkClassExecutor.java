@@ -34,7 +34,7 @@ public final class CheckpointRestoreWorkClassExecutor {
     /** Registers an exact restore action; physical download starts only when selected. */
     public Submission submit(final RestoreRequest request) {
         final RestoreRequest submitted = Objects.requireNonNull(request, "request");
-        restoreCoordinator.requireRestoreSubmission(submitted.request(), submitted.pin());
+        restoreCoordinator.requireRestoreSubmission(submitted.request(), submitted.pin(), submitted.target());
         final byte[] identity = canonicalIdentity(submitted);
         final WorkClassTask task = new WorkClassTask(
                 WorkClass.CHECKPOINT,
@@ -47,8 +47,9 @@ public final class CheckpointRestoreWorkClassExecutor {
 
     private void execute(final RestoreRequest request, final Submission submission) {
         try {
-            restoreCoordinator.requireRestoreSubmission(request.request(), request.pin());
-            submission.complete(RestoreOutcome.succeeded(restoreCoordinator.restore(request.request(), request.pin())));
+            restoreCoordinator.requireRestoreSubmission(request.request(), request.pin(), request.target());
+            submission.complete(RestoreOutcome.succeeded(
+                    restoreCoordinator.restore(request.request(), request.pin(), request.target())));
         } catch (RuntimeException failure) {
             submission.complete(RestoreOutcome.failed(failure));
         } catch (Error failure) {
@@ -70,7 +71,12 @@ public final class CheckpointRestoreWorkClassExecutor {
         });
     }
 
-    public record RestoreRequest(CheckpointDownloadRequest request, RecoveryPin pin) {
+    public record RestoreRequest(CheckpointDownloadRequest request, RecoveryPin pin,
+            ShardStore.TargetRestoreAuthentication target) {
+        public RestoreRequest(CheckpointDownloadRequest request, RecoveryPin pin) {
+            this(request, pin, null);
+        }
+
         public RestoreRequest {
             Objects.requireNonNull(request, "request");
         }

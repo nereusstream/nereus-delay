@@ -59,6 +59,11 @@ public final class TargetWorkerOwnerActivation {
         final var authority = Objects.requireNonNull(leases, "leases");
         final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
         exactBackend.requireStore(exactStore);
+        final var install = exactStore.recoveryMetadata().installState();
+        if (install != null && (install.phase() == com.nereusstream.delay.protocol.RecoveryInstallPhase.INSTALLED
+                || install.phase() == com.nereusstream.delay.protocol.RecoveryInstallPhase.STAGED)) {
+            throw new IllegalStateException("Target checkpoint still requires protected Source recovery completion");
+        }
         if (exactStore.metadata().storeFormatVersion() != 2
                 || !exactScope.shard().equals(exactStore.shardId())
                 || !exactScope.shard().equals(exactAssignment.shardId())
