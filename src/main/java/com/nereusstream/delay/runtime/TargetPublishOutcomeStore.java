@@ -6,7 +6,6 @@ import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.PublishEvidence;
 import com.nereusstream.delay.protocol.PublishOutcomeBody;
-import com.nereusstream.delay.protocol.RetryJitter;
 import com.nereusstream.delay.protocol.RetryPolicySemantic;
 import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutation;
@@ -21,7 +20,6 @@ import com.nereusstream.delay.protocol.TargetQuotaPayloadOwner;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
 import com.nereusstream.delay.protocol.TargetScheduleBinding;
 import com.nereusstream.delay.protocol.TargetSourcePosition;
-import com.nereusstream.delay.protocol.UncertainPolicy;
 import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.ColumnFamily;
 import com.nereusstream.delay.store.TargetKeyCodec;
@@ -664,48 +662,12 @@ public final class TargetPublishOutcomeStore {
             final long deliverAt, final long expireAt,
             final TargetPublishAdmissionBody current, final TargetPublishAdmissionBody first,
             final RetryPolicySemantic policy, final PublishOutcomeBody outcome) {
+        TargetPublishOutcomeVerifier.requireRetryWindow(locator, deliverAt, expireAt, current, first, policy, outcome);
         final var retry = outcome.retryDecision();
-        final long firstAt = first.decisionTime().latestEpochMs();
-        final long deadline;
-        try {
-            deadline = Math.min(expireAt, Math.addExact(firstAt, policy.maxRetryDurationMs()));
-        } catch (ArithmeticException invalidWindow) {
-            throw new IllegalArgumentException("Target retry deadline overflows its admitted window", invalidWindow);
-        }
-        if (!retry.policy().matches(policy)
-                || retry.retryDomain() != RetryJitter.MESSAGE_PUBLISH
-                || retry.completedAttemptNo() != Integer.toUnsignedLong(current.attemptNo())
-                || retry.firstAttemptAt() != firstAt
-                || firstAt >= expireAt
-                || retry.retryDeadline() != deadline) {
-            throw new IllegalArgumentException("Target RetryDecision differs from its admitted attempt/window/policy");
-        }
-        if (retry.hasNextRetryAt()) {
-            final long next;
-            try {
-                next = Math.addExact(
-                        outcome.observedAt().latestEpochMs(),
-                        RetryJitter.delayMs(
-                                RetryJitter.MESSAGE_PUBLISH,
-                                locator.messageId(),
-                                Integer.toUnsignedLong(locator.generation()),
-                                retry.completedAttemptNo(),
-                                policy.retryBackoffCap(retry.completedAttemptNo())));
-            } catch (ArithmeticException invalidRetryTime) {
-                throw new IllegalArgumentException("Target retry jitter time overflows", invalidRetryTime);
-            }
-            final boolean uncertain = outcome.sideEffect() == 3;
-            if ((uncertain ? retry.kind() != 2 : retry.kind() != 2 && retry.kind() != 4)
-                    || uncertain && locator.orderingMode() != OrderingMode.BEST_EFFORT
-                    || uncertain && policy.uncertainPolicy() != UncertainPolicy.BOUNDED_RETRY_POSSIBLE_DUPLICATE
-                    || retry.nextRetryAt() != next
-                    || next > deadline
-                    || Math.max(deliverAt, next) >= expireAt
-                    || !runtime.terminal() && uncertain
-                            && runtime.uncertainRetryAdmissionsUsed() >= policy.maxUncertainRetries()
-                    || !runtime.terminal() && runtime.admissionsUsed() >= policy.maxPublishAdmissions()) {
-                throw new IllegalArgumentException("Target retry differs from its policy/jitter/budget");
-            }
+        if (retry.hasNextRetryAt() && !runtime.terminal()
+                && (outcome.sideEffect() == 3 && runtime.uncertainRetryAdmissionsUsed() >= policy.maxUncertainRetries()
+                        || runtime.admissionsUsed() >= policy.maxPublishAdmissions())) {
+            throw new IllegalArgumentException("Target retry differs from its policy/jitter/budget");
         }
     }
 

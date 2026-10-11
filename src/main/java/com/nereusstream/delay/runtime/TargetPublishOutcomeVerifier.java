@@ -3,20 +3,24 @@ package com.nereusstream.delay.runtime;
 import com.nereusstream.delay.protocol.AuthorIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.EvidenceCursor;
+import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.ProtocolTuple;
 import com.nereusstream.delay.protocol.PublishEvidence;
 import com.nereusstream.delay.protocol.PublishOutcomeBody;
+import com.nereusstream.delay.protocol.RetryJitter;
 import com.nereusstream.delay.protocol.RetryPolicySemantic;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
+import com.nereusstream.delay.protocol.TargetMessageLocator;
 import com.nereusstream.delay.protocol.TargetOrdinaryPublicationBinding;
 import com.nereusstream.delay.protocol.TargetPublishAdmissionBody;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
 import com.nereusstream.delay.protocol.TargetSourcePosition;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
+import com.nereusstream.delay.protocol.UncertainPolicy;
 import java.security.PublicKey;
 import java.util.Arrays;
 import java.util.Objects;
@@ -236,6 +240,63 @@ public final class TargetPublishOutcomeVerifier {
             return rejected(StableCode.STALE_SYSTEM_MUTATION);
         }
         return new Decision(body, null, authorized);
+    }
+
+    /** Revalidates the immutable historical retry window/jitter; current runtime quota counts remain separate. */
+    public static void requireHistoricalRetryWindow(TargetPublishAdmissionBody current,
+            TargetPublishAdmissionBody first,
+            RetryPolicySemantic policy, PublishOutcomeBody outcome) {
+        if (current.publication() == null) {
+            throw new IllegalStateException("historical Outcome requires protected materialized Admission window");
+        }
+        requireRetryWindow(current.locator(), current.publication().deliverAtEpochMs(),
+                current.publication().expireAtEpochMs(), current, first, policy, outcome);
+    }
+
+    static void requireRetryWindow(TargetMessageLocator locator, long deliverAt, long expireAt,
+            TargetPublishAdmissionBody current, TargetPublishAdmissionBody first,
+            RetryPolicySemantic policy, PublishOutcomeBody outcome) {
+        final var retry = outcome.retryDecision();
+        final long firstAt = first.decisionTime().latestEpochMs();
+        final long deadline;
+        try {
+            deadline = Math.min(expireAt, Math.addExact(firstAt, policy.maxRetryDurationMs()));
+        } catch (ArithmeticException invalidWindow) {
+            throw new IllegalArgumentException("Target retry deadline overflows its admitted window", invalidWindow);
+        }
+        if (!retry.policy().matches(policy)
+                || retry.retryDomain() != RetryJitter.MESSAGE_PUBLISH
+                || retry.completedAttemptNo() != Integer.toUnsignedLong(current.attemptNo())
+                || retry.firstAttemptAt() != firstAt
+                || firstAt >= expireAt
+                || retry.retryDeadline() != deadline) {
+            throw new IllegalArgumentException("Target RetryDecision differs from its admitted attempt/window/policy");
+        }
+        if (retry.hasNextRetryAt()) {
+            final long next;
+            try {
+                next = Math.addExact(
+                        outcome.observedAt().latestEpochMs(),
+                        RetryJitter.delayMs(
+                                RetryJitter.MESSAGE_PUBLISH,
+                                locator.messageId(),
+                                Integer.toUnsignedLong(locator.generation()),
+                                retry.completedAttemptNo(),
+                                policy.retryBackoffCap(retry.completedAttemptNo())));
+            } catch (ArithmeticException invalidRetryTime) {
+                throw new IllegalArgumentException("Target retry jitter time overflows", invalidRetryTime);
+            }
+            final boolean uncertain = outcome.sideEffect() == 3;
+            if ((uncertain ? retry.kind() != 2 : retry.kind() != 2 && retry.kind() != 4)
+                    || uncertain && locator.orderingMode() != OrderingMode.BEST_EFFORT
+                    || uncertain && policy.uncertainPolicy() != UncertainPolicy.BOUNDED_RETRY_POSSIBLE_DUPLICATE
+                    || retry.nextRetryAt() != next
+                    || next > deadline
+                    || Math.max(deliverAt, next) >= expireAt
+) {
+                throw new IllegalArgumentException("Target retry differs from its policy/jitter/budget");
+            }
+        }
     }
 
     private static Decision rejected(final StableCode rejection) {

@@ -175,6 +175,7 @@ class TargetCommandStoreTest {
     private record CheckpointImageContext(List<ProfileSemanticEnvelope> profiles,
             List<TargetCheckpointDependencies.ControlImage> controls,
             List<TargetCheckpointDependencies.OutcomeImage> outcomes,
+            java.util.Map<String, TargetPublishOutcomeVerifier.Authorization> outcomeAuthorizations,
             InMemoryControlTargetRegistrationAuthority registrations, ControlAuthorizationContext actor) {}
 
     @org.junit.jupiter.api.Test
@@ -1346,7 +1347,7 @@ class TargetCommandStoreTest {
                 final var checkpointControls = new java.util.ArrayList<TargetCheckpointDependencies.ControlImage>();
                 final var checkpointContext = checkpointAdmissionImages
                         ? new CheckpointImageContext(List.of(destination, capability), checkpointControls,
-                                new java.util.ArrayList<>(), registrations, actor) : null;
+                                new java.util.ArrayList<>(), new java.util.HashMap<>(), registrations, actor) : null;
                 checkpointControls.add(new TargetCheckpointDependencies.ControlImage(
                         otherSource, otherSigned.mutation()));
                 try (var otherStore = ShardStore.openTarget(config, otherShard, resources)) {
@@ -7398,7 +7399,7 @@ class TargetCommandStoreTest {
                                     : AuthorIdentity.owner(owner.deploymentId(), owner.workerRunId(),
                                             owner.ownerEpoch(),
                                             owner.leaseFencingDigest()).canonicalBytes(), writer.canonicalBytes());
-                            return new TargetPublishOutcomeVerifier.Authorization(keys.getPublic(),
+                            final var authorized = new TargetPublishOutcomeVerifier.Authorization(keys.getPublic(),
                                     ProtocolTuple.currentSystemMutation(), owner, 10, 10, 100,
                                     (a, b, c, d) -> true, new TargetPublishOutcomeVerifier.RetryContext(
                                             admissionImage, admissionImage, policy),
@@ -7426,6 +7427,11 @@ class TargetCommandStoreTest {
                                                 assertTrue(first.compareTo(unknown) < 0
                                                         && unknown.compareTo(resolutionSource) < 0);
                                             }) : null);
+                            if (checkpointContext != null) {
+                                checkpointContext.outcomeAuthorizations().put(Bytes.hex(mutation.systemMutationId()),
+                                        authorized);
+                            }
+                            return authorized;
                         }, (a, b, c) -> guard())),
                 new TargetSourceApplyRuntime.Limits(4096, 32L << 20, 60_000_000_000L, 16, 1), System::nanoTime);
         final var pending = new java.util.concurrent.atomic.AtomicReference<SourceRecordConsumer.PolledSourceRecord>();
@@ -8200,6 +8206,21 @@ class TargetCommandStoreTest {
                 (input, first) -> {},
                 (registered, input) -> new com.nereusstream.delay.store.TargetCheckpointControlAuthority.Authorization(
                         context.actor(), ignored -> true), budget(), () -> assertFalse(Thread.holdsLock(store)));
+        final com.nereusstream.delay.store.TargetCheckpointOutcomeAuthority.HistoryAuthority outcomeHistory =
+                (input, first) -> {
+                    assertFalse(Thread.holdsLock(store));
+                    assertEquals(first.mutation().source(), input.source());
+                    assertTrue(context.outcomes().stream().anyMatch(original -> original.source().equals(input.source())
+                            && Arrays.equals(original.image().canonicalEnvelope(), input.image().canonicalEnvelope())));
+                };
+        final TargetPublishOutcomeVerifier.Authority outcomeSource = (actualScope, writer, mutation, source) -> {
+            assertFalse(Thread.holdsLock(store));
+            assertEquals(scope, actualScope);
+            return context.outcomeAuthorizations().get(Bytes.hex(mutation.systemMutationId()));
+        };
+        final var outcomeAuthority = new com.nereusstream.delay.store.TargetCheckpointOutcomeAuthority(
+                dependencies, images, context.outcomes(), 32L << 20, outcomeHistory, outcomeSource, budget(),
+                () -> assertFalse(Thread.holdsLock(store)));
         final var controlSemantics = com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.collect(
                 dependencies, images, profiles, (ref, at) -> ref.matches(policy) ? policy : null,
                 ref -> { throw new AssertionError("inline fixture has no Trust Set"); }, budget(), semanticLimits,
@@ -8211,11 +8232,7 @@ class TargetCommandStoreTest {
                 semanticLimits, budget(), (input, first) -> keys.getPublic(), () -> {}));
         final var semantics = controlSemantics.withOutcomeInputs(dependencies, context.outcomes(), budget(),
                 semanticLimits,
-                        (input, first) -> {
-                            assertFalse(Thread.holdsLock(store));
-                            assertEquals(first.mutation().source(), input.source());
-                            return keys.getPublic();
-                        }, () -> assertFalse(Thread.holdsLock(store)));
+                        outcomeAuthority, () -> assertFalse(Thread.holdsLock(store)));
         assertEquals(3, semantics.schemaVersion());
         assertEquals(context.outcomes().size(), dependencies.outcomeReferences().size());
         final var decodedOutcomes = com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.decode(
@@ -8317,12 +8334,43 @@ class TargetCommandStoreTest {
                 proof.dependencies().admissions().getFirst().first().mutation().source());
         assertEquals(originalControlProof.root().source(), proof.root().source());
         final var outcomeProof = TargetCheckpointRootVerifier.auditManifestOutcomeAuthentication(image, manifest,
-                physicalLimits, quotaLimits, ledgerLimits, semanticLimits, budget(), (input, first) -> {
-                    assertFalse(Thread.holdsLock(store));
-                    assertEquals(first.mutation().source(), input.source());
-                    return keys.getPublic();
-                }, () -> assertFalse(Thread.holdsLock(store)));
+                physicalLimits, quotaLimits, ledgerLimits, semanticLimits, budget(), outcomeAuthority,
+                () -> assertFalse(Thread.holdsLock(store)));
         assertEquals(context.outcomes().size(), outcomeProof.dependencies().outcomeResults().size());
+        final var unavailableRetry = new com.nereusstream.delay.store.TargetCheckpointOutcomeAuthority(
+                dependencies, images, context.outcomes(), 32L << 20, outcomeHistory,
+                (a, b, mutation, source) -> {
+                    final var authorized = outcomeSource.resolve(a, b, mutation, source);
+                    return new TargetPublishOutcomeVerifier.Authorization(authorized.writerKey(),
+                            authorized.activatedTuple(), authorized.activeOwner(), authorized.maximumDecisionWidthMs(),
+                            authorized.maximumBrokerTimestampDivergenceMs(), authorized.maximumMutationEnqueueAgeMs(),
+                            authorized.decisionTime());
+                }, budget(), () -> {});
+        assertThrows(IllegalStateException.class,
+                () -> TargetCheckpointRootVerifier.auditManifestOutcomeAuthentication(image, manifest,
+                        physicalLimits, quotaLimits, ledgerLimits, semanticLimits, budget(), unavailableRetry,
+                        () -> {}));
+        if (current.phase() == TargetQuotaAttemptBudget.Phase.RESOLVED_AWAITING_FLOOR) {
+            final var noResolution = new com.nereusstream.delay.store.TargetCheckpointOutcomeAuthority(
+                    dependencies, images, context.outcomes(), 32L << 20, outcomeHistory,
+                    (a, b, mutation, source) -> {
+                        final var authorized = outcomeSource.resolve(a, b, mutation, source);
+                        final var evidence = authorized.evidenceContext();
+                        return new TargetPublishOutcomeVerifier.Authorization(authorized.writerKey(),
+                                authorized.activatedTuple(), authorized.activeOwner(),
+                                authorized.maximumDecisionWidthMs(),
+                                authorized.maximumBrokerTimestampDivergenceMs(),
+                                authorized.maximumMutationEnqueueAgeMs(),
+                                authorized.decisionTime(), authorized.retryContext(), evidence == null ? null
+                                        : new TargetPublishOutcomeVerifier.EvidenceContext(evidence.admission(),
+                                                evidence.authority()));
+                    }, budget(), () -> {});
+            assertThrows(IllegalStateException.class,
+                    () -> TargetCheckpointRootVerifier.auditManifestOutcomeAuthentication(image, manifest,
+                            physicalLimits, quotaLimits, ledgerLimits, semanticLimits, budget(), noResolution,
+                            () -> {}));
+        }
+
         assertEquals(afterCreate, store.latestSequenceNumber());
         assertThrows(IllegalArgumentException.class,
                 () -> TargetCheckpointRootVerifier.auditManifestAdmissionAuthentication(image, manifest,

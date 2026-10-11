@@ -14,6 +14,7 @@ import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
 import com.nereusstream.delay.protocol.TargetMembershipGrant;
+import com.nereusstream.delay.protocol.TargetMessageLocator;
 import com.nereusstream.delay.protocol.TargetNativePolicyScope;
 import com.nereusstream.delay.protocol.TargetPublishAdmissionBody;
 import com.nereusstream.delay.protocol.TargetQuotaAttemptBudget;
@@ -99,6 +100,7 @@ public final class TargetCheckpointDependencies {
     private final List<Admission> admissions;
     private final List<ProfileRef> profiles;
     private final List<ProfileUse> profileUses;
+    private final List<TargetScheduleBinding> bindings;
     private final List<RetryPolicyRef> retryPolicies;
     private final List<RetryUse> retryUses;
     private final List<PayloadProofTrustSetRef> trustSets;
@@ -114,6 +116,7 @@ public final class TargetCheckpointDependencies {
         this.admissions = List.copyOf(admissions);
         profiles = List.copyOf(builder.profiles.values());
         profileUses = List.copyOf(builder.profileUses.values());
+        bindings = List.copyOf(builder.bindings.values());
         retryPolicies = List.copyOf(builder.retries.values());
         retryUses = List.copyOf(builder.retryUses.values());
         trustSets = List.copyOf(builder.trusts.values());
@@ -136,6 +139,13 @@ public final class TargetCheckpointDependencies {
     public List<Admission> admissions() { return admissions; }
     public List<ProfileRef> profiles() { return profiles; }
     public List<ProfileUse> profileUses() { return profileUses; }
+    public TargetScheduleBinding requireBinding(TargetMessageLocator locator) {
+        final var binding = bindings.stream().filter(value -> Arrays.equals(
+                value.digest(), locator.scheduleBindingDigest()))
+                .findFirst().orElseThrow(() -> new IllegalStateException("Outcome lacks original Schedule binding"));
+        binding.requireLocator(locator);
+        return binding;
+    }
     public List<RetryPolicyRef> retryPolicies() { return retryPolicies; }
     public List<RetryUse> retryUses() { return retryUses; }
     public List<PayloadProofTrustSetRef> trustSets() { return trustSets; }
@@ -563,6 +573,7 @@ public final class TargetCheckpointDependencies {
         private final Map<String, TargetResultRecord> outcomeResults = new TreeMap<>();
         private final Map<String, ProfileRef> profiles = new TreeMap<>();
         private final Map<String, ProfileUse> profileUses = new TreeMap<>();
+        private final Map<String, TargetScheduleBinding> bindings = new TreeMap<>();
         private final Map<String, RetryPolicyRef> retries = new TreeMap<>();
         private final Map<String, RetryUse> retryUses = new TreeMap<>();
         private final Map<String, PayloadProofTrustSetRef> trusts = new TreeMap<>();
@@ -579,6 +590,7 @@ public final class TargetCheckpointDependencies {
             prior.outcomeResults.forEach(this::outcomeResult);
             prior.profiles.forEach(this::profile);
             prior.profileUses.forEach(this::profileUse);
+            prior.bindings.forEach(this::binding);
             prior.retryPolicies.forEach(this::retry);
             prior.retryUses.forEach(this::retryUse);
             prior.trustSets.forEach(this::trust);
@@ -614,6 +626,7 @@ public final class TargetCheckpointDependencies {
         }
 
         void binding(TargetScheduleBinding binding) {
+            bindings.put(Bytes.hex(binding.digest()), binding);
             profileUse(new ProfileUse(binding.intent().profile(), binding.bindingSource()));
             retryUse(new RetryUse(binding.intent().retryPolicy(), binding.bindingSource()));
             if (binding.commandType() == CommandType.PREPARE_LARGE_SCHEDULE) {
