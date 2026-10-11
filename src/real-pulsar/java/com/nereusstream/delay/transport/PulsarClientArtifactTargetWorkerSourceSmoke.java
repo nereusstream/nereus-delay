@@ -9,6 +9,7 @@ import com.nereusstream.delay.ownership.SourceApplyCoordinator;
 import com.nereusstream.delay.ownership.SourceReplayRecord;
 import com.nereusstream.delay.ownership.SourceReplaySuccessor;
 import com.nereusstream.delay.ownership.TargetSourceApplyRuntime;
+import com.nereusstream.delay.ownership.TargetWorkerHostRuntime;
 import com.nereusstream.delay.ownership.TargetWorkerOwnerActivation;
 import com.nereusstream.delay.ownership.TargetWorkerShardRuntime;
 import com.nereusstream.delay.protocol.AuthorIdentity;
@@ -349,53 +350,66 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                     sourceRuntime,
                     maintenance);
             consumerTransferred[0] = true;
+            TargetWorkerHostRuntime host = null;
+            java.util.concurrent.ThreadPoolExecutor observerExecutor = null;
             try {
+                worker.configureMessageExpiryMaintenance(
+                        mutation -> { throw new AssertionError("Cancel fixture cannot append Message expiry"); },
+                        () -> expiryRequest(active, signingKeys));
+                host = TargetWorkerHostRuntime.start(workerClasses, resources, List.of(worker),
+                        new SchedulerBudget(64, 4L << 20, TimeUnit.SECONDS.toNanos(10)),
+                        Duration.ofSeconds(1), failure -> {});
                 final long beforeBacklog = store.latestSequenceNumber();
-                final var observerExecutor = new java.util.concurrent.ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS,
+                observerExecutor = new java.util.concurrent.ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS,
                     new java.util.concurrent.ArrayBlockingQueue<>(1),
                     new java.util.concurrent.ThreadPoolExecutor.AbortPolicy());
                 final var observerCache = new com.nereusstream.delay.ownership.TargetSourceBacklogCache(
                         1, TimeUnit.SECONDS.toNanos(15), observerExecutor, System::nanoTime);
-                final com.nereusstream.delay.ownership.TargetSourceBacklog.Snapshot backlog;
-                try {
-                    observerCache.refresh(worker, System::currentTimeMillis, cut -> PulsarClientArtifactTargetSourceBacklog.open(client, guard,
-                    cut,
-                    new com.nereusstream.delay.ownership.TargetSourceBacklog.Limits(
-                            8, 2L << 20, 1 << 20, TimeUnit.SECONDS.toNanos(10)), () -> {
-                        if (!leases.current(scope.shard()).orElseThrow().sameIdentity(active)) {
-                            throw new IllegalStateException("P1 backlog fixture lost its Owner/history protection");
-                        }
-                    }));
-                    final long observerDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
-                    while (observerCache.state(worker.shardId()).status()
-                            != com.nereusstream.delay.ownership.TargetSourceBacklogCache.Status.READY) {
-                        if (observerCache.state(worker.shardId()).failure() != null
-                                || System.nanoTime() >= observerDeadline) {
-                            throw new IllegalStateException("Source observer/cache did not settle",
-                                    observerCache.state(worker.shardId()).failure());
+                com.nereusstream.delay.ownership.TargetSourceBacklog.Snapshot backlog;
+                final var rejectObservation = new java.util.concurrent.atomic.AtomicBoolean();
+                final var failedObserver =
+                        new java.util.concurrent.atomic.AtomicReference<PulsarClientArtifactTargetSourceBacklog.Query>();
+                host.configureSourceObservations(observerCache,
+                        (actualWorker, cut) -> {
+                            final boolean rejected = rejectObservation.get();
+                            final var query = PulsarClientArtifactTargetSourceBacklog.open(client,
+                                    rejected ? new TopicResourceGuard(CLUSTER, INCARNATION, CREATION_TIMESTAMP + 1)
+                                            : guard, cut,
+                                new com.nereusstream.delay.ownership.TargetSourceBacklog.Limits(
+                                        8, 2L << 20, 1 << 20, TimeUnit.SECONDS.toNanos(10)), () -> {
+                                    if (!leases.current(scope.shard()).orElseThrow().sameIdentity(active)) {
+                                        throw new IllegalStateException(
+                                                "P1 backlog fixture lost Owner/history protection");
+                                    }
+                                });
+                            if (rejected) { failedObserver.set(query); }
+                            return query;
+                        }, System::currentTimeMillis);
+                // The existing maintenance scheduler must queue this observation without a manual refresh.
+                final long observerDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
+                while (true) {
+                    try {
+                        backlog = observerCache.get(worker.shardId());
+                        break;
+                    } catch (IllegalStateException unavailable) {
+                        if (System.nanoTime() >= observerDeadline || host.firstMaintenanceFailure() != null) {
+                            throw new IllegalStateException("P1 Host Source observer did not settle",
+                                    host.firstMaintenanceFailure() == null
+                                            ? unavailable : host.firstMaintenanceFailure());
                         }
                         Thread.sleep(1);
                     }
-                    backlog = observerCache.get(worker.shardId());
-                    if (observerCache.get(worker.shardId()) != backlog) {
-                        throw new IllegalStateException("Source cache repeated its SDK observation");
-                    }
-                    observerCache.stop();
-                    if (!observerCache.cleanupComplete()) {
-                        throw new IllegalStateException("Source observer retained native cleanup on success");
-                    }
-                } finally {
-                    observerExecutor.shutdown();
-                    if (!observerExecutor.awaitTermination(15, TimeUnit.SECONDS)) {
-                        throw new IllegalStateException("Source observer executor did not terminate");
-                    }
+                }
+                if (observerCache.get(worker.shardId()) != backlog
+                        || !observerCache.cleanupComplete(worker.shardId())) {
+                    throw new IllegalStateException("P1 Host cache repeated or retained its successful observation");
                 }
                 if (backlog.records() != 1 || backlog.bytes() != commandFrame.length
                         || store.latestSequenceNumber() != beforeBacklog) {
                     throw new IllegalStateException("P1 backlog did not count the exact unapplied frame read-only");
                 }
                 System.out.println("P1 Source backlog: one actual unapplied frame; primary cursor/Store unchanged.");
-                final SourceApplyCoordinator.TurnResult result = runUntilApplied(worker);
+                final SourceApplyCoordinator.TurnResult result = runUntilApplied(host, worker.shardId());
                 final boolean exactCommand = result.entry() instanceof SourceReplayRecord replay
                         && replay.command().equals(command);
                 final boolean exactPosition = result.entry() instanceof SourceReplayRecord replay
@@ -426,18 +440,79 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                     throw new IllegalStateException("Pulsar Target Store did not durably advance before ACK");
                 }
                 verifyControlHistory(client, guard, store, worker, scope, leases, active, signingKeys);
+                // The service owns this exact client. After the last primary ACK, test a real failed SUBSCRIBE
+                // and service shutdown; no timeout handler may close a shared primary client automatically.
+                rejectObservation.set(true);
+                final long failedOpenDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
+                while (failedObserver.get() == null
+                        || !hasGuardMismatch(failedObserver.get().cleanupFailure())
+                        || observerCache.state(worker.shardId()).status()
+                                != com.nereusstream.delay.ownership.TargetSourceBacklogCache.Status.CLEANUP_PENDING) {
+                    if (System.nanoTime() >= failedOpenDeadline || host.firstMaintenanceFailure() != null) {
+                        throw new IllegalStateException("P1 Broker did not reject the mismatched observer guard",
+                                host.firstMaintenanceFailure());
+                    }
+                    Thread.sleep(1);
+                }
+                final var retained = failedObserver.get();
+                final var pendingDrain = host.drainAll(
+                        new com.nereusstream.delay.ownership.TargetOwnerDrainCoordinator.Request(
+                                Math.addExact(System.currentTimeMillis(), 60_000),
+                                new SchedulerBudget(64, 4L << 20, TimeUnit.SECONDS.toNanos(10))),
+                        new SchedulerBudget(64, 4L << 20, TimeUnit.SECONDS.toNanos(10)), System::currentTimeMillis);
+                if (pendingDrain.complete() || pendingDrain.shards().size() != 1
+                        || pendingDrain.shards().getFirst().status()
+                                != TargetWorkerHostRuntime.Status.PENDING_SOURCE_OBSERVATION
+                        || host.pendingSourceObservation(worker.shardId()).orElseThrow() != retained
+                        || retained.cleanupComplete() || store.isCloseStarted()
+                        || !leases.current(scope.shard()).orElseThrow().sameIdentity(active)) {
+                    throw new IllegalStateException("P1 failed observer released its Query, Store or Owner early");
+                }
+                retained.closeClientBackendAfterFailedOpen().get(10, TimeUnit.SECONDS);
+                final long cleanupDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+                while (!observerCache.cleanupComplete(worker.shardId())) {
+                    if (System.nanoTime() >= cleanupDeadline) {
+                        throw new IllegalStateException("P1 backend shutdown did not settle the retained observer");
+                    }
+                    Thread.sleep(1);
+                }
+                System.out.println("P1 observer guarded SUBSCRIBE rejected by Broker; Host retained exact Query "
+                        + "and Owner until original client backend shutdown completed.");
             } finally {
-                if (worker.pendingSourceEntry().isEmpty()) {
-                    worker.pauseNewTurns();
-                    final OwnerLease draining = leases.transition(active, ShardLifecycleState.DRAINING)
-                            .orElseThrow(() -> new IllegalStateException("test Pulsar Owner could not enter DRAINING"));
-                    try {
-                        worker.closeSource();
-                    } finally {
-                        if (!leases.release(draining)) {
-                            throw new IllegalStateException("test Pulsar Owner lease release was not observed");
+                try {
+                    if (host != null) {
+                        final long drainDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
+                        TargetWorkerHostRuntime.Result drained;
+                        do {
+                            drained = host.drainAll(
+                                    new com.nereusstream.delay.ownership.TargetOwnerDrainCoordinator.Request(
+                                            Math.addExact(System.currentTimeMillis(), 60_000),
+                                            new SchedulerBudget(64, 4L << 20, TimeUnit.SECONDS.toNanos(10))),
+                                    new SchedulerBudget(64, 4L << 20, TimeUnit.SECONDS.toNanos(10)),
+                                    System::currentTimeMillis);
+                            if (!drained.complete()) { Thread.sleep(1); }
+                        } while (!drained.complete() && System.nanoTime() < drainDeadline);
+                        if (!drained.complete() || drained.shards().size() != 1
+                                || drained.shards().getFirst().status() != TargetWorkerHostRuntime.Status.RELEASED
+                                || host.firstMaintenanceFailure() != null
+                                || leases.current(scope.shard()).isPresent() || !store.isCloseStarted()) {
+                            throw new IllegalStateException("P1 Host did not close Store/Source and release Owner: "
+                                    + drained.shards(), host.firstMaintenanceFailure());
                         }
                         activeHolder[0] = null;
+                        System.out.println("P1 Host Source observer: existing tick refreshed; cleanup preceded Owner "
+                                + "drain; Store/Source closed and lease released.");
+                    } else if (worker.pendingSourceEntry().isEmpty()) {
+                        worker.pauseNewTurns();
+                        worker.closeSource();
+                    }
+                } finally {
+                    if (observerExecutor != null) {
+                        observerExecutor.shutdown();
+                        if (!observerExecutor.awaitTermination(15, TimeUnit.SECONDS)) {
+                            throw new IllegalStateException(
+                                    "P1 Source observer executor did not terminate after drain");
+                        }
                     }
                 }
             }
@@ -660,12 +735,17 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
         return (metadata, scope) -> ownerCommitAuthority(leases, expected).acquire(metadata, scope, null);
     }
 
-    private static SourceApplyCoordinator.TurnResult runUntilApplied(final TargetWorkerShardRuntime worker) {
+    private static SourceApplyCoordinator.TurnResult runUntilApplied(
+            final TargetWorkerHostRuntime host, final ShardId shard) {
         final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
         SourceApplyCoordinator.TurnResult result;
         do {
-            result = worker.runSourceTurn(
+            final var selected = host.runNextSourceTurn(
                     new SchedulerBudget(64, 4L << 20, TimeUnit.SECONDS.toNanos(10)), System::currentTimeMillis);
+            if (!selected.shardId().equals(shard)) {
+                throw new IllegalStateException("P1 Host selected another Source Shard");
+            }
+            result = selected.result();
             if (result.status() == SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED) {
                 return result;
             }
@@ -689,6 +769,29 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                 && currentPulsar.ledgerId() == expectedFirstMessage.getLedgerId()
                 && currentPulsar.entryId() == expectedFirstMessage.getEntryId()
                 || batchSuccessor.isSuccessor(previous, current);
+    }
+
+    private static boolean hasGuardMismatch(final Throwable failure) {
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            if (cause instanceof PulsarClientException.ResourceIncarnationMismatchException) { return true; }
+        }
+        return false;
+    }
+
+    /** Explicit test clock/Owner/signing fixtures; this does not certify a production clock. */
+    private static TargetWorkerShardRuntime.MessageExpiryRequest expiryRequest(
+            final OwnerLease active, final KeyPair keys) {
+        final long now = System.currentTimeMillis();
+        final var evidence = new com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence(
+                Math.max(0, now - 1), now,
+                com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                Bytes.utf8("p1-source-host-fixture-clock"), 1, 1, Math.max(0, System.nanoTime()),
+                Bytes.sha256(Bytes.utf8("p1-source-host-fixture-clock-evidence")), 0, null);
+        return new TargetWorkerShardRuntime.MessageExpiryRequest(budget(), evidence, Math.addExact(now, 600_000),
+                new com.nereusstream.delay.protocol.OwnerIdentity(Bytes.utf8("p1-source-host-fixture-deployment"),
+                        Bytes.utf8("p1-source-host-fixture-run"), active.ownerEpoch(),
+                        Bytes.sha256(active.leaseToken())),
+                1, keys.getPrivate());
     }
 
     private static WorkClassExecutionRegistry workClasses() {

@@ -1,0 +1,200 @@
+E6 P1 Source Host/failed-open backend cleanup scoped receipt.
+Baseline 27f2d90207a59338e0ca9c09f819187fc0f3c4f8; main, single agent.
+Central validation remains DEFERRED_USER_MODEL_SWITCH; acceptance/production/format2 publication flags remain false.
+
+Red command: GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew test --tests com.nereusstream.delay.ownership.TargetSourceBacklogCacheTest.repeatedStopAndWithdrawDoNotQueueAnotherCloseForTheSamePendingQuery --no-daemon --console=plain
+The scoped cache file was temporarily replaced with git show HEAD:<path> for the red check and restored in finally; no reset/stash or unrelated modification.
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+
+> Task :test FAILED
+
+TargetSourceBacklogCacheTest > repeatedStopAndWithdrawDoNotQueueAnotherCloseForTheSamePendingQuery() FAILED
+    java.util.concurrent.RejectedExecutionException at TargetSourceBacklogCacheTest.java:187
+
+1 test completed, 1 failed
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':test'.
+> There were failing tests. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/tests/test/index.html
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 17s
+13 actionable tasks: 3 executed, 10 up-to-date
+
+RED_BASELINE_EXIT_CODE=1
+RED_XML {"tests": "1", "failures": "1", "errors": "0", "skipped": "0"} SHA256=92890fb3898e5778b2030fba7e8d88116c596704c55331fe2d44749acae8e00a
+
+Initial native fixture compile failed on a final variable assigned in a retry loop, then corrected:
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources
+> Task :classes
+> Task :extractIncludeRealPulsarProto UP-TO-DATE
+> Task :extractRealPulsarProto UP-TO-DATE
+> Task :generateRealPulsarProto NO-SOURCE
+
+> Task :compileRealPulsar FAILED
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactTargetWorkerSourceSmoke.java:381: 错误: 可能在 loop 中分配了变量backlog
+                        backlog = observerCache.get(worker.shardId());
+                        ^
+1 个错误
+
+[Incubating] Problems report is available at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':compileRealPulsar'.
+> Compilation failed; see the compiler output below.
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactTargetWorkerSourceSmoke.java:381: 错误: 可能在 loop 中分配了变量backlog
+                          backlog = observerCache.get(worker.shardId());
+                          ^
+  1 个错误
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 16s
+10 actionable tasks: 3 executed, 7 up-to-date
+
+Final command: GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew test --tests com.nereusstream.delay.ownership.TargetSourceBacklogCacheTest --tests com.nereusstream.delay.ownership.TargetWorkerShardFleetRuntimeTest checkstyleMain checkstyleTest compileRealPulsar -PpulsarClientClasspath=<three locked P1 jars listed in Broker receipt> --no-daemon --console=plain
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :extractIncludeRealPulsarProto UP-TO-DATE
+> Task :extractRealPulsarProto UP-TO-DATE
+> Task :generateRealPulsarProto NO-SOURCE
+> Task :compileRealPulsar
+> Task :checkstyleTest
+> Task :checkstyleMain
+
+BUILD SUCCESSFUL in 34s
+18 actionable tasks: 7 executed, 11 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+GREEN_XML TargetSourceBacklogCacheTest {"tests": "7", "failures": "0", "errors": "0", "skipped": "0"} SHA256=9f1cd0800e3b7391bfde628bc8874e3d5d3169f5404c6b22c452182c3ab80fa7
+GREEN_XML TargetWorkerShardFleetRuntimeTest {"tests": "19", "failures": "0", "errors": "0", "skipped": "0"} SHA256=6fc63e424edd78f370ea018b066c17a58396237e14923723602d384a5e66b0ec
+SOURCE_SHA256 d2868943f45c226710cf3fd5fe6520b5a5d2a5a1e3d05b7f6ea2219d383dc7a2 src/main/java/com/nereusstream/delay/ownership/TargetSourceBacklogCache.java
+SOURCE_SHA256 aac61fe826e616930ca5f3ee27c9723165b254aca29113d4f0270820c4869782 src/main/java/com/nereusstream/delay/ownership/TargetWorkerHostRuntime.java
+SOURCE_SHA256 644467a393975a93f62a23d3f9030ce409dfd897e0c89d47c0d0fa4d01a24c5a src/main/java/com/nereusstream/delay/ownership/TargetWorkerMaintenanceLoop.java
+SOURCE_SHA256 638caee6e41a93eeb49e8e2fcf4b06d46e086391e242bcbb3c3bcbe6945398e5 src/main/java/com/nereusstream/delay/ownership/OwnedSourceCursor.java
+SOURCE_SHA256 5eb91965900bf5c9d29402b80db073f3aaff40f0c1bffd86403ec23d3bbc1bfa src/main/java/com/nereusstream/delay/ownership/TargetSourceBacklogRead.java
+SOURCE_SHA256 318d1538944b6de4d0d4023467ce265bfb2567531b53a8bb57a35615b2d6f1bc src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactTargetSourceBacklog.java
+SOURCE_SHA256 f4b1012e48e8fbda1767ff9c39d72b4ef7d0789cd308aed342e1e1fccc83aacc src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactTargetWorkerSourceSmoke.java
+SOURCE_SHA256 4d20438b90809bd52bb1f6083b49b408e568f8ed67f12b42f80b002037cf1272 src/test/java/com/nereusstream/delay/ownership/TargetSourceBacklogCacheTest.java
+SOURCE_SHA256 9a5c565729212cabd1ee0357ca28f5109fc8221de8b1d3cd169476d3a48ce834 src/test/java/com/nereusstream/delay/ownership/TargetWorkerShardFleetRuntimeTest.java
+
+Scope: bounded queue stop/withdraw duplicate close regression, original pending Query and cleanup retry lifecycle; existing Fleet regression. No full physical/rate/credential/pin/retention budget or central acceptance claim.
+
+Command: GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew checkDocumentation --no-daemon --console=plain
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+
+> Task :testNdip1ImplementationVerifier
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 61.362s
+
+OK
+
+> Task :testNdip1PackageVerifier
+..............
+----------------------------------------------------------------------
+Ran 14 tests in 0.074s
+
+OK
+
+> Task :verifyNdip1HistoricalClosure
+proposal=NDIP-1
+receipt_status=IMPLEMENTED
+lifecycle_authority=true
+implementation=CLOSED
+lifecycle=CLOSED
+certified_commit=b4e077e9978f262cdb93cf3562ea12eee32430e2
+runtime_source_sha256=03ce17ede4b9e70e2f70dd2bbef681087f529159549a4cd979d0d7aa34fa9948
+runtime_source_files=835
+implemented_package_sha256=792ca54e239d884ba6f95315747f565bab57ee0fc02338a77369cb19bbe8e8a7
+staging_run=20260901055333-78920
+deployment=SEPARATE_FUTURE_WORK
+performance_and_scale=SEPARATE_FUTURE_WORK
+production_rollout=SEPARATE_FUTURE_WORK
+production_authority=false
+
+> Task :verifyNdip1PackageAccepted
+proposal=NDIP-1
+receipt_status=ACCEPTED
+authority=true
+package_source_commit=77ffa61136c0cd401244ebea4375a5a18b097b17
+file_sha256 70d9dd7c113fa5f457a20a97996322ef9a2018772efd225aa982c13ec4935140 docs/ndip/NDIP-1/01-调查与决策记录.md
+file_sha256 c167ed42dd29c383c08a8a102f36b0e4deee8ae5c7a5da115a09d04ffcb9fa6f docs/ndip/NDIP-1/02-NDIP-1-Pulsar-Native-Delivery.md
+file_sha256 9affafa81952959d39ed9c09a00abe6b84da4fd3b0b6280422f297684d56f727 docs/ndip/NDIP-1/03-实施计划.md
+file_sha256 2a26c107cd69ee522ea138b3487b8ec206e913acc6ad5b862aa69288ddcaa88e docs/ndip/NDIP-1/04-代码级目标设计.md
+package_sha256=13caab8ecdc201901f06e905f1c0bf9792780e50c6f5948f93abf2bdb8f4d21b
+gate_b=PASS
+implementation=AUTHORIZED
+local_disposable_testing=AUTHORIZED_WITH_EXACT_ATTESTATION
+gate_c=PENDING_DEPLOYMENT
+shadow=BLOCKED_BY_GATE_C
+enabled=BLOCKED_BY_GATE_C_AND_SHADOW_REQUIREMENTS
+
+> Task :verifyNdip2PackageAccepted
+proposal=NDIP-2
+receipt_status=ACCEPTED
+authority=true
+file_sha256 0a105fb2b73d63cabddf42d0ba3d5a9590b4edddd47242495f196bf56d15f642 docs/ndip/NDIP-2/01-NDIP-生命周期与认证源码权威分层.md
+file_sha256 c882ecaa32413cb9e177243cf3efe91b97810c3cc10be81e61e7e458030c4ffa docs/ndip/NDIP-2/02-实施计划.md
+file_sha256 ec1ba68ab3ac91aa667647e6289cd252b99da84d899f42f879821d6e5d7752e9 docs/ndip/NDIP-2/03-代码级目标设计.md
+package_sha256=856e1d768210a31fc9aad811af3a93c1de33189cc03c65bc1e36d57affbf10db
+gate_b=PASS
+implementation=AUTHORIZED
+deployment_authority=false
+
+> Task :checkDocumentation
+
+BUILD SUCCESSFUL in 1m 17s
+6 actionable tasks: 6 executed
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html

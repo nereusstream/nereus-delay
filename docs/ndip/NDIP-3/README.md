@@ -537,3 +537,5 @@ Scheduled Target candidates now capture an exact protected source cut before cre
 2026-10-11 E6后续：Source Query owned read/cleanup、late/failed close原句柄、有限caller executor/cache发布与同进程复用已实现；15局部测试与两套Broker正向Source链通过。Host全刷新/退场、真实故障/backend shutdown、physical/pins/retention与跨Gateway总量/RPC继续必做，不提升完成状态。
 
 2026-10-11 E6后续：Source cache绑定一个Host，现有maintenance tick按Shard轮转异步排队，cut/provider与SDK读在caller有限executor执行。Shard退出立即撤销观测，cleanup未完成返回PENDING_SOURCE_OBSERVATION，禁止Owner drain/复用；whole-Host先停刷新且保留原Query重试责任。局部29与真实K1 Host刷新/成功退场、P1共享cache正向回归通过；P1 Host接入、实际late-open/close故障/backend ownership及跨Gateway/retention/pin权威继续必做，E6与集中验证flags不提升。
+
+2026-10-11 E6后续：修复同一pending Query在cache.stop/Shard withdraw重复排队的有限queue拒绝（确定性red/green，Cache7/Fleet19通过）。P1现有Source fixture接真实Host维护tick/Source turn/drain，并实际注入guarded SUBSCRIBE身份不匹配：Broker返回typed拒绝，Host保留Query/ACTIVE Owner与open Store，显式原client backend shutdown成功后同Host重试drain/lease释放。仅一类failed-open service退出故障和fixture组合，不是完整生产provider/资源/retention/RPC/中央验收；E6与flags不提升。

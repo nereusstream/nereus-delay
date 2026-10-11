@@ -164,6 +164,43 @@ class TargetSourceBacklogCacheTest {
         }
     }
 
+    @Test
+    void repeatedStopAndWithdrawDoNotQueueAnotherCloseForTheSamePendingQuery() throws Exception {
+        final var cut = cut(new AtomicBoolean(true));
+        final var operation = new Operation(snapshot(cut));
+        final var blocked = new CountDownLatch(1);
+        final var release = new CountDownLatch(1);
+        final var queuedJob = new CountDownLatch(1);
+        try (var executor = new ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(1),
+                new ThreadPoolExecutor.AbortPolicy())) {
+            final var cache = new TargetSourceBacklogCache(1, 1000, executor, () -> 0);
+            try {
+                cache.refresh(shard, () -> cut, ignored -> operation);
+                assertTrue(operation.readEntered.await(5, TimeUnit.SECONDS));
+                executor.execute(() -> {
+                    blocked.countDown();
+                    try { release.await(); }
+                    catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+                });
+                assertTrue(blocked.await(5, TimeUnit.SECONDS));
+                executor.execute(queuedJob::countDown);
+                cache.stop();
+                cache.withdraw(shard);
+                cache.stop();
+                assertFalse(cache.cleanupComplete());
+                assertSame(operation, cache.pendingOperation(shard).orElseThrow());
+            } finally {
+                release.countDown();
+            }
+            assertTrue(queuedJob.await(5, TimeUnit.SECONDS));
+            operation.cleanup.complete(null);
+            await(cache::cleanupComplete);
+            assertThrows(IllegalStateException.class, () -> cache.get(shard));
+        } finally {
+            release.countDown();
+        }
+    }
+
     private TargetSourceBacklog.Cut cut(AtomicBoolean active) {
         return new TargetSourceBacklog.Cut(source, () -> {
             if (!active.get()) { throw new IllegalStateException("Source cut changed"); }

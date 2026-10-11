@@ -148,7 +148,7 @@ public final class TargetSourceBacklogCache {
     public void retryCleanup(final ShardId shard) {
         final Entry entry;
         synchronized (this) { entry = Objects.requireNonNull(entries.get(shard), "Source observer entry"); }
-        executor.execute(() -> close(entry, true));
+        queueClose(entry, true);
     }
 
     /** Stops publication/new reads; caller retains the executor and all pending operation/physical charges. */
@@ -159,7 +159,7 @@ public final class TargetSourceBacklogCache {
             entries.values().forEach(entry -> entry.published = null);
             pending = entries.values().stream().filter(entry -> !entry.settled && entry.operation != null).toList();
         }
-        for (var entry : pending) { executor.execute(() -> close(entry, false)); }
+        for (var entry : pending) { queueClose(entry, false); }
     }
 
     public synchronized boolean cleanupComplete() {
@@ -179,7 +179,7 @@ public final class TargetSourceBacklogCache {
             entry.withdrawn = true;
             entry.published = null;
         }
-        if (!entry.settled && entry.operation != null) { executor.execute(() -> close(entry, false)); }
+        queueClose(entry, false);
     }
 
     public void requireBounds(final int shards, final long ageNanos) {
@@ -216,7 +216,29 @@ public final class TargetSourceBacklogCache {
         }
     }
 
+    private void queueClose(final Entry entry, final boolean retry) {
+        synchronized (this) {
+            if (entry.settled || entry.operation == null || entry.closeQueued || (!retry && entry.closeRequested)) {
+                return;
+            }
+            entry.closeQueued = true;
+        }
+        try {
+            executor.execute(() -> {
+                try { close(entry, retry); }
+                finally { synchronized (TargetSourceBacklogCache.this) { entry.closeQueued = false; } }
+            });
+        } catch (RuntimeException | Error rejected) {
+            synchronized (this) { entry.closeQueued = false; }
+            throw rejected;
+        }
+    }
+
     private void close(final Entry entry, final boolean retry) {
+        synchronized (this) {
+            if (entry.settled || (!retry && entry.closeRequested)) { return; }
+            entry.closeRequested = true;
+        }
         try {
             final var cleanup = retry ? entry.operation.retryClose() : entry.operation.requestClose();
             cleanup.whenComplete((ignored, failure) -> {
@@ -230,7 +252,7 @@ public final class TargetSourceBacklogCache {
                 }
             });
         } catch (Throwable failure) {
-            synchronized (this) { entry.failure = failure; }
+            synchronized (this) { entry.failure = failure; entry.closeRequested = false; }
         }
     }
 
@@ -261,5 +283,7 @@ public final class TargetSourceBacklogCache {
         private boolean readEnded;
         private boolean settled;
         private boolean withdrawn;
+        private boolean closeQueued;
+        private boolean closeRequested;
     }
 }
