@@ -75,6 +75,7 @@ public final class TargetWorkerOwnerActivation {
             throw new IllegalArgumentException("Target Owner activation lacks exact Store/assignment/barrier state");
         }
         if (expectedLease.state() != ShardLifecycleState.ACQUIRING
+                && expectedLease.state() != ShardLifecycleState.CATCHING_UP
                 && expectedLease.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS) {
             throw new IllegalArgumentException("Target Owner activation requires an ACQUIRING or exact ACTIVE lease");
         }
@@ -90,6 +91,7 @@ public final class TargetWorkerOwnerActivation {
         final long openedOwnerEpoch = exactStore.runtimeMetadata().lastOpenedOwnerEpoch();
         if (current.state() == ShardLifecycleState.ACTIVE_FOR_COMMANDS) {
             if (expectedLease.state() != ShardLifecycleState.ACQUIRING
+                    && expectedLease.state() != ShardLifecycleState.CATCHING_UP
                     && expectedLease.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS) {
                 throw new IllegalStateException("Target Owner activation observed an unexpected lease state");
             }
@@ -98,8 +100,8 @@ public final class TargetWorkerOwnerActivation {
             }
             return current;
         }
-        if (current.state() != ShardLifecycleState.ACQUIRING
-                || expectedLease.state() != ShardLifecycleState.ACQUIRING) {
+        if ((current.state() != ShardLifecycleState.ACQUIRING && current.state() != ShardLifecycleState.CATCHING_UP)
+                || current.state() != expectedLease.state()) {
             throw new IllegalStateException("Target Owner activation lease is not ACQUIRING");
         }
         if (Long.compareUnsigned(openedOwnerEpoch, current.ownerEpoch()) > 0) {
@@ -113,7 +115,7 @@ public final class TargetWorkerOwnerActivation {
         final OwnerLease stillAcquiring = authority.current(exactAssignment.shardId())
                 .orElseThrow(() -> new IllegalStateException("Target Owner lease disappeared before activation"));
         requireSameLease(current, stillAcquiring);
-        if (stillAcquiring.state() != ShardLifecycleState.ACQUIRING || !stillAcquiring.validAt(beforeCasNow)) {
+        if (stillAcquiring.state() != current.state() || !stillAcquiring.validAt(beforeCasNow)) {
             throw new IllegalStateException("Target Owner lease changed before activation CAS");
         }
 

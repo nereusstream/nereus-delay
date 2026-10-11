@@ -386,6 +386,8 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     private final Authorities authorities;
     private final Limits limits;
     private final LongSupplier monotonicClock;
+    private final boolean recoveryOnly;
+    private final Runnable recoveryProtection;
     // Store-read guards revalidate ownership while holding the Store monitor; keep this lock free of Store access.
     private final Object ownerStateLock = new Object();
     private WorkClassExecutionRegistry workClasses;
@@ -411,7 +413,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 lease,
                 authorities,
                 limits,
-                monotonicClock);
+                monotonicClock, false, () -> {});
     }
 
     /** Recovery composition uses only the root reconstructed from the persisted fixed Shard anchor. */
@@ -431,7 +433,16 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 lease,
                 authorities,
                 limits,
-                monotonicClock);
+                monotonicClock, false, () -> {});
+    }
+
+    /** Internal replay target; never exposed as an active Worker, Publisher, GC or ACK source runtime. */
+    static TargetSourceApplyRuntime recovery(TargetStoreBootstrap.Reopened reopened, ShardStore store,
+            SourceAssignment assignment, OwnerLease lease, Authorities authorities, Limits limits,
+            LongSupplier monotonicClock, Runnable protection) {
+        Objects.requireNonNull(reopened, "reopened");
+        return new TargetSourceApplyRuntime(reopened.backend(), reopened.root(), store, assignment, lease,
+                authorities, limits, monotonicClock, true, Objects.requireNonNull(protection, "protection"));
     }
 
     private TargetSourceApplyRuntime(
@@ -442,7 +453,9 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             final OwnerLease lease,
             final Authorities authorities,
             final Limits limits,
-            final LongSupplier monotonicClock) {
+            final LongSupplier monotonicClock,
+            final boolean recoveryOnly,
+            final Runnable recoveryProtection) {
         this.store = Objects.requireNonNull(store, "store");
         backend = Objects.requireNonNull(openedBackend, "backend");
         backend.requireStore(store);
@@ -454,14 +467,23 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         this.authorities = Objects.requireNonNull(authorities, "authorities");
         this.limits = Objects.requireNonNull(limits, "limits");
         this.monotonicClock = Objects.requireNonNull(monotonicClock, "monotonicClock");
+        this.recoveryOnly = recoveryOnly;
+        this.recoveryProtection = recoveryProtection;
+        final var install = store.recoveryMetadata().installState();
+        if (!recoveryOnly && install != null
+                && (install.phase() == com.nereusstream.delay.protocol.RecoveryInstallPhase.INSTALLED
+                        || install.phase() == com.nereusstream.delay.protocol.RecoveryInstallPhase.STAGED)) {
+            throw new IllegalStateException("Target active source requires completed checkpoint recovery");
+        }
         if (!scope.shard().equals(lease.shardId())
                 || !scope.shard().equals(assignment.shardId())
                 || lease.context() == null
                 || !Arrays.equals(lease.sourceAssignmentId(), assignment.assignmentId())
                 || lease.sourceAssignmentEpoch() != assignment.assignmentEpoch()
-                || lease.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS
+                || lease.state() != (recoveryOnly ? ShardLifecycleState.CATCHING_UP
+                        : ShardLifecycleState.ACTIVE_FOR_COMMANDS)
                 || store.runtimeMetadata().lastOpenedOwnerEpoch() != lease.ownerEpoch()
-                || !assignment.activationBarrier().reachedBy(store.appliedShardLogPosition())) {
+                || !recoveryOnly && !assignment.activationBarrier().reachedBy(store.appliedShardLogPosition())) {
             throw new IllegalArgumentException("Target source runtime lacks exact active Owner/assignment/Store state");
         }
         lineage = exactRoot.recoveryLineage();
@@ -1174,6 +1196,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
 
     private void requireGcOwner(final LongSupplier clock) {
         try {
+            if (recoveryOnly) { throw new IllegalStateException("Target recovery cannot perform active maintenance"); }
             requireOwner(clock);
         } catch (RuntimeException | Error failure) {
             fenced = true;
@@ -1183,8 +1206,8 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
 
     @Override
     synchronized void requireSubmission(final SourceReplayEntry entry, final boolean recovery) {
-        if (fenced || recovery) {
-            throw new IllegalStateException("Target active source is fenced or was used as a recovery executor");
+        if (fenced || recovery != recoveryOnly) {
+            throw new IllegalStateException("Target source lifecycle does not match its apply submission");
         }
         validateEntry(entry);
     }
@@ -1452,6 +1475,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     }
 
     private void requireOwner(final LongSupplier clock) {
+        if (recoveryOnly) { recoveryProtection.run(); }
         final OwnerLease initialLease = lease;
         if (fenced || store.runtimeMetadata().lastOpenedOwnerEpoch() != initialLease.ownerEpoch()) {
             throw new IllegalStateException("Target source Owner/Store is fenced");
@@ -1467,7 +1491,8 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 }
                 if (current == null
                         || !activeLease.sameIdentity(current)
-                        || current.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS) {
+                        || current.state() != (recoveryOnly ? ShardLifecycleState.CATCHING_UP
+                                : ShardLifecycleState.ACTIVE_FOR_COMMANDS)) {
                     throw new IllegalStateException("Target source authoritative lease/time changed");
                 }
                 if (current.expiresAtEpochMs() < activeLease.expiresAtEpochMs()) {
@@ -1487,6 +1512,11 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 return;
             }
         }
+    }
+
+    synchronized void requireRecoveryOwner(final LongSupplier clock) {
+        if (!recoveryOnly) { throw new IllegalStateException("Target runtime is not a recovery target"); }
+        requireOwner(clock);
     }
 
     private void validateEntry(final SourceReplayEntry entry) {

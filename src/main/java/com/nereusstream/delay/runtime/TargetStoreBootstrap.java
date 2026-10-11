@@ -92,10 +92,13 @@ public final class TargetStoreBootstrap {
     public static final class Reopened {
         private final TargetStoreBackend backend;
         private final TargetQuotaIncarnation root;
+        private final ShardStore.ReadView view;
 
-        private Reopened(final TargetStoreBackend backend, final TargetQuotaIncarnation root) {
+        private Reopened(final TargetStoreBackend backend, final TargetQuotaIncarnation root,
+                final ShardStore.ReadView view) {
             this.backend = backend;
             this.root = root;
+            this.view = view;
         }
 
         public TargetStoreBackend backend() {
@@ -104,6 +107,11 @@ public final class TargetStoreBootstrap {
 
         public TargetQuotaIncarnation root() {
             return root;
+        }
+
+        /** Exact complete ledger audit cut; local writes invalidate it even without Source advancement. */
+        public ShardStore.ReadView view() {
+            return view;
         }
     }
 
@@ -207,7 +215,7 @@ public final class TargetStoreBootstrap {
                 return new Reopened(
                         new TargetStoreBackend(
                                 store, scope, root.identity().accountingIncarnation(), root.recoveryLineage(), limits),
-                        root);
+                        root, plan.view());
             });
         }
     }

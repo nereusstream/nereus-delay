@@ -19,6 +19,7 @@ import com.nereusstream.delay.ownership.SourceAcknowledgement;
 import com.nereusstream.delay.ownership.SourceApplyCoordinator;
 import com.nereusstream.delay.ownership.SourceAssignment;
 import com.nereusstream.delay.ownership.SourceRecordConsumer;
+import com.nereusstream.delay.ownership.SourceReplayEntry;
 import com.nereusstream.delay.ownership.SourceReplayMutation;
 import com.nereusstream.delay.ownership.SourceReplayRecord;
 import com.nereusstream.delay.ownership.SourceReplaySuccessor;
@@ -135,6 +136,7 @@ import com.nereusstream.delay.scheduler.WorkClass;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import com.nereusstream.delay.scheduler.WorkClassPolicy;
 import com.nereusstream.delay.scheduler.WorkClassRuntimeConfig;
+import com.nereusstream.delay.scheduler.WorkClassTask;
 import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.CheckpointManifestLimits;
 import com.nereusstream.delay.store.CheckpointUploadIntentStore;
@@ -8489,13 +8491,14 @@ class TargetCommandStoreTest {
         activePin.set(pin);
         final var restoreConfig = ShardStoreConfig.defaults(stageConfig.rootPath()
                 .resolve("target-installed-" + current.phase()));
+        final var restoreClasses = workClasses();
         try (var restoreResources = new SharedRocksDbResources(restoreConfig)) {
             final var authentication = new ShardStore.TargetRestoreAuthentication(quotaLimits, ledgerLimits,
                     semanticLimits, completeFixture, () -> assertFalse(Thread.holdsLock(store)), budget());
             try (var restored = com.nereusstream.delay.store.TargetCheckpointCandidateTestBridge
                     .restoreTargetThroughWorkClass(
                     restoreConfig, scope.shard(), restoreResources, image, manifest, catalog, pin,
-                    physicalLimits, authentication, workClasses())) {
+                    physicalLimits, authentication, restoreClasses)) {
                 assertNotEquals(store.metadata().storeIncarnationUuid(), restored.metadata().storeIncarnationUuid());
                 assertArrayEquals(store.metadata().dbIdentity(), restored.metadata().dbIdentity());
                 assertEquals(store.appliedShardLogPosition(), restored.appliedShardLogPosition());
@@ -8539,8 +8542,10 @@ class TargetCommandStoreTest {
                 assertEquals(com.nereusstream.delay.protocol.RecoveryInstallPhase.INSTALLED,
                         reopened.recoveryMetadata().installState().phase());
                 assertFalse(reopened.hasReusableRecoveryProof());
-                TargetStoreBootstrap.reopen(reopened, scope,
+                final var restoredRoot = TargetStoreBootstrap.reopen(reopened, scope,
                         new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(), (a, b) -> guard());
+                assertRestoredTargetRecovery(reopened, restoredRoot, scope, current,
+                        context.outcomes().getFirst().image(), catalog, pin, activePin, restoreClasses, ledgerLimits);
             }
         }
         assertEquals(afterCreate, store.latestSequenceNumber());
@@ -10175,6 +10180,131 @@ class TargetCommandStoreTest {
                 offset,
                 from.leaderEpoch(),
                 time);
+    }
+
+    private static void assertRestoredTargetRecovery(ShardStore store, TargetStoreBootstrap.Reopened root,
+            TargetQuotaScope scope, TargetQuotaAttemptBudget retained, SystemMutation original,
+            com.nereusstream.delay.store.RecoveryCatalogAuthority catalog,
+            com.nereusstream.delay.protocol.RecoveryPin oldPin,
+            java.util.concurrent.atomic.AtomicReference<com.nereusstream.delay.protocol.RecoveryPin> activePin,
+            WorkClassExecutionRegistry classes, TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits) {
+        final var at = (KafkaSourcePosition) store.appliedShardLogPosition();
+        final var next = new KafkaSourcePosition(at.shardId(), at.authenticatedClusterId(), at.nativeTopicUuid(),
+                at.offset() + 1, at.leaderEpoch(), at.brokerLogAppendTimeEpochMs());
+        final var gap = new KafkaSourcePosition(at.shardId(), at.authenticatedClusterId(), at.nativeTopicUuid(),
+                at.offset() + 2, at.leaderEpoch(), at.brokerLogAppendTimeEpochMs());
+        final var assignment = new SourceAssignment(scope.shard(), bytes(32, 0x58), 1,
+                new KafkaActivationBarrier(scope.shard(), at.authenticatedClusterId(), at.nativeTopicUuid(),
+                        at.offset() + 2));
+        final var leases = new OxiaOwnerLeaseStore(new InMemoryOwnerLeaseStore());
+        OwnerLease acquiring;
+        do {
+            acquiring = leases.acquire(assignment, "target-checkpoint-recovery", bytes(32, 0x59), 1, 10_000)
+                    .orElseThrow();
+            if (Long.compareUnsigned(acquiring.ownerEpoch(), store.runtimeMetadata().lastOpenedOwnerEpoch()) > 0) {
+                break;
+            }
+            assertTrue(leases.release(acquiring));
+        } while (true);
+        var recoveryPin = new com.nereusstream.delay.protocol.RecoveryPin(oldPin.pinId(), oldPin.shard(),
+                new OwnerIdentity(bytes(8, 0x5a), bytes(8, 0x5b), acquiring.ownerEpoch(), bytes(32, 0x5c)),
+                oldPin.candidate(), oldPin.observedFloor(), oldPin.observedCatalogGeneration(), bytes(32, 0x5d));
+        activePin.set(recoveryPin);
+        final var authorities = new TargetSourceApplyRuntime.Authorities(leases, SourceReplaySuccessor.strictKafka(),
+                entry -> { throw new AssertionError("duplicate recovery resolved grant"); },
+                entry -> { throw new AssertionError("duplicate recovery resolved Fence"); },
+                entry -> { throw new AssertionError("duplicate recovery resolved expiry"); },
+                entry -> { throw new AssertionError("duplicate recovery resolved Close"); },
+                entry -> { throw new AssertionError("duplicate recovery resolved membership"); },
+                (a, b, mutation) -> guard(), (a, b) -> guard(),
+                entry -> { throw new AssertionError("duplicate recovery resolved Command"); });
+        final var limits = new TargetSourceApplyRuntime.Limits(4096, 32L << 20, 60_000_000_000L, 16, 1);
+        final var satisfiedAssignment = new SourceAssignment(scope.shard(), assignment.assignmentId(),
+                assignment.assignmentEpoch(), new KafkaActivationBarrier(scope.shard(), at.authenticatedClusterId(),
+                        at.nativeTopicUuid(), at.offset() + 1));
+        final var purportedActive = new OwnerLease(scope.shard(), "premature-active-owner",
+                store.runtimeMetadata().lastOpenedOwnerEpoch(), bytes(32, 0x5e), 10_000,
+                new com.nereusstream.delay.ownership.OwnerLeaseContext(satisfiedAssignment.assignmentId(),
+                        satisfiedAssignment.assignmentEpoch(), bytes(32, 0x5f)),
+                ShardLifecycleState.ACTIVE_FOR_COMMANDS);
+        assertTrue(assertThrows(IllegalStateException.class, () -> new TargetSourceApplyRuntime(root, store,
+                satisfiedAssignment, purportedActive, authorities, limits, System::nanoTime))
+                .getMessage().contains("requires completed checkpoint recovery"));
+        final var turns = new com.nereusstream.delay.ownership.ReplayTurnBudget(1, 32L << 20, 60_000_000_000L);
+        final byte[] beforeBudget = store.get(ColumnFamily.META, retained.key());
+        final long beforeSequence = store.shardMutationSequence();
+        final var missingTail = new com.nereusstream.delay.ownership.TargetOwnerRecoveryCoordinator(store, root,
+                assignment, acquiring, authorities, limits,
+                com.nereusstream.delay.ownership.SourceReplayCursor.of(List.<SourceReplayEntry>of().iterator()),
+                catalog, recoveryPin, () -> {}, turns, classes, () -> 1, System::nanoTime,
+                TargetCommandStoreTest::budget, ledgerLimits);
+        assertTrue(assertThrows(IllegalStateException.class, missingTail::runTurn)
+                .getMessage().contains("Source ended before its barrier"));
+        assertEquals(at, store.appliedShardLogPosition());
+        assertThrows(IllegalStateException.class, () -> store.completeTargetRecovery(
+                root.view(), store.recoveryMetadata().lineageBase(), guard()));
+        activePin.set(null);
+        final var beforePinLoss = store.latestSequenceNumber();
+        assertTrue(assertThrows(IllegalStateException.class, missingTail::runTurn)
+                .getMessage().contains("Pin is no longer active"));
+        assertEquals(beforePinLoss, store.latestSequenceNumber());
+        activePin.set(recoveryPin);
+        final var gapCursor = com.nereusstream.delay.ownership.SourceReplayCursor.of(
+                List.of(new SourceReplayMutation(original, gap, null, null)).iterator());
+        final var gapRecovery = new com.nereusstream.delay.ownership.TargetOwnerRecoveryCoordinator(store,
+                TargetStoreBootstrap.reopen(store, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20),
+                        budget(), (a, b) -> guard()), assignment, acquiring, authorities, limits, gapCursor,
+                catalog, recoveryPin, () -> {}, turns, classes, () -> 1, System::nanoTime,
+                TargetCommandStoreTest::budget, ledgerLimits);
+        assertTrue(assertThrows(IllegalStateException.class, gapRecovery::runTurn)
+                .getMessage().contains("source replay has a gap"));
+        assertEquals(at, store.appliedShardLogPosition());
+        assertEquals(beforeSequence, store.shardMutationSequence());
+        assertTrue(gapCursor.hasNext());
+        assertArrayEquals(beforeBudget, store.get(ColumnFamily.META, retained.key()));
+        assertEquals(com.nereusstream.delay.protocol.RecoveryInstallPhase.INSTALLED,
+                store.recoveryMetadata().installState().phase());
+        final var lostCursor = com.nereusstream.delay.ownership.SourceReplayCursor.of(
+                List.of(new SourceReplayMutation(original, next, null, null)).iterator());
+        final var lostOwner = new com.nereusstream.delay.ownership.TargetOwnerRecoveryCoordinator(store,
+                TargetStoreBootstrap.reopen(store, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20),
+                        budget(), (a, b) -> guard()), assignment, acquiring, authorities, limits, lostCursor,
+                catalog, recoveryPin, () -> {}, turns, classes, () -> 1, System::nanoTime,
+                TargetCommandStoreTest::budget, ledgerLimits);
+        classes.submit(new WorkClassTask(WorkClass.LEASE_FENCE, "target-recovery-owner-loss", 1),
+                () -> assertTrue(leases.release(leases.current(scope.shard()).orElseThrow())));
+        assertTrue(lostOwner.runTurn().waitingForWorkClass());
+        final var beforeLostOwner = store.latestSequenceNumber();
+        assertThrows(IllegalStateException.class, lostOwner::runTurn);
+        classes.runTurn(new SchedulerBudget(1, 32L << 20, 1_000_000));
+        assertEquals(beforeLostOwner, store.latestSequenceNumber());
+        assertTrue(lostCursor.hasNext());
+        assertEquals(at, store.appliedShardLogPosition());
+        acquiring = leases.acquire(assignment, "target-checkpoint-recovery", bytes(32, 0x59), 1, 10_000)
+                .orElseThrow();
+        recoveryPin = new com.nereusstream.delay.protocol.RecoveryPin(oldPin.pinId(), oldPin.shard(),
+                new OwnerIdentity(bytes(8, 0x5a), bytes(8, 0x5b), acquiring.ownerEpoch(), bytes(32, 0x5c)),
+                oldPin.candidate(), oldPin.observedFloor(), oldPin.observedCatalogGeneration(), bytes(32, 0x5d));
+        activePin.set(recoveryPin);
+        final var cursor = com.nereusstream.delay.ownership.SourceReplayCursor.of(
+                List.of(new SourceReplayMutation(original, next, null, null)).iterator());
+        final var recovery = new com.nereusstream.delay.ownership.TargetOwnerRecoveryCoordinator(store,
+                TargetStoreBootstrap.reopen(store, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20),
+                        budget(), (a, b) -> guard()), assignment, acquiring, authorities, limits, cursor,
+                catalog, recoveryPin, () -> {}, turns, classes, () -> 1, System::nanoTime,
+                TargetCommandStoreTest::budget, ledgerLimits);
+        final var completed = recovery.runTurn();
+        assertTrue(completed.complete());
+        assertEquals(1, completed.outcomes().size());
+        assertFalse(cursor.hasNext());
+        assertEquals(next, store.appliedShardLogPosition());
+        assertEquals(beforeSequence + 1, store.shardMutationSequence());
+        assertArrayEquals(beforeBudget, store.get(ColumnFamily.META, retained.key()));
+        assertEquals(com.nereusstream.delay.protocol.RecoveryInstallPhase.OPEN,
+                store.recoveryMetadata().installState().phase());
+        assertEquals(ShardLifecycleState.ACTIVE_FOR_COMMANDS, recovery.activeLease().state());
+        assertTrue(recovery.runTurn().complete());
+        System.out.println("C5 protected Target Source duplicate recovery phase=" + retained.phase());
     }
 
     private static BoundedReadBudget budget() {

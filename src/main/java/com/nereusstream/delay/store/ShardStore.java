@@ -2471,6 +2471,28 @@ public final class ShardStore implements AutoCloseable {
     }
 
     /**
+     * Completes only the exact fully audited Target recovery cut. The caller's held guard must prove current
+     * CATCHING_UP Owner/session, accepted Source barrier/continuity and original Catalog/Pin/resource protections.
+     * Guard acquisition and full ledger/provider reads occur before entering this Store monitor.
+     */
+    public synchronized void completeTargetRecovery(final ReadView audited,
+            final RecoveryCandidateRef expectedBase, final TargetStoreBackend.CommitGuard guard) {
+        ensureOpen();
+        requireReadView(Objects.requireNonNull(audited, "audited"));
+        Objects.requireNonNull(expectedBase, "expectedBase");
+        Objects.requireNonNull(guard, "guard");
+        if (!pendingTargetInstall(metadata, recoveryMetadata) || recoveryMetadata.lineageBase() == null
+                || !Arrays.equals(expectedBase.canonicalBytes(), recoveryMetadata.lineageBase().canonicalBytes())) {
+            throw new IllegalStateException("Target recovery completion lacks its exact pending install/base");
+        }
+        guard.requireCurrent();
+        final var completed = recoveryMetadata.withInstallState(new RecoveryInstallState(
+                RecoveryInstallPhase.OPEN, metadata.storeIncarnation(), expectedBase.checkpointId()));
+        write(batch -> batch.putRecoveryMetadata(completed));
+        guard.requireCurrent();
+    }
+
+    /**
      * Publishes the local OPEN projection after an external recovery
      * authority has validated the persisted recovery evidence. This is kept
      * separate from the native open path so a rejected catalog proof cannot
