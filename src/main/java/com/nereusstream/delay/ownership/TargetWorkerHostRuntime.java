@@ -140,6 +140,7 @@ public final class TargetWorkerHostRuntime {
     private final TargetWorkerShardFleetRuntime fleet;
     private final TargetWorkerMaintenanceLoop maintenanceLoop;
     private final List<Shard> shards;
+    private final TargetWorkerRuntimeConfig runtimeConfig;
     private TargetWorkerOrdinaryLoop ordinaryLoop;
     /** Bound applied to Workers admitted after ordinary scheduling has started. */
     private int ordinaryTargetCacheLimit;
@@ -160,14 +161,46 @@ public final class TargetWorkerHostRuntime {
             final SchedulerBudget maintenanceBudget,
             final Duration maintenanceInterval,
             final Consumer<Throwable> failureConsumer) {
+        return start(null, workClasses, resources, shards, maintenanceBudget, maintenanceInterval, failureConsumer);
+    }
+
+    /** Starts the configured Host after checking the exact resource, dispatcher and Source limits. */
+    public static TargetWorkerHostRuntime start(
+            final TargetWorkerRuntimeConfig config,
+            final WorkClassExecutionRegistry workClasses,
+            final SharedRocksDbResources resources,
+            final List<TargetWorkerShardRuntime> shards,
+            final Consumer<Throwable> failureConsumer) {
+        final var selected = Objects.requireNonNull(config, "config");
+        return start(selected, workClasses, resources, shards,
+                selected.maintenanceTurn(), selected.maintenanceInterval(), failureConsumer);
+    }
+
+    private static TargetWorkerHostRuntime start(
+            final TargetWorkerRuntimeConfig config,
+            final WorkClassExecutionRegistry workClasses,
+            final SharedRocksDbResources resources,
+            final List<TargetWorkerShardRuntime> shards,
+            final SchedulerBudget maintenanceBudget,
+            final Duration maintenanceInterval,
+            final Consumer<Throwable> failureConsumer) {
+        if (config != null) {
+            config.requireRuntime(workClasses, resources);
+        }
         final var exactShards = List.copyOf(Objects.requireNonNull(shards, "shards"));
+        if (config != null) {
+            if (exactShards.size() > config.store().maxOwnedShards()) {
+                throw new IllegalArgumentException("configured Host exceeds its Shard ownership bound");
+            }
+            exactShards.forEach(worker -> worker.requireRuntimeConfiguration(config));
+        }
         exactShards.forEach(TargetWorkerShardRuntime::requireMessageExpiryMaintenanceConfigured);
         final var fleet = new TargetWorkerShardFleetRuntime(workClasses, resources, exactShards);
         final var loop =
                 TargetWorkerMaintenanceLoop.create(fleet, maintenanceBudget, maintenanceInterval, failureConsumer);
         TargetWorkerHostRuntime host = null;
         try {
-            host = new TargetWorkerHostRuntime(fleet, loop, exactShards);
+            host = new TargetWorkerHostRuntime(fleet, loop, exactShards, config);
             loop.start();
             return host;
         } catch (RuntimeException | Error failure) {
@@ -190,8 +223,17 @@ public final class TargetWorkerHostRuntime {
             final TargetWorkerShardFleetRuntime fleet,
             final TargetWorkerMaintenanceLoop maintenanceLoop,
             final List<? extends Shard> shards) {
+        this(fleet, maintenanceLoop, shards, null);
+    }
+
+    private TargetWorkerHostRuntime(
+            final TargetWorkerShardFleetRuntime fleet,
+            final TargetWorkerMaintenanceLoop maintenanceLoop,
+            final List<? extends Shard> shards,
+            final TargetWorkerRuntimeConfig runtimeConfig) {
         this.fleet = Objects.requireNonNull(fleet, "fleet");
         this.maintenanceLoop = Objects.requireNonNull(maintenanceLoop, "maintenanceLoop");
+        this.runtimeConfig = runtimeConfig;
         this.shards = new ArrayList<>(Objects.requireNonNull(shards, "shards"));
         if (!fleet.shardIds().equals(this.shards.stream().map(Shard::shardId).toList())) {
             throw new IllegalArgumentException("Target host drain shards differ from maintenance fleet");
@@ -270,6 +312,23 @@ public final class TargetWorkerHostRuntime {
 
     /** Starts the single bounded ordinary-first Claim loop for this Host. */
     public synchronized TargetWorkerOrdinaryLoop startOrdinaryScheduling(
+            final TargetWorkerOrdinaryDrr.Requests requests,
+            final TargetWorkerOrdinaryLoop.ClaimConsumer claimConsumer,
+            final LongSupplier ownerClock,
+            final LongSupplier schedulerClock,
+            final LongSupplier monotonicClock,
+            final BoundedAsyncMetricExporter metrics,
+            final Consumer<Throwable> failureConsumer) {
+        if (runtimeConfig == null) {
+            throw new IllegalStateException("Target host has no unified runtime configuration");
+        }
+        return startOrdinaryScheduling(runtimeConfig.inventory(), runtimeConfig.ordinary(),
+                runtimeConfig.ordinaryTurn(), runtimeConfig.ordinaryRecheckInterval(), requests, claimConsumer,
+                ownerClock, schedulerClock, monotonicClock, metrics, failureConsumer);
+    }
+
+    /** Starts the single bounded ordinary-first Claim loop for this Host. */
+    public synchronized TargetWorkerOrdinaryLoop startOrdinaryScheduling(
             final TargetWorkerTargetInventory.Limits inventoryLimits,
             final TargetWorkerOrdinaryDrr.Limits drrLimits,
             final SchedulerBudget turnBudget,
@@ -307,6 +366,12 @@ public final class TargetWorkerHostRuntime {
             final LongSupplier monotonicClock,
             final BoundedAsyncMetricExporter metrics,
             final Consumer<Throwable> failureConsumer) {
+        if (runtimeConfig != null && (!runtimeConfig.inventory().equals(inventoryLimits)
+                || !runtimeConfig.ordinary().equals(drrLimits)
+                || !runtimeConfig.ordinaryTurn().equals(turnBudget)
+                || !runtimeConfig.ordinaryRecheckInterval().equals(recheckInterval))) {
+            throw new IllegalArgumentException("ordinary scheduler limits differ from the configured Target Host");
+        }
         if (stopping) {
             throw new IllegalStateException("Target host ordinary admission is stopping");
         }
@@ -388,8 +453,19 @@ public final class TargetWorkerHostRuntime {
     }
 
     /** Calls at most one Shard source turn while whole-fleet admission is open. */
+    public synchronized TargetWorkerShardFleetRuntime.SourceTurn runNextSourceTurn(final LongSupplier ownerClock) {
+        if (runtimeConfig == null) {
+            throw new IllegalStateException("Target host has no unified runtime configuration");
+        }
+        return runNextSourceTurn(runtimeConfig.sourceTurn(), ownerClock);
+    }
+
+    /** Calls at most one Shard source turn while whole-fleet admission is open. */
     public synchronized TargetWorkerShardFleetRuntime.SourceTurn runNextSourceTurn(
             final SchedulerBudget budget, final LongSupplier ownerClock) {
+        if (runtimeConfig != null && !runtimeConfig.sourceTurn().equals(budget)) {
+            throw new IllegalArgumentException("Source turn budget differs from the configured Target Host");
+        }
         if (stopping) {
             throw new IllegalStateException("Target host source admission is stopping");
         }
@@ -702,6 +778,12 @@ public final class TargetWorkerHostRuntime {
         }
         if (Objects.requireNonNull(shard, "shard") != Objects.requireNonNull(turns, "turns")) {
             throw new IllegalArgumentException("Target host source and maintenance instance differ");
+        }
+        if (runtimeConfig != null) {
+            if (!(shard instanceof TargetWorkerShardRuntime worker)) {
+                throw new IllegalArgumentException("configured Target Host requires a Target Worker Shard");
+            }
+            worker.requireRuntimeConfiguration(runtimeConfig);
         }
         final ShardId shardId = Objects.requireNonNull(shard.shardId(), "shardId");
         final int previousIndex = indexOfShard(shardId);

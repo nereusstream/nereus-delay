@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.nereusstream.delay.protocol.CapacityDimension;
 import com.nereusstream.delay.protocol.CapacityVector;
 import com.nereusstream.delay.scheduler.WorkClass;
+import com.nereusstream.delay.store.SharedRocksDbResources;
+import com.nereusstream.delay.store.WorkerRuntimeResourceObservation;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
@@ -22,6 +24,8 @@ class TargetWorkerRuntimeConfigTest {
         assertEquals(loaded.store().maxOwnedShards(), loaded.inventory().maximumShards());
         assertEquals(64, loaded.source().records());
         assertEquals(1, loaded.workClasses().policies().get(WorkClass.SOURCE_APPLY).maxRecordsPerTurn());
+        assertEquals(1, loaded.sourceTurn().maxMessages());
+        assertEquals(1024, loaded.sourceTurn().maxBytes());
         assertEquals(8, loaded.maximumTargetSummaries());
         assertEquals(32, loaded.maximumDomainHeads());
         loaded.newWorkClasses(() -> 0);
@@ -32,7 +36,8 @@ class TargetWorkerRuntimeConfigTest {
     @Test
     void missingUnknownUnlimitedAndOvercommittedConfigurationRejectsBeforeIo() {
         for (String missing : java.util.List.of("worker.heapBytes", "worker.hardCap.ZOMBIE_BYTES",
-                "scheduling.class.OUTCOME_AND_CONTROL.minimumRecords", "target.maximumSourceFrameBytes")) {
+                "scheduling.class.OUTCOME_AND_CONTROL.minimumRecords", "target.maximumSourceFrameBytes",
+                "recovery.maintenanceTurnBytes", "recovery.maintenanceIntervalNanos")) {
             final var map = values();
             map.remove(missing);
             assertThrows(IllegalArgumentException.class, () -> TargetWorkerRuntimeConfigLoader.load(map));
@@ -65,6 +70,44 @@ class TargetWorkerRuntimeConfigTest {
         final var insufficientInventory = values();
         insufficientInventory.put("target.inventoryPagesPerShard", "1");
         assertThrows(IllegalArgumentException.class, () -> TargetWorkerRuntimeConfigLoader.load(insufficientInventory));
+        final var noMaintenance = values();
+        noMaintenance.put("recovery.maintenanceIntervalNanos", "0");
+        assertThrows(IllegalArgumentException.class, () -> TargetWorkerRuntimeConfigLoader.load(noMaintenance));
+    }
+
+    @Test
+    void hostChecksActualDispatcherAndCertifiedResourcesBeforeStartingSchedulers() {
+        final var loaded = TargetWorkerRuntimeConfigLoader.load(values());
+        final var classes = loaded.newWorkClasses(() -> 0);
+        // The injected observation is synthetic; this test makes no current-host probe claim.
+        final var observation = new WorkerRuntimeResourceObservation(128, 128, 128, 640, 32, 1, 4096, 4096);
+        try (var resources = new SharedRocksDbResources(loaded.store(), loaded.resources(), observation)) {
+            loaded.requireRuntime(classes, resources);
+            final var differentPolicies = values();
+            differentPolicies.put("scheduling.maxClassDelayNanos", "1001");
+            final var different = TargetWorkerRuntimeConfigLoader.load(differentPolicies);
+            assertEquals("work-class dispatcher configuration differs from the Target Worker",
+                    assertThrows(IllegalArgumentException.class, () -> TargetWorkerHostRuntime.start(
+                            loaded, different.newWorkClasses(() -> 0), resources, java.util.List.of(), ignored -> {}))
+                            .getMessage());
+            final var differentRoot = values();
+            differentRoot.put("worker.rootPath", root.resolve("other-db").toString());
+            assertThrows(IllegalArgumentException.class,
+                    () -> TargetWorkerRuntimeConfigLoader.load(differentRoot).requireRuntime(classes, resources));
+            final var differentEnvelope = values();
+            differentEnvelope.put("worker.filesystemBytes", "8192");
+            assertEquals("certified resource envelope differs from the Target Worker",
+                    assertThrows(IllegalArgumentException.class, () -> TargetWorkerRuntimeConfigLoader.load(
+                            differentEnvelope).requireRuntime(classes, resources)).getMessage());
+            resources.recordRuntimeProbeFailure(new IllegalStateException("fixture probe failed"));
+            assertThrows(IllegalStateException.class, () -> loaded.requireRuntime(classes, resources));
+        }
+        try (var unprobed = new SharedRocksDbResources(loaded.store(), loaded.resources())) {
+            assertEquals("Worker activation requires a runtime-probed resource envelope",
+                    assertThrows(IllegalStateException.class, () -> TargetWorkerHostRuntime.start(
+                            loaded, classes, unprobed, java.util.List.of(), ignored -> {})).getMessage());
+        }
+        assertEquals(false, Files.exists(root.resolve("other-db")));
     }
 
     /** Synthetic numeric fixture, not a release capacity declaration or runtime observation. */
@@ -109,6 +152,10 @@ class TargetWorkerRuntimeConfigTest {
                 "drains", "checkpointIoBytesPerSecond")) { v.put("recovery." + key, "1"); }
         v.put("recovery.checkpointRestoreTempBytes", "64");
         v.put("recovery.compactionTempBytes", "64");
+        v.put("recovery.maintenanceTurnMessages", "1");
+        v.put("recovery.maintenanceTurnBytes", "1024");
+        v.put("recovery.maintenanceTurnNanos", "1000");
+        v.put("recovery.maintenanceIntervalNanos", "1000");
         for (final var workClass : WorkClass.values()) {
             final String p = "scheduling.class." + workClass.name() + '.';
             v.put(p + "weight", "1");

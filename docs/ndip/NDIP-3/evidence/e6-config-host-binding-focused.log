@@ -1,0 +1,117 @@
+E6 configured Host binding development checks
+Baseline: 639ef12978348ae4709a92c7af4ce7befabe2ac6
+Scope: explicit maintenance/Source/ordinary config and exact local graph refusal; synthetic observation only.
+No current Linux probe, Broker/native Owner/provider assembly, full acceptance or production authority.
+
+Command: GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew test --tests com.nereusstream.delay.ownership.TargetWorkerRuntimeConfigTest --tests com.nereusstream.delay.ownership.TargetWorkerShardFleetRuntimeTest --tests com.nereusstream.delay.scheduler.WorkClassExecutionRegistryTest checkstyleMain checkstyleTest --no-daemon --console=plain
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava UP-TO-DATE
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses UP-TO-DATE
+> Task :test
+> Task :checkstyleTest
+> Task :checkstyleMain
+
+BUILD SUCCESSFUL in 33s
+15 actionable tasks: 5 executed, 10 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+
+ownership.TargetWorkerRuntimeConfigTest {"tests": "4", "failures": "0", "errors": "0", "skipped": "0", "timestamp": "2026-10-11T10:35:55.374Z"}
+XML_SHA256 3accd8d785965534527ea462137470eb2420cac9c11650d98a44e357f4eb01da build/test-results/test/TEST-com.nereusstream.delay.ownership.TargetWorkerRuntimeConfigTest.xml
+
+ownership.TargetWorkerShardFleetRuntimeTest {"tests": "18", "failures": "0", "errors": "0", "skipped": "0", "timestamp": "2026-10-11T10:35:55.542Z"}
+XML_SHA256 0309488c5513bc7c43489d1d2c9a58ef3cc3165b08020f087e57851bc5d7dee1 build/test-results/test/TEST-com.nereusstream.delay.ownership.TargetWorkerShardFleetRuntimeTest.xml
+
+scheduler.WorkClassExecutionRegistryTest {"tests": "7", "failures": "0", "errors": "0", "skipped": "0", "timestamp": "2026-10-11T10:35:56.155Z"}
+XML_SHA256 df9279eb6131e812631937132532836c4e5ab8dec836f2cb86c4ffd87e9878c4 build/test-results/test/TEST-com.nereusstream.delay.scheduler.WorkClassExecutionRegistryTest.xml
+SOURCE_SHA256 cb78c07b1e4aec83d60ec45fbb1f32a59bc857d623014bd9a62c2077adb767d6 src/main/java/com/nereusstream/delay/ownership/TargetWorkerRuntimeConfig.java
+SOURCE_SHA256 b2be42a6f962fb5eedd4dca5e1b48b2c541fa51459b6b6dde07a30071fb2fd4c src/main/java/com/nereusstream/delay/ownership/TargetWorkerRuntimeConfigLoader.java
+SOURCE_SHA256 3e79f27d1a1a66c408410c4103ca8dfc2462bef6485c56b699b7ef277e0b28a1 src/main/java/com/nereusstream/delay/ownership/TargetWorkerHostRuntime.java
+SOURCE_SHA256 e889d58a4e9b28dac7ca978dd872f4e8eea43e99f2c34db20d88e7468060d26e src/main/java/com/nereusstream/delay/ownership/TargetWorkerShardRuntime.java
+SOURCE_SHA256 f8cf1514a50572d5ede60d26c08e187a669411af56d818510eae0a82a0bd330f src/main/java/com/nereusstream/delay/ownership/TargetSourceApplyRuntime.java
+SOURCE_SHA256 6f27b0c4afffbf44b421a640bc5c0a91866d1c383bf9a5525eec188dcc82d0cb src/main/java/com/nereusstream/delay/scheduler/WorkClassExecutionRegistry.java
+SOURCE_SHA256 1a81312fbc41664e165554c353c1515738c303f0fbc02fddad5e9e7f76f22847 src/main/java/com/nereusstream/delay/store/SharedRocksDbResources.java
+SOURCE_SHA256 b617df0cac992d8f21e5cac6d383627223934b325a2a1dcd80e45f203dffdb2d src/test/java/com/nereusstream/delay/ownership/TargetWorkerRuntimeConfigTest.java
+
+Command: GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew checkDocumentation --no-daemon --console=plain
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+
+> Task :testNdip1ImplementationVerifier
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 58.194s
+
+OK
+
+> Task :testNdip1PackageVerifier
+..............
+----------------------------------------------------------------------
+Ran 14 tests in 0.095s
+
+OK
+
+> Task :verifyNdip1HistoricalClosure
+proposal=NDIP-1
+receipt_status=IMPLEMENTED
+lifecycle_authority=true
+implementation=CLOSED
+lifecycle=CLOSED
+certified_commit=b4e077e9978f262cdb93cf3562ea12eee32430e2
+runtime_source_sha256=03ce17ede4b9e70e2f70dd2bbef681087f529159549a4cd979d0d7aa34fa9948
+runtime_source_files=835
+implemented_package_sha256=792ca54e239d884ba6f95315747f565bab57ee0fc02338a77369cb19bbe8e8a7
+staging_run=20260901055333-78920
+deployment=SEPARATE_FUTURE_WORK
+performance_and_scale=SEPARATE_FUTURE_WORK
+production_rollout=SEPARATE_FUTURE_WORK
+production_authority=false
+
+> Task :verifyNdip1PackageAccepted
+proposal=NDIP-1
+receipt_status=ACCEPTED
+authority=true
+package_source_commit=77ffa61136c0cd401244ebea4375a5a18b097b17
+file_sha256 70d9dd7c113fa5f457a20a97996322ef9a2018772efd225aa982c13ec4935140 docs/ndip/NDIP-1/01-调查与决策记录.md
+file_sha256 c167ed42dd29c383c08a8a102f36b0e4deee8ae5c7a5da115a09d04ffcb9fa6f docs/ndip/NDIP-1/02-NDIP-1-Pulsar-Native-Delivery.md
+file_sha256 9affafa81952959d39ed9c09a00abe6b84da4fd3b0b6280422f297684d56f727 docs/ndip/NDIP-1/03-实施计划.md
+file_sha256 2a26c107cd69ee522ea138b3487b8ec206e913acc6ad5b862aa69288ddcaa88e docs/ndip/NDIP-1/04-代码级目标设计.md
+package_sha256=13caab8ecdc201901f06e905f1c0bf9792780e50c6f5948f93abf2bdb8f4d21b
+gate_b=PASS
+implementation=AUTHORIZED
+local_disposable_testing=AUTHORIZED_WITH_EXACT_ATTESTATION
+gate_c=PENDING_DEPLOYMENT
+shadow=BLOCKED_BY_GATE_C
+enabled=BLOCKED_BY_GATE_C_AND_SHADOW_REQUIREMENTS
+
+> Task :verifyNdip2PackageAccepted
+proposal=NDIP-2
+receipt_status=ACCEPTED
+authority=true
+file_sha256 0a105fb2b73d63cabddf42d0ba3d5a9590b4edddd47242495f196bf56d15f642 docs/ndip/NDIP-2/01-NDIP-生命周期与认证源码权威分层.md
+file_sha256 c882ecaa32413cb9e177243cf3efe91b97810c3cc10be81e61e7e458030c4ffa docs/ndip/NDIP-2/02-实施计划.md
+file_sha256 ec1ba68ab3ac91aa667647e6289cd252b99da84d899f42f879821d6e5d7752e9 docs/ndip/NDIP-2/03-代码级目标设计.md
+package_sha256=856e1d768210a31fc9aad811af3a93c1de33189cc03c65bc1e36d57affbf10db
+gate_b=PASS
+implementation=AUTHORIZED
+deployment_authority=false
+
+> Task :checkDocumentation
+
+BUILD SUCCESSFUL in 1m 16s
+6 actionable tasks: 6 executed
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html

@@ -158,6 +158,12 @@ public final class TargetWorkerShardRuntime
         }
     }
 
+    void requireRuntimeConfiguration(final TargetWorkerRuntimeConfig config) {
+        final var expected = Objects.requireNonNull(config, "config");
+        expected.requireRuntime(workClasses, resources);
+        target.requireRuntimeLimits(expected.source());
+    }
+
     public synchronized SourceApplyCoordinator.TurnResult runSourceTurn(
             final SchedulerBudget budget, final LongSupplier ownerClock) {
         requireNewTurnsAdmitted();

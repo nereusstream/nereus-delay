@@ -26,7 +26,9 @@ public record TargetWorkerRuntimeConfig(
         TargetWorkerTargetInventory.Limits inventory,
         TargetWorkerOrdinaryDrr.Limits ordinary,
         SchedulerBudget ordinaryTurn,
-        Duration ordinaryRecheckInterval) {
+        Duration ordinaryRecheckInterval,
+        SchedulerBudget maintenanceTurn,
+        Duration maintenanceInterval) {
     public TargetWorkerRuntimeConfig {
         Objects.requireNonNull(store, "store");
         Objects.requireNonNull(resources, "resources");
@@ -37,6 +39,8 @@ public record TargetWorkerRuntimeConfig(
         Objects.requireNonNull(ordinary, "ordinary");
         Objects.requireNonNull(ordinaryTurn, "ordinaryTurn");
         Objects.requireNonNull(ordinaryRecheckInterval, "ordinaryRecheckInterval");
+        Objects.requireNonNull(maintenanceTurn, "maintenanceTurn");
+        Objects.requireNonNull(maintenanceInterval, "maintenanceInterval");
         resources.validate(store);
         WorkerCapacityAdmission.requireFits(resources, hardCaps, List.of(),
                 CapacityVector.empty(), CapacityVector.empty());
@@ -49,11 +53,13 @@ public record TargetWorkerRuntimeConfig(
         }
         if (ordinaryTurn.maxBytes() < ordinary.sendEnvelopeBytes()
                 || ordinaryTurn.maxElapsedNanos() < ordinary.readElapsedNanos()
-                || ordinaryRecheckInterval.isZero() || ordinaryRecheckInterval.isNegative()) {
+                || ordinaryRecheckInterval.isZero() || ordinaryRecheckInterval.isNegative()
+                || maintenanceInterval.isZero() || maintenanceInterval.isNegative()) {
             throw new IllegalArgumentException("ordinary turn/recheck cannot serve its configured envelope");
         }
         try {
             ordinaryRecheckInterval.toNanos();
+            maintenanceInterval.toNanos();
             final long creditRounds = 1 + (ordinary.maximumCostBytes() - 1) / ordinary.quantumBytes();
             Math.multiplyExact((long) inventory.maximumTargets(), creditRounds);
             final long summaries = Math.multiplyExact((long) store.maxOwnedShards(), inventory.maximumTargets());
@@ -90,6 +96,17 @@ public record TargetWorkerRuntimeConfig(
 
     public WorkClassExecutionRegistry newWorkClasses(LongSupplier clock) {
         return new WorkClassExecutionRegistry(workClasses, Objects.requireNonNull(clock, "clock"));
+    }
+
+    public SchedulerBudget sourceTurn() {
+        final var policy = workClasses.policies().get(WorkClass.SOURCE_APPLY);
+        return new SchedulerBudget(policy.maxRecordsPerTurn(), policy.maxBytesPerTurn(), policy.maxTimePerTurnNanos());
+    }
+
+    /** Rejects mixed configurations before Host schedulers or queue wakeups are admitted. */
+    public void requireRuntime(WorkClassExecutionRegistry classes, SharedRocksDbResources sharedResources) {
+        Objects.requireNonNull(classes, "classes").requireConfiguration(workClasses);
+        Objects.requireNonNull(sharedResources, "sharedResources").requireWorkerConfiguration(store, resources);
     }
 
     /** Upper bounds on retained per-Shard summaries and ordinary/native domain heads; not a measured cost claim. */

@@ -527,3 +527,5 @@ Scheduled Target candidates now capture an exact protected source cut before cre
 2026-10-11 E6：显式closed Target Worker配置loader与现有资源/policy容量校验、checked
 摘要/head上界及runtime-probed资源入口已实现。Config3/styles与相关资源-capacity检查
 通过；生产有限成本配置、背压/Host/Handoff/provider装配与集中验收继续开放，不提升flags。
+
+2026-10-11 E6后续：统一配置接Host/Source turn/ordinary及后续Shard admission，写前拒绝dispatcher/Store/certified资源/Source limits混配；维护turn/interval显式配置。实际SDK/provider/monitor/capacity/背压组合仍未完成，集中验收保持延期。

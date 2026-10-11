@@ -2193,14 +2193,22 @@ TargetWorkerRuntimeConfigLoader consumes a closed string map with no resource de
 keys are defined by the loader: worker.* covers RocksDB/process/container/filesystem/control reserve
 and every worker.hardCap.CAPACITY_DIMENSION; target.* covers Source reads, maximum action frame,
 domains/counters and inventory; scheduling.* covers all eight class policies plus DRR/turn/recheck;
-recovery.* covers checkpoint/drain slots, I/O and temporary headroom. S comes only from
+recovery.* covers checkpoint/drain slots, I/O, temporary headroom and maintenance turns/interval. S comes only from
 worker.maxOwnedShards. Missing/unknown/unbounded fields fail before native allocation.
 
 Use config.requireCapacity with actual protected external Shard envelopes, fixed cost and transition
 demand before admission; config.openResources requires the real Linux JVM/procfs/cgroup/filesystem
-probe. Config.newWorkClasses uses the same configured policy set. Source read-record allowance is
+probe. Config.newWorkClasses uses the same configured policy set. Start the configured Host with
+TargetWorkerHostRuntime.start(config, classes, resources, shards, failureConsumer); it checks actual
+dispatcher policies, exact Store configuration, currently certified/probed resource envelope and every
+Shard's Source limits before starting maintenance. Later Shard admission repeats those checks.
+Start ordinary scheduling through the configured Host overload; alternate explicit limits must match
+the bound configuration. Host.runNextSourceTurn(ownerClock) derives its turn from SOURCE_APPLY policy;
+the explicit Source-turn overload also requires that same budget on a configured Host.
+recovery.maintenanceTurnMessages/maintenanceTurnBytes/maintenanceTurnNanos/maintenanceIntervalNanos
+are required finite fields. Source read-record allowance is
 not the record count of one Source action. Declared frame/service maxima must cover actual enabled
 protocol costs; the full maximum-legal-mutation envelope remains pending and must be established
 before production activation. No numeric release example is certified here. Dynamic Handoff policy,
-strict/retained/producer resources, ingress/backpressure and full Host/provider assembly still need
+strict/retained/producer resources, ingress/backpressure and full provider assembly still need
 integration. This local config is not a placement, pin, publication or deployment authority.

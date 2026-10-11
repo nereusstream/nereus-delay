@@ -69,7 +69,10 @@ public final class TargetWorkerRuntimeConfigLoader {
                 f.number("scheduling.turnBytes"), f.number("scheduling.turnNanos"));
         final var config = new TargetWorkerRuntimeConfig(store, resources, new CapacityVector(caps), workClasses,
                 source, f.number("target.maximumSourceFrameBytes"), inventory, ordinary, turn,
-                Duration.ofNanos(f.number("scheduling.recheckNanos")));
+                Duration.ofNanos(f.number("scheduling.recheckNanos")),
+                new SchedulerBudget(f.integer("recovery.maintenanceTurnMessages"),
+                        f.number("recovery.maintenanceTurnBytes"), f.number("recovery.maintenanceTurnNanos")),
+                Duration.ofNanos(f.number("recovery.maintenanceIntervalNanos")));
         f.requireComplete();
         return config;
     }

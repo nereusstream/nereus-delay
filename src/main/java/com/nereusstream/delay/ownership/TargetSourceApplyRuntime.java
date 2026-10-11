@@ -625,6 +625,12 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         }
     }
 
+    synchronized void requireRuntimeLimits(final Limits expected) {
+        if (!limits.equals(Objects.requireNonNull(expected, "expected"))) {
+            throw new IllegalArgumentException("Target Source limits differ from the Worker configuration");
+        }
+    }
+
     /**
      * Commits one selected Target head under the active Owner and Store graph. The supplied write
      * authority must also protect current time, policy, permits and the complete Owner identity.

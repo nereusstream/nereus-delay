@@ -165,6 +165,17 @@ public final class SharedRocksDbResources implements AutoCloseable {
         }
     }
 
+    /** Matches the actual native resource graph and currently certified, probed envelope at Host activation. */
+    public synchronized void requireWorkerConfiguration(
+            final ShardStoreConfig expectedConfig, final WorkerResourceEnvelope expectedEnvelope) {
+        requireConfig(expectedConfig);
+        requireWorkerActivationReady();
+        if (!java.util.Arrays.equals(runtimeSafetyGate.certifiedEnvelopeDigest(),
+                Objects.requireNonNull(expectedEnvelope, "expectedEnvelope").digest())) {
+            throw new IllegalArgumentException("certified resource envelope differs from the Target Worker");
+        }
+    }
+
     /**
      * Binds this complete Worker Store/resource envelope to one execution registry.
      * Both directions are exact-identity fenced so neither queue capacity nor

@@ -25,17 +25,25 @@ import java.util.function.LongSupplier;
  * must be rebuilt from shard/source/checkpoint indexes after process loss.</p>
  */
 public final class WorkClassExecutionRegistry {
+    private final WorkClassRuntimeConfig config;
     private final WorkClassDispatcher dispatcher;
     private final Map<TaskKey, RegisteredAction> actions = new HashMap<>();
     private final EnumMap<WorkerSingleton, Object> workerSingletons = new EnumMap<>(WorkerSingleton.class);
 
     public WorkClassExecutionRegistry(final WorkClassRuntimeConfig config, final LongSupplier monotonicClockNanos) {
-        Objects.requireNonNull(config, "config");
+        this.config = Objects.requireNonNull(config, "config");
         final EnumMap<WorkClass, Consumer<WorkClassTask>> handlers = new EnumMap<>(WorkClass.class);
         for (WorkClass workClass : WorkClass.values()) {
             handlers.put(workClass, this::execute);
         }
         dispatcher = config.newDispatcher(monotonicClockNanos, handlers);
+    }
+
+    /** Validates the immutable policies used to construct this actual dispatcher. */
+    public void requireConfiguration(final WorkClassRuntimeConfig expected) {
+        if (!config.equals(Objects.requireNonNull(expected, "expected"))) {
+            throw new IllegalArgumentException("work-class dispatcher configuration differs from the Target Worker");
+        }
     }
 
     /** Atomically registers an exact action and offers its bounded queue identity. */
