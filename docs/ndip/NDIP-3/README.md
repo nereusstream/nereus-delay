@@ -1,5 +1,9 @@
 # NDIP-3 工作包：目标分区队列收敛与调度热路径改造
 
+2026-10-11后续：K1/P1 caller-owned有限SDK async provider已接实际Worker-cut collector，
+两套Broker positive专项和optional编译/样式通过；K1进入同cut schema2文件链。生产资源/
+完整认证与pins、故障cleanup和正式发布/恢复/迁移清退仍开放，状态与延期策略保持。
+
 2026-10-11后续：Control history的异步collector已绑定一次实际Worker/Store物理cut，
 Source/local写及Owner失权使pending或完成结果失效；真实Oxia双session定向2项与样式
 通过。真实Broker异步provider/清理/pins、完整语义与发布/恢复组合及迁移清退仍待实施，

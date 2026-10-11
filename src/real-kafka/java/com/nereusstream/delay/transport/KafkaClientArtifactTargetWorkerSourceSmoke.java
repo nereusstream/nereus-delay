@@ -73,7 +73,6 @@ import java.nio.file.Path;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.EnumMap;
@@ -1153,34 +1152,8 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
             ShardStore store, TargetStoreBackend backend, TargetQuotaScope scope, OwnerLease owner,
             OxiaOwnerLeaseStore leases, Path storeRoot, Admin admin, String bootstrap, String physicalTopic,
             String groupId, KeyPair signingKeys) throws Exception {
-        final var reads = budget();
         final var ledgerLimits = new TargetCheckpointRootVerifier.LedgerAuditLimits(4096, 32L << 20, 16_384, 32L << 20);
-        final var dependencies = backend.guardedRead(reads, reader -> {
-            final var bookkeeping = com.nereusstream.delay.protocol.TargetQuotaBookkeeping.decode(
-                    com.nereusstream.delay.store.TargetValueEnvelope.decode(reader.get(
-                            com.nereusstream.delay.store.ColumnFamily.META,
-                            com.nereusstream.delay.protocol.TargetQuotaBookkeeping.keyFor(scope.shard())),
-                            com.nereusstream.delay.protocol.TargetQuotaBookkeeping.VALUE_TYPE).payload());
-            final byte[] key = bookkeeping.owner().key();
-            key[0] = com.nereusstream.delay.store.TargetKeyCodec.QUOTA_INCARNATION_TAG;
-            final var root = com.nereusstream.delay.protocol.TargetQuotaIncarnation.decodeForStore(key,
-                    com.nereusstream.delay.store.TargetValueEnvelope.decode(reader.get(
-                            com.nereusstream.delay.store.ColumnFamily.META, key),
-                            com.nereusstream.delay.protocol.TargetQuotaIncarnation.VALUE_TYPE).payload(),
-                    scope.shard(), scope.tenantScope());
-            final var aggregate = reader.aggregate();
-            return TargetCheckpointRootVerifier.auditLiveStoreDependencies(store,
-                    new TargetCheckpointRootVerifier.RootProof(reader.metadata(), aggregate.mutation().source(),
-                            aggregate.mutation().sequence(), root, bookkeeping, aggregate), ledgerLimits, reads);
-        }, ownerReadAuthority(leases, owner));
-        if (!dependencies.profiles().isEmpty() || !dependencies.retryPolicies().isEmpty()
-                || !dependencies.trustSets().isEmpty() || !dependencies.admissions().isEmpty()) {
-            throw new IllegalStateException("Cancel/NOT_FOUND semantic candidate unexpectedly has version inputs");
-        }
         final var semanticLimits = new TargetCheckpointSemanticSnapshot.Limits(64, 1 << 20, 1 << 20);
-        final var component = TargetCheckpointSemanticSnapshot.collect(dependencies, List.of(), emptySemanticProfiles(),
-                (ref, at) -> { throw new AssertionError("unexpected Retry Policy input"); },
-                ref -> { throw new AssertionError("unexpected Trust Set input"); }, budget(), semanticLimits, () -> {});
         final Map<String, Object> historyConfig = Map.of(
                 ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap, ConsumerConfig.GROUP_ID_CONFIG, groupId,
                 ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName(),
@@ -1196,13 +1169,47 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                 throw new IllegalStateException("Control history lost its test Owner/Store-lock boundary");
             }
         };
-        final var inputs = new ArrayList<com.nereusstream.delay.store.TargetCheckpointDependencies.ControlImage>();
-        for (final var ref : dependencies.controlReferences()) {
-            final var image = KafkaClientArtifactTargetAdmissionHistory.readControl(historyConfig, physicalTopic,
-                    ref, Duration.ofSeconds(10), historyGuard);
-            inputs.add(new com.nereusstream.delay.store.TargetCheckpointDependencies.ControlImage(
-                    ref.source(), image));
+        final var executor = new java.util.concurrent.ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS,
+                new java.util.concurrent.ArrayBlockingQueue<>(1),
+                new java.util.concurrent.ThreadPoolExecutor.AbortPolicy());
+        final com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Result collected;
+        try {
+            final var collector = new com.nereusstream.delay.ownership.TargetCheckpointControlInputs(worker,
+                    KafkaClientArtifactTargetWorkerSourceSmoke::budget, ledgerLimits,
+                    ref -> KafkaClientArtifactTargetAdmissionHistory.readControlAsync(historyConfig, physicalTopic,
+                            ref, Duration.ofSeconds(10), historyGuard, executor),
+                    new com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Limits(64, 1 << 20),
+                    System::currentTimeMillis);
+            final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(25);
+            while (true) {
+                final var turn = collector.runTurn();
+                if (turn.status() == com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.FAILED) {
+                    throw new IllegalStateException("K1 async Control collection failed", turn.failure());
+                }
+                if (turn.status() == com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.COMPLETE) {
+                    collected = collector.result().orElseThrow();
+                    break;
+                }
+                if (System.nanoTime() >= deadline) { throw new IllegalStateException("K1 Control inputs deadline"); }
+                Thread.sleep(5);
+            }
+        } finally {
+            executor.shutdown();
+            if (!executor.awaitTermination(25, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("K1 caller-owned history executor did not terminate");
+            }
         }
+        final var dependencies = collected.cut().dependencies();
+        final var inputs = collected.inputs();
+        if (!dependencies.profiles().isEmpty() || !dependencies.retryPolicies().isEmpty()
+                || !dependencies.trustSets().isEmpty() || !dependencies.admissions().isEmpty()) {
+            throw new IllegalStateException("Cancel/NOT_FOUND semantic candidate unexpectedly has version inputs");
+        }
+        final var component = TargetCheckpointSemanticSnapshot.collect(
+                dependencies, List.of(), emptySemanticProfiles(),
+                (ref, at) -> { throw new AssertionError("unexpected Retry Policy input"); },
+                ref -> { throw new AssertionError("unexpected Trust Set input"); },
+                budget(), semanticLimits, historyGuard);
         final var snapshot = component.withControlInputs(dependencies, inputs, budget(), semanticLimits,
                 (input, first) -> { historyGuard.run(); return signingKeys.getPublic(); }, historyGuard);
         if (snapshot.schemaVersion() != 2 || inputs.size() != 1 || store.latestSequenceNumber() != beforeHistory
@@ -1210,7 +1217,7 @@ public final class KafkaClientArtifactTargetWorkerSourceSmoke {
                         .partitionsToOffsetAndMetadata().get(10, TimeUnit.SECONDS))) {
             throw new IllegalStateException("Control history changed the active group/Store or omitted the root input");
         }
-        System.out.println("K1 original Control history matched full Source/first result; group/Store unchanged; "
+        System.out.println("K1 async Control history matched actual Worker cut; group/Store unchanged; "
                 + "schema2 snapshot uses explicit issuer/history protection fixtures.");
         final UUID id = UUID.randomUUID();
         final byte[] checkpointId = java.nio.ByteBuffer.allocate(16).putLong(id.getMostSignificantBits())

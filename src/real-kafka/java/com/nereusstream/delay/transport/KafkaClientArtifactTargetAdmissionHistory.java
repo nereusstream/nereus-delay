@@ -53,6 +53,34 @@ public final class KafkaClientArtifactTargetAdmissionHistory {
                 ref::requireImage);
     }
 
+    /** Caller owns a bounded executor and all operation/pin obligations, including after cancellation or failure. */
+    public static java.util.concurrent.CompletableFuture<SystemMutation> readControlAsync(
+            final Map<String, Object> configuration, final String physicalTopic,
+            final TargetCheckpointDependencies.ControlReference reference, final Duration timeout,
+            final Runnable historyGuard, final java.util.concurrent.ThreadPoolExecutor executor) {
+        final var config = new HashMap<>(Objects.requireNonNull(configuration, "configuration"));
+        final var ref = Objects.requireNonNull(reference, "reference");
+        final var guard = Objects.requireNonNull(historyGuard, "historyGuard");
+        final var pool = Objects.requireNonNull(executor, "executor");
+        if (pool.getMaximumPoolSize() == Integer.MAX_VALUE
+                || (long) pool.getQueue().size() + pool.getQueue().remainingCapacity() >= Integer.MAX_VALUE
+                || pool.getRejectedExecutionHandler().getClass()
+                        != java.util.concurrent.ThreadPoolExecutor.AbortPolicy.class) {
+            throw new IllegalArgumentException("history executor must have finite threads/queue and abort on overflow");
+        }
+        final long timeoutMs = Objects.requireNonNull(timeout, "timeout").toMillis();
+        if (timeoutMs < 1 || timeoutMs > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException("async history timeout must fit a positive millisecond int");
+        }
+        final long started = System.nanoTime();
+        guard.run();
+        return java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+            final long remaining = timeoutMs * 1_000_000L - (System.nanoTime() - started);
+            if (remaining < 1_000_000L) { throw new IllegalStateException("queued K1 history deadline expired"); }
+            return readControl(config, physicalTopic, ref, Duration.ofNanos(remaining), guard);
+        }, pool);
+    }
+
     private static SystemMutation read(final Map<String, Object> configuration, final String physicalTopic,
             final SourcePosition expectedSource, final Duration timeout, final Runnable historyGuard,
             final int maximumFrameBytes,

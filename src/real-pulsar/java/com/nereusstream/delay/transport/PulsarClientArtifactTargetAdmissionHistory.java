@@ -55,6 +55,35 @@ public final class PulsarClientArtifactTargetAdmissionHistory {
         return read(client, resource, ref.source(), timeout, historyGuard, MAX_CONTROL_FRAME_BYTES, ref::requireImage);
     }
 
+    /** Caller owns a bounded executor and operation/pin obligations; cancellation is not native-cursor cleanup. */
+    public static java.util.concurrent.CompletableFuture<SystemMutation> readControlAsync(final PulsarClient client,
+            final TopicResourceGuard resource, final TargetCheckpointDependencies.ControlReference reference,
+            final Duration timeout, final Runnable historyGuard,
+            final java.util.concurrent.ThreadPoolExecutor executor) {
+        Objects.requireNonNull(client, "client");
+        Objects.requireNonNull(resource, "resource");
+        final var ref = Objects.requireNonNull(reference, "reference");
+        final var guard = Objects.requireNonNull(historyGuard, "historyGuard");
+        final var pool = Objects.requireNonNull(executor, "executor");
+        if (pool.getMaximumPoolSize() == Integer.MAX_VALUE
+                || (long) pool.getQueue().size() + pool.getQueue().remainingCapacity() >= Integer.MAX_VALUE
+                || pool.getRejectedExecutionHandler().getClass()
+                        != java.util.concurrent.ThreadPoolExecutor.AbortPolicy.class) {
+            throw new IllegalArgumentException("history executor must have finite threads/queue and abort on overflow");
+        }
+        final long timeoutMs = Objects.requireNonNull(timeout, "timeout").toMillis();
+        if (timeoutMs < 1 || timeoutMs > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException("async history timeout must fit a positive millisecond int");
+        }
+        final long started = System.nanoTime();
+        guard.run();
+        return java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+            final long remaining = timeoutMs * 1_000_000L - (System.nanoTime() - started);
+            if (remaining < 1_000_000L) { throw new IllegalStateException("queued P1 history deadline expired"); }
+            return readControl(client, resource, ref, Duration.ofNanos(remaining), guard);
+        }, pool);
+    }
+
     private static SystemMutation read(final PulsarClient client, final TopicResourceGuard resource,
             final SourcePosition expectedSource, final Duration timeout, final Runnable historyGuard,
             final int maximumFrameBytes,

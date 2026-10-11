@@ -380,7 +380,7 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                         || store.shardMutationSequence() != 2) {
                     throw new IllegalStateException("Pulsar Target Store did not durably advance before ACK");
                 }
-                verifyControlHistory(client, guard, store, initialized.backend(), scope, leases, active, signingKeys);
+                verifyControlHistory(client, guard, store, worker, scope, leases, active, signingKeys);
             } finally {
                 if (worker.pendingSourceEntry().isEmpty()) {
                     worker.pauseNewTurns();
@@ -401,30 +401,8 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
 
     /** Actual P1 history/resource/Store correlation; issuer, Owner and retention/pin authorities are fixtures. */
     private static void verifyControlHistory(PulsarClient client, TopicResourceGuard resource, ShardStore store,
-            TargetStoreBackend backend, TargetQuotaScope scope, OxiaOwnerLeaseStore leases, OwnerLease active,
-            KeyPair signingKeys) {
-        final var reads = budget();
-        final var dependencies = backend.guardedRead(reads, reader -> {
-            final var bookkeeping = com.nereusstream.delay.protocol.TargetQuotaBookkeeping.decode(
-                    com.nereusstream.delay.store.TargetValueEnvelope.decode(reader.get(
-                            com.nereusstream.delay.store.ColumnFamily.META,
-                            com.nereusstream.delay.protocol.TargetQuotaBookkeeping.keyFor(scope.shard())),
-                            com.nereusstream.delay.protocol.TargetQuotaBookkeeping.VALUE_TYPE).payload());
-            final byte[] rootKey = bookkeeping.owner().key();
-            rootKey[0] = com.nereusstream.delay.store.TargetKeyCodec.QUOTA_INCARNATION_TAG;
-            final var root = com.nereusstream.delay.protocol.TargetQuotaIncarnation.decodeForStore(rootKey,
-                    com.nereusstream.delay.store.TargetValueEnvelope.decode(reader.get(
-                            com.nereusstream.delay.store.ColumnFamily.META, rootKey),
-                            com.nereusstream.delay.protocol.TargetQuotaIncarnation.VALUE_TYPE).payload(),
-                    scope.shard(), scope.tenantScope());
-            final var aggregate = reader.aggregate();
-            return com.nereusstream.delay.store.TargetCheckpointRootVerifier.auditLiveStoreDependencies(store,
-                    new com.nereusstream.delay.store.TargetCheckpointRootVerifier.RootProof(reader.metadata(),
-                            aggregate.mutation().source(), aggregate.mutation().sequence(), root,
-                            bookkeeping, aggregate),
-                    new com.nereusstream.delay.store.TargetCheckpointRootVerifier.LedgerAuditLimits(
-                            4096, 32L << 20, 16_384, 32L << 20), reads);
-        }, ownerReadAuthority(leases, active));
+            TargetWorkerShardRuntime worker, TargetQuotaScope scope, OxiaOwnerLeaseStore leases, OwnerLease active,
+            KeyPair signingKeys) throws Exception {
         final long before = store.latestSequenceNumber();
         final Runnable historyGuard = () -> {
             final var current = leases.current(scope.shard()).orElseThrow();
@@ -435,20 +413,46 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                 throw new IllegalStateException("P1 Control history lost its fixture Owner/Store cut");
             }
         };
-        final var inputs = new java.util.ArrayList<
-                com.nereusstream.delay.store.TargetCheckpointDependencies.ControlImage>();
-        for (final var reference : dependencies.controlReferences()) {
-            final var image = PulsarClientArtifactTargetAdmissionHistory.readControl(client, resource, reference,
-                    Duration.ofSeconds(10), historyGuard);
-            inputs.add(new com.nereusstream.delay.store.TargetCheckpointDependencies.ControlImage(
-                    reference.source(), image));
+        final var executor = new java.util.concurrent.ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS,
+                new java.util.concurrent.ArrayBlockingQueue<>(1),
+                new java.util.concurrent.ThreadPoolExecutor.AbortPolicy());
+        final com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Result collected;
+        try {
+            final var collector = new com.nereusstream.delay.ownership.TargetCheckpointControlInputs(worker,
+                    PulsarClientArtifactTargetWorkerSourceSmoke::budget,
+                    new com.nereusstream.delay.store.TargetCheckpointRootVerifier.LedgerAuditLimits(
+                            4096, 32L << 20, 16_384, 32L << 20),
+                    ref -> PulsarClientArtifactTargetAdmissionHistory.readControlAsync(client, resource, ref,
+                            Duration.ofSeconds(10), historyGuard, executor),
+                    new com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Limits(64, 1 << 20),
+                    System::currentTimeMillis);
+            final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(25);
+            while (true) {
+                final var turn = collector.runTurn();
+                if (turn.status() == com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.FAILED) {
+                    throw new IllegalStateException("P1 async Control collection failed", turn.failure());
+                }
+                if (turn.status() == com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.COMPLETE) {
+                    collected = collector.result().orElseThrow();
+                    break;
+                }
+                if (System.nanoTime() >= deadline) { throw new IllegalStateException("P1 Control inputs deadline"); }
+                Thread.sleep(5);
+            }
+        } finally {
+            executor.shutdown();
+            if (!executor.awaitTermination(25, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("P1 caller-owned history executor did not terminate");
+            }
         }
+        final var dependencies = collected.cut().dependencies();
+        final var inputs = collected.inputs();
         if (dependencies.requireControlImages(inputs, 1 << 20, budget(),
                 (input, first) -> { historyGuard.run(); return signingKeys.getPublic(); }, historyGuard).size() != 1
                 || store.latestSequenceNumber() != before) {
             throw new IllegalStateException("P1 Control history omitted the first grant or changed Store state");
         }
-        System.out.println("P1 original Control history matched full Source/first result; Store unchanged; "
+        System.out.println("P1 async Control history matched one actual Worker cut; Store unchanged; "
                 + "issuer/Owner/retention/pins remain explicit fixtures.");
     }
 
