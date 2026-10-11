@@ -140,7 +140,8 @@ final class TargetCheckpointLedgerAudit {
                             final var snapshot = TargetInitialControlSnapshot.decode(payload);
                             initialControls.add(snapshot);
                             dependencies.control(family, key, type, payload);
-                            snapshot.input().profiles().forEach(dependencies::profile);
+                            snapshot.input().profiles().forEach(ref -> dependencies.profileUse(
+                                    new TargetCheckpointDependencies.ProfileUse(ref, snapshot.input().source())));
                         }
                         if (tag >= TargetKeyCodec.STATE_TAG && tag <= TargetKeyCodec.NATIVE_POLICY_SNAPSHOT_TAG
                                 || tag == TargetKeyCodec.QUOTA_GRANT_ACTIVATION_TAG

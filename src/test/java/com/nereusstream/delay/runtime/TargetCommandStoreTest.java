@@ -8220,6 +8220,48 @@ class TargetCommandStoreTest {
                 image, manifest,
                 physicalLimits, quotaLimits, ledgerLimits, semanticLimits, controls,
                 (input, registered, mutation, at) -> keys.getPublic());
+        final var originalUses = new java.util.ArrayList<SourcePosition>();
+        final var profileProof = TargetCheckpointRootVerifier.auditManifestProfileAuthentication(image, manifest,
+                physicalLimits, quotaLimits, ledgerLimits, semanticLimits, budget(), (ref, originalUse) -> {
+                    assertFalse(Thread.holdsLock(store));
+                    originalUses.add(originalUse);
+                    return profiles.resolve(ref);
+                }, () -> assertFalse(Thread.holdsLock(store)));
+        assertFalse(originalUses.isEmpty());
+        assertTrue(originalUses.stream().anyMatch(source -> source.compareTo(manifest.appliedShardLogPosition()) < 0));
+        assertEquals(originalControlProof.root().source(), profileProof.root().source());
+        final String endpoint = System.getenv("NEREUS_DELAY_OXIA_ENDPOINT");
+        if (endpoint != null && !endpoint.isBlank()) {
+            final String prefix = "checkpoint-original-profile/" + java.util.UUID.randomUUID();
+            try (var client = com.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend.connect(
+                    endpoint, "default", prefix, java.time.Duration.ofSeconds(15), prefix + "/owner")) {
+                final var originalCatalog = new OxiaSyncSourceProfileCatalog(client, prefix + "/original");
+                final var lateCatalog = new OxiaSyncSourceProfileCatalog(client, prefix + "/late");
+                final var visibleAt = context.controls().getFirst().source();
+                for (var profile : context.profiles()) {
+                    originalCatalog.publish(profile, visibleAt);
+                    lateCatalog.publish(profile, manifest.appliedShardLogPosition());
+                }
+                final var nativeProfileProof = TargetCheckpointRootVerifier.auditManifestProfileAuthentication(
+                        image, manifest, physicalLimits, quotaLimits, ledgerLimits, semanticLimits, budget(),
+                        originalCatalog, client.backend()::assertConnectedSession);
+                assertEquals(profileProof.root().source(), nativeProfileProof.root().source());
+                assertThrows(IllegalStateException.class,
+                        () -> TargetCheckpointRootVerifier.auditManifestProfileAuthentication(image, manifest,
+                                physicalLimits, quotaLimits, ledgerLimits, semanticLimits, budget(), lateCatalog,
+                                client.backend()::assertConnectedSession));
+                System.out.println("Native Oxia Profile semantics visibility authenticated original uses and "
+                        + "rejected later-only publication for " + current.phase());
+            } catch (io.oxia.client.api.exceptions.OxiaException | java.io.IOException failure) {
+                throw new AssertionError("native Profile visibility fixture failed", failure);
+            }
+        }
+
+        assertThrows(IllegalStateException.class,
+                () -> TargetCheckpointRootVerifier.auditManifestProfileAuthentication(image, manifest,
+                        physicalLimits, quotaLimits, ledgerLimits, semanticLimits, budget(),
+                        (ref, originalUse) -> originalUse.equals(manifest.appliedShardLogPosition())
+                                ? profiles.resolve(ref) : null, () -> {}));
         final var proof = TargetCheckpointRootVerifier.auditManifestAdmissionAuthentication(image, manifest,
                 physicalLimits, quotaLimits, ledgerLimits, semanticLimits, budget(), history, admissions,
                 () -> assertFalse(Thread.holdsLock(store)));

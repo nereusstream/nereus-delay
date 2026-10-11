@@ -222,6 +222,53 @@ public final class TargetCheckpointSemanticSnapshot {
         }
     }
 
+    /** Must authenticate immutable semantic publication at this original use with held history/key/pin rights. */
+    @FunctionalInterface
+    public interface ProfileAuthority {
+        ProfileSemanticEnvelope resolve(ProfileRef reference, SourcePosition originalUse);
+    }
+
+    /** Revalidates every original Profile use and transitive Capability outside Store locks under finite protection. */
+    public void authenticateProfiles(TargetCheckpointDependencies dependencies, Limits limits,
+            BoundedReadBudget budget, ProfileAuthority authority, Runnable protectionGuard) {
+        Objects.requireNonNull(authority, "authority");
+        Objects.requireNonNull(budget, "budget");
+        Objects.requireNonNull(protectionGuard, "protectionGuard").run();
+        validateAgainst(dependencies, limits);
+        final var complete = dependencies.withAdmissionImages(admissions, limits.maximumAdmissionFrameBytes());
+        final var values = new TreeMap<String, ProfileSemanticEnvelope>();
+        profiles.forEach(value -> values.put(Bytes.hex(value.ref().canonicalBytes()), value));
+        final var pending = new TreeMap<String, TargetCheckpointDependencies.ProfileUse>();
+        complete.profileUses().forEach(use -> pending.put(Bytes.hex(use.canonicalBytes()), use));
+        final var seen = new java.util.HashSet<String>();
+        final var covered = new java.util.HashSet<String>();
+        while (!pending.isEmpty()) {
+            final var selected = pending.pollFirstEntry();
+            if (!seen.add(selected.getKey())) { continue; }
+            final var use = selected.getValue();
+            final var expected = values.get(Bytes.hex(use.reference().canonicalBytes()));
+            if (expected == null) { throw new IllegalArgumentException("Profile use lacks companion semantics"); }
+            before(budget, protectionGuard);
+            final var authenticated = authority.resolve(use.reference(), use.source());
+            protectionGuard.run();
+            if (authenticated == null || !Arrays.equals(expected.canonicalBytes(), authenticated.canonicalBytes())) {
+                throw new IllegalStateException("Profile semantics not authenticated at their original Source use");
+            }
+            charge(budget, use.canonicalBytes().length, authenticated.canonicalBytes().length);
+            covered.add(Bytes.hex(use.reference().canonicalBytes()));
+            if (expected.body() instanceof DestinationProfileSemantic destination) {
+                final var capability = new TargetCheckpointDependencies.ProfileUse(
+                        destination.deliveryCapability(), use.source());
+                pending.put(Bytes.hex(capability.canonicalBytes()), capability);
+            }
+        }
+        if (!covered.equals(values.keySet())) {
+            throw new IllegalArgumentException("Profile semantic closure lacks original Source uses");
+        }
+        protectionGuard.run();
+        if (!budget.beforeTimedWork()) { throw budget.incomplete(); }
+    }
+
     /** Cheap admission identity check; the complete physical ledger is still required before placement. */
     public void requireCut(StoreMetadata expectedMetadata, SourcePosition expectedSource, long expectedSequence,
             byte[] expectedLineage) {

@@ -1,0 +1,314 @@
+C5 original-use Profile semantics authentication scoped receipt.
+Baseline a4949b33e4eefc80c250d1d51b3fdbb6e62b5beb; main, single agent.
+No format2 publication/install/Floor/production promotion; central validation deferred.
+
+Commands (GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle, --no-daemon --console=plain):
+./gradlew test --tests com.nereusstream.delay.runtime.OxiaSyncSourceProfileCatalogTest --tests com.nereusstream.delay.store.TargetCheckpointSemanticSnapshotTest --tests com.nereusstream.delay.runtime.TargetCommandStoreTest.checkpointAdmissionAuthenticationPreservesUnknownAndResolvedOriginalSource checkstyleMain checkstyleTest
+Shared ledger: ./gradlew test --tests com.nereusstream.delay.runtime.TargetQuotaGrantStoreTest.signedFirstGrantCommitsAllocationResultAndPositionWhileExternalFailureMakesNoWrite
+
+/private/tmp/ndip3-profile-use-auth-focused.log
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :checkstyleTest
+> Task :checkstyleMain
+
+BUILD SUCCESSFUL in 41s
+15 actionable tasks: 7 executed, 8 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+
+/private/tmp/ndip3-profile-use-auth-catalog.log
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+
+> Task :compileTestJava FAILED
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/OxiaSyncSourceProfileCatalogTest.java:39: 错误: 不兼容的类型: ProfileKind无法转换为byte[]
+        assertNull(reopened.resolve(new ProfileRef(policy.profileKind(), policy.profileId(), 1, new byte[32]), at));
+                                                                     ^
+注: 某些消息已经过简化; 请使用 -Xdiags:verbose 重新编译以获得完整输出
+1 个错误
+
+[Incubating] Problems report is available at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':compileTestJava'.
+> Compilation failed; see the compiler output below.
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/OxiaSyncSourceProfileCatalogTest.java:39: 错误: 不兼容的类型: ProfileKind无法转换为byte[]
+          assertNull(reopened.resolve(new ProfileRef(policy.profileKind(), policy.profileId(), 1, new byte[32]), at));
+                                                                       ^
+  注: 某些消息已经过简化; 请使用 -Xdiags:verbose 重新编译以获得完整输出
+  1 个错误
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 17s
+10 actionable tasks: 3 executed, 7 up-to-date
+
+/private/tmp/ndip3-profile-use-auth-final.log
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+
+> Task :compileTestJava FAILED
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:8236: 错误: 未报告的异常错误OxiaException; 必须对其进行捕获或声明以便抛出
+            try (var client = com.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend.connect(
+                                                                                                ^
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:8236: 错误: 未报告的异常错误IOException; 必须对其进行捕获或声明以便抛出
+            try (var client = com.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend.connect(
+                     ^
+  对资源变量 'client' 隐式调用 close() 时抛出了异常错误
+2 个错误
+
+[Incubating] Problems report is available at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':compileTestJava'.
+> Compilation failed; see the compiler output below.
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:8236: 错误: 未报告的异常错误IOException; 必须对其进行捕获或声明以便抛出
+              try (var client = com.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend.connect(
+                       ^
+    对资源变量 'client' 隐式调用 close() 时抛出了异常错误
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:8236: 错误: 未报告的异常错误OxiaException; 必须对其进行捕获或声明以便抛出
+              try (var client = com.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend.connect(
+                                                                                                  ^
+  2 个错误
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 17s
+10 actionable tasks: 2 executed, 8 up-to-date
+
+/private/tmp/ndip3-profile-use-auth-verified.log
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+
+> Task :test
+
+OxiaSyncSourceProfileCatalogTest > immutableVersionKeepsFirstVisibilityAcrossReopenAndOtherSources() FAILED
+    java.lang.IllegalArgumentException at OxiaSyncSourceProfileCatalogTest.java:102
+
+OxiaSyncSourceProfileCatalogTest > malformedOrTransplantedValuesRejectInsteadOfBecomingAbsence() FAILED
+    java.lang.IllegalArgumentException at OxiaSyncSourceProfileCatalogTest.java:102
+
+OxiaSyncSourceProfileCatalogTest > responseLossAcceptsOnlyExactDurableRereadAndCasRace() FAILED
+    java.lang.IllegalArgumentException at OxiaSyncSourceProfileCatalogTest.java:102
+
+OxiaSyncSourceProfileCatalogTest > sessionLossAfterWriteCannotBecomeSuccessfulPublicationOrRead() FAILED
+    org.opentest4j.AssertionFailedError at OxiaSyncSourceProfileCatalogTest.java:71
+        Caused by: java.lang.IllegalArgumentException at OxiaSyncSourceProfileCatalogTest.java:102
+
+8 tests completed, 4 failed
+
+> Task :test FAILED
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':test'.
+> There were failing tests. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/tests/test/index.html
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 23s
+13 actionable tasks: 3 executed, 10 up-to-date
+
+/private/tmp/ndip3-profile-use-auth-green.log
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :checkstyleTest
+> Task :checkstyleMain
+
+BUILD SUCCESSFUL in 33s
+15 actionable tasks: 5 executed, 10 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+
+/private/tmp/ndip3-profile-use-auth-shared.log
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava UP-TO-DATE
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses UP-TO-DATE
+> Task :test
+
+BUILD SUCCESSFUL in 20s
+13 actionable tasks: 2 executed, 11 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+
+Fixture construction repaired ProfileRef argument order, checked native connect/close exceptions, and illegal zero Evidence Verifier scope/digest. No production validation or assertions weakened. Final catalog4 + snapshot3 + actual nonempty image1 + shared root2 = 10 distinct local cases, zero failure/error/skip, main/test styles pass.
+LOCAL_XML OxiaSyncSourceProfileCatalogTest {"tests": "4", "failures": "0", "errors": "0", "skipped": "0"} SHA256=650167580cb3120148cf2a45510a2b8f0ec8b50f3931ded044af7045b07d9303
+LOCAL_XML TargetCheckpointSemanticSnapshotTest {"tests": "3", "failures": "0", "errors": "0", "skipped": "0"} SHA256=c1e6a0fb6c0ff7ade7267c9fe5f10409d2bafca25ce0b6c20a8f9b3b293c6c65
+LOCAL_XML TargetCommandStoreTest {"tests": "1", "failures": "0", "errors": "0", "skipped": "0"} SHA256=4d658d74ef2394d49a1f27d38310fbe35e4175bee3f553bdd5a2fb229bf0ca07
+SHARED_XML {"tests": "2", "failures": "0", "errors": "0", "skipped": "0"} SHA256=af29a5a809d13e92eaffe0951fe4d52bf0a931b0f09ad4f17ad64ffaf186fd01
+SOURCE_SHA256 93a7a0d81041e5a2df3d02a0792277dc90c7eacdcf35cc5e9d896a5aeb26b8b0 src/main/java/com/nereusstream/delay/store/TargetCheckpointDependencies.java
+SOURCE_SHA256 42b92963adf37ac2cf60dae7d5247cb1305f1e7e08d2d979efbab116991c5c9b src/main/java/com/nereusstream/delay/store/TargetCheckpointLedgerAudit.java
+SOURCE_SHA256 25a95a6c183b2c7607dd516a8db480fe013e05813440f0f168758598fad9e069 src/main/java/com/nereusstream/delay/store/TargetCheckpointSemanticSnapshot.java
+SOURCE_SHA256 2277e0d1244061b505c6bb1fac7786014777591af05389a59f39e5adac008d24 src/main/java/com/nereusstream/delay/store/TargetCheckpointRootVerifier.java
+SOURCE_SHA256 db3b2e83a3763440f296a386c6d90a01c9a1a54f718d067888614700f6df46e7 src/main/java/com/nereusstream/delay/runtime/OxiaSyncSourceProfileCatalog.java
+SOURCE_SHA256 12148e0cb57382f01dcdc3057a6a42e6d8d5d6fe3406ba2e29c9c747a0ba8418 src/test/java/com/nereusstream/delay/store/TargetCheckpointSemanticSnapshotTest.java
+SOURCE_SHA256 1297cfcd4f644b14dd576cc449b73e4901197f1163304fec7708fb78b6b5b6ec src/test/java/com/nereusstream/delay/runtime/OxiaSyncSourceProfileCatalogTest.java
+SOURCE_SHA256 94bf4b8fa50ae847a57812dd1ff57d50aaf59dc01f94f267eed3073cc4ab60ed src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java
+
+ProfileUse derives from actual initial input/Schedule binding/object reference/membership activation/original Admission Source, enriches exact complete ledger dependencies, and is not a new persisted companion field or changed dependency digest. Source-aware authority checks every original use and transitive Capability under finite reads/bytes/time/protection, rejects later-only/absent/value mismatch/missing source use, no credential head/private binding lookup. Oxia SourceProfile provider stores already-authorized public semantic publication with immutable first visibility; it does not authenticate control actor/global catalog version/key/pins itself. Original publisher/history/issuer/permissions/pins and object placeholders remain fixture authorities. No full Outcome/Artifact/credential/protection/publication/install claim.
+
+Command: GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew checkDocumentation --no-daemon --console=plain
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+
+> Task :testNdip1ImplementationVerifier
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 57.591s
+
+OK
+
+> Task :testNdip1PackageVerifier
+..............
+----------------------------------------------------------------------
+Ran 14 tests in 0.076s
+
+OK
+
+> Task :verifyNdip1HistoricalClosure
+proposal=NDIP-1
+receipt_status=IMPLEMENTED
+lifecycle_authority=true
+implementation=CLOSED
+lifecycle=CLOSED
+certified_commit=b4e077e9978f262cdb93cf3562ea12eee32430e2
+runtime_source_sha256=03ce17ede4b9e70e2f70dd2bbef681087f529159549a4cd979d0d7aa34fa9948
+runtime_source_files=835
+implemented_package_sha256=792ca54e239d884ba6f95315747f565bab57ee0fc02338a77369cb19bbe8e8a7
+staging_run=20260901055333-78920
+deployment=SEPARATE_FUTURE_WORK
+performance_and_scale=SEPARATE_FUTURE_WORK
+production_rollout=SEPARATE_FUTURE_WORK
+production_authority=false
+
+> Task :verifyNdip1PackageAccepted
+proposal=NDIP-1
+receipt_status=ACCEPTED
+authority=true
+package_source_commit=77ffa61136c0cd401244ebea4375a5a18b097b17
+file_sha256 70d9dd7c113fa5f457a20a97996322ef9a2018772efd225aa982c13ec4935140 docs/ndip/NDIP-1/01-调查与决策记录.md
+file_sha256 c167ed42dd29c383c08a8a102f36b0e4deee8ae5c7a5da115a09d04ffcb9fa6f docs/ndip/NDIP-1/02-NDIP-1-Pulsar-Native-Delivery.md
+file_sha256 9affafa81952959d39ed9c09a00abe6b84da4fd3b0b6280422f297684d56f727 docs/ndip/NDIP-1/03-实施计划.md
+file_sha256 2a26c107cd69ee522ea138b3487b8ec206e913acc6ad5b862aa69288ddcaa88e docs/ndip/NDIP-1/04-代码级目标设计.md
+package_sha256=13caab8ecdc201901f06e905f1c0bf9792780e50c6f5948f93abf2bdb8f4d21b
+gate_b=PASS
+implementation=AUTHORIZED
+local_disposable_testing=AUTHORIZED_WITH_EXACT_ATTESTATION
+gate_c=PENDING_DEPLOYMENT
+shadow=BLOCKED_BY_GATE_C
+enabled=BLOCKED_BY_GATE_C_AND_SHADOW_REQUIREMENTS
+
+> Task :verifyNdip2PackageAccepted
+proposal=NDIP-2
+receipt_status=ACCEPTED
+authority=true
+file_sha256 0a105fb2b73d63cabddf42d0ba3d5a9590b4edddd47242495f196bf56d15f642 docs/ndip/NDIP-2/01-NDIP-生命周期与认证源码权威分层.md
+file_sha256 c882ecaa32413cb9e177243cf3efe91b97810c3cc10be81e61e7e458030c4ffa docs/ndip/NDIP-2/02-实施计划.md
+file_sha256 ec1ba68ab3ac91aa667647e6289cd252b99da84d899f42f879821d6e5d7752e9 docs/ndip/NDIP-2/03-代码级目标设计.md
+package_sha256=856e1d768210a31fc9aad811af3a93c1de33189cc03c65bc1e36d57affbf10db
+gate_b=PASS
+implementation=AUTHORIZED
+deployment_authority=false
+
+> Task :checkDocumentation
+
+BUILD SUCCESSFUL in 1m 13s
+6 actionable tasks: 6 executed
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html

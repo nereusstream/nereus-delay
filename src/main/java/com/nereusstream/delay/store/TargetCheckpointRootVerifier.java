@@ -311,6 +311,23 @@ public final class TargetCheckpointRootVerifier {
         return new LedgerProof(verified.ledger().root(), authenticated);
     }
 
+    /** Original Profile semantic publication checks after the same immutable Manifest/companion image audit. */
+    public static LedgerProof auditManifestProfileAuthentication(final Path image, final CheckpointManifest manifest,
+            final CheckpointManifestLimits physicalLimits, final QuotaAuditLimits quotaLimits,
+            final LedgerAuditLimits ledgerLimits, final TargetCheckpointSemanticSnapshot.Limits semanticLimits,
+            final BoundedReadBudget authenticationBudget,
+            final TargetCheckpointSemanticSnapshot.ProfileAuthority authority,
+            final Runnable protectionGuard) {
+        Objects.requireNonNull(authenticationBudget, "authenticationBudget");
+        Objects.requireNonNull(authority, "authority");
+        Objects.requireNonNull(protectionGuard, "protectionGuard");
+        final var verified = auditManifestCompanion(image, manifest, physicalLimits, quotaLimits, ledgerLimits,
+                semanticLimits);
+        verified.snapshot().authenticateProfiles(verified.ledger().dependencies(), semanticLimits,
+                authenticationBudget, authority, protectionGuard);
+        return verified.ledger();
+    }
+
     private record ManifestCompanion(LedgerProof ledger, TargetCheckpointSemanticSnapshot snapshot) {}
 
     private static ManifestCompanion auditManifestCompanion(final Path image, final CheckpointManifest manifest,

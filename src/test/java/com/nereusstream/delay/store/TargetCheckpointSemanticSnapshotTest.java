@@ -83,6 +83,32 @@ class TargetCheckpointSemanticSnapshotTest {
                 collect(fixture, () -> {}).canonicalBytes(), new TargetCheckpointSemanticSnapshot.Limits(1, 128, 128)));
     }
 
+    @Test
+    void authenticatesOriginalProfileUseAndTransitiveCapabilityUnderFiniteProtection() throws Exception {
+        final var fixture = fixture();
+        final var snapshot = collect(fixture, () -> {});
+        final var uses = new java.util.ArrayList<ProfileRef>();
+        snapshot.authenticateProfiles(fixture.dependencies(), LIMITS, budget(64), (ref, original) -> {
+            assertEquals(fixture.source(), original);
+            uses.add(ref);
+            return profiles(fixture, true).resolve(ref);
+        }, () -> {});
+        assertTrue(uses.contains(fixture.destination().ref()));
+        assertTrue(uses.contains(fixture.capability().ref()));
+        assertEquals(2, uses.size());
+        assertThrows(IllegalStateException.class, () -> snapshot.authenticateProfiles(fixture.dependencies(), LIMITS,
+                budget(64), (ref, original) -> ref.equals(fixture.capability().ref())
+                        ? null : fixture.destination(), () -> {}));
+        assertThrows(ReadIncompleteException.class, () -> snapshot.authenticateProfiles(fixture.dependencies(), LIMITS,
+                budget(1), (ref, original) -> profiles(fixture, true).resolve(ref), () -> {}));
+        final var held = new java.util.concurrent.atomic.AtomicBoolean(true);
+        assertThrows(IllegalStateException.class, () -> snapshot.authenticateProfiles(fixture.dependencies(), LIMITS,
+                budget(64), (ref, original) -> {
+                    held.set(false);
+                    return profiles(fixture, true).resolve(ref);
+                }, () -> { if (!held.get()) { throw new IllegalStateException("Profile pin lost"); } }));
+    }
+
     private static TargetCheckpointSemanticSnapshot collect(Fixture fixture, Runnable guard) {
         return TargetCheckpointSemanticSnapshot.collect(fixture.dependencies(), List.of(), profiles(fixture, true),
                 (ref, at) -> {
@@ -151,7 +177,7 @@ class TargetCheckpointSemanticSnapshotTest {
                 new TargetQuotaAggregate(source.shardId(), root.identity().accountingIncarnation(),
                         TargetQuotaUsage.empty(), 1, stamp));
         final var builder = new TargetCheckpointDependencies.Builder(proof);
-        builder.profile(destination.ref());
+        builder.profileUse(new TargetCheckpointDependencies.ProfileUse(destination.ref(), source));
         builder.retryUse(new TargetCheckpointDependencies.RetryUse(retry.ref(), source));
         builder.trust(trust.ref());
         return new Fixture(builder.finish(List.of()), destination, capability, retry, trust, source);

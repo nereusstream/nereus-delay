@@ -77,11 +77,27 @@ public final class TargetCheckpointDependencies {
         }
     }
 
+    /** Derived original use from actual image records; never substitutes the later checkpoint Source. */
+    public record ProfileUse(ProfileRef reference, SourcePosition source) {
+        public ProfileUse {
+            Objects.requireNonNull(reference, "reference");
+            TargetSourcePosition.requireBounded(source);
+        }
+
+        public byte[] canonicalBytes() {
+            return CanonicalProtobuf.message(out -> {
+                CanonicalProtobuf.bytes(out, 1, reference.canonicalBytes());
+                CanonicalProtobuf.bytes(out, 2, source.canonicalBytes());
+            });
+        }
+    }
+
     private final TargetCheckpointRootVerifier.RootProof root;
     private final List<StoredControl> controls;
     private final List<TargetResultRecord> controlResults;
     private final List<Admission> admissions;
     private final List<ProfileRef> profiles;
+    private final List<ProfileUse> profileUses;
     private final List<RetryPolicyRef> retryPolicies;
     private final List<RetryUse> retryUses;
     private final List<PayloadProofTrustSetRef> trustSets;
@@ -95,6 +111,7 @@ public final class TargetCheckpointDependencies {
         controlResults = List.copyOf(builder.controlResults.values());
         this.admissions = List.copyOf(admissions);
         profiles = List.copyOf(builder.profiles.values());
+        profileUses = List.copyOf(builder.profileUses.values());
         retryPolicies = List.copyOf(builder.retries.values());
         retryUses = List.copyOf(builder.retryUses.values());
         trustSets = List.copyOf(builder.trusts.values());
@@ -112,6 +129,7 @@ public final class TargetCheckpointDependencies {
     }
     public List<Admission> admissions() { return admissions; }
     public List<ProfileRef> profiles() { return profiles; }
+    public List<ProfileUse> profileUses() { return profileUses; }
     public List<RetryPolicyRef> retryPolicies() { return retryPolicies; }
     public List<RetryUse> retryUses() { return retryUses; }
     public List<PayloadProofTrustSetRef> trustSets() { return trustSets; }
@@ -342,7 +360,7 @@ public final class TargetCheckpointDependencies {
             if (bytes > maximumFrameBytes) {
                 throw new IllegalArgumentException("Target semantic Admission frames exceed their byte bound");
             }
-            builder.admissionImage(image);
+            builder.admissionImage(input);
         }
         return new TargetCheckpointDependencies(builder, admissions, true);
     }
@@ -440,6 +458,7 @@ public final class TargetCheckpointDependencies {
         private final Map<String, StoredControl> controls = new TreeMap<>();
         private final Map<String, TargetResultRecord> controlResults = new TreeMap<>();
         private final Map<String, ProfileRef> profiles = new TreeMap<>();
+        private final Map<String, ProfileUse> profileUses = new TreeMap<>();
         private final Map<String, RetryPolicyRef> retries = new TreeMap<>();
         private final Map<String, RetryUse> retryUses = new TreeMap<>();
         private final Map<String, PayloadProofTrustSetRef> trusts = new TreeMap<>();
@@ -454,6 +473,7 @@ public final class TargetCheckpointDependencies {
                     control.valueType(), control.payload()); }
             prior.controlResults.forEach(this::controlResult);
             prior.profiles.forEach(this::profile);
+            prior.profileUses.forEach(this::profileUse);
             prior.retryPolicies.forEach(this::retry);
             prior.retryUses.forEach(this::retryUse);
             prior.trustSets.forEach(this::trust);
@@ -478,31 +498,43 @@ public final class TargetCheckpointDependencies {
         }
 
         void binding(TargetScheduleBinding binding) {
-            profile(binding.intent().profile());
+            profileUse(new ProfileUse(binding.intent().profile(), binding.bindingSource()));
             retryUse(new RetryUse(binding.intent().retryPolicy(), binding.bindingSource()));
             if (binding.commandType() == CommandType.PREPARE_LARGE_SCHEDULE) {
                 final var prepare = PrepareLargeScheduleBody.decode(binding.canonicalBody());
-                profile(prepare.objectStoreProfile());
+                profileUse(new ProfileUse(prepare.objectStoreProfile(), binding.bindingSource()));
                 trust(prepare.trustSet());
             } else if (!binding.intent().hasInlinePayload()) {
-                profile(binding.intent().committedPayload().objectStoreProfile());
+                profileUse(new ProfileUse(binding.intent().committedPayload().objectStoreProfile(),
+                        binding.bindingSource()));
             }
         }
 
-        void membership(TargetMembershipGrant grant) { profile(grant.memberProfile()); }
+        void membership(TargetMembershipGrant grant) {
+            profileUse(new ProfileUse(grant.memberProfile(), grant.activationSource()));
+        }
 
         void nativeScope(TargetNativePolicyScope scope) { artifact(scope.artifacts().digest()); }
 
-        void admissionImage(SystemMutation image) {
-            final var publication = TargetPublishAdmissionBody.decode(image.canonicalBody()).publication();
+        void admissionImage(AdmissionImage input) {
+            final var publication = TargetPublishAdmissionBody.decode(input.image().canonicalBody()).publication();
             if (publication == null) {
                 throw new IllegalArgumentException(
                         "unmaterialized Target Admission requires protected historical closure");
             }
-            profile(publication.destinationProfile());
-            profile(publication.capabilityProfile());
-            profile(publication.channel().credentialLease().profile());
+            profileUse(new ProfileUse(publication.destinationProfile(), input.source()));
+            profileUse(new ProfileUse(publication.capabilityProfile(), input.source()));
+            profileUse(new ProfileUse(publication.channel().credentialLease().profile(), input.source()));
             artifact(publication.artifactGenerationSetDigest());
+        }
+
+        void profileUse(ProfileUse use) {
+            if (!root.metadata().shardId().equals(use.source().shardId())
+                    || !root.source().sameSourceIdentity(use.source()) || root.source().kind() != use.source().kind()) {
+                throw new IllegalArgumentException("Target Profile use belongs to another Source identity");
+            }
+            profile(use.reference());
+            profileUses.put(Bytes.hex(use.canonicalBytes()), use);
         }
 
         void profile(ProfileRef profile) {
