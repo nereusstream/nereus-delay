@@ -1289,8 +1289,64 @@ class TargetQuotaGrantStoreTest {
         assertEquals(1, componentSemantics.schemaVersion());
         assertArrayEquals(componentSemantics.canonicalBytes(), TargetCheckpointSemanticSnapshot.decode(
                 componentSemantics.canonicalBytes(), semanticLimits).canonicalBytes());
+        final var originalControlAuthority = new com.nereusstream.delay.store.TargetCheckpointControlAuthority(
+                registrations, (version, at) -> version == 1 ? keys.getPublic() : null,
+                (input, firstResult) -> assertArrayEquals(input.source().canonicalBytes(),
+                        firstResult.mutation().source().canonicalBytes()),
+                (preparedControl, input) -> new com.nereusstream.delay.store.TargetCheckpointControlAuthority
+                        .Authorization(actor, ignored -> true), budget(), () -> {});
         final var semantics = componentSemantics.withControlInputs(dependencies, controlImages, budget(),
-                semanticLimits, (input, firstResult) -> keys.getPublic(), () -> {});
+                semanticLimits, originalControlAuthority, () -> {});
+        final String controlEndpoint = System.getenv("NEREUS_DELAY_OXIA_ENDPOINT");
+        if (controlEndpoint != null && !controlEndpoint.isBlank()) {
+            final String controlPrefix = "checkpoint-original-control/" + UUID.randomUUID();
+            try (var client = OxiaSyncOwnerLeaseBackend.connect(controlEndpoint, "default", controlPrefix,
+                    Duration.ofSeconds(15), controlPrefix + "/owner")) {
+                final var actualRegistrations =
+                        new com.nereusstream.delay.ownership.OxiaControlTargetRegistrationAuthority(
+                        new com.nereusstream.delay.ownership.OxiaSyncControlTargetRegistrationBackend(
+                                client, controlPrefix + "/registry"));
+                actualRegistrations.register(rootOperation.control());
+                actualRegistrations.register(operation.control());
+                final var actualAuthority = new com.nereusstream.delay.store.TargetCheckpointControlAuthority(
+                        actualRegistrations, (version, at) -> version == 1 ? keys.getPublic() : null,
+                        (input, firstResult) -> {},
+                        (preparedControl, input) -> new com.nereusstream.delay.store.TargetCheckpointControlAuthority
+                                .Authorization(actor, ignored -> true), budget(),
+                        client.backend()::assertConnectedSession);
+                assertArrayEquals(semantics.canonicalBytes(), componentSemantics.withControlInputs(
+                        dependencies, controlImages, budget(), semanticLimits, actualAuthority,
+                        client.backend()::assertConnectedSession).canonicalBytes());
+            }
+        }
+        assertThrows(IllegalStateException.class, () -> componentSemantics.withControlInputs(
+                dependencies, controlImages, budget(), semanticLimits,
+                new com.nereusstream.delay.store.TargetCheckpointControlAuthority(
+                        new InMemoryControlTargetRegistrationAuthority(), (version, at) -> keys.getPublic(),
+                        (input, firstResult) -> {}, (preparedControl, input) -> {
+                            throw new AssertionError("missing registry reached Source authority");
+                        }, budget(), () -> {}), () -> {}));
+        assertThrows(IllegalArgumentException.class, () -> componentSemantics.withControlInputs(
+                dependencies, controlImages, budget(), semanticLimits,
+                new com.nereusstream.delay.store.TargetCheckpointControlAuthority(
+                        registrations, (version, at) -> null, (input, firstResult) -> {},
+                        (preparedControl, input) -> {
+                            throw new AssertionError("missing key reached Source authority");
+                        }, budget(), () -> {}), () -> {}));
+        final var wrongActor = new ControlAuthorizationContext(bytes(32, 0x14), actor.roleSet(),
+                actor.tenantResourceScopeHash());
+        assertThrows(IllegalArgumentException.class, () -> componentSemantics.withControlInputs(
+                dependencies, controlImages, budget(), semanticLimits,
+                new com.nereusstream.delay.store.TargetCheckpointControlAuthority(
+                        registrations, (version, at) -> keys.getPublic(), (input, firstResult) -> {},
+                        (preparedControl, input) -> new com.nereusstream.delay.store.TargetCheckpointControlAuthority
+                                .Authorization(wrongActor, ignored -> true), budget(), () -> {}), () -> {}));
+        assertThrows(IllegalArgumentException.class, () -> componentSemantics.withControlInputs(
+                dependencies, controlImages, budget(), semanticLimits,
+                new com.nereusstream.delay.store.TargetCheckpointControlAuthority(
+                        registrations, (version, at) -> keys.getPublic(), (input, firstResult) -> {},
+                        (preparedControl, input) -> new com.nereusstream.delay.store.TargetCheckpointControlAuthority
+                                .Authorization(actor, ignored -> false), budget(), () -> {}), () -> {}));
         assertEquals(2, semantics.schemaVersion());
         assertEquals(3, semantics.controls().size());
         assertThrows(IllegalArgumentException.class, () -> componentSemantics.withControlInputs(

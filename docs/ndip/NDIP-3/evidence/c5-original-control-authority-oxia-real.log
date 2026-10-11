@@ -1,0 +1,239 @@
+2026-10-11 locked Oxia37a17bef17202d5fd6e23282da5fd26d94865484; localhost16684, owned compose projects.
+First invocation reused local test result and is NOT native test evidence:
+Source: 37a17bef17202d5fd6e23282da5fd26d94865484
+ Image ndip3-control-authority-1791708907-72675-oxia Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 610B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 1.34kB done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/golang:1.26-alpine
+#3 DONE 2.9s
+
+#4 [internal] load metadata for docker.io/library/alpine:3.22
+#4 DONE 2.9s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 2B done
+#5 DONE 0.0s
+
+#6 [runtime 1/8] FROM docker.io/library/alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
+#6 DONE 0.0s
+
+#7 [build 1/5] FROM docker.io/library/golang:1.26-alpine@sha256:3082400e369fa24d5fc60bca20edab3f6d604e0c5a690ec66b295eff4dd87ade
+#7 DONE 0.0s
+
+#8 [internal] load build context
+#8 transferring context: 39.30kB 0.0s done
+#8 DONE 0.0s
+
+#9 [runtime 2/8] RUN apk add --no-cache bash bash-completion jq
+#9 CACHED
+
+#10 [runtime 4/8] WORKDIR /oxia
+#10 CACHED
+
+#11 [build 2/5] RUN apk add --no-cache make git build-base bash
+#11 CACHED
+
+#12 [build 4/5] COPY . .
+#12 CACHED
+
+#13 [build 5/5] RUN --mount=type=cache,target=/go/pkg/mod     --mount=type=cache,target=/root/.cache/go-build     make
+#13 CACHED
+
+#14 [runtime 3/8] RUN apk upgrade --no-cache
+#14 CACHED
+
+#15 [runtime 6/8] COPY --from=build /src/oxia/conf/coordinator.yaml /oxia/conf/coordinator.yaml
+#15 CACHED
+
+#16 [build 3/5] WORKDIR /src/oxia
+#16 CACHED
+
+#17 [runtime 7/8] COPY --from=build /src/oxia/conf/dataserver.yaml /oxia/conf/dataserver.yaml
+#17 CACHED
+
+#18 [runtime 5/8] COPY --from=build /src/oxia/bin/oxia /oxia/bin/oxia
+#18 CACHED
+
+#19 [runtime 8/8] RUN oxia completion bash > ~/.bashrc
+#19 CACHED
+
+#20 exporting to image
+#20 exporting layers done
+#20 writing image sha256:c871a1517177ae05bf80ceaf6fbb1721e0ea889b834604ea758476d1c525d93b done
+#20 naming to docker.io/library/ndip3-control-authority-1791708907-72675-oxia done
+#20 DONE 0.0s
+
+#21 resolving provenance for metadata file
+#21 DONE 0.0s
+ Image ndip3-control-authority-1791708907-72675-oxia Built 
+ Network ndip3-control-authority-1791708907-72675_default Creating 
+ Network ndip3-control-authority-1791708907-72675_default Creating 
+ Network ndip3-control-authority-1791708907-72675_default Created 
+ Network ndip3-control-authority-1791708907-72675_default Created 
+ Container ndip3-control-authority-1791708907-72675-oxia-1 Creating 
+ Container ndip3-control-authority-1791708907-72675-oxia-1 Created 
+ Container ndip3-control-authority-1791708907-72675-oxia-1 Starting 
+ Container ndip3-control-authority-1791708907-72675-oxia-1 Started 
+[{"ID":"sha256:c871a1517177ae05bf80ceaf6fbb1721e0ea889b834604ea758476d1c525d93b","ContainerName":"ndip3-control-authority-1791708907-72675-oxia-1","Repository":"ndip3-control-authority-1791708907-72675-oxia","Tag":"latest","Platform":"linux/arm64","Size":109160019,"Created":"2026-10-11T08:08:15.961694426Z","LastTagTime":"2026-10-11T08:55:11.388165757Z"}]
+
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava UP-TO-DATE
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses UP-TO-DATE
+> Task :test UP-TO-DATE
+> Task :checkstyleMain UP-TO-DATE
+> Task :checkstyleTest UP-TO-DATE
+
+BUILD SUCCESSFUL in 17s
+15 actionable tasks: 1 executed, 14 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+ Container ndip3-control-authority-1791708907-72675-oxia-1 Stopping 
+ Container ndip3-control-authority-1791708907-72675-oxia-1 Stopped 
+ Container ndip3-control-authority-1791708907-72675-oxia-1 Removing 
+ Container ndip3-control-authority-1791708907-72675-oxia-1 Removed 
+ Network ndip3-control-authority-1791708907-72675_default Removing 
+ Network ndip3-control-authority-1791708907-72675_default Removed 
+Untagged: ndip3-control-authority-1791708907-72675-oxia:latest
+Deleted: sha256:c871a1517177ae05bf80ceaf6fbb1721e0ea889b834604ea758476d1c525d93b
+
+Verified command: NEREUS_DELAY_OXIA_ENDPOINT=127.0.0.1:16684 NEREUS_DELAY_OXIA_NAMESPACE=default GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew test --rerun --tests 'com.nereusstream.delay.runtime.TargetQuotaGrantStoreTest.signedFirstGrantCommitsAllocationResultAndPositionWhileExternalFailureMakesNoWrite' checkstyleMain checkstyleTest --no-daemon --console=plain
+Source: 37a17bef17202d5fd6e23282da5fd26d94865484
+ Image ndip3-control-authority-1791709120-76319-oxia Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 610B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 1.34kB done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/golang:1.26-alpine
+#3 ...
+
+#4 [internal] load metadata for docker.io/library/alpine:3.22
+#4 DONE 1.7s
+
+#3 [internal] load metadata for docker.io/library/golang:1.26-alpine
+#3 DONE 2.4s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 2B done
+#5 DONE 0.0s
+
+#6 [runtime 1/8] FROM docker.io/library/alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
+#6 DONE 0.0s
+
+#7 [build 1/5] FROM docker.io/library/golang:1.26-alpine@sha256:3082400e369fa24d5fc60bca20edab3f6d604e0c5a690ec66b295eff4dd87ade
+#7 DONE 0.0s
+
+#8 [internal] load build context
+#8 transferring context: 39.30kB 0.0s done
+#8 DONE 0.0s
+
+#9 [build 5/5] RUN --mount=type=cache,target=/go/pkg/mod     --mount=type=cache,target=/root/.cache/go-build     make
+#9 CACHED
+
+#10 [build 3/5] WORKDIR /src/oxia
+#10 CACHED
+
+#11 [runtime 7/8] COPY --from=build /src/oxia/conf/dataserver.yaml /oxia/conf/dataserver.yaml
+#11 CACHED
+
+#12 [runtime 2/8] RUN apk add --no-cache bash bash-completion jq
+#12 CACHED
+
+#13 [build 2/5] RUN apk add --no-cache make git build-base bash
+#13 CACHED
+
+#14 [runtime 3/8] RUN apk upgrade --no-cache
+#14 CACHED
+
+#15 [build 4/5] COPY . .
+#15 CACHED
+
+#16 [runtime 5/8] COPY --from=build /src/oxia/bin/oxia /oxia/bin/oxia
+#16 CACHED
+
+#17 [runtime 4/8] WORKDIR /oxia
+#17 CACHED
+
+#18 [runtime 6/8] COPY --from=build /src/oxia/conf/coordinator.yaml /oxia/conf/coordinator.yaml
+#18 CACHED
+
+#19 [runtime 8/8] RUN oxia completion bash > ~/.bashrc
+#19 CACHED
+
+#20 exporting to image
+#20 exporting layers done
+#20 writing image sha256:608072dd2511b3947bf9579f205d3162f111f9094df0eef511f3d349a2b723b1 done
+#20 naming to docker.io/library/ndip3-control-authority-1791709120-76319-oxia done
+#20 DONE 0.0s
+
+#21 resolving provenance for metadata file
+#21 DONE 0.0s
+ Image ndip3-control-authority-1791709120-76319-oxia Built 
+ Network ndip3-control-authority-1791709120-76319_default Creating 
+ Network ndip3-control-authority-1791709120-76319_default Creating 
+ Network ndip3-control-authority-1791709120-76319_default Created 
+ Network ndip3-control-authority-1791709120-76319_default Created 
+ Container ndip3-control-authority-1791709120-76319-oxia-1 Creating 
+ Container ndip3-control-authority-1791709120-76319-oxia-1 Created 
+ Container ndip3-control-authority-1791709120-76319-oxia-1 Starting 
+ Container ndip3-control-authority-1791709120-76319-oxia-1 Started 
+[{"ID":"sha256:608072dd2511b3947bf9579f205d3162f111f9094df0eef511f3d349a2b723b1","ContainerName":"ndip3-control-authority-1791709120-76319-oxia-1","Repository":"ndip3-control-authority-1791709120-76319-oxia","Tag":"latest","Platform":"linux/arm64","Size":109160019,"Created":"2026-10-11T08:08:15.961694426Z","LastTagTime":"2026-10-11T08:58:43.542231008Z"}]
+
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava UP-TO-DATE
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses UP-TO-DATE
+> Task :test
+> Task :checkstyleMain UP-TO-DATE
+> Task :checkstyleTest UP-TO-DATE
+
+BUILD SUCCESSFUL in 22s
+15 actionable tasks: 2 executed, 13 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+ Container ndip3-control-authority-1791709120-76319-oxia-1 Stopping 
+ Container ndip3-control-authority-1791709120-76319-oxia-1 Stopped 
+ Container ndip3-control-authority-1791709120-76319-oxia-1 Removing 
+ Container ndip3-control-authority-1791709120-76319-oxia-1 Removed 
+ Network ndip3-control-authority-1791709120-76319_default Removing 
+ Network ndip3-control-authority-1791709120-76319_default Removed 
+Untagged: ndip3-control-authority-1791709120-76319-oxia:latest
+Deleted: sha256:608072dd2511b3947bf9579f205d3162f111f9094df0eef511f3d349a2b723b1
+XML {"name": "com.nereusstream.delay.runtime.TargetQuotaGrantStoreTest", "tests": "2", "skipped": "0", "failures": "0", "errors": "0", "timestamp": "2026-10-11T08:59:00.389Z"} sha256=cd4965942e26ffd3a8901226fba68d4bb6e2ff41f886506d8d33041841daa8fd
+Actual Source/Store and immutable Oxia registration. Original Source visibility/history/actor/scope/key/pins remain mandatory external authorities or explicit fixtures. No production/publication/install promotion.
