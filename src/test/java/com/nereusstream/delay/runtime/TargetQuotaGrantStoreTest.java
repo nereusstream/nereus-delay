@@ -512,6 +512,12 @@ class TargetQuotaGrantStoreTest {
         registrations.register(rootOperation.control());
         final var rootAuthority = authority(registrations, keys, actor, earlier, rootRequest, (a, b, c, d) -> {});
         final var config = ShardStoreConfig.defaults(root);
+        final var controlImages = new java.util.ArrayList<
+                com.nereusstream.delay.store.TargetCheckpointDependencies.ControlImage>();
+        controlImages.add(new com.nereusstream.delay.store.TargetCheckpointDependencies.ControlImage(
+                earlier, rootOperation.mutation()));
+        controlImages.add(new com.nereusstream.delay.store.TargetCheckpointDependencies.ControlImage(
+                origin, operation.mutation()));
         try (var resources = new SharedRocksDbResources(config);
                 var store = ShardStore.openTarget(config, scope.shard(), resources)) {
             final var limits = new TargetStoreBackend.WriteLimits(64, 2 << 20);
@@ -948,12 +954,19 @@ class TargetQuotaGrantStoreTest {
                     () -> applier.prepare(budget(), operation.control(), resigned, expiredPosition, unavailable));
             final var expired = signed(request, bytes(32, 0x73), actor, keys);
             registrations.register(expired.control());
+            final var expiredMutation = SystemMutation.signed(expired.mutation().shardId(), expired.mutation().type(),
+                    expired.mutation().retryUntilEpochMs(), expired.mutation().logicalOperationIdentity(),
+                    expired.mutation().canonicalBody(), expired.mutation().authorIdentity(), 2,
+                    KeyPairGenerator.getInstance("Ed25519").generateKeyPair().getPrivate());
+            final var rejectedAt = source(origin, origin.offset() + 3, 502);
+            controlImages.add(new com.nereusstream.delay.store.TargetCheckpointDependencies.ControlImage(
+                    rejectedAt, expiredMutation));
             final var rejection = applier.commit(
                     applier.prepareFirst(
                             budget(),
                             expired.control(),
-                            expired.mutation(),
-                            source(origin, origin.offset() + 3, 502),
+                            expiredMutation,
+                            rejectedAt,
                             allowed),
                     (a, b, c) -> guard());
             assertEquals(ApplyStatus.REJECTED, rejection.applyStatus());
@@ -1184,6 +1197,60 @@ class TargetQuotaGrantStoreTest {
                 new TargetCheckpointRootVerifier.LedgerAuditLimits(10_000, 64L << 20, 100_000, 64L << 20);
         final var dependencies = TargetCheckpointRootVerifier.auditImageDependencies(
                 physicalDb, scope.shard(), imageLimits, quotaAuditLimits, ledgerAuditLimits).dependencies();
+        assertEquals(3, dependencies.controlResults().size());
+        assertTrue(dependencies.controlResults().stream().anyMatch(firstResult ->
+                SystemMutationResult.decode(firstResult.typedPayload()).applyStatus() == ApplyStatus.REJECTED));
+        final var checkedControls = dependencies.requireControlImages(controlImages, 1 << 20, budget(),
+                (input, firstResult) -> SystemMutationResult.decode(firstResult.typedPayload()).applyStatus()
+                        == ApplyStatus.APPLIED ? keys.getPublic() : null, () -> {});
+        assertEquals(3, checkedControls.size());
+        final var reverseControls = new java.util.ArrayList<>(controlImages);
+        java.util.Collections.reverse(reverseControls);
+        assertEquals(checkedControls, dependencies.requireControlImages(reverseControls, 1 << 20, budget(),
+                (input, firstResult) -> keys.getPublic(), () -> {}));
+        assertThrows(IllegalArgumentException.class, () -> dependencies.requireControlImages(
+                controlImages.subList(0, 2), 1 << 20, budget(), (input, firstResult) -> keys.getPublic(), () -> {}));
+        assertThrows(IllegalArgumentException.class, () -> dependencies.requireControlImages(
+                List.of(controlImages.getFirst(), controlImages.getFirst(), controlImages.getLast()),
+                1 << 20, budget(), (input, firstResult) -> keys.getPublic(), () -> {}));
+        assertThrows(IllegalArgumentException.class, () -> dependencies.requireControlImages(
+                controlImages, 1, budget(), (input, firstResult) -> keys.getPublic(), () -> {}));
+        assertThrows(IllegalArgumentException.class, () -> dependencies.requireControlImages(
+                controlImages, 1 << 20, budget(), (input, firstResult) -> null, () -> {}));
+        assertThrows(com.nereusstream.delay.store.ReadIncompleteException.class,
+                () -> dependencies.requireControlImages(controlImages, 1 << 20,
+                        new BoundedReadBudget(1, 1 << 20, 1_000_000, () -> 0),
+                        (input, firstResult) -> keys.getPublic(), () -> {}));
+        final var controlClock = new java.util.concurrent.atomic.AtomicLong();
+        assertThrows(com.nereusstream.delay.store.ReadIncompleteException.class,
+                () -> dependencies.requireControlImages(controlImages, 1 << 20,
+                        new BoundedReadBudget(3, 1 << 20, 10, controlClock::get), (input, firstResult) -> {
+                            controlClock.set(10);
+                            return keys.getPublic();
+                        }, () -> {}));
+        final var wrongSourceControls = new java.util.ArrayList<>(controlImages);
+        wrongSourceControls.set(0, new com.nereusstream.delay.store.TargetCheckpointDependencies.ControlImage(
+                origin, rootOperation.mutation()));
+        assertThrows(IllegalArgumentException.class, () -> dependencies.requireControlImages(
+                wrongSourceControls, 1 << 20, budget(), (input, firstResult) -> {
+                    throw new AssertionError("wrong Source reached authentication");
+                }, () -> {}));
+        final var changedSignatureControls = new java.util.ArrayList<>(controlImages);
+        final var rootMutation = rootOperation.mutation();
+        changedSignatureControls.set(0, new com.nereusstream.delay.store.TargetCheckpointDependencies.ControlImage(
+                earlier, SystemMutation.signed(rootMutation.shardId(), rootMutation.type(),
+                        rootMutation.retryUntilEpochMs(), rootMutation.logicalOperationIdentity(),
+                        rootMutation.canonicalBody(), rootMutation.authorIdentity(), 2, keys.getPrivate())));
+        assertThrows(IllegalArgumentException.class, () -> dependencies.requireControlImages(
+                changedSignatureControls, 1 << 20, budget(), (input, firstResult) -> {
+                    throw new AssertionError("changed envelope reached authentication");
+                }, () -> {}));
+        final var protectedControls = new java.util.concurrent.atomic.AtomicBoolean(true);
+        assertThrows(IllegalStateException.class, () -> dependencies.requireControlImages(
+                controlImages, 1 << 20, budget(), (input, firstResult) -> {
+                    protectedControls.set(false);
+                    return keys.getPublic();
+                }, () -> { if (!protectedControls.get()) { throw new IllegalStateException("protection lost"); } }));
         assertTrue(dependencies.admissionImagesComplete());
         assertTrue(dependencies.controls().stream().anyMatch(control ->
                 control.valueType() == TargetQuotaGrantActivation.VALUE_TYPE));
@@ -1191,10 +1258,22 @@ class TargetQuotaGrantStoreTest {
         assertTrue(dependencies.retryPolicies().isEmpty());
         assertTrue(dependencies.trustSets().isEmpty());
         final var semanticLimits = new TargetCheckpointSemanticSnapshot.Limits(64, 1 << 20, 1 << 20);
-        final var semantics = TargetCheckpointSemanticSnapshot.collect(dependencies, List.of(),
+        final var componentSemantics = TargetCheckpointSemanticSnapshot.collect(dependencies, List.of(),
                 com.nereusstream.delay.store.TargetCheckpointSemanticSnapshotTestBridge.emptyProfiles(),
                 (ref, at) -> { throw new AssertionError("unexpected Retry Policy"); },
                 ref -> { throw new AssertionError("unexpected Trust Set"); }, budget(), semanticLimits, () -> {});
+        assertEquals(1, componentSemantics.schemaVersion());
+        assertArrayEquals(componentSemantics.canonicalBytes(), TargetCheckpointSemanticSnapshot.decode(
+                componentSemantics.canonicalBytes(), semanticLimits).canonicalBytes());
+        final var semantics = componentSemantics.withControlInputs(dependencies, controlImages, budget(),
+                semanticLimits, (input, firstResult) -> keys.getPublic(), () -> {});
+        assertEquals(2, semantics.schemaVersion());
+        assertEquals(3, semantics.controls().size());
+        assertThrows(IllegalArgumentException.class, () -> componentSemantics.withControlInputs(
+                dependencies, List.of(), budget(), semanticLimits, (input, firstResult) -> keys.getPublic(), () -> {}));
+        assertThrows(IllegalArgumentException.class, () -> componentSemantics.withControlInputs(
+                dependencies, controlImages, budget(), new TargetCheckpointSemanticSnapshot.Limits(2, 1 << 20, 1 << 20),
+                (input, firstResult) -> keys.getPublic(), () -> {}));
         final var decodedSemantics = TargetCheckpointSemanticSnapshot.decode(
                 semantics.canonicalBytes(), semanticLimits);
         TargetCheckpointRootVerifier.auditImageSemanticSnapshot(physicalDb, scope.shard(), imageLimits,

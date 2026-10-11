@@ -1,5 +1,9 @@
 # NDIP-3 工作包：目标分区队列收敛与调度热路径改造
 
+2026-10-11后续：schema2将原Control Source frames纳入现有semantic companion的精确image
+关联、落盘与复用；schema1仍可读、未发布。当前local62/style通过；生产history/reader、
+完整control/Outcome/Artifact/credential/pins与正式发布/恢复义务仍开放，不提升状态。
+
 2026-10-11接续：首条SHARD grant的Source批次已原子持久化/计费Target初始控制快照
 （META10），当前local15/style通过，历史K1 receipt保留原fixture范围。后续完整signed
 control/Outcome历史、生产catalog/Artifact/credential/pins、正式发布/恢复安装与迁移清退

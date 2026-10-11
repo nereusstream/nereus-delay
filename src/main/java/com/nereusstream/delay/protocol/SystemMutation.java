@@ -182,6 +182,35 @@ public final class SystemMutation {
         return decodeEnvelope(decoded.canonicalEnvelope());
     }
 
+    /** Target-only Control reader. Derives identity from the typed body; the legacy reader keeps its kind boundary. */
+    public static SystemMutation decodeTargetControlFrame(final byte[] frame) {
+        final var decoded = ShardLogFrame.decode(frame);
+        if (decoded.recordKind() != ShardLogFrame.SYSTEM_MUTATION_KIND) {
+            throw new IllegalArgumentException("frame is not a Target Control System Mutation");
+        }
+        final var envelope = readEnvelope(decoded.canonicalEnvelope());
+        if (envelope.type() != SystemMutationType.APPLY_SHARD_CONTROL) {
+            throw new IllegalArgumentException("Target Control reader received another mutation type");
+        }
+        final var fields = SystemMutationBodyCodec.fields(envelope.type(), envelope.body());
+        final var kindField = fields.stream().filter(field -> field.number() == 11).findFirst().orElseThrow();
+        final int kind = QueryCodecSupport.uint32(kindField, 11);
+        final byte[] logicalIdentity;
+        if (kind == 15 || kind == 16) {
+            logicalIdentity = TargetMembershipControlBody.decode(envelope.body()).logicalIdentity();
+        } else if (kind == TargetQuotaGrantControlRequest.CONTROL_KIND) {
+            logicalIdentity = TargetQuotaGrantControlBody.decode(envelope.body()).logicalIdentity();
+        } else if (kind == TargetCloseRequest.CONTROL_KIND) {
+            logicalIdentity = TargetCloseBody.decode(envelope.body()).logicalIdentity();
+        } else if (kind >= TargetNativePolicyControlRequest.INSTALL_PUBLISHER_CONTROL_KIND
+                && kind <= TargetNativePolicyControlRequest.CLOSE_MEMBER_CONTROL_KIND) {
+            logicalIdentity = TargetNativePolicyControlBody.decode(envelope.body()).logicalIdentity();
+        } else {
+            logicalIdentity = SystemMutationIdentity.resolve(envelope.shardId(), envelope.type(), envelope.body());
+        }
+        return decodeEnvelope(decoded.canonicalEnvelope(), logicalIdentity);
+    }
+
     /**
      * Decodes a frame and validates the logical operation identity supplied by the operation-specific caller.
      * The identity is deliberately not duplicated in the wire envelope; the registry derives it from the body

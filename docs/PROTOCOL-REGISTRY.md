@@ -3051,3 +3051,39 @@ run before admission and around action completion outside Store locks. Only loca
 bounded image audit run under the Store lock. Failed staging audit rolls back checkpoint metadata and
 removes owned temp image; failed postguards can leave only an unpublished image. Source-accounted
 control snapshot, protection/pin lifetime, full Manifest/Catalog/install authority remain separate.
+
+Target initial control snapshot (2026-10-11) uses existing META fixed key `[01,01,0a]` and NV1 only
+for the first nonlocal Source batch (sequence1, prior key absent). `TargetControlSnapshotInput` canonical
+fields: 1 version1; 2 SHARD/tenant TargetQuotaScope; 3 lineage[16]; 4 initial grant digest[32];
+5 full original SourcePosition; 6 grant canonical envelope digest[32]; repeated 7 ProtocolTuple,
+8 immutable ProfileRef; 9 nonzero issuer uint32 key version; 10 SHA-256 of
+`nereus-delay-target-control-snapshot-input\0` plus fields1–9; 11 Ed25519 signature of
+`nereus-delay-target-control-snapshot-signature\0` plus field10. Lists sort by canonical bytes;
+reader tuples are nonempty and bounded at32, Profile versions at4096 with conflicting id/version rejected;
+canonical input is at most1MiB. Signature validation requires external issuer/reader/pin authority.
+`TargetInitialControlSnapshot` fields: 1 version1; 2 signed input; 3 SHARD root identity; 4 exact
+source-applied TargetQuotaMutation(sequence1); 5 initial SHARD TargetQuotaGrantActivation(no prior/allocation);
+6 original Control AuthorIdentity; 7 SHA-256 of `nereus-delay-target-initial-control-snapshot\0` plus
+fields1–6. Root STATE and its tenant mirror pay actual key/value bytes in the original Source quota batch.
+Full ledger audit joins the original grant first result/author and counted state; META11–14 and legacy
+CompatibleControlSnapshot remain invalid for Target. Original grant Source wire/activation charges are unchanged.
+
+Target checkpoint semantic snapshot v2 (2026-10-11) preserves v1 fields1–11, sets field1=2, adds
+repeated field12 original ControlImage, and moves the outer domain SHA-256 to field13 over fields1–12.
+ControlImage fields1 full original SourcePosition,2 signed System Mutation frame; order is unsigned byte
+order of SystemMutationId. Every retained APPLY_SHARD_CONTROL SYSTEM first result must have exactly
+one matching input, including durable rejections. Exact Source/envelope digest/id/hash/author/retry window
+must agree with the actual first result and image cut. Collection requires protected original history;
+APPLIED also requires an authorized issuer key and valid signature. A rejection may have occurred before
+signature authentication and retains its original invalid/untrusted signature without gaining APPLIED authority.
+All controls count against the existing total record/byte limits; their frame bytes are additionally bounded by
+the same finite total snapshot byte allowance, independently of the Admission-specific frame allowance.
+Offline correlation/closed decoding does not authenticate history, issuers, registry/RBAC or pins.
+
+`SystemMutation.decodeTargetControlFrame` derives the logical identity through the closed typed bodies for
+membership15/16, quota17, Close18 and Native19–23. It accepts no caller-supplied identity and preserves the
+generic legacy reader's kind boundary. Existing schema1 local companion bytes remain readable and are still
+unpublished component evidence; schema2 adds original controls but grants no production/restore authority.
+Same-cut companion staging, force, inventory and exact reuse remain unchanged. Complete Outcome history,
+production issuer/catalog/Artifact/credential/pins, Manifest/Catalog/restore/install/Floor and protected migration
+remain separate obligations; format2 publication/recovery gates are not relaxed.

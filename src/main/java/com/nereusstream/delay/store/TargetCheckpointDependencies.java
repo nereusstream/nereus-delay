@@ -12,6 +12,7 @@ import com.nereusstream.delay.protocol.RetryPolicyRef;
 import com.nereusstream.delay.protocol.RetryPolicySemantic;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.SystemMutation;
+import com.nereusstream.delay.protocol.SystemMutationType;
 import com.nereusstream.delay.protocol.TargetMembershipGrant;
 import com.nereusstream.delay.protocol.TargetNativePolicyScope;
 import com.nereusstream.delay.protocol.TargetPublishAdmissionBody;
@@ -77,6 +78,7 @@ public final class TargetCheckpointDependencies {
 
     private final TargetCheckpointRootVerifier.RootProof root;
     private final List<StoredControl> controls;
+    private final List<TargetResultRecord> controlResults;
     private final List<Admission> admissions;
     private final List<ProfileRef> profiles;
     private final List<RetryPolicyRef> retryPolicies;
@@ -89,6 +91,7 @@ public final class TargetCheckpointDependencies {
     private TargetCheckpointDependencies(Builder builder, List<Admission> admissions, boolean complete) {
         root = builder.root;
         controls = List.copyOf(builder.controls.values());
+        controlResults = List.copyOf(builder.controlResults.values());
         this.admissions = List.copyOf(admissions);
         profiles = List.copyOf(builder.profiles.values());
         retryPolicies = List.copyOf(builder.retries.values());
@@ -101,6 +104,8 @@ public final class TargetCheckpointDependencies {
 
     public TargetCheckpointRootVerifier.RootProof root() { return root; }
     public List<StoredControl> controls() { return controls; }
+    /** Every retained APPLY_SHARD_CONTROL first result, including durable rejections. */
+    public List<TargetResultRecord> controlResults() { return controlResults; }
     public List<Admission> admissions() { return admissions; }
     public List<ProfileRef> profiles() { return profiles; }
     public List<RetryPolicyRef> retryPolicies() { return retryPolicies; }
@@ -146,6 +151,104 @@ public final class TargetCheckpointDependencies {
                 CanonicalProtobuf.bytes(out, 2, image.encodeFrame());
             });
         }
+    }
+
+    /** Original signed Source input; a matching local digest does not authenticate its issuer or history. */
+    public record ControlImage(SourcePosition source, SystemMutation image) {
+        public ControlImage {
+            TargetSourcePosition.requireBounded(source);
+            Objects.requireNonNull(image, "image");
+            if (image.type() != SystemMutationType.APPLY_SHARD_CONTROL || !source.shardId().equals(image.shardId())) {
+                throw new IllegalArgumentException("Target control image has another Source/type");
+            }
+        }
+
+        public byte[] canonicalBytes() {
+            return CanonicalProtobuf.message(out -> {
+                CanonicalProtobuf.bytes(out, 1, source.canonicalBytes());
+                CanonicalProtobuf.bytes(out, 2, image.encodeFrame());
+            });
+        }
+    }
+
+    /**
+     * Authenticates original Source history/protection outside Store locks. APPLIED requires its authorized issuer
+     * key/Control author; a durable rejection may retain an invalid signature/author and return no issuer key.
+     */
+    @FunctionalInterface
+    public interface ControlImageAuthority {
+        java.security.PublicKey authenticate(ControlImage input, TargetResultRecord first);
+    }
+
+    /**
+     * Joins every retained Control first result to its original signed envelope under finite bytes/time/records.
+     * Call outside Store locks; the provider owns I/O deadlines and the guard retains the complete protection set.
+     * This does not reconstruct registration/RBAC authority or replace later control/Outcome/pin obligations.
+     */
+    public List<ControlImage> requireControlImages(final List<ControlImage> inputs, final long maximumFrameBytes,
+            final BoundedReadBudget budget, final ControlImageAuthority authority, final Runnable protectionGuard) {
+        Objects.requireNonNull(inputs, "inputs");
+        Objects.requireNonNull(budget, "budget");
+        Objects.requireNonNull(authority, "authority");
+        Objects.requireNonNull(protectionGuard, "protectionGuard").run();
+        final var correlated = correlateControlImages(inputs, maximumFrameBytes);
+        final Map<String, TargetResultRecord> pending = new TreeMap<>();
+        for (final var first : controlResults) {
+            pending.put(Bytes.hex(SystemMutationResult.decode(first.typedPayload()).mutationId()), first);
+        }
+        for (final var input : correlated) {
+            protectionGuard.run();
+            if (!budget.beforeRead()) { throw budget.incomplete(); }
+            final var image = input.image();
+            final var first = pending.remove(Bytes.hex(image.systemMutationId()));
+            final var result = SystemMutationResult.decode(first.typedPayload());
+            final byte[] frame = image.encodeFrame();
+            if (!budget.tryCharge(input.source().canonicalBytes().length, frame.length)) { throw budget.incomplete(); }
+            final var key = authority.authenticate(input, first);
+            if (result.applyStatus() == com.nereusstream.delay.runtime.ApplyStatus.APPLIED
+                    && (key == null || !image.verifySignature(key))) {
+                throw new IllegalArgumentException("Target Control input signature invalid");
+            }
+            protectionGuard.run();
+            if (!budget.beforeTimedWork()) { throw budget.incomplete(); }
+        }
+        protectionGuard.run();
+        return correlated;
+    }
+
+    /** Offline correlation only. Issuer/history authentication must be repeated by restore/publication authority. */
+    List<ControlImage> correlateControlImages(final List<ControlImage> inputs, final long maximumFrameBytes) {
+        Objects.requireNonNull(inputs, "inputs");
+        if (maximumFrameBytes <= 0 || maximumFrameBytes == Long.MAX_VALUE || inputs.size() != controlResults.size()) {
+            throw new IllegalArgumentException("Target control closure requires finite bytes and every first result");
+        }
+        final Map<String, TargetResultRecord> pending = new TreeMap<>();
+        for (final var first : controlResults) {
+            pending.put(Bytes.hex(SystemMutationResult.decode(first.typedPayload()).mutationId()), first);
+        }
+        final Map<String, ControlImage> complete = new TreeMap<>();
+        long bytes = 0;
+        for (final var input : inputs) {
+            final var image = input.image();
+            final var first = pending.remove(Bytes.hex(image.systemMutationId()));
+            if (first == null) { throw new IllegalArgumentException("extra or duplicate Target Control input"); }
+            final var result = SystemMutationResult.decode(first.typedPayload());
+            if (!Arrays.equals(input.source().canonicalBytes(), first.mutation().source().canonicalBytes())
+                    || !Arrays.equals(Bytes.sha256(image.canonicalEnvelope()), first.mutation().mutationDigest())
+                    || !Arrays.equals(result.mutationId(), image.systemMutationId())
+                    || !Arrays.equals(result.mutationHash(), image.mutationHash())
+                    || !Arrays.equals(result.authorIdentity(), image.authorIdentity())
+                    || !Arrays.equals(result.appliedSourcePosition(), input.source().canonicalBytes())
+                    || result.retryUntilEpochMs() != image.retryUntilEpochMs()) {
+                throw new IllegalArgumentException("Target Control input differs from its exact first result/Source");
+            }
+            bytes = Math.addExact(bytes, image.encodeFrame().length);
+            if (bytes > maximumFrameBytes) {
+                throw new IllegalArgumentException("Target Control inputs exceed their byte bound");
+            }
+            complete.put(Bytes.hex(image.systemMutationId()), input);
+        }
+        return List.copyOf(complete.values());
     }
 
     /** Joins every retained attempt to its original image; incomplete or stale references cannot prove closure. */
@@ -254,6 +357,7 @@ public final class TargetCheckpointDependencies {
     static final class Builder {
         private final TargetCheckpointRootVerifier.RootProof root;
         private final Map<String, StoredControl> controls = new TreeMap<>();
+        private final Map<String, TargetResultRecord> controlResults = new TreeMap<>();
         private final Map<String, ProfileRef> profiles = new TreeMap<>();
         private final Map<String, RetryPolicyRef> retries = new TreeMap<>();
         private final Map<String, RetryUse> retryUses = new TreeMap<>();
@@ -267,6 +371,7 @@ public final class TargetCheckpointDependencies {
             this(prior.root);
             for (final var control : prior.controls) { control(control.family(), control.key(),
                     control.valueType(), control.payload()); }
+            prior.controlResults.forEach(this::controlResult);
             prior.profiles.forEach(this::profile);
             prior.retryPolicies.forEach(this::retry);
             prior.retryUses.forEach(this::retryUse);
@@ -277,6 +382,18 @@ public final class TargetCheckpointDependencies {
 
         void control(ColumnFamily family, byte[] key, int type, byte[] payload) {
             controls.put(family.rocksName() + '/' + Bytes.hex(key), new StoredControl(family, key, type, payload));
+        }
+
+        void controlResult(TargetResultRecord first) {
+            final var result = SystemMutationResult.decode(first.typedPayload());
+            if (first.kind() != TargetResultRecord.Kind.SYSTEM
+                    || !first.primaryIdentity().equals(root.root().identity())
+                    || result.mutationType() != SystemMutationType.APPLY_SHARD_CONTROL
+                    || result.applyStatus() == com.nereusstream.delay.runtime.ApplyStatus.APPLIED
+                            && AuthorIdentity.decode(result.authorIdentity()).kind() != AuthorIdentity.Kind.CONTROL) {
+                throw new IllegalArgumentException("Target Control reference differs from its root/type/author");
+            }
+            controlResults.put(Bytes.hex(first.key()), first);
         }
 
         void binding(TargetScheduleBinding binding) {

@@ -750,6 +750,9 @@ class TargetMembershipControlTest {
         final var factory = ControlSystemMutationFactory.sign(
                 prepared, target, source.shardId(), 500, body.canonicalBytes(), author, version, key.getPrivate());
         assertArrayEquals(mutation.canonicalEnvelope(), factory.canonicalEnvelope());
+        assertArrayEquals(mutation.canonicalEnvelope(),
+                SystemMutation.decodeTargetControlFrame(mutation.encodeFrame()).canonicalEnvelope());
+        assertThrows(IllegalArgumentException.class, () -> SystemMutation.decodeFrame(mutation.encodeFrame()));
         return new Prepared(prepared, factory);
     }
 

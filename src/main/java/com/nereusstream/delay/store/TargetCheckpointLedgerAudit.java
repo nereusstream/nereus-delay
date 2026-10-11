@@ -260,6 +260,15 @@ final class TargetCheckpointLedgerAudit {
         auditControlResults(membershipClosures, nativeControls, resultRows, proof.root().identity());
         final var admissions = auditAdmissionResults(attemptBudgets, resultRows, proof.root().identity());
         TargetQuotaDelta.audit(proof.aggregate(), counters, rebuilt);
+        for (final var stored : resultRows) {
+            if (stored.key()[0] == TargetKeyCodec.RESULT_SYSTEM_TAG) {
+                final var first = TargetResultRecord.decode(stored.payload());
+                if (SystemMutationResult.decode(first.typedPayload()).mutationType()
+                        == SystemMutationType.APPLY_SHARD_CONTROL) {
+                    dependencies.controlResult(first);
+                }
+            }
+        }
         return dependencies.finish(admissions);
     }
 

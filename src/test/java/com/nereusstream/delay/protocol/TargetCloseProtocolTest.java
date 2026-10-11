@@ -35,6 +35,9 @@ class TargetCloseProtocolTest {
         for (int i = 0; i < 2; i++) {
             final int index = i;
             final var mutation = signed.mutations().get(i);
+            assertArrayEquals(mutation.canonicalEnvelope(),
+                    SystemMutation.decodeTargetControlFrame(mutation.encodeFrame()).canonicalEnvelope());
+            assertThrows(IllegalArgumentException.class, () -> SystemMutation.decodeFrame(mutation.encodeFrame()));
             final var body = TargetCloseBody.decode(mutation.canonicalBody());
             assertEquals(i, body.controlRef().targetIndex());
             assertEquals(request, body.request());

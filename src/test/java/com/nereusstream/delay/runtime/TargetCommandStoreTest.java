@@ -7992,6 +7992,7 @@ class TargetCommandStoreTest {
         assertArrayEquals(complete.semanticInputsDigest(),
                 dependencies.withAdmissionInputs(inputs, 32L << 20).semanticInputsDigest());
         assertArrayEquals(dependencies.storedControlsDigest(), complete.storedControlsDigest());
+        assertEquals(dependencies.controlResults(), complete.controlResults());
         assertEquals(dependencies.retryUses(), complete.retryUses());
         final var images = inputs.stream().map(input -> new TargetCheckpointDependencies.AdmissionImage(
                 input.reference().source(), input.image())).toList();
