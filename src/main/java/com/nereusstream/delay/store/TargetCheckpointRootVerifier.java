@@ -328,6 +328,22 @@ public final class TargetCheckpointRootVerifier {
         return verified.ledger();
     }
 
+    /** Requires schema 3 and original Outcome provenance/Owner-service/key/time/evidence authentication. */
+    public static LedgerProof auditManifestOutcomeAuthentication(final Path image, final CheckpointManifest manifest,
+            final CheckpointManifestLimits physicalLimits, final QuotaAuditLimits quotaLimits,
+            final LedgerAuditLimits ledgerLimits, final TargetCheckpointSemanticSnapshot.Limits semanticLimits,
+            final BoundedReadBudget authenticationBudget,
+            final TargetCheckpointDependencies.OutcomeImageAuthority authority, final Runnable protectionGuard) {
+        Objects.requireNonNull(authenticationBudget, "authenticationBudget");
+        Objects.requireNonNull(authority, "authority");
+        Objects.requireNonNull(protectionGuard, "protectionGuard");
+        final var verified = auditManifestCompanion(image, manifest, physicalLimits, quotaLimits, ledgerLimits,
+                semanticLimits);
+        verified.snapshot().authenticateOutcomes(verified.ledger().dependencies(), semanticLimits,
+                authenticationBudget, authority, protectionGuard);
+        return verified.ledger();
+    }
+
     private record ManifestCompanion(LedgerProof ledger, TargetCheckpointSemanticSnapshot snapshot) {}
 
     private static ManifestCompanion auditManifestCompanion(final Path image, final CheckpointManifest manifest,
@@ -343,8 +359,11 @@ public final class TargetCheckpointRootVerifier {
             throw new IllegalArgumentException("Target Manifest requires its initial reader/control snapshot");
         }
         final var snapshot = TargetCheckpointSemanticSnapshotFile.read(image, semanticLimits);
-        if (snapshot.schemaVersion() != 2) {
+        if (snapshot.schemaVersion() < 2) {
             throw new IllegalArgumentException("Target Manifest requires complete original-Control schema 2");
+        }
+        if (!proof.dependencies().outcomeResults().isEmpty() && snapshot.schemaVersion() != 3) {
+            throw new IllegalArgumentException("Target Manifest with retained Outcomes requires schema 3");
         }
         snapshot.validateAgainst(proof.dependencies(), semanticLimits);
         if (!Bytes.constantTimeEquals(manifest.controlStateDigest(), snapshot.snapshotDigest())) {

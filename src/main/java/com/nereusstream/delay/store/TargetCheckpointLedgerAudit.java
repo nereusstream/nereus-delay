@@ -267,6 +267,11 @@ final class TargetCheckpointLedgerAudit {
                 if (SystemMutationResult.decode(first.typedPayload()).mutationType()
                         == SystemMutationType.APPLY_SHARD_CONTROL) {
                     dependencies.controlResult(first);
+                } else if (SystemMutationResult.decode(first.typedPayload()).mutationType()
+                        == SystemMutationType.PUBLISH_OUTCOME
+                        || SystemMutationResult.decode(first.typedPayload()).mutationType()
+                                == SystemMutationType.EVIDENCE_RESOLUTION) {
+                    dependencies.outcomeResult(first);
                 }
             }
         }

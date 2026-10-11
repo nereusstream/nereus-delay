@@ -95,6 +95,7 @@ public final class TargetCheckpointDependencies {
     private final TargetCheckpointRootVerifier.RootProof root;
     private final List<StoredControl> controls;
     private final List<TargetResultRecord> controlResults;
+    private final List<TargetResultRecord> outcomeResults;
     private final List<Admission> admissions;
     private final List<ProfileRef> profiles;
     private final List<ProfileUse> profileUses;
@@ -109,6 +110,7 @@ public final class TargetCheckpointDependencies {
         root = builder.root;
         controls = List.copyOf(builder.controls.values());
         controlResults = List.copyOf(builder.controlResults.values());
+        outcomeResults = List.copyOf(builder.outcomeResults.values());
         this.admissions = List.copyOf(admissions);
         profiles = List.copyOf(builder.profiles.values());
         profileUses = List.copyOf(builder.profileUses.values());
@@ -126,6 +128,10 @@ public final class TargetCheckpointDependencies {
     public List<TargetResultRecord> controlResults() { return controlResults; }
     public List<ControlReference> controlReferences() {
         return controlResults.stream().map(ControlReference::new).toList();
+    }
+    public List<TargetResultRecord> outcomeResults() { return outcomeResults; }
+    public List<OutcomeReference> outcomeReferences() {
+        return outcomeResults.stream().map(OutcomeReference::new).toList();
     }
     public List<Admission> admissions() { return admissions; }
     public List<ProfileRef> profiles() { return profiles; }
@@ -219,6 +225,103 @@ public final class TargetCheckpointDependencies {
             }
             return image;
         }
+    }
+
+    public record OutcomeImage(SourcePosition source, SystemMutation image) {
+        public OutcomeImage {
+            TargetSourcePosition.requireBounded(source);
+            Objects.requireNonNull(image, "image");
+            if (image.type() != SystemMutationType.PUBLISH_OUTCOME
+                    && image.type() != SystemMutationType.EVIDENCE_RESOLUTION
+                    || !source.shardId().equals(image.shardId())) {
+                throw new IllegalArgumentException("Target Outcome image has another Source/type");
+            }
+        }
+
+        public byte[] canonicalBytes() {
+            return CanonicalProtobuf.message(out -> {
+                CanonicalProtobuf.bytes(out, 1, source.canonicalBytes());
+                CanonicalProtobuf.bytes(out, 2, image.encodeFrame());
+            });
+        }
+    }
+
+    /** Original frame locator from an actual complete ledger fold, including durable rejections. */
+    public static final class OutcomeReference {
+        private final TargetResultRecord first;
+        private OutcomeReference(TargetResultRecord first) { this.first = first; }
+        public TargetResultRecord first() { return first; }
+        public SourcePosition source() { return first.mutation().source(); }
+        public byte[] envelopeDigest() { return first.mutation().mutationDigest(); }
+
+        public SystemMutation requireImage(SystemMutation image, SourcePosition actualSource) {
+            final var result = SystemMutationResult.decode(first.typedPayload());
+            if (image == null || image.type() != result.mutationType()
+                    || !Arrays.equals(actualSource.canonicalBytes(), source().canonicalBytes())
+                    || !Arrays.equals(Bytes.sha256(image.canonicalEnvelope()), envelopeDigest())
+                    || !Arrays.equals(result.mutationId(), image.systemMutationId())
+                    || !Arrays.equals(result.mutationHash(), image.mutationHash())
+                    || !Arrays.equals(result.authorIdentity(), image.authorIdentity())
+                    || !Arrays.equals(result.appliedSourcePosition(), actualSource.canonicalBytes())
+                    || result.retryUntilEpochMs() != image.retryUntilEpochMs()) {
+                throw new IllegalArgumentException("Target Outcome input differs from its exact first result/Source");
+            }
+            return image;
+        }
+    }
+
+    /** Must authenticate original history/Owner-service/key/tuple/time and exact evidence/Admission obligations. */
+    @FunctionalInterface
+    public interface OutcomeImageAuthority {
+        java.security.PublicKey authenticate(OutcomeImage input, TargetResultRecord first);
+    }
+
+    List<OutcomeImage> correlateOutcomeImages(List<OutcomeImage> inputs, long maximumFrameBytes) {
+        if (maximumFrameBytes <= 0 || maximumFrameBytes == Long.MAX_VALUE || inputs.size() != outcomeResults.size()) {
+            throw new IllegalArgumentException("Target Outcome closure needs finite bytes and every original input");
+        }
+        final var pending = new TreeMap<String, OutcomeReference>();
+        outcomeReferences().forEach(ref -> pending.put(Bytes.hex(
+                SystemMutationResult.decode(ref.first().typedPayload()).mutationId()), ref));
+        final var sorted = new TreeMap<String, OutcomeImage>();
+        long bytes = 0;
+        for (var input : inputs) {
+            final String id = Bytes.hex(input.image().systemMutationId());
+            final var expected = pending.remove(id);
+            if (expected == null) { throw new IllegalArgumentException("extra or duplicate original Outcome"); }
+            expected.requireImage(input.image(), input.source());
+            bytes = Math.addExact(bytes, input.image().encodeFrame().length);
+            if (bytes > maximumFrameBytes) { throw new IllegalArgumentException("Outcome frame bound exceeded"); }
+            sorted.put(id, input);
+        }
+        return List.copyOf(sorted.values());
+    }
+
+    public List<OutcomeImage> requireOutcomeImages(List<OutcomeImage> inputs, long maximumFrameBytes,
+            BoundedReadBudget budget, OutcomeImageAuthority authority, Runnable protection) {
+        Objects.requireNonNull(authority, "authority");
+        Objects.requireNonNull(budget, "budget");
+        Objects.requireNonNull(protection, "protection").run();
+        final var checked = correlateOutcomeImages(inputs, maximumFrameBytes);
+        final var results = new TreeMap<String, TargetResultRecord>();
+        outcomeResults.forEach(first -> results.put(Bytes.hex(
+                SystemMutationResult.decode(first.typedPayload()).mutationId()), first));
+        for (var input : checked) {
+            beforeAuthentication(budget, protection);
+            if (!budget.tryCharge(input.source().canonicalBytes().length, input.image().encodeFrame().length)) {
+                throw budget.incomplete();
+            }
+            final var first = results.get(Bytes.hex(input.image().systemMutationId()));
+            final var key = authority.authenticate(input, first);
+            afterAuthentication(budget, protection);
+            if (SystemMutationResult.decode(first.typedPayload()).applyStatus()
+                    == com.nereusstream.delay.runtime.ApplyStatus.APPLIED
+                    && (key == null || !input.image().verifySignature(key))) {
+                throw new IllegalArgumentException("original APPLIED Outcome lacks authorized signature/evidence");
+            }
+        }
+        afterAuthentication(budget, protection);
+        return checked;
     }
 
     /**
@@ -457,6 +560,7 @@ public final class TargetCheckpointDependencies {
         private final TargetCheckpointRootVerifier.RootProof root;
         private final Map<String, StoredControl> controls = new TreeMap<>();
         private final Map<String, TargetResultRecord> controlResults = new TreeMap<>();
+        private final Map<String, TargetResultRecord> outcomeResults = new TreeMap<>();
         private final Map<String, ProfileRef> profiles = new TreeMap<>();
         private final Map<String, ProfileUse> profileUses = new TreeMap<>();
         private final Map<String, RetryPolicyRef> retries = new TreeMap<>();
@@ -472,6 +576,7 @@ public final class TargetCheckpointDependencies {
             for (final var control : prior.controls) { control(control.family(), control.key(),
                     control.valueType(), control.payload()); }
             prior.controlResults.forEach(this::controlResult);
+            prior.outcomeResults.forEach(this::outcomeResult);
             prior.profiles.forEach(this::profile);
             prior.profileUses.forEach(this::profileUse);
             prior.retryPolicies.forEach(this::retry);
@@ -495,6 +600,17 @@ public final class TargetCheckpointDependencies {
                 throw new IllegalArgumentException("Target Control reference differs from its root/type/author");
             }
             controlResults.put(Bytes.hex(first.key()), first);
+        }
+
+        void outcomeResult(TargetResultRecord first) {
+            final var result = SystemMutationResult.decode(first.typedPayload());
+            if (first.kind() != TargetResultRecord.Kind.SYSTEM
+                    || !first.mutation().source().shardId().equals(root.metadata().shardId())
+                    || result.mutationType() != SystemMutationType.PUBLISH_OUTCOME
+                            && result.mutationType() != SystemMutationType.EVIDENCE_RESOLUTION) {
+                throw new IllegalArgumentException("Target Outcome reference differs from its Source/type");
+            }
+            outcomeResults.put(Bytes.hex(first.key()), first);
         }
 
         void binding(TargetScheduleBinding binding) {

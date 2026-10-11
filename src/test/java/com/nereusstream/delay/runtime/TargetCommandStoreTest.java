@@ -174,6 +174,7 @@ class TargetCommandStoreTest {
 
     private record CheckpointImageContext(List<ProfileSemanticEnvelope> profiles,
             List<TargetCheckpointDependencies.ControlImage> controls,
+            List<TargetCheckpointDependencies.OutcomeImage> outcomes,
             InMemoryControlTargetRegistrationAuthority registrations, ControlAuthorizationContext actor) {}
 
     @org.junit.jupiter.api.Test
@@ -1345,7 +1346,7 @@ class TargetCommandStoreTest {
                 final var checkpointControls = new java.util.ArrayList<TargetCheckpointDependencies.ControlImage>();
                 final var checkpointContext = checkpointAdmissionImages
                         ? new CheckpointImageContext(List.of(destination, capability), checkpointControls,
-                                registrations, actor) : null;
+                                new java.util.ArrayList<>(), registrations, actor) : null;
                 checkpointControls.add(new TargetCheckpointDependencies.ControlImage(
                         otherSource, otherSigned.mutation()));
                 try (var otherStore = ShardStore.openTarget(config, otherShard, resources)) {
@@ -7651,6 +7652,9 @@ class TargetCommandStoreTest {
         final var turn = worker.runSourceTurn(new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 102);
         assertEquals(SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN, turn.status(),
                 () -> String.valueOf(turn.failure()));
+        if (checkpointContext != null) {
+            checkpointContext.outcomes().add(new TargetCheckpointDependencies.OutcomeImage(at, submitted.mutation()));
+        }
         final long applied = store.latestSequenceNumber();
         final var after = TargetMessageRecord.decode(TargetValueEnvelope.decode(
                 store.get(ColumnFamily.ID, messageKey), TargetMessageRecord.VALUE_TYPE).payload());
@@ -7865,6 +7869,9 @@ class TargetCommandStoreTest {
         final var turn = worker.runSourceTurn(new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 102);
         assertEquals(SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN, turn.status(),
                 () -> String.valueOf(turn.failure()));
+        if (checkpointContext != null) {
+            checkpointContext.outcomes().add(new TargetCheckpointDependencies.OutcomeImage(at, mutation));
+        }
         collectingUnknown.history().complete(admission);
         assertTrue(collectingUnknown.completed().result().isEmpty());
         assertEquals(TargetCheckpointAdmissionInputs.Status.FAILED, collectingUnknown.pending().runTurn().status());
@@ -8193,12 +8200,49 @@ class TargetCommandStoreTest {
                 (input, first) -> {},
                 (registered, input) -> new com.nereusstream.delay.store.TargetCheckpointControlAuthority.Authorization(
                         context.actor(), ignored -> true), budget(), () -> assertFalse(Thread.holdsLock(store)));
-        final var semantics = com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.collect(
+        final var controlSemantics = com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.collect(
                 dependencies, images, profiles, (ref, at) -> ref.matches(policy) ? policy : null,
                 ref -> { throw new AssertionError("inline fixture has no Trust Set"); }, budget(), semanticLimits,
                 () -> assertFalse(Thread.holdsLock(store)))
                 .withControlInputs(dependencies, context.controls(), budget(), semanticLimits, controls,
                         () -> assertFalse(Thread.holdsLock(store)));
+        assertEquals(2, controlSemantics.schemaVersion());
+        assertThrows(IllegalArgumentException.class, () -> controlSemantics.authenticateOutcomes(dependencies,
+                semanticLimits, budget(), (input, first) -> keys.getPublic(), () -> {}));
+        final var semantics = controlSemantics.withOutcomeInputs(dependencies, context.outcomes(), budget(),
+                semanticLimits,
+                        (input, first) -> {
+                            assertFalse(Thread.holdsLock(store));
+                            assertEquals(first.mutation().source(), input.source());
+                            return keys.getPublic();
+                        }, () -> assertFalse(Thread.holdsLock(store)));
+        assertEquals(3, semantics.schemaVersion());
+        assertEquals(context.outcomes().size(), dependencies.outcomeReferences().size());
+        final var decodedOutcomes = com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.decode(
+                semantics.canonicalBytes(), semanticLimits);
+        assertArrayEquals(semantics.canonicalBytes(), decodedOutcomes.canonicalBytes());
+        assertThrows(IllegalArgumentException.class, () -> semantics.withOutcomeInputs(dependencies, List.of(),
+                budget(), semanticLimits, (input, first) -> keys.getPublic(), () -> {}));
+        final var duplicateOutcomes = new java.util.ArrayList<>(context.outcomes());
+        duplicateOutcomes.set(duplicateOutcomes.size() - 1, duplicateOutcomes.getFirst());
+        if (duplicateOutcomes.size() > 1) {
+            assertThrows(IllegalArgumentException.class, () -> semantics.withOutcomeInputs(dependencies,
+                    duplicateOutcomes, budget(), semanticLimits, (input, first) -> keys.getPublic(), () -> {}));
+        }
+        assertThrows(IllegalArgumentException.class, () -> semantics.withOutcomeInputs(dependencies,
+                context.outcomes(), budget(), semanticLimits, (input, first) -> null, () -> {}));
+        final var wrongOutcomeSource = new java.util.ArrayList<>(context.outcomes());
+        final var firstOutcome = wrongOutcomeSource.getFirst();
+        wrongOutcomeSource.set(0, new TargetCheckpointDependencies.OutcomeImage(
+                dependencies.admissions().getFirst().first().mutation().source(), firstOutcome.image()));
+        assertThrows(IllegalArgumentException.class, () -> semantics.withOutcomeInputs(dependencies, wrongOutcomeSource,
+                budget(), semanticLimits, (input, first) -> { throw new AssertionError("bad Source reached issuer"); },
+                () -> {}));
+        assertThrows(IllegalStateException.class,
+                () -> semantics.withOutcomeInputs(dependencies, context.outcomes(),
+                        new BoundedReadBudget(1, 1, 1_000_000, () -> 0), semanticLimits,
+                        (input, first) -> { throw new AssertionError("over-budget input reached issuer"); }, () -> {}));
+
         final byte[] checkpointId = bytes(16, 0x40 + current.phase().ordinal());
         final Path image = store.dbPath().getParent().resolve("admission-image-" + current.phase());
         com.nereusstream.delay.store.TargetCheckpointCandidateTestBridge.createSemantic(store, image, checkpointId,
@@ -8272,6 +8316,13 @@ class TargetCommandStoreTest {
         assertEquals(dependencies.admissions().getFirst().first().mutation().source(),
                 proof.dependencies().admissions().getFirst().first().mutation().source());
         assertEquals(originalControlProof.root().source(), proof.root().source());
+        final var outcomeProof = TargetCheckpointRootVerifier.auditManifestOutcomeAuthentication(image, manifest,
+                physicalLimits, quotaLimits, ledgerLimits, semanticLimits, budget(), (input, first) -> {
+                    assertFalse(Thread.holdsLock(store));
+                    assertEquals(first.mutation().source(), input.source());
+                    return keys.getPublic();
+                }, () -> assertFalse(Thread.holdsLock(store)));
+        assertEquals(context.outcomes().size(), outcomeProof.dependencies().outcomeResults().size());
         assertEquals(afterCreate, store.latestSequenceNumber());
         assertThrows(IllegalArgumentException.class,
                 () -> TargetCheckpointRootVerifier.auditManifestAdmissionAuthentication(image, manifest,

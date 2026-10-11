@@ -139,7 +139,7 @@ public final class TargetCheckpointControlAuthority implements TargetCheckpointD
             TargetCheckpointSemanticSnapshot snapshot, TargetCheckpointSemanticSnapshot.Limits limits,
             TargetStoreBootstrap.InitialControlAuthority initialAuthority) {
         Objects.requireNonNull(initialAuthority, "initialAuthority");
-        if (snapshot.schemaVersion() != 2) {
+        if (snapshot.schemaVersion() < 2) {
             throw new IllegalArgumentException("Control authentication requires complete original-Control schema 2");
         }
         snapshot.validateAgainst(dependencies, limits);
