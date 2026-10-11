@@ -67,9 +67,15 @@ public final class TargetOwnerRecoveryCoordinator {
         this.authorities = Objects.requireNonNull(authorities, "authorities");
         this.limits = Objects.requireNonNull(limits, "limits");
         this.source = Objects.requireNonNull(source, "source");
+        this.source.requireGuarded();
         this.catalog = Objects.requireNonNull(catalog, "catalog");
         this.pin = Objects.requireNonNull(pin, "pin");
-        this.protection = Objects.requireNonNull(protection, "protection");
+        final var heldProtection = Objects.requireNonNull(protection, "protection");
+        this.protection = () -> {
+            this.source.requireCurrent();
+            heldProtection.run();
+            this.source.requireCurrent();
+        };
         this.turnBudget = Objects.requireNonNull(turnBudget, "turnBudget");
         this.workClasses = Objects.requireNonNull(workClasses, "workClasses");
         this.clock = Objects.requireNonNull(clock, "clock");

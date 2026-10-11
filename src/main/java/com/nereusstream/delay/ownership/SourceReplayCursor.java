@@ -13,16 +13,35 @@ import java.util.Objects;
  */
 public final class SourceReplayCursor<T> {
     private final Iterator<? extends T> iterator;
+    private final Runnable protection;
     private boolean loaded;
     private boolean exhausted;
     private T next;
 
-    private SourceReplayCursor(final Iterator<? extends T> iterator) {
+    private SourceReplayCursor(final Iterator<? extends T> iterator, final Runnable protection) {
         this.iterator = Objects.requireNonNull(iterator, "iterator");
+        this.protection = protection;
     }
 
     public static <T> SourceReplayCursor<T> of(final Iterator<? extends T> iterator) {
-        return new SourceReplayCursor<>(iterator);
+        return new SourceReplayCursor<>(iterator, null);
+    }
+
+    /** Keeps the caller-owned native Source guard live even while a look-ahead entry is cached. */
+    public static <T> SourceReplayCursor<T> guarded(Iterator<? extends T> iterator, Runnable protection) {
+        return new SourceReplayCursor<>(iterator, Objects.requireNonNull(protection, "protection"));
+    }
+
+    public void requireGuarded() {
+        if (protection == null) {
+            throw new IllegalArgumentException("Target recovery requires a guarded Source cursor");
+        }
+        requireCurrent();
+    }
+
+    /** Rechecks held native identity/connection and retention protections without advancing the cursor. */
+    public void requireCurrent() {
+        if (protection != null) { protection.run(); }
     }
 
     public boolean hasNext() {
@@ -46,6 +65,7 @@ public final class SourceReplayCursor<T> {
     }
 
     private void load() {
+        requireCurrent();
         if (loaded || exhausted) {
             return;
         }
@@ -55,5 +75,6 @@ public final class SourceReplayCursor<T> {
         } else {
             exhausted = true;
         }
+        requireCurrent();
     }
 }

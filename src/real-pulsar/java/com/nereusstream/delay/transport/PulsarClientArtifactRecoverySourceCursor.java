@@ -136,6 +136,11 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
         return this::isLastDeliveredSuccessor;
     }
 
+    /** Keeps the exact post-seek native guard live across Target recovery look-ahead and queued writes. */
+    public com.nereusstream.delay.ownership.SourceReplayCursor<SourceReplayEntry> replayCursor() {
+        return com.nereusstream.delay.ownership.SourceReplayCursor.guarded(this, this::requireCurrent);
+    }
+
     @Override
     public synchronized boolean hasNext() {
         ensureOpen();

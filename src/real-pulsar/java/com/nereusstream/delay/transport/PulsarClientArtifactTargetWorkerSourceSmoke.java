@@ -643,12 +643,13 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                     Bytes.sha256(Bytes.utf8("p1-native-recovery-fixture")), 1, barrier);
             cursor = PulsarClientArtifactRecoverySourceCursor.forTarget(consumer, resource, assignment, topic,
                     Duration.ofSeconds(10), 2 << 20, protection);
+            final var replay = cursor.replayCursor();
             int read = 0;
             boolean targetControl = false;
             boolean outcome = false;
-            while (cursor.hasNext()) {
+            while (replay.hasNext()) {
                 cursor.requireCurrent();
-                final var entry = cursor.next();
+                final var entry = replay.next();
                 if (entry instanceof SourceReplayMutation system) {
                     if (read == 0) {
                         targetControl = com.nereusstream.delay.protocol.TargetQuotaGrantControlBody
@@ -665,6 +666,15 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
             if (read != 3 || !targetControl || !outcome) {
                 throw new IllegalStateException("P1 Target recovery did not read complete grant/Command/Outcome cut");
             }
+            cursor.close();
+            try {
+                replay.hasNext();
+                throw new AssertionError("closed native Source was accepted by cached recovery cursor");
+            } catch (IllegalStateException expectedClosed) {
+                if (!expectedClosed.getMessage().contains("closed")) { throw expectedClosed; }
+            }
+            System.out.println("Target guarded look-ahead rejected the closed native recovery Source "
+                    + "after barrier.");
             System.out.println("P1 guarded non-durable Target no-ACK recovery cursor read exact real "
                     + "Control/Command/Outcome through post-seek attested barrier; primary Store unchanged.");
         } finally {

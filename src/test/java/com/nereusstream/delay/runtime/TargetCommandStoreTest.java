@@ -10243,9 +10243,19 @@ class TargetCommandStoreTest {
         final var turns = new com.nereusstream.delay.ownership.ReplayTurnBudget(1, 32L << 20, 60_000_000_000L);
         final byte[] beforeBudget = store.get(ColumnFamily.META, retained.key());
         final long beforeSequence = store.shardMutationSequence();
+        final var guardedOwner = acquiring;
+        final var guardedPin = recoveryPin;
+        assertTrue(assertThrows(IllegalArgumentException.class,
+                () -> new com.nereusstream.delay.ownership.TargetOwnerRecoveryCoordinator(store, root,
+                        assignment, guardedOwner, authorities, limits,
+                        com.nereusstream.delay.ownership.SourceReplayCursor.of(List.<SourceReplayEntry>of().iterator()),
+                        catalog, guardedPin, () -> {}, turns, classes, () -> 1, System::nanoTime,
+                        TargetCommandStoreTest::budget, ledgerLimits))
+                .getMessage().contains("requires a guarded Source cursor"));
         final var missingTail = new com.nereusstream.delay.ownership.TargetOwnerRecoveryCoordinator(store, root,
                 assignment, acquiring, authorities, limits,
-                com.nereusstream.delay.ownership.SourceReplayCursor.of(List.<SourceReplayEntry>of().iterator()),
+                com.nereusstream.delay.ownership.SourceReplayCursor.guarded(
+                        List.<SourceReplayEntry>of().iterator(), () -> {}),
                 catalog, recoveryPin, () -> {}, turns, classes, () -> 1, System::nanoTime,
                 TargetCommandStoreTest::budget, ledgerLimits);
         assertTrue(assertThrows(IllegalStateException.class, missingTail::runTurn)
@@ -10259,8 +10269,8 @@ class TargetCommandStoreTest {
                 .getMessage().contains("Pin is no longer active"));
         assertEquals(beforePinLoss, store.latestSequenceNumber());
         activePin.set(recoveryPin);
-        final var gapCursor = com.nereusstream.delay.ownership.SourceReplayCursor.of(
-                List.of(new SourceReplayMutation(original, gap, null, null)).iterator());
+        final var gapCursor = com.nereusstream.delay.ownership.SourceReplayCursor.guarded(
+                List.of(new SourceReplayMutation(original, gap, null, null)).iterator(), () -> {});
         final var gapRecovery = new com.nereusstream.delay.ownership.TargetOwnerRecoveryCoordinator(store,
                 TargetStoreBootstrap.reopen(store, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20),
                         budget(), (a, b) -> guard()), assignment, acquiring, authorities, limits, gapCursor,
@@ -10274,8 +10284,35 @@ class TargetCommandStoreTest {
         assertArrayEquals(beforeBudget, store.get(ColumnFamily.META, retained.key()));
         assertEquals(com.nereusstream.delay.protocol.RecoveryInstallPhase.INSTALLED,
                 store.recoveryMetadata().installState().phase());
-        final var lostCursor = com.nereusstream.delay.ownership.SourceReplayCursor.of(
-                List.of(new SourceReplayMutation(original, next, null, null)).iterator());
+        final var sourceCurrent = new java.util.concurrent.atomic.AtomicBoolean(true);
+        final var guardedCursor = com.nereusstream.delay.ownership.SourceReplayCursor.guarded(
+                List.of(new SourceReplayMutation(original, next, null, null)).iterator(), () -> {
+                    if (!sourceCurrent.get()) { throw new IllegalStateException("recovery Source guard changed"); }
+                });
+        final var lostSource = new com.nereusstream.delay.ownership.TargetOwnerRecoveryCoordinator(store,
+                TargetStoreBootstrap.reopen(store, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20),
+                        budget(), (a, b) -> guard()), assignment, acquiring, authorities, limits, guardedCursor,
+                catalog, recoveryPin, () -> {}, turns, classes, () -> 1, System::nanoTime,
+                TargetCommandStoreTest::budget, ledgerLimits);
+        classes.submit(new WorkClassTask(WorkClass.LEASE_FENCE, "target-recovery-source-loss", 1),
+                () -> sourceCurrent.set(false));
+        assertTrue(lostSource.runTurn().waitingForWorkClass());
+        final var beforeSourceLoss = store.latestSequenceNumber();
+        classes.runTurn(new SchedulerBudget(1, 32L << 20, 1_000_000));
+        assertEquals(beforeSourceLoss, store.latestSequenceNumber());
+        assertTrue(assertThrows(IllegalStateException.class, lostSource::runTurn)
+                .getMessage().contains("Source guard changed"));
+        assertEquals(beforeSourceLoss, store.latestSequenceNumber());
+        assertEquals(at, store.appliedShardLogPosition());
+        assertArrayEquals(beforeBudget, store.get(ColumnFamily.META, retained.key()));
+        assertEquals(com.nereusstream.delay.protocol.RecoveryInstallPhase.INSTALLED,
+                store.recoveryMetadata().installState().phase());
+        assertTrue(assertThrows(IllegalStateException.class, guardedCursor::hasNext)
+                .getMessage().contains("Source guard changed"));
+        sourceCurrent.set(true);
+        assertEquals(next, guardedCursor.peek().position());
+        final var lostCursor = com.nereusstream.delay.ownership.SourceReplayCursor.guarded(
+                List.of(new SourceReplayMutation(original, next, null, null)).iterator(), () -> {});
         final var lostOwner = new com.nereusstream.delay.ownership.TargetOwnerRecoveryCoordinator(store,
                 TargetStoreBootstrap.reopen(store, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20),
                         budget(), (a, b) -> guard()), assignment, acquiring, authorities, limits, lostCursor,
@@ -10296,8 +10333,8 @@ class TargetCommandStoreTest {
                 new OwnerIdentity(bytes(8, 0x5a), bytes(8, 0x5b), acquiring.ownerEpoch(), bytes(32, 0x5c)),
                 oldPin.candidate(), oldPin.observedFloor(), oldPin.observedCatalogGeneration(), bytes(32, 0x5d));
         activePin.set(recoveryPin);
-        final var cursor = com.nereusstream.delay.ownership.SourceReplayCursor.of(
-                List.of(new SourceReplayMutation(original, next, null, null)).iterator());
+        final var cursor = com.nereusstream.delay.ownership.SourceReplayCursor.guarded(
+                List.of(new SourceReplayMutation(original, next, null, null)).iterator(), () -> {});
         final var recovery = new com.nereusstream.delay.ownership.TargetOwnerRecoveryCoordinator(store,
                 TargetStoreBootstrap.reopen(store, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20),
                         budget(), (a, b) -> guard()), assignment, acquiring, authorities, limits, cursor,
@@ -10338,8 +10375,8 @@ class TargetCommandStoreTest {
         final var coordinator = new com.nereusstream.delay.ownership.TargetOwnerRecoveryCoordinator(store, root,
                 recovery.assignment(), recovery.acquiring(), authorities,
                 new TargetSourceApplyRuntime.Limits(4096, 32L << 20, 60_000_000_000L, 16, 1),
-                com.nereusstream.delay.ownership.SourceReplayCursor.of(
-                        List.of(new SourceReplayMutation(original, next, null, null)).iterator()),
+                com.nereusstream.delay.ownership.SourceReplayCursor.guarded(
+                        List.of(new SourceReplayMutation(original, next, null, null)).iterator(), () -> {}),
                 recovery.catalog(), recovery.pin(), () -> {},
                 new com.nereusstream.delay.ownership.ReplayTurnBudget(1, 32L << 20, 60_000_000_000L),
                 recovery.workClasses(), System::currentTimeMillis, System::nanoTime,

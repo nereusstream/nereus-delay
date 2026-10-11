@@ -1614,12 +1614,13 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
         try {
             cursor = KafkaClientArtifactRecoverySourceCursor.forTarget(nativeConsumer, assignment, topic, 0,
                     Duration.ofSeconds(10), 2 << 20, protection);
+            final var replay = cursor.replayCursor();
             long expectedOffset = 0;
             boolean targetControl = false;
             boolean outcome = false;
-            while (cursor.hasNext()) {
+            while (replay.hasNext()) {
                 cursor.requireCurrent();
-                final var entry = cursor.next();
+                final var entry = replay.next();
                 if (!(entry.position() instanceof KafkaSourcePosition at) || at.offset() != expectedOffset++) {
                     throw new IllegalStateException("K1 Target recovery cursor skipped its real Source sequence");
                 }
@@ -1637,6 +1638,15 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
             if (!targetControl || !outcome || expectedOffset != end.offset() + 1) {
                 throw new IllegalStateException("K1 Target recovery did not read complete grant/Outcome cut");
             }
+            cursor.close();
+            try {
+                replay.hasNext();
+                throw new AssertionError("closed native Source was accepted by cached recovery cursor");
+            } catch (IllegalStateException expectedClosed) {
+                if (!expectedClosed.getMessage().contains("closed")) { throw expectedClosed; }
+            }
+            System.out.println("Target guarded look-ahead rejected the closed native recovery Source "
+                    + "after barrier.");
             System.out.println("K1 guarded Target no-commit recovery cursor read exact real Control/Command/Outcome "
                     + "Source sequence through barrier; primary Store/group unchanged.");
         } finally {

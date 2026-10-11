@@ -204,6 +204,11 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
         }
     }
 
+    /** Keeps the native Source guard live across Target look-ahead and queued recovery writes. */
+    public com.nereusstream.delay.ownership.SourceReplayCursor<SourceReplayEntry> replayCursor() {
+        return com.nereusstream.delay.ownership.SourceReplayCursor.guarded(this, this::requireCurrent);
+    }
+
     /** Rechecks this exact native Source identity and the caller-held protection without reading or committing. */
     public synchronized void requireCurrent() {
         ensureOpen();
