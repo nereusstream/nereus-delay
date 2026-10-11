@@ -543,3 +543,5 @@ Scheduled Target candidates now capture an exact protected source cut before cre
 2026-10-12 C5后续：format2 Manifest在有限完整物理/配额/业务账本检查中绑定实际META10初始reader/control snapshot及schema2持久semantic companion，精确比较controlStateDigest=完整snapshotDigest与referencedSemanticVersionsDigest=已有Target dependency semanticInputsDigest；拒绝缺初始快照、schema1及两个摘要替换。实际Store/codec/既有upload/download门禁6局部通过，返回local LedgerProof不提供原Source/权限/pins认证；正式发布/Catalog/restore/install/Floor与全量provider继续必做，状态flags不提升。
 
 2026-10-12 C5后续：持久Manifest镜像经同次结构/companion完整账本检查后，重新认证所有原Control的history、immutable Prepared注册、双签名/author/window与原Source actor/scope；初始META10另按原grant request/ControlRef/author/root/lineage/Source/envelope匹配并验证独立reader/Profile issuer key。实际Store6、样式与real Oxia注册2通过；其余Source/语义/Artifact/credential/pin权威、发布/Catalog/install/Floor仍必做，不提升flags。
+
+2026-10-12 C5后续：保留Admission先按原首结果/Source/envelope/Owner/window/frozen Budget关联，再mandatory history和既有Admission verifier重验历史Owner/key、source激活tuple、原决策时间与物化权限；UNKNOWN/已解决phase及费用不变，无SEND/Store写。实际Store/空Admission Manifest局部3、样式与real Oxia Owner/cut同mode31场景1通过。其他历史/语义/Outcome/Artifact/credential/pins、未物化旧Admission closure与发布/install/Floor继续必做，不提升flags。

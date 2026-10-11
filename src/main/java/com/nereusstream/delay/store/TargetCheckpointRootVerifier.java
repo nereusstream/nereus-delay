@@ -291,6 +291,26 @@ public final class TargetCheckpointRootVerifier {
         return verified.ledger();
     }
 
+    /** Original materialized Admission authentication after the same immutable Manifest/companion image audit. */
+    public static LedgerProof auditManifestAdmissionAuthentication(final Path image, final CheckpointManifest manifest,
+            final CheckpointManifestLimits physicalLimits, final QuotaAuditLimits quotaLimits,
+            final LedgerAuditLimits ledgerLimits, final TargetCheckpointSemanticSnapshot.Limits semanticLimits,
+            final BoundedReadBudget authenticationBudget,
+            final TargetCheckpointDependencies.AdmissionHistoryAuthority history,
+            final com.nereusstream.delay.runtime.TargetPublishAdmissionVerifier.Authority authority,
+            final Runnable protectionGuard) {
+        Objects.requireNonNull(authenticationBudget, "authenticationBudget");
+        Objects.requireNonNull(history, "history");
+        Objects.requireNonNull(authority, "authority");
+        Objects.requireNonNull(protectionGuard, "protectionGuard");
+        final var verified = auditManifestCompanion(image, manifest, physicalLimits, quotaLimits, ledgerLimits,
+                semanticLimits);
+        final var authenticated = verified.ledger().dependencies().authenticateAdmissionImages(
+                verified.snapshot().admissions(), semanticLimits.maximumAdmissionFrameBytes(), authenticationBudget,
+                history, authority, protectionGuard);
+        return new LedgerProof(verified.ledger().root(), authenticated);
+    }
+
     private record ManifestCompanion(LedgerProof ledger, TargetCheckpointSemanticSnapshot snapshot) {}
 
     private static ManifestCompanion auditManifestCompanion(final Path image, final CheckpointManifest manifest,

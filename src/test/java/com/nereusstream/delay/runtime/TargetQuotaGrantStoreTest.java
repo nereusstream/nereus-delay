@@ -1486,6 +1486,16 @@ class TargetQuotaGrantStoreTest {
                         semanticCandidate, semanticManifest, imageLimits, quotaAuditLimits, ledgerAuditLimits,
                         semanticLimits, originalControlAuthority, originalReader);
                 assertEquals(live.shardMutationSequence(), authenticatedManifest.root().mutationSequence());
+                final var emptyAdmissionManifest = TargetCheckpointRootVerifier.auditManifestAdmissionAuthentication(
+                        semanticCandidate, semanticManifest, imageLimits, quotaAuditLimits, ledgerAuditLimits,
+                        semanticLimits, budget(), (input, first) -> {
+                            throw new AssertionError("empty image invented Admission history");
+                        }, (actualScope, writer, mutation, source) -> {
+                            throw new AssertionError("empty image invented Admission authority");
+                        }, () -> assertFalse(Thread.holdsLock(live)));
+                assertTrue(emptyAdmissionManifest.dependencies().admissions().isEmpty());
+                assertArrayEquals(authenticatedManifest.dependencies().semanticInputsDigest(),
+                        emptyAdmissionManifest.dependencies().semanticInputsDigest());
                 assertEquals(1, initialAuthentications.get());
                 if (controlEndpoint != null && !controlEndpoint.isBlank()) {
                     final String manifestPrefix = "checkpoint-manifest-control/" + UUID.randomUUID();

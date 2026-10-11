@@ -21,6 +21,7 @@ import com.nereusstream.delay.protocol.TargetScheduleBinding;
 import com.nereusstream.delay.protocol.TargetSourcePosition;
 import com.nereusstream.delay.runtime.RetryPolicyCatalog;
 import com.nereusstream.delay.runtime.SystemMutationResult;
+import com.nereusstream.delay.runtime.TargetPublishAdmissionVerifier;
 import com.nereusstream.delay.runtime.TargetResultRecord;
 import java.util.Arrays;
 import java.util.List;
@@ -344,6 +345,64 @@ public final class TargetCheckpointDependencies {
             builder.admissionImage(image);
         }
         return new TargetCheckpointDependencies(builder, admissions, true);
+    }
+
+    /** Authenticates original Broker provenance and retains history/credential/pin protection. */
+    @FunctionalInterface
+    public interface AdmissionHistoryAuthority {
+        void requireOriginal(AdmissionImage input, TargetResultRecord first);
+    }
+
+    /**
+     * Reauthenticates every retained Admission at its first Source, including UNKNOWN/resolved Budgets.
+     * Providers run outside Store locks with finite deadlines. Failure retains all original obligations;
+     * successful Owner/key/tuple/time/materialization checks grant no SEND or publication/install rights.
+     */
+    public TargetCheckpointDependencies authenticateAdmissionImages(final List<AdmissionImage> inputs,
+            final long maximumFrameBytes, final BoundedReadBudget budget,
+            final AdmissionHistoryAuthority history, final TargetPublishAdmissionVerifier.Authority authority,
+            final Runnable protectionGuard) {
+        Objects.requireNonNull(budget, "budget");
+        Objects.requireNonNull(history, "history");
+        Objects.requireNonNull(authority, "authority");
+        Objects.requireNonNull(protectionGuard, "protectionGuard").run();
+        final var complete = withAdmissionImages(inputs, maximumFrameBytes);
+        final var pending = new TreeMap<String, Admission>();
+        admissions.forEach(retained -> pending.put(Bytes.hex(retained.attempt().publishAttemptId()), retained));
+        for (var input : inputs) {
+            final var body = TargetPublishAdmissionBody.decode(input.image().canonicalBody());
+            final var retained = pending.remove(Bytes.hex(body.publishAttemptId()));
+            beforeAuthentication(budget, protectionGuard);
+            if (!budget.tryCharge(input.source().canonicalBytes().length, input.image().encodeFrame().length)) {
+                throw budget.incomplete();
+            }
+            history.requireOriginal(input, retained.first());
+            afterAuthentication(budget, protectionGuard);
+            final var decision = TargetPublishAdmissionVerifier.decideFirstApplication(root.root().scope(),
+                    input.image(), input.source(), (scope, writer, mutation, source) -> {
+                        beforeAuthentication(budget, protectionGuard);
+                        final var resolved = authority.resolve(scope, writer, mutation, source);
+                        afterAuthentication(budget, protectionGuard);
+                        return resolved;
+                    });
+            afterAuthentication(budget, protectionGuard);
+            if (decision.rejection() != null) {
+                throw new IllegalArgumentException("retained Admission is unauthorized at its original Source: "
+                        + decision.rejection());
+            }
+        }
+        afterAuthentication(budget, protectionGuard);
+        return complete;
+    }
+
+    private static void beforeAuthentication(BoundedReadBudget budget, Runnable protection) {
+        protection.run();
+        if (!budget.beforeRead()) { throw budget.incomplete(); }
+    }
+
+    private static void afterAuthentication(BoundedReadBudget budget, Runnable protection) {
+        protection.run();
+        if (!budget.beforeTimedWork()) { throw budget.incomplete(); }
     }
 
     /** Deterministic local version inventory, not an authenticated control snapshot or publication authorization. */

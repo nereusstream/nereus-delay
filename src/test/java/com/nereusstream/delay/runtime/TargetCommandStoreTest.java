@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.ownership.InMemoryControlTargetRegistrationAuthority;
@@ -202,6 +203,18 @@ class TargetCommandStoreTest {
             modifiesActualTimelineOrClaimWithHistoryAndFirstResults(
                     true, false, false, false, false, true, false, mode);
         }
+    }
+
+    @org.junit.jupiter.api.Test
+    @org.junit.jupiter.api.Tag("real-service")
+    void realOxiaCheckpointAdmissionAuthenticationPreservesUnknownAndResolvedOriginalSource() throws Exception {
+        runRealOxiaTargetOutcome(31);
+    }
+
+    @org.junit.jupiter.api.Test
+    void checkpointAdmissionAuthenticationPreservesUnknownAndResolvedOriginalSource() throws Exception {
+        modifiesActualTimelineOrClaimWithHistoryAndFirstResults(
+                true, false, false, false, false, true, false, 31);
     }
 
     private byte[] ownerSession(final int fixture) {
@@ -8001,6 +8014,73 @@ class TargetCommandStoreTest {
         assertThrows(IllegalArgumentException.class, () -> dependencies.withAdmissionImages(
                 List.of(new TargetCheckpointDependencies.AdmissionImage(current.mutation().source(), admission)),
                 32L << 20));
+        final var materializationChecks = new java.util.concurrent.atomic.AtomicInteger();
+        final TargetPublishAdmissionVerifier.Authority originalAuthority = (actualScope, writer, image, source) -> {
+            assertFalse(Thread.holdsLock(store));
+            assertEquals(scope, actualScope);
+            assertEquals(first.mutation().source(), source);
+            assertEquals(TargetPublishAdmissionBody.decode(admission.canonicalBody()).owner(),
+                    AuthorIdentity.decode(image.authorIdentity()).asOwnerIdentity());
+            return new TargetPublishAdmissionVerifier.Authorization(keys.getPublic(),
+                    ProtocolTuple.targetMaterializedPublishAdmission(), 10, 10, 100,
+                    (boundScope, boundWriter, at, time) -> {
+                        assertEquals(first.mutation().source(), at);
+                        assertEquals(TargetPublishAdmissionBody.decode(admission.canonicalBody()).decisionTime(), time);
+                        return true;
+                    }, (body, at) -> {
+                        assertEquals(first.mutation().source(), at);
+                        assertEquals(publication, body.publication());
+                        materializationChecks.incrementAndGet();
+                    });
+        };
+        final TargetCheckpointDependencies.AdmissionHistoryAuthority originalHistory = (input, retainedFirst) -> {
+            assertFalse(Thread.holdsLock(store));
+            assertArrayEquals(first.canonicalBytes(), retainedFirst.canonicalBytes());
+            assertEquals(first.mutation().source(), input.source());
+            assertArrayEquals(admission.canonicalEnvelope(), input.image().canonicalEnvelope());
+        };
+        final var protectedCut = worker.captureSourceBacklogCut(() -> 102);
+        final var authenticated = dependencies.authenticateAdmissionImages(images, 32L << 20, budget(),
+                originalHistory, originalAuthority, protectedCut::requireCurrent);
+        assertArrayEquals(complete.semanticInputsDigest(), authenticated.semanticInputsDigest());
+        assertEquals(current.phase(), authenticated.admissions().getFirst().attempt().phase());
+        assertEquals(current.effectiveCharge(), authenticated.admissions().getFirst().attempt().effectiveCharge());
+        assertEquals(1, materializationChecks.get());
+        final KeyPair unrelatedKey;
+        try {
+            unrelatedKey = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        } catch (java.security.GeneralSecurityException unavailable) {
+            throw new AssertionError("test requires Ed25519", unavailable);
+        }
+        assertThrows(IllegalArgumentException.class, () -> dependencies.authenticateAdmissionImages(
+                images, 32L << 20, budget(), originalHistory,
+                (a, b, c, d) -> new TargetPublishAdmissionVerifier.Authorization(unrelatedKey.getPublic(),
+                        ProtocolTuple.targetMaterializedPublishAdmission(), 10, 10, 100,
+                        (e, f, g, h) -> true, (e, f) -> {}), () -> {}));
+        assertThrows(IllegalArgumentException.class, () -> dependencies.authenticateAdmissionImages(
+                images, 32L << 20, budget(), originalHistory,
+                (a, b, c, d) -> new TargetPublishAdmissionVerifier.Authorization(keys.getPublic(),
+                        ProtocolTuple.targetMaterializedPublishAdmission(), 10, 10, 100,
+                        (e, f, g, h) -> false, (e, f) -> {}), () -> {}));
+        assertThrows(IllegalStateException.class, () -> dependencies.authenticateAdmissionImages(
+                images, 32L << 20, budget(), originalHistory,
+                (a, b, c, d) -> new TargetPublishAdmissionVerifier.Authorization(keys.getPublic(),
+                        ProtocolTuple.targetMaterializedPublishAdmission(), 10, 10, 100,
+                        (e, f, g, h) -> true), () -> {}));
+        final var historyFailure = new IllegalStateException("original Broker history not protected");
+        assertSame(historyFailure, assertThrows(IllegalStateException.class,
+                () -> dependencies.authenticateAdmissionImages(images, 32L << 20, budget(),
+                        (input, retainedFirst) -> { throw historyFailure; }, originalAuthority, () -> {})));
+        assertThrows(com.nereusstream.delay.store.ReadIncompleteException.class,
+                () -> dependencies.authenticateAdmissionImages(images, 32L << 20,
+                        new BoundedReadBudget(1, 32L << 20, 1_000_000, () -> 0), originalHistory,
+                        originalAuthority, () -> {}));
+        final var historyHeld = new java.util.concurrent.atomic.AtomicBoolean(true);
+        assertThrows(IllegalStateException.class, () -> dependencies.authenticateAdmissionImages(
+                images, 32L << 20, budget(), (input, retainedFirst) -> historyHeld.set(false), originalAuthority,
+                () -> { if (!historyHeld.get()) { throw new IllegalStateException("history/pin guard lost"); } }));
+        assertEquals(before, store.latestSequenceNumber());
+
         assertThrows(IllegalArgumentException.class, () -> dependencies.withAdmissionInputs(List.of(), 32L << 20));
         assertThrows(IllegalArgumentException.class, () -> dependencies.withAdmissionInputs(inputs, 1));
         assertThrows(IllegalArgumentException.class,
