@@ -2186,3 +2186,21 @@ does not authorize global Docker prune or source/worktree deletion. A later
 documentation-only commit does not rewrite this receipt's exact source
 binding; historical verification must check out `da15290e` rather than editing
 the receipt.
+
+## NDIP-3 explicit local Target Worker configuration (2026-10-11)
+
+TargetWorkerRuntimeConfigLoader consumes a closed string map with no resource defaults. Required
+keys are defined by the loader: worker.* covers RocksDB/process/container/filesystem/control reserve
+and every worker.hardCap.CAPACITY_DIMENSION; target.* covers Source reads, maximum action frame,
+domains/counters and inventory; scheduling.* covers all eight class policies plus DRR/turn/recheck;
+recovery.* covers checkpoint/drain slots, I/O and temporary headroom. S comes only from
+worker.maxOwnedShards. Missing/unknown/unbounded fields fail before native allocation.
+
+Use config.requireCapacity with actual protected external Shard envelopes, fixed cost and transition
+demand before admission; config.openResources requires the real Linux JVM/procfs/cgroup/filesystem
+probe. Config.newWorkClasses uses the same configured policy set. Source read-record allowance is
+not the record count of one Source action. Declared frame/service maxima must cover actual enabled
+protocol costs; the full maximum-legal-mutation envelope remains pending and must be established
+before production activation. No numeric release example is certified here. Dynamic Handoff policy,
+strict/retained/producer resources, ingress/backpressure and full Host/provider assembly still need
+integration. This local config is not a placement, pin, publication or deployment authority.

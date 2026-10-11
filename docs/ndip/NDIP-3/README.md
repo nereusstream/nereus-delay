@@ -523,3 +523,7 @@ Scheduled Target candidates now capture an exact protected source cut before cre
 2026-10-11后续：APPLIED Control原Prepared注册/签名/author/typed target及Source授权已接
 快照，Store2和真实Oxia注册2/styles通过。原Source visibility/key/actor/scope/history/pins
 仍外部或fixture，整体flags、format2门禁和集中验证延期保持。
+
+2026-10-11 E6：显式closed Target Worker配置loader与现有资源/policy容量校验、checked
+摘要/head上界及runtime-probed资源入口已实现。Config3/styles与相关资源-capacity检查
+通过；生产有限成本配置、背压/Host/Handoff/provider装配与集中验收继续开放，不提升flags。
