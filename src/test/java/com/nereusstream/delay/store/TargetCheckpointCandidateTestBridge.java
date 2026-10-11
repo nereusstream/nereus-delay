@@ -131,4 +131,99 @@ public final class TargetCheckpointCandidateTestBridge {
             }
         };
     }
+
+    /** Exact local Catalog baseline fixture; real image/File Object Store/WorkClass publication is exercised. */
+    public static void publishTargetFixture(SharedRocksDbResources resources,
+            com.nereusstream.delay.scheduler.WorkClassExecutionRegistry registry,
+            TargetCheckpointRootVerifier.AuthenticatedImage image, CheckpointManifestLimits limits, Path objectRoot) {
+        final var manifest = image.manifest();
+        final var catalog = new RecoveryCatalog();
+        final var baselineId = java.util.Arrays.copyOf(manifest.checkpointId(), 16);
+        baselineId[0] ^= 0x40;
+        final var baseline = new CheckpointManifest(baselineId, manifest.recoveryLineageId(), 0, null, null,
+                manifest.createdBy(), manifest.createdAt(), manifest.shardId(), manifest.dbIdentity(),
+                manifest.sourceStoreIncarnation(), 1, manifest.shardMutationSequence(),
+                manifest.appliedShardLogPosition(), manifest.controlStateDigest(),
+                manifest.referencedSemanticVersionsDigest(), java.util.List.of(), manifest.files());
+        // UploadIntent schema requires nonzero base generation. This is an explicit historical Catalog fixture,
+        // not a physical format1 conversion or a proof of fresh-empty Target Catalog bootstrap.
+        catalog.publish(baseline, 0);
+        final var intentStore = new CheckpointUploadIntentStore();
+        com.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend.ClientHandle nativeSession = null;
+        RecoveryCatalogAuthority authority = catalog;
+        CheckpointUploadIntentAuthority intents = intentStore;
+        final String endpoint = System.getenv("NEREUS_DELAY_OXIA_ENDPOINT");
+        final String prefix = "target-publication-fixture/" + java.util.UUID.randomUUID();
+        try {
+        if (endpoint != null && !endpoint.isBlank()) {
+            try {
+                final String namespace = System.getenv("NEREUS_DELAY_OXIA_NAMESPACE");
+                nativeSession = com.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend.connect(endpoint,
+                        namespace == null || namespace.isBlank() ? "default" : namespace,
+                        "target-image-publication", java.time.Duration.ofSeconds(15), prefix);
+                final var backend = new OxiaSyncCheckpointPublicationBackend(nativeSession, prefix, limits);
+                backend.publish(baseline, 0);
+                authority = backend;
+                intents = backend;
+            } catch (io.oxia.client.api.exceptions.OxiaException failure) {
+                throw new AssertionError("native publication session", failure);
+            }
+        }
+        final var profile = new com.nereusstream.delay.protocol.ProfileRef(
+                com.nereusstream.delay.protocol.Bytes.utf8("target-checkpoint-object-fixture"), 1,
+                manifest.manifestSha256(), com.nereusstream.delay.protocol.ProfileKind.OBJECT_STORE);
+        final var owner = new com.nereusstream.delay.protocol.OwnerIdentity(manifest.createdBy().deploymentId(),
+                manifest.createdBy().workerRunId(), manifest.createdBy().ownerEpoch(), manifest.manifestSha256());
+        final var sourceIncarnation = java.nio.ByteBuffer.allocate(16)
+                .putLong(manifest.sourceStoreIncarnation().getMostSignificantBits())
+                .putLong(manifest.sourceStoreIncarnation().getLeastSignificantBits()).array();
+        final var evidence = new com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence(900, 1_000,
+                com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                new byte[] {1}, 1, 1, 1, manifest.manifestSha256(), 0, null);
+        final var pending = new com.nereusstream.delay.protocol.CheckpointUploadIntent(
+                new com.nereusstream.delay.protocol.ShardSubject(manifest.shardId()), manifest.recoveryLineageId(),
+                manifest.checkpointId(), owner, sourceIncarnation, manifest.manifestSha256(), 1, null, null,
+                profile, evidence, 10_000, com.nereusstream.delay.protocol.CheckpointUploadState.PENDING_UPLOAD,
+                1, null, null);
+        intents.create(pending);
+        final var coordinator = new CheckpointPublicationCoordinator(resources, intents, limits, authority);
+        final var executor = new TargetCheckpointPublicationWorkClassExecutor(registry, coordinator);
+        final var adapter = new FilesystemCheckpointUploadAdapter(objectRoot, "fixture", limits);
+        final var submitted = executor.submit(pending, image, 1, 1_000, adapter);
+        org.junit.jupiter.api.Assertions.assertTrue(submitted.outcome().isEmpty());
+        registry.runTurn(new com.nereusstream.delay.scheduler.SchedulerBudget(1, submitted.task().bytes(), 1_000_000));
+        final var outcome = submitted.outcome().orElseThrow();
+        if (outcome.failure() != null) {
+            throw new AssertionError("Target image publication failed", outcome.failure());
+        }
+        final var published = outcome.published();
+        org.junit.jupiter.api.Assertions.assertEquals(com.nereusstream.delay.protocol.CheckpointUploadState.PUBLISHED,
+                published.uploadIntent().state());
+        org.junit.jupiter.api.Assertions.assertEquals(2, published.catalogPublication().catalogGeneration());
+        final var exactAuthority = authority;
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> exactAuthority.publishUploadedCheckpoint(published.uploadIntent(), manifest, 1));
+        org.junit.jupiter.api.Assertions.assertEquals(2,
+                authority.publishTargetUploadedCheckpoint(published.uploadIntent(), image, 1).catalogGeneration());
+        final Path downloaded = objectRoot.resolveSibling(objectRoot.getFileName() + "-download");
+        new FilesystemCheckpointDownloadAdapter(objectRoot, limits).download(
+                new CheckpointDownloadRequest(manifest, published.uploadIntent().publishedManifest()), downloaded);
+        org.junit.jupiter.api.Assertions.assertEquals(manifest.files().size(),
+                CheckpointFileInventory.collect(downloaded, limits).size());
+        if (nativeSession != null) {
+            final var reopened = new OxiaSyncCheckpointPublicationBackend(nativeSession, prefix, limits);
+            org.junit.jupiter.api.Assertions.assertArrayEquals(manifest.canonicalJsonBytes(),
+                    reopened.manifest(manifest.checkpointId()).orElseThrow().canonicalJsonBytes());
+            org.junit.jupiter.api.Assertions.assertEquals(published.uploadIntent(),
+                    reopened.currentPublishedFor(pending).orElseThrow());
+            System.out.println("C5 real Oxia Target PUBLISHED intent/catalog CAS and independent reread; "
+                    + "exact File Object Store image downloaded, remaining permission/bootstrap authority is fixture.");
+        }
+        } finally {
+            if (nativeSession != null) {
+                try { nativeSession.close(); }
+                catch (java.io.IOException failure) { throw new AssertionError("native publication close", failure); }
+            }
+        }
+    }
 }

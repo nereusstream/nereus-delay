@@ -36,8 +36,13 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
     private RecoveryPin activeRecoveryPin;
 
     public synchronized Publication publish(final CheckpointManifest manifest, final long expectedCatalogGeneration) {
+        return publish(manifest, expectedCatalogGeneration, false);
+    }
+
+    private Publication publish(final CheckpointManifest manifest, final long expectedCatalogGeneration,
+            final boolean authenticatedTarget) {
         Objects.requireNonNull(manifest, "manifest");
-        if (manifest.storeFormatVersion() != 1) {
+        if (manifest.storeFormatVersion() != (authenticatedTarget ? 2 : 1)) {
             throw new IllegalArgumentException("checkpoint catalog requires a recoverable format-1 manifest");
         }
         if (catalogShard != null && !catalogShard.equals(manifest.shardId())) {
@@ -209,8 +214,29 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
             final CheckpointUploadIntent publishedIntent,
             final CheckpointManifest manifest,
             final long expectedCatalogGeneration) {
+        return publishUploadedCheckpoint(publishedIntent, manifest, expectedCatalogGeneration, false);
+    }
+
+    @Override
+    public Publication publishTargetUploadedCheckpoint(CheckpointUploadIntent published,
+            TargetCheckpointRootVerifier.AuthenticatedImage image, long expectedCatalogGeneration) {
+        Objects.requireNonNull(image, "image").authenticate();
+        synchronized (this) {
+            image.requireCurrent();
+            final var result = publishUploadedCheckpoint(published, image.manifest(), expectedCatalogGeneration, true);
+            image.requireCurrent();
+            return result;
+        }
+    }
+
+    private Publication publishUploadedCheckpoint(final CheckpointUploadIntent publishedIntent,
+            final CheckpointManifest manifest, final long expectedCatalogGeneration,
+            final boolean authenticatedTarget) {
         Objects.requireNonNull(publishedIntent, "publishedIntent");
         Objects.requireNonNull(manifest, "manifest");
+        if (manifest.storeFormatVersion() != (authenticatedTarget ? 2 : 1)) {
+            throw new IllegalArgumentException("checkpoint catalog requires its exact format/authentication branch");
+        }
         if (publishedIntent.state() != CheckpointUploadState.PUBLISHED || publishedIntent.publishedManifest() == null) {
             throw new IllegalArgumentException("catalog publication requires a PUBLISHED upload intent");
         }
@@ -270,7 +296,7 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
             }
             return new Publication(existing, catalogGeneration, floor);
         }
-        final Publication publication = publish(manifest, expectedCatalogGeneration);
+        final Publication publication = publish(manifest, expectedCatalogGeneration, authenticatedTarget);
         manifestResources.put(key(manifest.checkpointId()), resource);
         return publication;
     }

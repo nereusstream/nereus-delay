@@ -206,6 +206,22 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
             final CheckpointResource resource,
             final CheckpointManifest manifest,
             final long expectedCatalogGeneration) {
+        return publishUploadedCheckpointAtomically(
+                expectedPending, resource, manifest, expectedCatalogGeneration, null);
+    }
+
+    @Override
+    public CheckpointUploadIntent publishTargetUploadedCheckpointAtomically(CheckpointUploadIntent pending,
+            CheckpointResource resource, TargetCheckpointRootVerifier.AuthenticatedImage image, long generation) {
+        Objects.requireNonNull(image, "image").authenticate();
+        final var result = publishUploadedCheckpointAtomically(pending, resource, image.manifest(), generation, image);
+        image.requireCurrent();
+        return result;
+    }
+
+    private CheckpointUploadIntent publishUploadedCheckpointAtomically(CheckpointUploadIntent expectedPending,
+            CheckpointResource resource, CheckpointManifest manifest, long expectedCatalogGeneration,
+            TargetCheckpointRootVerifier.AuthenticatedImage image) {
         requirePending(expectedPending);
         Objects.requireNonNull(resource, "resource");
         Objects.requireNonNull(manifest, "manifest");
@@ -214,6 +230,7 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
             throw new IllegalStateException("upload intent base catalog generation does not match publication CAS");
         }
         return mutate(state -> {
+            if (image != null) { image.requireCurrent(); }
             final CheckpointUploadIntent existing = requireExactPendingOrPublished(state, expectedPending);
             final CheckpointUploadIntent published =
                     nextIntent(expectedPending, CheckpointUploadState.PUBLISHED, resource, null);
@@ -222,12 +239,14 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
                 if (!existing.equals(published)) {
                     throw new IllegalStateException("checkpoint published intent identity conflicts with request");
                 }
-                catalog.publishUploadedCheckpoint(existing, manifest, expectedCatalogGeneration);
+                if (image == null) { catalog.publishUploadedCheckpoint(existing, manifest, expectedCatalogGeneration); }
+                else { catalog.publishTargetUploadedCheckpoint(existing, image, expectedCatalogGeneration); }
                 return unchanged(existing, state.withCatalog(catalog.snapshot()));
             }
-            catalog.publishUploadedCheckpoint(published, manifest, expectedCatalogGeneration);
+            if (image == null) { catalog.publishUploadedCheckpoint(published, manifest, expectedCatalogGeneration); }
+            else { catalog.publishTargetUploadedCheckpoint(published, image, expectedCatalogGeneration); }
             return changed(published, state.withCatalog(catalog.snapshot()).withIntent(published));
-        });
+        }, image == null ? () -> {} : image::requireCurrent);
     }
 
     @Override
@@ -277,21 +296,40 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
             final CheckpointUploadIntent publishedIntent,
             final CheckpointManifest manifest,
             final long expectedCatalogGeneration) {
+        return publishUploadedCheckpoint(publishedIntent, manifest, expectedCatalogGeneration, null);
+    }
+
+    @Override
+    public RecoveryCatalog.Publication publishTargetUploadedCheckpoint(CheckpointUploadIntent published,
+            TargetCheckpointRootVerifier.AuthenticatedImage image, long generation) {
+        Objects.requireNonNull(image, "image").authenticate();
+        final var result = publishUploadedCheckpoint(published, image.manifest(), generation, image);
+        image.requireCurrent();
+        return result;
+    }
+
+    private RecoveryCatalog.Publication publishUploadedCheckpoint(CheckpointUploadIntent publishedIntent,
+            CheckpointManifest manifest, long expectedCatalogGeneration,
+            TargetCheckpointRootVerifier.AuthenticatedImage image) {
         Objects.requireNonNull(publishedIntent, "publishedIntent");
         Objects.requireNonNull(manifest, "manifest");
         if (publishedIntent.state() != CheckpointUploadState.PUBLISHED) {
             throw new IllegalArgumentException("catalog publication requires a PUBLISHED upload intent");
         }
         return mutate(state -> {
+            if (image != null) { image.requireCurrent(); }
             final CheckpointUploadIntent current = findIntent(state, publishedIntent);
             if (current == null || !current.equals(publishedIntent)) {
                 throw new IllegalStateException("published upload intent is not the exact authority value");
             }
             final RecoveryCatalog catalog = RecoveryCatalog.fromSnapshot(state.catalog());
             final RecoveryCatalog.Publication result =
-                    catalog.publishUploadedCheckpoint(publishedIntent, manifest, expectedCatalogGeneration);
+                    image == null
+                            ? catalog.publishUploadedCheckpoint(publishedIntent, manifest, expectedCatalogGeneration)
+                            : catalog.publishTargetUploadedCheckpoint(
+                                    publishedIntent, image, expectedCatalogGeneration);
             return changed(result, state.withCatalog(catalog.snapshot()));
-        });
+        }, image == null ? () -> {} : image::requireCurrent);
     }
 
     @Override
@@ -352,21 +390,29 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
     }
 
     private <T> T mutate(final Function<PublicationState, Change<T>> operation) {
+        return mutate(operation, () -> {});
+    }
+
+    private <T> T mutate(final Function<PublicationState, Change<T>> operation, final Runnable protection) {
         for (int attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt++) {
+            protection.run();
             final StoredState before = read();
             final Change<T> change = Objects.requireNonNull(operation.apply(before.state()), "publication change");
             final byte[] afterBytes = encode(change.state());
+            protection.run();
             if (Arrays.equals(before.encoded(), afterBytes)) {
                 return change.result();
             }
             try {
                 putExact(afterBytes, before.versionId());
+                protection.run();
                 return change.result();
             } catch (KeyAlreadyExistsException | UnexpectedVersionIdException conflict) {
                 // Another authority writer won the record CAS. Re-read the
                 // complete state and apply the exact request again.
             } catch (RuntimeException responseFailure) {
                 final StoredState observed = read();
+                protection.run();
                 if (Arrays.equals(afterBytes, observed.encoded())) {
                     return change.result();
                 }

@@ -353,6 +353,52 @@ public final class TargetCheckpointRootVerifier {
                 TargetCheckpointSemanticSnapshot snapshot);
     }
 
+    /** Exact image and mandatory full external authentication, held until upload/Catalog/restore handoff ends. */
+    public static final class AuthenticatedImage {
+        private final Path image;
+        private final CheckpointManifest manifest;
+        private final CheckpointManifestLimits physical;
+        private final QuotaAuditLimits quota;
+        private final LedgerAuditLimits ledger;
+        private final TargetCheckpointSemanticSnapshot.Limits semantic;
+        private final ImageAuthority authority;
+        private final Runnable protection;
+
+        private AuthenticatedImage(Path image, CheckpointManifest manifest, CheckpointManifestLimits physical,
+                QuotaAuditLimits quota, LedgerAuditLimits ledger, TargetCheckpointSemanticSnapshot.Limits semantic,
+                ImageAuthority authority, Runnable protection) {
+            this.image = image.toAbsolutePath().normalize();
+            this.manifest = manifest;
+            this.physical = physical;
+            this.quota = quota;
+            this.ledger = ledger;
+            this.semantic = semantic;
+            this.authority = authority;
+            this.protection = protection;
+        }
+
+        public CheckpointManifest manifest() { return manifest; }
+        public Path image() { return image; }
+
+        /** Reauthenticates the complete immutable bytes; a previously good digest or callback is insufficient. */
+        public void authenticate() {
+            auditManifestImageAuthentication(image, manifest, physical, quota, ledger, semantic, authority, protection);
+        }
+
+        /** Short recheck of held permissions/pins at the CAS boundary; provider acquisition happens before it. */
+        public void requireCurrent() { protection.run(); }
+    }
+
+    public static AuthenticatedImage authenticateImage(Path image, CheckpointManifest manifest,
+            CheckpointManifestLimits physical, QuotaAuditLimits quota, LedgerAuditLimits ledger,
+            TargetCheckpointSemanticSnapshot.Limits semantic, ImageAuthority authority, Runnable protection) {
+        final var result = new AuthenticatedImage(Objects.requireNonNull(image, "image"), manifest, physical, quota,
+                ledger, semantic, Objects.requireNonNull(authority, "authority"),
+                Objects.requireNonNull(protection, "protection"));
+        result.authenticate();
+        return result;
+    }
+
     /** One complete immutable image audit followed by mandatory external authentication outside Store monitors. */
     public static LedgerProof auditManifestImageAuthentication(final Path image, final CheckpointManifest manifest,
             final CheckpointManifestLimits physicalLimits, final QuotaAuditLimits quotaLimits,

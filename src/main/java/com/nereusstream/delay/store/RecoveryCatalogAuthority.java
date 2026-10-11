@@ -17,6 +17,12 @@ import java.util.Optional;
 public interface RecoveryCatalogAuthority {
     RecoveryCatalog.Publication publish(CheckpointManifest manifest, long expectedCatalogGeneration);
 
+    /** Explicit format2 branch; a bare Manifest remains insufficient for Target publication. */
+    default RecoveryCatalog.Publication publishTargetUploadedCheckpoint(CheckpointUploadIntent published,
+            TargetCheckpointRootVerifier.AuthenticatedImage image, long expectedCatalogGeneration) {
+        throw new UnsupportedOperationException("authenticated Target checkpoint catalog CAS is not implemented");
+    }
+
     RecoveryFloor advanceFloor(byte[] checkpointId, long expectedCatalogGeneration, byte[] evidenceCursorDigest);
 
     /** Advances a typed Floor while preserving same-generation cursor dominance. */

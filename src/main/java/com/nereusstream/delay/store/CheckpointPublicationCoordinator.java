@@ -69,6 +69,22 @@ public final class CheckpointPublicationCoordinator {
         return new CheckpointPublication(published, publication);
     }
 
+    /** Explicit Target path; complete immutable image authentication remains held through upload and Catalog CAS. */
+    CheckpointPublication publishTarget(CheckpointUploadIntent pending,
+            TargetCheckpointRootVerifier.AuthenticatedImage image, long expectedCatalogGeneration,
+            long nowEpochMs, CheckpointUploadAdapter adapter) {
+        Objects.requireNonNull(pending, "pending");
+        Objects.requireNonNull(image, "image");
+        if (pending.baseCatalogGeneration() != expectedCatalogGeneration) {
+            throw new IllegalStateException("Target checkpoint intent catalog generation does not match request");
+        }
+        final var published = uploadCoordinator.uploadTarget(pending, image, nowEpochMs, adapter);
+        image.requireCurrent();
+        final var publication = catalog.publishTargetUploadedCheckpoint(published, image, expectedCatalogGeneration);
+        image.requireCurrent();
+        return new CheckpointPublication(published, Objects.requireNonNull(publication, "Target catalog publication"));
+    }
+
     public record CheckpointPublication(
             CheckpointUploadIntent uploadIntent, RecoveryCatalog.Publication catalogPublication) {
         public CheckpointPublication {

@@ -51,11 +51,23 @@ public final class CheckpointUploadCoordinator {
             final CheckpointManifest manifest,
             final long nowEpochMs,
             final CheckpointUploadAdapter adapter) {
+        return upload(checkpointDirectory, pending, manifest, nowEpochMs, adapter, null);
+    }
+
+    CheckpointUploadIntent uploadTarget(CheckpointUploadIntent pending,
+            TargetCheckpointRootVerifier.AuthenticatedImage image, long nowEpochMs, CheckpointUploadAdapter adapter) {
+        Objects.requireNonNull(image, "image").authenticate();
+        return upload(image.image(), pending, image.manifest(), nowEpochMs, adapter, image);
+    }
+
+    private CheckpointUploadIntent upload(Path checkpointDirectory, CheckpointUploadIntent pending,
+            CheckpointManifest manifest, long nowEpochMs, CheckpointUploadAdapter adapter,
+            TargetCheckpointRootVerifier.AuthenticatedImage image) {
         Objects.requireNonNull(checkpointDirectory, "checkpointDirectory");
         Objects.requireNonNull(pending, "pending");
         Objects.requireNonNull(manifest, "manifest");
         Objects.requireNonNull(adapter, "adapter");
-        if (manifest.storeFormatVersion() != 1) {
+        if (manifest.storeFormatVersion() != (image == null ? 1 : 2)) {
             throw new IllegalArgumentException("checkpoint upload requires a recoverable format-1 manifest");
         }
         if (nowEpochMs < 0) {
@@ -72,6 +84,7 @@ public final class CheckpointUploadCoordinator {
             final CheckpointUploadIntent publishedIntent = published.orElseThrow();
             limits.validateResource(publishedIntent.publishedManifest());
             validatePublishedResource(pending, manifest, publishedIntent.publishedManifest(), manifestBytes);
+            if (image != null) { image.requireCurrent(); }
             return publishedIntent;
         }
         if (nowEpochMs >= pending.uploadDeadlineEpochMs()) {
@@ -81,7 +94,8 @@ public final class CheckpointUploadCoordinator {
         if (current.isEmpty() || !current.orElseThrow().equals(pending)) {
             throw new IllegalStateException("checkpoint upload intent is not the current exact pending value");
         }
-        validateLocalCheckpoint(checkpointDirectory, manifest, limits);
+        if (image == null) { validateLocalCheckpoint(checkpointDirectory, manifest, limits); }
+        else { image.authenticate(); }
         final CheckpointUploadRequest request =
                 new CheckpointUploadRequest(pending, manifest, checkpointDirectory, manifestBytes);
 
@@ -102,21 +116,31 @@ public final class CheckpointUploadCoordinator {
                 final CheckpointUploadIntent publishedIntent = publishedAfterSlot.orElseThrow();
                 limits.validateResource(publishedIntent.publishedManifest());
                 validatePublishedResource(pending, manifest, publishedIntent.publishedManifest(), manifestBytes);
+                if (image != null) { image.requireCurrent(); }
                 return publishedIntent;
             }
             final var pendingAfterSlot = intentStore.current(pending);
             if (pendingAfterSlot.isEmpty() || !pendingAfterSlot.orElseThrow().equals(pending)) {
                 throw new IllegalStateException("checkpoint upload intent changed before provider I/O");
             }
+            if (image != null) { image.authenticate(); }
             final CheckpointResource resource =
                     Objects.requireNonNull(adapter.upload(request), "checkpoint upload adapter returned null resource");
             limits.validateResource(resource);
             validatePublishedResource(pending, manifest, resource, manifestBytes);
+            if (image != null) { image.authenticate(); }
             if (intentStore instanceof CheckpointAtomicPublicationAuthority atomicPublication) {
-                return atomicPublication.publishUploadedCheckpointAtomically(
-                        pending, resource, manifest, pending.baseCatalogGeneration());
+                final var result = image == null
+                        ? atomicPublication.publishUploadedCheckpointAtomically(
+                                pending, resource, manifest, pending.baseCatalogGeneration())
+                        : atomicPublication.publishTargetUploadedCheckpointAtomically(
+                                pending, resource, image, pending.baseCatalogGeneration());
+                if (image != null) { image.requireCurrent(); }
+                return result;
             }
-            return intentStore.publish(pending, resource);
+            final var result = intentStore.publish(pending, resource);
+            if (image != null) { image.requireCurrent(); }
+            return result;
         } catch (RuntimeException | Error failure) {
             primaryFailure = failure;
             throw failure;

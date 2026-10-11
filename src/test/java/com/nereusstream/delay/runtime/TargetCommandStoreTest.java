@@ -178,7 +178,8 @@ class TargetCommandStoreTest {
             List<TargetCheckpointDependencies.ControlImage> controls,
             List<TargetCheckpointDependencies.OutcomeImage> outcomes,
             java.util.Map<String, TargetPublishOutcomeVerifier.Authorization> outcomeAuthorizations,
-            InMemoryControlTargetRegistrationAuthority registrations, ControlAuthorizationContext actor) {}
+            InMemoryControlTargetRegistrationAuthority registrations, ControlAuthorizationContext actor,
+            WorkClassExecutionRegistry workClasses) {}
 
     @org.junit.jupiter.api.Test
     @org.junit.jupiter.api.Tag("real-service")
@@ -1349,7 +1350,8 @@ class TargetCommandStoreTest {
                 final var checkpointControls = new java.util.ArrayList<TargetCheckpointDependencies.ControlImage>();
                 final var checkpointContext = checkpointAdmissionImages
                         ? new CheckpointImageContext(List.of(destination, capability), checkpointControls,
-                                new java.util.ArrayList<>(), new java.util.HashMap<>(), registrations, actor) : null;
+                                new java.util.ArrayList<>(), new java.util.HashMap<>(), registrations, actor,
+                                workerClasses) : null;
                 checkpointControls.add(new TargetCheckpointDependencies.ControlImage(
                         otherSource, otherSigned.mutation()));
                 try (var otherStore = ShardStore.openTarget(config, otherShard, resources)) {
@@ -8548,6 +8550,12 @@ class TargetCommandStoreTest {
                         context.outcomes().getFirst().image(), catalog, pin, activePin, restoreClasses, ledgerLimits);
             }
         }
+        assertEquals(afterCreate, store.latestSequenceNumber());
+        final var publicationImage = TargetCheckpointRootVerifier.authenticateImage(image, manifest, physicalLimits,
+                quotaLimits, ledgerLimits, semanticLimits, completeFixture, () -> assertFalse(Thread.holdsLock(store)));
+        com.nereusstream.delay.store.TargetCheckpointCandidateTestBridge.publishTargetFixture(
+                store.sharedResources(), context.workClasses(), publicationImage, physicalLimits,
+                store.dbPath().getParent().resolve("publication-" + current.phase()));
         assertEquals(afterCreate, store.latestSequenceNumber());
 
         final var unavailableRetry = new com.nereusstream.delay.store.TargetCheckpointOutcomeAuthority(

@@ -32,4 +32,11 @@ public interface CheckpointAtomicPublicationAuthority
             CheckpointResource resource,
             CheckpointManifest manifest,
             long expectedCatalogGeneration);
+
+    default CheckpointUploadIntent publishTargetUploadedCheckpointAtomically(CheckpointUploadIntent expectedPending,
+            CheckpointResource resource, TargetCheckpointRootVerifier.AuthenticatedImage image,
+            long expectedCatalogGeneration) {
+        throw new UnsupportedOperationException(
+                "authenticated Target checkpoint atomic publication is not implemented");
+    }
 }

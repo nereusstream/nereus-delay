@@ -1,0 +1,260 @@
+C5 authenticated Target publication scoped receipt.
+Baseline b3026efe162f0f6bc2fc4b87a955a540006f3276; main/single agent.
+Full permissions and historical Catalog baseline are explicit fixtures; File Object Store real bytes, actual Oxia publication/session only. Fresh-empty Catalog bootstrap/genesis, full service/remote provider/recovery/space/Floor and central/production authority remain incomplete.
+
+GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew compileJava --no-daemon --console=plain
+Test selectors: --tests com.nereusstream.delay.runtime.TargetCommandStoreTest.checkpointAdmissionAuthenticationPreservesUnknownAndResolvedOriginalSource --tests com.nereusstream.delay.store.CheckpointUploadCoordinatorTest --tests com.nereusstream.delay.store.RecoveryCatalogTest --tests com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackendTest checkstyleMain checkstyleTest --no-daemon --console=plain
+
+SOURCE_SHA256 131f14666778ff9d5413f39aada1771fe1b344c9746c978087d05a5698c505f7 src/main/java/com/nereusstream/delay/store/TargetCheckpointRootVerifier.java
+SOURCE_SHA256 cd63b534ac9f7f3cf53ef2f80eb40e38e90a966064f17bde1f6c400600b5eead src/main/java/com/nereusstream/delay/store/CheckpointUploadCoordinator.java
+SOURCE_SHA256 591bfb84cd194ee19c5ff7e03e980e2877a0b4c6d914c0ebb627a8e414f17a85 src/main/java/com/nereusstream/delay/store/CheckpointPublicationCoordinator.java
+SOURCE_SHA256 1dd857acd083d09835cd99654ba8f198e4bda686e1cbaca3eac726345cea3f6e src/main/java/com/nereusstream/delay/store/CheckpointAtomicPublicationAuthority.java
+SOURCE_SHA256 fcbcbbcd879284c76f0208d0ace6d69cedf79816dbd1caed8d61d48896343e7b src/main/java/com/nereusstream/delay/store/RecoveryCatalogAuthority.java
+SOURCE_SHA256 da21f7c7f0dfa34c4e6616b9cc0dcead2f266b4da56cc675e7c0bf2526638f9d src/main/java/com/nereusstream/delay/store/RecoveryCatalog.java
+SOURCE_SHA256 45c5623a00b8cb627c3bc84a9dd130162c923a314759ab319a85565e6c28d969 src/main/java/com/nereusstream/delay/store/OxiaSyncCheckpointPublicationBackend.java
+SOURCE_SHA256 41e9dd71785b74f5f50816bce8b5776552b74572b445fc5225247dc1b3e3902d src/main/java/com/nereusstream/delay/store/TargetCheckpointPublicationWorkClassExecutor.java
+SOURCE_SHA256 14c87632eb681b29be2c9a0ca50cdacd9b3be19ca71a578ebd6f8d64f06dd001 src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java
+SOURCE_SHA256 dfda5330750f12daaacb6e049c4fcb255fc72b934b24fe60fc219f4b01f23692 src/test/java/com/nereusstream/delay/store/TargetCheckpointCandidateTestBridge.java
+XML_SHA256 a5c79a654a7dc514f362b50092c8316a7162f52faa932a3cbb813fdb359bffcd ndip3-target-publication-local-TEST-com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackendTest.xml {'tests': '7', 'failures': '0', 'errors': '0', 'skipped': '0'}
+XML_SHA256 cf9e6ac552b76441d09362a38080aea22f35feb18a61415f464de3ee95dbf9e0 ndip3-target-publication-local-TEST-com.nereusstream.delay.store.RecoveryCatalogTest.xml {'tests': '22', 'failures': '0', 'errors': '0', 'skipped': '0'}
+XML_SHA256 6d331536c90777372453b0590b81140f3cd73e8b0d9aabb9fe57f76d73d136e4 ndip3-target-publication-local-TEST-com.nereusstream.delay.store.CheckpointUploadCoordinatorTest.xml {'tests': '12', 'failures': '0', 'errors': '0', 'skipped': '0'}
+XML_SHA256 778fe60b692cf96d9e953c6c84ee96337459a73d54efbf156cebf050031cf2dc ndip3-target-publication-local-TEST-com.nereusstream.delay.runtime.TargetCommandStoreTest.xml {'tests': '1', 'failures': '0', 'errors': '0', 'skipped': '0'}
+
+ndip3-target-publication-compile.log
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+
+BUILD SUCCESSFUL in 8s
+4 actionable tasks: 1 executed, 3 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+
+ndip3-target-publication-compile-final.log
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+
+BUILD SUCCESSFUL in 6s
+4 actionable tasks: 1 executed, 3 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+
+ndip3-target-publication-focused.log
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+
+> Task :test
+
+TargetCommandStoreTest > checkpointAdmissionAuthenticationPreservesUnknownAndResolvedOriginalSource() FAILED
+    java.lang.IllegalArgumentException at TargetCommandStoreTest.java:8556
+
+42 tests completed, 1 failed
+
+> Task :test FAILED
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':test'.
+> There were failing tests. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/tests/test/index.html
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 27s
+13 actionable tasks: 4 executed, 9 up-to-date
+
+ndip3-target-publication-local.log
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :checkstyleTest
+> Task :checkstyleMain
+
+BUILD SUCCESSFUL in 43s
+15 actionable tasks: 6 executed, 9 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+
+ndip3-target-publication-final.log
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+
+> Task :compileTestJava
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/store/TargetCheckpointCandidateTestBridge.java:168: 错误: 在相应的 try 语句主体中不能抛出异常错误IOException
+            } catch (java.io.IOException failure) { throw new AssertionError("native publication session", failure); }
+              ^
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/store/TargetCheckpointCandidateTestBridge.java:161: 错误: 未报告的异常错误OxiaException; 必须对其进行捕获或声明以便抛出
+                nativeSession = com.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend.connect(endpoint,
+                                                                                                  ^
+2 个错误
+
+> Task :compileTestJava FAILED
+
+[Incubating] Problems report is available at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':compileTestJava'.
+> Compilation failed; see the compiler output below.
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/store/TargetCheckpointCandidateTestBridge.java:161: 错误: 未报告的异常错误OxiaException; 必须对其进行捕获或声明以便抛出
+                  nativeSession = com.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend.connect(endpoint,
+                                                                                                    ^
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/store/TargetCheckpointCandidateTestBridge.java:168: 错误: 在相应的 try 语句主体中不能抛出异常错误IOException
+              } catch (java.io.IOException failure) { throw new AssertionError("native publication session", failure); }
+                ^
+  2 个错误
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 17s
+10 actionable tasks: 2 executed, 8 up-to-date
+
+ndip3-target-publication-verified.log
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :checkstyleMain UP-TO-DATE
+> Task :checkstyleTest
+
+BUILD SUCCESSFUL in 34s
+15 actionable tasks: 4 executed, 11 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+
+checkDocumentation terminal exit=0
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+
+> Task :testNdip1ImplementationVerifier
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 57.479s
+
+OK
+
+> Task :testNdip1PackageVerifier
+..............
+----------------------------------------------------------------------
+Ran 14 tests in 0.078s
+
+OK
+
+> Task :verifyNdip1HistoricalClosure
+proposal=NDIP-1
+receipt_status=IMPLEMENTED
+lifecycle_authority=true
+implementation=CLOSED
+lifecycle=CLOSED
+certified_commit=b4e077e9978f262cdb93cf3562ea12eee32430e2
+runtime_source_sha256=03ce17ede4b9e70e2f70dd2bbef681087f529159549a4cd979d0d7aa34fa9948
+runtime_source_files=835
+implemented_package_sha256=792ca54e239d884ba6f95315747f565bab57ee0fc02338a77369cb19bbe8e8a7
+staging_run=20260901055333-78920
+deployment=SEPARATE_FUTURE_WORK
+performance_and_scale=SEPARATE_FUTURE_WORK
+production_rollout=SEPARATE_FUTURE_WORK
+production_authority=false
+
+> Task :verifyNdip1PackageAccepted
+proposal=NDIP-1
+receipt_status=ACCEPTED
+authority=true
+package_source_commit=77ffa61136c0cd401244ebea4375a5a18b097b17
+file_sha256 70d9dd7c113fa5f457a20a97996322ef9a2018772efd225aa982c13ec4935140 docs/ndip/NDIP-1/01-调查与决策记录.md
+file_sha256 c167ed42dd29c383c08a8a102f36b0e4deee8ae5c7a5da115a09d04ffcb9fa6f docs/ndip/NDIP-1/02-NDIP-1-Pulsar-Native-Delivery.md
+file_sha256 9affafa81952959d39ed9c09a00abe6b84da4fd3b0b6280422f297684d56f727 docs/ndip/NDIP-1/03-实施计划.md
+file_sha256 2a26c107cd69ee522ea138b3487b8ec206e913acc6ad5b862aa69288ddcaa88e docs/ndip/NDIP-1/04-代码级目标设计.md
+package_sha256=13caab8ecdc201901f06e905f1c0bf9792780e50c6f5948f93abf2bdb8f4d21b
+gate_b=PASS
+implementation=AUTHORIZED
+local_disposable_testing=AUTHORIZED_WITH_EXACT_ATTESTATION
+gate_c=PENDING_DEPLOYMENT
+shadow=BLOCKED_BY_GATE_C
+enabled=BLOCKED_BY_GATE_C_AND_SHADOW_REQUIREMENTS
+
+> Task :verifyNdip2PackageAccepted
+proposal=NDIP-2
+receipt_status=ACCEPTED
+authority=true
+file_sha256 0a105fb2b73d63cabddf42d0ba3d5a9590b4edddd47242495f196bf56d15f642 docs/ndip/NDIP-2/01-NDIP-生命周期与认证源码权威分层.md
+file_sha256 c882ecaa32413cb9e177243cf3efe91b97810c3cc10be81e61e7e458030c4ffa docs/ndip/NDIP-2/02-实施计划.md
+file_sha256 ec1ba68ab3ac91aa667647e6289cd252b99da84d899f42f879821d6e5d7752e9 docs/ndip/NDIP-2/03-代码级目标设计.md
+package_sha256=856e1d768210a31fc9aad811af3a93c1de33189cc03c65bc1e36d57affbf10db
+gate_b=PASS
+implementation=AUTHORIZED
+deployment_authority=false
+
+> Task :checkDocumentation
+
+BUILD SUCCESSFUL in 1m 15s
+6 actionable tasks: 6 executed
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
