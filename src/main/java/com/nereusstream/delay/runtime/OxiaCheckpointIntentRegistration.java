@@ -30,8 +30,14 @@ public final class OxiaCheckpointIntentRegistration
 
     @Override
     public CompletableFuture<CheckpointUploadIntent> register(CheckpointUploadIntent pending) {
+        return begin(pending).receipt();
+    }
+
+    @Override
+    public TargetCheckpointCandidateWorkClassExecutor.RegistrationAttempt begin(CheckpointUploadIntent pending) {
         Objects.requireNonNull(pending, "pending");
-        return CheckpointRegistryLookup.submitProtected(guard -> backend.create(pending, guard), timeout,
+        final var owned = CheckpointRegistryLookup.submitProtected(guard -> backend.create(pending, guard), timeout,
                 protection, executor, System::nanoTime);
+        return new TargetCheckpointCandidateWorkClassExecutor.RegistrationAttempt(owned, owned::isDone);
     }
 }

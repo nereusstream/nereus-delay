@@ -25,6 +25,28 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
     public interface IntentRegistration {
         /** Prompt return; provider owns finite metadata I/O, namespace/Owner protection and uncertain/late cleanup. */
         java.util.concurrent.CompletableFuture<CheckpointUploadIntent> register(CheckpointUploadIntent pending);
+
+        /** Legacy providers must complete their owned future only after actual attempt I/O exits. */
+        default RegistrationAttempt begin(CheckpointUploadIntent pending) {
+            final var owned = Objects.requireNonNull(register(pending), "intent registration future");
+            return new RegistrationAttempt(owned, owned::isDone);
+        }
+    }
+
+    /** Receipt views are detached; I/O exit is a separate provider-owned fact, never caller future cancellation. */
+    public static final class RegistrationAttempt {
+        private final java.util.concurrent.CompletableFuture<CheckpointUploadIntent> receipt;
+        private final java.util.function.BooleanSupplier ioExited;
+
+        public RegistrationAttempt(java.util.concurrent.CompletableFuture<CheckpointUploadIntent> receipt,
+                java.util.function.BooleanSupplier ioExited) {
+            this.receipt = Objects.requireNonNull(receipt, "receipt");
+            this.ioExited = Objects.requireNonNull(ioExited, "ioExited");
+        }
+
+        public java.util.concurrent.CompletableFuture<CheckpointUploadIntent> receipt() { return receipt.copy(); }
+
+        public boolean ioExited() { return ioExited.getAsBoolean(); }
     }
     private static final byte[] TASK_DOMAIN = Bytes.utf8("nereus-delay-target-candidate-handoff\0");
 
@@ -163,13 +185,16 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
                 guard.run();
                 if (!registered.get()) {
                     if (submission.registration == null) {
-                        submission.registration = Objects.requireNonNull(registration.register(request.pending()),
-                                "intent registration future");
+                        submission.registration = Objects.requireNonNull(registration.begin(request.pending()),
+                                "intent registration attempt");
+                        submission.registrationReceipt = submission.registration.receipt();
                         guard.run();
                         return;
                     }
-                    if (!submission.registration.isDone()) { return; }
-                    final var receipt = Objects.requireNonNull(submission.registration.join(), "registered intent");
+                    if (!submission.registrationReceipt.isDone()) { return; }
+                    final var receipt = Objects.requireNonNull(
+                            submission.registrationReceipt.join(), "registered intent");
+                    if (!submission.registration.ioExited()) { return; }
                     if (!request.pending().equals(receipt)) {
                         throw new IllegalStateException("checkpoint registration returned another pending value");
                     }
@@ -407,7 +432,9 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
         private CheckpointPublicationCoordinator.CheckpointPublication published;
         private TargetCheckpointRootVerifier.AuthenticatedImage authenticatedImage;
         private volatile Runnable nextStep;
-        private java.util.concurrent.CompletableFuture<CheckpointUploadIntent> registration;
+        private RegistrationAttempt registration;
+        private java.util.concurrent.CompletableFuture<CheckpointUploadIntent> registrationReceipt;
+        private Outcome retainedOutcome;
         private Runnable preparationGuard;
         private WorkClassExecutionRegistry preparationRegistry;
 
@@ -433,10 +460,23 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
 
         /** Reoffers an unfinished preparation only after its previous bounded invocation left the registry. */
         public synchronized void enqueueNextPreparation() {
+            if (settleFailedRegistrationIo()) { return; }
             if (!preparing() || preparationRegistry.state(task).isPresent()) { return; }
             try { requirePreparationCurrent(); nextStep.run(); }
             catch (RuntimeException failure) { complete(new Outcome(null, failure)); }
             catch (Error failure) { complete(new Outcome(null, failure)); throw failure; }
+        }
+
+        /** Local failure settlement only; no Owner, Store, history or new business admission is performed. */
+        public synchronized boolean settleFailedRegistrationIo() {
+            if (retainedOutcome != null) {
+                if (preparationRegistry.state(task).isEmpty() && registration.ioExited()) {
+                    outcome = retainedOutcome;
+                    retainedOutcome = null;
+                }
+                return true;
+            }
+            return false;
         }
 
         /** Empty until the complete protected creation/auth/upload/Catalog action has succeeded. */
@@ -455,10 +495,16 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
         }
 
         private synchronized void complete(final Outcome completed) {
-            if (outcome != null) {
+            if (outcome != null || retainedOutcome != null) {
                 throw new IllegalStateException("Target candidate action already completed");
             }
-            outcome = Objects.requireNonNull(completed, "completed");
+            Objects.requireNonNull(completed, "completed");
+            if (registration != null && !registration.ioExited()) {
+                retainedOutcome = completed;
+                nextStep = null;
+                return;
+            }
+            outcome = completed;
         }
     }
 

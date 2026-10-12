@@ -8539,6 +8539,22 @@ class TargetCommandStoreTest {
             assertTrue(worker.pendingCheckpointTask().isEmpty());
             final var registrationAllowed = new java.util.concurrent.atomic.AtomicBoolean(true);
             final var lateRegistration = new java.util.concurrent.CompletableFuture<CheckpointUploadIntent>();
+            final var registrationExited = new java.util.concurrent.atomic.AtomicBoolean();
+            final var ownedRegistration = new com.nereusstream.delay.store
+                    .TargetCheckpointCandidateWorkClassExecutor.IntentRegistration() {
+                @Override
+                public java.util.concurrent.CompletableFuture<CheckpointUploadIntent> register(
+                        CheckpointUploadIntent pending) {
+                    return lateRegistration.copy();
+                }
+
+                @Override
+                public com.nereusstream.delay.store.TargetCheckpointCandidateWorkClassExecutor.RegistrationAttempt
+                        begin(CheckpointUploadIntent pending) {
+                    return new com.nereusstream.delay.store.TargetCheckpointCandidateWorkClassExecutor
+                            .RegistrationAttempt(lateRegistration, registrationExited::get);
+                }
+            };
             final var expiringRequest =
                     new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.CollectedSemanticRequest(
                             candidateRequest.candidate(), collection, collectedLimits, () -> {
@@ -8546,15 +8562,26 @@ class TargetCommandStoreTest {
                                 if (!registrationAllowed.get()) {
                                     throw new IllegalStateException("registration protection lost");
                                 }
-                            }, null, pending -> lateRegistration);
+                            }, null, ownedRegistration);
             final var expiring = worker.submitCollectedSemanticCheckpointCandidate(expiringRequest);
             assertTrue(worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L)).isEmpty());
             registrationAllowed.set(false);
             worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L));
-            assertTrue(expiring.outcome().orElseThrow().failure().getMessage()
-                    .contains("registration protection lost"));
+            assertTrue(expiring.outcome().isEmpty());
+            assertEquals(expiring.task(), worker.pendingCheckpointTask().orElseThrow());
+            assertThrows(IllegalStateException.class, worker::pauseNewTurns);
+            assertThrows(IllegalStateException.class, worker::closeSource);
+            assertThrows(IllegalStateException.class, () -> worker.runSourceTurn(
+                    new SchedulerBudget(1, 1_000_000, 60_000_000_000L), () -> 102));
             assertFalse(lateRegistration.isDone()); // Failure cannot assert that caller-owned I/O ended.
             assertTrue(lateRegistration.complete(intent));
+            assertTrue(worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L)).isEmpty());
+            assertTrue(expiring.outcome().isEmpty());
+            assertEquals(expiring.task(), worker.pendingCheckpointTask().orElseThrow());
+            registrationExited.set(true);
+            worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L));
+            assertTrue(expiring.outcome().orElseThrow().failure().getMessage()
+                    .contains("registration protection lost"));
             registrationAllowed.set(true);
             assertFalse(admissionRequested.get());
             assertNull(registryDependencies.get());

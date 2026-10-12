@@ -102,7 +102,9 @@ class OxiaRealCheckpointPublicationSmokeTest {
                     throw new IllegalStateException("checkpoint registration Owner changed");
                 }
             }, executor);
-            assertEquals(pending, provider.register(pending).get(10, TimeUnit.SECONDS));
+            final var attempt = provider.begin(pending);
+            assertEquals(pending, attempt.receipt().get(10, TimeUnit.SECONDS));
+            assertTrue(attempt.ioExited());
             assertEquals(pending, reader.current(pending).orElseThrow());
             assertEquals(pending, provider.register(pending).get(10, TimeUnit.SECONDS));
             assertTrue(reader.currentInitialization().isEmpty());

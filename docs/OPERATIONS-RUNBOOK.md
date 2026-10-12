@@ -2348,3 +2348,10 @@ provider 持续负责。该可选入口不构成生产 provider 装配或部署�
 所有可能远端的注册保护检查在 caller 有限 executor 上执行；无新 client/session/thread/queue。
 必须给底层 Oxia client 配置显式有限 requestTimeout，保护与实际 I/O/unknown 对账生命周期仍由
 caller 持有。provider 不负责关闭共享资源或删除未知结果的 intent；完整 service 装配仍须补齐。
+
+注册 lifecycle 的 `RegistrationAttempt.receipt()` 只提供 detached future view；取消它不能证明
+I/O 退出。Worker 对注册失败保留 checkpoint cut/原 task，显式 settlement 确认实际退出后才结清；
+期间不能继续 Source、关闭 Source 或 Owner drain。Oxia provider 持有 private executor future，
+旧 provider 必须保证其 owned completion 包含实际 I/O 退出，或覆盖 begin 提供独立 exit fact。
+调用方先推进并结清原 operation，再关闭共享 executor/client/pin/物理资源。shutdownNow 移除 queued
+任务需要独立 exact no-start 证明，完整装配尚未闭合；I/O 退出也不能排除 uncertain CAS 晚到提交。

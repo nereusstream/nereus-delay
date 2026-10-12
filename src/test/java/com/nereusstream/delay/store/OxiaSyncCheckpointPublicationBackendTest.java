@@ -2,6 +2,7 @@ package com.nereusstream.delay.store;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.Bytes;
@@ -37,6 +38,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -46,6 +48,44 @@ import org.junit.jupiter.api.Test;
 class OxiaSyncCheckpointPublicationBackendTest {
     private static final CheckpointManifestLimits LIMITS =
             new CheckpointManifestLimits(100, Long.MAX_VALUE, Long.MAX_VALUE, 4_096, 1 << 20, 100, 4_096);
+
+    @Test
+    void receiptCancellationCannotProveThatRegistrationIoExited() throws Exception {
+        final var records = new FakeRecordClient();
+        final var backend = new OxiaSyncCheckpointPublicationBackend(records, "delay/owned-registration", LIMITS);
+        final var pending = pending(8, null);
+        final var entered = new CountDownLatch(1);
+        final var release = new CountDownLatch(1);
+        try (var executor = new ThreadPoolExecutor(1, 1, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<>(2),
+                new ThreadPoolExecutor.AbortPolicy())) {
+            records.afterPut = () -> {
+                entered.countDown();
+                try {
+                    if (!release.await(5, TimeUnit.SECONDS)) { throw new IllegalStateException("I/O gate expired"); }
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(interrupted);
+                }
+            };
+            try {
+                final var provider = new OxiaCheckpointIntentRegistration(
+                        backend, Duration.ofSeconds(10), () -> {}, executor);
+                final var attempt = provider.begin(pending);
+                assertTrue(entered.await(5, TimeUnit.SECONDS));
+                assertTrue(attempt.receipt().cancel(false));
+                assertTrue(attempt.receipt().complete(pending));
+                assertFalse(attempt.ioExited());
+                assertFalse(attempt.receipt().isDone());
+                release.countDown();
+                assertEquals(pending, attempt.receipt().get(5, TimeUnit.SECONDS));
+                assertTrue(attempt.ioExited());
+                assertEquals(pending, backend.current(pending).orElseThrow());
+                assertEquals(1, records.putCount);
+            } finally {
+                release.countDown();
+            }
+        }
+    }
 
     @Test
     void asynchronousIntentRegistrationReconcilesLostResponseUsingOriginalCas() throws Exception {

@@ -615,3 +615,7 @@ C5 pending intent 精确值修复：CandidateWorkClassExecutor 的 guard 先前�
 C5（2026-10-12）：`OxiaCheckpointIntentRegistration` 已接既有有限 executor 与 exact metadata CAS，
 权限和期限贯穿每步及未知响应重读。失败仍保留可能已提交的 pending；完整 service 资源生命周期
 及 Broker 联合验收仍开放，全部完成/production flags 保持。
+
+C5（2026-10-12）：注册 receipt 与 I/O exit 分离，失权时原失败/task/native cut 保留到实际客户端
+I/O 退出再结清；future view 取消不能释放保护。Source close 同样等待 checkpoint。未知 CAS 对账、
+完整 executor/service shutdown 与 Broker 联合验收继续开放，状态/flags 不提升。

@@ -739,6 +739,11 @@ public final class TargetWorkerShardRuntime
         if (pendingCheckpoint == null) {
             return Optional.empty();
         }
+        if (pendingCheckpoint.settleFailedRegistrationIo()) {
+            final var failed = pendingCheckpoint.outcome();
+            if (failed.isPresent()) { pendingCheckpoint = null; }
+            return failed;
+        }
         resources.requireRuntimeBusinessAdmission();
         if (pendingCheckpoint.outcome().isEmpty()) {
             pendingCheckpoint.enqueueNextPreparation();
@@ -848,6 +853,7 @@ public final class TargetWorkerShardRuntime
 
     /** Closes the native source when no ACK is pending; Owner drain remains the host's responsibility. */
     public synchronized void closeSource() {
+        requireCheckpointSettled();
         sourceLoop.close();
     }
 
