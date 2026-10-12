@@ -685,3 +685,38 @@ factory/driver、受保护初始空 range anchor、完整 fencing/absence 及 pr
 仍待连接，包1未完成。已确认原锁 K1 缺 logStartOffset 投影并丢失实际空 Fetch 证据；
 主会话批准在既有 K1 worktree 最小 client 扩展、普通 fork 分支发布和开发锁更新，原
 05849884 历史证据保持其原 scope，不修改 Broker wire或提前宣告新组合已验证。
+
+
+## 2026-10-13：K1 同响应 log start 与 guarded 空 Fetch 开发锁
+
+包1必要依赖已在既有 K1 worktree/既有 fork 分支完成并普通发布：
+`nereus/delay-guarded-producer-v1@5128f46a358b5c3e9991cd5a51f2d1d0ef15339a`。
+仅三处 client 路径：GuardedFetchEvidence 新 ctor/字段、AbstractFetch 同次响应投影、
+ClassicKafkaConsumer 两处 guarded-only evidence 返回条件及当前 guard 复核。普通
+Fetch.isEmpty/未 guarded poll、Broker RPC/wire/Producer API 保持。旧 ctor 明确
+logStartOffset=-1 unavailable；新值参与 equals/hash。没有 lastEvidence cache，真实
+timeout 的空结果无 response proof，旧 seek/assignment/error 检查仍由原 collector执行。
+
+K1 `:clients:jar` 必要构建通过；该任务实际以 shadowJar 产物完成，jar task自身 SKIPPED，
+不冒称额外 gate。显式 `-PcommitId=5128f46a358b5c3e9991cd5a51f2d1d0ef15339a` 使
+kafka/kafka-version.properties 记录 `5128f46a358b5c3e`。当前 SDK JAR 为
+`clients/build/libs/kafka-clients-4.4.0-SNAPSHOT.jar`，SHA-256：
+`7adbb8e6d3bfa76fc62064d598d25ff00ee70cd90b27ddedbde5ed8f878146fe`。
+这是 client 身份；Broker/image 未重建，旧 05849884 receipts 保持其原证据 scope。
+
+Delay K2 reader 使用新 API，区分 null 无 response、实际空 raw/filtered response 和
+普通非空 receipt；同次 logStartOffset/LSO/HW 缺值、矛盾或 logStartOffset 超过原
+scanStartOffset 时失败关闭。新 poll 前清空本 turn range observation，不把旧响应
+挂到 timeout；空响应仍不自动推进 nextOffset/LSO，也不产生 NOT_PUBLISHED。
+实际 SDK JAR 的有限读取核对 version 来源并计算 SHA-256；此 hash 还须由实际
+Artifact/eligible-reader/Materialization protection 与激活值核对，不由源码声明授予权威。
+新 K2 range observation closed canonical image version2 的 fields1–18 为 version、
+完整 K1 commit ASCII、cluster、physical topic、UUID[16]、partition、requestVersion、
+raw correlation ID、broker node、session、fetchOffset、first/last raw record offset、HW、
+LSO、logStartOffset、authenticated response SHA-256、actual SDK JAR SHA-256。数字
+unknown 使用明确 -1，不默认零；原 persisted v1 evidence encoder/含义保持。
+
+未运行 K1 单测、checkstyle/spotless、Broker 或 Delay 测试。原必要检查和新增
+empty/timeout/旧 ctor/-1/seek/assignment/guard/position、原始或过滤后空批次、LSO及
+truncation/compaction 的实际边界均留待集中验证。K2 transaction/driver、初始 anchor、
+完整受保护否定与新 Owner 恢复装配继续开放；client编译不证明这些路径或生产权威。
