@@ -1,0 +1,193 @@
+C5 fixed periodic checkpoint task serviceability before admission scoped receipt.
+Baseline 87e2f66fa690dce4859268d1e20a6bba030aa852; main/single agent.
+No new thread/queue/format/default. Static individual serviceability does not prove aggregate live contention/fairness/physical/full provider/authority/migration/central completion; flags unchanged.
+SOURCE_SHA256 e9b6e717a5be53de24f14fc8247fb30025b8b05c6abe390b43796397ab86acba src/main/java/com/nereusstream/delay/ownership/TargetCheckpointCandidateSchedule.java
+SOURCE_SHA256 9c5511ce3f0d33b30e50c3981355d2ba42c229f0b0e00405f5118a09833b1421 src/main/java/com/nereusstream/delay/ownership/TargetSourceApplyRuntime.java
+SOURCE_SHA256 23fb7d3403f020b458e1bc57b9be50ff12005c70790fc9c6dd35890a5264ecc8 src/main/java/com/nereusstream/delay/ownership/TargetWorkerHostRuntime.java
+SOURCE_SHA256 abb3df5eb06e5d71bc153962b51bf9b3a5ba10773a7576448d2bb7f002c10d19 src/main/java/com/nereusstream/delay/ownership/TargetWorkerShardRuntime.java
+SOURCE_SHA256 c778c264377270991bd1c4ec32f3ad0a440cca58de5e4b8de50bf13d4c54d1bf src/main/java/com/nereusstream/delay/scheduler/WorkClassExecutionRegistry.java
+SOURCE_SHA256 0a261c2c7289ee13f45d642a5949531897bf7d3163404ee6562cd0c0b26047d7 src/main/java/com/nereusstream/delay/store/TargetCheckpointCandidateWorkClassExecutor.java
+SOURCE_SHA256 41f53c62ba7a546ca200536d38e2f69aa3fbd93a895a5df5305cba65792c900e src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactTargetWorkerSourceSmoke.java
+SOURCE_SHA256 17e0ad9ecb2ce389f9df00641704ea5347c4ba13a90757b62fe8c50d3c23e30e src/test/java/com/nereusstream/delay/scheduler/WorkClassExecutionRegistryTest.java
+
+Command: GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew test --tests "*WorkClassExecutionRegistryTest" --tests "*TargetWorkerShardFleetRuntimeTest" --tests "*TargetCommandStoreTest.checkpointAdmissionAuthenticationPreservesUnknownAndResolvedOriginalSource" checkstyleMain checkstyleTest --no-daemon --console=plain
+TEST_XML {'name': 'com.nereusstream.delay.scheduler.WorkClassExecutionRegistryTest', 'tests': '8', 'skipped': '0', 'failures': '0', 'errors': '0', 'timestamp': '2026-10-12T02:34:40.519Z', 'hostname': 'liusinandeMacBook-Pro.local', 'time': '0.008'} SHA256 345ccc4d6b770888ccf6bce054ca0346fa04a8c64a2553f6f40f0e26d80963b2
+TEST_XML {'name': 'com.nereusstream.delay.ownership.TargetWorkerShardFleetRuntimeTest', 'tests': '21', 'skipped': '0', 'failures': '0', 'errors': '0', 'timestamp': '2026-10-12T02:34:32.023Z', 'hostname': 'liusinandeMacBook-Pro.local', 'time': '0.745'} SHA256 5bf6e1b11c81607271df7d76ad6a379e08dc0989e9fb66df6119e94625e36882
+TEST_XML {'name': 'com.nereusstream.delay.runtime.TargetCommandStoreTest', 'tests': '1', 'skipped': '0', 'failures': '0', 'errors': '0', 'timestamp': '2026-10-12T02:34:32.769Z', 'hostname': 'liusinandeMacBook-Pro.local', 'time': '7.749'} SHA256 24dbd4d9ca91ef204c52767b7182c108c8249e555e89e6ab6e8ad4a2ff416d33
+
+Initial compile missing SchedulerBudget import, corrected.
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+
+> Task :compileJava
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/ownership/TargetSourceApplyRuntime.java:1155: 错误: 找不到符号
+            TargetCheckpointCandidateWorkClassExecutor.PublicationPlan publication, SchedulerBudget settlementBudget) {
+                                                                                    ^
+  符号:   类 SchedulerBudget
+  位置: 类 TargetSourceApplyRuntime
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/ownership/TargetSourceApplyRuntime.java:1185: 错误: 找不到符号
+            TargetCheckpointCandidateWorkClassExecutor.PublicationPlan publication, SchedulerBudget settlementBudget) {
+                                                                                    ^
+  符号:   类 SchedulerBudget
+  位置: 类 TargetSourceApplyRuntime
+2 个错误
+
+> Task :compileJava FAILED
+
+[Incubating] Problems report is available at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':compileJava'.
+> Compilation failed; see the compiler output below.
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/ownership/TargetSourceApplyRuntime.java:1155: 错误: 找不到符号
+              TargetCheckpointCandidateWorkClassExecutor.PublicationPlan publication, SchedulerBudget settlementBudget) {
+                                                                                      ^
+    符号:   类 SchedulerBudget
+    位置: 类 TargetSourceApplyRuntime
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/ownership/TargetSourceApplyRuntime.java:1185: 错误: 找不到符号
+              TargetCheckpointCandidateWorkClassExecutor.PublicationPlan publication, SchedulerBudget settlementBudget) {
+                                                                                      ^
+    符号:   类 SchedulerBudget
+    位置: 类 TargetSourceApplyRuntime
+  2 个错误
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 6s
+4 actionable tasks: 1 executed, 3 up-to-date
+
+Final local30/style terminal0/53s; native fixture only added afterward, production/test source unchanged.
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :checkstyleTest
+> Task :checkstyleMain
+
+BUILD SUCCESSFUL in 53s
+15 actionable tasks: 7 executed, 8 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+
+Final structural admission also on manual Target entries; no fixed budget required for a later larger manual turn. Final local32/style terminal0/52s.
+Command adds --tests "*TargetQuotaGrantStoreTest.signedFirstGrantCommitsAllocationResultAndPositionWhileExternalFailureMakesNoWrite" to previous related filters.
+FINAL_TEST_XML {'name': 'com.nereusstream.delay.scheduler.WorkClassExecutionRegistryTest', 'tests': '8', 'skipped': '0', 'failures': '0', 'errors': '0', 'timestamp': '2026-10-12T02:45:00.041Z', 'hostname': 'liusinandeMacBook-Pro.local', 'time': '0.006'} SHA256 b945b57331387a22afdc8769045853d9ad5f3a46e331138b58b74d90f0006966
+FINAL_TEST_XML {'name': 'com.nereusstream.delay.ownership.TargetWorkerShardFleetRuntimeTest', 'tests': '21', 'skipped': '0', 'failures': '0', 'errors': '0', 'timestamp': '2026-10-12T02:44:49.191Z', 'hostname': 'liusinandeMacBook-Pro.local', 'time': '0.713'} SHA256 b0113f69a508113cd1b41cafcd1bb8ad6c0fc5c45cfee35e89fa79d1b684d985
+FINAL_TEST_XML {'name': 'com.nereusstream.delay.runtime.TargetCommandStoreTest', 'tests': '1', 'skipped': '0', 'failures': '0', 'errors': '0', 'timestamp': '2026-10-12T02:44:49.905Z', 'hostname': 'liusinandeMacBook-Pro.local', 'time': '6.663'} SHA256 eecd131c4937045afbc9a97863778d329b68f4305f3428bc58e2d852af07c176
+FINAL_TEST_XML {'name': 'com.nereusstream.delay.runtime.TargetQuotaGrantStoreTest', 'tests': '2', 'skipped': '0', 'failures': '0', 'errors': '0', 'timestamp': '2026-10-12T02:44:56.568Z', 'hostname': 'liusinandeMacBook-Pro.local', 'time': '3.473'} SHA256 ea81dc6bbb91964acf05623b8642fcd03100a07f420f403046ea4d7f15637a8e
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :checkstyleTest
+> Task :checkstyleMain
+
+BUILD SUCCESSFUL in 52s
+15 actionable tasks: 6 executed, 9 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+
+checkDocumentation terminal0/1m17s before final equivalent structural gate sharing/manual binding.
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+
+> Task :testNdip1ImplementationVerifier
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 61.573s
+
+OK
+
+> Task :testNdip1PackageVerifier
+..............
+----------------------------------------------------------------------
+Ran 14 tests in 0.078s
+
+OK
+
+> Task :verifyNdip1HistoricalClosure
+proposal=NDIP-1
+receipt_status=IMPLEMENTED
+lifecycle_authority=true
+implementation=CLOSED
+lifecycle=CLOSED
+certified_commit=b4e077e9978f262cdb93cf3562ea12eee32430e2
+runtime_source_sha256=03ce17ede4b9e70e2f70dd2bbef681087f529159549a4cd979d0d7aa34fa9948
+runtime_source_files=835
+implemented_package_sha256=792ca54e239d884ba6f95315747f565bab57ee0fc02338a77369cb19bbe8e8a7
+staging_run=20260901055333-78920
+deployment=SEPARATE_FUTURE_WORK
+performance_and_scale=SEPARATE_FUTURE_WORK
+production_rollout=SEPARATE_FUTURE_WORK
+production_authority=false
+
+> Task :verifyNdip1PackageAccepted
+proposal=NDIP-1
+receipt_status=ACCEPTED
+authority=true
+package_source_commit=77ffa61136c0cd401244ebea4375a5a18b097b17
+file_sha256 70d9dd7c113fa5f457a20a97996322ef9a2018772efd225aa982c13ec4935140 docs/ndip/NDIP-1/01-调查与决策记录.md
+file_sha256 c167ed42dd29c383c08a8a102f36b0e4deee8ae5c7a5da115a09d04ffcb9fa6f docs/ndip/NDIP-1/02-NDIP-1-Pulsar-Native-Delivery.md
+file_sha256 9affafa81952959d39ed9c09a00abe6b84da4fd3b0b6280422f297684d56f727 docs/ndip/NDIP-1/03-实施计划.md
+file_sha256 2a26c107cd69ee522ea138b3487b8ec206e913acc6ad5b862aa69288ddcaa88e docs/ndip/NDIP-1/04-代码级目标设计.md
+package_sha256=13caab8ecdc201901f06e905f1c0bf9792780e50c6f5948f93abf2bdb8f4d21b
+gate_b=PASS
+implementation=AUTHORIZED
+local_disposable_testing=AUTHORIZED_WITH_EXACT_ATTESTATION
+gate_c=PENDING_DEPLOYMENT
+shadow=BLOCKED_BY_GATE_C
+enabled=BLOCKED_BY_GATE_C_AND_SHADOW_REQUIREMENTS
+
+> Task :verifyNdip2PackageAccepted
+proposal=NDIP-2
+receipt_status=ACCEPTED
+authority=true
+file_sha256 0a105fb2b73d63cabddf42d0ba3d5a9590b4edddd47242495f196bf56d15f642 docs/ndip/NDIP-2/01-NDIP-生命周期与认证源码权威分层.md
+file_sha256 c882ecaa32413cb9e177243cf3efe91b97810c3cc10be81e61e7e458030c4ffa docs/ndip/NDIP-2/02-实施计划.md
+file_sha256 ec1ba68ab3ac91aa667647e6289cd252b99da84d899f42f879821d6e5d7752e9 docs/ndip/NDIP-2/03-代码级目标设计.md
+package_sha256=856e1d768210a31fc9aad811af3a93c1de33189cc03c65bc1e36d57affbf10db
+gate_b=PASS
+implementation=AUTHORIZED
+deployment_authority=false
+
+> Task :checkDocumentation
+
+BUILD SUCCESSFUL in 1m 17s
+6 actionable tasks: 6 executed
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html

@@ -642,12 +642,12 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                     return result;
                 }, (initialization, image) -> ownerCommitAuthority(leases, active)
                         .acquire(store.metadata(), scope, null));
-        final var refuse = new java.util.concurrent.atomic.AtomicBoolean(true);
+        final var refuse = new java.util.concurrent.atomic.AtomicBoolean(false);
         final var checkpointClock = new java.util.concurrent.atomic.AtomicLong(now);
         final var historyRequested = new java.util.concurrent.atomic.AtomicBoolean();
         final var releaseHistory = new java.util.concurrent.CompletableFuture<Void>();
-        final var scheduled = host.configurePeriodicCollectedSemanticCheckpoints(
-                new com.nereusstream.delay.store.CheckpointScheduler(1_000, 0, 1), (selected, claim, cut) -> {
+        final com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.CollectedSemanticRequestFactory
+                factory = (selected, claim, cut) -> {
                     cut.requireCurrent();
                     if (selected != worker || !cut.position().equals(dependencies.root().source())) {
                         throw new IllegalStateException("scheduled semantic request received another native cut");
@@ -691,7 +691,28 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                                             throw new IllegalStateException("scheduled semantic protection unavailable");
                                         }
                                     }, plan);
-                }, checkpointClock::get, new SchedulerBudget(1, 4L << 20, TimeUnit.SECONDS.toNanos(10)));
+                };
+        final var undersized = com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.collectedSemantic(
+                host, new com.nereusstream.delay.store.CheckpointScheduler(1_000, 0, 1), factory,
+                new SchedulerBudget(1, 1, TimeUnit.SECONDS.toNanos(10)));
+        undersized.register(worker, now);
+        final long beforeBudgetRefusal = store.latestSequenceNumber();
+        try {
+            undersized.claimDueAndSubmit(now + 1_000, 1);
+            throw new AssertionError("unserviceable checkpoint task was admitted");
+        } catch (IllegalArgumentException refused) {
+            if (!refused.getMessage().contains("cannot be served")) { throw refused; }
+        }
+        if (undersized.pendingTask(scope.shard()).isPresent() || worker.pendingCheckpointTask().isPresent()
+                || historyRequested.get() || store.latestSequenceNumber() != beforeBudgetRefusal
+                || Files.exists(root.resolve("scheduled-semantic-image"))) {
+            throw new IllegalStateException("checkpoint budget refusal queued history or changed Store/files");
+        }
+        undersized.unregister(scope.shard());
+        refuse.set(true);
+        final var scheduled = host.configurePeriodicCollectedSemanticCheckpoints(
+                new com.nereusstream.delay.store.CheckpointScheduler(1_000, 0, 1), factory,
+                checkpointClock::get, new SchedulerBudget(1, 4L << 20, TimeUnit.SECONDS.toNanos(10)));
         final long sourceSequence = store.shardMutationSequence();
         final var source = store.appliedShardLogPosition();
         final long due = now + 1_000;

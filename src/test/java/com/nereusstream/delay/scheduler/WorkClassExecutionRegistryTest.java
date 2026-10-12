@@ -136,7 +136,38 @@ class WorkClassExecutionRegistryTest {
                         WorkClassExecutionRegistry.WorkerSingleton.DESTINATION_PHYSICAL_ADMISSION, new Object()));
     }
 
+    @Test
+    void fixedTaskBudgetPreservesOtherMinimaAndRejectsUnserviceableTaskBeforeAdmission() {
+        final var checkpoint = task(WorkClass.CHECKPOINT, "fixed-checkpoint");
+        final var turn = new SchedulerBudget(1, 8, 1_000);
+        final var registry = registry(1);
+        assertThrows(IllegalArgumentException.class,
+                () -> registry.requireTaskServiceable(checkpoint, new SchedulerBudget(1, 7, 1_000)));
+        assertThrows(IllegalArgumentException.class, () -> registry.requireTaskServiceable(
+                new WorkClassTask(WorkClass.CHECKPOINT, "too-large", 9), new SchedulerBudget(1, 16, 1_000)));
+        assertEquals(0, registry.registeredActions());
+        assertEquals(0, registry.pending(WorkClass.CHECKPOINT));
+        registry.requireTaskServiceable(checkpoint, turn);
+        registry.requireTaskServiceable(checkpoint);
+        for (var capacity : List.of(new long[] {6, 256}, new long[] {16, 48}, new long[] {16, 55})) {
+            final var protectedPool = registry(1, capacity[0], capacity[1]);
+            assertThrows(IllegalArgumentException.class,
+                    () -> protectedPool.requireTaskServiceable(checkpoint, turn));
+            assertThrows(IllegalArgumentException.class, () -> protectedPool.requireTaskServiceable(checkpoint));
+            assertEquals(0, protectedPool.registeredActions());
+        }
+        final var exactMinima = registry(1, 6, 48);
+        final var source = task(WorkClass.SOURCE_APPLY, "own-minimum");
+        exactMinima.requireTaskServiceable(source, turn);
+        exactMinima.submit(source, () -> {});
+        assertEquals(List.of(source), exactMinima.runTurn(turn));
+    }
+
     private static WorkClassExecutionRegistry registry(final int maxQueueRecords) {
+        return registry(maxQueueRecords, 16, 256);
+    }
+
+    private static WorkClassExecutionRegistry registry(int maxQueueRecords, long records, long bytes) {
         final EnumMap<WorkClass, WorkClassPolicy> policies = new EnumMap<>(WorkClass.class);
         for (WorkClass workClass : WorkClass.values()) {
             final boolean protectedClass =
@@ -157,7 +188,7 @@ class WorkClassExecutionRegistryTest {
                             protectedClass ? 8 : 0,
                             workClass == WorkClass.LEASE_FENCE));
         }
-        final WorkClassRuntimeConfig config = new WorkClassRuntimeConfig(policies, 100, 100, 16, 256);
+        final WorkClassRuntimeConfig config = new WorkClassRuntimeConfig(policies, 100, 100, records, bytes);
         return new WorkClassExecutionRegistry(config, new AtomicLong()::get);
     }
 

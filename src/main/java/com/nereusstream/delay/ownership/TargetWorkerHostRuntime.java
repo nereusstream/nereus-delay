@@ -170,7 +170,7 @@ public final class TargetWorkerHostRuntime {
             TargetCheckpointCandidateSchedule.SemanticRequestFactory factory, LongSupplier clock,
             SchedulerBudget budget) {
         return registerPeriodicCheckpointSchedule(
-                TargetCheckpointCandidateSchedule.semantic(this, scheduler, factory), clock, budget);
+                TargetCheckpointCandidateSchedule.semantic(this, scheduler, factory, budget), clock, budget);
     }
 
     /** Uses the same maintenance loop while original history is collected in bounded CHECKPOINT steps. */
@@ -179,7 +179,7 @@ public final class TargetWorkerHostRuntime {
             TargetCheckpointCandidateSchedule.CollectedSemanticRequestFactory factory, LongSupplier clock,
             SchedulerBudget budget) {
         return registerPeriodicCheckpointSchedule(
-                TargetCheckpointCandidateSchedule.collectedSemantic(this, scheduler, factory), clock, budget);
+                TargetCheckpointCandidateSchedule.collectedSemantic(this, scheduler, factory, budget), clock, budget);
     }
 
     private TargetCheckpointCandidateSchedule registerPeriodicCheckpointSchedule(

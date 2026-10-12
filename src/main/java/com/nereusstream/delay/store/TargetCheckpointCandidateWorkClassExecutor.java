@@ -7,6 +7,7 @@ import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
 import com.nereusstream.delay.protocol.CheckpointUploadIntent;
 import com.nereusstream.delay.protocol.CheckpointUploadState;
+import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClass;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import com.nereusstream.delay.scheduler.WorkClassTask;
@@ -28,6 +29,7 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
     private final CheckpointUploadIntentAuthority intents;
     private final LongSupplier ownerClock;
     private final Runnable localOwnerGuard;
+    private final SchedulerBudget settlementBudget;
 
     /** Local/test seam; an active Worker must supply its own fencing guard through the overload below. */
     public TargetCheckpointCandidateWorkClassExecutor(
@@ -47,12 +49,20 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
             final CheckpointUploadIntentAuthority intents,
             final LongSupplier ownerClock,
             final Runnable localOwnerGuard) {
+        this(workClasses, store, leases, intents, ownerClock, localOwnerGuard, null);
+    }
+
+    /** The periodic Host supplies its exact fixed settlement budget before any task is queued. */
+    public TargetCheckpointCandidateWorkClassExecutor(WorkClassExecutionRegistry workClasses, ShardStore store,
+            OxiaOwnerLeaseStore leases, CheckpointUploadIntentAuthority intents, LongSupplier ownerClock,
+            Runnable localOwnerGuard, SchedulerBudget settlementBudget) {
         this.workClasses = Objects.requireNonNull(workClasses, "workClasses");
         this.store = Objects.requireNonNull(store, "store");
         this.leases = Objects.requireNonNull(leases, "leases");
         this.intents = Objects.requireNonNull(intents, "intents");
         this.ownerClock = Objects.requireNonNull(ownerClock, "ownerClock");
         this.localOwnerGuard = Objects.requireNonNull(localOwnerGuard, "localOwnerGuard");
+        this.settlementBudget = settlementBudget;
         if (store.metadata().storeFormatVersion() != 2) {
             throw new IllegalArgumentException("Target candidate requires a format-2 Store");
         }
@@ -69,6 +79,7 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
                 "target-candidate/" + Bytes.hex(Bytes.sha256(TASK_DOMAIN, identity)),
                 identity.length);
         final Submission submission = new Submission(task);
+        requireServiceable(task);
         workClasses.submit(task, () -> execute(submitted, submission));
         return submission;
     }
@@ -105,6 +116,7 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
                 (publication == null ? "target-semantic-candidate/" : "target-semantic-publication/")
                         + Bytes.hex(Bytes.sha256(TASK_DOMAIN, identity)), identity.length);
         final var submission = new Submission(task);
+        requireServiceable(task);
         workClasses.submit(task, () -> executeSemantic(semantic, submission, publication));
         return submission;
     }
@@ -126,6 +138,7 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
                 "target-collected-semantic/" + Bytes.hex(Bytes.sha256(TASK_DOMAIN, identity)),
                 Math.addExact(identity.length, limits.maximumBytes()));
         final var submission = new Submission(task);
+        requireServiceable(task);
         submission.preparationGuard = guard;
         submission.preparationRegistry = workClasses;
         submission.nextStep = () -> workClasses.submit(task, () -> {
@@ -195,6 +208,11 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
             submission.complete(new Outcome(null, failure));
             throw failure;
         }
+    }
+
+    private void requireServiceable(WorkClassTask task) {
+        if (settlementBudget == null) { workClasses.requireTaskServiceable(task); }
+        else { workClasses.requireTaskServiceable(task, settlementBudget); }
     }
 
     private void requireCurrentSemantic(SemanticRequest request, boolean allowPublished) {

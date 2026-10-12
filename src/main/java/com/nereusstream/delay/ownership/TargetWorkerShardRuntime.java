@@ -661,6 +661,20 @@ public final class TargetWorkerShardRuntime
             com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.Limits semanticLimits,
             Runnable protectionGuard, SourceRecordConsumer.CheckpointCut cut,
             TargetCheckpointCandidateWorkClassExecutor.PublicationPlan publication) {
+        return submitProtectedSemanticCheckpointCandidate(intents, ownerClock, checkpointPath, pending,
+                physicalLimits, quotaLimits, ledgerLimits, snapshot, semanticLimits, protectionGuard, cut,
+                publication, null);
+    }
+
+    synchronized TargetCheckpointCandidateWorkClassExecutor.Submission submitProtectedSemanticCheckpointCandidate(
+            CheckpointUploadIntentAuthority intents, LongSupplier ownerClock, Path checkpointPath,
+            CheckpointUploadIntent pending, CheckpointManifestLimits physicalLimits,
+            TargetCheckpointRootVerifier.QuotaAuditLimits quotaLimits,
+            TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits,
+            com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot snapshot,
+            com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.Limits semanticLimits,
+            Runnable protectionGuard, SourceRecordConsumer.CheckpointCut cut,
+            TargetCheckpointCandidateWorkClassExecutor.PublicationPlan publication, SchedulerBudget settlementBudget) {
         requireNewTurnsAdmitted();
         resources.requireRuntimeBusinessAdmission();
         if (preparedCheckpointCut != Objects.requireNonNull(cut, "cut") || maintenance.hasPendingTurn()
@@ -670,7 +684,7 @@ public final class TargetWorkerShardRuntime
         cut.requireCurrent();
         final var submitted = target.submitSemanticCheckpointCandidate(workClasses, intents, ownerClock,
                 checkpointPath, pending, physicalLimits, quotaLimits, ledgerLimits, snapshot, semanticLimits,
-                cut::requireCurrent, protectionGuard, publication);
+                cut::requireCurrent, protectionGuard, publication, settlementBudget);
         pendingCheckpoint = submitted;
         preparedCheckpointCut = null;
         return submitted;
@@ -686,6 +700,12 @@ public final class TargetWorkerShardRuntime
     synchronized TargetCheckpointCandidateWorkClassExecutor.Submission submitCollectedSemanticCheckpointCandidate(
             TargetCheckpointCandidateSchedule.CollectedSemanticRequest request,
             SourceRecordConsumer.CheckpointCut cut) {
+        return submitCollectedSemanticCheckpointCandidate(request, cut, null);
+    }
+
+    synchronized TargetCheckpointCandidateWorkClassExecutor.Submission submitCollectedSemanticCheckpointCandidate(
+            TargetCheckpointCandidateSchedule.CollectedSemanticRequest request,
+            SourceRecordConsumer.CheckpointCut cut, SchedulerBudget settlementBudget) {
         requireNewTurnsAdmitted();
         resources.requireRuntimeBusinessAdmission();
         if (preparedCheckpointCut != Objects.requireNonNull(cut, "cut") || maintenance.hasPendingTurn()
@@ -697,7 +717,7 @@ public final class TargetWorkerShardRuntime
         final var submitted = target.submitCollectedSemanticCheckpointCandidate(workClasses, candidate.intents(),
                 candidate.ownerClock(), candidate.checkpointPath(), candidate.pending(), candidate.physicalLimits(),
                 candidate.quotaLimits(), candidate.ledgerLimits(), request.inputs(), request.semanticLimits(),
-                cut::requireCurrent, request.protection(), request.publication());
+                cut::requireCurrent, request.protection(), request.publication(), settlementBudget);
         pendingCheckpoint = submitted;
         preparedCheckpointCut = null;
         return submitted;

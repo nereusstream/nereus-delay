@@ -46,6 +46,34 @@ public final class WorkClassExecutionRegistry {
         }
     }
 
+    /** Checks a fixed caller turn and the pool's structural capacity while preserving every other class minimum. */
+    public void requireTaskServiceable(WorkClassTask task, SchedulerBudget budget) {
+        Objects.requireNonNull(budget, "budget");
+        requireTaskServiceable(task);
+        if (task.bytes() > budget.maxBytes()) {
+            throw new IllegalArgumentException("work-class task cannot be served by its fixed turn/resource budget");
+        }
+    }
+
+    /** Structural capacity is required even when a manual caller chooses a different budget on its next turn. */
+    public void requireTaskServiceable(WorkClassTask task) {
+        Objects.requireNonNull(task, "task");
+        final var policy = config.policies().get(task.workClass());
+        long otherRecords = 0;
+        long otherBytes = 0;
+        for (var entry : config.policies().entrySet()) {
+            if (entry.getKey() != task.workClass()) {
+                otherRecords = Math.addExact(otherRecords, entry.getValue().nonBorrowableMinimumRecords());
+                otherBytes = Math.addExact(otherBytes, entry.getValue().nonBorrowableMinimumBytes());
+            }
+        }
+        if (task.bytes() > policy.maxBytesPerTurn()
+                || config.totalResourceRecords() - otherRecords < 1
+                || task.bytes() > config.totalResourceBytes() - otherBytes) {
+            throw new IllegalArgumentException("work-class task cannot be served by its fixed turn/resource budget");
+        }
+    }
+
     /** Atomically registers an exact action and offers its bounded queue identity. */
     public void submit(final WorkClassTask task, final Runnable action) {
         final WorkClassTask submitted = Objects.requireNonNull(task, "task");

@@ -59,6 +59,7 @@ import com.nereusstream.delay.runtime.TargetStoreBootstrap;
 import com.nereusstream.delay.runtime.TargetSystemReplayStore;
 import com.nereusstream.delay.runtime.TargetTimeFenceStore;
 import com.nereusstream.delay.runtime.TargetTimeFenceVerifier;
+import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.CheckpointManifestLimits;
@@ -1141,7 +1142,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             final Runnable sourceCutGuard, final Runnable protectionGuard) {
         return submitSemanticCheckpointCandidate(registry, intents, ownerClock, checkpointPath, pending,
                 physicalLimits, quotaLimits, ledgerLimits, snapshot, semanticLimits, sourceCutGuard,
-                protectionGuard, null);
+                protectionGuard, null, null);
     }
 
     synchronized TargetCheckpointCandidateWorkClassExecutor.Submission submitSemanticCheckpointCandidate(
@@ -1152,7 +1153,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot snapshot,
             com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.Limits semanticLimits,
             Runnable sourceCutGuard, Runnable protectionGuard,
-            TargetCheckpointCandidateWorkClassExecutor.PublicationPlan publication) {
+            TargetCheckpointCandidateWorkClassExecutor.PublicationPlan publication, SchedulerBudget settlementBudget) {
         if (workClasses == null || workClasses != Objects.requireNonNull(registry, "registry")) {
             throw new IllegalStateException("Target semantic candidate requires the bound source WorkClass graph");
         }
@@ -1166,7 +1167,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         };
         guard.run();
         final var executor = new TargetCheckpointCandidateWorkClassExecutor(
-                registry, store, authorities.leases(), intents, clock, guard);
+                registry, store, authorities.leases(), intents, clock, guard, settlementBudget);
         final var request = new TargetCheckpointCandidateWorkClassExecutor.SemanticRequest(
                 new TargetCheckpointCandidateWorkClassExecutor.Request(checkpointPath, pending, lease,
                         physicalLimits, quotaLimits, ledgerLimits), snapshot, semanticLimits, guard);
@@ -1182,7 +1183,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             Supplier<Optional<com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot>> inputs,
             com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.Limits semanticLimits,
             Runnable sourceCutGuard, Runnable protectionGuard,
-            TargetCheckpointCandidateWorkClassExecutor.PublicationPlan publication) {
+            TargetCheckpointCandidateWorkClassExecutor.PublicationPlan publication, SchedulerBudget settlementBudget) {
         if (workClasses == null || workClasses != Objects.requireNonNull(registry, "registry")) {
             throw new IllegalStateException("Target semantic collection requires the bound source WorkClass graph");
         }
@@ -1193,7 +1194,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         };
         guard.run();
         final var executor = new TargetCheckpointCandidateWorkClassExecutor(
-                registry, store, authorities.leases(), intents, ownerClock, guard);
+                registry, store, authorities.leases(), intents, ownerClock, guard, settlementBudget);
         return executor.submitCollectedSemantic(new TargetCheckpointCandidateWorkClassExecutor.Request(
                 checkpointPath, pending, lease, physicalLimits, quotaLimits, ledgerLimits), inputs, semanticLimits,
                 guard, publication);
