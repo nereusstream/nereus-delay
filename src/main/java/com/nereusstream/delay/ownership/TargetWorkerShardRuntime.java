@@ -490,6 +490,49 @@ public final class TargetWorkerShardRuntime
         return configured == null ? Optional.empty() : Optional.of(configured.runTurn());
     }
 
+    /** Configures actual baseline transport; shares the existing finite Source/Claim driver when Journal is present. */
+    public synchronized TargetPulsarPublishRuntime configureBaselinePublishing(
+            ShardLogMutationAppender appender, TargetPublishAdmissionMutationFactory signer,
+            TargetPublishOutcomeMutationFactory outcomeSigner,
+            com.nereusstream.delay.adapter.BoundedDestinationPublishAdapter adapter,
+            com.nereusstream.delay.protocol.ArtifactGenerationSet artifacts,
+            TargetPulsarPublishRuntime.Preparation preparation, TargetPulsarPublishRuntime.Payloads payloads,
+            Supplier<BoundedReadBudget> reads,
+            Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
+            LongSupplier clock, java.util.concurrent.Executor io, java.util.concurrent.Executor completion,
+            com.nereusstream.delay.adapter.BoundedDestinationPublishAdapter.TargetOrdinaryPublishPreflight gate,
+            TargetOrdinaryPublishExecutor.ResultAuthority results) {
+        requirePublishRecoveryOwner(clock);
+        if (publishRuntime != null) { throw new IllegalStateException("Target publication driver is already configured"); }
+        publishRuntime = new TargetPulsarPublishRuntime(this, appender, signer, outcomeSigner, adapter,
+                artifacts, preparation, payloads, reads, time, clock, io, completion, gate, results);
+        return publishRuntime;
+    }
+
+    /** Adds a baseline endpoint to the already configured Source driver; it uses that driver's original inputs. */
+    public synchronized void configureBaselineEndpoint(
+            com.nereusstream.delay.adapter.BoundedDestinationPublishAdapter adapter,
+            com.nereusstream.delay.protocol.ArtifactGenerationSet artifacts,
+            TargetPublishOutcomeMutationFactory outcomeSigner,
+            com.nereusstream.delay.adapter.BoundedDestinationPublishAdapter.TargetOrdinaryPublishPreflight gate,
+            TargetOrdinaryPublishExecutor.ResultAuthority results,
+            java.util.concurrent.Executor completion, LongSupplier clock) {
+        requirePublishRecoveryOwner(clock);
+        final var driver = Objects.requireNonNull(publishRuntime, "configured Source publication driver");
+        driver.requireArtifacts(artifacts);
+        driver.configureBaseline(adapter, outcomeSigner, gate, results, completion);
+    }
+
+    void requirePublishingStartupClosure() {
+        final var runtime = Objects.requireNonNull(publishRuntime, "configured Target publisher");
+        runtime.requireConfiguredEndpoints();
+        if (runtime.requiresJournal()) {
+            Objects.requireNonNull(journalSettlement, "configured retained Source/Journal cleanup");
+        }
+    }
+
+    boolean publisherSupportsNative() { return publishRuntime != null && publishRuntime.supportsNative(); }
+
     void requirePulsarStartupClosure() {
         Objects.requireNonNull(publishRuntime, "configured Target publisher").requireNegativeSettlementConfigured();
         Objects.requireNonNull(journalSettlement, "configured retained Source/Journal cleanup");

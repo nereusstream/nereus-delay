@@ -2159,3 +2159,9 @@ retained record/byte limits；新增 reader/Artifact 机制覆盖后才启用 wr
 kind5 完成依据及相应 pins/祖先覆盖，不得仅凭 Budget 已 resolved 或 aggregate 终态清除
 Admission/首结果/证据。当前新分支保持 readNegativeOutcome 对已 Floor/released 的拒绝，
 保护解除与实际删除将在包 2 同原契约装配；不以接口或 callback 代替实际门禁。
+
+
+2026-10-13 开发补充：独立 Target BASELINE K1/P1 SDK、完整业务/reserved metadata、
+最终 ownership gate 和实际 Source Admission/Outcome 单 flight 已连接原 Host driver/drain；
+详见 07 的“Target BASELINE 实际 SDK 与 Source 单 flight”。本批三个相关 compile 通过，
+全部测试继续后置；K2、完整启动 provider/resource 及跨进程恢复仍未完成，不提升验收权威。

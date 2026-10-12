@@ -586,9 +586,18 @@ public final class TargetWorkerHostRuntime {
             final TargetWorkerOrdinaryDrr.Requests requests, final LongSupplier ownerClock,
             final LongSupplier schedulerClock, final LongSupplier monotonicClock,
             final BoundedAsyncMetricExporter metrics, final Consumer<Throwable> failureConsumer) {
+        currentTargetWorkers().forEach(TargetWorkerShardRuntime::requirePulsarStartupClosure);
+        return startPublishing(requests, ownerClock, schedulerClock, monotonicClock, metrics, failureConsumer);
+    }
+
+    /** Starts the configured ordinary baseline and Managed Journal endpoints on the same finite Host loop. */
+    public synchronized TargetWorkerOrdinaryLoop startPublishing(
+            final TargetWorkerOrdinaryDrr.Requests requests, final LongSupplier ownerClock,
+            final LongSupplier schedulerClock, final LongSupplier monotonicClock,
+            final BoundedAsyncMetricExporter metrics, final Consumer<Throwable> failureConsumer) {
         final var delegate = Objects.requireNonNull(requests, "requests");
         final var workers = currentTargetWorkers();
-        workers.forEach(TargetWorkerShardRuntime::requirePulsarStartupClosure);
+        workers.forEach(TargetWorkerShardRuntime::requirePublishingStartupClosure);
         if (workers.stream().anyMatch(worker -> !worker.publisherAvailable())) {
             throw new IllegalStateException("configure every admitted Target publisher before starting its Claim loop");
         }
@@ -601,7 +610,8 @@ public final class TargetWorkerHostRuntime {
             @Override
             public Optional<TargetWorkerOrdinaryDrr.NativePolicyContext> resolveNativePolicyContext(
                     TargetWorkerShardRuntime worker, TargetHeadCostProbe.Cost cost) {
-                return worker.publisherAvailable() ? delegate.resolveNativePolicyContext(worker, cost) : Optional.empty();
+                return worker.publisherAvailable() && worker.publisherSupportsNative()
+                        ? delegate.resolveNativePolicyContext(worker, cost) : Optional.empty();
             }
             @Override
             public java.io.Closeable subscribeNativePolicyChanges(Runnable listener) {

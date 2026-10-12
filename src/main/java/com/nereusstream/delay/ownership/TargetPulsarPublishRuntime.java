@@ -28,7 +28,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 
-/** One bounded Claim→Source Admission→Managed Journal/SDK→Source Outcome flight on an exact Worker. */
+/** One bounded Claim→Source Admission→configured baseline or Managed Journal SDK→Source Outcome flight. */
 public final class TargetPulsarPublishRuntime {
     public enum Status { IDLE, BUSY, PREPARING, WAITING_ADMISSION, RESOLVING_PAYLOAD, SUBMITTING,
         WAITING_OUTCOME, SETTLED, REJECTED, REVOKED, READ_YIELD, FAILED }
@@ -77,6 +77,8 @@ public final class TargetPulsarPublishRuntime {
         CompletableFuture<Payload> payload;
         CompletableFuture<TargetPulsarPublishExecutor.Submission> sending;
         TargetPulsarPublishExecutor.Submission submission;
+        CompletableFuture<TargetOrdinaryPublishExecutor.Submission> ordinarySending;
+        TargetOrdinaryPublishExecutor.Submission ordinarySubmission;
         boolean admissionSettled;
         boolean rejected;
         Flight(TargetClaimRecord claim) { this.claim = claim; }
@@ -95,6 +97,7 @@ public final class TargetPulsarPublishRuntime {
     private final TargetOutcomeWorkClassExecutor outcomes;
     private final TargetPulsarPublishExecutor publisher;
     private final PulsarAttemptJournal journal;
+    private volatile TargetOrdinaryPublishExecutor ordinaryPublisher;
     private final boolean negativeSettlementConfigured;
     private final AtomicReference<Flight> pending = new AtomicReference<>();
     private final AtomicBoolean active = new AtomicBoolean();
@@ -156,6 +159,61 @@ public final class TargetPulsarPublishRuntime {
                 });
     }
 
+    /** Pure Kafka/Pulsar baseline entry; it has no Journal recovery or Native ownership authority. */
+    public TargetPulsarPublishRuntime(TargetWorkerShardRuntime worker, ShardLogMutationAppender appender,
+            TargetPublishAdmissionMutationFactory signer, TargetPublishOutcomeMutationFactory outcomeSigner,
+            BoundedDestinationPublishAdapter adapter, ArtifactGenerationSet artifacts,
+            Preparation preparation, Payloads payloads, Supplier<BoundedReadBudget> reads,
+            Supplier<TrustedUtcIntervalEvidence> time, LongSupplier ownerClock, Executor io, Executor completion,
+            BoundedDestinationPublishAdapter.TargetOrdinaryPublishPreflight gate,
+            TargetOrdinaryPublishExecutor.ResultAuthority results) {
+        this.worker = Objects.requireNonNull(worker, "worker");
+        this.journal = null;
+        this.publisher = null;
+        negativeSettlementConfigured = false;
+        this.signer = Objects.requireNonNull(signer, "signer");
+        this.preparation = Objects.requireNonNull(preparation, "preparation");
+        this.payloads = Objects.requireNonNull(payloads, "payloads");
+        this.reads = Objects.requireNonNull(reads, "reads");
+        this.time = Objects.requireNonNull(time, "authenticatedTrustedTime");
+        this.ownerClock = Objects.requireNonNull(ownerClock, "ownerClock");
+        this.io = Objects.requireNonNull(io, "boundedIoExecutor");
+        this.artifacts = Objects.requireNonNull(artifacts, "artifacts");
+        admissions = new TargetPublishAdmissionWorkClassExecutor(worker, appender);
+        outcomes = new TargetOutcomeWorkClassExecutor(worker, appender);
+        configureBaseline(adapter, outcomeSigner, gate, results, completion);
+    }
+
+    /** Adds the explicit baseline endpoint before scheduling starts; the existing Journal endpoint remains separate. */
+    synchronized void configureBaseline(BoundedDestinationPublishAdapter adapter,
+            TargetPublishOutcomeMutationFactory outcomeSigner,
+            BoundedDestinationPublishAdapter.TargetOrdinaryPublishPreflight gate,
+            TargetOrdinaryPublishExecutor.ResultAuthority results, Executor completion) {
+        if (ordinaryPublisher != null || !available()) {
+            throw new IllegalStateException("baseline endpoint is already configured or publication is active");
+        }
+        ordinaryPublisher = new TargetOrdinaryPublishExecutor(adapter, artifacts, () -> {
+            final var flight = Objects.requireNonNull(pending.get(), "pending publication");
+            return worker.readAppliedAdmission(readBudget(), flight.admission, ownerClock);
+        }, gate, results, outcomeSigner, image -> outcomes.submit(image, ownerClock), completion);
+    }
+
+    boolean supportsNative() { return publisher != null; }
+    boolean requiresJournal() { return publisher != null; }
+
+    void requireConfiguredEndpoints() {
+        if (publisher == null && ordinaryPublisher == null) {
+            throw new IllegalStateException("Target publisher has no configured endpoint");
+        }
+        if (publisher != null) { requireNegativeSettlementConfigured(); }
+    }
+
+    void requireArtifacts(ArtifactGenerationSet expected) {
+        if (!Bytes.constantTimeEquals(artifacts.setDigest(), expected.setDigest())) {
+            throw new IllegalArgumentException("Target endpoints require the same frozen Artifact set");
+        }
+    }
+
     void requireWorker(TargetWorkerShardRuntime expected) {
         if (worker != expected) { throw new IllegalArgumentException("publisher belongs to another Worker"); }
     }
@@ -167,7 +225,7 @@ public final class TargetPulsarPublishRuntime {
     }
 
     void requireJournal(PulsarAttemptJournal expected) {
-        if (journal != expected) { throw new IllegalArgumentException("publisher/cleanup must share the same protected Journal"); }
+        if (journal == null || journal != expected) { throw new IllegalArgumentException("publisher/cleanup must share the same protected Journal"); }
     }
 
     /** The scheduler checks this before Claim; acceptance retains only one already durable Claim. */
@@ -175,6 +233,9 @@ public final class TargetPulsarPublishRuntime {
 
     public void accept(TargetClaimRecord claim) {
         Objects.requireNonNull(claim, "claim");
+        if (claim.selected().nativeCandidate() && !supportsNative()) {
+            throw new IllegalStateException("baseline publisher cannot own a Native Claim");
+        }
         if (!worker.shardId().equals(claim.work().locator().messageId().routingId().shardId())
                 || !pending.compareAndSet(null, new Flight(claim))) {
             throw new IllegalStateException("publisher cannot accept another Shard or a second durable Claim");
@@ -226,6 +287,12 @@ public final class TargetPulsarPublishRuntime {
             }
             if (flight.admission == null) {
                 final var input = flight.inputs;
+                final var kind = input.channel().context().kind();
+                if (kind == com.nereusstream.delay.protocol.ChannelKind.BASELINE_PRODUCER
+                        ? ordinaryPublisher == null
+                        : kind != com.nereusstream.delay.protocol.ChannelKind.PULSAR_DEDUP_PRODUCER || publisher == null) {
+                    throw new TargetPublishAdmissionStore.StaleAdmission();
+                }
                 flight.admission = worker.preparePublishAdmission(readBudget(), flight.claim, input.channel(),
                         input.capability(), artifacts.setDigest(), input.retryUntilEpochMs(), input.commitment(),
                         input.allocated(), Objects.requireNonNull(time.get(), "trusted interval"), input.policies(),
@@ -246,6 +313,14 @@ public final class TargetPulsarPublishRuntime {
                 flight.payload = Objects.requireNonNull(payloads.resolve(flight.applied), "payload future");
             }
             if (!flight.payload.isDone()) { return turn(Status.RESOLVING_PAYLOAD, flight); }
+            if (flight.applied.body().channel().context().kind()
+                    == com.nereusstream.delay.protocol.ChannelKind.BASELINE_PRODUCER) {
+                return runBaselineSend(flight);
+            }
+            if (publisher == null || flight.applied.body().channel().context().kind()
+                    != com.nereusstream.delay.protocol.ChannelKind.PULSAR_DEDUP_PRODUCER) {
+                throw new IllegalStateException("no activated publisher for the admitted Target channel kind");
+            }
             if (flight.sending == null) {
                 final var payload = Objects.requireNonNull(flight.payload.join(), "resolved payload");
                 final var sending = new CompletableFuture<TargetPulsarPublishExecutor.Submission>();
@@ -280,6 +355,29 @@ public final class TargetPulsarPublishRuntime {
             return new Turn(Status.FAILED, flight.admission,
                     failure.getCause() == null ? failure : failure.getCause());
         } finally { active.set(false); }
+    }
+
+    private Turn runBaselineSend(final Flight flight) {
+        final var endpoint = Objects.requireNonNull(ordinaryPublisher, "configured baseline endpoint");
+        if (flight.ordinarySending == null) {
+            final var payload = Objects.requireNonNull(flight.payload.join(), "resolved payload");
+            final var sending = new CompletableFuture<TargetOrdinaryPublishExecutor.Submission>();
+            flight.ordinarySending = sending;
+            try {
+                io.execute(() -> {
+                    try { sending.complete(endpoint.submit(payload.descriptor(), payload.resolved())); }
+                    catch (RuntimeException | Error failure) { sending.completeExceptionally(failure); }
+                });
+            } catch (RuntimeException rejected) { flight.ordinarySending = null; throw rejected; }
+        }
+        if (!flight.ordinarySending.isDone()) { return turn(Status.SUBMITTING, flight); }
+        if (flight.ordinarySubmission == null) { flight.ordinarySubmission = flight.ordinarySending.join(); }
+        if (flight.ordinarySubmission.mutation().isPresent() && endpoint.settleApplied(outcomes, ownerClock)) {
+            pending.compareAndSet(flight, null);
+            return turn(Status.SETTLED, flight);
+        }
+        if (flight.ordinarySubmission.result().isPresent()) { endpoint.retryCompletion(); }
+        return new Turn(Status.WAITING_OUTCOME, flight.admission, flight.ordinarySubmission.failure().orElse(null));
     }
 
     private BoundedReadBudget readBudget() { return Objects.requireNonNull(reads.get(), "read budget"); }

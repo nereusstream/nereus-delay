@@ -589,3 +589,35 @@ position 或 ACK 丢失后的不同 position）先匹配完整 settlement bytes�
 
 此批只有编译开发证据，没有测试/Broker/生产激活证明。真实提供者权利、资源额度、
 checkpoint/恢复/删除统一装配仍按四包继续；包 1/全部切片不因这个分支闭合而完成。
+
+
+## 2026-10-13：Target BASELINE 实际 SDK 与 Source 单 flight
+
+`TargetOrdinaryPublishRequest` 仅从私有的实际 APPLIED Admission proof 产生，核对当前
+PUBLISHING Message、exact attempt/revision、payload length/hash 和 Artifact。独立 Target
+入口不构造 Lane 身份；`PinnedKafkaDestinationAdapter`/`PinnedPulsarDestinationAdapter`
+只将 BASELINE_PRODUCER 交给该入口，旧 transport 默认失败关闭，强能力不降级。
+`BoundedDestinationPublishAdapter.submitTargetOrdinary` 使用原 Target channel 物理预算，
+并把最终 ownership gate 传到真实 SDK 调用之前。
+
+真实 K1 `KafkaClientArtifactTargetDestinationTransport` 用 request-level cluster/Topic UUID/
+partition guard；`KafkaClientArtifactTargetRecordEncoder` 保留 key、重复/有序 caller headers、
+可选业务 event time 与 Protocol Registry 定义的九个 opaque reserved headers。P1 ordinary
+encoder 保留 partition key 编码、ordering key、caller/reserved properties、event time 和原
+payload，不设置 Native deliverAt 或 Journal sequence。P1 transport 核对真实 producer name
+与 resource attestation；K1/P1 都在构造最终 SDK record/builder 后执行同一个 final gate。
+实际 guarded 回调产生既有 typed ACK，核对精确 Broker resource/position/attempt/prepared
+hash；未确定 SEND/回调错误继续 UNKNOWN。历史 Lane request/record bytes 保持。
+
+`TargetOrdinaryPublishExecutor` 只提交一次 SDK，保留已签原 Outcome bytes 并重试 Source
+handoff；只有实际 exact Source APPLIED 首结果才能释放本进程 pending flight。UNKNOWN
+进入原 Source hold，physical/zombie 与旧 Attempt budget 不由该释放动作清除。
+原 `TargetPulsarPublishRuntime` 复用既有 Claim→Admission→payload→Outcome driver，新增
+明确 BASELINE endpoint 分支；`configureBaselinePublishing`/`configureBaselineEndpoint` 与
+`Host.startPublishing` 连接同一个 DRR/maintenance/drain，不增加线程或队列。纯 BASELINE
+不选择 Native；未配置 channel kind 在签 Admission 前撤销实际 Claim。
+
+本批仅执行必要编译：compileJava、compileRealKafka、compileRealPulsar 通过；K1/P1
+使用当前锁定客户端 artifacts。没有运行单测、Broker、格式/文档或集中验收。实际
+Profile/key/time/credential/provider/resource 启动装配、K2、真实重启恢复与最终故障验收
+仍开放；typed ACK DTO 和可注入 ResultAuthority 不等于独立生产证据认证。

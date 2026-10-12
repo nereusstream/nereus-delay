@@ -72,9 +72,38 @@ public final class PulsarSendAckEvidence {
                 request.resourceIncarnation(),
                 request.physicalTopic(),
                 request.physicalTopicCreationTimestamp()));
+        return published(target, request.partition(), request.publishAttemptId(), preparedPublishHash,
+                producerNameHash, ledgerId, entryId, normalizedBatchIndex, brokerPersistenceTime,
+                sequenceId, authenticatedResponseSha256);
+    }
+
+    /** Uses the existing closed ACK shape with the actual Target identity, without constructing a Lane request. */
+    public static PublishEvidence published(
+            final TargetOrdinaryPublishRequest request, final byte[] producerNameHash,
+            final long ledgerId, final long entryId, final int normalizedBatchIndex,
+            final long brokerPersistenceTime, final long sequenceId, final byte[] authenticatedResponseSha256) {
+        final var p = Objects.requireNonNull(request, "request").publication();
+        if (p.physical().resource().kind() != BrokerResourceIdentity.Kind.PULSAR) {
+            throw new IllegalArgumentException("Pulsar ACK requires the frozen Pulsar Target");
+        }
+        Bytes.requireLength(producerNameHash, HASH_LENGTH, "producerNameHash");
+        Bytes.requireLength(authenticatedResponseSha256, HASH_LENGTH, "authenticatedResponseSha256");
+        if (ledgerId < 0 || entryId < 0 || normalizedBatchIndex < 0 || brokerPersistenceTime < 0 || sequenceId < 0) {
+            throw new IllegalArgumentException("Pulsar SEND ACK values must be non-negative");
+        }
+        return published(p.physical().resource(), p.physical().physicalPartition(), p.publishAttemptId(),
+                p.preparedPublishHash(), producerNameHash, ledgerId, entryId, normalizedBatchIndex,
+                brokerPersistenceTime, sequenceId, authenticatedResponseSha256);
+    }
+
+    private static PublishEvidence published(
+            final BrokerResourceIdentity target, final long partition, final byte[] attempt,
+            final byte[] preparedPublishHash, final byte[] producerNameHash,
+            final long ledgerId, final long entryId, final int normalizedBatchIndex,
+            final long brokerPersistenceTime, final long sequenceId, final byte[] authenticatedResponseSha256) {
         final byte[] branch = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, target.canonicalBytes());
-            CanonicalProtobuf.uint32(output, 2, request.partition());
+            CanonicalProtobuf.uint32(output, 2, partition);
             CanonicalProtobuf.uint64(output, 3, ledgerId);
             CanonicalProtobuf.uint64(output, 4, entryId);
             CanonicalProtobuf.uint32(output, 5, normalizedBatchIndex);
@@ -84,7 +113,7 @@ public final class PulsarSendAckEvidence {
             CanonicalProtobuf.bytes(
                     output,
                     9,
-                    ExternalDeliveryIdentity.publishAttempt(request.publishAttemptId())
+                    ExternalDeliveryIdentity.publishAttempt(attempt)
                             .canonicalBytes());
             CanonicalProtobuf.bytes(output, 10, preparedPublishHash);
             CanonicalProtobuf.bytes(output, 11, authenticatedResponseSha256);

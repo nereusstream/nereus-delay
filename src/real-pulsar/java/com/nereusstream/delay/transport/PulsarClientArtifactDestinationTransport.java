@@ -5,6 +5,8 @@ import com.nereusstream.delay.adapter.DestinationPublishResult;
 import com.nereusstream.delay.adapter.PinnedPulsarDestinationAdapter;
 import com.nereusstream.delay.adapter.PulsarDestinationRequest;
 import com.nereusstream.delay.adapter.PulsarSendAckEvidence;
+import com.nereusstream.delay.adapter.TargetOrdinaryPublishRequest;
+import com.nereusstream.delay.adapter.BoundedDestinationPublishAdapter.TargetOrdinaryPublishPreflight;
 import com.nereusstream.delay.protocol.ArtifactGenerationSet;
 import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
@@ -242,6 +244,58 @@ public final class PulsarClientArtifactDestinationTransport
                 throw failure;
             }
             return CompletableFuture.completedFuture(failure(record, artifacts, failure));
+        }
+    }
+
+    @Override
+    public CompletionStage<DestinationPublishResult> publishTargetOrdinary(
+            final TargetOrdinaryPublishRequest request, final TargetOrdinaryPublishPreflight gate) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(gate, "ownership gate");
+        final var p = request.publication();
+        if (p.channel().context().kind() != com.nereusstream.delay.protocol.ChannelKind.BASELINE_PRODUCER
+                || !p.physical().resource().equals(expectedTarget())
+                || p.physical().physicalPartition() != partition
+                || !Arrays.equals(Bytes.sha256(p.channel().context().producerIdentity()), producerNameHash)) {
+            return CompletableFuture.completedFuture(
+                    DestinationPublishResult.unknown(StableCode.PREPARED_SUBMISSION_MISMATCH, null));
+        }
+        final var builder = PulsarClientArtifactRecordEncoder.configureTargetOrdinary(producer, request);
+        final var denied = gate.check(request);
+        if (denied != null) { return CompletableFuture.completedFuture(denied); }
+        // Synchronous failure after this boundary is intentionally propagated: completion/ownership is unobserved.
+        return builder.sendAsync().handle((id, failure) -> failure == null
+                ? success(request, id)
+                : DestinationPublishResult.unknown(StableCode.DESTINATION_OUTCOME_UNKNOWN, null));
+    }
+
+    private DestinationPublishResult success(final TargetOrdinaryPublishRequest request, final MessageId id) {
+        if (!(id instanceof GuardedMessageId guarded)
+                || !(id instanceof MessageIdAdv advanced)
+                || !expectedGuard.equals(guarded.resourceGuard())
+                || !physicalTopic.equals(guarded.physicalTopic())
+                || partition != guarded.partition() || advanced.getPartitionIndex() != partition
+                || advanced.getLedgerId() < 0 || advanced.getEntryId() < 0
+                || guarded.brokerEntryTimestamp() < 0 || guarded.responseEvidence() == null) {
+            return DestinationPublishResult.unknown(StableCode.INTEGRITY_ERROR, null);
+        }
+        final var e = guarded.responseEvidence();
+        final int batch = advanced.getBatchIndex();
+        if (!new TopicResourceGuardAttestation(expectedGuard, physicalTopic, partition).equals(e.attestation())
+                || e.ledgerId() != advanced.getLedgerId() || e.entryId() != advanced.getEntryId()
+                || e.brokerEntryTimestamp() != guarded.brokerEntryTimestamp()
+                || batch >= 0 && (advanced.getBatchSize() <= 0 || batch >= advanced.getBatchSize())) {
+            return DestinationPublishResult.unknown(StableCode.INTEGRITY_ERROR, null);
+        }
+        try {
+            final var typed = PulsarSendAckEvidence.published(request, producerNameHash,
+                    advanced.getLedgerId(), advanced.getEntryId(), Math.max(0, batch),
+                    e.brokerEntryTimestamp(), e.sequenceId(), e.authenticatedResponseCommandSha256());
+            typed.requireOrdinaryTargetPublishedBinding(request.publication());
+            return DestinationPublishResult.published(expectedTarget(), partition,
+                    request.publication().publishAttemptId(), e.brokerEntryTimestamp(), typed.canonicalBytes());
+        } catch (RuntimeException inconsistentEvidence) {
+            return DestinationPublishResult.unknown(StableCode.INTEGRITY_ERROR, null);
         }
     }
 

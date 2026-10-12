@@ -216,6 +216,18 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
                                 ? completedUnknownValue() : preflight.check(publication, r, a)));
     }
 
+    /** Ordinary Target submission into the same actual channel pool; Native and old Lane methods remain distinct. */
+    public PublishCall submitTargetOrdinary(final TargetOrdinaryPublishRequest request,
+            final TargetOrdinaryPublishPreflight gate) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(gate, "ownership gate");
+        final var channel = request.publication().channel();
+        return submitPhysical(() -> admission.tryAcquireTarget(channel, request.physicalByteCharge()),
+                () -> !admission.targetChannelSnapshot(channel).ready() ? completedUnknownValue() : null,
+                () -> delegate.publishTargetOrdinary(request, actual ->
+                        !admission.targetChannelSnapshot(channel).ready() ? completedUnknownValue() : gate.check(actual)));
+    }
+
     private PublishCall submit(
             final DestinationPublishRequest request,
             final PublishPreflight preflight,
@@ -632,6 +644,11 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
         DestinationPublishResult check(
                 com.nereusstream.delay.protocol.TargetNativePublicationBinding publication,
                 PulsarPreparedRecord record, ArtifactGenerationSet artifacts);
+    }
+
+    @FunctionalInterface
+    public interface TargetOrdinaryPublishPreflight {
+        DestinationPublishResult check(TargetOrdinaryPublishRequest actual);
     }
 
     public static final class PublishCall {

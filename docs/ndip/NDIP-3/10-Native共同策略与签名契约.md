@@ -285,3 +285,9 @@ binding：由 B6/F1 显式映射/重建或新域/新 incarnation 承接，旧记
 RFC 8032 test 1 再生成项目向量；`checkTargetNativePolicyVectors` 纳入普通 check。
 本批不实现生产 backend/运行装配；其完整权威输入、门顺序与拒绝语义已明确给 C1/C2。
 B3 验收只覆盖原设计冻结范围，B7 接受、A2/A3、C–F 必做实现和实证均继续保留。
+
+
+2026-10-13 开发补充：独立 Target BASELINE K1/P1 SDK、完整业务/reserved metadata、
+最终 ownership gate 和实际 Source Admission/Outcome 单 flight 已连接原 Host driver/drain；
+详见 07 的“Target BASELINE 实际 SDK 与 Source 单 flight”。本批三个相关 compile 通过，
+全部测试继续后置；K2、完整启动 provider/resource 及跨进程恢复仍未完成，不提升验收权威。

@@ -213,6 +213,36 @@ public final class PinnedPulsarDestinationAdapter implements DestinationPublishA
     }
 
     @Override
+    public CompletionStage<DestinationPublishResult> publishTargetOrdinary(
+            final TargetOrdinaryPublishRequest request,
+            final BoundedDestinationPublishAdapter.TargetOrdinaryPublishPreflight gate) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(gate, "ownership gate");
+        return closeGuard.invokeIfOpen(() -> {
+            final var physical = request.publication().physical();
+            if (request.publication().channel().context().kind()
+                    != com.nereusstream.delay.protocol.ChannelKind.BASELINE_PRODUCER
+                    || physical.resource().kind() != BrokerResourceIdentity.Kind.PULSAR
+                    || !resource.authenticatedClusterId().equals(physical.resource().pulsar().authenticatedClusterId())
+                    || !java.util.Arrays.equals(resource.resourceIncarnation(), physical.resource().pulsar().resourceIncarnation())
+                    || !resource.physicalTopic().equals(physical.resource().pulsar().physicalTopic())
+                    || resource.physicalTopicCreationTimestamp() != physical.resource().pulsar().physicalTopicCreationTimestamp()
+                    || Integer.toUnsignedLong(resource.partition()) != physical.physicalPartition()) {
+                return completed(DestinationPublishResult.unknown(StableCode.RESOURCE_INCARNATION_MISMATCH, null));
+            }
+            try {
+                final var stage = transport.publishTargetOrdinary(request, gate);
+                if (stage == null) { return UnobservedDestinationPublishStage.unknown(); }
+                final var handled = stage.handle((value, failure) -> failure == null && value != null
+                        ? validate(value) : DestinationPublishResult.unknown(StableCode.DESTINATION_OUTCOME_UNKNOWN, null));
+                return handled == null ? UnobservedDestinationPublishStage.unknown() : handled;
+            } catch (RuntimeException unobservedOwnership) {
+                return UnobservedDestinationPublishStage.unknown();
+            }
+        }, () -> completed(DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null)));
+    }
+
+    @Override
     public void close() {
         closeGuard.close(transport::close);
     }
@@ -269,6 +299,14 @@ public final class PinnedPulsarDestinationAdapter implements DestinationPublishA
             Objects.requireNonNull(sourcePosition, "sourcePosition");
             Bytes.requireLength(preparedPublishHash, 32, "preparedPublishHash");
             return publish(request);
+        }
+
+        /** Target requests require a distinct actual SDK boundary; old Lane implementations fail closed. */
+        default CompletionStage<DestinationPublishResult> publishTargetOrdinary(
+                final TargetOrdinaryPublishRequest request,
+                final BoundedDestinationPublishAdapter.TargetOrdinaryPublishPreflight gate) {
+            return CompletableFuture.completedFuture(
+                    DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null));
         }
 
         @Override

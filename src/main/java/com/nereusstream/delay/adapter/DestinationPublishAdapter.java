@@ -55,6 +55,16 @@ public interface DestinationPublishAdapter extends AutoCloseable {
                 DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null));
     }
 
+    /** Independent Target ordinary SDK boundary; old Lane transports cannot stand in for its final ownership gate. */
+    default CompletionStage<DestinationPublishResult> publishTargetOrdinary(
+            final TargetOrdinaryPublishRequest request,
+            final BoundedDestinationPublishAdapter.TargetOrdinaryPublishPreflight gate) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(gate, "actual ownership gate");
+        return java.util.concurrent.CompletableFuture.completedFuture(
+                DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null));
+    }
+
     @Override
     default void close() {
         // Implementations with broker resources override this method.

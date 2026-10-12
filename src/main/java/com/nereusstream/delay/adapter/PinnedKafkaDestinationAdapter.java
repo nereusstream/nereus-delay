@@ -74,6 +74,34 @@ public final class PinnedKafkaDestinationAdapter implements DestinationPublishAd
     }
 
     @Override
+    public CompletionStage<DestinationPublishResult> publishTargetOrdinary(
+            final TargetOrdinaryPublishRequest request,
+            final BoundedDestinationPublishAdapter.TargetOrdinaryPublishPreflight gate) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(gate, "ownership gate");
+        return closeGuard.invokeIfOpen(() -> {
+            final var physical = request.publication().physical();
+            if (request.publication().channel().context().kind()
+                    != com.nereusstream.delay.protocol.ChannelKind.BASELINE_PRODUCER
+                    || physical.resource().kind() != BrokerResourceIdentity.Kind.KAFKA
+                    || !resource.authenticatedClusterId().equals(physical.resource().kafka().authenticatedClusterId())
+                    || !resource.nativeTopicUuid().equals(physical.resource().kafka().nativeTopicUuid())
+                    || Integer.toUnsignedLong(resource.partition()) != physical.physicalPartition()) {
+                return completed(DestinationPublishResult.unknown(StableCode.RESOURCE_INCARNATION_MISMATCH, null));
+            }
+            try {
+                final var stage = transport.publishTargetOrdinary(request, gate);
+                if (stage == null) { return UnobservedDestinationPublishStage.unknown(); }
+                final var handled = stage.handle((value, failure) -> failure == null && value != null
+                        ? validate(value) : DestinationPublishResult.unknown(StableCode.DESTINATION_OUTCOME_UNKNOWN, null));
+                return handled == null ? UnobservedDestinationPublishStage.unknown() : handled;
+            } catch (RuntimeException unobservedOwnership) {
+                return UnobservedDestinationPublishStage.unknown();
+            }
+        }, () -> completed(DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null)));
+    }
+
+    @Override
     public void close() {
         closeGuard.close(transport::close);
     }
@@ -100,6 +128,14 @@ public final class PinnedKafkaDestinationAdapter implements DestinationPublishAd
     @FunctionalInterface
     public interface KafkaDestinationTransport extends AutoCloseable {
         CompletionStage<DestinationPublishResult> publish(KafkaDestinationRequest request);
+
+        /** Target requests require a distinct actual SDK boundary; old Lane implementations fail closed. */
+        default CompletionStage<DestinationPublishResult> publishTargetOrdinary(
+                final TargetOrdinaryPublishRequest request,
+                final BoundedDestinationPublishAdapter.TargetOrdinaryPublishPreflight gate) {
+            return CompletableFuture.completedFuture(
+                    DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null));
+        }
 
         @Override
         default void close() {
