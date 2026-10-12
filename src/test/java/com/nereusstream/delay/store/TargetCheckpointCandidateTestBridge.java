@@ -139,16 +139,6 @@ public final class TargetCheckpointCandidateTestBridge {
             java.util.function.BiConsumer<ShardStore, PublishedRecovery> recover) {
         final var manifest = image.manifest();
         final var catalog = new RecoveryCatalog();
-        final var baselineId = java.util.Arrays.copyOf(manifest.checkpointId(), 16);
-        baselineId[0] ^= 0x40;
-        final var baseline = new CheckpointManifest(baselineId, manifest.recoveryLineageId(), 0, null, null,
-                manifest.createdBy(), manifest.createdAt(), manifest.shardId(), manifest.dbIdentity(),
-                manifest.sourceStoreIncarnation(), 1, manifest.shardMutationSequence(),
-                manifest.appliedShardLogPosition(), manifest.controlStateDigest(),
-                manifest.referencedSemanticVersionsDigest(), java.util.List.of(), manifest.files());
-        // UploadIntent schema requires nonzero base generation. This is an explicit historical Catalog fixture,
-        // not a physical format1 conversion or a proof of fresh-empty Target Catalog bootstrap.
-        catalog.publish(baseline, 0);
         final var intentStore = new CheckpointUploadIntentStore();
         com.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend.ClientHandle nativeSession = null;
         RecoveryCatalogAuthority authority = catalog;
@@ -163,7 +153,6 @@ public final class TargetCheckpointCandidateTestBridge {
                         namespace == null || namespace.isBlank() ? "default" : namespace,
                         "target-image-publication", java.time.Duration.ofSeconds(15), prefix);
                 final var backend = new OxiaSyncCheckpointPublicationBackend(nativeSession, prefix, limits);
-                backend.publish(baseline, 0);
                 authority = backend;
                 intents = backend;
             } catch (io.oxia.client.api.exceptions.OxiaException failure) {
@@ -178,15 +167,39 @@ public final class TargetCheckpointCandidateTestBridge {
         final var sourceIncarnation = java.nio.ByteBuffer.allocate(16)
                 .putLong(manifest.sourceStoreIncarnation().getMostSignificantBits())
                 .putLong(manifest.sourceStoreIncarnation().getLeastSignificantBits()).array();
-        final var evidence = new com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence(900, 1_000,
-                com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
-                new byte[] {1}, 1, 1, 1, manifest.manifestSha256(), 0, null);
+        final var at = manifest.createdAt();
+        final var evidence = new com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence(
+                at.earliestEpochMs(), at.latestEpochMs(),
+                com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence.Source.valueOf(at.source()),
+                at.sourceId(), at.sourceConfigGeneration(), at.sampleSequence(), at.monotonicAnchorNs(),
+                at.sourceEvidenceSha256(), at.sourceKeyVersion(), at.sourceSignature());
         final var pending = new com.nereusstream.delay.protocol.CheckpointUploadIntent(
                 new com.nereusstream.delay.protocol.ShardSubject(manifest.shardId()), manifest.recoveryLineageId(),
                 manifest.checkpointId(), owner, sourceIncarnation, manifest.manifestSha256(), 1, null, null,
                 profile, evidence, 10_000, com.nereusstream.delay.protocol.CheckpointUploadState.PENDING_UPLOAD,
                 1, null, null);
         intents.create(pending);
+        final var initialization = authority.initializeTargetCatalog(pending, image, (marker, authenticated) ->
+                fixtureGuard());
+        org.junit.jupiter.api.Assertions.assertEquals(1, initialization.catalogGeneration());
+        org.junit.jupiter.api.Assertions.assertEquals(1,
+                authority.initializeTargetCatalog(pending, image, (marker, authenticated) -> fixtureGuard())
+                        .catalogGeneration());
+        final var exactInitializationAuthority = authority;
+        final var deniedInitialization = new IllegalStateException("Catalog genesis permission unavailable");
+        org.junit.jupiter.api.Assertions.assertSame(deniedInitialization,
+                org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                        () -> exactInitializationAuthority.initializeTargetCatalog(pending, image,
+                                (marker, authenticated) -> { throw deniedInitialization; })));
+        if (nativeSession != null) {
+            final var independent = new OxiaSyncCheckpointPublicationBackend(nativeSession, prefix, limits);
+            org.junit.jupiter.api.Assertions.assertArrayEquals(initialization.marker().canonicalBytes(),
+                    independent.currentInitialization().orElseThrow().canonicalBytes());
+        }
+        org.junit.jupiter.api.Assertions.assertTrue(authority.manifest(manifest.checkpointId()).isEmpty());
+        org.junit.jupiter.api.Assertions.assertTrue(authority.currentFloor().isEmpty());
+        org.junit.jupiter.api.Assertions.assertArrayEquals(initialization.marker().canonicalBytes(),
+                authority.currentInitialization().orElseThrow().canonicalBytes());
         final var coordinator = new CheckpointPublicationCoordinator(resources, intents, limits, authority);
         final var executor = new TargetCheckpointPublicationWorkClassExecutor(registry, coordinator);
         final var adapter = new FilesystemCheckpointUploadAdapter(objectRoot, "fixture", limits);
@@ -282,6 +295,15 @@ public final class TargetCheckpointCandidateTestBridge {
                 catch (java.io.IOException failure) { throw new AssertionError("native publication close", failure); }
             }
         }
+    }
+
+    private static TargetStoreBackend.CommitGuard fixtureGuard() {
+        return new TargetStoreBackend.CommitGuard() {
+            @Override
+            public void requireCurrent() {}
+            @Override
+            public void close() {}
+        };
     }
 
     public record PublishedRecovery(RecoveryCatalogAuthority catalog, RecoveryPin pin,

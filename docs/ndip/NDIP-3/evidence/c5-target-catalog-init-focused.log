@@ -1,0 +1,243 @@
+C5 authenticated Target Catalog initialization scoped receipt.
+Baseline 00946f6c6e92b561f6823f2a37f96a45e2bb9cc3; main/single agent.
+User chose authenticated initialization with nonzero UploadIntent constraint unchanged. No synthetic Catalog Manifest baseline; init marker alone grants no publication/recovery/Floor/Pin. Full role/Owner/history/reader/credential/retention/physical/pin permissions remain fixtures; no production/central/whole NDIP-3 promotion.
+SOURCE_SHA256 c0871977c46af2cbb63ca3c6fc90adbb69a9b2b6cd5a97c48ab7517c4653547d src/main/java/com/nereusstream/delay/store/CatalogInitialization.java
+SOURCE_SHA256 6cfdf367100d3128d2765f1ed25ea3f1695b151e933a6f5d02ecc4f4fed3c3e4 src/main/java/com/nereusstream/delay/store/CatalogInitializationAuthority.java
+SOURCE_SHA256 06a652bfc69fc0efef44e032cd7ae411af276de9baf7e811dd80cf738a2e9ef5 src/main/java/com/nereusstream/delay/store/RecoveryCatalog.java
+SOURCE_SHA256 82a65f886545b5d24a093c160a021d86f66cf050afdab6180127da21f6c11c14 src/main/java/com/nereusstream/delay/store/RecoveryCatalogAuthority.java
+SOURCE_SHA256 dbfc6986340ecff71b7a49a5ed33c9653e1ac538cc048120259b13b68df96377 src/main/java/com/nereusstream/delay/store/OxiaSyncRecoveryCatalogBackend.java
+SOURCE_SHA256 d5b638eee53dae0563eda86b0e5d5d2848739399007c69dd9b47a8251b60e100 src/main/java/com/nereusstream/delay/store/OxiaSyncCheckpointPublicationBackend.java
+SOURCE_SHA256 a55c5c4168641489f1f023ac0b0c8f37515fb660bc358a9e95a23c7f985e3ce6 src/main/java/com/nereusstream/delay/store/PersistentRecoveryCatalog.java
+SOURCE_SHA256 8eb3912025af19ce9f0ff91df65ac6458b46f4b7811f4b0966453652b4052a13 src/main/java/com/nereusstream/delay/store/CheckpointPublicationCoordinator.java
+SOURCE_SHA256 ca623b063782ffe8858ff89c7508d00dc36e5b97a803cbaaddfe794dd4eaf8f5 src/main/java/com/nereusstream/delay/store/TargetCheckpointPublicationWorkClassExecutor.java
+SOURCE_SHA256 86f7d91f1b0fb632bae8163bb098e0bc3d6a4257422e604ddb595452657115c2 src/test/java/com/nereusstream/delay/store/RecoveryCatalogTest.java
+SOURCE_SHA256 e9016dd7d761f93813e430ff6e04e86ddf10f71e74abfd21dc6f47f4a88f0aac src/test/java/com/nereusstream/delay/store/TargetCheckpointCandidateTestBridge.java
+SOURCE_SHA256 cca72fbaadc615fc13809f72777f3975cade805968bb9c37216cb95435affeb0 src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactTargetWorkerSourceSmoke.java
+TEST_XML {'name': 'com.nereusstream.delay.runtime.TargetCommandStoreTest', 'tests': '1', 'skipped': '0', 'failures': '0', 'errors': '0', 'timestamp': '2026-10-12T00:09:34.088Z', 'hostname': 'liusinandeMacBook-Pro.local', 'time': '6.974'} SHA256 c311eb3b927457cc3b9f50ab3afbb65556dd9314e7ac44b5d9ba3b818c4f45b9
+TEST_XML {'name': 'com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackendTest', 'tests': '7', 'skipped': '0', 'failures': '0', 'errors': '0', 'timestamp': '2026-10-12T00:09:41.063Z', 'hostname': 'liusinandeMacBook-Pro.local', 'time': '0.024'} SHA256 002b73020683da7fea79631435bd6b5682b209cb7c0460792d276a0b12eba604
+TEST_XML {'name': 'com.nereusstream.delay.store.OxiaSyncRecoveryCatalogBackendTest', 'tests': '20', 'skipped': '0', 'failures': '0', 'errors': '0', 'timestamp': '2026-10-12T00:09:41.087Z', 'hostname': 'liusinandeMacBook-Pro.local', 'time': '0.049'} SHA256 662742199d1de39e834671b5b9c3370a283ea43dd8d983720ca9102f910d4ff9
+TEST_XML {'name': 'com.nereusstream.delay.store.PersistentRecoveryCatalogTest', 'tests': '9', 'skipped': '0', 'failures': '0', 'errors': '0', 'timestamp': '2026-10-12T00:09:41.137Z', 'hostname': 'liusinandeMacBook-Pro.local', 'time': '0.168'} SHA256 7d20202161e92c28cf96d8906eab220d8b380a20036c6a8d809e5d6223edec6d
+TEST_XML {'name': 'com.nereusstream.delay.store.RecoveryCatalogTest', 'tests': '23', 'skipped': '0', 'failures': '0', 'errors': '0', 'timestamp': '2026-10-12T00:09:41.305Z', 'hostname': 'liusinandeMacBook-Pro.local', 'time': '0.019'} SHA256 e60e800ce6c39648d3a4e2b02d65610378423eb33ef49e825c41719ff1843928
+Final command: GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew test --tests "*TargetCommandStoreTest.checkpointAdmissionAuthenticationPreservesUnknownAndResolvedOriginalSource" --tests "*RecoveryCatalogTest" --tests "*OxiaSyncCheckpointPublicationBackendTest" --tests "*OxiaSyncRecoveryCatalogBackendTest" checkstyleMain checkstyleTest compileRealPulsar -PpulsarClientClasspath=<locked P1 jars> --no-daemon --console=plain
+
+Initial compile exit=1 missing Arrays import; corrected.
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+
+> Task :compileJava
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/store/RecoveryCatalog.java:96: 错误: 找不到符号
+            if (!Arrays.equals(initialization.canonicalBytes(), requested.canonicalBytes())) {
+                 ^
+  符号:   变量 Arrays
+  位置: 类 RecoveryCatalog
+1 个错误
+
+> Task :compileJava FAILED
+
+[Incubating] Problems report is available at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':compileJava'.
+> Compilation failed; see the compiler output below.
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/store/RecoveryCatalog.java:96: 错误: 找不到符号
+              if (!Arrays.equals(initialization.canonicalBytes(), requested.canonicalBytes())) {
+                   ^
+    符号:   变量 Arrays
+    位置: 类 RecoveryCatalog
+  1 个错误
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 6s
+4 actionable tasks: 1 executed, 3 up-to-date
+
+Initial 59 tests passed, overall exit=1 four added LineLength violations; corrected.
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :extractIncludeRealPulsarProto UP-TO-DATE
+> Task :extractRealPulsarProto UP-TO-DATE
+> Task :generateRealPulsarProto NO-SOURCE
+> Task :compileRealPulsar
+> Task :checkstyleTest
+
+> Task :checkstyleMain
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/store/TargetCheckpointPublicationWorkClassExecutor.java:112: 本行字符数 121个，最多：120个。 [LineLength]
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/store/RecoveryCatalog.java:548: 本行字符数 121个，最多：120个。 [LineLength]
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/store/RecoveryCatalog.java:578: 本行字符数 122个，最多：120个。 [LineLength]
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/store/CatalogInitialization.java:93: 本行字符数 126个，最多：120个。 [LineLength]
+
+> Task :checkstyleMain FAILED
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':checkstyleMain'.
+> A failure occurred while executing org.gradle.api.plugins.quality.internal.CheckstyleAction
+   > Checkstyle rule violations were found. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/checkstyle/main.html
+     Checkstyle files with violations: 3
+     Checkstyle violations by severity: [error:4]
+
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 47s
+18 actionable tasks: 8 executed, 10 up-to-date
+
+Time binding expression editing produced unmatched parenthesis; compile exit=1, corrected; old XML was not treated as new passing tests.
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+
+> Task :compileJava FAILED
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/store/CatalogInitialization.java:60: 错误: 需要')'
+                        .putLong(manifest.sourceStoreIncarnation().getLeastSignificantBits()).array())) {
+                                                                                                       ^
+1 个错误
+
+[Incubating] Problems report is available at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':compileJava'.
+> Compilation failed; see the compiler output below.
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/store/CatalogInitialization.java:60: 错误: 需要')'
+                          .putLong(manifest.sourceStoreIncarnation().getLeastSignificantBits()).array())) {
+                                                                                                         ^
+  1 个错误
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 4s
+4 actionable tasks: 1 executed, 3 up-to-date
+
+Final 60 tests: actual nonempty1 (UNKNOWN/resolved same case), catalog23, atomic7, native codec20, persistent9; zero skip/failure/error; main/test styles and locked P1 compile terminal0, 48s.
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :extractIncludeRealPulsarProto UP-TO-DATE
+> Task :extractRealPulsarProto UP-TO-DATE
+> Task :generateRealPulsarProto NO-SOURCE
+> Task :compileRealPulsar
+> Task :checkstyleTest
+> Task :checkstyleMain
+
+BUILD SUCCESSFUL in 48s
+18 actionable tasks: 7 executed, 11 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+
+Final checkDocumentation terminal exit=0, 1m17s; deployment_authority=false.
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+
+> Task :testNdip1ImplementationVerifier
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 60.677s
+
+OK
+
+> Task :testNdip1PackageVerifier
+..............
+----------------------------------------------------------------------
+Ran 14 tests in 0.079s
+
+OK
+
+> Task :verifyNdip1HistoricalClosure
+proposal=NDIP-1
+receipt_status=IMPLEMENTED
+lifecycle_authority=true
+implementation=CLOSED
+lifecycle=CLOSED
+certified_commit=b4e077e9978f262cdb93cf3562ea12eee32430e2
+runtime_source_sha256=03ce17ede4b9e70e2f70dd2bbef681087f529159549a4cd979d0d7aa34fa9948
+runtime_source_files=835
+implemented_package_sha256=792ca54e239d884ba6f95315747f565bab57ee0fc02338a77369cb19bbe8e8a7
+staging_run=20260901055333-78920
+deployment=SEPARATE_FUTURE_WORK
+performance_and_scale=SEPARATE_FUTURE_WORK
+production_rollout=SEPARATE_FUTURE_WORK
+production_authority=false
+
+> Task :verifyNdip1PackageAccepted
+proposal=NDIP-1
+receipt_status=ACCEPTED
+authority=true
+package_source_commit=77ffa61136c0cd401244ebea4375a5a18b097b17
+file_sha256 70d9dd7c113fa5f457a20a97996322ef9a2018772efd225aa982c13ec4935140 docs/ndip/NDIP-1/01-调查与决策记录.md
+file_sha256 c167ed42dd29c383c08a8a102f36b0e4deee8ae5c7a5da115a09d04ffcb9fa6f docs/ndip/NDIP-1/02-NDIP-1-Pulsar-Native-Delivery.md
+file_sha256 9affafa81952959d39ed9c09a00abe6b84da4fd3b0b6280422f297684d56f727 docs/ndip/NDIP-1/03-实施计划.md
+file_sha256 2a26c107cd69ee522ea138b3487b8ec206e913acc6ad5b862aa69288ddcaa88e docs/ndip/NDIP-1/04-代码级目标设计.md
+package_sha256=13caab8ecdc201901f06e905f1c0bf9792780e50c6f5948f93abf2bdb8f4d21b
+gate_b=PASS
+implementation=AUTHORIZED
+local_disposable_testing=AUTHORIZED_WITH_EXACT_ATTESTATION
+gate_c=PENDING_DEPLOYMENT
+shadow=BLOCKED_BY_GATE_C
+enabled=BLOCKED_BY_GATE_C_AND_SHADOW_REQUIREMENTS
+
+> Task :verifyNdip2PackageAccepted
+proposal=NDIP-2
+receipt_status=ACCEPTED
+authority=true
+file_sha256 0a105fb2b73d63cabddf42d0ba3d5a9590b4edddd47242495f196bf56d15f642 docs/ndip/NDIP-2/01-NDIP-生命周期与认证源码权威分层.md
+file_sha256 c882ecaa32413cb9e177243cf3efe91b97810c3cc10be81e61e7e458030c4ffa docs/ndip/NDIP-2/02-实施计划.md
+file_sha256 ec1ba68ab3ac91aa667647e6289cd252b99da84d899f42f879821d6e5d7752e9 docs/ndip/NDIP-2/03-代码级目标设计.md
+package_sha256=856e1d768210a31fc9aad811af3a93c1de33189cc03c65bc1e36d57affbf10db
+gate_b=PASS
+implementation=AUTHORIZED
+deployment_authority=false
+
+> Task :checkDocumentation
+
+BUILD SUCCESSFUL in 1m 17s
+6 actionable tasks: 6 executed
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html

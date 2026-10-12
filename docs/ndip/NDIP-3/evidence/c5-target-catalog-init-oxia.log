@@ -1,0 +1,156 @@
+C5 authenticated Target Catalog initialization scoped receipt.
+Baseline 00946f6c6e92b561f6823f2a37f96a45e2bb9cc3; main/single agent.
+User chose authenticated initialization with nonzero UploadIntent constraint unchanged. No synthetic Catalog Manifest baseline; init marker alone grants no publication/recovery/Floor/Pin. Full role/Owner/history/reader/credential/retention/physical/pin permissions remain fixtures; no production/central/whole NDIP-3 promotion.
+SOURCE_SHA256 c0871977c46af2cbb63ca3c6fc90adbb69a9b2b6cd5a97c48ab7517c4653547d src/main/java/com/nereusstream/delay/store/CatalogInitialization.java
+SOURCE_SHA256 6cfdf367100d3128d2765f1ed25ea3f1695b151e933a6f5d02ecc4f4fed3c3e4 src/main/java/com/nereusstream/delay/store/CatalogInitializationAuthority.java
+SOURCE_SHA256 06a652bfc69fc0efef44e032cd7ae411af276de9baf7e811dd80cf738a2e9ef5 src/main/java/com/nereusstream/delay/store/RecoveryCatalog.java
+SOURCE_SHA256 82a65f886545b5d24a093c160a021d86f66cf050afdab6180127da21f6c11c14 src/main/java/com/nereusstream/delay/store/RecoveryCatalogAuthority.java
+SOURCE_SHA256 dbfc6986340ecff71b7a49a5ed33c9653e1ac538cc048120259b13b68df96377 src/main/java/com/nereusstream/delay/store/OxiaSyncRecoveryCatalogBackend.java
+SOURCE_SHA256 d5b638eee53dae0563eda86b0e5d5d2848739399007c69dd9b47a8251b60e100 src/main/java/com/nereusstream/delay/store/OxiaSyncCheckpointPublicationBackend.java
+SOURCE_SHA256 a55c5c4168641489f1f023ac0b0c8f37515fb660bc358a9e95a23c7f985e3ce6 src/main/java/com/nereusstream/delay/store/PersistentRecoveryCatalog.java
+SOURCE_SHA256 8eb3912025af19ce9f0ff91df65ac6458b46f4b7811f4b0966453652b4052a13 src/main/java/com/nereusstream/delay/store/CheckpointPublicationCoordinator.java
+SOURCE_SHA256 ca623b063782ffe8858ff89c7508d00dc36e5b97a803cbaaddfe794dd4eaf8f5 src/main/java/com/nereusstream/delay/store/TargetCheckpointPublicationWorkClassExecutor.java
+SOURCE_SHA256 86f7d91f1b0fb632bae8163bb098e0bc3d6a4257422e604ddb595452657115c2 src/test/java/com/nereusstream/delay/store/RecoveryCatalogTest.java
+SOURCE_SHA256 e9016dd7d761f93813e430ff6e04e86ddf10f71e74abfd21dc6f47f4a88f0aac src/test/java/com/nereusstream/delay/store/TargetCheckpointCandidateTestBridge.java
+SOURCE_SHA256 cca72fbaadc615fc13809f72777f3975cade805968bb9c37216cb95435affeb0 src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactTargetWorkerSourceSmoke.java
+
+Selector command: bash /private/tmp/ndip3-target-catalog-init-oxia.sh
+Selector:
+#!/bin/bash
+set -euo pipefail
+cd /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay
+export NEREUS_DELAY_OXIA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/oxia
+[[ "$(git -C "$NEREUS_DELAY_OXIA_CHECKOUT" rev-parse HEAD)" == 37a17bef17202d5fd6e23282da5fd26d94865484 ]]
+[[ -z "$(git -C "$NEREUS_DELAY_OXIA_CHECKOUT" status --porcelain)" ]]
+export NEREUS_DELAY_OXIA_E2E_PORT="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
+project="ndip3-target-catalog-init-oxia-$$"
+cleanup() { docker compose -f e2e/docker-compose.oxia.yml -p "$project" down --volumes --remove-orphans; }
+trap cleanup EXIT
+echo "Owned project=$project endpoint=localhost:$NEREUS_DELAY_OXIA_E2E_PORT checkout=37a17bef17202d5fd6e23282da5fd26d94865484"
+docker compose -f e2e/docker-compose.oxia.yml -p "$project" build oxia
+docker compose -f e2e/docker-compose.oxia.yml -p "$project" up -d oxia
+healthy=0
+for attempt in {1..60}; do
+  if docker compose -f e2e/docker-compose.oxia.yml -p "$project" exec -T oxia oxia health --host 127.0.0.1 --port 6648 --timeout 2s; then healthy=1; break; fi
+  sleep 0.5
+done
+[[ "$healthy" == 1 ]]
+NEREUS_DELAY_OXIA_ENDPOINT="localhost:$NEREUS_DELAY_OXIA_E2E_PORT" NEREUS_DELAY_OXIA_NAMESPACE=default \
+  GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew test --rerun \
+  --tests com.nereusstream.delay.runtime.TargetCommandStoreTest.realOxiaCheckpointAdmissionAuthenticationPreservesUnknownAndResolvedOriginalSource \
+  checkstyleTest --no-daemon --console=plain
+
+
+SDK_CHECKOUT_HEAD 37a17bef17202d5fd6e23282da5fd26d94865484; clean before/after.
+TEST_XML {'name': 'com.nereusstream.delay.runtime.TargetCommandStoreTest', 'tests': '1', 'skipped': '0', 'failures': '0', 'errors': '0', 'timestamp': '2026-10-12T00:10:47.037Z', 'hostname': 'liusinandeMacBook-Pro.local', 'time': '17.923'} SHA256 78b3a070ad2e5349c5ddac3689a5aed7b7031a4a855949dfbfa30a7ab17fedf9
+Final native terminal exit=0 (34s): exact authenticated initialization marker, independent backend read, same original schema3 image File publication/new Store/Source duplicate/Owner ACTIVE/Pin cleanup. No historical Manifest seed.
+Owned project=ndip3-target-catalog-init-oxia-73918 endpoint=localhost:63500 checkout=37a17bef17202d5fd6e23282da5fd26d94865484
+ Image ndip3-target-catalog-init-oxia-73918-oxia Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 602B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 1.34kB done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/golang:1.26-alpine
+#3 DONE 2.8s
+
+#4 [internal] load metadata for docker.io/library/alpine:3.22
+#4 DONE 2.9s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 2B done
+#5 DONE 0.0s
+
+#6 [runtime 1/8] FROM docker.io/library/alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
+#6 DONE 0.0s
+
+#7 [build 1/5] FROM docker.io/library/golang:1.26-alpine@sha256:3082400e369fa24d5fc60bca20edab3f6d604e0c5a690ec66b295eff4dd87ade
+#7 DONE 0.0s
+
+#8 [internal] load build context
+#8 transferring context: 39.30kB 0.0s done
+#8 DONE 0.0s
+
+#9 [build 2/5] RUN apk add --no-cache make git build-base bash
+#9 CACHED
+
+#10 [runtime 3/8] RUN apk upgrade --no-cache
+#10 CACHED
+
+#11 [build 5/5] RUN --mount=type=cache,target=/go/pkg/mod     --mount=type=cache,target=/root/.cache/go-build     make
+#11 CACHED
+
+#12 [runtime 5/8] COPY --from=build /src/oxia/bin/oxia /oxia/bin/oxia
+#12 CACHED
+
+#13 [runtime 6/8] COPY --from=build /src/oxia/conf/coordinator.yaml /oxia/conf/coordinator.yaml
+#13 CACHED
+
+#14 [runtime 7/8] COPY --from=build /src/oxia/conf/dataserver.yaml /oxia/conf/dataserver.yaml
+#14 CACHED
+
+#15 [build 3/5] WORKDIR /src/oxia
+#15 CACHED
+
+#16 [runtime 2/8] RUN apk add --no-cache bash bash-completion jq
+#16 CACHED
+
+#17 [runtime 4/8] WORKDIR /oxia
+#17 CACHED
+
+#18 [build 4/5] COPY . .
+#18 CACHED
+
+#19 [runtime 8/8] RUN oxia completion bash > ~/.bashrc
+#19 CACHED
+
+#20 exporting to image
+#20 exporting layers done
+#20 writing image sha256:808cbe4a33bfb173998891f25bd3aaf869c469bcb3756bf15bf4ebf71fe5fd40 done
+#20 naming to docker.io/library/ndip3-target-catalog-init-oxia-73918-oxia done
+#20 DONE 0.0s
+
+#21 resolving provenance for metadata file
+#21 DONE 0.0s
+ Image ndip3-target-catalog-init-oxia-73918-oxia Built 
+ Network ndip3-target-catalog-init-oxia-73918_default Creating 
+ Network ndip3-target-catalog-init-oxia-73918_default Creating 
+ Network ndip3-target-catalog-init-oxia-73918_default Created 
+ Network ndip3-target-catalog-init-oxia-73918_default Created 
+ Container ndip3-target-catalog-init-oxia-73918-oxia-1 Creating 
+ Container ndip3-target-catalog-init-oxia-73918-oxia-1 Created 
+ Container ndip3-target-catalog-init-oxia-73918-oxia-1 Starting 
+ Container ndip3-target-catalog-init-oxia-73918-oxia-1 Started 
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava UP-TO-DATE
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses UP-TO-DATE
+> Task :test
+> Task :checkstyleTest UP-TO-DATE
+
+BUILD SUCCESSFUL in 34s
+14 actionable tasks: 2 executed, 12 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+ Container ndip3-target-catalog-init-oxia-73918-oxia-1 Stopping 
+ Container ndip3-target-catalog-init-oxia-73918-oxia-1 Stopped 
+ Container ndip3-target-catalog-init-oxia-73918-oxia-1 Removing 
+ Container ndip3-target-catalog-init-oxia-73918-oxia-1 Removed 
+ Network ndip3-target-catalog-init-oxia-73918_default Removing 
+ Network ndip3-target-catalog-init-oxia-73918_default Removed 

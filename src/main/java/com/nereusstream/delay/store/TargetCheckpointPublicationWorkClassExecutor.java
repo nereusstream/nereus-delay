@@ -55,6 +55,17 @@ public final class TargetCheckpointPublicationWorkClassExecutor {
     /** Queues candidate inspection, Manifest construction and full authentication before upload/Catalog I/O. */
     public Submission submitCandidate(TargetCheckpointRootVerifier.CandidateImage candidate,
             LongSupplier clock, CheckpointUploadAdapter adapter) {
+        return submitCandidate(candidate, clock, adapter, null);
+    }
+
+    /** Explicit first-publication path; namespace initialization needs separate trusted permission. */
+    public Submission submitInitialCandidate(TargetCheckpointRootVerifier.CandidateImage candidate,
+            LongSupplier clock, CheckpointUploadAdapter adapter, CatalogInitializationAuthority initialization) {
+        return submitCandidate(candidate, clock, adapter, Objects.requireNonNull(initialization, "initialization"));
+    }
+
+    private Submission submitCandidate(TargetCheckpointRootVerifier.CandidateImage candidate,
+            LongSupplier clock, CheckpointUploadAdapter adapter, CatalogInitializationAuthority initialization) {
         Objects.requireNonNull(candidate, "candidate");
         Objects.requireNonNull(adapter, "adapter");
         Objects.requireNonNull(clock, "clock");
@@ -92,11 +103,15 @@ public final class TargetCheckpointPublicationWorkClassExecutor {
             }));
         });
         final var task = new WorkClassTask(WorkClass.CHECKPOINT,
-                "target-candidate-publication/" + Bytes.hex(Bytes.sha256(identity)), identity.length);
+                (initialization == null ? "target-candidate-publication/" : "target-initial-publication/")
+                        + Bytes.hex(Bytes.sha256(identity)), identity.length);
         final var result = new Submission(task);
         workClasses.submit(task, () -> {
             try {
                 final var image = TargetCheckpointRootVerifier.authenticateCandidate(candidate);
+                if (initialization != null) {
+                    publication.initializeTarget(candidate.pending(), image, initialization);
+                }
                 final var published = publication.publishTarget(candidate.pending(), image,
                         candidate.pending().baseCatalogGeneration(), clock.getAsLong(), adapter);
                 result.authenticatedImage = image;

@@ -41,6 +41,11 @@ public final class CheckpointPublicationCoordinator {
         this.catalog = Objects.requireNonNull(catalog, "catalog");
     }
 
+    void initializeTarget(CheckpointUploadIntent pending, TargetCheckpointRootVerifier.AuthenticatedImage image,
+            CatalogInitializationAuthority authority) {
+        catalog.initializeTargetCatalog(pending, image, authority);
+    }
+
     SharedRocksDbResources resources() {
         return uploadCoordinator.resources();
     }

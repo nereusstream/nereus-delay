@@ -638,23 +638,14 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                             (input, registered, mutation, at) -> keys.getPublic());
                 }, () -> {});
         final var catalog = new RecoveryCatalog();
-        // Registered UploadIntent requires base generation 1. This synthetic historical Catalog entry is a
-        // fixture only; it neither converts a physical Store nor implements fresh-empty Catalog bootstrap.
-        final var baseline = new CheckpointManifest(bytes(16, 0x68), pending.recoveryLineageId(), 0, null, null,
-                new CheckpointManifest.CreatedBy(owner.deploymentId(), owner.workerRunId(), owner.ownerEpoch()),
-                new CheckpointManifest.CreatedAt(now - 1, now, "CERTIFIED_HOST_CLOCK", bytes(8, 0x65),
-                        1, 1, 1, bytes(32, 0x66), 0, null), scope.shard(), store.metadata().dbIdentity(),
-                store.metadata().storeIncarnationUuid(), 1, store.shardMutationSequence(),
-                store.appliedShardLogPosition(), snapshot.snapshotDigest(), snapshot.semanticInputsDigest(),
-                List.of(), files);
-        catalog.publish(baseline, 0);
         final Path objects = root.resolve("recovery-objects");
         final var publisher = new TargetCheckpointPublicationWorkClassExecutor(classes,
                 new CheckpointPublicationCoordinator(resources, intents, physical, catalog));
-        final var publication = publisher.submitCandidate(descriptor, () -> {
+        final var publication = publisher.submitInitialCandidate(descriptor, () -> {
             if (authentications.get() == 0) { throw new AssertionError("publication clock sampled before image auth"); }
             return System.currentTimeMillis();
-        }, new FilesystemCheckpointUploadAdapter(objects, "p1-fixture", physical));
+        }, new FilesystemCheckpointUploadAdapter(objects, "p1-fixture", physical), (marker, authenticated) ->
+                ownerCommitAuthority(leases, active).acquire(store.metadata(), scope, null));
         if (authentications.get() != 0 || publication.outcome().isPresent()
                 || publication.authenticatedImage().isPresent()) {
             throw new IllegalStateException("P1 candidate publication performed work during queue admission");

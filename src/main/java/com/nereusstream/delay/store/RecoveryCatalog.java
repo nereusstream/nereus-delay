@@ -14,6 +14,7 @@ import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.SourcePosition;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -30,6 +31,7 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
     private final Map<String, CheckpointManifest> manifests = new HashMap<>();
     private final Map<String, CheckpointResource> manifestResources = new HashMap<>();
     private long catalogGeneration;
+    private CatalogInitialization initialization;
     private RecoveryFloor floor;
     private RecoveryFloorRef typedFloorRef;
     private com.nereusstream.delay.protocol.ShardId catalogShard;
@@ -63,12 +65,52 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
             throw new IllegalArgumentException("genesis checkpoint must have lineage generation zero");
         }
         validateParent(manifest);
+        if (initialization != null && !authenticatedTarget) {
+            throw new IllegalArgumentException("initialized Target Catalog requires authenticated Target publication");
+        }
+        if (initialization != null && manifests.isEmpty()) { initialization.requireFirstManifest(manifest); }
         if (catalogShard == null) {
             catalogShard = manifest.shardId();
         }
         catalogGeneration = nextCatalogGeneration(catalogGeneration);
         manifests.put(key, manifest);
         return new Publication(manifest, catalogGeneration, floor);
+    }
+
+    @Override
+    public Initialization initializeTargetCatalog(CheckpointUploadIntent pending,
+            TargetCheckpointRootVerifier.AuthenticatedImage image, CatalogInitializationAuthority authority) {
+        Objects.requireNonNull(image, "image").authenticate();
+        final var marker = CatalogInitialization.from(pending, image.manifest());
+        try (var guard = Objects.requireNonNull(Objects.requireNonNull(authority, "authority")
+                .acquire(marker, image), "initialization guard")) {
+            return initializeAuthenticated(marker, () -> { image.requireCurrent(); guard.requireCurrent(); });
+        }
+    }
+
+    synchronized Initialization initializeAuthenticated(CatalogInitialization requested, Runnable protection) {
+        Objects.requireNonNull(requested, "initialization");
+        protection.run();
+        if (initialization != null) {
+            if (!Arrays.equals(initialization.canonicalBytes(), requested.canonicalBytes())) {
+                throw new IllegalStateException("Catalog initialization identity conflict");
+            }
+            return new Initialization(initialization, catalogGeneration);
+        }
+        if (catalogGeneration != 0 || !manifests.isEmpty() || floor != null || typedFloorRef != null
+                || activeRecoveryPin != null || catalogShard != null
+                        && !catalogShard.equals(requested.pending().shard().shardId())) {
+            throw new IllegalStateException("Catalog initialization requires an empty compatible namespace");
+        }
+        catalogShard = requested.pending().shard().shardId();
+        initialization = requested;
+        catalogGeneration = 1;
+        return new Initialization(requested, catalogGeneration);
+    }
+
+    @Override
+    public synchronized Optional<CatalogInitialization> currentInitialization() {
+        return Optional.ofNullable(initialization);
     }
 
     /** Advances the floor only to a published checkpoint in the same lineage. */
@@ -476,7 +518,8 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
                 new HashMap<>(manifestResources),
                 floor,
                 typedFloorRef,
-                activeRecoveryPin);
+                activeRecoveryPin,
+                initialization);
     }
 
     /** Restores a previously validated local snapshot without performing CAS. */
@@ -495,11 +538,19 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
         if (snapshot.catalogGeneration() == 0 && hasPublishedState) {
             throw new IllegalArgumentException("snapshot has published state at catalog generation zero");
         }
-        if (snapshot.catalogGeneration() != 0 && snapshot.manifests().isEmpty()) {
-            throw new IllegalArgumentException("snapshot has a catalog generation without a manifest");
+        if (snapshot.initialization() != null && (snapshot.catalogGeneration() == 0
+                || snapshot.catalogShard() == null
+                || !snapshot.catalogShard().equals(snapshot.initialization().pending().shard().shardId()))) {
+            throw new IllegalArgumentException("snapshot Catalog initialization shard/generation mismatch");
+        }
+        if (snapshot.catalogGeneration() != 0 && snapshot.manifests().isEmpty()
+                && (snapshot.catalogGeneration() != 1 || snapshot.initialization() == null || hasPublishedState)) {
+            throw new IllegalArgumentException("snapshot has a catalog generation without authenticated "
+                    + "initialization");
         }
         manifests.clear();
         manifestResources.clear();
+        initialization = snapshot.initialization();
         catalogGeneration = snapshot.catalogGeneration();
         catalogShard = snapshot.catalogShard();
         floor = snapshot.floor();
@@ -517,6 +568,17 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
             if (catalogShard == null) {
                 catalogShard = manifest.shardId();
             }
+        }
+        if (initialization != null && !manifests.isEmpty()) {
+            if (Long.compareUnsigned(catalogGeneration, 2) < 0
+                    || manifests.values().stream().anyMatch(manifest -> manifest.storeFormatVersion() != 2)) {
+                throw new IllegalArgumentException("initialized Catalog has invalid published generation/format");
+            }
+            final var genesis = manifests.values().stream().filter(manifest -> manifest.lineageGeneration() == 0
+                    && Arrays.equals(manifest.recoveryLineageId(), initialization.pending().recoveryLineageId()))
+                    .findFirst().orElseThrow(() -> new IllegalArgumentException(
+                            "initialized Catalog lacks its genesis"));
+            initialization.requireFirstManifest(genesis);
         }
         for (CheckpointManifest manifest : manifests.values()) {
             validateParent(manifest);
@@ -793,11 +855,22 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
             Map<String, CheckpointResource> manifestResources,
             RecoveryFloor floor,
             RecoveryFloorRef typedFloorRef,
-            RecoveryPin activeRecoveryPin) {
+            RecoveryPin activeRecoveryPin,
+            CatalogInitialization initialization) {
+        Snapshot(long generation, ShardId shard, List<CheckpointManifest> manifests,
+                Map<String, CheckpointResource> resources, RecoveryFloor floor, RecoveryFloorRef typedFloor,
+                RecoveryPin pin) {
+            this(generation, shard, manifests, resources, floor, typedFloor, pin, null);
+        }
+
         Snapshot {
             manifests = List.copyOf(Objects.requireNonNull(manifests, "manifests"));
             manifestResources = Map.copyOf(Objects.requireNonNull(manifestResources, "manifestResources"));
         }
+    }
+
+    public record Initialization(CatalogInitialization marker, long catalogGeneration) {
+        public Initialization { Objects.requireNonNull(marker, "marker"); }
     }
 
     public record Publication(CheckpointManifest manifest, long catalogGeneration, RecoveryFloor floor) {

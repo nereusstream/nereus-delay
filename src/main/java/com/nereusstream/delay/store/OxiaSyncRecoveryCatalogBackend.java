@@ -319,7 +319,8 @@ public final class OxiaSyncRecoveryCatalogBackend implements OxiaRecoveryCatalog
         }
         int index = 0;
         final CanonicalProtobuf.Reader.Field version = nextField(fields, index++, 1);
-        if (uint(version, 1) != SNAPSHOT_VERSION) {
+        final long schema = uint(version, 1);
+        if (schema != SNAPSHOT_VERSION && schema != 2) {
             throw new IllegalArgumentException("unsupported Oxia catalog snapshot version");
         }
         final CanonicalProtobuf.Reader.Field generation = nextField(fields, index++, 2);
@@ -329,6 +330,7 @@ public final class OxiaSyncRecoveryCatalogBackend implements OxiaRecoveryCatalog
         final Map<String, CheckpointResource> resources = new HashMap<>();
         RecoveryFloor floor = null;
         RecoveryFloorRef typedFloor = null;
+        CatalogInitialization initialization = null;
         while (index < fields.size()) {
             final CanonicalProtobuf.Reader.Field field = fields.get(index++);
             switch (field.number()) {
@@ -374,11 +376,17 @@ public final class OxiaSyncRecoveryCatalogBackend implements OxiaRecoveryCatalog
                     }
                     typedFloor = RecoveryFloorRef.decode(bytes(field, 7));
                 }
+                case 8 -> {
+                    if (schema != 2 || initialization != null) {
+                        throw new IllegalArgumentException("invalid/duplicate Oxia Catalog initialization");
+                    }
+                    initialization = CatalogInitialization.decode(bytes(field, 8));
+                }
                 default -> throw new IllegalArgumentException("unknown Oxia catalog snapshot field " + field.number());
             }
         }
         final RecoveryCatalog.Snapshot snapshot = new RecoveryCatalog.Snapshot(
-                catalogGeneration, catalogShard, manifests, resources, floor, typedFloor, null);
+                catalogGeneration, catalogShard, manifests, resources, floor, typedFloor, null, initialization);
         final RecoveryCatalog catalog = RecoveryCatalog.fromSnapshot(snapshot);
         if (!Arrays.equals(encoded, encodeSnapshot(catalog.snapshot()))) {
             throw new IllegalArgumentException("Oxia catalog snapshot is not canonical");
@@ -440,7 +448,7 @@ public final class OxiaSyncRecoveryCatalogBackend implements OxiaRecoveryCatalog
         // at this boundary without being normalized by Map.copyOf().
         RecoveryCatalog.fromSnapshot(snapshot);
         return CanonicalProtobuf.message(output -> {
-            CanonicalProtobuf.uint32(output, 1, SNAPSHOT_VERSION);
+            CanonicalProtobuf.uint32(output, 1, snapshot.initialization() == null ? SNAPSHOT_VERSION : 2);
             CanonicalProtobuf.uint64Bits(output, 2, snapshot.catalogGeneration());
             if (snapshot.catalogShard() != null) {
                 CanonicalProtobuf.bytes(output, 3, new ShardSubject(snapshot.catalogShard()).canonicalBytes());
@@ -452,6 +460,9 @@ public final class OxiaSyncRecoveryCatalogBackend implements OxiaRecoveryCatalog
             }
             if (snapshot.typedFloorRef() != null) {
                 CanonicalProtobuf.bytes(output, 7, snapshot.typedFloorRef().canonicalBytes());
+            }
+            if (snapshot.initialization() != null) {
+                CanonicalProtobuf.bytes(output, 8, snapshot.initialization().canonicalBytes());
             }
         });
     }

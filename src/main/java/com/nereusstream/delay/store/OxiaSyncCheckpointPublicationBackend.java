@@ -114,6 +114,32 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
     }
 
     @Override
+    public RecoveryCatalog.Initialization initializeTargetCatalog(CheckpointUploadIntent pending,
+            TargetCheckpointRootVerifier.AuthenticatedImage image, CatalogInitializationAuthority authority) {
+        if (client.sessionIdentity() == null) {
+            throw new IllegalStateException("Target Catalog initialization requires a connected ephemeral session");
+        }
+        Objects.requireNonNull(image, "image").authenticate();
+        final var marker = CatalogInitialization.from(pending, image.manifest());
+        try (var guard = Objects.requireNonNull(Objects.requireNonNull(authority, "authority")
+                .acquire(marker, image), "initialization guard")) {
+            final Runnable protection = () -> { image.requireCurrent(); guard.requireCurrent(); };
+            return mutate(state -> {
+                validateScope(state, pending.shard().shardId());
+                requireExactPendingOrPublished(state, pending);
+                final var catalog = RecoveryCatalog.fromSnapshot(state.catalog());
+                final var result = catalog.initializeAuthenticated(marker, protection);
+                return changed(result, state.withCatalog(catalog.snapshot()));
+            }, protection);
+        }
+    }
+
+    @Override
+    public Optional<CatalogInitialization> currentInitialization() {
+        return Optional.ofNullable(read().state().catalog().initialization());
+    }
+
+    @Override
     public CheckpointUploadIntent create(final CheckpointUploadIntent pending) {
         requirePending(pending);
         return mutate(state -> {

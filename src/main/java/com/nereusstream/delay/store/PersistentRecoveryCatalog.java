@@ -303,6 +303,9 @@ public final class PersistentRecoveryCatalog implements RecoveryCatalogAuthority
                 throw new IllegalStateException("Recovery Catalog resource map key does not match checkpoint identity");
             }
         }
+        if (snapshot.initialization() != null) {
+            throw new UnsupportedOperationException("legacy persistent codec cannot store Target initialization");
+        }
         RecoveryCatalog.fromSnapshot(snapshot);
         final List<CheckpointManifest> manifests = new ArrayList<>(snapshot.manifests());
         manifests.sort(Comparator.comparing(manifest -> Bytes.hex(manifest.checkpointId())));

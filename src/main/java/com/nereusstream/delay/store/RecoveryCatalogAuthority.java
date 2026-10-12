@@ -15,6 +15,16 @@ import java.util.Optional;
  * supplies the same CAS/read contract through Oxia.
  */
 public interface RecoveryCatalogAuthority {
+    /** Initializes only a fresh Target Catalog; no Manifest is published and generation becomes 1. */
+    default RecoveryCatalog.Initialization initializeTargetCatalog(CheckpointUploadIntent pending,
+            TargetCheckpointRootVerifier.AuthenticatedImage image, CatalogInitializationAuthority authority) {
+        throw new UnsupportedOperationException("authenticated Target Catalog initialization is not implemented");
+    }
+
+    default Optional<CatalogInitialization> currentInitialization() {
+        throw new UnsupportedOperationException("Target Catalog initialization read is not implemented");
+    }
+
     RecoveryCatalog.Publication publish(CheckpointManifest manifest, long expectedCatalogGeneration);
 
     /** Explicit format2 branch; a bare Manifest remains insufficient for Target publication. */
