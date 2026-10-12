@@ -138,6 +138,11 @@ public record TargetWorkerRuntimeConfig(
         return new SystemWriterAppendBudget(systemWriter, classes, sharedResources);
     }
 
+    public TargetChannelControlMutationFactory newChannelControlFactory(final int keyVersion,
+            final java.security.PrivateKey key, final long queryPolicyVersion) {
+        return new TargetChannelControlMutationFactory(keyVersion, key, queryPolicyVersion, maximumSourceFrameBytes);
+    }
+
     public TargetSourceBacklogAdmission newSourceIngressAdmission(
             Function<ShardId, TargetSourceBacklog.Snapshot> snapshots, TrustedClock clock, LongSupplier nanos,
             BiConsumer<TargetSourceBacklog.Snapshot, Integer> protection) {

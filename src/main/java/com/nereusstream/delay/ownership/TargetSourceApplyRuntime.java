@@ -963,6 +963,31 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 mutation, workerReads(clock));
     }
 
+    synchronized void requireChannelControlWriter(final SystemMutation mutation, final LongSupplier clock) {
+        requireGcOwner(clock);
+        if (!isChannelControl(mutation) || !scope.shard().equals(mutation.shardId())) {
+            throw new IllegalArgumentException("channel lifecycle writer belongs to another operation/Shard");
+        }
+        final var body = TargetChannelControlBody.decode(mutation.canonicalBody());
+        final var owner = body.request().owner();
+        if (owner.ownerEpoch() != lease.ownerEpoch()
+                || !Bytes.constantTimeEquals(owner.leaseFencingDigest(), lease.leaseToken())) {
+            throw new IllegalStateException("channel lifecycle writer requested another active Owner");
+        }
+        requireGcOwner(clock);
+    }
+
+    synchronized Optional<SystemMutationResult> channelControlMutationResult(
+            final SystemMutation mutation, final LongSupplier clock) {
+        requireGcOwner(clock);
+        if (!isChannelControl(mutation) || !scope.shard().equals(mutation.shardId())) {
+            throw new IllegalArgumentException("channel result lookup belongs to another operation/Shard");
+        }
+        return replay.appliedResult(
+                new BoundedReadBudget(limits.records(), limits.bytes(), limits.elapsedNanos(), monotonicClock),
+                mutation, workerReads(clock));
+    }
+
     synchronized Optional<SystemMutationResult> outcomeMutationResult(
             final SystemMutation mutation, final LongSupplier ownerClock) {
         final var clock = Objects.requireNonNull(ownerClock, "ownerClock");

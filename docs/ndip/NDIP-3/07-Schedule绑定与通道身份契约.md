@@ -470,3 +470,18 @@ Source-applied slot OPEN 且 exact generation。已 APPLIED 的旧 Admission 继
 提交、SDK/普通及 Native SEND、重开接管的包 1 整链尚未完成。不得据上述 codec/writer
 存在授予生产权限；activated canonical schema bundle/eligible readers 必须覆盖新分支及
 NV43/44，旧 Lane reader 格式保持拒绝。
+
+包 1 生命周期提交已接配置的真实签名输入与 registration/Source frame 上界；
+`TargetChannelControlMutationFactory` 在任何 I/O 前固定完整双签名 Prepared/frame，
+restore 只复用受保护历史原 bytes。每 Worker 一个 lifecycle handoff slot；其 WorkClass
+action 使用实际 session-bound Oxia immutable registration 和 exact reread，再经原
+Shard Log appender 提交，actual first APPLIED/REJECTED 才结清。Broker append success
+不是 channel 使用权限；未知注册/append 不换原 frame。当前 slot/SDK权限仍需独立
+Store/Owner/credential/资源 gate。Host 正常 drain 在 final checkpoint/Owner release 前
+用有限 dispatch/source turn 结清原 lifecycle，pending 明确返回 PENDING_CHANNEL_CONTROL；
+新 poll/maintenance 的 pause 拒绝未结清 lifecycle。SDK client/pin/append 物理责任仍由
+原 holder 持有，Source first result 不代表 SDK 原生 buffer 已释放。
+
+独立 Native v5/HANDED_OFF 的主会话决策见现有 decision-record；不修改普通 v4。
+上述提交接线仍是包 1 的开发部分，完整运行入口与普通/Native发送、Outcome及接管
+继续实施。测试/Broker/验收全部后置。

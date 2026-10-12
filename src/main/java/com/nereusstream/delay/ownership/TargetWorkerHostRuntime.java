@@ -71,6 +71,9 @@ public final class TargetWorkerHostRuntime {
 
         default Optional<WorkClassTask> settlePendingGcForDrain(SchedulerBudget budget) { return Optional.empty(); }
 
+        default Optional<WorkClassTask> settlePendingChannelControlForDrain(SchedulerBudget workBudget,
+                SchedulerBudget sourceBudget, LongSupplier clock) { return Optional.empty(); }
+
         default boolean canPublishFinalCheckpoint() { return true; }
 
         default long checkpointStoreSequence() { return 0; }
@@ -93,6 +96,7 @@ public final class TargetWorkerHostRuntime {
         PENDING_SOURCE,
         PENDING_GC,
         PENDING_MESSAGE_EXPIRY,
+        PENDING_CHANNEL_CONTROL,
         RELEASED,
         UNCERTAIN_RELEASED,
         OWNER_LOST_CLOSED,
@@ -106,7 +110,15 @@ public final class TargetWorkerHostRuntime {
             WorkClassTask pendingCheckpointTask,
             WorkClassTask pendingGcTask,
             RuntimeException failure,
-            WorkClassTask pendingMessageExpiryTask) {
+            WorkClassTask pendingMessageExpiryTask,
+            WorkClassTask pendingChannelControlTask) {
+        public ShardDrain(final ShardId shardId, final Status status,
+                final SourceApplyCoordinator.TurnResult sourceTurn, final WorkClassTask pendingCheckpointTask,
+                final WorkClassTask pendingGcTask, final RuntimeException failure,
+                final WorkClassTask pendingMessageExpiryTask) {
+            this(shardId, status, sourceTurn, pendingCheckpointTask, pendingGcTask, failure,
+                    pendingMessageExpiryTask, null);
+        }
         public ShardDrain(
                 final ShardId shardId,
                 final Status status,
@@ -123,7 +135,8 @@ public final class TargetWorkerHostRuntime {
             if ((status == Status.FAILED) != (failure != null)
                     || (status == Status.PENDING_CHECKPOINT) != (pendingCheckpointTask != null)
                     || (status == Status.PENDING_GC) != (pendingGcTask != null)
-                    || (status == Status.PENDING_MESSAGE_EXPIRY) != (pendingMessageExpiryTask != null)) {
+                    || (status == Status.PENDING_MESSAGE_EXPIRY) != (pendingMessageExpiryTask != null)
+                    || (status == Status.PENDING_CHANNEL_CONTROL) != (pendingChannelControlTask != null)) {
                 throw new IllegalArgumentException("Target host drain result has inconsistent evidence");
             }
         }
@@ -1235,6 +1248,12 @@ public final class TargetWorkerHostRuntime {
                 if (schedule != null && schedule.pendingTask(shard.shardId()).isPresent()) {
                     // A separately settled old task still owns its process-local claim.
                     schedule.settleForDrain(shard, checkpointBudget, checkpointClock.getAsLong());
+                }
+                final Optional<WorkClassTask> channel = shard.settlePendingChannelControlForDrain(
+                        request.gcBudget(), sourceBudget, ownerClock);
+                if (channel.isPresent()) {
+                    return new ShardDrain(shard.shardId(), Status.PENDING_CHANNEL_CONTROL, null,
+                            null, null, null, null, channel.orElseThrow());
                 }
                 final Optional<WorkClassTask> pendingExpiry = shard.settlePendingMessageExpiryForDrain(
                         request.gcBudget(), sourceBudget, ownerClock);

@@ -94,6 +94,7 @@ public final class TargetWorkerShardRuntime
     private volatile TargetMessageExpiryMaintenance messageExpiryMaintenance;
     private TargetCheckpointCandidateWorkClassExecutor.Submission pendingCheckpoint;
     private TargetPublishRecoveryMaintenance publishRecoveryMaintenance;
+    private volatile TargetChannelControlWorkClassExecutor channelControlHandoff;
     private SourceRecordConsumer.CheckpointCut preparedCheckpointCut;
 
     TargetWorkerShardRuntime(
@@ -265,6 +266,33 @@ public final class TargetWorkerShardRuntime
         return target.readAppliedAdmission(budget, image, ownerClock);
     }
 
+    /** Binds one lifecycle submission slot to this exact Worker and caller-owned registry/client protection. */
+    public synchronized TargetChannelControlWorkClassExecutor configureChannelControlHandoff(
+            final ShardLogMutationAppender appender, final ControlTargetRegistrationAuthority registrations,
+            final Runnable protection) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        if (channelControlHandoff != null) {
+            throw new IllegalStateException("channel lifecycle handoff is already configured for this Worker");
+        }
+        channelControlHandoff = new TargetChannelControlWorkClassExecutor(this, appender, registrations, protection);
+        return channelControlHandoff;
+    }
+
+    /** Reuses the actual connected Oxia handle/session; it allocates no client, executor or alternative registry. */
+    public synchronized TargetChannelControlWorkClassExecutor configureOxiaChannelControlHandoff(
+            final ShardLogMutationAppender appender, final OxiaSyncOwnerLeaseBackend.ClientHandle handle,
+            final String registryPrefix, final Runnable protection) {
+        return configureChannelControlHandoff(appender, new OxiaControlTargetRegistrationAuthority(
+                new OxiaSyncControlTargetRegistrationBackend(handle, registryPrefix)), protection);
+    }
+
+    public TargetChannelControlWorkClassExecutor.Submission submitChannelLifecycle(
+            final TargetChannelControlMutationFactory.Prepared prepared, final LongSupplier clock) {
+        final var handoff = Objects.requireNonNull(channelControlHandoff, "configured channel lifecycle handoff");
+        return handoff.submit(prepared, clock);
+    }
+
     /** Retained Admission proof for conservative recovery only; current Owner/read guards still apply. */
     public synchronized com.nereusstream.delay.runtime.TargetPublishAdmissionStore.Recovery readRecoveryAdmission(
             final BoundedReadBudget budget, final com.nereusstream.delay.protocol.SystemMutation image,
@@ -397,21 +425,21 @@ public final class TargetWorkerShardRuntime
         workClasses.submit(task, action);
     }
 
-    record AdmissionAppend(SystemMutationResult firstResult, ShardLogMutationAppender.AppendOutcome append) {
-        AdmissionAppend {
+    record SourceMutationAppend(SystemMutationResult firstResult, ShardLogMutationAppender.AppendOutcome append) {
+        SourceMutationAppend {
             if ((firstResult == null) == (append == null)) {
-                throw new IllegalArgumentException("Admission turn must observe a first result or one append outcome");
+                throw new IllegalArgumentException("Source mutation turn must observe a first result or one append outcome");
             }
         }
     }
 
-    synchronized AdmissionAppend appendAdmission(
+    synchronized SourceMutationAppend appendAdmission(
             final SystemMutation mutation, final ShardLogMutationAppender appender, final LongSupplier ownerClock) {
         requireNewTurnsAdmitted();
         resources.requireRuntimeBusinessAdmission();
         final var first = target.admissionMutationResult(mutation, ownerClock).orElse(null);
         if (first != null) {
-            return new AdmissionAppend(first, null);
+            return new SourceMutationAppend(first, null);
         }
         target.requireAdmissionWriter(mutation, ownerClock);
         try {
@@ -420,7 +448,7 @@ public final class TargetWorkerShardRuntime
                 target.requireCurrentExpiryLogPosition(appended.sourcePosition(), appended.sourceConnectionGeneration(),
                         appended.guardAttestationDigest(), ownerClock);
             }
-            return new AdmissionAppend(null, appended);
+            return new SourceMutationAppend(null, appended);
         } catch (RuntimeException | Error uncertainAppend) {
             target.fence();
             throw uncertainAppend;
@@ -432,6 +460,41 @@ public final class TargetWorkerShardRuntime
         requireNewTurnsAdmitted();
         resources.requireRuntimeBusinessAdmission();
         return target.admissionMutationResult(mutation, ownerClock);
+    }
+
+    synchronized void submitChannelControlAction(final WorkClassTask task, final SystemMutation mutation,
+            final LongSupplier clock, final Runnable action) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        target.requireChannelControlWriter(mutation, clock);
+        workClasses.submit(task, action);
+    }
+
+    synchronized SourceMutationAppend appendChannelControl(final SystemMutation mutation,
+            final ShardLogMutationAppender appender, final LongSupplier clock) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        final var first = target.channelControlMutationResult(mutation, clock).orElse(null);
+        if (first != null) { return new SourceMutationAppend(first, null); }
+        target.requireChannelControlWriter(mutation, clock);
+        try {
+            final var appended = Objects.requireNonNull(appender.append(mutation), "channel lifecycle append");
+            if (appended.disposition() == ShardLogMutationAppender.AppendDisposition.PERSISTED) {
+                target.requireCurrentExpiryLogPosition(appended.sourcePosition(), appended.sourceConnectionGeneration(),
+                        appended.guardAttestationDigest(), clock);
+            }
+            return new SourceMutationAppend(null, appended);
+        } catch (RuntimeException | Error uncertainAppend) {
+            target.fence();
+            throw uncertainAppend;
+        }
+    }
+
+    synchronized Optional<SystemMutationResult> channelControlMutationResult(
+            final SystemMutation mutation, final LongSupplier clock) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        return target.channelControlMutationResult(mutation, clock);
     }
 
     synchronized ShardLogMutationAppender.AppendOutcome appendOutcome(
@@ -841,6 +904,9 @@ public final class TargetWorkerShardRuntime
         if (hasUnsettledMessageExpiry()) {
             throw new IllegalStateException("Target Worker cannot pause a pending message expiry handoff");
         }
+        if (channelControlHandoff != null && channelControlHandoff.pending().isPresent()) {
+            throw new IllegalStateException("Target Worker cannot pause a pending channel lifecycle submission");
+        }
         sourceAndMaintenancePaused = true;
         preparedCheckpointCut = null;
     }
@@ -866,6 +932,27 @@ public final class TargetWorkerShardRuntime
 
     @Override
     public synchronized long checkpointStoreSequence() { return store.latestSequenceNumber(); }
+
+    @Override
+    public Optional<WorkClassTask> settlePendingChannelControlForDrain(final SchedulerBudget workBudget,
+            final SchedulerBudget sourceBudget, final LongSupplier clock) {
+        final var handoff = channelControlHandoff;
+        if (handoff == null || handoff.pending().isEmpty()) { return Optional.empty(); }
+        if (handoff.settle(clock).isPresent()) { return Optional.empty(); }
+        handoff.retryPending(clock);
+        workClasses.runTurn(Objects.requireNonNull(workBudget, "workBudget"));
+        if (handoff.settle(clock).isPresent()) { return Optional.empty(); }
+        synchronized (this) {
+            requireNewTurnsAdmitted();
+            if (sourceLoop.pendingEntry().isPresent()) {
+                sourceLoop.settlePendingEntry(sourceBudget, clock);
+            } else {
+                sourceLoop.runTurn(sourceBudget, clock);
+            }
+        }
+        if (handoff.settle(clock).isPresent()) { return Optional.empty(); }
+        return handoff.pending().map(TargetChannelControlWorkClassExecutor.Submission::task);
+    }
 
     /** Advances only the retained expiry append and its source result by one bounded drain step. */
     @Override

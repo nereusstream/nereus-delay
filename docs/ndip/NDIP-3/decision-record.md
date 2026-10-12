@@ -32,3 +32,31 @@ Journal、sequence 与 evidence domain 保持；旧 frozen identity/lease、旧 
 
 本决定只解决包 1 的持久 channel 语义，不表示 channel writer 或完整发送/接管链已完成；
 所有测试、Broker、性能和验收仍在全部开发完成后，生产/完成 flags 不提升。
+
+## 2026-10-12：架构裁决责任与 Target Native v5
+
+用户在决策主会话明确要求“主会话做一些架构上的回答，不用让我来人工确认”；
+已授权范围内的实质架构/协议分歧由主会话直接裁决，普通可逆细节由实施方选择。
+该授权不改变四包、P2、正确性和真实环境执行边界，不另设逐项人工审批。
+
+主会话已裁定新增独立 Target materialized Native Admission v5，保留 v3/v4、ordinary
+binding 与旧 Lane bytes。完整 Claim/channel、Target Native scope/snapshot/head revision、
+历史授权、physical/payload/metadata/window/hash/Artifact/实际 Native contract 同时冻结。
+Source 首应用先核对 current head/Claim，再验证完整历史 trust、ENABLED/managed path/
+fixed cap/UTC，再读 head 确认不变；首次 ownership 使用原冻结 snapshot 及 Admission
+Source 下的 trust/lease，不能读新 head 改签原 attempt。
+
+复用现有 signed Outcome/Resolution 和三种 sideEffect，不新增第四种。认证 Native
+success 按实际 contract/evidence 投影 HANDED_OFF，ordinary v4 仍 PUBLISHED；不能仅
+凭 deliverAt/actionAt 或发送时已 due 分类。Managed Handoff 保持 MANAGED_JOURNAL
+sequence 与 publishAttempt identity，不误走 AUTO_FAST/producerAssigned factory。
+优先复用 generation2 ACK/Journal evidence 和 P2 wire，只增必要 Native binding；确实
+无法表达时再采用明确新增版本/reader gate，不能重解释旧 bytes 或把 Target 改成 Lane。
+
+成功首应用同批投影 terminal/index/head/result/quota：active P 退出、唯一仍受保护
+payload owner 转 H；旧 attempt B、physical/zombie、Journal/evidence/pins/retained reserve
+不因聚合终态清空。UNKNOWN 保留，definitive failure 后新 attempt 只走 ordinary retry；
+迟到 resolution 只结清 exact obligation，不覆盖新 generation 或重新开放 handoff work。
+v5 同步进入 history/checkpoint/reopen/ledger audit/envelope 和 covering schema/Artifact/
+eligible readers。签名分工仍 CONTROL lifecycle、OWNER Admission/initial Outcome、
+SERVICE resolution。本条是源码架构决定，未计作实现完成或 SDK/Broker 验证。
