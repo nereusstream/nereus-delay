@@ -26,6 +26,7 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
         boolean ioExited();
         Throwable pendingIoFailure();
         default void requestStop() {}
+        default void retryCleanup() {}
     }
     @FunctionalInterface
     public interface IntentRegistration {
@@ -517,6 +518,10 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
             if (retainedOutcome == null) { return Optional.empty(); }
             final var cleanup = preparationIo == null ? null : preparationIo.pendingIoFailure();
             return Optional.ofNullable(cleanup == null ? retainedOutcome.failure() : cleanup);
+        }
+
+        public synchronized void retryPendingIoCleanup() {
+            if (retainedOutcome != null && preparationIo != null) { preparationIo.retryCleanup(); }
         }
 
         private boolean ioExited() {

@@ -12,9 +12,33 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 class CheckpointInputFutureTest {
+    @Test
+    void sameHandleCleanupRetryWaitsForActualCompletionWithoutDuplicateClose() throws Exception {
+        try (var executor = new ThreadPoolExecutor(1, 1, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<>(2),
+                new ThreadPoolExecutor.AbortPolicy())) {
+            final var cleanup = new RetainedCleanup();
+            final var owned = OwnedCheckpointIo.submit(guard -> { throw cleanup; }, () -> {}, executor);
+            assertSame(cleanup, assertThrows(ExecutionException.class,
+                    () -> owned.receipt().get(5, TimeUnit.SECONDS)).getCause());
+            final var copied = owned.receipt().copy();
+            CheckpointInputFuture.retryCleanup(copied);
+            assertTrue(cleanup.retryEntered.await(5, TimeUnit.SECONDS));
+            CheckpointInputFuture.retryCleanup(copied);
+            assertEquals(1, cleanup.retries.get());
+            assertFalse(owned.ioExited());
+            cleanup.closed.set(true);
+            assertFalse(owned.ioExited()); // Native fact cannot hide a still-pending cleanup attempt.
+            cleanup.closeCompletion.complete(null);
+            executor.submit(() -> {}).get(5, TimeUnit.SECONDS);
+            assertTrue(owned.ioExited());
+            assertSame(cleanup, CheckpointInputFuture.ownedFailure(copied));
+        }
+    }
+
     @Test
     void dependentStopPreventsQueuedReadFromStarting() throws Exception {
         try (var executor = new ThreadPoolExecutor(1, 1, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<>(2),
@@ -118,8 +142,18 @@ class CheckpointInputFutureTest {
     private static final class RetainedCleanup extends IllegalStateException implements CheckpointInputFuture.Cleanup {
         private static final long serialVersionUID = 1L;
         private final AtomicBoolean closed = new AtomicBoolean();
+        private final AtomicInteger retries = new AtomicInteger();
+        private final transient CountDownLatch retryEntered = new CountDownLatch(1);
+        private final transient CompletableFuture<Void> closeCompletion = new CompletableFuture<>();
 
         @Override
         public boolean cleanupComplete() { return closed.get(); }
+
+        @Override
+        public CompletableFuture<Void> retryCleanup() {
+            retries.incrementAndGet();
+            retryEntered.countDown();
+            return closeCompletion;
+        }
     }
 }

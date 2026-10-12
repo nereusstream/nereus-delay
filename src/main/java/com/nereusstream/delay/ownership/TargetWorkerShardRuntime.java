@@ -779,6 +779,11 @@ public final class TargetWorkerShardRuntime
         return pendingCheckpoint == null ? Optional.empty() : pendingCheckpoint.pendingIoFailure();
     }
 
+    /** Enqueues one original-provider cleanup step; failure remains nonterminal until actual cleanup/step exit. */
+    public synchronized void retryPendingCheckpointIoCleanup() {
+        if (pendingCheckpoint != null) { pendingCheckpoint.retryPendingIoCleanup(); }
+    }
+
     /** Stops new source polls and maintenance submissions after retained maintenance work settles. */
     public synchronized void pauseNewTurns() {
         requireCheckpointSettled();

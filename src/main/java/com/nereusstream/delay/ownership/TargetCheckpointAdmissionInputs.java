@@ -156,6 +156,8 @@ public final class TargetCheckpointAdmissionInputs {
         }
     }
 
+    public synchronized void retryCleanup() { CheckpointInputFuture.retryCleanup(loading); }
+
     public synchronized void requestStop() { CheckpointInputFuture.requestStop(loading); }
 
     public synchronized boolean ioExited() { return CheckpointInputFuture.ioExited(loading); }

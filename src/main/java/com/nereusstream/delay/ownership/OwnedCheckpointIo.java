@@ -11,7 +11,9 @@ public final class OwnedCheckpointIo<T> implements Runnable {
     private final Runnable guard;
     private final ThreadPoolExecutor executor;
     private final CompletableFuture<T> receipt = new CompletableFuture<>();
-    private final CheckpointInputFuture<T> view = CheckpointInputFuture.track(receipt, this::requestStop);
+    private final CheckpointInputFuture<T> view = CheckpointInputFuture.track(receipt, this::requestStop,
+            this::retryCleanup, this::cleanupIdle);
+    private OwnedCheckpointIo<CompletableFuture<Void>> cleanupAttempt;
     private boolean started;
     private boolean stopping;
     private boolean exited;
@@ -39,6 +41,25 @@ public final class OwnedCheckpointIo<T> implements Runnable {
     public CompletableFuture<T> receipt() { return view.copy(); }
 
     public synchronized boolean ioExited() { return exited && view.ioExited(); }
+
+    /** One explicit same-handle cleanup request on the original executor; never closes the shared client. */
+    public synchronized void retryCleanup() {
+        final var failure = view.ownedFailure();
+        if (!exited || !(failure instanceof CheckpointInputFuture.Cleanup cleanup) || cleanup.cleanupComplete()) {
+            return;
+        }
+        if (cleanupAttempt != null && !cleanupIdle()) { return; }
+        cleanupAttempt = submit(ignored -> Objects.requireNonNull(cleanup.retryCleanup(), "cleanup future"),
+                () -> {}, executor);
+    }
+
+    private synchronized boolean cleanupIdle() {
+        if (cleanupAttempt == null) { return true; }
+        if (!cleanupAttempt.ioExited()) { return false; }
+        final var result = cleanupAttempt.receipt;
+        try { return result.join().isDone(); }
+        catch (RuntimeException failed) { return true; }
+    }
 
     public void requestStop() {
         synchronized (this) {

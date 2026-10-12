@@ -631,3 +631,7 @@ C5（2026-10-12）：history/Registry view取消与实际 I/O/cursor cleanup分�
 C5（2026-10-12）：注册的单次start/stop状态复用到K1/P1 history与Oxia Registry，queued撤回
 给出no-start事实，running仍保留读取/cleanup。Host接新的preparation stop，registration专用
 API保持原义；完整故障/资源/权限/迁退与集中验收仍开放，flags不提升。
+
+C5（2026-10-12）：原native cleanup可由Worker显式在同有限executor重试，pending close不并发
+重复，原failure/cut等待cleanup事实和command exit。新cursor/shared-client自动关闭均不引入；
+本轮local/compile，完整native故障/service/权限/迁退/中央义务与flags保持。

@@ -226,6 +226,12 @@ public final class KafkaClientArtifactTargetAdmissionHistory {
         }
 
         public boolean cleanupComplete() { return complete; }
+        @Override
+        public java.util.concurrent.CompletableFuture<Void> retryCleanup() {
+            retryClose();
+            return java.util.concurrent.CompletableFuture.completedFuture(null);
+        }
+
         public synchronized void retryClose() {
             if (!complete) {
                 consumer.close(CloseOptions.timeout(timeout));

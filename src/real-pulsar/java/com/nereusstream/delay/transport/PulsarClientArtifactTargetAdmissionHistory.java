@@ -231,6 +231,9 @@ public final class PulsarClientArtifactTargetAdmissionHistory {
         public Throwable cleanupFailure() { return cleanup.cleanupFailure(); }
         public java.util.concurrent.CompletableFuture<Void> retryClose() { return cleanup.retryClose(); }
 
+        @Override
+        public java.util.concurrent.CompletableFuture<Void> retryCleanup() { return retryClose(); }
+
         /** Explicit original-client backend-owner shutdown only; never automatic shared-client timeout cleanup. */
         public java.util.concurrent.CompletableFuture<Void> closeClientBackendAfterFailedOpen() {
             if (!cleanup.failedOpenNeedsBackendShutdown()) {

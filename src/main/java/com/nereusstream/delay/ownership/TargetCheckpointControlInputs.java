@@ -143,6 +143,8 @@ public final class TargetCheckpointControlInputs {
         if (cut != null) { worker.requireCheckpointControlInputsCurrent(readBudget(), cut, ownerClock); }
     }
 
+    public synchronized void retryCleanup() { CheckpointInputFuture.retryCleanup(loading); }
+
     public synchronized void requestStop() { CheckpointInputFuture.requestStop(loading); }
 
     public synchronized boolean ioExited() { return CheckpointInputFuture.ioExited(loading); }

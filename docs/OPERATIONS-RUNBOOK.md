@@ -2376,3 +2376,9 @@ Worker提供requestCheckpointPreparationStop，由Host drain调用；原registra
 保持原义。不要将future.cancel作为资源退出或shutdownNow移除queued任务的证明。关闭caller
 client/executor/pin/physical之前，先stop、处理原CleanupFailure并结清同task；publication action
 已开始时沿原流程完成或失败，不用停止请求制造成功。custom factory独立I/O仍须明确自己的义务。
+
+保留checkpoint cleanup失败时，可显式调用Worker.retryPendingCheckpointIoCleanup：只在原
+有限executor排一个原handle retryClose；未完成的close不重复并发。确认cleanupComplete及close
+命令实际退出后运行原settlement，保留原失败而不报告新的成功。此请求不关闭共享client；P1
+failed-open backend shutdown仍需独立明确权限。队列拒绝/close失败后保持原句柄与所有保护，
+不要在retry或async close仍pending时释放executor/client/pin/physical资源。

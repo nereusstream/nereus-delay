@@ -9,14 +9,22 @@ public final class CheckpointInputFuture<T> extends CompletableFuture<T> {
     /** A provider retains the exact native cleanup handle after its read method returned exceptionally. */
     public interface Cleanup {
         boolean cleanupComplete();
+        default CompletableFuture<Void> retryCleanup() {
+            return CompletableFuture.failedFuture(new UnsupportedOperationException("cleanup retry is not supplied"));
+        }
     }
 
     private final CompletableFuture<?> owned;
     private final Runnable requestStop;
+    private final Runnable retryCleanup;
+    private final java.util.function.BooleanSupplier cleanupIdle;
 
-    private CheckpointInputFuture(CompletableFuture<?> owned, Runnable requestStop) {
+    private CheckpointInputFuture(CompletableFuture<?> owned, Runnable requestStop, Runnable retryCleanup,
+            java.util.function.BooleanSupplier cleanupIdle) {
         this.owned = owned;
         this.requestStop = requestStop;
+        this.retryCleanup = retryCleanup;
+        this.cleanupIdle = cleanupIdle;
     }
 
     /** Caller must keep the owned future private and complete it only after the actual read method exits. */
@@ -25,8 +33,15 @@ public final class CheckpointInputFuture<T> extends CompletableFuture<T> {
     }
 
     public static <T> CheckpointInputFuture<T> track(CompletableFuture<T> owned, Runnable requestStop) {
+        return track(owned, requestStop, () -> {}, () -> true);
+    }
+
+    public static <T> CheckpointInputFuture<T> track(CompletableFuture<T> owned, Runnable requestStop,
+            Runnable retryCleanup, java.util.function.BooleanSupplier cleanupIdle) {
         final var view = new CheckpointInputFuture<T>(Objects.requireNonNull(owned, "owned"),
-                Objects.requireNonNull(requestStop, "requestStop"));
+                Objects.requireNonNull(requestStop, "requestStop"),
+                Objects.requireNonNull(retryCleanup, "retryCleanup"),
+                Objects.requireNonNull(cleanupIdle, "cleanupIdle"));
         owned.whenComplete((value, failure) -> {
             if (failure == null) { view.complete(value); }
             else { view.completeExceptionally(failure); }
@@ -37,15 +52,17 @@ public final class CheckpointInputFuture<T> extends CompletableFuture<T> {
     /** Dependent/copy views keep the same provider I/O fact even if their own result is cancelled or replaced. */
     @Override
     public <U> CompletableFuture<U> newIncompleteFuture() {
-        return new CheckpointInputFuture<U>(owned, requestStop);
+        return new CheckpointInputFuture<U>(owned, requestStop, retryCleanup, cleanupIdle);
     }
 
     public void requestStop() { requestStop.run(); }
 
+    public void retryCleanup() { retryCleanup.run(); }
+
     public boolean ioExited() {
         if (!owned.isDone()) { return false; }
         final var failure = ownedFailure();
-        return !(failure instanceof Cleanup cleanup) || cleanup.cleanupComplete();
+        return (!(failure instanceof Cleanup cleanup) || cleanup.cleanupComplete()) && cleanupIdle.getAsBoolean();
     }
 
     public Throwable ownedFailure() {
@@ -69,5 +86,9 @@ public final class CheckpointInputFuture<T> extends CompletableFuture<T> {
 
     public static void requestStop(CompletableFuture<?> future) {
         if (future instanceof CheckpointInputFuture<?> tracked) { tracked.requestStop(); }
+    }
+
+    public static void retryCleanup(CompletableFuture<?> future) {
+        if (future instanceof CheckpointInputFuture<?> tracked) { tracked.retryCleanup(); }
     }
 }

@@ -8472,9 +8472,13 @@ class TargetCommandStoreTest {
             final var waitingRegistration = new java.util.concurrent.CompletableFuture<CheckpointUploadIntent>();
             final var admissionRequested = new java.util.concurrent.atomic.AtomicBoolean();
             final var waitingAdmission = new java.util.concurrent.CompletableFuture<SystemMutation>();
+            final var cleanupRetryRequested = new java.util.concurrent.atomic.AtomicBoolean();
+            final var cleanupRetryIdle = new java.util.concurrent.atomic.AtomicBoolean(true);
             final var admissionView = new java.util.concurrent.atomic.AtomicReference<
                     java.util.concurrent.CompletableFuture<SystemMutation>>(
-                            com.nereusstream.delay.ownership.CheckpointInputFuture.track(waitingAdmission));
+                            com.nereusstream.delay.ownership.CheckpointInputFuture.track(waitingAdmission, () -> {},
+                                    () -> { cleanupRetryRequested.set(true); cleanupRetryIdle.set(false); },
+                                    cleanupRetryIdle::get));
             final var registryDependencies = new java.util.concurrent.atomic.AtomicReference<
                     TargetCheckpointDependencies>();
             final var waitingProfile = new java.util.concurrent.CompletableFuture<ProfileSemanticEnvelope>();
@@ -8703,7 +8707,12 @@ class TargetCommandStoreTest {
             assertThrows(IllegalStateException.class, worker::pauseNewTurns);
             assertEquals(beforeCollection, store.latestSequenceNumber());
             assertFalse(java.nio.file.Files.exists(image));
+            worker.retryPendingCheckpointIoCleanup();
+            assertTrue(cleanupRetryRequested.get());
             retainedCleanup.closed.set(true);
+            assertTrue(worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L)).isEmpty());
+            assertEquals(submitted.task(), worker.pendingCheckpointTask().orElseThrow());
+            cleanupRetryIdle.set(true);
             worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L));
             assertNotNull(submitted.outcome().orElseThrow().failure());
             assertTrue(worker.pendingCheckpointTask().isEmpty());
