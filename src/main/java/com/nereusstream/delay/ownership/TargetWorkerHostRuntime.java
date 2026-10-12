@@ -166,11 +166,43 @@ public final class TargetWorkerHostRuntime {
 
     /** Registers the admitted fleet once and uses the existing maintenance loop for bounded claim/settlement. */
     public synchronized TargetCheckpointCandidateSchedule configurePeriodicSemanticCheckpoints(
+            TargetCheckpointCandidateSchedule.SemanticRequestFactory factory, LongSupplier clock) {
+        if (runtimeConfig == null) {
+            throw new IllegalStateException("Target host has no unified runtime configuration");
+        }
+        final var checkpoint = runtimeConfig.checkpoint();
+        return configurePeriodicSemanticCheckpoints(checkpoint.newScheduler(runtimeConfig.store().maxOwnedShards()),
+                factory, clock, checkpoint.settlementTurn());
+    }
+
+    /** Registers the admitted fleet once and uses the existing maintenance loop for bounded claim/settlement. */
+    public synchronized TargetCheckpointCandidateSchedule configurePeriodicSemanticCheckpoints(
             com.nereusstream.delay.store.CheckpointScheduler scheduler,
             TargetCheckpointCandidateSchedule.SemanticRequestFactory factory, LongSupplier clock,
             SchedulerBudget budget) {
+        final var supplied = Objects.requireNonNull(factory, "factory");
+        if (runtimeConfig != null) {
+            runtimeConfig.checkpoint().requireSchedule(scheduler, runtimeConfig.store().maxOwnedShards(), budget);
+        }
+        final TargetCheckpointCandidateSchedule.SemanticRequestFactory checked = (worker, claim, cut) -> {
+            final var request = supplied.create(worker, claim, cut);
+            if (runtimeConfig != null) { runtimeConfig.checkpoint().requireRequest(request); }
+            return request;
+        };
         return registerPeriodicCheckpointSchedule(
-                TargetCheckpointCandidateSchedule.semantic(this, scheduler, factory, budget), clock, budget);
+                TargetCheckpointCandidateSchedule.semantic(this, scheduler, checked, budget), clock, budget);
+    }
+
+    /** Uses the same maintenance loop while original history is collected in bounded CHECKPOINT steps. */
+    public synchronized TargetCheckpointCandidateSchedule configurePeriodicCollectedSemanticCheckpoints(
+            TargetCheckpointCandidateSchedule.CollectedSemanticRequestFactory factory, LongSupplier clock) {
+        if (runtimeConfig == null) {
+            throw new IllegalStateException("Target host has no unified runtime configuration");
+        }
+        final var checkpoint = runtimeConfig.checkpoint();
+        return configurePeriodicCollectedSemanticCheckpoints(
+                checkpoint.newScheduler(runtimeConfig.store().maxOwnedShards()), factory, clock,
+                checkpoint.settlementTurn());
     }
 
     /** Uses the same maintenance loop while original history is collected in bounded CHECKPOINT steps. */
@@ -178,8 +210,17 @@ public final class TargetWorkerHostRuntime {
             com.nereusstream.delay.store.CheckpointScheduler scheduler,
             TargetCheckpointCandidateSchedule.CollectedSemanticRequestFactory factory, LongSupplier clock,
             SchedulerBudget budget) {
+        final var supplied = Objects.requireNonNull(factory, "factory");
+        if (runtimeConfig != null) {
+            runtimeConfig.checkpoint().requireSchedule(scheduler, runtimeConfig.store().maxOwnedShards(), budget);
+        }
+        final TargetCheckpointCandidateSchedule.CollectedSemanticRequestFactory checked = (worker, claim, cut) -> {
+            final var request = supplied.create(worker, claim, cut);
+            if (runtimeConfig != null) { runtimeConfig.checkpoint().requireRequest(request); }
+            return request;
+        };
         return registerPeriodicCheckpointSchedule(
-                TargetCheckpointCandidateSchedule.collectedSemantic(this, scheduler, factory, budget), clock, budget);
+                TargetCheckpointCandidateSchedule.collectedSemantic(this, scheduler, checked, budget), clock, budget);
     }
 
     private TargetCheckpointCandidateSchedule registerPeriodicCheckpointSchedule(

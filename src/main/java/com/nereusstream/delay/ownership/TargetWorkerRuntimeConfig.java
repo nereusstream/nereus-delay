@@ -37,7 +37,8 @@ public record TargetWorkerRuntimeConfig(
         SchedulerBudget ordinaryTurn,
         Duration ordinaryRecheckInterval,
         SchedulerBudget maintenanceTurn,
-        Duration maintenanceInterval) {
+        Duration maintenanceInterval,
+        TargetCheckpointRuntimeConfig checkpoint) {
     public TargetWorkerRuntimeConfig {
         Objects.requireNonNull(store, "store");
         Objects.requireNonNull(resources, "resources");
@@ -53,6 +54,7 @@ public record TargetWorkerRuntimeConfig(
         Objects.requireNonNull(ordinaryRecheckInterval, "ordinaryRecheckInterval");
         Objects.requireNonNull(maintenanceTurn, "maintenanceTurn");
         Objects.requireNonNull(maintenanceInterval, "maintenanceInterval");
+        Objects.requireNonNull(checkpoint, "checkpoint").requireWorkClasses(workClasses);
         resources.validate(store);
         WorkerCapacityAdmission.requireFits(resources, hardCaps, List.of(),
                 CapacityVector.empty(), CapacityVector.empty());

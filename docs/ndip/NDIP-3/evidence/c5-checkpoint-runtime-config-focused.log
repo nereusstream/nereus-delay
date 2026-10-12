@@ -1,0 +1,321 @@
+Scope: required explicit local checkpoint configuration/closed loader, configured Host numeric/request bounds, actual Store newInputs UNKNOWN/late authority loss/expiry yield/retry/golden companion. Pure config/schedule numeric fixtures do not prove an actual configured Host, certified capacity or production authority. No native Broker matrix rerun; implementation-first deferred central validation unchanged.
+
+--- compile ---
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+
+> Task :compileJava
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/ownership/TargetCheckpointRuntimeConfig.java:33: 错误: requireFinitePhysicalLimits(CheckpointManifestLimits)在TargetCheckpointRootVerifier中不是公共的; 无法从外部程序包中对其进行访问
+        TargetCheckpointRootVerifier.requireFinitePhysicalLimits(physical);
+                                    ^
+1 个错误
+
+> Task :compileJava FAILED
+
+[Incubating] Problems report is available at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':compileJava'.
+> Compilation failed; see the compiler output below.
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/ownership/TargetCheckpointRuntimeConfig.java:33: 错误: requireFinitePhysicalLimits(CheckpointManifestLimits)在TargetCheckpointRootVerifier中不是公共的; 无法从外部程序包中对其进行访问
+          TargetCheckpointRootVerifier.requireFinitePhysicalLimits(physical);
+                                      ^
+  1 个错误
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 7s
+4 actionable tasks: 1 executed, 3 up-to-date
+
+--- focused-initial ---
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+
+> Task :compileTestJava
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/ownership/TargetWorkerRuntimeConfigTest.java:141: 错误: 无法将类 SharedRocksDbResources中的方法 withRuntimeProbe应用到给定类型;
+        try (var resources = SharedRocksDbResources.withRuntimeProbe(loaded.store(), loaded.resources(), () ->
+                                                   ^
+  需要: ShardStoreConfig,WorkerResourceEnvelope
+  找到:    ShardStoreConfig,WorkerResourceEnvelope,()->new Wo[...]true)
+  原因: 实际参数列表和形式参数列表长度不同
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/ownership/TargetWorkerRuntimeConfigTest.java:142: 错误: 对于WorkerRuntimeResourceObservation(int,int,int,int,int,int,int,int,int,int,int,int,boolean), 找不到合适的构造器
+                new WorkerRuntimeResourceObservation(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4096, 640, true))) {
+                ^
+    构造器 WorkerRuntimeResourceObservation.WorkerRuntimeResourceObservation(long,long,long,long,long,long,long)不适用
+      (实际参数列表和形式参数列表长度不同)
+    构造器 WorkerRuntimeResourceObservation.WorkerRuntimeResourceObservation(long,long,long,long,long,long,long,long)不适用
+      (实际参数列表和形式参数列表长度不同)
+2 个错误
+
+> Task :compileTestJava FAILED
+
+[Incubating] Problems report is available at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':compileTestJava'.
+> Compilation failed; see the compiler output below.
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/ownership/TargetWorkerRuntimeConfigTest.java:141: 错误: 无法将类 SharedRocksDbResources中的方法 withRuntimeProbe应用到给定类型;
+          try (var resources = SharedRocksDbResources.withRuntimeProbe(loaded.store(), loaded.resources(), () ->
+                                                     ^
+    需要: ShardStoreConfig,WorkerResourceEnvelope
+    找到:    ShardStoreConfig,WorkerResourceEnvelope,()->new Wo[...]true)
+    原因: 实际参数列表和形式参数列表长度不同
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/ownership/TargetWorkerRuntimeConfigTest.java:142: 错误: 对于WorkerRuntimeResourceObservation(int,int,int,int,int,int,int,int,int,int,int,int,boolean), 找不到合适的构造器
+                  new WorkerRuntimeResourceObservation(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4096, 640, true))) {
+                  ^
+      构造器 WorkerRuntimeResourceObservation.WorkerRuntimeResourceObservation(long,long,long,long,long,long,long)不适用
+        (实际参数列表和形式参数列表长度不同)
+      构造器 WorkerRuntimeResourceObservation.WorkerRuntimeResourceObservation(long,long,long,long,long,long,long,long)不适用
+        (实际参数列表和形式参数列表长度不同)
+  2 个错误
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 22s
+10 actionable tasks: 4 executed, 6 up-to-date
+
+--- focused-second ---
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+
+> Task :test FAILED
+
+TargetWorkerRuntimeConfigTest > checkpointEnvelopeAndConfiguredHostRejectMixedSettingsBeforeAdmission() FAILED
+    java.lang.IllegalArgumentException at TargetWorkerRuntimeConfigTest.java:143
+
+44 tests completed, 1 failed
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':test'.
+> There were failing tests. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/tests/test/index.html
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 23s
+13 actionable tasks: 4 executed, 9 up-to-date
+
+--- focused-third ---
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+
+> Task :checkstyleTest
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:8461: 本行字符数 125个，最多：120个。 [LineLength]
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java:8463: 本行字符数 125个，最多：120个。 [LineLength]
+
+> Task :checkstyleTest FAILED
+> Task :checkstyleMain
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':checkstyleTest'.
+> A failure occurred while executing org.gradle.api.plugins.quality.internal.CheckstyleAction
+   > Checkstyle rule violations were found. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/checkstyle/test.html
+     Checkstyle files with violations: 1
+     Checkstyle violations by severity: [error:2]
+
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 42s
+15 actionable tasks: 5 executed, 10 up-to-date
+
+--- focused-first-green ---
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :checkstyleMain UP-TO-DATE
+> Task :extractIncludeRealPulsarProto UP-TO-DATE
+> Task :extractRealPulsarProto UP-TO-DATE
+> Task :generateRealPulsarProto NO-SOURCE
+> Task :compileRealPulsar
+> Task :checkstyleTest
+
+BUILD SUCCESSFUL in 37s
+18 actionable tasks: 5 executed, 13 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+
+--- request-gates ---
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :checkstyleTest
+
+BUILD SUCCESSFUL in 36s
+14 actionable tasks: 4 executed, 10 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+
+Latest actual Store XML {'tests': '1', 'failures': '0', 'errors': '0', 'skipped': '0'} sha256=891419f7726b43260de8f0fc8d84c5d327b0c91895d638070e5da64aed3df3cf
+301dbca03d56bb4143f49374e83a0431ab80bea82147ebbc2c29bcb1d1254688  src/main/java/com/nereusstream/delay/ownership/TargetCheckpointRuntimeConfig.java
+1de4bf664fbe0b50157d11096849c656638144d8a92bfbcba1defe5c0b6241e0  src/main/java/com/nereusstream/delay/ownership/TargetWorkerRuntimeConfig.java
+659d475050c07c8b4187340bc185940a1e0a3c437d46bccc54f0fc9bed0c7789  src/main/java/com/nereusstream/delay/ownership/TargetWorkerRuntimeConfigLoader.java
+7b134efb142f5161c650d439313f58d44c3442c468b75c7bb18076acfc943295  src/main/java/com/nereusstream/delay/ownership/TargetWorkerHostRuntime.java
+26098699a8c617fb86d0d83c0e92fe637dfa60ed0afcbe396d23f2f69e2348e0  src/main/java/com/nereusstream/delay/scheduler/WorkClassRuntimeConfig.java
+465fff521a56265aa7f55787fc0c6f667796610a5acc2186efb444666e17715c  src/main/java/com/nereusstream/delay/scheduler/WorkClassExecutionRegistry.java
+1a0a66f944075e2e2a30731645bf24175263c5a01dd18a1202b522199217c86b  src/main/java/com/nereusstream/delay/store/CheckpointScheduler.java
+8e742680db2e4345d3c8f9d77cb0e88721c70e3491124e34560627f8d38ab450  src/test/java/com/nereusstream/delay/ownership/TargetWorkerRuntimeConfigTest.java
+c22eb0832a3d6a424ee49c330bbd1061fc974be2179f99ad1320fe2ed7cc4465  src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java
+
+First green XML distribution observed before final request-gate assertions: config5/registry8/scheduler10/fleet21/actual Store1, all zero fail/error/skip. Final request-gate run executes only actual Store1 plus test styles.
+
+Documentation: GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew checkDocumentation --no-daemon --console=plain
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+
+> Task :testNdip1ImplementationVerifier
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 56.526s
+
+OK
+
+> Task :testNdip1PackageVerifier
+..............
+----------------------------------------------------------------------
+Ran 14 tests in 0.078s
+
+OK
+
+> Task :verifyNdip1HistoricalClosure
+proposal=NDIP-1
+receipt_status=IMPLEMENTED
+lifecycle_authority=true
+implementation=CLOSED
+lifecycle=CLOSED
+certified_commit=b4e077e9978f262cdb93cf3562ea12eee32430e2
+runtime_source_sha256=03ce17ede4b9e70e2f70dd2bbef681087f529159549a4cd979d0d7aa34fa9948
+runtime_source_files=835
+implemented_package_sha256=792ca54e239d884ba6f95315747f565bab57ee0fc02338a77369cb19bbe8e8a7
+staging_run=20260901055333-78920
+deployment=SEPARATE_FUTURE_WORK
+performance_and_scale=SEPARATE_FUTURE_WORK
+production_rollout=SEPARATE_FUTURE_WORK
+production_authority=false
+
+> Task :verifyNdip1PackageAccepted
+proposal=NDIP-1
+receipt_status=ACCEPTED
+authority=true
+package_source_commit=77ffa61136c0cd401244ebea4375a5a18b097b17
+file_sha256 70d9dd7c113fa5f457a20a97996322ef9a2018772efd225aa982c13ec4935140 docs/ndip/NDIP-1/01-调查与决策记录.md
+file_sha256 c167ed42dd29c383c08a8a102f36b0e4deee8ae5c7a5da115a09d04ffcb9fa6f docs/ndip/NDIP-1/02-NDIP-1-Pulsar-Native-Delivery.md
+file_sha256 9affafa81952959d39ed9c09a00abe6b84da4fd3b0b6280422f297684d56f727 docs/ndip/NDIP-1/03-实施计划.md
+file_sha256 2a26c107cd69ee522ea138b3487b8ec206e913acc6ad5b862aa69288ddcaa88e docs/ndip/NDIP-1/04-代码级目标设计.md
+package_sha256=13caab8ecdc201901f06e905f1c0bf9792780e50c6f5948f93abf2bdb8f4d21b
+gate_b=PASS
+implementation=AUTHORIZED
+local_disposable_testing=AUTHORIZED_WITH_EXACT_ATTESTATION
+gate_c=PENDING_DEPLOYMENT
+shadow=BLOCKED_BY_GATE_C
+enabled=BLOCKED_BY_GATE_C_AND_SHADOW_REQUIREMENTS
+
+> Task :verifyNdip2PackageAccepted
+proposal=NDIP-2
+receipt_status=ACCEPTED
+authority=true
+file_sha256 0a105fb2b73d63cabddf42d0ba3d5a9590b4edddd47242495f196bf56d15f642 docs/ndip/NDIP-2/01-NDIP-生命周期与认证源码权威分层.md
+file_sha256 c882ecaa32413cb9e177243cf3efe91b97810c3cc10be81e61e7e458030c4ffa docs/ndip/NDIP-2/02-实施计划.md
+file_sha256 ec1ba68ab3ac91aa667647e6289cd252b99da84d899f42f879821d6e5d7752e9 docs/ndip/NDIP-2/03-代码级目标设计.md
+package_sha256=856e1d768210a31fc9aad811af3a93c1de33189cc03c65bc1e36d57affbf10db
+gate_b=PASS
+implementation=AUTHORIZED
+deployment_authority=false
+
+> Task :checkDocumentation
+
+BUILD SUCCESSFUL in 1m 13s
+6 actionable tasks: 6 executed
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html

@@ -69,6 +69,24 @@ public record WorkClassRuntimeConfig(
         policies = Map.copyOf(copied);
     }
 
+    /** Checks structural service capacity while preserving the minima of every other class. */
+    public void requireTaskServiceable(WorkClassTask task) {
+        Objects.requireNonNull(task, "task");
+        final var policy = policies.get(task.workClass());
+        long otherRecords = 0;
+        long otherBytes = 0;
+        for (var entry : policies.entrySet()) {
+            if (entry.getKey() != task.workClass()) {
+                otherRecords = Math.addExact(otherRecords, entry.getValue().nonBorrowableMinimumRecords());
+                otherBytes = Math.addExact(otherBytes, entry.getValue().nonBorrowableMinimumBytes());
+            }
+        }
+        if (task.bytes() > policy.maxBytesPerTurn() || totalResourceRecords - otherRecords < 1
+                || task.bytes() > totalResourceBytes - otherBytes) {
+            throw new IllegalArgumentException("work-class task cannot be served by its fixed turn/resource budget");
+        }
+    }
+
     /** Constructs the bounded event-loop/resource composition from this exact configuration. */
     public WorkClassEventLoop newEventLoop(final LongSupplier monotonicClockNanos) {
         final LongSupplier clock = Objects.requireNonNull(monotonicClockNanos, "monotonicClockNanos");

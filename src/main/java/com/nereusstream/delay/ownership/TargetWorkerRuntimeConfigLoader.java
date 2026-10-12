@@ -78,12 +78,37 @@ public final class TargetWorkerRuntimeConfigLoader {
         final var growth = new TargetSourceBacklogAdmission.Limits(f.number("target.maximumUnappliedRecords"),
                 f.number("target.maximumUnappliedBytes"), f.number("target.maximumUnappliedAgeMillis"),
                 f.number("target.maximumBacklogObservationAgeNanos"));
+        final var checkpoint = new TargetCheckpointRuntimeConfig(f.number("checkpoint.intervalMillis"),
+                f.integer("checkpoint.jitterPercent"), new SchedulerBudget(f.integer("checkpoint.turnMessages"),
+                        f.number("checkpoint.turnBytes"), f.number("checkpoint.turnNanos")),
+                f.integer("checkpoint.readRecords"), f.number("checkpoint.readBytes"), f.number("checkpoint.readNanos"),
+                Duration.ofNanos(f.number("checkpoint.registryLookupTimeoutNanos")),
+                new TargetCheckpointControlInputs.Limits(f.integer("checkpoint.controlInputs"),
+                        f.number("checkpoint.controlFrameBytes")),
+                new TargetCheckpointOutcomeInputs.Limits(f.integer("checkpoint.outcomeInputs"),
+                        f.number("checkpoint.outcomeFrameBytes")),
+                new TargetCheckpointAdmissionInputs.Limits(f.integer("checkpoint.admissionInputs"),
+                        f.number("checkpoint.admissionFrameBytes")),
+                new TargetCheckpointRegistryInputs.Limits(f.integer("checkpoint.registryUses"),
+                        f.number("checkpoint.registryResponseBytes")),
+                new com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.Limits(
+                        f.integer("checkpoint.semanticRecords"), f.integer("checkpoint.semanticBytes"),
+                        f.number("checkpoint.semanticAdmissionFrameBytes")),
+                new com.nereusstream.delay.store.CheckpointManifestLimits(f.integer("checkpoint.files"),
+                        f.number("checkpoint.totalFileBytes"), f.number("checkpoint.individualFileBytes"),
+                        f.integer("checkpoint.pathBytes"), f.integer("checkpoint.manifestBytes"),
+                        f.integer("checkpoint.evidenceCursors"), f.integer("checkpoint.objectIdentityBytes")),
+                new com.nereusstream.delay.store.TargetCheckpointRootVerifier.QuotaAuditLimits(
+                        f.integer("checkpoint.quotaRecords"), f.number("checkpoint.quotaBytes")),
+                new com.nereusstream.delay.store.TargetCheckpointRootVerifier.LedgerAuditLimits(
+                        f.integer("checkpoint.ledgerRecords"), f.number("checkpoint.ledgerBytes"),
+                        f.integer("checkpoint.ledgerPointReads"), f.number("checkpoint.ledgerPointBytes")));
         final var config = new TargetWorkerRuntimeConfig(store, resources, new CapacityVector(caps), workClasses,
                 source, maximumFrame, writer, backlog, growth, inventory, ordinary, turn,
                 Duration.ofNanos(f.number("scheduling.recheckNanos")),
                 new SchedulerBudget(f.integer("recovery.maintenanceTurnMessages"),
                         f.number("recovery.maintenanceTurnBytes"), f.number("recovery.maintenanceTurnNanos")),
-                Duration.ofNanos(f.number("recovery.maintenanceIntervalNanos")));
+                Duration.ofNanos(f.number("recovery.maintenanceIntervalNanos")), checkpoint);
         f.requireComplete();
         return config;
     }

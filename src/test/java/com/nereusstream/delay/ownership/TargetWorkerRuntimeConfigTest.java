@@ -38,7 +38,8 @@ class TargetWorkerRuntimeConfigTest {
         for (String missing : java.util.List.of("worker.heapBytes", "worker.hardCap.ZOMBIE_BYTES",
                 "scheduling.class.OUTCOME_AND_CONTROL.minimumRecords", "target.maximumSourceFrameBytes",
                 "worker.systemWriterRecords",
-                "recovery.maintenanceTurnBytes", "recovery.maintenanceIntervalNanos")) {
+                "recovery.maintenanceTurnBytes", "recovery.maintenanceIntervalNanos", "checkpoint.intervalMillis",
+                "checkpoint.registryLookupTimeoutNanos", "checkpoint.ledgerPointBytes")) {
             final var map = values();
             map.remove(missing);
             assertThrows(IllegalArgumentException.class, () -> TargetWorkerRuntimeConfigLoader.load(map));
@@ -119,6 +120,33 @@ class TargetWorkerRuntimeConfigTest {
         assertEquals(false, Files.exists(root.resolve("other-db")));
     }
 
+    @Test
+    void checkpointEnvelopeAndScheduleRejectMixedSettingsBeforeAdmission() {
+        for (String key : java.util.List.of("checkpoint.turnBytes", "checkpoint.semanticRecords",
+                "checkpoint.semanticAdmissionFrameBytes", "scheduling.class.CHECKPOINT.turnBytes",
+                "scheduling.poolBytes")) {
+            final var map = values();
+            map.put(key, "1");
+            assertThrows(IllegalArgumentException.class, () -> TargetWorkerRuntimeConfigLoader.load(map));
+        }
+        final var invalidJitter = values();
+        invalidJitter.put("checkpoint.jitterPercent", "100");
+        assertThrows(IllegalArgumentException.class, () -> TargetWorkerRuntimeConfigLoader.load(invalidJitter));
+        final var loaded = TargetWorkerRuntimeConfigLoader.load(values());
+        final var checkpoint = loaded.checkpoint();
+        assertEquals(8192, checkpoint.settlementTurn().maxBytes());
+        assertEquals(100, checkpoint.readRecords());
+        assertThrows(IllegalArgumentException.class, () -> checkpoint.requireSchedule(
+                checkpoint.newScheduler(1), loaded.store().maxOwnedShards(), checkpoint.settlementTurn()));
+        assertThrows(IllegalArgumentException.class, () -> checkpoint.requireSchedule(
+                new com.nereusstream.delay.store.CheckpointScheduler(1001, 10, 2), 2,
+                checkpoint.settlementTurn()));
+        assertThrows(IllegalArgumentException.class, () -> checkpoint.requireSchedule(
+                checkpoint.newScheduler(2), 2, new com.nereusstream.delay.scheduler.SchedulerBudget(1, 8193, 1000)));
+        checkpoint.requireSchedule(checkpoint.newScheduler(2), 2, checkpoint.settlementTurn());
+        assertEquals(false, Files.exists(root.resolve("db")));
+    }
+
     /** Synthetic numeric fixture, not a release capacity declaration or runtime observation. */
     private Map<String, String> values() {
         final var v = new HashMap<String, String>();
@@ -168,6 +196,39 @@ class TargetWorkerRuntimeConfigTest {
         v.put("recovery.maintenanceTurnBytes", "1024");
         v.put("recovery.maintenanceTurnNanos", "1000");
         v.put("recovery.maintenanceIntervalNanos", "1000");
+        v.put("checkpoint.intervalMillis", "1000");
+        v.put("checkpoint.jitterPercent", "10");
+        v.put("checkpoint.turnMessages", "1");
+        v.put("checkpoint.turnBytes", "8192");
+        v.put("checkpoint.turnNanos", "1000");
+        v.put("checkpoint.readRecords", "100");
+        v.put("checkpoint.readBytes", "65536");
+        v.put("checkpoint.readNanos", "1000");
+        v.put("checkpoint.registryLookupTimeoutNanos", "1000");
+        v.put("checkpoint.controlInputs", "4");
+        v.put("checkpoint.controlFrameBytes", "4096");
+        v.put("checkpoint.outcomeInputs", "4");
+        v.put("checkpoint.outcomeFrameBytes", "4096");
+        v.put("checkpoint.admissionInputs", "4");
+        v.put("checkpoint.admissionFrameBytes", "4096");
+        v.put("checkpoint.registryUses", "8");
+        v.put("checkpoint.registryResponseBytes", "4096");
+        v.put("checkpoint.semanticRecords", "32");
+        v.put("checkpoint.semanticBytes", "4096");
+        v.put("checkpoint.semanticAdmissionFrameBytes", "4096");
+        v.put("checkpoint.files", "16");
+        v.put("checkpoint.totalFileBytes", "4096");
+        v.put("checkpoint.individualFileBytes", "4096");
+        v.put("checkpoint.pathBytes", "256");
+        v.put("checkpoint.manifestBytes", "8192");
+        v.put("checkpoint.evidenceCursors", "16");
+        v.put("checkpoint.objectIdentityBytes", "128");
+        v.put("checkpoint.quotaRecords", "100");
+        v.put("checkpoint.quotaBytes", "65536");
+        v.put("checkpoint.ledgerRecords", "100");
+        v.put("checkpoint.ledgerBytes", "65536");
+        v.put("checkpoint.ledgerPointReads", "100");
+        v.put("checkpoint.ledgerPointBytes", "65536");
         for (final var workClass : WorkClass.values()) {
             final String p = "scheduling.class." + workClass.name() + '.';
             v.put(p + "weight", "1");
@@ -179,10 +240,12 @@ class TargetWorkerRuntimeConfigTest {
             v.put(p + "minimumRecords", "1");
             v.put(p + "minimumBytes", "128");
         }
+        v.put("scheduling.class.CHECKPOINT.queueBytes", "8192");
+        v.put("scheduling.class.CHECKPOINT.turnBytes", "8192");
         v.put("scheduling.maxClassDelayNanos", "1000");
         v.put("scheduling.maxResourceHoldNanos", "1000");
         v.put("scheduling.poolRecords", "8");
-        v.put("scheduling.poolBytes", "1024");
+        v.put("scheduling.poolBytes", "16384");
         v.put("target.sourceReadRecords", "64");
         v.put("target.sourceReadBytes", "4096");
         v.put("target.sourceReadNanos", "1000");

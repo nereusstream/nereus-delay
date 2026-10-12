@@ -2304,3 +2304,20 @@ Owner/native time、credential/Artifact/pin 权限构造真实 authorities，不
 full image auth、upload/Catalog 与终态。可使用 `Providers.fromOxiaCatalogs` 接三类 public catalog，
 但它不授予 Source activation/发行/保留/生产部署权限，future 取消不结清底层 I/O/pin 责任。应用级
 真实 provider 配置和授权、非空 native checkpoint 联合恢复、Floor/迁退与集中验收门禁仍须满足。
+
+NDIP-3 checkpoint 配置（2026-10-12）：closed TargetWorkerRuntimeConfigLoader 另要求全部 `checkpoint.*`
+键，具体名称以 loader 为准：intervalMillis/jitterPercent、turnMessages/turnBytes/turnNanos、
+readRecords/readBytes/readNanos、registryLookupTimeoutNanos、control/outcome/admission Inputs/FrameBytes、
+registryUses/registryResponseBytes、semanticRecords/semanticBytes/semanticAdmissionFrameBytes、
+files/totalFileBytes/individualFileBytes/pathBytes/manifestBytes/evidenceCursors/objectIdentityBytes，以及
+quotaRecords/quotaBytes/ledgerRecords/ledgerBytes/ledgerPointReads/ledgerPointBytes。无隐式默认；现有配置
+必须显式补齐后才可启动。S 仍只取 worker.maxOwnedShards。该配置不构成 schema/持久数据迁移或部署授权。
+
+用 `config.checkpoint().newInputs` 创建三路 history/authenticated Registry preparation，使用其 exact
+physical/quota/ledger/semantic bounds 构造 candidate request，并提供真实完整 PublicationPlan。配置化 Host
+的 `configurePeriodicCollectedSemanticCheckpoints(factory, clock)` 或 complete-semantic overload 自动派生
+同 S scheduler 和 fixed turn；显式参数必须匹配。history/authority factory 仍须短步骤返回，远端 provider
+持有有限 I/O、原 Source/key/credential/pin 与全部 late cleanup 权限，Oxia client 的 requestTimeout 独立配置；
+`newRegistryProviders` 仅设置 acceptance deadline。不能用透明 supplier/tag/签名正确或 fixture 声明代替这些
+权限。实际 task identity 加 semantic bytes 仍在 queue admission 校验；大过固定 turn/class/pool 的任务拒绝。
+本地必要数值检查不是最大合法 mutation/全持久状态、真实 IO/恢复、RSS/空间或生产容量的认证。

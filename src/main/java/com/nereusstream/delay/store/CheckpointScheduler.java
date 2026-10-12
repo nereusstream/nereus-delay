@@ -33,6 +33,14 @@ public final class CheckpointScheduler {
     private final Map<ShardId, State> states = new HashMap<>();
 
     public CheckpointScheduler(final long intervalMs, final int jitterPercent, final int maxScheduledShards) {
+        requireLimits(intervalMs, jitterPercent, maxScheduledShards);
+        this.intervalMs = intervalMs;
+        this.jitterPercent = jitterPercent;
+        this.maxScheduledShards = maxScheduledShards;
+    }
+
+    /** Pure validation for startup configuration before a live schedule is constructed. */
+    public static void requireLimits(long intervalMs, int jitterPercent, int maxScheduledShards) {
         if (intervalMs <= 0 || jitterPercent < 0 || jitterPercent >= 100 || maxScheduledShards <= 0) {
             throw new IllegalArgumentException("invalid checkpoint scheduler limits");
         }
@@ -40,9 +48,14 @@ public final class CheckpointScheduler {
         if (maxJitter > (Long.MAX_VALUE - 1) / 2) {
             throw new IllegalArgumentException("checkpoint jitter range overflows");
         }
-        this.intervalMs = intervalMs;
-        this.jitterPercent = jitterPercent;
-        this.maxScheduledShards = maxScheduledShards;
+    }
+
+    /** Verifies the immutable settings before a configured Host admits periodic work. */
+    public void requireConfiguration(long expectedIntervalMs, int expectedJitterPercent, int expectedMaximumShards) {
+        if (intervalMs != expectedIntervalMs || jitterPercent != expectedJitterPercent
+                || maxScheduledShards != expectedMaximumShards) {
+            throw new IllegalArgumentException("checkpoint scheduler differs from the configured Worker");
+        }
     }
 
     /** Registers a shard and returns its first deterministic due time. */
