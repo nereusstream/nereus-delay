@@ -1,0 +1,2801 @@
+C5 pending K1 materialized Admission checkpoint prerequisites, NOT COMPLETED/NOT PUBLISHED.
+Stable HEAD d802de5aeb7fe2106f19d8b6e0a6c520d34b9466; current worktree changes not yet a milestone.
+Source/local accounting correctness preserved; required channel lifecycle persistent semantics awaits explicit user answer. Goal active; no flags/production/migration promotion.
+WORKTREE_SOURCE_SHA256 659a5d13d6ab772ee332c25577314149dab8271474eebec2812daf06689367e7 build.gradle
+WORKTREE_SOURCE_SHA256 05ef12ceb3f6cbb60b7e710b7212f27cf6d791dd616b2755bee9bbc89f331e6c src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetScheduledExpirySmoke.java
+WORKTREE_SOURCE_SHA256 493986780ccb0b3ca998871f43d1f21a088212bb3a4c12404ea4d9750e2e088f src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetWorkerSourceSmoke.java
+SELECTOR_SHA256 fe8d07704865fa209cb7da42901538490326e0cae42b857d29a5aa66c8db65fb e2e/.ndip3-k1-protected-admission.sh
+SELECTOR_SHA256 c928ca7c1624e5aa2ba1e787dc80d7ad22e06b99de51475964f0d22ec78f4f7b e2e/.ndip3-k1-protected-admission-legacy.sh
+Reproduce selectors from original e2e/run-kafka-real-client-e2e.sh: network-loss branch retain optional start_oxia, target_worker_source_topic, then original run_target_expiry_network_response_loss_smoke for new materialized or existing legacy scenario. All original setup/proxy/assertions/trap preserved.
+Commands used locked K1 checkout, NEREUS_DELAY_KAFKA_TARGET_SOURCE_ACK_NETWORK_LOSS_ONLY=1, NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle bash respective selector.
+
+Initial compile lambda shadow failed.
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources
+> Task :classes
+> Task :extractIncludeRealKafkaProto UP-TO-DATE
+> Task :extractRealKafkaProto UP-TO-DATE
+> Task :generateRealKafkaProto NO-SOURCE
+
+> Task :compileRealKafka FAILED
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetScheduledExpirySmoke.java:551: 错误: 已在方法 run(Admin,String,String,String,Uuid,AckMode,Path,Path,Path,boolean,boolean)中定义了变量 source
+                                                                (body, source) -> {
+                                                                       ^
+1 个错误
+
+[Incubating] Problems report is available at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':compileRealKafka'.
+> Compilation failed; see the compiler output below.
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetScheduledExpirySmoke.java:551: 错误: 已在方法 run(Admin,String,String,String,Uuid,AckMode,Path,Path,Path,boolean,boolean)中定义了变量 source
+                                                                  (body, source) -> {
+                                                                         ^
+  1 个错误
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 17s
+10 actionable tasks: 3 executed, 7 up-to-date
+
+Corrected compile terminal0/16s.
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeRealKafkaProto UP-TO-DATE
+> Task :extractRealKafkaProto UP-TO-DATE
+> Task :generateRealKafkaProto NO-SOURCE
+> Task :compileRealKafka
+
+BUILD SUCCESSFUL in 16s
+10 actionable tasks: 2 executed, 8 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+
+Initial native Gradle scenario allowlist failure.
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 580B done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/eclipse-temurin:21-jre
+#2 DONE 3.1s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [1/8] FROM docker.io/library/eclipse-temurin:21-jre@sha256:cff19e6215689161eb6162c11b86b0c60ddf802164f2eaf48d570f8fb79a36c5
+#4 DONE 0.0s
+
+#5 [internal] load build context
+#5 transferring context: 113.83MB 1.3s done
+#5 DONE 1.3s
+
+#6 [6/8] COPY clients/build/ /opt/kafka/clients/build/
+#6 CACHED
+
+#7 [7/8] COPY kafka-k1-entrypoint.sh /opt/kafka/kafka-k1-entrypoint.sh
+#7 CACHED
+
+#8 [2/8] WORKDIR /opt/kafka
+#8 CACHED
+
+#9 [3/8] COPY bin/ /opt/kafka/bin/
+#9 CACHED
+
+#10 [4/8] COPY config/ /opt/kafka/config/
+#10 CACHED
+
+#11 [5/8] COPY core/build/ /opt/kafka/core/build/
+#11 CACHED
+
+#12 [8/8] RUN chmod +x /opt/kafka/bin/*.sh /opt/kafka/kafka-k1-entrypoint.sh     && mkdir -p /opt/kafka/config /tmp/kafka-logs     && useradd --create-home --uid 1001 kafka     && chown -R kafka:kafka /opt/kafka /tmp/kafka-logs
+#12 CACHED
+
+#13 exporting to image
+#13 exporting layers done
+#13 writing image sha256:62b964515672c2f1cedf552bec49ad6757c7058ee54a7bfc8ded1fad41f216ef done
+#13 naming to docker.io/library/nereus-delay-kafka-k1:nereus-delay-kafka-e2e-1791776764-20770 done
+#13 DONE 0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/pzjlczdj4ib0xnd6v47xnw4vc
+K1 checkout: 05849884ca81fad767fda058444d1e17c7f9cbf9
+K1 client jar: /Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1/clients/build/libs/kafka-clients-4.4.0-SNAPSHOT.jar
+perl: warning: Setting locale failed.
+perl: warning: Please check that your locale settings:
+	LC_ALL = "C.UTF-8",
+	LC_CTYPE = "C.UTF-8",
+	LANG = "C.UTF-8"
+    are supported and installed on your system.
+perl: warning: Falling back to the standard locale ("C").
+K1 client SHA256: 1c83ae777c364be833f7c8ff31f1fdeb28dafd5eb3998f0246e7d226a543cbe0
+K1 broker image ID: sha256:62b964515672c2f1cedf552bec49ad6757c7058ee54a7bfc8ded1fad41f216ef
+Compose project: nereus-delay-kafka-e2e-1791776764-20770
+Broker advertised ports: 19362,19363,19364
+Broker bind ports: 19462,19463,19464
+ Network nereus-delay-kafka-e2e-1791776764-20770_default Creating 
+ Network nereus-delay-kafka-e2e-1791776764-20770_default Creating 
+ Network nereus-delay-kafka-e2e-1791776764-20770_default Created 
+ Network nereus-delay-kafka-e2e-1791776764-20770_default Created 
+ Container nereus-delay-kafka-e2e-1791776764-20770-kafka-3-1 Creating 
+ Container nereus-delay-kafka-e2e-1791776764-20770-kafka-2-1 Creating 
+ Container nereus-delay-kafka-e2e-1791776764-20770-kafka-1-1 Creating 
+ Container nereus-delay-kafka-e2e-1791776764-20770-kafka-3-1 Created 
+ Container nereus-delay-kafka-e2e-1791776764-20770-kafka-1-1 Created 
+ Container nereus-delay-kafka-e2e-1791776764-20770-kafka-2-1 Created 
+ Container nereus-delay-kafka-e2e-1791776764-20770-kafka-1-1 Starting 
+ Container nereus-delay-kafka-e2e-1791776764-20770-kafka-3-1 Starting 
+ Container nereus-delay-kafka-e2e-1791776764-20770-kafka-2-1 Starting 
+ Container nereus-delay-kafka-e2e-1791776764-20770-kafka-2-1 Started 
+ Container nereus-delay-kafka-e2e-1791776764-20770-kafka-3-1 Started 
+ Container nereus-delay-kafka-e2e-1791776764-20770-kafka-1-1 Started 
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeRealKafkaProto UP-TO-DATE
+> Task :extractRealKafkaProto UP-TO-DATE
+> Task :generateRealKafkaProto NO-SOURCE
+> Task :compileRealKafka UP-TO-DATE
+> Task :compileRealKafkaJava SKIPPED
+> Task :processRealKafkaProtoResources UP-TO-DATE
+> Task :processRealKafkaResources UP-TO-DATE
+> Task :realKafkaClasses UP-TO-DATE
+> Task :runRealKafkaTargetWorkerSourceSmoke FAILED
+
+FAILURE: Build failed with an exception.
+
+* Where:
+Build file '/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build.gradle' line: 280
+
+* What went wrong:
+Execution failed for task ':runRealKafkaTargetWorkerSourceSmoke'.
+> kafkaTargetScenario supports target-expire-not-found and target-expire-not-found-ack-loss and target-expire-not-found-ack-loss-reopen and target-expire-not-found-network-ack-loss and target-publish-admission-network-ack-loss and target-expire-scheduled-message-network-ack-loss (with network-expiry-response-loss) and target-expire-scheduled-message only
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 16s
+13 actionable tasks: 2 executed, 11 up-to-date
+
+Second native remaining allowlist failure.
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 580B done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/eclipse-temurin:21-jre
+#2 DONE 2.4s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [1/8] FROM docker.io/library/eclipse-temurin:21-jre@sha256:cff19e6215689161eb6162c11b86b0c60ddf802164f2eaf48d570f8fb79a36c5
+#4 DONE 0.0s
+
+#5 [internal] load build context
+#5 transferring context: 113.83MB 1.3s done
+#5 DONE 1.4s
+
+#6 [6/8] COPY clients/build/ /opt/kafka/clients/build/
+#6 CACHED
+
+#7 [7/8] COPY kafka-k1-entrypoint.sh /opt/kafka/kafka-k1-entrypoint.sh
+#7 CACHED
+
+#8 [4/8] COPY config/ /opt/kafka/config/
+#8 CACHED
+
+#9 [5/8] COPY core/build/ /opt/kafka/core/build/
+#9 CACHED
+
+#10 [2/8] WORKDIR /opt/kafka
+#10 CACHED
+
+#11 [3/8] COPY bin/ /opt/kafka/bin/
+#11 CACHED
+
+#12 [8/8] RUN chmod +x /opt/kafka/bin/*.sh /opt/kafka/kafka-k1-entrypoint.sh     && mkdir -p /opt/kafka/config /tmp/kafka-logs     && useradd --create-home --uid 1001 kafka     && chown -R kafka:kafka /opt/kafka /tmp/kafka-logs
+#12 CACHED
+
+#13 exporting to image
+#13 exporting layers done
+#13 writing image sha256:62b964515672c2f1cedf552bec49ad6757c7058ee54a7bfc8ded1fad41f216ef 0.0s done
+#13 naming to docker.io/library/nereus-delay-kafka-k1:nereus-delay-kafka-e2e-1791776871-23738 done
+#13 DONE 0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/tai4qb1ovx06oo1gzgxg928f8
+K1 checkout: 05849884ca81fad767fda058444d1e17c7f9cbf9
+K1 client jar: /Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1/clients/build/libs/kafka-clients-4.4.0-SNAPSHOT.jar
+perl: warning: Setting locale failed.
+perl: warning: Please check that your locale settings:
+	LC_ALL = "C.UTF-8",
+	LC_CTYPE = "C.UTF-8",
+	LANG = "C.UTF-8"
+    are supported and installed on your system.
+perl: warning: Falling back to the standard locale ("C").
+K1 client SHA256: 1c83ae777c364be833f7c8ff31f1fdeb28dafd5eb3998f0246e7d226a543cbe0
+K1 broker image ID: sha256:62b964515672c2f1cedf552bec49ad6757c7058ee54a7bfc8ded1fad41f216ef
+Compose project: nereus-delay-kafka-e2e-1791776871-23738
+Broker advertised ports: 19330,19331,19332
+Broker bind ports: 19430,19431,19432
+ Network nereus-delay-kafka-e2e-1791776871-23738_default Creating 
+ Network nereus-delay-kafka-e2e-1791776871-23738_default Creating 
+ Network nereus-delay-kafka-e2e-1791776871-23738_default Created 
+ Network nereus-delay-kafka-e2e-1791776871-23738_default Created 
+ Container nereus-delay-kafka-e2e-1791776871-23738-kafka-3-1 Creating 
+ Container nereus-delay-kafka-e2e-1791776871-23738-kafka-2-1 Creating 
+ Container nereus-delay-kafka-e2e-1791776871-23738-kafka-1-1 Creating 
+ Container nereus-delay-kafka-e2e-1791776871-23738-kafka-1-1 Created 
+ Container nereus-delay-kafka-e2e-1791776871-23738-kafka-3-1 Created 
+ Container nereus-delay-kafka-e2e-1791776871-23738-kafka-2-1 Created 
+ Container nereus-delay-kafka-e2e-1791776871-23738-kafka-1-1 Starting 
+ Container nereus-delay-kafka-e2e-1791776871-23738-kafka-3-1 Starting 
+ Container nereus-delay-kafka-e2e-1791776871-23738-kafka-2-1 Starting 
+ Container nereus-delay-kafka-e2e-1791776871-23738-kafka-1-1 Started 
+ Container nereus-delay-kafka-e2e-1791776871-23738-kafka-3-1 Started 
+ Container nereus-delay-kafka-e2e-1791776871-23738-kafka-2-1 Started 
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeRealKafkaProto UP-TO-DATE
+> Task :extractRealKafkaProto UP-TO-DATE
+> Task :generateRealKafkaProto NO-SOURCE
+> Task :compileRealKafka UP-TO-DATE
+> Task :compileRealKafkaJava SKIPPED
+> Task :processRealKafkaProtoResources UP-TO-DATE
+> Task :processRealKafkaResources UP-TO-DATE
+> Task :realKafkaClasses UP-TO-DATE
+> Task :runRealKafkaTargetWorkerSourceSmoke FAILED
+
+FAILURE: Build failed with an exception.
+
+* Where:
+Build file '/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build.gradle' line: 282
+
+* What went wrong:
+Execution failed for task ':runRealKafkaTargetWorkerSourceSmoke'.
+> kafkaTargetScenario supports target-expire-not-found and target-expire-not-found-ack-loss and target-expire-not-found-ack-loss-reopen and target-expire-not-found-network-ack-loss and target-publish-admission-network-ack-loss and target-publish-materialized-admission-network-ack-loss and target-expire-scheduled-message-network-ack-loss (with network-expiry-response-loss) and target-expire-scheduled-message only
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 18s
+13 actionable tasks: 2 executed, 11 up-to-date
+
+JVM reached; Source accounting correctly rejects unimplemented channel-registration same frontier.
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 580B done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/eclipse-temurin:21-jre
+#2 DONE 1.8s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [1/8] FROM docker.io/library/eclipse-temurin:21-jre@sha256:cff19e6215689161eb6162c11b86b0c60ddf802164f2eaf48d570f8fb79a36c5
+#4 DONE 0.0s
+
+#5 [internal] load build context
+#5 transferring context: 113.83MB 1.3s done
+#5 DONE 1.3s
+
+#6 [3/8] COPY bin/ /opt/kafka/bin/
+#6 CACHED
+
+#7 [4/8] COPY config/ /opt/kafka/config/
+#7 CACHED
+
+#8 [6/8] COPY clients/build/ /opt/kafka/clients/build/
+#8 CACHED
+
+#9 [7/8] COPY kafka-k1-entrypoint.sh /opt/kafka/kafka-k1-entrypoint.sh
+#9 CACHED
+
+#10 [2/8] WORKDIR /opt/kafka
+#10 CACHED
+
+#11 [5/8] COPY core/build/ /opt/kafka/core/build/
+#11 CACHED
+
+#12 [8/8] RUN chmod +x /opt/kafka/bin/*.sh /opt/kafka/kafka-k1-entrypoint.sh     && mkdir -p /opt/kafka/config /tmp/kafka-logs     && useradd --create-home --uid 1001 kafka     && chown -R kafka:kafka /opt/kafka /tmp/kafka-logs
+#12 CACHED
+
+#13 exporting to image
+#13 exporting layers done
+#13 writing image sha256:62b964515672c2f1cedf552bec49ad6757c7058ee54a7bfc8ded1fad41f216ef done
+#13 naming to docker.io/library/nereus-delay-kafka-k1:nereus-delay-kafka-e2e-1791776994-26936 done
+#13 DONE 0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/69c0i3jifu3zjcc5h5dnkivmx
+K1 checkout: 05849884ca81fad767fda058444d1e17c7f9cbf9
+K1 client jar: /Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1/clients/build/libs/kafka-clients-4.4.0-SNAPSHOT.jar
+perl: warning: Setting locale failed.
+perl: warning: Please check that your locale settings:
+	LC_ALL = "C.UTF-8",
+	LC_CTYPE = "C.UTF-8",
+	LANG = "C.UTF-8"
+    are supported and installed on your system.
+perl: warning: Falling back to the standard locale ("C").
+K1 client SHA256: 1c83ae777c364be833f7c8ff31f1fdeb28dafd5eb3998f0246e7d226a543cbe0
+K1 broker image ID: sha256:62b964515672c2f1cedf552bec49ad6757c7058ee54a7bfc8ded1fad41f216ef
+Compose project: nereus-delay-kafka-e2e-1791776994-26936
+Broker advertised ports: 19528,19529,19530
+Broker bind ports: 19628,19629,19630
+ Network nereus-delay-kafka-e2e-1791776994-26936_default Creating 
+ Network nereus-delay-kafka-e2e-1791776994-26936_default Creating 
+ Network nereus-delay-kafka-e2e-1791776994-26936_default Created 
+ Network nereus-delay-kafka-e2e-1791776994-26936_default Created 
+ Container nereus-delay-kafka-e2e-1791776994-26936-kafka-3-1 Creating 
+ Container nereus-delay-kafka-e2e-1791776994-26936-kafka-1-1 Creating 
+ Container nereus-delay-kafka-e2e-1791776994-26936-kafka-2-1 Creating 
+ Container nereus-delay-kafka-e2e-1791776994-26936-kafka-1-1 Created 
+ Container nereus-delay-kafka-e2e-1791776994-26936-kafka-3-1 Created 
+ Container nereus-delay-kafka-e2e-1791776994-26936-kafka-2-1 Created 
+ Container nereus-delay-kafka-e2e-1791776994-26936-kafka-1-1 Starting 
+ Container nereus-delay-kafka-e2e-1791776994-26936-kafka-2-1 Starting 
+ Container nereus-delay-kafka-e2e-1791776994-26936-kafka-3-1 Starting 
+ Container nereus-delay-kafka-e2e-1791776994-26936-kafka-1-1 Started 
+ Container nereus-delay-kafka-e2e-1791776994-26936-kafka-2-1 Started 
+ Container nereus-delay-kafka-e2e-1791776994-26936-kafka-3-1 Started 
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeRealKafkaProto UP-TO-DATE
+> Task :extractRealKafkaProto UP-TO-DATE
+> Task :generateRealKafkaProto NO-SOURCE
+> Task :compileRealKafka UP-TO-DATE
+> Task :compileRealKafkaJava SKIPPED
+> Task :processRealKafkaProtoResources UP-TO-DATE
+> Task :processRealKafkaResources UP-TO-DATE
+> Task :realKafkaClasses UP-TO-DATE
+
+> Task :runRealKafkaTargetWorkerSourceSmoke
+[main] INFO org.apache.kafka.common.config.AbstractConfig - AdminClientConfig values: 
+	bootstrap.controllers = []
+	bootstrap.servers = [127.0.0.1:19528, 127.0.0.1:19529, 127.0.0.1:19530]
+	client.dns.lookup = use_all_dns_ips
+	client.id = 
+	config.providers = []
+	connections.max.idle.ms = 300000
+	default.api.timeout.ms = 60000
+	enable.metrics.push = false
+	metadata.cluster.check.enable = true
+	metadata.max.age.ms = 300000
+	metadata.recovery.rebootstrap.trigger.ms = 300000
+	metadata.recovery.strategy = rebootstrap
+	metric.reporters = [org.apache.kafka.common.metrics.JmxReporter]
+	metrics.num.samples = 2
+	metrics.recording.level = INFO
+	metrics.sample.window.ms = 30000
+	receive.buffer.bytes = 65536
+	reconnect.backoff.max.ms = 1000
+	reconnect.backoff.ms = 50
+	request.timeout.ms = 10000
+	retries = 2147483647
+	retry.backoff.max.ms = 1000
+	retry.backoff.ms = 100
+	sasl.client.callback.handler.class = null
+	sasl.jaas.config = null
+	sasl.kerberos.kinit.cmd = /usr/bin/kinit
+	sasl.kerberos.min.time.before.relogin = 60000
+	sasl.kerberos.service.name = null
+	sasl.kerberos.ticket.renew.jitter = 0.05
+	sasl.kerberos.ticket.renew.window.factor = 0.8
+	sasl.login.callback.handler.class = null
+	sasl.login.class = null
+	sasl.login.connect.timeout.ms = null
+	sasl.login.read.timeout.ms = null
+	sasl.login.refresh.buffer.seconds = 300
+	sasl.login.refresh.min.period.seconds = 60
+	sasl.login.refresh.window.factor = 0.8
+	sasl.login.refresh.window.jitter = 0.05
+	sasl.login.retry.backoff.max.ms = 10000
+	sasl.login.retry.backoff.ms = 100
+	sasl.mechanism = GSSAPI
+	sasl.oauthbearer.allow.unverified.audience = false
+	sasl.oauthbearer.allow.unverified.issuer = false
+	sasl.oauthbearer.assertion.algorithm = RS256
+	sasl.oauthbearer.assertion.claim.aud = null
+	sasl.oauthbearer.assertion.claim.exp.seconds = 300
+	sasl.oauthbearer.assertion.claim.iss = null
+	sasl.oauthbearer.assertion.claim.jti.include = false
+	sasl.oauthbearer.assertion.claim.nbf.seconds = 60
+	sasl.oauthbearer.assertion.claim.sub = null
+	sasl.oauthbearer.assertion.file = null
+	sasl.oauthbearer.assertion.private.key.file = null
+	sasl.oauthbearer.assertion.private.key.passphrase = null
+	sasl.oauthbearer.assertion.template.file = null
+	sasl.oauthbearer.client.credentials.client.id = null
+	sasl.oauthbearer.client.credentials.client.secret = null
+	sasl.oauthbearer.clock.skew.seconds = 30
+	sasl.oauthbearer.expected.audience = []
+	sasl.oauthbearer.expected.issuer = null
+	sasl.oauthbearer.header.urlencode = false
+	sasl.oauthbearer.jwks.endpoint.refresh.ms = 3600000
+	sasl.oauthbearer.jwks.endpoint.retry.backoff.max.ms = 10000
+	sasl.oauthbearer.jwks.endpoint.retry.backoff.ms = 100
+	sasl.oauthbearer.jwks.endpoint.url = null
+	sasl.oauthbearer.jwt.retriever.class = class org.apache.kafka.common.security.oauthbearer.DefaultJwtRetriever
+	sasl.oauthbearer.jwt.validator.class = class org.apache.kafka.common.security.oauthbearer.DefaultJwtValidator
+	sasl.oauthbearer.scope = null
+	sasl.oauthbearer.scope.claim.name = scope
+	sasl.oauthbearer.sub.claim.name = sub
+	sasl.oauthbearer.token.endpoint.url = null
+	security.protocol = PLAINTEXT
+	security.providers = null
+	send.buffer.bytes = 131072
+	socket.connection.setup.timeout.max.ms = 30000
+	socket.connection.setup.timeout.ms = 10000
+	ssl.cipher.suites = []
+	ssl.enabled.protocols = [TLSv1.2, TLSv1.3]
+	ssl.endpoint.identification.algorithm = https
+	ssl.engine.factory.class = null
+	ssl.key.password = null
+	ssl.keymanager.algorithm = SunX509
+	ssl.keystore.certificate.chain = null
+	ssl.keystore.key = null
+	ssl.keystore.location = null
+	ssl.keystore.password = null
+	ssl.keystore.type = JKS
+	ssl.protocol = TLSv1.3
+	ssl.provider = null
+	ssl.secure.random.implementation = null
+	ssl.trustmanager.algorithm = PKIX
+	ssl.truststore.certificates = null
+	ssl.truststore.location = null
+	ssl.truststore.password = null
+	ssl.truststore.type = JKS
+
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka version: 4.4.0-SNAPSHOT
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka commitId: unknown
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka startTimeMs: 1791777039616
+[main] INFO org.apache.kafka.common.config.AbstractConfig - ProducerConfig values: 
+	acks = -1
+	batch.size = 16384
+	bootstrap.servers = [127.0.0.1:19528, 127.0.0.1:19529, 127.0.0.1:19530]
+	buffer.memory = 33554432
+	client.dns.lookup = use_all_dns_ips
+	client.id = producer-1
+	client.rack = 
+	compression.gzip.level = -1
+	compression.lz4.level = 9
+	compression.type = none
+	compression.zstd.level = 3
+	config.providers = []
+	connections.max.idle.ms = 540000
+	delivery.timeout.ms = 120000
+	enable.idempotence = true
+	enable.metrics.push = true
+	interceptor.classes = []
+	key.serializer = class org.apache.kafka.common.serialization.ByteArraySerializer
+	linger.ms = 5
+	max.block.ms = 60000
+	max.in.flight.requests.per.connection = 5
+	max.request.size = 1048576
+	metadata.cluster.check.enable = true
+	metadata.max.age.ms = 300000
+	metadata.max.idle.ms = 300000
+	metadata.recovery.rebootstrap.trigger.ms = 300000
+	metadata.recovery.strategy = rebootstrap
+	metric.reporters = [org.apache.kafka.common.metrics.JmxReporter]
+	metrics.num.samples = 2
+	metrics.recording.level = INFO
+	metrics.sample.window.ms = 30000
+	partitioner.adaptive.partitioning.enable = true
+	partitioner.availability.timeout.ms = 0
+	partitioner.class = null
+	partitioner.ignore.keys = false
+	partitioner.rack.aware = false
+	receive.buffer.bytes = 32768
+	reconnect.backoff.max.ms = 1000
+	reconnect.backoff.ms = 50
+	request.timeout.ms = 30000
+	retries = 2147483647
+	retry.backoff.max.ms = 1000
+	retry.backoff.ms = 100
+	sasl.client.callback.handler.class = null
+	sasl.jaas.config = null
+	sasl.kerberos.kinit.cmd = /usr/bin/kinit
+	sasl.kerberos.min.time.before.relogin = 60000
+	sasl.kerberos.service.name = null
+	sasl.kerberos.ticket.renew.jitter = 0.05
+	sasl.kerberos.ticket.renew.window.factor = 0.8
+	sasl.login.callback.handler.class = null
+	sasl.login.class = null
+	sasl.login.connect.timeout.ms = null
+	sasl.login.read.timeout.ms = null
+	sasl.login.refresh.buffer.seconds = 300
+	sasl.login.refresh.min.period.seconds = 60
+	sasl.login.refresh.window.factor = 0.8
+	sasl.login.refresh.window.jitter = 0.05
+	sasl.login.retry.backoff.max.ms = 10000
+	sasl.login.retry.backoff.ms = 100
+	sasl.mechanism = GSSAPI
+	sasl.oauthbearer.allow.unverified.audience = false
+	sasl.oauthbearer.allow.unverified.issuer = false
+	sasl.oauthbearer.assertion.algorithm = RS256
+	sasl.oauthbearer.assertion.claim.aud = null
+	sasl.oauthbearer.assertion.claim.exp.seconds = 300
+	sasl.oauthbearer.assertion.claim.iss = null
+	sasl.oauthbearer.assertion.claim.jti.include = false
+	sasl.oauthbearer.assertion.claim.nbf.seconds = 60
+	sasl.oauthbearer.assertion.claim.sub = null
+	sasl.oauthbearer.assertion.file = null
+	sasl.oauthbearer.assertion.private.key.file = null
+	sasl.oauthbearer.assertion.private.key.passphrase = null
+	sasl.oauthbearer.assertion.template.file = null
+	sasl.oauthbearer.client.credentials.client.id = null
+	sasl.oauthbearer.client.credentials.client.secret = null
+	sasl.oauthbearer.clock.skew.seconds = 30
+	sasl.oauthbearer.expected.audience = []
+	sasl.oauthbearer.expected.issuer = null
+	sasl.oauthbearer.header.urlencode = false
+	sasl.oauthbearer.jwks.endpoint.refresh.ms = 3600000
+	sasl.oauthbearer.jwks.endpoint.retry.backoff.max.ms = 10000
+	sasl.oauthbearer.jwks.endpoint.retry.backoff.ms = 100
+	sasl.oauthbearer.jwks.endpoint.url = null
+	sasl.oauthbearer.jwt.retriever.class = class org.apache.kafka.common.security.oauthbearer.DefaultJwtRetriever
+	sasl.oauthbearer.jwt.validator.class = class org.apache.kafka.common.security.oauthbearer.DefaultJwtValidator
+	sasl.oauthbearer.scope = null
+	sasl.oauthbearer.scope.claim.name = scope
+	sasl.oauthbearer.sub.claim.name = sub
+	sasl.oauthbearer.token.endpoint.url = null
+	security.protocol = PLAINTEXT
+	security.providers = null
+	send.buffer.bytes = 131072
+	socket.connection.setup.timeout.max.ms = 30000
+	socket.connection.setup.timeout.ms = 10000
+	ssl.cipher.suites = []
+	ssl.enabled.protocols = [TLSv1.2, TLSv1.3]
+	ssl.endpoint.identification.algorithm = https
+	ssl.engine.factory.class = null
+	ssl.key.password = null
+	ssl.keymanager.algorithm = SunX509
+	ssl.keystore.certificate.chain = null
+	ssl.keystore.key = null
+	ssl.keystore.location = null
+	ssl.keystore.password = null
+	ssl.keystore.type = JKS
+	ssl.protocol = TLSv1.3
+	ssl.provider = null
+	ssl.secure.random.implementation = null
+	ssl.trustmanager.algorithm = PKIX
+	ssl.truststore.certificates = null
+	ssl.truststore.location = null
+	ssl.truststore.password = null
+	ssl.truststore.type = JKS
+	transaction.timeout.ms = 60000
+	transaction.two.phase.commit.enable = false
+	transactional.id = null
+	value.serializer = class org.apache.kafka.common.serialization.ByteArraySerializer
+
+[main] INFO org.apache.kafka.common.telemetry.internals.KafkaMetricsCollector - initializing Kafka metrics collector
+[main] INFO org.apache.kafka.clients.producer.KafkaProducer - [Producer clientId=producer-1] Instantiated an idempotent producer.
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka version: 4.4.0-SNAPSHOT
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka commitId: unknown
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka startTimeMs: 1791777040033
+[kafka-producer-network-thread | producer-1] INFO org.apache.kafka.clients.Metadata - [Producer clientId=producer-1] Cluster ID: MkU3OEVBNTcwNTJENDM2Qk
+[kafka-producer-network-thread | producer-1] INFO org.apache.kafka.clients.producer.internals.TransactionManager - [Producer clientId=producer-1] ProducerId set to 1000 with epoch 0
+[main] INFO org.apache.kafka.clients.producer.KafkaProducer - [Producer clientId=producer-1] Closing the Kafka producer with timeoutMillis = 9223372036854775807 ms.
+[main] INFO org.apache.kafka.common.metrics.Metrics - Metrics scheduler closed
+[main] INFO org.apache.kafka.common.metrics.Metrics - Closing reporter org.apache.kafka.common.metrics.JmxReporter
+[main] INFO org.apache.kafka.common.metrics.Metrics - Closing reporter org.apache.kafka.common.telemetry.internals.ClientTelemetryReporter
+[main] INFO org.apache.kafka.common.metrics.Metrics - Metrics reporters closed
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - App info kafka.producer for producer-1 unregistered
+[main] INFO org.apache.kafka.common.config.AbstractConfig - ProducerConfig values: 
+	acks = -1
+	batch.size = 16384
+	bootstrap.servers = [127.0.0.1:19528, 127.0.0.1:19529, 127.0.0.1:19530]
+	buffer.memory = 33554432
+	client.dns.lookup = use_all_dns_ips
+	client.id = producer-2
+	client.rack = 
+	compression.gzip.level = -1
+	compression.lz4.level = 9
+	compression.type = none
+	compression.zstd.level = 3
+	config.providers = []
+	connections.max.idle.ms = 540000
+	delivery.timeout.ms = 120000
+	enable.idempotence = true
+	enable.metrics.push = true
+	interceptor.classes = []
+	key.serializer = class org.apache.kafka.common.serialization.ByteArraySerializer
+	linger.ms = 5
+	max.block.ms = 60000
+	max.in.flight.requests.per.connection = 5
+	max.request.size = 1048576
+	metadata.cluster.check.enable = true
+	metadata.max.age.ms = 300000
+	metadata.max.idle.ms = 300000
+	metadata.recovery.rebootstrap.trigger.ms = 300000
+	metadata.recovery.strategy = rebootstrap
+	metric.reporters = [org.apache.kafka.common.metrics.JmxReporter]
+	metrics.num.samples = 2
+	metrics.recording.level = INFO
+	metrics.sample.window.ms = 30000
+	partitioner.adaptive.partitioning.enable = true
+	partitioner.availability.timeout.ms = 0
+	partitioner.class = null
+	partitioner.ignore.keys = false
+	partitioner.rack.aware = false
+	receive.buffer.bytes = 32768
+	reconnect.backoff.max.ms = 1000
+	reconnect.backoff.ms = 50
+	request.timeout.ms = 30000
+	retries = 2147483647
+	retry.backoff.max.ms = 1000
+	retry.backoff.ms = 100
+	sasl.client.callback.handler.class = null
+	sasl.jaas.config = null
+	sasl.kerberos.kinit.cmd = /usr/bin/kinit
+	sasl.kerberos.min.time.before.relogin = 60000
+	sasl.kerberos.service.name = null
+	sasl.kerberos.ticket.renew.jitter = 0.05
+	sasl.kerberos.ticket.renew.window.factor = 0.8
+	sasl.login.callback.handler.class = null
+	sasl.login.class = null
+	sasl.login.connect.timeout.ms = null
+	sasl.login.read.timeout.ms = null
+	sasl.login.refresh.buffer.seconds = 300
+	sasl.login.refresh.min.period.seconds = 60
+	sasl.login.refresh.window.factor = 0.8
+	sasl.login.refresh.window.jitter = 0.05
+	sasl.login.retry.backoff.max.ms = 10000
+	sasl.login.retry.backoff.ms = 100
+	sasl.mechanism = GSSAPI
+	sasl.oauthbearer.allow.unverified.audience = false
+	sasl.oauthbearer.allow.unverified.issuer = false
+	sasl.oauthbearer.assertion.algorithm = RS256
+	sasl.oauthbearer.assertion.claim.aud = null
+	sasl.oauthbearer.assertion.claim.exp.seconds = 300
+	sasl.oauthbearer.assertion.claim.iss = null
+	sasl.oauthbearer.assertion.claim.jti.include = false
+	sasl.oauthbearer.assertion.claim.nbf.seconds = 60
+	sasl.oauthbearer.assertion.claim.sub = null
+	sasl.oauthbearer.assertion.file = null
+	sasl.oauthbearer.assertion.private.key.file = null
+	sasl.oauthbearer.assertion.private.key.passphrase = null
+	sasl.oauthbearer.assertion.template.file = null
+	sasl.oauthbearer.client.credentials.client.id = null
+	sasl.oauthbearer.client.credentials.client.secret = null
+	sasl.oauthbearer.clock.skew.seconds = 30
+	sasl.oauthbearer.expected.audience = []
+	sasl.oauthbearer.expected.issuer = null
+	sasl.oauthbearer.header.urlencode = false
+	sasl.oauthbearer.jwks.endpoint.refresh.ms = 3600000
+	sasl.oauthbearer.jwks.endpoint.retry.backoff.max.ms = 10000
+	sasl.oauthbearer.jwks.endpoint.retry.backoff.ms = 100
+	sasl.oauthbearer.jwks.endpoint.url = null
+	sasl.oauthbearer.jwt.retriever.class = class org.apache.kafka.common.security.oauthbearer.DefaultJwtRetriever
+	sasl.oauthbearer.jwt.validator.class = class org.apache.kafka.common.security.oauthbearer.DefaultJwtValidator
+	sasl.oauthbearer.scope = null
+	sasl.oauthbearer.scope.claim.name = scope
+	sasl.oauthbearer.sub.claim.name = sub
+	sasl.oauthbearer.token.endpoint.url = null
+	security.protocol = PLAINTEXT
+	security.providers = null
+	send.buffer.bytes = 131072
+	socket.connection.setup.timeout.max.ms = 30000
+	socket.connection.setup.timeout.ms = 10000
+	ssl.cipher.suites = []
+	ssl.enabled.protocols = [TLSv1.2, TLSv1.3]
+	ssl.endpoint.identification.algorithm = https
+	ssl.engine.factory.class = null
+	ssl.key.password = null
+	ssl.keymanager.algorithm = SunX509
+	ssl.keystore.certificate.chain = null
+	ssl.keystore.key = null
+	ssl.keystore.location = null
+	ssl.keystore.password = null
+	ssl.keystore.type = JKS
+	ssl.protocol = TLSv1.3
+	ssl.provider = null
+	ssl.secure.random.implementation = null
+	ssl.trustmanager.algorithm = PKIX
+	ssl.truststore.certificates = null
+	ssl.truststore.location = null
+	ssl.truststore.password = null
+	ssl.truststore.type = JKS
+	transaction.timeout.ms = 60000
+	transaction.two.phase.commit.enable = false
+	transactional.id = null
+	value.serializer = class org.apache.kafka.common.serialization.ByteArraySerializer
+
+[main] INFO org.apache.kafka.common.telemetry.internals.KafkaMetricsCollector - initializing Kafka metrics collector
+[main] INFO org.apache.kafka.clients.producer.KafkaProducer - [Producer clientId=producer-2] Instantiated an idempotent producer.
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka version: 4.4.0-SNAPSHOT
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka commitId: unknown
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka startTimeMs: 1791777040329
+[kafka-producer-network-thread | producer-2] INFO org.apache.kafka.clients.Metadata - [Producer clientId=producer-2] Cluster ID: MkU3OEVBNTcwNTJENDM2Qk
+[kafka-producer-network-thread | producer-2] INFO org.apache.kafka.clients.producer.internals.TransactionManager - [Producer clientId=producer-2] ProducerId set to 1001 with epoch 0
+[main] INFO org.apache.kafka.clients.producer.KafkaProducer - [Producer clientId=producer-2] Closing the Kafka producer with timeoutMillis = 9223372036854775807 ms.
+[main] INFO org.apache.kafka.common.metrics.Metrics - Metrics scheduler closed
+[main] INFO org.apache.kafka.common.metrics.Metrics - Closing reporter org.apache.kafka.common.metrics.JmxReporter
+[main] INFO org.apache.kafka.common.metrics.Metrics - Closing reporter org.apache.kafka.common.telemetry.internals.ClientTelemetryReporter
+[main] INFO org.apache.kafka.common.metrics.Metrics - Metrics reporters closed
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - App info kafka.producer for producer-2 unregistered
+[main] INFO org.apache.kafka.common.config.AbstractConfig - ProducerConfig values: 
+	acks = -1
+	batch.size = 16384
+	bootstrap.servers = [127.0.0.1:19528, 127.0.0.1:19529, 127.0.0.1:19530]
+	buffer.memory = 33554432
+	client.dns.lookup = use_all_dns_ips
+	client.id = producer-3
+	client.rack = 
+	compression.gzip.level = -1
+	compression.lz4.level = 9
+	compression.type = none
+	compression.zstd.level = 3
+	config.providers = []
+	connections.max.idle.ms = 540000
+	delivery.timeout.ms = 120000
+	enable.idempotence = true
+	enable.metrics.push = true
+	interceptor.classes = []
+	key.serializer = class org.apache.kafka.common.serialization.ByteArraySerializer
+	linger.ms = 5
+	max.block.ms = 60000
+	max.in.flight.requests.per.connection = 5
+	max.request.size = 1048576
+	metadata.cluster.check.enable = true
+	metadata.max.age.ms = 300000
+	metadata.max.idle.ms = 300000
+	metadata.recovery.rebootstrap.trigger.ms = 300000
+	metadata.recovery.strategy = rebootstrap
+	metric.reporters = [org.apache.kafka.common.metrics.JmxReporter]
+	metrics.num.samples = 2
+	metrics.recording.level = INFO
+	metrics.sample.window.ms = 30000
+	partitioner.adaptive.partitioning.enable = true
+	partitioner.availability.timeout.ms = 0
+	partitioner.class = null
+	partitioner.ignore.keys = false
+	partitioner.rack.aware = false
+	receive.buffer.bytes = 32768
+	reconnect.backoff.max.ms = 1000
+	reconnect.backoff.ms = 50
+	request.timeout.ms = 30000
+	retries = 2147483647
+	retry.backoff.max.ms = 1000
+	retry.backoff.ms = 100
+	sasl.client.callback.handler.class = null
+	sasl.jaas.config = null
+	sasl.kerberos.kinit.cmd = /usr/bin/kinit
+	sasl.kerberos.min.time.before.relogin = 60000
+	sasl.kerberos.service.name = null
+	sasl.kerberos.ticket.renew.jitter = 0.05
+	sasl.kerberos.ticket.renew.window.factor = 0.8
+	sasl.login.callback.handler.class = null
+	sasl.login.class = null
+	sasl.login.connect.timeout.ms = null
+	sasl.login.read.timeout.ms = null
+	sasl.login.refresh.buffer.seconds = 300
+	sasl.login.refresh.min.period.seconds = 60
+	sasl.login.refresh.window.factor = 0.8
+	sasl.login.refresh.window.jitter = 0.05
+	sasl.login.retry.backoff.max.ms = 10000
+	sasl.login.retry.backoff.ms = 100
+	sasl.mechanism = GSSAPI
+	sasl.oauthbearer.allow.unverified.audience = false
+	sasl.oauthbearer.allow.unverified.issuer = false
+	sasl.oauthbearer.assertion.algorithm = RS256
+	sasl.oauthbearer.assertion.claim.aud = null
+	sasl.oauthbearer.assertion.claim.exp.seconds = 300
+	sasl.oauthbearer.assertion.claim.iss = null
+	sasl.oauthbearer.assertion.claim.jti.include = false
+	sasl.oauthbearer.assertion.claim.nbf.seconds = 60
+	sasl.oauthbearer.assertion.claim.sub = null
+	sasl.oauthbearer.assertion.file = null
+	sasl.oauthbearer.assertion.private.key.file = null
+	sasl.oauthbearer.assertion.private.key.passphrase = null
+	sasl.oauthbearer.assertion.template.file = null
+	sasl.oauthbearer.client.credentials.client.id = null
+	sasl.oauthbearer.client.credentials.client.secret = null
+	sasl.oauthbearer.clock.skew.seconds = 30
+	sasl.oauthbearer.expected.audience = []
+	sasl.oauthbearer.expected.issuer = null
+	sasl.oauthbearer.header.urlencode = false
+	sasl.oauthbearer.jwks.endpoint.refresh.ms = 3600000
+	sasl.oauthbearer.jwks.endpoint.retry.backoff.max.ms = 10000
+	sasl.oauthbearer.jwks.endpoint.retry.backoff.ms = 100
+	sasl.oauthbearer.jwks.endpoint.url = null
+	sasl.oauthbearer.jwt.retriever.class = class org.apache.kafka.common.security.oauthbearer.DefaultJwtRetriever
+	sasl.oauthbearer.jwt.validator.class = class org.apache.kafka.common.security.oauthbearer.DefaultJwtValidator
+	sasl.oauthbearer.scope = null
+	sasl.oauthbearer.scope.claim.name = scope
+	sasl.oauthbearer.sub.claim.name = sub
+	sasl.oauthbearer.token.endpoint.url = null
+	security.protocol = PLAINTEXT
+	security.providers = null
+	send.buffer.bytes = 131072
+	socket.connection.setup.timeout.max.ms = 30000
+	socket.connection.setup.timeout.ms = 10000
+	ssl.cipher.suites = []
+	ssl.enabled.protocols = [TLSv1.2, TLSv1.3]
+	ssl.endpoint.identification.algorithm = https
+	ssl.engine.factory.class = null
+	ssl.key.password = null
+	ssl.keymanager.algorithm = SunX509
+	ssl.keystore.certificate.chain = null
+	ssl.keystore.key = null
+	ssl.keystore.location = null
+	ssl.keystore.password = null
+	ssl.keystore.type = JKS
+	ssl.protocol = TLSv1.3
+	ssl.provider = null
+	ssl.secure.random.implementation = null
+	ssl.trustmanager.algorithm = PKIX
+	ssl.truststore.certificates = null
+	ssl.truststore.location = null
+	ssl.truststore.password = null
+	ssl.truststore.type = JKS
+	transaction.timeout.ms = 60000
+	transaction.two.phase.commit.enable = false
+	transactional.id = null
+	value.serializer = class org.apache.kafka.common.serialization.ByteArraySerializer
+
+[main] INFO org.apache.kafka.common.telemetry.internals.KafkaMetricsCollector - initializing Kafka metrics collector
+[main] INFO org.apache.kafka.clients.producer.KafkaProducer - [Producer clientId=producer-3] Instantiated an idempotent producer.
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka version: 4.4.0-SNAPSHOT
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka commitId: unknown
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka startTimeMs: 1791777040369
+[kafka-producer-network-thread | producer-3] INFO org.apache.kafka.clients.Metadata - [Producer clientId=producer-3] Cluster ID: MkU3OEVBNTcwNTJENDM2Qk
+[kafka-producer-network-thread | producer-3] INFO org.apache.kafka.clients.producer.internals.TransactionManager - [Producer clientId=producer-3] ProducerId set to 1002 with epoch 0
+[main] INFO org.apache.kafka.clients.producer.KafkaProducer - [Producer clientId=producer-3] Closing the Kafka producer with timeoutMillis = 9223372036854775807 ms.
+[main] INFO org.apache.kafka.common.metrics.Metrics - Metrics scheduler closed
+[main] INFO org.apache.kafka.common.metrics.Metrics - Closing reporter org.apache.kafka.common.metrics.JmxReporter
+[main] INFO org.apache.kafka.common.metrics.Metrics - Closing reporter org.apache.kafka.common.telemetry.internals.ClientTelemetryReporter
+[main] INFO org.apache.kafka.common.metrics.Metrics - Metrics reporters closed
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - App info kafka.producer for producer-3 unregistered
+[main] INFO org.apache.kafka.common.config.AbstractConfig - ProducerConfig values: 
+	acks = -1
+	batch.size = 16384
+	bootstrap.servers = [127.0.0.1:19528, 127.0.0.1:19529, 127.0.0.1:19530]
+	buffer.memory = 33554432
+	client.dns.lookup = use_all_dns_ips
+	client.id = producer-4
+	client.rack = 
+	compression.gzip.level = -1
+	compression.lz4.level = 9
+	compression.type = none
+	compression.zstd.level = 3
+	config.providers = []
+	connections.max.idle.ms = 540000
+	delivery.timeout.ms = 120000
+	enable.idempotence = true
+	enable.metrics.push = true
+	interceptor.classes = []
+	key.serializer = class org.apache.kafka.common.serialization.ByteArraySerializer
+	linger.ms = 5
+	max.block.ms = 60000
+	max.in.flight.requests.per.connection = 5
+	max.request.size = 1048576
+	metadata.cluster.check.enable = true
+	metadata.max.age.ms = 300000
+	metadata.max.idle.ms = 300000
+	metadata.recovery.rebootstrap.trigger.ms = 300000
+	metadata.recovery.strategy = rebootstrap
+	metric.reporters = [org.apache.kafka.common.metrics.JmxReporter]
+	metrics.num.samples = 2
+	metrics.recording.level = INFO
+	metrics.sample.window.ms = 30000
+	partitioner.adaptive.partitioning.enable = true
+	partitioner.availability.timeout.ms = 0
+	partitioner.class = null
+	partitioner.ignore.keys = false
+	partitioner.rack.aware = false
+	receive.buffer.bytes = 32768
+	reconnect.backoff.max.ms = 1000
+	reconnect.backoff.ms = 50
+	request.timeout.ms = 30000
+	retries = 2147483647
+	retry.backoff.max.ms = 1000
+	retry.backoff.ms = 100
+	sasl.client.callback.handler.class = null
+	sasl.jaas.config = null
+	sasl.kerberos.kinit.cmd = /usr/bin/kinit
+	sasl.kerberos.min.time.before.relogin = 60000
+	sasl.kerberos.service.name = null
+	sasl.kerberos.ticket.renew.jitter = 0.05
+	sasl.kerberos.ticket.renew.window.factor = 0.8
+	sasl.login.callback.handler.class = null
+	sasl.login.class = null
+	sasl.login.connect.timeout.ms = null
+	sasl.login.read.timeout.ms = null
+	sasl.login.refresh.buffer.seconds = 300
+	sasl.login.refresh.min.period.seconds = 60
+	sasl.login.refresh.window.factor = 0.8
+	sasl.login.refresh.window.jitter = 0.05
+	sasl.login.retry.backoff.max.ms = 10000
+	sasl.login.retry.backoff.ms = 100
+	sasl.mechanism = GSSAPI
+	sasl.oauthbearer.allow.unverified.audience = false
+	sasl.oauthbearer.allow.unverified.issuer = false
+	sasl.oauthbearer.assertion.algorithm = RS256
+	sasl.oauthbearer.assertion.claim.aud = null
+	sasl.oauthbearer.assertion.claim.exp.seconds = 300
+	sasl.oauthbearer.assertion.claim.iss = null
+	sasl.oauthbearer.assertion.claim.jti.include = false
+	sasl.oauthbearer.assertion.claim.nbf.seconds = 60
+	sasl.oauthbearer.assertion.claim.sub = null
+	sasl.oauthbearer.assertion.file = null
+	sasl.oauthbearer.assertion.private.key.file = null
+	sasl.oauthbearer.assertion.private.key.passphrase = null
+	sasl.oauthbearer.assertion.template.file = null
+	sasl.oauthbearer.client.credentials.client.id = null
+	sasl.oauthbearer.client.credentials.client.secret = null
+	sasl.oauthbearer.clock.skew.seconds = 30
+	sasl.oauthbearer.expected.audience = []
+	sasl.oauthbearer.expected.issuer = null
+	sasl.oauthbearer.header.urlencode = false
+	sasl.oauthbearer.jwks.endpoint.refresh.ms = 3600000
+	sasl.oauthbearer.jwks.endpoint.retry.backoff.max.ms = 10000
+	sasl.oauthbearer.jwks.endpoint.retry.backoff.ms = 100
+	sasl.oauthbearer.jwks.endpoint.url = null
+	sasl.oauthbearer.jwt.retriever.class = class org.apache.kafka.common.security.oauthbearer.DefaultJwtRetriever
+	sasl.oauthbearer.jwt.validator.class = class org.apache.kafka.common.security.oauthbearer.DefaultJwtValidator
+	sasl.oauthbearer.scope = null
+	sasl.oauthbearer.scope.claim.name = scope
+	sasl.oauthbearer.sub.claim.name = sub
+	sasl.oauthbearer.token.endpoint.url = null
+	security.protocol = PLAINTEXT
+	security.providers = null
+	send.buffer.bytes = 131072
+	socket.connection.setup.timeout.max.ms = 30000
+	socket.connection.setup.timeout.ms = 10000
+	ssl.cipher.suites = []
+	ssl.enabled.protocols = [TLSv1.2, TLSv1.3]
+	ssl.endpoint.identification.algorithm = https
+	ssl.engine.factory.class = null
+	ssl.key.password = null
+	ssl.keymanager.algorithm = SunX509
+	ssl.keystore.certificate.chain = null
+	ssl.keystore.key = null
+	ssl.keystore.location = null
+	ssl.keystore.password = null
+	ssl.keystore.type = JKS
+	ssl.protocol = TLSv1.3
+	ssl.provider = null
+	ssl.secure.random.implementation = null
+	ssl.trustmanager.algorithm = PKIX
+	ssl.truststore.certificates = null
+	ssl.truststore.location = null
+	ssl.truststore.password = null
+	ssl.truststore.type = JKS
+	transaction.timeout.ms = 60000
+	transaction.two.phase.commit.enable = false
+	transactional.id = null
+	value.serializer = class org.apache.kafka.common.serialization.ByteArraySerializer
+
+[main] INFO org.apache.kafka.common.telemetry.internals.KafkaMetricsCollector - initializing Kafka metrics collector
+[main] INFO org.apache.kafka.clients.producer.KafkaProducer - [Producer clientId=producer-4] Instantiated an idempotent producer.
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka version: 4.4.0-SNAPSHOT
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka commitId: unknown
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka startTimeMs: 1791777040400
+[kafka-producer-network-thread | producer-4] INFO org.apache.kafka.clients.Metadata - [Producer clientId=producer-4] Cluster ID: MkU3OEVBNTcwNTJENDM2Qk
+[kafka-producer-network-thread | producer-4] INFO org.apache.kafka.clients.producer.internals.TransactionManager - [Producer clientId=producer-4] ProducerId set to 1003 with epoch 0
+[main] INFO org.apache.kafka.clients.producer.KafkaProducer - [Producer clientId=producer-4] Closing the Kafka producer with timeoutMillis = 9223372036854775807 ms.
+[main] INFO org.apache.kafka.common.metrics.Metrics - Metrics scheduler closed
+[main] INFO org.apache.kafka.common.metrics.Metrics - Closing reporter org.apache.kafka.common.metrics.JmxReporter
+[main] INFO org.apache.kafka.common.metrics.Metrics - Closing reporter org.apache.kafka.common.telemetry.internals.ClientTelemetryReporter
+[main] INFO org.apache.kafka.common.metrics.Metrics - Metrics reporters closed
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - App info kafka.producer for producer-4 unregistered
+[main] INFO org.apache.kafka.common.config.AbstractConfig - ConsumerConfig values: 
+	allow.auto.create.topics = true
+	auto.commit.interval.ms = 5000
+	auto.offset.reset = earliest
+	bootstrap.servers = [127.0.0.1:19528, 127.0.0.1:19529, 127.0.0.1:19530]
+	check.crcs = true
+	client.dns.lookup = use_all_dns_ips
+	client.id = consumer-target-initial-probe-a66cc9f6-0ec8-4204-9ea8-2f408a0364a8-1
+	client.rack = 
+	config.providers = []
+	connections.max.idle.ms = 540000
+	default.api.timeout.ms = 60000
+	enable.auto.commit = false
+	enable.metrics.push = true
+	exclude.internal.topics = true
+	fetch.max.bytes = 52428800
+	fetch.max.wait.ms = 500
+	fetch.min.bytes = 1
+	group.id = target-initial-probe-a66cc9f6-0ec8-4204-9ea8-2f408a0364a8
+	group.instance.id = null
+	group.protocol = classic
+	group.remote.assignor = null
+	heartbeat.interval.ms = 3000
+	interceptor.classes = []
+	internal.throw.on.fetch.stable.offset.unsupported = false
+	isolation.level = read_uncommitted
+	key.deserializer = class org.apache.kafka.common.serialization.ByteArrayDeserializer
+	max.partition.fetch.bytes = 1048576
+	max.poll.interval.ms = 300000
+	max.poll.records = 500
+	metadata.cluster.check.enable = true
+	metadata.max.age.ms = 300000
+	metadata.recovery.rebootstrap.trigger.ms = 300000
+	metadata.recovery.strategy = rebootstrap
+	metric.reporters = [org.apache.kafka.common.metrics.JmxReporter]
+	metrics.num.samples = 2
+	metrics.recording.level = INFO
+	metrics.sample.window.ms = 30000
+	partition.assignment.strategy = [class org.apache.kafka.clients.consumer.RangeAssignor, class org.apache.kafka.clients.consumer.CooperativeStickyAssignor]
+	receive.buffer.bytes = 65536
+	reconnect.backoff.max.ms = 1000
+	reconnect.backoff.ms = 50
+	request.timeout.ms = 30000
+	retry.backoff.max.ms = 1000
+	retry.backoff.ms = 100
+	sasl.client.callback.handler.class = null
+	sasl.jaas.config = null
+	sasl.kerberos.kinit.cmd = /usr/bin/kinit
+	sasl.kerberos.min.time.before.relogin = 60000
+	sasl.kerberos.service.name = null
+	sasl.kerberos.ticket.renew.jitter = 0.05
+	sasl.kerberos.ticket.renew.window.factor = 0.8
+	sasl.login.callback.handler.class = null
+	sasl.login.class = null
+	sasl.login.connect.timeout.ms = null
+	sasl.login.read.timeout.ms = null
+	sasl.login.refresh.buffer.seconds = 300
+	sasl.login.refresh.min.period.seconds = 60
+	sasl.login.refresh.window.factor = 0.8
+	sasl.login.refresh.window.jitter = 0.05
+	sasl.login.retry.backoff.max.ms = 10000
+	sasl.login.retry.backoff.ms = 100
+	sasl.mechanism = GSSAPI
+	sasl.oauthbearer.allow.unverified.audience = false
+	sasl.oauthbearer.allow.unverified.issuer = false
+	sasl.oauthbearer.assertion.algorithm = RS256
+	sasl.oauthbearer.assertion.claim.aud = null
+	sasl.oauthbearer.assertion.claim.exp.seconds = 300
+	sasl.oauthbearer.assertion.claim.iss = null
+	sasl.oauthbearer.assertion.claim.jti.include = false
+	sasl.oauthbearer.assertion.claim.nbf.seconds = 60
+	sasl.oauthbearer.assertion.claim.sub = null
+	sasl.oauthbearer.assertion.file = null
+	sasl.oauthbearer.assertion.private.key.file = null
+	sasl.oauthbearer.assertion.private.key.passphrase = null
+	sasl.oauthbearer.assertion.template.file = null
+	sasl.oauthbearer.client.credentials.client.id = null
+	sasl.oauthbearer.client.credentials.client.secret = null
+	sasl.oauthbearer.clock.skew.seconds = 30
+	sasl.oauthbearer.expected.audience = []
+	sasl.oauthbearer.expected.issuer = null
+	sasl.oauthbearer.header.urlencode = false
+	sasl.oauthbearer.jwks.endpoint.refresh.ms = 3600000
+	sasl.oauthbearer.jwks.endpoint.retry.backoff.max.ms = 10000
+	sasl.oauthbearer.jwks.endpoint.retry.backoff.ms = 100
+	sasl.oauthbearer.jwks.endpoint.url = null
+	sasl.oauthbearer.jwt.retriever.class = class org.apache.kafka.common.security.oauthbearer.DefaultJwtRetriever
+	sasl.oauthbearer.jwt.validator.class = class org.apache.kafka.common.security.oauthbearer.DefaultJwtValidator
+	sasl.oauthbearer.scope = null
+	sasl.oauthbearer.scope.claim.name = scope
+	sasl.oauthbearer.sub.claim.name = sub
+	sasl.oauthbearer.token.endpoint.url = null
+	security.protocol = PLAINTEXT
+	security.providers = null
+	send.buffer.bytes = 131072
+	session.timeout.ms = 45000
+	share.acknowledgement.mode = implicit
+	share.acquire.mode = BATCH_OPTIMIZED
+	socket.connection.setup.timeout.max.ms = 30000
+	socket.connection.setup.timeout.ms = 10000
+	ssl.cipher.suites = []
+	ssl.enabled.protocols = [TLSv1.2, TLSv1.3]
+	ssl.endpoint.identification.algorithm = https
+	ssl.engine.factory.class = null
+	ssl.key.password = null
+	ssl.keymanager.algorithm = SunX509
+	ssl.keystore.certificate.chain = null
+	ssl.keystore.key = null
+	ssl.keystore.location = null
+	ssl.keystore.password = null
+	ssl.keystore.type = JKS
+	ssl.protocol = TLSv1.3
+	ssl.provider = null
+	ssl.secure.random.implementation = null
+	ssl.trustmanager.algorithm = PKIX
+	ssl.truststore.certificates = null
+	ssl.truststore.location = null
+	ssl.truststore.password = null
+	ssl.truststore.type = JKS
+	value.deserializer = class org.apache.kafka.common.serialization.ByteArrayDeserializer
+
+[main] INFO org.apache.kafka.common.telemetry.internals.KafkaMetricsCollector - initializing Kafka metrics collector
+[main] INFO org.apache.kafka.clients.consumer.internals.ClassicKafkaConsumer - [Consumer clientId=consumer-target-initial-probe-a66cc9f6-0ec8-4204-9ea8-2f408a0364a8-1, groupId=target-initial-probe-a66cc9f6-0ec8-4204-9ea8-2f408a0364a8] 
+****************************************************************
+* The consumer rebalance protocol (KIP-848) is production-ready!
+* Set the consumer configuration group.protocol=consumer to try it out.
+* See https://kafka.apache.org/documentation/#consumer_rebalance_protocol
+****************************************************************
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka version: 4.4.0-SNAPSHOT
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka commitId: unknown
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka startTimeMs: 1791777040459
+[main] INFO org.apache.kafka.clients.consumer.internals.ClassicKafkaConsumer - [Consumer clientId=consumer-target-initial-probe-a66cc9f6-0ec8-4204-9ea8-2f408a0364a8-1, groupId=target-initial-probe-a66cc9f6-0ec8-4204-9ea8-2f408a0364a8] Assigned to partition(s): nereus-delay-source-topic-target-worker-materialized-admission-checkpoint-target-977efd45-56a1-4b5a-878a-bd9c11064027-0
+[main] INFO org.apache.kafka.clients.consumer.internals.ClassicKafkaConsumer - [Consumer clientId=consumer-target-initial-probe-a66cc9f6-0ec8-4204-9ea8-2f408a0364a8-1, groupId=target-initial-probe-a66cc9f6-0ec8-4204-9ea8-2f408a0364a8] Seeking to offset 3 for partition nereus-delay-source-topic-target-worker-materialized-admission-checkpoint-target-977efd45-56a1-4b5a-878a-bd9c11064027-0
+[main] INFO org.apache.kafka.clients.Metadata - [Consumer clientId=consumer-target-initial-probe-a66cc9f6-0ec8-4204-9ea8-2f408a0364a8-1, groupId=target-initial-probe-a66cc9f6-0ec8-4204-9ea8-2f408a0364a8] Cluster ID: MkU3OEVBNTcwNTJENDM2Qk
+[main] INFO org.apache.kafka.clients.consumer.internals.ConsumerCoordinator - [Consumer clientId=consumer-target-initial-probe-a66cc9f6-0ec8-4204-9ea8-2f408a0364a8-1, groupId=target-initial-probe-a66cc9f6-0ec8-4204-9ea8-2f408a0364a8] Resetting generation and member id due to: consumer pro-actively leaving the group
+[main] INFO org.apache.kafka.clients.consumer.internals.ConsumerCoordinator - [Consumer clientId=consumer-target-initial-probe-a66cc9f6-0ec8-4204-9ea8-2f408a0364a8-1, groupId=target-initial-probe-a66cc9f6-0ec8-4204-9ea8-2f408a0364a8] Request joining group due to: consumer pro-actively leaving the group
+[main] INFO org.apache.kafka.common.metrics.Metrics - Metrics scheduler closed
+[main] INFO org.apache.kafka.common.metrics.Metrics - Closing reporter org.apache.kafka.common.metrics.JmxReporter
+[main] INFO org.apache.kafka.common.metrics.Metrics - Closing reporter org.apache.kafka.common.telemetry.internals.ClientTelemetryReporter
+[main] INFO org.apache.kafka.common.metrics.Metrics - Metrics reporters closed
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - App info kafka.consumer for consumer-target-initial-probe-a66cc9f6-0ec8-4204-9ea8-2f408a0364a8-1 unregistered
+[main] INFO org.apache.kafka.common.metrics.Metrics - Metrics scheduler closed
+[main] INFO org.apache.kafka.common.metrics.Metrics - Closing reporter org.apache.kafka.common.metrics.JmxReporter
+[main] INFO org.apache.kafka.common.metrics.Metrics - Metrics reporters closed
+[kafka-admin-client-thread | adminclient-1] INFO org.apache.kafka.common.utils.internals.AppInfoParser - App info kafka.admin.client for adminclient-1 unregistered
+[kafka-admin-client-thread | adminclient-1] INFO org.apache.kafka.common.metrics.Metrics - Metrics scheduler closed
+[kafka-admin-client-thread | adminclient-1] INFO org.apache.kafka.common.metrics.Metrics - Closing reporter org.apache.kafka.common.metrics.JmxReporter
+[kafka-admin-client-thread | adminclient-1] INFO org.apache.kafka.common.metrics.Metrics - Metrics reporters closed
+Exception in thread "main" java.lang.IllegalStateException: quota source must advance the Store Source Position
+	at com.nereusstream.delay.runtime.TargetQuotaDelta.prepareInternal(TargetQuotaDelta.java:336)
+	at com.nereusstream.delay.runtime.TargetQuotaDelta.prepare(TargetQuotaDelta.java:94)
+	at com.nereusstream.delay.runtime.TargetSourceAccounting.assemble(TargetSourceAccounting.java:303)
+	at com.nereusstream.delay.runtime.TargetSourceAccounting.assemble(TargetSourceAccounting.java:75)
+	at com.nereusstream.delay.runtime.TargetSourceAccounting.assemble(TargetSourceAccounting.java:67)
+	at com.nereusstream.delay.runtime.TargetMessageStore.assemble(TargetMessageStore.java:158)
+	at com.nereusstream.delay.runtime.TargetMessageStore.lambda$prepareAccountedWithQuotaRejection$2(TargetMessageStore.java:139)
+	at com.nereusstream.delay.store.TargetStoreBackend.lambda$prepare$4(TargetStoreBackend.java:690)
+	at com.nereusstream.delay.store.ShardStore.readWithBudget(ShardStore.java:2621)
+	at com.nereusstream.delay.store.TargetStoreBackend.prepare(TargetStoreBackend.java:686)
+	at com.nereusstream.delay.runtime.TargetMessageStore.prepareAccountedWithQuotaRejection(TargetMessageStore.java:136)
+	at com.nereusstream.delay.runtime.TargetMessageStore.prepareAccounted(TargetMessageStore.java:121)
+	at com.nereusstream.delay.runtime.TargetMessageStore.applyAccounted(TargetMessageStore.java:203)
+	at com.nereusstream.delay.transport.KafkaClientArtifactTargetScheduledExpirySmoke.appendTargetAdmission(KafkaClientArtifactTargetScheduledExpirySmoke.java:1709)
+	at com.nereusstream.delay.transport.KafkaClientArtifactTargetScheduledExpirySmoke.run(KafkaClientArtifactTargetScheduledExpirySmoke.java:464)
+	at com.nereusstream.delay.transport.KafkaClientArtifactTargetWorkerSourceSmoke.main(KafkaClientArtifactTargetWorkerSourceSmoke.java:202)
+
+> Task :runRealKafkaTargetWorkerSourceSmoke FAILED
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':runRealKafkaTargetWorkerSourceSmoke'.
+> Process 'command '/Users/liusinan/.sdkman/candidates/java/21.0.10-amzn/bin/java'' finished with non-zero exit value 1
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 17s
+13 actionable tasks: 2 executed, 11 up-to-date
+
+Existing legacy case fully passed; Worker23s/proxy40s.
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 580B done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/eclipse-temurin:21-jre
+#2 DONE 2.5s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [1/8] FROM docker.io/library/eclipse-temurin:21-jre@sha256:cff19e6215689161eb6162c11b86b0c60ddf802164f2eaf48d570f8fb79a36c5
+#4 DONE 0.0s
+
+#5 [internal] load build context
+#5 transferring context: 113.83MB 1.3s done
+#5 DONE 1.4s
+
+#6 [4/8] COPY config/ /opt/kafka/config/
+#6 CACHED
+
+#7 [5/8] COPY core/build/ /opt/kafka/core/build/
+#7 CACHED
+
+#8 [2/8] WORKDIR /opt/kafka
+#8 CACHED
+
+#9 [6/8] COPY clients/build/ /opt/kafka/clients/build/
+#9 CACHED
+
+#10 [7/8] COPY kafka-k1-entrypoint.sh /opt/kafka/kafka-k1-entrypoint.sh
+#10 CACHED
+
+#11 [3/8] COPY bin/ /opt/kafka/bin/
+#11 CACHED
+
+#12 [8/8] RUN chmod +x /opt/kafka/bin/*.sh /opt/kafka/kafka-k1-entrypoint.sh     && mkdir -p /opt/kafka/config /tmp/kafka-logs     && useradd --create-home --uid 1001 kafka     && chown -R kafka:kafka /opt/kafka /tmp/kafka-logs
+#12 CACHED
+
+#13 exporting to image
+#13 exporting layers done
+#13 writing image sha256:62b964515672c2f1cedf552bec49ad6757c7058ee54a7bfc8ded1fad41f216ef done
+#13 naming to docker.io/library/nereus-delay-kafka-k1:nereus-delay-kafka-e2e-1791777582-34538 done
+#13 DONE 0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/o9rmkzmstsjwkcp93kawz8tkh
+K1 checkout: 05849884ca81fad767fda058444d1e17c7f9cbf9
+K1 client jar: /Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1/clients/build/libs/kafka-clients-4.4.0-SNAPSHOT.jar
+perl: warning: Setting locale failed.
+perl: warning: Please check that your locale settings:
+	LC_ALL = "C.UTF-8",
+	LC_CTYPE = "C.UTF-8",
+	LANG = "C.UTF-8"
+    are supported and installed on your system.
+perl: warning: Falling back to the standard locale ("C").
+K1 client SHA256: 1c83ae777c364be833f7c8ff31f1fdeb28dafd5eb3998f0246e7d226a543cbe0
+K1 broker image ID: sha256:62b964515672c2f1cedf552bec49ad6757c7058ee54a7bfc8ded1fad41f216ef
+Compose project: nereus-delay-kafka-e2e-1791777582-34538
+Broker advertised ports: 19130,19131,19132
+Broker bind ports: 19230,19231,19232
+ Network nereus-delay-kafka-e2e-1791777582-34538_default Creating 
+ Network nereus-delay-kafka-e2e-1791777582-34538_default Creating 
+ Network nereus-delay-kafka-e2e-1791777582-34538_default Created 
+ Network nereus-delay-kafka-e2e-1791777582-34538_default Created 
+ Container nereus-delay-kafka-e2e-1791777582-34538-kafka-3-1 Creating 
+ Container nereus-delay-kafka-e2e-1791777582-34538-kafka-2-1 Creating 
+ Container nereus-delay-kafka-e2e-1791777582-34538-kafka-1-1 Creating 
+ Container nereus-delay-kafka-e2e-1791777582-34538-kafka-1-1 Created 
+ Container nereus-delay-kafka-e2e-1791777582-34538-kafka-3-1 Created 
+ Container nereus-delay-kafka-e2e-1791777582-34538-kafka-2-1 Created 
+ Container nereus-delay-kafka-e2e-1791777582-34538-kafka-2-1 Starting 
+ Container nereus-delay-kafka-e2e-1791777582-34538-kafka-3-1 Starting 
+ Container nereus-delay-kafka-e2e-1791777582-34538-kafka-1-1 Starting 
+ Container nereus-delay-kafka-e2e-1791777582-34538-kafka-2-1 Started 
+ Container nereus-delay-kafka-e2e-1791777582-34538-kafka-1-1 Started 
+ Container nereus-delay-kafka-e2e-1791777582-34538-kafka-3-1 Started 
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeRealKafkaProto UP-TO-DATE
+> Task :extractRealKafkaProto UP-TO-DATE
+> Task :generateRealKafkaProto NO-SOURCE
+> Task :compileRealKafka UP-TO-DATE
+> Task :compileRealKafkaJava SKIPPED
+> Task :processRealKafkaProtoResources UP-TO-DATE
+> Task :processRealKafkaResources UP-TO-DATE
+> Task :realKafkaClasses UP-TO-DATE
+
+> Task :runRealKafkaTargetWorkerSourceSmoke
+[main] INFO org.apache.kafka.common.config.AbstractConfig - AdminClientConfig values: 
+	bootstrap.controllers = []
+	bootstrap.servers = [127.0.0.1:19130, 127.0.0.1:19131, 127.0.0.1:19132]
+	client.dns.lookup = use_all_dns_ips
+	client.id = 
+	config.providers = []
+	connections.max.idle.ms = 300000
+	default.api.timeout.ms = 60000
+	enable.metrics.push = false
+	metadata.cluster.check.enable = true
+	metadata.max.age.ms = 300000
+	metadata.recovery.rebootstrap.trigger.ms = 300000
+	metadata.recovery.strategy = rebootstrap
+	metric.reporters = [org.apache.kafka.common.metrics.JmxReporter]
+	metrics.num.samples = 2
+	metrics.recording.level = INFO
+	metrics.sample.window.ms = 30000
+	receive.buffer.bytes = 65536
+	reconnect.backoff.max.ms = 1000
+	reconnect.backoff.ms = 50
+	request.timeout.ms = 10000
+	retries = 2147483647
+	retry.backoff.max.ms = 1000
+	retry.backoff.ms = 100
+	sasl.client.callback.handler.class = null
+	sasl.jaas.config = null
+	sasl.kerberos.kinit.cmd = /usr/bin/kinit
+	sasl.kerberos.min.time.before.relogin = 60000
+	sasl.kerberos.service.name = null
+	sasl.kerberos.ticket.renew.jitter = 0.05
+	sasl.kerberos.ticket.renew.window.factor = 0.8
+	sasl.login.callback.handler.class = null
+	sasl.login.class = null
+	sasl.login.connect.timeout.ms = null
+	sasl.login.read.timeout.ms = null
+	sasl.login.refresh.buffer.seconds = 300
+	sasl.login.refresh.min.period.seconds = 60
+	sasl.login.refresh.window.factor = 0.8
+	sasl.login.refresh.window.jitter = 0.05
+	sasl.login.retry.backoff.max.ms = 10000
+	sasl.login.retry.backoff.ms = 100
+	sasl.mechanism = GSSAPI
+	sasl.oauthbearer.allow.unverified.audience = false
+	sasl.oauthbearer.allow.unverified.issuer = false
+	sasl.oauthbearer.assertion.algorithm = RS256
+	sasl.oauthbearer.assertion.claim.aud = null
+	sasl.oauthbearer.assertion.claim.exp.seconds = 300
+	sasl.oauthbearer.assertion.claim.iss = null
+	sasl.oauthbearer.assertion.claim.jti.include = false
+	sasl.oauthbearer.assertion.claim.nbf.seconds = 60
+	sasl.oauthbearer.assertion.claim.sub = null
+	sasl.oauthbearer.assertion.file = null
+	sasl.oauthbearer.assertion.private.key.file = null
+	sasl.oauthbearer.assertion.private.key.passphrase = null
+	sasl.oauthbearer.assertion.template.file = null
+	sasl.oauthbearer.client.credentials.client.id = null
+	sasl.oauthbearer.client.credentials.client.secret = null
+	sasl.oauthbearer.clock.skew.seconds = 30
+	sasl.oauthbearer.expected.audience = []
+	sasl.oauthbearer.expected.issuer = null
+	sasl.oauthbearer.header.urlencode = false
+	sasl.oauthbearer.jwks.endpoint.refresh.ms = 3600000
+	sasl.oauthbearer.jwks.endpoint.retry.backoff.max.ms = 10000
+	sasl.oauthbearer.jwks.endpoint.retry.backoff.ms = 100
+	sasl.oauthbearer.jwks.endpoint.url = null
+	sasl.oauthbearer.jwt.retriever.class = class org.apache.kafka.common.security.oauthbearer.DefaultJwtRetriever
+	sasl.oauthbearer.jwt.validator.class = class org.apache.kafka.common.security.oauthbearer.DefaultJwtValidator
+	sasl.oauthbearer.scope = null
+	sasl.oauthbearer.scope.claim.name = scope
+	sasl.oauthbearer.sub.claim.name = sub
+	sasl.oauthbearer.token.endpoint.url = null
+	security.protocol = PLAINTEXT
+	security.providers = null
+	send.buffer.bytes = 131072
+	socket.connection.setup.timeout.max.ms = 30000
+	socket.connection.setup.timeout.ms = 10000
+	ssl.cipher.suites = []
+	ssl.enabled.protocols = [TLSv1.2, TLSv1.3]
+	ssl.endpoint.identification.algorithm = https
+	ssl.engine.factory.class = null
+	ssl.key.password = null
+	ssl.keymanager.algorithm = SunX509
+	ssl.keystore.certificate.chain = null
+	ssl.keystore.key = null
+	ssl.keystore.location = null
+	ssl.keystore.password = null
+	ssl.keystore.type = JKS
+	ssl.protocol = TLSv1.3
+	ssl.provider = null
+	ssl.secure.random.implementation = null
+	ssl.trustmanager.algorithm = PKIX
+	ssl.truststore.certificates = null
+	ssl.truststore.location = null
+	ssl.truststore.password = null
+	ssl.truststore.type = JKS
+
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka version: 4.4.0-SNAPSHOT
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka commitId: unknown
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka startTimeMs: 1791777630054
+[main] INFO org.apache.kafka.common.config.AbstractConfig - ProducerConfig values: 
+	acks = -1
+	batch.size = 16384
+	bootstrap.servers = [127.0.0.1:19130, 127.0.0.1:19131, 127.0.0.1:19132]
+	buffer.memory = 33554432
+	client.dns.lookup = use_all_dns_ips
+	client.id = producer-1
+	client.rack = 
+	compression.gzip.level = -1
+	compression.lz4.level = 9
+	compression.type = none
+	compression.zstd.level = 3
+	config.providers = []
+	connections.max.idle.ms = 540000
+	delivery.timeout.ms = 120000
+	enable.idempotence = true
+	enable.metrics.push = true
+	interceptor.classes = []
+	key.serializer = class org.apache.kafka.common.serialization.ByteArraySerializer
+	linger.ms = 5
+	max.block.ms = 60000
+	max.in.flight.requests.per.connection = 5
+	max.request.size = 1048576
+	metadata.cluster.check.enable = true
+	metadata.max.age.ms = 300000
+	metadata.max.idle.ms = 300000
+	metadata.recovery.rebootstrap.trigger.ms = 300000
+	metadata.recovery.strategy = rebootstrap
+	metric.reporters = [org.apache.kafka.common.metrics.JmxReporter]
+	metrics.num.samples = 2
+	metrics.recording.level = INFO
+	metrics.sample.window.ms = 30000
+	partitioner.adaptive.partitioning.enable = true
+	partitioner.availability.timeout.ms = 0
+	partitioner.class = null
+	partitioner.ignore.keys = false
+	partitioner.rack.aware = false
+	receive.buffer.bytes = 32768
+	reconnect.backoff.max.ms = 1000
+	reconnect.backoff.ms = 50
+	request.timeout.ms = 30000
+	retries = 2147483647
+	retry.backoff.max.ms = 1000
+	retry.backoff.ms = 100
+	sasl.client.callback.handler.class = null
+	sasl.jaas.config = null
+	sasl.kerberos.kinit.cmd = /usr/bin/kinit
+	sasl.kerberos.min.time.before.relogin = 60000
+	sasl.kerberos.service.name = null
+	sasl.kerberos.ticket.renew.jitter = 0.05
+	sasl.kerberos.ticket.renew.window.factor = 0.8
+	sasl.login.callback.handler.class = null
+	sasl.login.class = null
+	sasl.login.connect.timeout.ms = null
+	sasl.login.read.timeout.ms = null
+	sasl.login.refresh.buffer.seconds = 300
+	sasl.login.refresh.min.period.seconds = 60
+	sasl.login.refresh.window.factor = 0.8
+	sasl.login.refresh.window.jitter = 0.05
+	sasl.login.retry.backoff.max.ms = 10000
+	sasl.login.retry.backoff.ms = 100
+	sasl.mechanism = GSSAPI
+	sasl.oauthbearer.allow.unverified.audience = false
+	sasl.oauthbearer.allow.unverified.issuer = false
+	sasl.oauthbearer.assertion.algorithm = RS256
+	sasl.oauthbearer.assertion.claim.aud = null
+	sasl.oauthbearer.assertion.claim.exp.seconds = 300
+	sasl.oauthbearer.assertion.claim.iss = null
+	sasl.oauthbearer.assertion.claim.jti.include = false
+	sasl.oauthbearer.assertion.claim.nbf.seconds = 60
+	sasl.oauthbearer.assertion.claim.sub = null
+	sasl.oauthbearer.assertion.file = null
+	sasl.oauthbearer.assertion.private.key.file = null
+	sasl.oauthbearer.assertion.private.key.passphrase = null
+	sasl.oauthbearer.assertion.template.file = null
+	sasl.oauthbearer.client.credentials.client.id = null
+	sasl.oauthbearer.client.credentials.client.secret = null
+	sasl.oauthbearer.clock.skew.seconds = 30
+	sasl.oauthbearer.expected.audience = []
+	sasl.oauthbearer.expected.issuer = null
+	sasl.oauthbearer.header.urlencode = false
+	sasl.oauthbearer.jwks.endpoint.refresh.ms = 3600000
+	sasl.oauthbearer.jwks.endpoint.retry.backoff.max.ms = 10000
+	sasl.oauthbearer.jwks.endpoint.retry.backoff.ms = 100
+	sasl.oauthbearer.jwks.endpoint.url = null
+	sasl.oauthbearer.jwt.retriever.class = class org.apache.kafka.common.security.oauthbearer.DefaultJwtRetriever
+	sasl.oauthbearer.jwt.validator.class = class org.apache.kafka.common.security.oauthbearer.DefaultJwtValidator
+	sasl.oauthbearer.scope = null
+	sasl.oauthbearer.scope.claim.name = scope
+	sasl.oauthbearer.sub.claim.name = sub
+	sasl.oauthbearer.token.endpoint.url = null
+	security.protocol = PLAINTEXT
+	security.providers = null
+	send.buffer.bytes = 131072
+	socket.connection.setup.timeout.max.ms = 30000
+	socket.connection.setup.timeout.ms = 10000
+	ssl.cipher.suites = []
+	ssl.enabled.protocols = [TLSv1.2, TLSv1.3]
+	ssl.endpoint.identification.algorithm = https
+	ssl.engine.factory.class = null
+	ssl.key.password = null
+	ssl.keymanager.algorithm = SunX509
+	ssl.keystore.certificate.chain = null
+	ssl.keystore.key = null
+	ssl.keystore.location = null
+	ssl.keystore.password = null
+	ssl.keystore.type = JKS
+	ssl.protocol = TLSv1.3
+	ssl.provider = null
+	ssl.secure.random.implementation = null
+	ssl.trustmanager.algorithm = PKIX
+	ssl.truststore.certificates = null
+	ssl.truststore.location = null
+	ssl.truststore.password = null
+	ssl.truststore.type = JKS
+	transaction.timeout.ms = 60000
+	transaction.two.phase.commit.enable = false
+	transactional.id = null
+	value.serializer = class org.apache.kafka.common.serialization.ByteArraySerializer
+
+[main] INFO org.apache.kafka.common.telemetry.internals.KafkaMetricsCollector - initializing Kafka metrics collector
+[main] INFO org.apache.kafka.clients.producer.KafkaProducer - [Producer clientId=producer-1] Instantiated an idempotent producer.
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka version: 4.4.0-SNAPSHOT
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka commitId: unknown
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka startTimeMs: 1791777630469
+[kafka-producer-network-thread | producer-1] INFO org.apache.kafka.clients.Metadata - [Producer clientId=producer-1] Cluster ID: MkU3OEVBNTcwNTJENDM2Qk
+[kafka-producer-network-thread | producer-1] INFO org.apache.kafka.clients.producer.internals.TransactionManager - [Producer clientId=producer-1] ProducerId set to 0 with epoch 0
+[main] INFO org.apache.kafka.clients.producer.KafkaProducer - [Producer clientId=producer-1] Closing the Kafka producer with timeoutMillis = 9223372036854775807 ms.
+[main] INFO org.apache.kafka.common.metrics.Metrics - Metrics scheduler closed
+[main] INFO org.apache.kafka.common.metrics.Metrics - Closing reporter org.apache.kafka.common.metrics.JmxReporter
+[main] INFO org.apache.kafka.common.metrics.Metrics - Closing reporter org.apache.kafka.common.telemetry.internals.ClientTelemetryReporter
+[main] INFO org.apache.kafka.common.metrics.Metrics - Metrics reporters closed
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - App info kafka.producer for producer-1 unregistered
+[main] INFO org.apache.kafka.common.config.AbstractConfig - ProducerConfig values: 
+	acks = -1
+	batch.size = 16384
+	bootstrap.servers = [127.0.0.1:19130, 127.0.0.1:19131, 127.0.0.1:19132]
+	buffer.memory = 33554432
+	client.dns.lookup = use_all_dns_ips
+	client.id = producer-2
+	client.rack = 
+	compression.gzip.level = -1
+	compression.lz4.level = 9
+	compression.type = none
+	compression.zstd.level = 3
+	config.providers = []
+	connections.max.idle.ms = 540000
+	delivery.timeout.ms = 120000
+	enable.idempotence = true
+	enable.metrics.push = true
+	interceptor.classes = []
+	key.serializer = class org.apache.kafka.common.serialization.ByteArraySerializer
+	linger.ms = 5
+	max.block.ms = 60000
+	max.in.flight.requests.per.connection = 5
+	max.request.size = 1048576
+	metadata.cluster.check.enable = true
+	metadata.max.age.ms = 300000
+	metadata.max.idle.ms = 300000
+	metadata.recovery.rebootstrap.trigger.ms = 300000
+	metadata.recovery.strategy = rebootstrap
+	metric.reporters = [org.apache.kafka.common.metrics.JmxReporter]
+	metrics.num.samples = 2
+	metrics.recording.level = INFO
+	metrics.sample.window.ms = 30000
+	partitioner.adaptive.partitioning.enable = true
+	partitioner.availability.timeout.ms = 0
+	partitioner.class = null
+	partitioner.ignore.keys = false
+	partitioner.rack.aware = false
+	receive.buffer.bytes = 32768
+	reconnect.backoff.max.ms = 1000
+	reconnect.backoff.ms = 50
+	request.timeout.ms = 30000
+	retries = 2147483647
+	retry.backoff.max.ms = 1000
+	retry.backoff.ms = 100
+	sasl.client.callback.handler.class = null
+	sasl.jaas.config = null
+	sasl.kerberos.kinit.cmd = /usr/bin/kinit
+	sasl.kerberos.min.time.before.relogin = 60000
+	sasl.kerberos.service.name = null
+	sasl.kerberos.ticket.renew.jitter = 0.05
+	sasl.kerberos.ticket.renew.window.factor = 0.8
+	sasl.login.callback.handler.class = null
+	sasl.login.class = null
+	sasl.login.connect.timeout.ms = null
+	sasl.login.read.timeout.ms = null
+	sasl.login.refresh.buffer.seconds = 300
+	sasl.login.refresh.min.period.seconds = 60
+	sasl.login.refresh.window.factor = 0.8
+	sasl.login.refresh.window.jitter = 0.05
+	sasl.login.retry.backoff.max.ms = 10000
+	sasl.login.retry.backoff.ms = 100
+	sasl.mechanism = GSSAPI
+	sasl.oauthbearer.allow.unverified.audience = false
+	sasl.oauthbearer.allow.unverified.issuer = false
+	sasl.oauthbearer.assertion.algorithm = RS256
+	sasl.oauthbearer.assertion.claim.aud = null
+	sasl.oauthbearer.assertion.claim.exp.seconds = 300
+	sasl.oauthbearer.assertion.claim.iss = null
+	sasl.oauthbearer.assertion.claim.jti.include = false
+	sasl.oauthbearer.assertion.claim.nbf.seconds = 60
+	sasl.oauthbearer.assertion.claim.sub = null
+	sasl.oauthbearer.assertion.file = null
+	sasl.oauthbearer.assertion.private.key.file = null
+	sasl.oauthbearer.assertion.private.key.passphrase = null
+	sasl.oauthbearer.assertion.template.file = null
+	sasl.oauthbearer.client.credentials.client.id = null
+	sasl.oauthbearer.client.credentials.client.secret = null
+	sasl.oauthbearer.clock.skew.seconds = 30
+	sasl.oauthbearer.expected.audience = []
+	sasl.oauthbearer.expected.issuer = null
+	sasl.oauthbearer.header.urlencode = false
+	sasl.oauthbearer.jwks.endpoint.refresh.ms = 3600000
+	sasl.oauthbearer.jwks.endpoint.retry.backoff.max.ms = 10000
+	sasl.oauthbearer.jwks.endpoint.retry.backoff.ms = 100
+	sasl.oauthbearer.jwks.endpoint.url = null
+	sasl.oauthbearer.jwt.retriever.class = class org.apache.kafka.common.security.oauthbearer.DefaultJwtRetriever
+	sasl.oauthbearer.jwt.validator.class = class org.apache.kafka.common.security.oauthbearer.DefaultJwtValidator
+	sasl.oauthbearer.scope = null
+	sasl.oauthbearer.scope.claim.name = scope
+	sasl.oauthbearer.sub.claim.name = sub
+	sasl.oauthbearer.token.endpoint.url = null
+	security.protocol = PLAINTEXT
+	security.providers = null
+	send.buffer.bytes = 131072
+	socket.connection.setup.timeout.max.ms = 30000
+	socket.connection.setup.timeout.ms = 10000
+	ssl.cipher.suites = []
+	ssl.enabled.protocols = [TLSv1.2, TLSv1.3]
+	ssl.endpoint.identification.algorithm = https
+	ssl.engine.factory.class = null
+	ssl.key.password = null
+	ssl.keymanager.algorithm = SunX509
+	ssl.keystore.certificate.chain = null
+	ssl.keystore.key = null
+	ssl.keystore.location = null
+	ssl.keystore.password = null
+	ssl.keystore.type = JKS
+	ssl.protocol = TLSv1.3
+	ssl.provider = null
+	ssl.secure.random.implementation = null
+	ssl.trustmanager.algorithm = PKIX
+	ssl.truststore.certificates = null
+	ssl.truststore.location = null
+	ssl.truststore.password = null
+	ssl.truststore.type = JKS
+	transaction.timeout.ms = 60000
+	transaction.two.phase.commit.enable = false
+	transactional.id = null
+	value.serializer = class org.apache.kafka.common.serialization.ByteArraySerializer
+
+[main] INFO org.apache.kafka.common.telemetry.internals.KafkaMetricsCollector - initializing Kafka metrics collector
+[main] INFO org.apache.kafka.clients.producer.KafkaProducer - [Producer clientId=producer-2] Instantiated an idempotent producer.
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka version: 4.4.0-SNAPSHOT
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka commitId: unknown
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka startTimeMs: 1791777630653
+[kafka-producer-network-thread | producer-2] INFO org.apache.kafka.clients.Metadata - [Producer clientId=producer-2] Cluster ID: MkU3OEVBNTcwNTJENDM2Qk
+[kafka-producer-network-thread | producer-2] INFO org.apache.kafka.clients.producer.internals.TransactionManager - [Producer clientId=producer-2] ProducerId set to 1 with epoch 0
+[main] INFO org.apache.kafka.clients.producer.KafkaProducer - [Producer clientId=producer-2] Closing the Kafka producer with timeoutMillis = 9223372036854775807 ms.
+[main] INFO org.apache.kafka.common.metrics.Metrics - Metrics scheduler closed
+[main] INFO org.apache.kafka.common.metrics.Metrics - Closing reporter org.apache.kafka.common.metrics.JmxReporter
+[main] INFO org.apache.kafka.common.metrics.Metrics - Closing reporter org.apache.kafka.common.telemetry.internals.ClientTelemetryReporter
+[main] INFO org.apache.kafka.common.metrics.Metrics - Metrics reporters closed
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - App info kafka.producer for producer-2 unregistered
+[main] INFO org.apache.kafka.common.config.AbstractConfig - ProducerConfig values: 
+	acks = -1
+	batch.size = 16384
+	bootstrap.servers = [127.0.0.1:19130, 127.0.0.1:19131, 127.0.0.1:19132]
+	buffer.memory = 33554432
+	client.dns.lookup = use_all_dns_ips
+	client.id = producer-3
+	client.rack = 
+	compression.gzip.level = -1
+	compression.lz4.level = 9
+	compression.type = none
+	compression.zstd.level = 3
+	config.providers = []
+	connections.max.idle.ms = 540000
+	delivery.timeout.ms = 120000
+	enable.idempotence = true
+	enable.metrics.push = true
+	interceptor.classes = []
+	key.serializer = class org.apache.kafka.common.serialization.ByteArraySerializer
+	linger.ms = 5
+	max.block.ms = 60000
+	max.in.flight.requests.per.connection = 5
+	max.request.size = 1048576
+	metadata.cluster.check.enable = true
+	metadata.max.age.ms = 300000
+	metadata.max.idle.ms = 300000
+	metadata.recovery.rebootstrap.trigger.ms = 300000
+	metadata.recovery.strategy = rebootstrap
+	metric.reporters = [org.apache.kafka.common.metrics.JmxReporter]
+	metrics.num.samples = 2
+	metrics.recording.level = INFO
+	metrics.sample.window.ms = 30000
+	partitioner.adaptive.partitioning.enable = true
+	partitioner.availability.timeout.ms = 0
+	partitioner.class = null
+	partitioner.ignore.keys = false
+	partitioner.rack.aware = false
+	receive.buffer.bytes = 32768
+	reconnect.backoff.max.ms = 1000
+	reconnect.backoff.ms = 50
+	request.timeout.ms = 30000
+	retries = 2147483647
+	retry.backoff.max.ms = 1000
+	retry.backoff.ms = 100
+	sasl.client.callback.handler.class = null
+	sasl.jaas.config = null
+	sasl.kerberos.kinit.cmd = /usr/bin/kinit
+	sasl.kerberos.min.time.before.relogin = 60000
+	sasl.kerberos.service.name = null
+	sasl.kerberos.ticket.renew.jitter = 0.05
+	sasl.kerberos.ticket.renew.window.factor = 0.8
+	sasl.login.callback.handler.class = null
+	sasl.login.class = null
+	sasl.login.connect.timeout.ms = null
+	sasl.login.read.timeout.ms = null
+	sasl.login.refresh.buffer.seconds = 300
+	sasl.login.refresh.min.period.seconds = 60
+	sasl.login.refresh.window.factor = 0.8
+	sasl.login.refresh.window.jitter = 0.05
+	sasl.login.retry.backoff.max.ms = 10000
+	sasl.login.retry.backoff.ms = 100
+	sasl.mechanism = GSSAPI
+	sasl.oauthbearer.allow.unverified.audience = false
+	sasl.oauthbearer.allow.unverified.issuer = false
+	sasl.oauthbearer.assertion.algorithm = RS256
+	sasl.oauthbearer.assertion.claim.aud = null
+	sasl.oauthbearer.assertion.claim.exp.seconds = 300
+	sasl.oauthbearer.assertion.claim.iss = null
+	sasl.oauthbearer.assertion.claim.jti.include = false
+	sasl.oauthbearer.assertion.claim.nbf.seconds = 60
+	sasl.oauthbearer.assertion.claim.sub = null
+	sasl.oauthbearer.assertion.file = null
+	sasl.oauthbearer.assertion.private.key.file = null
+	sasl.oauthbearer.assertion.private.key.passphrase = null
+	sasl.oauthbearer.assertion.template.file = null
+	sasl.oauthbearer.client.credentials.client.id = null
+	sasl.oauthbearer.client.credentials.client.secret = null
+	sasl.oauthbearer.clock.skew.seconds = 30
+	sasl.oauthbearer.expected.audience = []
+	sasl.oauthbearer.expected.issuer = null
+	sasl.oauthbearer.header.urlencode = false
+	sasl.oauthbearer.jwks.endpoint.refresh.ms = 3600000
+	sasl.oauthbearer.jwks.endpoint.retry.backoff.max.ms = 10000
+	sasl.oauthbearer.jwks.endpoint.retry.backoff.ms = 100
+	sasl.oauthbearer.jwks.endpoint.url = null
+	sasl.oauthbearer.jwt.retriever.class = class org.apache.kafka.common.security.oauthbearer.DefaultJwtRetriever
+	sasl.oauthbearer.jwt.validator.class = class org.apache.kafka.common.security.oauthbearer.DefaultJwtValidator
+	sasl.oauthbearer.scope = null
+	sasl.oauthbearer.scope.claim.name = scope
+	sasl.oauthbearer.sub.claim.name = sub
+	sasl.oauthbearer.token.endpoint.url = null
+	security.protocol = PLAINTEXT
+	security.providers = null
+	send.buffer.bytes = 131072
+	socket.connection.setup.timeout.max.ms = 30000
+	socket.connection.setup.timeout.ms = 10000
+	ssl.cipher.suites = []
+	ssl.enabled.protocols = [TLSv1.2, TLSv1.3]
+	ssl.endpoint.identification.algorithm = https
+	ssl.engine.factory.class = null
+	ssl.key.password = null
+	ssl.keymanager.algorithm = SunX509
+	ssl.keystore.certificate.chain = null
+	ssl.keystore.key = null
+	ssl.keystore.location = null
+	ssl.keystore.password = null
+	ssl.keystore.type = JKS
+	ssl.protocol = TLSv1.3
+	ssl.provider = null
+	ssl.secure.random.implementation = null
+	ssl.trustmanager.algorithm = PKIX
+	ssl.truststore.certificates = null
+	ssl.truststore.location = null
+	ssl.truststore.password = null
+	ssl.truststore.type = JKS
+	transaction.timeout.ms = 60000
+	transaction.two.phase.commit.enable = false
+	transactional.id = null
+	value.serializer = class org.apache.kafka.common.serialization.ByteArraySerializer
+
+[main] INFO org.apache.kafka.common.telemetry.internals.KafkaMetricsCollector - initializing Kafka metrics collector
+[main] INFO org.apache.kafka.clients.producer.KafkaProducer - [Producer clientId=producer-3] Instantiated an idempotent producer.
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka version: 4.4.0-SNAPSHOT
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka commitId: unknown
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka startTimeMs: 1791777630693
+[kafka-producer-network-thread | producer-3] INFO org.apache.kafka.clients.producer.internals.TransactionManager - [Producer clientId=producer-3] ProducerId set to 2 with epoch 0
+[kafka-producer-network-thread | producer-3] INFO org.apache.kafka.clients.Metadata - [Producer clientId=producer-3] Cluster ID: MkU3OEVBNTcwNTJENDM2Qk
+[main] INFO org.apache.kafka.clients.producer.KafkaProducer - [Producer clientId=producer-3] Closing the Kafka producer with timeoutMillis = 9223372036854775807 ms.
+[main] INFO org.apache.kafka.common.metrics.Metrics - Metrics scheduler closed
+[main] INFO org.apache.kafka.common.metrics.Metrics - Closing reporter org.apache.kafka.common.metrics.JmxReporter
+[main] INFO org.apache.kafka.common.metrics.Metrics - Closing reporter org.apache.kafka.common.telemetry.internals.ClientTelemetryReporter
+[main] INFO org.apache.kafka.common.metrics.Metrics - Metrics reporters closed
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - App info kafka.producer for producer-3 unregistered
+[main] INFO org.apache.kafka.common.config.AbstractConfig - ProducerConfig values: 
+	acks = -1
+	batch.size = 16384
+	bootstrap.servers = [127.0.0.1:19130, 127.0.0.1:19131, 127.0.0.1:19132]
+	buffer.memory = 33554432
+	client.dns.lookup = use_all_dns_ips
+	client.id = producer-4
+	client.rack = 
+	compression.gzip.level = -1
+	compression.lz4.level = 9
+	compression.type = none
+	compression.zstd.level = 3
+	config.providers = []
+	connections.max.idle.ms = 540000
+	delivery.timeout.ms = 120000
+	enable.idempotence = true
+	enable.metrics.push = true
+	interceptor.classes = []
+	key.serializer = class org.apache.kafka.common.serialization.ByteArraySerializer
+	linger.ms = 5
+	max.block.ms = 60000
+	max.in.flight.requests.per.connection = 5
+	max.request.size = 1048576
+	metadata.cluster.check.enable = true
+	metadata.max.age.ms = 300000
+	metadata.max.idle.ms = 300000
+	metadata.recovery.rebootstrap.trigger.ms = 300000
+	metadata.recovery.strategy = rebootstrap
+	metric.reporters = [org.apache.kafka.common.metrics.JmxReporter]
+	metrics.num.samples = 2
+	metrics.recording.level = INFO
+	metrics.sample.window.ms = 30000
+	partitioner.adaptive.partitioning.enable = true
+	partitioner.availability.timeout.ms = 0
+	partitioner.class = null
+	partitioner.ignore.keys = false
+	partitioner.rack.aware = false
+	receive.buffer.bytes = 32768
+	reconnect.backoff.max.ms = 1000
+	reconnect.backoff.ms = 50
+	request.timeout.ms = 30000
+	retries = 2147483647
+	retry.backoff.max.ms = 1000
+	retry.backoff.ms = 100
+	sasl.client.callback.handler.class = null
+	sasl.jaas.config = null
+	sasl.kerberos.kinit.cmd = /usr/bin/kinit
+	sasl.kerberos.min.time.before.relogin = 60000
+	sasl.kerberos.service.name = null
+	sasl.kerberos.ticket.renew.jitter = 0.05
+	sasl.kerberos.ticket.renew.window.factor = 0.8
+	sasl.login.callback.handler.class = null
+	sasl.login.class = null
+	sasl.login.connect.timeout.ms = null
+	sasl.login.read.timeout.ms = null
+	sasl.login.refresh.buffer.seconds = 300
+	sasl.login.refresh.min.period.seconds = 60
+	sasl.login.refresh.window.factor = 0.8
+	sasl.login.refresh.window.jitter = 0.05
+	sasl.login.retry.backoff.max.ms = 10000
+	sasl.login.retry.backoff.ms = 100
+	sasl.mechanism = GSSAPI
+	sasl.oauthbearer.allow.unverified.audience = false
+	sasl.oauthbearer.allow.unverified.issuer = false
+	sasl.oauthbearer.assertion.algorithm = RS256
+	sasl.oauthbearer.assertion.claim.aud = null
+	sasl.oauthbearer.assertion.claim.exp.seconds = 300
+	sasl.oauthbearer.assertion.claim.iss = null
+	sasl.oauthbearer.assertion.claim.jti.include = false
+	sasl.oauthbearer.assertion.claim.nbf.seconds = 60
+	sasl.oauthbearer.assertion.claim.sub = null
+	sasl.oauthbearer.assertion.file = null
+	sasl.oauthbearer.assertion.private.key.file = null
+	sasl.oauthbearer.assertion.private.key.passphrase = null
+	sasl.oauthbearer.assertion.template.file = null
+	sasl.oauthbearer.client.credentials.client.id = null
+	sasl.oauthbearer.client.credentials.client.secret = null
+	sasl.oauthbearer.clock.skew.seconds = 30
+	sasl.oauthbearer.expected.audience = []
+	sasl.oauthbearer.expected.issuer = null
+	sasl.oauthbearer.header.urlencode = false
+	sasl.oauthbearer.jwks.endpoint.refresh.ms = 3600000
+	sasl.oauthbearer.jwks.endpoint.retry.backoff.max.ms = 10000
+	sasl.oauthbearer.jwks.endpoint.retry.backoff.ms = 100
+	sasl.oauthbearer.jwks.endpoint.url = null
+	sasl.oauthbearer.jwt.retriever.class = class org.apache.kafka.common.security.oauthbearer.DefaultJwtRetriever
+	sasl.oauthbearer.jwt.validator.class = class org.apache.kafka.common.security.oauthbearer.DefaultJwtValidator
+	sasl.oauthbearer.scope = null
+	sasl.oauthbearer.scope.claim.name = scope
+	sasl.oauthbearer.sub.claim.name = sub
+	sasl.oauthbearer.token.endpoint.url = null
+	security.protocol = PLAINTEXT
+	security.providers = null
+	send.buffer.bytes = 131072
+	socket.connection.setup.timeout.max.ms = 30000
+	socket.connection.setup.timeout.ms = 10000
+	ssl.cipher.suites = []
+	ssl.enabled.protocols = [TLSv1.2, TLSv1.3]
+	ssl.endpoint.identification.algorithm = https
+	ssl.engine.factory.class = null
+	ssl.key.password = null
+	ssl.keymanager.algorithm = SunX509
+	ssl.keystore.certificate.chain = null
+	ssl.keystore.key = null
+	ssl.keystore.location = null
+	ssl.keystore.password = null
+	ssl.keystore.type = JKS
+	ssl.protocol = TLSv1.3
+	ssl.provider = null
+	ssl.secure.random.implementation = null
+	ssl.trustmanager.algorithm = PKIX
+	ssl.truststore.certificates = null
+	ssl.truststore.location = null
+	ssl.truststore.password = null
+	ssl.truststore.type = JKS
+	transaction.timeout.ms = 60000
+	transaction.two.phase.commit.enable = false
+	transactional.id = null
+	value.serializer = class org.apache.kafka.common.serialization.ByteArraySerializer
+
+[main] INFO org.apache.kafka.common.telemetry.internals.KafkaMetricsCollector - initializing Kafka metrics collector
+[main] INFO org.apache.kafka.clients.producer.KafkaProducer - [Producer clientId=producer-4] Instantiated an idempotent producer.
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka version: 4.4.0-SNAPSHOT
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka commitId: unknown
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka startTimeMs: 1791777630726
+[kafka-producer-network-thread | producer-4] INFO org.apache.kafka.clients.Metadata - [Producer clientId=producer-4] Cluster ID: MkU3OEVBNTcwNTJENDM2Qk
+[kafka-producer-network-thread | producer-4] INFO org.apache.kafka.clients.producer.internals.TransactionManager - [Producer clientId=producer-4] ProducerId set to 3 with epoch 0
+[main] INFO org.apache.kafka.clients.producer.KafkaProducer - [Producer clientId=producer-4] Closing the Kafka producer with timeoutMillis = 9223372036854775807 ms.
+[main] INFO org.apache.kafka.common.metrics.Metrics - Metrics scheduler closed
+[main] INFO org.apache.kafka.common.metrics.Metrics - Closing reporter org.apache.kafka.common.metrics.JmxReporter
+[main] INFO org.apache.kafka.common.metrics.Metrics - Closing reporter org.apache.kafka.common.telemetry.internals.ClientTelemetryReporter
+[main] INFO org.apache.kafka.common.metrics.Metrics - Metrics reporters closed
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - App info kafka.producer for producer-4 unregistered
+[main] INFO org.apache.kafka.common.config.AbstractConfig - ConsumerConfig values: 
+	allow.auto.create.topics = true
+	auto.commit.interval.ms = 5000
+	auto.offset.reset = earliest
+	bootstrap.servers = [127.0.0.1:19130, 127.0.0.1:19131, 127.0.0.1:19132]
+	check.crcs = true
+	client.dns.lookup = use_all_dns_ips
+	client.id = consumer-target-initial-probe-22ffc97e-c563-40c3-ace9-2c79419207cb-1
+	client.rack = 
+	config.providers = []
+	connections.max.idle.ms = 540000
+	default.api.timeout.ms = 60000
+	enable.auto.commit = false
+	enable.metrics.push = true
+	exclude.internal.topics = true
+	fetch.max.bytes = 52428800
+	fetch.max.wait.ms = 500
+	fetch.min.bytes = 1
+	group.id = target-initial-probe-22ffc97e-c563-40c3-ace9-2c79419207cb
+	group.instance.id = null
+	group.protocol = classic
+	group.remote.assignor = null
+	heartbeat.interval.ms = 3000
+	interceptor.classes = []
+	internal.throw.on.fetch.stable.offset.unsupported = false
+	isolation.level = read_uncommitted
+	key.deserializer = class org.apache.kafka.common.serialization.ByteArrayDeserializer
+	max.partition.fetch.bytes = 1048576
+	max.poll.interval.ms = 300000
+	max.poll.records = 500
+	metadata.cluster.check.enable = true
+	metadata.max.age.ms = 300000
+	metadata.recovery.rebootstrap.trigger.ms = 300000
+	metadata.recovery.strategy = rebootstrap
+	metric.reporters = [org.apache.kafka.common.metrics.JmxReporter]
+	metrics.num.samples = 2
+	metrics.recording.level = INFO
+	metrics.sample.window.ms = 30000
+	partition.assignment.strategy = [class org.apache.kafka.clients.consumer.RangeAssignor, class org.apache.kafka.clients.consumer.CooperativeStickyAssignor]
+	receive.buffer.bytes = 65536
+	reconnect.backoff.max.ms = 1000
+	reconnect.backoff.ms = 50
+	request.timeout.ms = 30000
+	retry.backoff.max.ms = 1000
+	retry.backoff.ms = 100
+	sasl.client.callback.handler.class = null
+	sasl.jaas.config = null
+	sasl.kerberos.kinit.cmd = /usr/bin/kinit
+	sasl.kerberos.min.time.before.relogin = 60000
+	sasl.kerberos.service.name = null
+	sasl.kerberos.ticket.renew.jitter = 0.05
+	sasl.kerberos.ticket.renew.window.factor = 0.8
+	sasl.login.callback.handler.class = null
+	sasl.login.class = null
+	sasl.login.connect.timeout.ms = null
+	sasl.login.read.timeout.ms = null
+	sasl.login.refresh.buffer.seconds = 300
+	sasl.login.refresh.min.period.seconds = 60
+	sasl.login.refresh.window.factor = 0.8
+	sasl.login.refresh.window.jitter = 0.05
+	sasl.login.retry.backoff.max.ms = 10000
+	sasl.login.retry.backoff.ms = 100
+	sasl.mechanism = GSSAPI
+	sasl.oauthbearer.allow.unverified.audience = false
+	sasl.oauthbearer.allow.unverified.issuer = false
+	sasl.oauthbearer.assertion.algorithm = RS256
+	sasl.oauthbearer.assertion.claim.aud = null
+	sasl.oauthbearer.assertion.claim.exp.seconds = 300
+	sasl.oauthbearer.assertion.claim.iss = null
+	sasl.oauthbearer.assertion.claim.jti.include = false
+	sasl.oauthbearer.assertion.claim.nbf.seconds = 60
+	sasl.oauthbearer.assertion.claim.sub = null
+	sasl.oauthbearer.assertion.file = null
+	sasl.oauthbearer.assertion.private.key.file = null
+	sasl.oauthbearer.assertion.private.key.passphrase = null
+	sasl.oauthbearer.assertion.template.file = null
+	sasl.oauthbearer.client.credentials.client.id = null
+	sasl.oauthbearer.client.credentials.client.secret = null
+	sasl.oauthbearer.clock.skew.seconds = 30
+	sasl.oauthbearer.expected.audience = []
+	sasl.oauthbearer.expected.issuer = null
+	sasl.oauthbearer.header.urlencode = false
+	sasl.oauthbearer.jwks.endpoint.refresh.ms = 3600000
+	sasl.oauthbearer.jwks.endpoint.retry.backoff.max.ms = 10000
+	sasl.oauthbearer.jwks.endpoint.retry.backoff.ms = 100
+	sasl.oauthbearer.jwks.endpoint.url = null
+	sasl.oauthbearer.jwt.retriever.class = class org.apache.kafka.common.security.oauthbearer.DefaultJwtRetriever
+	sasl.oauthbearer.jwt.validator.class = class org.apache.kafka.common.security.oauthbearer.DefaultJwtValidator
+	sasl.oauthbearer.scope = null
+	sasl.oauthbearer.scope.claim.name = scope
+	sasl.oauthbearer.sub.claim.name = sub
+	sasl.oauthbearer.token.endpoint.url = null
+	security.protocol = PLAINTEXT
+	security.providers = null
+	send.buffer.bytes = 131072
+	session.timeout.ms = 45000
+	share.acknowledgement.mode = implicit
+	share.acquire.mode = BATCH_OPTIMIZED
+	socket.connection.setup.timeout.max.ms = 30000
+	socket.connection.setup.timeout.ms = 10000
+	ssl.cipher.suites = []
+	ssl.enabled.protocols = [TLSv1.2, TLSv1.3]
+	ssl.endpoint.identification.algorithm = https
+	ssl.engine.factory.class = null
+	ssl.key.password = null
+	ssl.keymanager.algorithm = SunX509
+	ssl.keystore.certificate.chain = null
+	ssl.keystore.key = null
+	ssl.keystore.location = null
+	ssl.keystore.password = null
+	ssl.keystore.type = JKS
+	ssl.protocol = TLSv1.3
+	ssl.provider = null
+	ssl.secure.random.implementation = null
+	ssl.trustmanager.algorithm = PKIX
+	ssl.truststore.certificates = null
+	ssl.truststore.location = null
+	ssl.truststore.password = null
+	ssl.truststore.type = JKS
+	value.deserializer = class org.apache.kafka.common.serialization.ByteArrayDeserializer
+
+[main] INFO org.apache.kafka.common.telemetry.internals.KafkaMetricsCollector - initializing Kafka metrics collector
+[main] INFO org.apache.kafka.clients.consumer.internals.ClassicKafkaConsumer - [Consumer clientId=consumer-target-initial-probe-22ffc97e-c563-40c3-ace9-2c79419207cb-1, groupId=target-initial-probe-22ffc97e-c563-40c3-ace9-2c79419207cb] 
+****************************************************************
+* The consumer rebalance protocol (KIP-848) is production-ready!
+* Set the consumer configuration group.protocol=consumer to try it out.
+* See https://kafka.apache.org/documentation/#consumer_rebalance_protocol
+****************************************************************
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka version: 4.4.0-SNAPSHOT
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka commitId: unknown
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka startTimeMs: 1791777630897
+[main] INFO org.apache.kafka.clients.consumer.internals.ClassicKafkaConsumer - [Consumer clientId=consumer-target-initial-probe-22ffc97e-c563-40c3-ace9-2c79419207cb-1, groupId=target-initial-probe-22ffc97e-c563-40c3-ace9-2c79419207cb] Assigned to partition(s): nereus-delay-source-topic-target-worker-legacy-admission-regression-target-175972a6-9fca-4ad4-a5c3-26c715f289fc-0
+[main] INFO org.apache.kafka.clients.consumer.internals.ClassicKafkaConsumer - [Consumer clientId=consumer-target-initial-probe-22ffc97e-c563-40c3-ace9-2c79419207cb-1, groupId=target-initial-probe-22ffc97e-c563-40c3-ace9-2c79419207cb] Seeking to offset 3 for partition nereus-delay-source-topic-target-worker-legacy-admission-regression-target-175972a6-9fca-4ad4-a5c3-26c715f289fc-0
+[main] INFO org.apache.kafka.clients.Metadata - [Consumer clientId=consumer-target-initial-probe-22ffc97e-c563-40c3-ace9-2c79419207cb-1, groupId=target-initial-probe-22ffc97e-c563-40c3-ace9-2c79419207cb] Cluster ID: MkU3OEVBNTcwNTJENDM2Qk
+[main] INFO org.apache.kafka.clients.consumer.internals.ConsumerCoordinator - [Consumer clientId=consumer-target-initial-probe-22ffc97e-c563-40c3-ace9-2c79419207cb-1, groupId=target-initial-probe-22ffc97e-c563-40c3-ace9-2c79419207cb] Resetting generation and member id due to: consumer pro-actively leaving the group
+[main] INFO org.apache.kafka.clients.consumer.internals.ConsumerCoordinator - [Consumer clientId=consumer-target-initial-probe-22ffc97e-c563-40c3-ace9-2c79419207cb-1, groupId=target-initial-probe-22ffc97e-c563-40c3-ace9-2c79419207cb] Request joining group due to: consumer pro-actively leaving the group
+[main] INFO org.apache.kafka.common.metrics.Metrics - Metrics scheduler closed
+[main] INFO org.apache.kafka.common.metrics.Metrics - Closing reporter org.apache.kafka.common.metrics.JmxReporter
+[main] INFO org.apache.kafka.common.metrics.Metrics - Closing reporter org.apache.kafka.common.telemetry.internals.ClientTelemetryReporter
+[main] INFO org.apache.kafka.common.metrics.Metrics - Metrics reporters closed
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - App info kafka.consumer for consumer-target-initial-probe-22ffc97e-c563-40c3-ace9-2c79419207cb-1 unregistered
+[main] INFO org.apache.kafka.common.config.AbstractConfig - ProducerConfig values: 
+	acks = -1
+	batch.size = 16384
+	bootstrap.servers = [127.0.0.1:19130, 127.0.0.1:19131, 127.0.0.1:19132]
+	buffer.memory = 33554432
+	client.dns.lookup = use_all_dns_ips
+	client.id = producer-5
+	client.rack = 
+	compression.gzip.level = -1
+	compression.lz4.level = 9
+	compression.type = none
+	compression.zstd.level = 3
+	config.providers = []
+	connections.max.idle.ms = 540000
+	delivery.timeout.ms = 120000
+	enable.idempotence = true
+	enable.metrics.push = true
+	interceptor.classes = []
+	key.serializer = class org.apache.kafka.common.serialization.ByteArraySerializer
+	linger.ms = 5
+	max.block.ms = 60000
+	max.in.flight.requests.per.connection = 5
+	max.request.size = 1048576
+	metadata.cluster.check.enable = true
+	metadata.max.age.ms = 300000
+	metadata.max.idle.ms = 300000
+	metadata.recovery.rebootstrap.trigger.ms = 300000
+	metadata.recovery.strategy = rebootstrap
+	metric.reporters = [org.apache.kafka.common.metrics.JmxReporter]
+	metrics.num.samples = 2
+	metrics.recording.level = INFO
+	metrics.sample.window.ms = 30000
+	partitioner.adaptive.partitioning.enable = true
+	partitioner.availability.timeout.ms = 0
+	partitioner.class = null
+	partitioner.ignore.keys = false
+	partitioner.rack.aware = false
+	receive.buffer.bytes = 32768
+	reconnect.backoff.max.ms = 1000
+	reconnect.backoff.ms = 50
+	request.timeout.ms = 30000
+	retries = 2147483647
+	retry.backoff.max.ms = 1000
+	retry.backoff.ms = 100
+	sasl.client.callback.handler.class = null
+	sasl.jaas.config = null
+	sasl.kerberos.kinit.cmd = /usr/bin/kinit
+	sasl.kerberos.min.time.before.relogin = 60000
+	sasl.kerberos.service.name = null
+	sasl.kerberos.ticket.renew.jitter = 0.05
+	sasl.kerberos.ticket.renew.window.factor = 0.8
+	sasl.login.callback.handler.class = null
+	sasl.login.class = null
+	sasl.login.connect.timeout.ms = null
+	sasl.login.read.timeout.ms = null
+	sasl.login.refresh.buffer.seconds = 300
+	sasl.login.refresh.min.period.seconds = 60
+	sasl.login.refresh.window.factor = 0.8
+	sasl.login.refresh.window.jitter = 0.05
+	sasl.login.retry.backoff.max.ms = 10000
+	sasl.login.retry.backoff.ms = 100
+	sasl.mechanism = GSSAPI
+	sasl.oauthbearer.allow.unverified.audience = false
+	sasl.oauthbearer.allow.unverified.issuer = false
+	sasl.oauthbearer.assertion.algorithm = RS256
+	sasl.oauthbearer.assertion.claim.aud = null
+	sasl.oauthbearer.assertion.claim.exp.seconds = 300
+	sasl.oauthbearer.assertion.claim.iss = null
+	sasl.oauthbearer.assertion.claim.jti.include = false
+	sasl.oauthbearer.assertion.claim.nbf.seconds = 60
+	sasl.oauthbearer.assertion.claim.sub = null
+	sasl.oauthbearer.assertion.file = null
+	sasl.oauthbearer.assertion.private.key.file = null
+	sasl.oauthbearer.assertion.private.key.passphrase = null
+	sasl.oauthbearer.assertion.template.file = null
+	sasl.oauthbearer.client.credentials.client.id = null
+	sasl.oauthbearer.client.credentials.client.secret = null
+	sasl.oauthbearer.clock.skew.seconds = 30
+	sasl.oauthbearer.expected.audience = []
+	sasl.oauthbearer.expected.issuer = null
+	sasl.oauthbearer.header.urlencode = false
+	sasl.oauthbearer.jwks.endpoint.refresh.ms = 3600000
+	sasl.oauthbearer.jwks.endpoint.retry.backoff.max.ms = 10000
+	sasl.oauthbearer.jwks.endpoint.retry.backoff.ms = 100
+	sasl.oauthbearer.jwks.endpoint.url = null
+	sasl.oauthbearer.jwt.retriever.class = class org.apache.kafka.common.security.oauthbearer.DefaultJwtRetriever
+	sasl.oauthbearer.jwt.validator.class = class org.apache.kafka.common.security.oauthbearer.DefaultJwtValidator
+	sasl.oauthbearer.scope = null
+	sasl.oauthbearer.scope.claim.name = scope
+	sasl.oauthbearer.sub.claim.name = sub
+	sasl.oauthbearer.token.endpoint.url = null
+	security.protocol = PLAINTEXT
+	security.providers = null
+	send.buffer.bytes = 131072
+	socket.connection.setup.timeout.max.ms = 30000
+	socket.connection.setup.timeout.ms = 10000
+	ssl.cipher.suites = []
+	ssl.enabled.protocols = [TLSv1.2, TLSv1.3]
+	ssl.endpoint.identification.algorithm = https
+	ssl.engine.factory.class = null
+	ssl.key.password = null
+	ssl.keymanager.algorithm = SunX509
+	ssl.keystore.certificate.chain = null
+	ssl.keystore.key = null
+	ssl.keystore.location = null
+	ssl.keystore.password = null
+	ssl.keystore.type = JKS
+	ssl.protocol = TLSv1.3
+	ssl.provider = null
+	ssl.secure.random.implementation = null
+	ssl.trustmanager.algorithm = PKIX
+	ssl.truststore.certificates = null
+	ssl.truststore.location = null
+	ssl.truststore.password = null
+	ssl.truststore.type = JKS
+	transaction.timeout.ms = 60000
+	transaction.two.phase.commit.enable = false
+	transactional.id = null
+	value.serializer = class org.apache.kafka.common.serialization.ByteArraySerializer
+
+[main] INFO org.apache.kafka.common.telemetry.internals.KafkaMetricsCollector - initializing Kafka metrics collector
+[main] INFO org.apache.kafka.clients.producer.KafkaProducer - [Producer clientId=producer-5] Instantiated an idempotent producer.
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka version: 4.4.0-SNAPSHOT
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka commitId: unknown
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka startTimeMs: 1791777631818
+[kafka-producer-network-thread | producer-5] INFO org.apache.kafka.clients.Metadata - [Producer clientId=producer-5] Cluster ID: MkU3OEVBNTcwNTJENDM2Qk
+[kafka-producer-network-thread | producer-5] INFO org.apache.kafka.clients.producer.internals.TransactionManager - [Producer clientId=producer-5] ProducerId set to 1000 with epoch 0
+[main] INFO org.apache.kafka.clients.producer.KafkaProducer - [Producer clientId=producer-5] Closing the Kafka producer with timeoutMillis = 9223372036854775807 ms.
+[main] INFO org.apache.kafka.common.metrics.Metrics - Metrics scheduler closed
+[main] INFO org.apache.kafka.common.metrics.Metrics - Closing reporter org.apache.kafka.common.metrics.JmxReporter
+[main] INFO org.apache.kafka.common.metrics.Metrics - Closing reporter org.apache.kafka.common.telemetry.internals.ClientTelemetryReporter
+[main] INFO org.apache.kafka.common.metrics.Metrics - Metrics reporters closed
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - App info kafka.producer for producer-5 unregistered
+[main] INFO org.apache.kafka.common.config.AbstractConfig - ConsumerConfig values: 
+	allow.auto.create.topics = true
+	auto.commit.interval.ms = 5000
+	auto.offset.reset = earliest
+	bootstrap.servers = [127.0.0.1:19130, 127.0.0.1:19131, 127.0.0.1:19132]
+	check.crcs = true
+	client.dns.lookup = use_all_dns_ips
+	client.id = consumer-nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8-2
+	client.rack = 
+	config.providers = []
+	connections.max.idle.ms = 540000
+	default.api.timeout.ms = 5000
+	enable.auto.commit = false
+	enable.metrics.push = true
+	exclude.internal.topics = true
+	fetch.max.bytes = 52428800
+	fetch.max.wait.ms = 500
+	fetch.min.bytes = 1
+	group.id = nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8
+	group.instance.id = null
+	group.protocol = classic
+	group.remote.assignor = null
+	heartbeat.interval.ms = 3000
+	interceptor.classes = []
+	internal.throw.on.fetch.stable.offset.unsupported = false
+	isolation.level = read_uncommitted
+	key.deserializer = class org.apache.kafka.common.serialization.ByteArrayDeserializer
+	max.partition.fetch.bytes = 1048576
+	max.poll.interval.ms = 300000
+	max.poll.records = 500
+	metadata.cluster.check.enable = true
+	metadata.max.age.ms = 300000
+	metadata.recovery.rebootstrap.trigger.ms = 300000
+	metadata.recovery.strategy = rebootstrap
+	metric.reporters = [org.apache.kafka.common.metrics.JmxReporter]
+	metrics.num.samples = 2
+	metrics.recording.level = INFO
+	metrics.sample.window.ms = 30000
+	partition.assignment.strategy = [class org.apache.kafka.clients.consumer.RangeAssignor, class org.apache.kafka.clients.consumer.CooperativeStickyAssignor]
+	receive.buffer.bytes = 65536
+	reconnect.backoff.max.ms = 1000
+	reconnect.backoff.ms = 50
+	request.timeout.ms = 2000
+	retry.backoff.max.ms = 1000
+	retry.backoff.ms = 100
+	sasl.client.callback.handler.class = null
+	sasl.jaas.config = null
+	sasl.kerberos.kinit.cmd = /usr/bin/kinit
+	sasl.kerberos.min.time.before.relogin = 60000
+	sasl.kerberos.service.name = null
+	sasl.kerberos.ticket.renew.jitter = 0.05
+	sasl.kerberos.ticket.renew.window.factor = 0.8
+	sasl.login.callback.handler.class = null
+	sasl.login.class = null
+	sasl.login.connect.timeout.ms = null
+	sasl.login.read.timeout.ms = null
+	sasl.login.refresh.buffer.seconds = 300
+	sasl.login.refresh.min.period.seconds = 60
+	sasl.login.refresh.window.factor = 0.8
+	sasl.login.refresh.window.jitter = 0.05
+	sasl.login.retry.backoff.max.ms = 10000
+	sasl.login.retry.backoff.ms = 100
+	sasl.mechanism = GSSAPI
+	sasl.oauthbearer.allow.unverified.audience = false
+	sasl.oauthbearer.allow.unverified.issuer = false
+	sasl.oauthbearer.assertion.algorithm = RS256
+	sasl.oauthbearer.assertion.claim.aud = null
+	sasl.oauthbearer.assertion.claim.exp.seconds = 300
+	sasl.oauthbearer.assertion.claim.iss = null
+	sasl.oauthbearer.assertion.claim.jti.include = false
+	sasl.oauthbearer.assertion.claim.nbf.seconds = 60
+	sasl.oauthbearer.assertion.claim.sub = null
+	sasl.oauthbearer.assertion.file = null
+	sasl.oauthbearer.assertion.private.key.file = null
+	sasl.oauthbearer.assertion.private.key.passphrase = null
+	sasl.oauthbearer.assertion.template.file = null
+	sasl.oauthbearer.client.credentials.client.id = null
+	sasl.oauthbearer.client.credentials.client.secret = null
+	sasl.oauthbearer.clock.skew.seconds = 30
+	sasl.oauthbearer.expected.audience = []
+	sasl.oauthbearer.expected.issuer = null
+	sasl.oauthbearer.header.urlencode = false
+	sasl.oauthbearer.jwks.endpoint.refresh.ms = 3600000
+	sasl.oauthbearer.jwks.endpoint.retry.backoff.max.ms = 10000
+	sasl.oauthbearer.jwks.endpoint.retry.backoff.ms = 100
+	sasl.oauthbearer.jwks.endpoint.url = null
+	sasl.oauthbearer.jwt.retriever.class = class org.apache.kafka.common.security.oauthbearer.DefaultJwtRetriever
+	sasl.oauthbearer.jwt.validator.class = class org.apache.kafka.common.security.oauthbearer.DefaultJwtValidator
+	sasl.oauthbearer.scope = null
+	sasl.oauthbearer.scope.claim.name = scope
+	sasl.oauthbearer.sub.claim.name = sub
+	sasl.oauthbearer.token.endpoint.url = null
+	security.protocol = PLAINTEXT
+	security.providers = null
+	send.buffer.bytes = 131072
+	session.timeout.ms = 45000
+	share.acknowledgement.mode = implicit
+	share.acquire.mode = BATCH_OPTIMIZED
+	socket.connection.setup.timeout.max.ms = 30000
+	socket.connection.setup.timeout.ms = 10000
+	ssl.cipher.suites = []
+	ssl.enabled.protocols = [TLSv1.2, TLSv1.3]
+	ssl.endpoint.identification.algorithm = https
+	ssl.engine.factory.class = null
+	ssl.key.password = null
+	ssl.keymanager.algorithm = SunX509
+	ssl.keystore.certificate.chain = null
+	ssl.keystore.key = null
+	ssl.keystore.location = null
+	ssl.keystore.password = null
+	ssl.keystore.type = JKS
+	ssl.protocol = TLSv1.3
+	ssl.provider = null
+	ssl.secure.random.implementation = null
+	ssl.trustmanager.algorithm = PKIX
+	ssl.truststore.certificates = null
+	ssl.truststore.location = null
+	ssl.truststore.password = null
+	ssl.truststore.type = JKS
+	value.deserializer = class org.apache.kafka.common.serialization.ByteArrayDeserializer
+
+[main] INFO org.apache.kafka.common.telemetry.internals.KafkaMetricsCollector - initializing Kafka metrics collector
+[main] INFO org.apache.kafka.clients.consumer.internals.ClassicKafkaConsumer - [Consumer clientId=consumer-nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8-2, groupId=nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8] 
+****************************************************************
+* The consumer rebalance protocol (KIP-848) is production-ready!
+* Set the consumer configuration group.protocol=consumer to try it out.
+* See https://kafka.apache.org/documentation/#consumer_rebalance_protocol
+****************************************************************
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka version: 4.4.0-SNAPSHOT
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka commitId: unknown
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka startTimeMs: 1791777631962
+[main] INFO org.apache.kafka.common.config.AbstractConfig - ProducerConfig values: 
+	acks = -1
+	batch.size = 16384
+	bootstrap.servers = [127.0.0.1:19130, 127.0.0.1:19131, 127.0.0.1:19132]
+	buffer.memory = 33554432
+	client.dns.lookup = use_all_dns_ips
+	client.id = producer-6
+	client.rack = 
+	compression.gzip.level = -1
+	compression.lz4.level = 9
+	compression.type = none
+	compression.zstd.level = 3
+	config.providers = []
+	connections.max.idle.ms = 540000
+	delivery.timeout.ms = 120000
+	enable.idempotence = true
+	enable.metrics.push = true
+	interceptor.classes = []
+	key.serializer = class org.apache.kafka.common.serialization.ByteArraySerializer
+	linger.ms = 5
+	max.block.ms = 60000
+	max.in.flight.requests.per.connection = 5
+	max.request.size = 1048576
+	metadata.cluster.check.enable = true
+	metadata.max.age.ms = 300000
+	metadata.max.idle.ms = 300000
+	metadata.recovery.rebootstrap.trigger.ms = 300000
+	metadata.recovery.strategy = rebootstrap
+	metric.reporters = [org.apache.kafka.common.metrics.JmxReporter]
+	metrics.num.samples = 2
+	metrics.recording.level = INFO
+	metrics.sample.window.ms = 30000
+	partitioner.adaptive.partitioning.enable = true
+	partitioner.availability.timeout.ms = 0
+	partitioner.class = null
+	partitioner.ignore.keys = false
+	partitioner.rack.aware = false
+	receive.buffer.bytes = 32768
+	reconnect.backoff.max.ms = 1000
+	reconnect.backoff.ms = 50
+	request.timeout.ms = 30000
+	retries = 2147483647
+	retry.backoff.max.ms = 1000
+	retry.backoff.ms = 100
+	sasl.client.callback.handler.class = null
+	sasl.jaas.config = null
+	sasl.kerberos.kinit.cmd = /usr/bin/kinit
+	sasl.kerberos.min.time.before.relogin = 60000
+	sasl.kerberos.service.name = null
+	sasl.kerberos.ticket.renew.jitter = 0.05
+	sasl.kerberos.ticket.renew.window.factor = 0.8
+	sasl.login.callback.handler.class = null
+	sasl.login.class = null
+	sasl.login.connect.timeout.ms = null
+	sasl.login.read.timeout.ms = null
+	sasl.login.refresh.buffer.seconds = 300
+	sasl.login.refresh.min.period.seconds = 60
+	sasl.login.refresh.window.factor = 0.8
+	sasl.login.refresh.window.jitter = 0.05
+	sasl.login.retry.backoff.max.ms = 10000
+	sasl.login.retry.backoff.ms = 100
+	sasl.mechanism = GSSAPI
+	sasl.oauthbearer.allow.unverified.audience = false
+	sasl.oauthbearer.allow.unverified.issuer = false
+	sasl.oauthbearer.assertion.algorithm = RS256
+	sasl.oauthbearer.assertion.claim.aud = null
+	sasl.oauthbearer.assertion.claim.exp.seconds = 300
+	sasl.oauthbearer.assertion.claim.iss = null
+	sasl.oauthbearer.assertion.claim.jti.include = false
+	sasl.oauthbearer.assertion.claim.nbf.seconds = 60
+	sasl.oauthbearer.assertion.claim.sub = null
+	sasl.oauthbearer.assertion.file = null
+	sasl.oauthbearer.assertion.private.key.file = null
+	sasl.oauthbearer.assertion.private.key.passphrase = null
+	sasl.oauthbearer.assertion.template.file = null
+	sasl.oauthbearer.client.credentials.client.id = null
+	sasl.oauthbearer.client.credentials.client.secret = null
+	sasl.oauthbearer.clock.skew.seconds = 30
+	sasl.oauthbearer.expected.audience = []
+	sasl.oauthbearer.expected.issuer = null
+	sasl.oauthbearer.header.urlencode = false
+	sasl.oauthbearer.jwks.endpoint.refresh.ms = 3600000
+	sasl.oauthbearer.jwks.endpoint.retry.backoff.max.ms = 10000
+	sasl.oauthbearer.jwks.endpoint.retry.backoff.ms = 100
+	sasl.oauthbearer.jwks.endpoint.url = null
+	sasl.oauthbearer.jwt.retriever.class = class org.apache.kafka.common.security.oauthbearer.DefaultJwtRetriever
+	sasl.oauthbearer.jwt.validator.class = class org.apache.kafka.common.security.oauthbearer.DefaultJwtValidator
+	sasl.oauthbearer.scope = null
+	sasl.oauthbearer.scope.claim.name = scope
+	sasl.oauthbearer.sub.claim.name = sub
+	sasl.oauthbearer.token.endpoint.url = null
+	security.protocol = PLAINTEXT
+	security.providers = null
+	send.buffer.bytes = 131072
+	socket.connection.setup.timeout.max.ms = 30000
+	socket.connection.setup.timeout.ms = 10000
+	ssl.cipher.suites = []
+	ssl.enabled.protocols = [TLSv1.2, TLSv1.3]
+	ssl.endpoint.identification.algorithm = https
+	ssl.engine.factory.class = null
+	ssl.key.password = null
+	ssl.keymanager.algorithm = SunX509
+	ssl.keystore.certificate.chain = null
+	ssl.keystore.key = null
+	ssl.keystore.location = null
+	ssl.keystore.password = null
+	ssl.keystore.type = JKS
+	ssl.protocol = TLSv1.3
+	ssl.provider = null
+	ssl.secure.random.implementation = null
+	ssl.trustmanager.algorithm = PKIX
+	ssl.truststore.certificates = null
+	ssl.truststore.location = null
+	ssl.truststore.password = null
+	ssl.truststore.type = JKS
+	transaction.timeout.ms = 60000
+	transaction.two.phase.commit.enable = false
+	transactional.id = null
+	value.serializer = class org.apache.kafka.common.serialization.ByteArraySerializer
+
+[main] INFO org.apache.kafka.common.telemetry.internals.KafkaMetricsCollector - initializing Kafka metrics collector
+[main] INFO org.apache.kafka.clients.producer.KafkaProducer - [Producer clientId=producer-6] Instantiated an idempotent producer.
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka version: 4.4.0-SNAPSHOT
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka commitId: unknown
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka startTimeMs: 1791777631968
+[main] INFO org.apache.kafka.clients.consumer.internals.ClassicKafkaConsumer - [Consumer clientId=consumer-nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8-2, groupId=nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8] Assigned to partition(s): nereus-delay-source-topic-target-worker-legacy-admission-regression-target-175972a6-9fca-4ad4-a5c3-26c715f289fc-0
+[main] INFO org.apache.kafka.clients.consumer.internals.ClassicKafkaConsumer - [Consumer clientId=consumer-nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8-2, groupId=nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8] Seeking to offset 4 for partition nereus-delay-source-topic-target-worker-legacy-admission-regression-target-175972a6-9fca-4ad4-a5c3-26c715f289fc-0
+[kafka-producer-network-thread | producer-6] INFO org.apache.kafka.clients.producer.internals.TransactionManager - [Producer clientId=producer-6] ProducerId set to 4 with epoch 0
+[kafka-producer-network-thread | producer-6] INFO org.apache.kafka.clients.Metadata - [Producer clientId=producer-6] Cluster ID: MkU3OEVBNTcwNTJENDM2Qk
+[main] INFO org.apache.kafka.clients.Metadata - [Consumer clientId=consumer-nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8-2, groupId=nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8] Cluster ID: MkU3OEVBNTcwNTJENDM2Qk
+[main] INFO org.apache.kafka.clients.consumer.internals.ConsumerCoordinator - [Consumer clientId=consumer-nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8-2, groupId=nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8] Discovered group coordinator 127.0.0.1:19132 (id: +3 rack: null isFenced: false)
+[main] INFO org.apache.kafka.clients.NetworkClient - [Consumer clientId=consumer-nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8-2, groupId=nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8] Node +3 disconnected.
+[main] INFO org.apache.kafka.clients.NetworkClient - [Consumer clientId=consumer-nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8-2, groupId=nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8] Cancelled in-flight OFFSET_COMMIT request with correlation id 10 due to node +3 being disconnected (elapsed time since creation: 27ms, elapsed time since send: 22ms, throttle time: 0ms, request timeout: 2000ms)
+[main] INFO org.apache.kafka.clients.consumer.internals.ConsumerCoordinator - [Consumer clientId=consumer-nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8-2, groupId=nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8] Group coordinator 127.0.0.1:19132 (id: +3 rack: null isFenced: false) is unavailable or invalid due to cause: null. isDisconnected: true. Rediscovery will be attempted.
+[main] INFO org.apache.kafka.clients.consumer.internals.ConsumerCoordinator - [Consumer clientId=consumer-nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8-2, groupId=nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8] Discovered group coordinator 127.0.0.1:19132 (id: +3 rack: null isFenced: false)
+[main] INFO org.apache.kafka.clients.NetworkClient - [Consumer clientId=consumer-nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8-2, groupId=nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8] Node +3 disconnected.
+[main] INFO org.apache.kafka.clients.NetworkClient - [Consumer clientId=consumer-nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8-2, groupId=nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8] Cancelled in-flight OFFSET_COMMIT request with correlation id 14 due to node +3 being disconnected (elapsed time since creation: 67ms, elapsed time since send: 58ms, throttle time: 0ms, request timeout: 2000ms)
+[main] INFO org.apache.kafka.clients.consumer.internals.ConsumerCoordinator - [Consumer clientId=consumer-nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8-2, groupId=nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8] Group coordinator 127.0.0.1:19132 (id: +3 rack: null isFenced: false) is unavailable or invalid due to cause: null. isDisconnected: true. Rediscovery will be attempted.
+[main] INFO org.apache.kafka.clients.consumer.internals.ConsumerCoordinator - [Consumer clientId=consumer-nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8-2, groupId=nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8] Discovered group coordinator 127.0.0.1:19132 (id: +3 rack: null isFenced: false)
+[main] INFO org.apache.kafka.clients.NetworkClient - [Consumer clientId=consumer-nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8-2, groupId=nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8] Node +3 disconnected.
+[main] INFO org.apache.kafka.clients.NetworkClient - [Consumer clientId=consumer-nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8-2, groupId=nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8] Cancelled in-flight OFFSET_COMMIT request with correlation id 18 due to node +3 being disconnected (elapsed time since creation: 10ms, elapsed time since send: 7ms, throttle time: 0ms, request timeout: 2000ms)
+[main] INFO org.apache.kafka.clients.consumer.internals.ConsumerCoordinator - [Consumer clientId=consumer-nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8-2, groupId=nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8] Group coordinator 127.0.0.1:19132 (id: +3 rack: null isFenced: false) is unavailable or invalid due to cause: null. isDisconnected: true. Rediscovery will be attempted.
+[main] INFO org.apache.kafka.clients.consumer.internals.ConsumerCoordinator - [Consumer clientId=consumer-nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8-2, groupId=nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8] Discovered group coordinator 127.0.0.1:19132 (id: +3 rack: null isFenced: false)
+[main] INFO org.apache.kafka.clients.NetworkClient - [Consumer clientId=consumer-nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8-2, groupId=nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8] Node +3 disconnected.
+[main] INFO org.apache.kafka.clients.NetworkClient - [Consumer clientId=consumer-nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8-2, groupId=nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8] Cancelled in-flight OFFSET_COMMIT request with correlation id 22 due to node +3 being disconnected (elapsed time since creation: 9ms, elapsed time since send: 6ms, throttle time: 0ms, request timeout: 2000ms)
+[main] INFO org.apache.kafka.clients.consumer.internals.ConsumerCoordinator - [Consumer clientId=consumer-nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8-2, groupId=nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8] Group coordinator 127.0.0.1:19132 (id: +3 rack: null isFenced: false) is unavailable or invalid due to cause: null. isDisconnected: true. Rediscovery will be attempted.
+[main] INFO org.apache.kafka.clients.consumer.internals.ConsumerCoordinator - [Consumer clientId=consumer-nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8-2, groupId=nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8] Discovered group coordinator 127.0.0.1:19132 (id: +3 rack: null isFenced: false)
+[main] INFO org.apache.kafka.clients.NetworkClient - [Consumer clientId=consumer-nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8-2, groupId=nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8] Node +3 disconnected.
+[main] INFO org.apache.kafka.clients.NetworkClient - [Consumer clientId=consumer-nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8-2, groupId=nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8] Cancelled in-flight OFFSET_COMMIT request with correlation id 26 due to node +3 being disconnected (elapsed time since creation: 8ms, elapsed time since send: 5ms, throttle time: 0ms, request timeout: 2000ms)
+[main] INFO org.apache.kafka.clients.consumer.internals.ConsumerCoordinator - [Consumer clientId=consumer-nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8-2, groupId=nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8] Group coordinator 127.0.0.1:19132 (id: +3 rack: null isFenced: false) is unavailable or invalid due to cause: null. isDisconnected: true. Rediscovery will be attempted.
+[main] INFO org.apache.kafka.clients.consumer.internals.ConsumerCoordinator - [Consumer clientId=consumer-nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8-2, groupId=nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8] Discovered group coordinator 127.0.0.1:19132 (id: +3 rack: null isFenced: false)
+[main] INFO org.apache.kafka.clients.NetworkClient - [Consumer clientId=consumer-nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8-2, groupId=nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8] Node +3 disconnected.
+[main] INFO org.apache.kafka.clients.NetworkClient - [Consumer clientId=consumer-nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8-2, groupId=nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8] Cancelled in-flight OFFSET_COMMIT request with correlation id 29 due to node +3 being disconnected (elapsed time since creation: 11ms, elapsed time since send: 6ms, throttle time: 0ms, request timeout: 2000ms)
+[main] INFO org.apache.kafka.clients.consumer.internals.ConsumerCoordinator - [Consumer clientId=consumer-nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8-2, groupId=nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8] Group coordinator 127.0.0.1:19132 (id: +3 rack: null isFenced: false) is unavailable or invalid due to cause: null. isDisconnected: true. Rediscovery will be attempted.
+[main] INFO org.apache.kafka.clients.consumer.internals.ConsumerCoordinator - [Consumer clientId=consumer-nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8-2, groupId=nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8] Discovered group coordinator 127.0.0.1:19132 (id: +3 rack: null isFenced: false)
+[main] INFO org.apache.kafka.clients.NetworkClient - [Consumer clientId=consumer-nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8-2, groupId=nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8] Node +3 disconnected.
+[main] INFO org.apache.kafka.clients.NetworkClient - [Consumer clientId=consumer-nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8-2, groupId=nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8] Cancelled in-flight OFFSET_COMMIT request with correlation id 33 due to node +3 being disconnected (elapsed time since creation: 12ms, elapsed time since send: 8ms, throttle time: 0ms, request timeout: 2000ms)
+[main] INFO org.apache.kafka.clients.consumer.internals.ConsumerCoordinator - [Consumer clientId=consumer-nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8-2, groupId=nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8] Group coordinator 127.0.0.1:19132 (id: +3 rack: null isFenced: false) is unavailable or invalid due to cause: null. isDisconnected: true. Rediscovery will be attempted.
+[main] INFO org.apache.kafka.clients.consumer.internals.ConsumerCoordinator - [Consumer clientId=consumer-nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8-2, groupId=nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8] Discovered group coordinator 127.0.0.1:19132 (id: +3 rack: null isFenced: false)
+[pool-1-thread-1] INFO org.apache.kafka.common.config.AbstractConfig - ConsumerConfig values: 
+	allow.auto.create.topics = true
+	auto.commit.interval.ms = 5000
+	auto.offset.reset = none
+	bootstrap.servers = [127.0.0.1:19130, 127.0.0.1:19131, 127.0.0.1:19132]
+	check.crcs = true
+	client.dns.lookup = use_all_dns_ips
+	client.id = consumer-null-3
+	client.rack = 
+	config.providers = []
+	connections.max.idle.ms = 540000
+	default.api.timeout.ms = 9995
+	enable.auto.commit = false
+	enable.metrics.push = true
+	exclude.internal.topics = true
+	fetch.max.bytes = 46509668
+	fetch.max.wait.ms = 500
+	fetch.min.bytes = 1
+	group.id = null
+	group.instance.id = null
+	group.protocol = classic
+	group.remote.assignor = null
+	heartbeat.interval.ms = 3000
+	interceptor.classes = []
+	internal.throw.on.fetch.stable.offset.unsupported = false
+	isolation.level = read_uncommitted
+	key.deserializer = class org.apache.kafka.common.serialization.ByteArrayDeserializer
+	max.partition.fetch.bytes = 46509668
+	max.poll.interval.ms = 300000
+	max.poll.records = 1
+	metadata.cluster.check.enable = true
+	metadata.max.age.ms = 300000
+	metadata.recovery.rebootstrap.trigger.ms = 300000
+	metadata.recovery.strategy = rebootstrap
+	metric.reporters = [org.apache.kafka.common.metrics.JmxReporter]
+	metrics.num.samples = 2
+	metrics.recording.level = INFO
+	metrics.sample.window.ms = 30000
+	partition.assignment.strategy = [class org.apache.kafka.clients.consumer.RangeAssignor, class org.apache.kafka.clients.consumer.CooperativeStickyAssignor]
+	receive.buffer.bytes = 65536
+	reconnect.backoff.max.ms = 1000
+	reconnect.backoff.ms = 50
+	request.timeout.ms = 9995
+	retry.backoff.max.ms = 1000
+	retry.backoff.ms = 100
+	sasl.client.callback.handler.class = null
+	sasl.jaas.config = null
+	sasl.kerberos.kinit.cmd = /usr/bin/kinit
+	sasl.kerberos.min.time.before.relogin = 60000
+	sasl.kerberos.service.name = null
+	sasl.kerberos.ticket.renew.jitter = 0.05
+	sasl.kerberos.ticket.renew.window.factor = 0.8
+	sasl.login.callback.handler.class = null
+	sasl.login.class = null
+	sasl.login.connect.timeout.ms = null
+	sasl.login.read.timeout.ms = null
+	sasl.login.refresh.buffer.seconds = 300
+	sasl.login.refresh.min.period.seconds = 60
+	sasl.login.refresh.window.factor = 0.8
+	sasl.login.refresh.window.jitter = 0.05
+	sasl.login.retry.backoff.max.ms = 10000
+	sasl.login.retry.backoff.ms = 100
+	sasl.mechanism = GSSAPI
+	sasl.oauthbearer.allow.unverified.audience = false
+	sasl.oauthbearer.allow.unverified.issuer = false
+	sasl.oauthbearer.assertion.algorithm = RS256
+	sasl.oauthbearer.assertion.claim.aud = null
+	sasl.oauthbearer.assertion.claim.exp.seconds = 300
+	sasl.oauthbearer.assertion.claim.iss = null
+	sasl.oauthbearer.assertion.claim.jti.include = false
+	sasl.oauthbearer.assertion.claim.nbf.seconds = 60
+	sasl.oauthbearer.assertion.claim.sub = null
+	sasl.oauthbearer.assertion.file = null
+	sasl.oauthbearer.assertion.private.key.file = null
+	sasl.oauthbearer.assertion.private.key.passphrase = null
+	sasl.oauthbearer.assertion.template.file = null
+	sasl.oauthbearer.client.credentials.client.id = null
+	sasl.oauthbearer.client.credentials.client.secret = null
+	sasl.oauthbearer.clock.skew.seconds = 30
+	sasl.oauthbearer.expected.audience = []
+	sasl.oauthbearer.expected.issuer = null
+	sasl.oauthbearer.header.urlencode = false
+	sasl.oauthbearer.jwks.endpoint.refresh.ms = 3600000
+	sasl.oauthbearer.jwks.endpoint.retry.backoff.max.ms = 10000
+	sasl.oauthbearer.jwks.endpoint.retry.backoff.ms = 100
+	sasl.oauthbearer.jwks.endpoint.url = null
+	sasl.oauthbearer.jwt.retriever.class = class org.apache.kafka.common.security.oauthbearer.DefaultJwtRetriever
+	sasl.oauthbearer.jwt.validator.class = class org.apache.kafka.common.security.oauthbearer.DefaultJwtValidator
+	sasl.oauthbearer.scope = null
+	sasl.oauthbearer.scope.claim.name = scope
+	sasl.oauthbearer.sub.claim.name = sub
+	sasl.oauthbearer.token.endpoint.url = null
+	security.protocol = PLAINTEXT
+	security.providers = null
+	send.buffer.bytes = 131072
+	session.timeout.ms = 45000
+	share.acknowledgement.mode = implicit
+	share.acquire.mode = BATCH_OPTIMIZED
+	socket.connection.setup.timeout.max.ms = 30000
+	socket.connection.setup.timeout.ms = 10000
+	ssl.cipher.suites = []
+	ssl.enabled.protocols = [TLSv1.2, TLSv1.3]
+	ssl.endpoint.identification.algorithm = https
+	ssl.engine.factory.class = null
+	ssl.key.password = null
+	ssl.keymanager.algorithm = SunX509
+	ssl.keystore.certificate.chain = null
+	ssl.keystore.key = null
+	ssl.keystore.location = null
+	ssl.keystore.password = null
+	ssl.keystore.type = JKS
+	ssl.protocol = TLSv1.3
+	ssl.provider = null
+	ssl.secure.random.implementation = null
+	ssl.trustmanager.algorithm = PKIX
+	ssl.truststore.certificates = null
+	ssl.truststore.location = null
+	ssl.truststore.password = null
+	ssl.truststore.type = JKS
+	value.deserializer = class org.apache.kafka.common.serialization.ByteArrayDeserializer
+
+[pool-1-thread-1] INFO org.apache.kafka.common.telemetry.internals.KafkaMetricsCollector - initializing Kafka metrics collector
+[pool-1-thread-1] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka version: 4.4.0-SNAPSHOT
+[pool-1-thread-1] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka commitId: unknown
+[pool-1-thread-1] INFO org.apache.kafka.common.utils.internals.AppInfoParser - Kafka startTimeMs: 1791777637106
+[pool-1-thread-1] INFO org.apache.kafka.clients.consumer.internals.ClassicKafkaConsumer - [Consumer clientId=consumer-null-3, groupId=null] Assigned to partition(s): nereus-delay-source-topic-target-worker-legacy-admission-regression-target-175972a6-9fca-4ad4-a5c3-26c715f289fc-0
+[pool-1-thread-1] INFO org.apache.kafka.clients.consumer.internals.ClassicKafkaConsumer - [Consumer clientId=consumer-null-3, groupId=null] Seeking to offset 4 for partition nereus-delay-source-topic-target-worker-legacy-admission-regression-target-175972a6-9fca-4ad4-a5c3-26c715f289fc-0
+[pool-1-thread-1] INFO org.apache.kafka.clients.Metadata - [Consumer clientId=consumer-null-3, groupId=null] Cluster ID: MkU3OEVBNTcwNTJENDM2Qk
+[pool-1-thread-1] INFO org.apache.kafka.common.metrics.Metrics - Metrics scheduler closed
+[pool-1-thread-1] INFO org.apache.kafka.common.metrics.Metrics - Closing reporter org.apache.kafka.common.metrics.JmxReporter
+[pool-1-thread-1] INFO org.apache.kafka.common.metrics.Metrics - Closing reporter org.apache.kafka.common.telemetry.internals.ClientTelemetryReporter
+[pool-1-thread-1] INFO org.apache.kafka.common.metrics.Metrics - Metrics reporters closed
+[pool-1-thread-1] INFO org.apache.kafka.common.utils.internals.AppInfoParser - App info kafka.consumer for consumer-null-3 unregistered
+K1 async Target Admission history passed: authenticated Fetch/resource, Worker checkpoint input/initial references agree, full envelope/source match, independent consumer, no group commit, no Store write, guard calls=4
+[main] INFO org.apache.kafka.clients.producer.KafkaProducer - [Producer clientId=producer-6] Closing the Kafka producer with timeoutMillis = 9223372036854775807 ms.
+Kafka Target PUBLISH_ADMISSION TCP ACK-loss recovery passed: Broker committed offset 4 before response loss; same Host retried only ACK without another Store mutation. Claim, AttemptBudget, first result and source frontier remain durable.
+[main] INFO org.apache.kafka.common.metrics.Metrics - Metrics scheduler closed
+[main] INFO org.apache.kafka.common.metrics.Metrics - Closing reporter org.apache.kafka.common.metrics.JmxReporter
+[main] INFO org.apache.kafka.common.metrics.Metrics - Closing reporter org.apache.kafka.common.telemetry.internals.ClientTelemetryReporter
+[main] INFO org.apache.kafka.common.metrics.Metrics - Metrics reporters closed
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - App info kafka.producer for producer-6 unregistered
+[main] INFO org.apache.kafka.clients.producer.KafkaProducer - [Producer clientId=producer-6] Closing the Kafka producer with timeoutMillis = 9223372036854775807 ms.
+[main] INFO org.apache.kafka.common.metrics.Metrics - Metrics scheduler closed
+[main] INFO org.apache.kafka.common.metrics.Metrics - Closing reporter org.apache.kafka.common.metrics.JmxReporter
+[main] INFO org.apache.kafka.common.metrics.Metrics - Closing reporter org.apache.kafka.common.telemetry.internals.ClientTelemetryReporter
+[main] INFO org.apache.kafka.common.metrics.Metrics - Metrics reporters closed
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - App info kafka.producer for producer-6 unregistered
+[main] INFO org.apache.kafka.clients.consumer.internals.ConsumerCoordinator - [Consumer clientId=consumer-nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8-2, groupId=nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8] Resetting generation and member id due to: consumer pro-actively leaving the group
+[main] INFO org.apache.kafka.clients.consumer.internals.ConsumerCoordinator - [Consumer clientId=consumer-nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8-2, groupId=nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8] Request joining group due to: consumer pro-actively leaving the group
+[main] INFO org.apache.kafka.common.metrics.Metrics - Metrics scheduler closed
+[main] INFO org.apache.kafka.common.metrics.Metrics - Closing reporter org.apache.kafka.common.metrics.JmxReporter
+[main] INFO org.apache.kafka.common.metrics.Metrics - Closing reporter org.apache.kafka.common.telemetry.internals.ClientTelemetryReporter
+[main] INFO org.apache.kafka.common.metrics.Metrics - Metrics reporters closed
+[main] INFO org.apache.kafka.common.utils.internals.AppInfoParser - App info kafka.consumer for consumer-nereus-delay-target-expiry-96c01c02-85e7-481b-a520-88087a46fec8-2 unregistered
+K1 system-writer append window settled after exact producer close.
+[main] INFO org.apache.kafka.common.metrics.Metrics - Metrics scheduler closed
+[main] INFO org.apache.kafka.common.metrics.Metrics - Closing reporter org.apache.kafka.common.metrics.JmxReporter
+[main] INFO org.apache.kafka.common.metrics.Metrics - Metrics reporters closed
+[kafka-admin-client-thread | adminclient-1] INFO org.apache.kafka.common.utils.internals.AppInfoParser - App info kafka.admin.client for adminclient-1 unregistered
+[kafka-admin-client-thread | adminclient-1] INFO org.apache.kafka.common.metrics.Metrics - Metrics scheduler closed
+[kafka-admin-client-thread | adminclient-1] INFO org.apache.kafka.common.metrics.Metrics - Closing reporter org.apache.kafka.common.metrics.JmxReporter
+[kafka-admin-client-thread | adminclient-1] INFO org.apache.kafka.common.metrics.Metrics - Metrics reporters closed
+
+BUILD SUCCESSFUL in 23s
+13 actionable tasks: 2 executed, 11 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeRealKafkaProto UP-TO-DATE
+> Task :extractRealKafkaProto UP-TO-DATE
+> Task :generateRealKafkaProto NO-SOURCE
+> Task :compileRealKafka UP-TO-DATE
+> Task :compileRealKafkaJava SKIPPED
+> Task :processRealKafkaProtoResources UP-TO-DATE
+> Task :processRealKafkaResources UP-TO-DATE
+> Task :realKafkaClasses UP-TO-DATE
+
+> Task :runRealKafkaOffsetCommitResponseLossProxy
+Kafka OffsetCommit response-loss proxy stopped after dropping 7 Broker response(s)
+
+BUILD SUCCESSFUL in 40s
+13 actionable tasks: 2 executed, 11 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+K1 existing legacy Admission regression specialty passed.
+
+Current source removes wrong channel write, fail-closed pending actual lifecycle; compile terminal0/17s, new native not rerun/passed.
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeRealKafkaProto UP-TO-DATE
+> Task :extractRealKafkaProto UP-TO-DATE
+> Task :generateRealKafkaProto NO-SOURCE
+> Task :compileRealKafka
+
+BUILD SUCCESSFUL in 17s
+10 actionable tasks: 2 executed, 8 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+
+checkDocumentation terminal0/1m19s; deployment_authority=false. Owned projects audited empty; task-owned selectors removed after recording hashes.
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+
+> Task :testNdip1ImplementationVerifier
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 60.931s
+
+OK
+
+> Task :testNdip1PackageVerifier
+..............
+----------------------------------------------------------------------
+Ran 14 tests in 0.082s
+
+OK
+
+> Task :verifyNdip1HistoricalClosure
+proposal=NDIP-1
+receipt_status=IMPLEMENTED
+lifecycle_authority=true
+implementation=CLOSED
+lifecycle=CLOSED
+certified_commit=b4e077e9978f262cdb93cf3562ea12eee32430e2
+runtime_source_sha256=03ce17ede4b9e70e2f70dd2bbef681087f529159549a4cd979d0d7aa34fa9948
+runtime_source_files=835
+implemented_package_sha256=792ca54e239d884ba6f95315747f565bab57ee0fc02338a77369cb19bbe8e8a7
+staging_run=20260901055333-78920
+deployment=SEPARATE_FUTURE_WORK
+performance_and_scale=SEPARATE_FUTURE_WORK
+production_rollout=SEPARATE_FUTURE_WORK
+production_authority=false
+
+> Task :verifyNdip1PackageAccepted
+proposal=NDIP-1
+receipt_status=ACCEPTED
+authority=true
+package_source_commit=77ffa61136c0cd401244ebea4375a5a18b097b17
+file_sha256 70d9dd7c113fa5f457a20a97996322ef9a2018772efd225aa982c13ec4935140 docs/ndip/NDIP-1/01-调查与决策记录.md
+file_sha256 c167ed42dd29c383c08a8a102f36b0e4deee8ae5c7a5da115a09d04ffcb9fa6f docs/ndip/NDIP-1/02-NDIP-1-Pulsar-Native-Delivery.md
+file_sha256 9affafa81952959d39ed9c09a00abe6b84da4fd3b0b6280422f297684d56f727 docs/ndip/NDIP-1/03-实施计划.md
+file_sha256 2a26c107cd69ee522ea138b3487b8ec206e913acc6ad5b862aa69288ddcaa88e docs/ndip/NDIP-1/04-代码级目标设计.md
+package_sha256=13caab8ecdc201901f06e905f1c0bf9792780e50c6f5948f93abf2bdb8f4d21b
+gate_b=PASS
+implementation=AUTHORIZED
+local_disposable_testing=AUTHORIZED_WITH_EXACT_ATTESTATION
+gate_c=PENDING_DEPLOYMENT
+shadow=BLOCKED_BY_GATE_C
+enabled=BLOCKED_BY_GATE_C_AND_SHADOW_REQUIREMENTS
+
+> Task :verifyNdip2PackageAccepted
+proposal=NDIP-2
+receipt_status=ACCEPTED
+authority=true
+file_sha256 0a105fb2b73d63cabddf42d0ba3d5a9590b4edddd47242495f196bf56d15f642 docs/ndip/NDIP-2/01-NDIP-生命周期与认证源码权威分层.md
+file_sha256 c882ecaa32413cb9e177243cf3efe91b97810c3cc10be81e61e7e458030c4ffa docs/ndip/NDIP-2/02-实施计划.md
+file_sha256 ec1ba68ab3ac91aa667647e6289cd252b99da84d899f42f879821d6e5d7752e9 docs/ndip/NDIP-2/03-代码级目标设计.md
+package_sha256=856e1d768210a31fc9aad811af3a93c1de33189cc03c65bc1e36d57affbf10db
+gate_b=PASS
+implementation=AUTHORIZED
+deployment_authority=false
+
+> Task :checkDocumentation
+
+BUILD SUCCESSFUL in 1m 19s
+6 actionable tasks: 6 executed
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html

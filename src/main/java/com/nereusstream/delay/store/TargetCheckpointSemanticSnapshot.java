@@ -144,14 +144,23 @@ public final class TargetCheckpointSemanticSnapshot {
             trustValues.add(value);
         }
         guard.run();
+        return fromCollectedValues(dependencies, admissions, List.copyOf(profileValues.values()),
+                retryValues, trustValues, limits, guard);
+    }
+
+    /** Complete bounded public semantics collected on the original cut; external authority is still mandatory. */
+    public static TargetCheckpointSemanticSnapshot fromCollectedValues(TargetCheckpointDependencies dependencies,
+            List<TargetCheckpointDependencies.AdmissionImage> admissions, List<ProfileSemanticEnvelope> profiles,
+            List<RetryPolicySemantic> retries, List<PayloadProofTrustSetSemantic> trusts, Limits limits,
+            Runnable protectionGuard) {
+        Objects.requireNonNull(protectionGuard, "protectionGuard").run();
+        final var complete = dependencies.withAdmissionImages(admissions, limits.maximumAdmissionFrameBytes());
         final var root = complete.root();
-        final var snapshot = new TargetCheckpointSemanticSnapshot(
-                1, root.metadata(), root.source(), root.mutationSequence(),
-                root.root().recoveryLineage(), complete.storedControlsDigest(), complete.semanticInputsDigest(),
-                List.copyOf(profileValues.values()), retryValues, trustValues, admissions,
-                List.of(), List.of(), limits);
+        final var snapshot = new TargetCheckpointSemanticSnapshot(1, root.metadata(), root.source(),
+                root.mutationSequence(), root.root().recoveryLineage(), complete.storedControlsDigest(),
+                complete.semanticInputsDigest(), profiles, retries, trusts, admissions, List.of(), List.of(), limits);
         snapshot.validateAgainst(dependencies, limits);
-        guard.run();
+        protectionGuard.run();
         return snapshot;
     }
 

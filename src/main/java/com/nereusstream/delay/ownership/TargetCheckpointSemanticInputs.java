@@ -21,10 +21,17 @@ public final class TargetCheckpointSemanticInputs implements Supplier<Optional<T
                 TargetCheckpointOutcomeInputs.Result outcomes, List<TargetCheckpointAdmissionInputs.Input> admissions);
     }
 
+    @FunctionalInterface
+    public interface AsyncSnapshotFactory {
+        /** Advances one bounded step; empty means its caller-owned I/O is still pending. */
+        Optional<TargetCheckpointSemanticSnapshot> create(TargetCheckpointControlInputs.Result controls,
+                TargetCheckpointOutcomeInputs.Result outcomes, List<TargetCheckpointAdmissionInputs.Input> admissions);
+    }
+
     private final TargetCheckpointControlInputs controls;
     private final TargetCheckpointOutcomeInputs outcomes;
     private final TargetCheckpointAdmissionInputs admissions;
-    private final CompleteSnapshotFactory factory;
+    private final AsyncSnapshotFactory factory;
 
     public TargetCheckpointSemanticInputs(TargetCheckpointControlInputs controls,
             TargetCheckpointOutcomeInputs outcomes, SnapshotFactory factory) {
@@ -32,7 +39,7 @@ public final class TargetCheckpointSemanticInputs implements Supplier<Optional<T
         this.outcomes = Objects.requireNonNull(outcomes, "outcomes");
         admissions = null;
         final var supplied = Objects.requireNonNull(factory, "factory");
-        this.factory = (control, outcome, inputs) -> supplied.create(control, outcome);
+        this.factory = (control, outcome, inputs) -> Optional.of(supplied.create(control, outcome));
     }
 
     public TargetCheckpointSemanticInputs(TargetCheckpointControlInputs controls,
@@ -41,7 +48,24 @@ public final class TargetCheckpointSemanticInputs implements Supplier<Optional<T
         this.controls = Objects.requireNonNull(controls, "controls");
         this.outcomes = Objects.requireNonNull(outcomes, "outcomes");
         this.admissions = Objects.requireNonNull(admissions, "admissions");
-        this.factory = Objects.requireNonNull(factory, "factory");
+        final var supplied = Objects.requireNonNull(factory, "factory");
+        this.factory = (control, outcome, inputs) -> Optional.of(supplied.create(control, outcome, inputs));
+    }
+
+    public static TargetCheckpointSemanticInputs asynchronous(TargetCheckpointControlInputs controls,
+            TargetCheckpointOutcomeInputs outcomes, TargetCheckpointAdmissionInputs admissions,
+            AsyncSnapshotFactory factory) {
+        return new TargetCheckpointSemanticInputs(controls, outcomes, admissions,
+                Objects.requireNonNull(factory, "factory"));
+    }
+
+    private TargetCheckpointSemanticInputs(TargetCheckpointControlInputs controls,
+            TargetCheckpointOutcomeInputs outcomes, TargetCheckpointAdmissionInputs admissions,
+            AsyncSnapshotFactory factory) {
+        this.controls = Objects.requireNonNull(controls, "controls");
+        this.outcomes = Objects.requireNonNull(outcomes, "outcomes");
+        this.admissions = Objects.requireNonNull(admissions, "admissions");
+        this.factory = factory;
     }
 
     @Override
@@ -75,9 +99,10 @@ public final class TargetCheckpointSemanticInputs implements Supplier<Optional<T
         controls.result().orElseThrow();
         outcomes.result().orElseThrow();
         if (admissions != null) { admissions.result(control.cut()).orElseThrow(); }
-        if (snapshot.schemaVersion() != 3) {
+        if (snapshot.isEmpty()) { return Optional.empty(); }
+        if (snapshot.orElseThrow().schemaVersion() != 3) {
             throw new IllegalArgumentException("complete Target history collection requires original Outcome schema");
         }
-        return Optional.of(snapshot);
+        return snapshot;
     }
 }
