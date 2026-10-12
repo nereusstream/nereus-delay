@@ -74,25 +74,43 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
 
     /** Queues the exact immutable semantic bytes and limits in the existing CHECKPOINT graph. */
     public Submission submitSemantic(final SemanticRequest request) {
+        return submitSemantic(request, null);
+    }
+
+    /** The same retained task covers candidate creation through authenticated upload/Catalog completion. */
+    public Submission submitSemanticPublication(SemanticRequest request, PublicationPlan publication) {
+        Objects.requireNonNull(publication, "publication");
+        if (publication.coordinator().resources() != store.sharedResources()) {
+            throw new IllegalArgumentException("Target publication uses another Worker resource graph");
+        }
+        return submitSemantic(request, publication);
+    }
+
+    private Submission submitSemantic(SemanticRequest request, PublicationPlan publication) {
         final var semantic = Objects.requireNonNull(request, "request");
-        requireCurrentSemantic(semantic);
+        requireCurrentSemantic(semantic, publication != null);
         final byte[] identity = CanonicalProtobuf.message(out -> {
             CanonicalProtobuf.bytes(out, 1, canonicalIdentity(semantic.candidate()));
             CanonicalProtobuf.bytes(out, 2, semantic.snapshot().canonicalBytes());
             CanonicalProtobuf.uint32(out, 3, semantic.limits().maximumRecords());
             CanonicalProtobuf.uint32(out, 4, semantic.limits().maximumBytes());
             CanonicalProtobuf.int64(out, 5, semantic.limits().maximumAdmissionFrameBytes());
+            if (publication != null) {
+                CanonicalProtobuf.uint64Bits(out, 6, publication.lineageGeneration());
+                CanonicalProtobuf.uint32(out, 7, publication.initialization() == null ? 1 : 2);
+            }
         });
         final var task = new WorkClassTask(WorkClass.CHECKPOINT,
-                "target-semantic-candidate/" + Bytes.hex(Bytes.sha256(TASK_DOMAIN, identity)), identity.length);
+                (publication == null ? "target-semantic-candidate/" : "target-semantic-publication/")
+                        + Bytes.hex(Bytes.sha256(TASK_DOMAIN, identity)), identity.length);
         final var submission = new Submission(task);
-        workClasses.submit(task, () -> executeSemantic(semantic, submission));
+        workClasses.submit(task, () -> executeSemantic(semantic, submission, publication));
         return submission;
     }
 
-    private void executeSemantic(final SemanticRequest semantic, final Submission submission) {
+    private void executeSemantic(SemanticRequest semantic, Submission submission, PublicationPlan publication) {
         try {
-            requireCurrentSemantic(semantic);
+            requireCurrentSemantic(semantic, publication != null);
             final var request = semantic.candidate();
             final Path path = Files.exists(request.checkpointPath(), LinkOption.NOFOLLOW_LINKS)
                     ? store.reuseTargetSemanticCheckpointCandidate(
@@ -103,7 +121,28 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
                             request.checkpointPath(), request.pending().checkpointId(),
                             request.pending().recoveryLineageId(), request.physicalLimits(), request.quotaLimits(),
                             request.ledgerLimits(), semantic.snapshot(), semantic.limits());
-            requireCurrentSemantic(semantic);
+            requireCurrentSemantic(semantic, publication != null);
+            if (publication != null) {
+                final var objects = new java.util.ArrayList<CheckpointManifest.FileEntry>();
+                for (var file : CheckpointFileInventory.collect(path, request.physicalLimits())) {
+                    requireCurrentSemantic(semantic, publication != null);
+                    objects.add(Objects.requireNonNull(publication.fileObjects().apply(file), "file object"));
+                }
+                final var image = TargetCheckpointRootVerifier.authenticateCandidate(
+                        new TargetCheckpointRootVerifier.CandidateImage(path, request.pending(),
+                                publication.lineageGeneration(), objects, request.physicalLimits(),
+                                request.quotaLimits(),
+                                request.ledgerLimits(), semantic.limits(), publication.authority(),
+                                () -> requireCurrentSemantic(semantic, publication != null)));
+                if (publication.initialization() != null) {
+                    publication.coordinator().initializeTarget(request.pending(), image, publication.initialization());
+                }
+                final var published = publication.coordinator().publishTarget(request.pending(), image,
+                        request.pending().baseCatalogGeneration(), ownerClock.getAsLong(), publication.adapter());
+                requireCurrentSemantic(semantic, publication != null);
+                submission.published = published;
+                submission.authenticatedImage = image;
+            }
             submission.complete(new Outcome(path, null));
         } catch (RuntimeException failure) {
             submission.complete(new Outcome(null, failure));
@@ -113,8 +152,8 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
         }
     }
 
-    private void requireCurrentSemantic(final SemanticRequest request) {
-        requireCurrent(request.candidate());
+    private void requireCurrentSemantic(SemanticRequest request, boolean allowPublished) {
+        requireCurrent(request.candidate(), allowPublished);
         request.snapshot().requireCut(store.metadata(), store.appliedShardLogPosition(), store.shardMutationSequence(),
                 request.candidate().pending().recoveryLineageId());
         request.protectionGuard().run();
@@ -128,6 +167,19 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
             Objects.requireNonNull(limits, "limits");
             Objects.requireNonNull(protectionGuard, "protectionGuard");
             TargetCheckpointSemanticSnapshot.decode(snapshot.canonicalBytes(), limits);
+        }
+    }
+
+    /** Exact object identities and full image/namespace rights remain caller-owned through this task. */
+    public record PublicationPlan(CheckpointPublicationCoordinator coordinator, long lineageGeneration,
+            java.util.function.Function<CheckpointFileInventory, CheckpointManifest.FileEntry> fileObjects,
+            TargetCheckpointRootVerifier.ImageAuthority authority, CheckpointUploadAdapter adapter,
+            CatalogInitializationAuthority initialization) {
+        public PublicationPlan {
+            Objects.requireNonNull(coordinator, "coordinator");
+            Objects.requireNonNull(fileObjects, "fileObjects");
+            Objects.requireNonNull(authority, "authority");
+            Objects.requireNonNull(adapter, "adapter");
         }
     }
 
@@ -160,6 +212,10 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
     }
 
     private void requireCurrent(final Request request) {
+        requireCurrent(request, false);
+    }
+
+    private void requireCurrent(Request request, boolean allowPublished) {
         localOwnerGuard.run();
         final CheckpointUploadIntent pending = request.pending();
         final OwnerLease expected = request.expectedLease();
@@ -188,7 +244,8 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
                 || !current.validAt(now)) {
             throw new IllegalStateException("Target candidate Owner Lease changed or expired");
         }
-        if (intents.current(pending).isEmpty()) {
+        if (intents.current(pending).isEmpty()
+                && !(allowPublished && intents.currentPublishedFor(pending).isPresent())) {
             throw new IllegalStateException("Target candidate pending intent changed or is absent");
         }
         localOwnerGuard.run();
@@ -247,6 +304,8 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
     public static final class Submission {
         private final WorkClassTask task;
         private volatile Outcome outcome;
+        private CheckpointPublicationCoordinator.CheckpointPublication published;
+        private TargetCheckpointRootVerifier.AuthenticatedImage authenticatedImage;
 
         private Submission(final WorkClassTask task) {
             this.task = task;
@@ -258,6 +317,21 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
 
         public Optional<Outcome> outcome() {
             return Optional.ofNullable(outcome);
+        }
+
+        /** Empty until the complete protected creation/auth/upload/Catalog action has succeeded. */
+        public Optional<CheckpointPublicationCoordinator.CheckpointPublication> publication() {
+            final var completed = outcome;
+            return completed == null || completed.failure() != null ? Optional.empty() : Optional.ofNullable(published);
+        }
+
+        public Optional<TargetCheckpointRootVerifier.AuthenticatedImage> authenticatedImage() {
+            final var completed = outcome;
+            if (completed == null || completed.failure() != null || authenticatedImage == null) {
+                return Optional.empty();
+            }
+            authenticatedImage.requireCurrent();
+            return Optional.of(authenticatedImage);
         }
 
         private synchronized void complete(final Outcome completed) {

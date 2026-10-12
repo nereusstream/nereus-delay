@@ -1138,6 +1138,20 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             final com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot snapshot,
             final com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.Limits semanticLimits,
             final Runnable sourceCutGuard, final Runnable protectionGuard) {
+        return submitSemanticCheckpointCandidate(registry, intents, ownerClock, checkpointPath, pending,
+                physicalLimits, quotaLimits, ledgerLimits, snapshot, semanticLimits, sourceCutGuard,
+                protectionGuard, null);
+    }
+
+    synchronized TargetCheckpointCandidateWorkClassExecutor.Submission submitSemanticCheckpointCandidate(
+            WorkClassExecutionRegistry registry, CheckpointUploadIntentAuthority intents, LongSupplier ownerClock,
+            Path checkpointPath, CheckpointUploadIntent pending, CheckpointManifestLimits physicalLimits,
+            TargetCheckpointRootVerifier.QuotaAuditLimits quotaLimits,
+            TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits,
+            com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot snapshot,
+            com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.Limits semanticLimits,
+            Runnable sourceCutGuard, Runnable protectionGuard,
+            TargetCheckpointCandidateWorkClassExecutor.PublicationPlan publication) {
         if (workClasses == null || workClasses != Objects.requireNonNull(registry, "registry")) {
             throw new IllegalStateException("Target semantic candidate requires the bound source WorkClass graph");
         }
@@ -1152,9 +1166,11 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         guard.run();
         final var executor = new TargetCheckpointCandidateWorkClassExecutor(
                 registry, store, authorities.leases(), intents, clock, guard);
-        return executor.submitSemantic(new TargetCheckpointCandidateWorkClassExecutor.SemanticRequest(
+        final var request = new TargetCheckpointCandidateWorkClassExecutor.SemanticRequest(
                 new TargetCheckpointCandidateWorkClassExecutor.Request(checkpointPath, pending, lease,
-                        physicalLimits, quotaLimits, ledgerLimits), snapshot, semanticLimits, guard));
+                        physicalLimits, quotaLimits, ledgerLimits), snapshot, semanticLimits, guard);
+        return publication == null ? executor.submitSemantic(request)
+                : executor.submitSemanticPublication(request, publication);
     }
 
     synchronized OxiaOwnerLeaseStore drainAuthority() {

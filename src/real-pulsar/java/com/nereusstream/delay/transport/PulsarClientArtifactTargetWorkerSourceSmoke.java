@@ -479,8 +479,8 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                 }
                 final var semanticInputs = verifyControlHistory(client, guard, store, worker, scope, leases,
                         active, signingKeys);
-                verifyScheduledSemanticCandidate(host, worker, store, scope, leases, active, signingKeys,
-                        semanticInputs, storeRoot);
+                verifyScheduledSemanticCandidate(client, guard, host, worker, store, scope, leases, active, signingKeys,
+                        registration, actor, semanticInputs, storeRoot);
                 verifyRejectedOutcomeHistory(client, consumer, guard, physicalTopic, host, worker, store, scope,
                         leases, active, signingKeys, successor);
                 recoveryTip = (PulsarSourcePosition) store.appliedShardLogPosition();
@@ -570,9 +570,11 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
     }
 
     /** Actual receipt-confirmed native cut and Host schedule; namespace/pin permissions remain fixtures. */
-    private static void verifyScheduledSemanticCandidate(TargetWorkerHostRuntime host,
+    private static void verifyScheduledSemanticCandidate(PulsarClient client, TopicResourceGuard resource,
+            TargetWorkerHostRuntime host,
             TargetWorkerShardRuntime worker, ShardStore store, TargetQuotaScope scope, OxiaOwnerLeaseStore leases,
-            OwnerLease active, KeyPair keys,
+            OwnerLease active, KeyPair keys, InMemoryControlTargetRegistrationAuthority registration,
+            ControlAuthorizationContext actor,
             com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Result inputs, Path root) {
         final var physical = new CheckpointManifestLimits(1_000, 256L << 20, 256L << 20,
                 1_024, 4 << 20, 1_000, 1_024);
@@ -598,6 +600,43 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                 CheckpointUploadState.PENDING_UPLOAD, 1, null, null);
         final var intents = new CheckpointUploadIntentStore();
         intents.create(pending);
+        final var catalog = new RecoveryCatalog();
+        final var uploaded = new java.util.concurrent.atomic.AtomicBoolean();
+        final var adapter = new FilesystemCheckpointUploadAdapter(root.resolve("scheduled-semantic-objects"),
+                "p1-scheduled-fixture", physical);
+        final var plan = new TargetCheckpointCandidateWorkClassExecutor.PublicationPlan(
+                new CheckpointPublicationCoordinator(store.sharedResources(), intents, physical, catalog), 0,
+                file -> new CheckpointManifest.FileEntry(file.name(), file.length(), file.checksum(),
+                        Bytes.utf8("scheduled/" + file.name()), Bytes.utf8("immutable-1"), null),
+                (manifest, folded, semantic) -> {
+                    final var controls = new TargetCheckpointControlAuthority(registration,
+                            (version, at) -> version == 1 ? keys.getPublic() : null, (input, first) -> {
+                                final var original = PulsarClientArtifactTargetAdmissionHistory.readControl(client,
+                                        resource, folded.dependencies().controlReferences().getFirst(),
+                                        Duration.ofSeconds(10), () -> {});
+                                if (!Arrays.equals(original.canonicalEnvelope(), input.image().canonicalEnvelope())) {
+                                    throw new IllegalStateException("scheduled image differs from original P1 grant");
+                                }
+                            }, (registered, input) -> new TargetCheckpointControlAuthority.Authorization(actor,
+                                    prepared -> true), budget(), () -> {});
+                    controls.authenticateSnapshot(folded.dependencies(), semantic, semanticLimits,
+                            (input, registered, mutation, at) -> keys.getPublic());
+                }, request -> {
+                    // Receipt/Source ownership cannot advance between candidate and Catalog completion.
+                    try {
+                        worker.runSourceTurn(new SchedulerBudget(1, 4L << 20, TimeUnit.SECONDS.toNanos(10)),
+                                System::currentTimeMillis);
+                        throw new AssertionError("Source was admitted during scheduled publication");
+                    } catch (IllegalStateException protectedCut) {
+                        if (!protectedCut.getMessage().contains("checkpoint cut is still pending")) {
+                            throw protectedCut;
+                        }
+                    }
+                    final var result = adapter.upload(request);
+                    uploaded.set(true);
+                    return result;
+                }, (initialization, image) -> ownerCommitAuthority(leases, active)
+                        .acquire(store.metadata(), scope, null));
         final var refuse = new java.util.concurrent.atomic.AtomicBoolean(true);
         final var scheduled = com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.semantic(host,
                 new com.nereusstream.delay.store.CheckpointScheduler(1_000, 0, 1), (selected, claim, cut) -> {
@@ -612,7 +651,7 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                                         if (refuse.get()) {
                                             throw new IllegalStateException("scheduled semantic protection unavailable");
                                         }
-                                    });
+                                    }, plan);
                 });
         final long sourceSequence = store.shardMutationSequence();
         final var source = store.appliedShardLogPosition();
@@ -643,15 +682,17 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
         if (!source.equals(proof.root().source()) || sourceSequence != proof.root().mutationSequence()
                 || !source.equals(store.appliedShardLogPosition()) || store.shardMutationSequence() != sourceSequence
                 || scheduled.pendingTask(scope.shard()).isPresent()
-                || intents.current(pending).orElseThrow().state() != CheckpointUploadState.PENDING_UPLOAD) {
-            throw new IllegalStateException("scheduled semantic candidate changed Source or claimed publication");
+                || intents.currentPublishedFor(pending).orElseThrow().state() != CheckpointUploadState.PUBLISHED
+                || !uploaded.get() || catalog.currentInitialization().isEmpty()
+                || catalog.manifest(pending.checkpointId()).isEmpty()) {
+            throw new IllegalStateException("scheduled semantic publication changed Source or lacked Catalog binding");
         }
         scheduled.unregister(scope.shard());
         if (!leases.current(scope.shard()).orElseThrow().sameIdentity(active)) {
             throw new IllegalStateException("scheduled semantic candidate lost its Owner");
         }
-        System.out.println("P1 actual receipt-confirmed Host scheduled semantic candidate retained exact claim/cut, "
-                + "persisted companion, settled, stayed unpublished and resumed original Source.");
+        System.out.println("P1 exact Host/native ACK due claim retained through semantic candidate/full auth/"
+                + "Catalog init/File upload/PUBLISHED CAS, blocked new Source during I/O, then settled/resumed.");
     }
 
     /** Actual P1 grant cut and File image; global Catalog history/permissions remain explicit test fixtures. */

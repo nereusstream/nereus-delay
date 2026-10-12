@@ -638,6 +638,19 @@ public final class TargetWorkerShardRuntime
             com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot snapshot,
             com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.Limits semanticLimits,
             Runnable protectionGuard, SourceRecordConsumer.CheckpointCut cut) {
+        return submitProtectedSemanticCheckpointCandidate(intents, ownerClock, checkpointPath, pending,
+                physicalLimits, quotaLimits, ledgerLimits, snapshot, semanticLimits, protectionGuard, cut, null);
+    }
+
+    synchronized TargetCheckpointCandidateWorkClassExecutor.Submission submitProtectedSemanticCheckpointCandidate(
+            CheckpointUploadIntentAuthority intents, LongSupplier ownerClock, Path checkpointPath,
+            CheckpointUploadIntent pending, CheckpointManifestLimits physicalLimits,
+            TargetCheckpointRootVerifier.QuotaAuditLimits quotaLimits,
+            TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits,
+            com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot snapshot,
+            com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.Limits semanticLimits,
+            Runnable protectionGuard, SourceRecordConsumer.CheckpointCut cut,
+            TargetCheckpointCandidateWorkClassExecutor.PublicationPlan publication) {
         requireNewTurnsAdmitted();
         resources.requireRuntimeBusinessAdmission();
         if (preparedCheckpointCut != Objects.requireNonNull(cut, "cut") || maintenance.hasPendingTurn()
@@ -647,7 +660,7 @@ public final class TargetWorkerShardRuntime
         cut.requireCurrent();
         final var submitted = target.submitSemanticCheckpointCandidate(workClasses, intents, ownerClock,
                 checkpointPath, pending, physicalLimits, quotaLimits, ledgerLimits, snapshot, semanticLimits,
-                cut::requireCurrent, protectionGuard);
+                cut::requireCurrent, protectionGuard, publication);
         pendingCheckpoint = submitted;
         preparedCheckpointCut = null;
         return submitted;

@@ -59,7 +59,14 @@ public final class TargetCheckpointCandidateSchedule {
     public record SemanticRequest(Request candidate,
             com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot snapshot,
             com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.Limits semanticLimits,
-            Runnable protection) {
+            Runnable protection, TargetCheckpointCandidateWorkClassExecutor.PublicationPlan publication) {
+        public SemanticRequest(Request candidate,
+                com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot snapshot,
+                com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.Limits semanticLimits,
+                Runnable protection) {
+            this(candidate, snapshot, semanticLimits, protection, null);
+        }
+
         public SemanticRequest {
             Objects.requireNonNull(candidate, "candidate");
             Objects.requireNonNull(snapshot, "snapshot");
@@ -80,7 +87,7 @@ public final class TargetCheckpointCandidateSchedule {
             final var submission = worker.submitProtectedSemanticCheckpointCandidate(request.intents(),
                     request.ownerClock(), request.checkpointPath(), request.pending(), request.physicalLimits(),
                     request.quotaLimits(), request.ledgerLimits(), semantic.snapshot(), semantic.semanticLimits(),
-                    semantic.protection(), cut);
+                    semantic.protection(), cut, semantic.publication());
             return new Candidate(submission.task(), submission::outcome);
         });
     }
