@@ -18,9 +18,12 @@ class OxiaRealRetryPolicyCatalogSmokeTest {
         Assumptions.assumeTrue(endpoint != null && !endpoint.isBlank(), "NEREUS_DELAY_OXIA_ENDPOINT missing");
         final String prefix = "nereus-delay-real-retry/" + UUID.randomUUID();
         try (var first = OxiaSyncOwnerLeaseBackend.connect(endpoint, "default", "retry-catalog-a",
-                    Duration.ofSeconds(15), prefix + "/sessions");
+                    Duration.ofSeconds(15), Duration.ofSeconds(5), prefix + "/sessions");
                 var second = OxiaSyncOwnerLeaseBackend.connect(endpoint, "default", "retry-catalog-b",
-                    Duration.ofSeconds(15), prefix + "/sessions")) {
+                    Duration.ofSeconds(15), Duration.ofSeconds(5), prefix + "/sessions");
+                var executor = new java.util.concurrent.ThreadPoolExecutor(2, 2, 0,
+                    java.util.concurrent.TimeUnit.SECONDS, new java.util.concurrent.ArrayBlockingQueue<>(4),
+                    new java.util.concurrent.ThreadPoolExecutor.AbortPolicy())) {
             final var a = new OxiaSyncRetryPolicyCatalog(first, prefix + "/catalog");
             final var b = new OxiaSyncRetryPolicyCatalog(second, prefix + "/catalog");
             final var semantic = OxiaSyncRetryPolicyCatalogTest.policy(10);
@@ -39,6 +42,20 @@ class OxiaRealRetryPolicyCatalogSmokeTest {
             assertThrows(IllegalStateException.class,
                     () -> b.publish(OxiaSyncRetryPolicyCatalogTest.policy(11), source));
             assertEquals(semantic, a.resolve(semantic.ref(), OxiaSyncRetryPolicyCatalogTest.source(11, 101)));
+            assertEquals(semantic, b.resolveAsync(semantic.ref(), source, Duration.ofSeconds(10),
+                    second.backend()::assertConnectedSession, executor).get(15, java.util.concurrent.TimeUnit.SECONDS));
+            assertNull(b.resolveAsync(semantic.ref(), OxiaSyncRetryPolicyCatalogTest.source(9, 99),
+                    Duration.ofSeconds(10), second.backend()::assertConnectedSession, executor)
+                    .get(15, java.util.concurrent.TimeUnit.SECONDS));
+            final var profilesA = new OxiaSyncSourceProfileCatalog(first, prefix + "/profiles");
+            final var profilesB = new OxiaSyncSourceProfileCatalog(second, prefix + "/profiles");
+            final var profile = OxiaSyncSourceProfileCatalogTest.policy(10);
+            profilesA.publish(profile, source);
+            assertEquals(profile, profilesB.resolveAsync(profile.ref(), source, Duration.ofSeconds(10),
+                    second.backend()::assertConnectedSession, executor).get(15, java.util.concurrent.TimeUnit.SECONDS));
+            assertNull(profilesB.resolveAsync(profile.ref(), OxiaSyncRetryPolicyCatalogTest.source(10, 999),
+                    Duration.ofSeconds(10), second.backend()::assertConnectedSession, executor)
+                    .get(15, java.util.concurrent.TimeUnit.SECONDS));
         }
     }
 

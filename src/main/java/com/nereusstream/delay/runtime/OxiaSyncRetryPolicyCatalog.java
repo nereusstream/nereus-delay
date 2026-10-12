@@ -89,6 +89,19 @@ public final class OxiaSyncRetryPolicyCatalog implements RetryPolicyCatalog {
         return publication.semantic();
     }
 
+    /**
+     * Resolves at the original use with a finite queue/start/result acceptance deadline. Caller owns the executor,
+     * configured client request timeout and held protection; cancellation never means underlying I/O has ended.
+     */
+    public java.util.concurrent.CompletableFuture<RetryPolicySemantic> resolveAsync(RetryPolicyRef reference,
+            SourcePosition originalUse, java.time.Duration timeout, Runnable protection,
+            java.util.concurrent.ThreadPoolExecutor executor) {
+        Objects.requireNonNull(reference, "reference");
+        TargetSourcePosition.requireBounded(originalUse);
+        return CheckpointRegistryLookup.submit(() -> resolve(reference, originalUse), timeout, protection,
+                executor, System::nanoTime);
+    }
+
     private void requireObservedExact(String key, byte[] value, Exception failure) {
         final byte[] observed = get(key);
         if (observed == null) {

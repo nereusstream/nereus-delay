@@ -96,6 +96,31 @@ class OxiaSyncSourceProfileCatalogTest {
         assertThrows(IllegalStateException.class, () -> catalog(records).resolve(policy.ref(), at));
     }
 
+    @Test
+    void asynchronousReadRetainsSourceVisibilityAndRejectsSessionLossDuringIo() throws Exception {
+        final var records = new Records();
+        final var live = new java.util.concurrent.atomic.AtomicBoolean(true);
+        final var catalog = new OxiaSyncSourceProfileCatalog(records, "profile-test", () -> {
+            if (!live.get()) { throw new IllegalStateException("session lost"); }
+        });
+        final var policy = policy(10);
+        final var source = source(10, 100);
+        catalog.publish(policy, source);
+        try (var executor = new java.util.concurrent.ThreadPoolExecutor(1, 1, 0,
+                java.util.concurrent.TimeUnit.SECONDS, new java.util.concurrent.ArrayBlockingQueue<>(2),
+                new java.util.concurrent.ThreadPoolExecutor.AbortPolicy())) {
+            assertEquals(policy, catalog.resolveAsync(policy.ref(), source, java.time.Duration.ofSeconds(5),
+                    () -> {}, executor).get(5, java.util.concurrent.TimeUnit.SECONDS));
+            assertNull(catalog.resolveAsync(policy.ref(), source(9, 99), java.time.Duration.ofSeconds(5),
+                    () -> {}, executor).get(5, java.util.concurrent.TimeUnit.SECONDS));
+            records.afterGet = () -> live.set(false);
+            final var failed = catalog.resolveAsync(policy.ref(), source, java.time.Duration.ofSeconds(5),
+                    () -> {}, executor);
+            assertEquals("session lost", assertThrows(java.util.concurrent.ExecutionException.class,
+                    () -> failed.get(5, java.util.concurrent.TimeUnit.SECONDS)).getCause().getMessage());
+        }
+    }
+
     static ProfileSemanticEnvelope policy(int seed) {
         final byte[] key = new byte[32];
         Arrays.fill(key, (byte) seed);
@@ -118,10 +143,15 @@ class OxiaSyncSourceProfileCatalogTest {
         private final Map<String, byte[]> values = new HashMap<>();
         private Runnable beforePut = () -> {};
         private Runnable afterPut = () -> {};
+        private Runnable afterGet = () -> {};
         private boolean insertRace;
 
         @Override
-        public byte[] get(String key) { return values.get(key); }
+        public byte[] get(String key) {
+            final byte[] value = values.get(key);
+            afterGet.run();
+            return value;
+        }
 
         @Override
         public void putIfAbsent(String key, byte[] value) throws KeyAlreadyExistsException {
