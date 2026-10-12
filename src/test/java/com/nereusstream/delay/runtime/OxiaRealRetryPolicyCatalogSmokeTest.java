@@ -56,6 +56,26 @@ class OxiaRealRetryPolicyCatalogSmokeTest {
             assertNull(profilesB.resolveAsync(profile.ref(), OxiaSyncRetryPolicyCatalogTest.source(10, 999),
                     Duration.ofSeconds(10), second.backend()::assertConnectedSession, executor)
                     .get(15, java.util.concurrent.TimeUnit.SECONDS));
+            final var trustsA = new OxiaSyncPayloadProofTrustSetCatalog(first, prefix + "/trusts", 4096);
+            final var trustsB = new OxiaSyncPayloadProofTrustSetCatalog(second, prefix + "/trusts", 4096);
+            final var trust = OxiaSyncPayloadProofTrustSetCatalogTest.semantic(Long.MIN_VALUE);
+            trustsA.publish(trust, first.backend()::assertConnectedSession);
+            trustsB.publish(trust, second.backend()::assertConnectedSession);
+            assertEquals(trust, trustsB.resolveAsync(trust.ref(), Duration.ofSeconds(10),
+                    second.backend()::assertConnectedSession, executor).get(15, java.util.concurrent.TimeUnit.SECONDS));
+            assertNull(trustsB.resolveAsync(OxiaSyncPayloadProofTrustSetCatalogTest.semantic(2).ref(),
+                    Duration.ofSeconds(10), second.backend()::assertConnectedSession, executor)
+                    .get(15, java.util.concurrent.TimeUnit.SECONDS));
+            final var providers = com.nereusstream.delay.ownership.TargetCheckpointRegistryInputs.Providers
+                    .fromOxiaCatalogs(profilesB, b, trustsB, Duration.ofSeconds(10),
+                            second.backend()::assertConnectedSession, executor);
+            assertEquals(profile, providers.profiles().apply(
+                    new com.nereusstream.delay.store.TargetCheckpointDependencies.ProfileUse(profile.ref(), source))
+                    .get(15, java.util.concurrent.TimeUnit.SECONDS));
+            assertEquals(semantic, providers.retries().apply(
+                    new com.nereusstream.delay.store.TargetCheckpointDependencies.RetryUse(semantic.ref(), source))
+                    .get(15, java.util.concurrent.TimeUnit.SECONDS));
+            assertEquals(trust, providers.trusts().apply(trust.ref()).get(15, java.util.concurrent.TimeUnit.SECONDS));
         }
     }
 

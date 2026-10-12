@@ -3130,3 +3130,14 @@ User-authorized genesis metadata keeps `CheckpointUploadIntent` field 8 nonzero.
 Oxia Recovery Catalog snapshot schema 2 preserves schema-1 fields 1--7 and requires field 8 `CatalogInitialization`. Schema 1 forbids field 8 and retains old canonical bytes; encoder emits 2 only with marker, decoder rejects schema2 without marker by canonical/projection validation. Shared publication-record outer schema/domain stay unchanged; the canonical nested snapshot includes the marker in its existing digest/CAS. Old readers reject schema2; no silent downgrade or field omission is permitted. Marker alone creates no recovery candidate/retention/Floor/GC authority. Initialized catalogs contain only authenticated Target manifests and retain an initial-lineage genesis. The separate legacy persistent conformance codec rejects marker encoding explicitly; it is not a Target initialization provider. These metadata changes do not authorize production rollout, old-reader retirement or migration completion.
 
 Target Catalog snapshot-schema2 initializer may compose ProtocolCompatibleCatalogInitializationAuthority: the existing current ProtocolCapabilityDeclaration must advertise the exact trusted activated ArtifactGenerationSet/schema bundle and current System tuple for every eligible reader. A protected complete membership/declaration/revision/session set must remain current through namespace acquisition/CAS; capability matching alone does not prove deployed binary, Source-ordered activation or retention/pins. This is a runtime authority composition, not a new wire enum/version or an automatic rollout/retirement grant.
+
+Oxia immutable Trust Set value index (2026-10-12): `OxiaSyncPayloadProofTrustSetCatalog` uses
+`<canonical caller prefix>/payload-trust-set/<hex(PayloadProofTrustSetRef.canonicalBytes())>` and stores the
+existing `PayloadProofTrustSetSemantic.canonicalBytes()` without a new envelope/schema. The caller supplies a
+finite positive maximum value byte bound; zero, oversize, noncanonical/corrupt values or a ref/key mismatch reject.
+This exact-ref index follows `PayloadProofTrustSetControlCatalog` and holds public verifier bytes only. It does
+not register/activate the Trust Set, authorize issuance, replace Source-ordered controls, or grant historical
+retention/key/pin rights. Publication requires caller-held authorization/protection; create-once CAS uncertainty
+or a competing writer must reread the exact durable bytes under the same live session and held protection.
+Async reads share the caller-owned finite executor/start/result deadline and configured client request timeout;
+future cancellation never ends underlying RPC/resource obligations. No deletion or retention authority is inferred.

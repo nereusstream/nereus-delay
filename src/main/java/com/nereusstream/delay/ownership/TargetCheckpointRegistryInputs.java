@@ -36,6 +36,23 @@ public final class TargetCheckpointRegistryInputs {
             Objects.requireNonNull(retries, "retries");
             Objects.requireNonNull(trusts, "trusts");
         }
+
+        /** Connects existing catalogs; caller owns finite RPC/executor bounds and held original-use/pin authority. */
+        public static Providers fromOxiaCatalogs(
+                com.nereusstream.delay.runtime.OxiaSyncSourceProfileCatalog profiles,
+                com.nereusstream.delay.runtime.OxiaSyncRetryPolicyCatalog retries,
+                com.nereusstream.delay.runtime.OxiaSyncPayloadProofTrustSetCatalog trusts,
+                java.time.Duration timeout, Runnable protection, java.util.concurrent.ThreadPoolExecutor executor) {
+            Objects.requireNonNull(profiles, "profiles");
+            Objects.requireNonNull(retries, "retries");
+            Objects.requireNonNull(trusts, "trusts");
+            Objects.requireNonNull(timeout, "timeout");
+            Objects.requireNonNull(protection, "protection");
+            Objects.requireNonNull(executor, "executor");
+            return new Providers(use -> profiles.resolveAsync(use.reference(), use.source(), timeout,
+                    protection, executor), use -> retries.resolveAsync(use.reference(), use.source(), timeout,
+                    protection, executor), reference -> trusts.resolveAsync(reference, timeout, protection, executor));
+        }
     }
 
     public record Limits(int maximumUses, long maximumResponseBytes) {
