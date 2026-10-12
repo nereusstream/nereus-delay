@@ -32,6 +32,10 @@ public final class TargetWorkerShardFleetRuntime {
             return Optional.empty();
         }
 
+        default Optional<TargetJournalNegativeSettlementMaintenance.Turn> runJournalSettlementMaintenanceTurn() {
+            return Optional.empty();
+        }
+
         default Optional<TargetPulsarPublishRuntime.Turn> runPublishMaintenanceTurn() { return Optional.empty(); }
 
         default Optional<TargetPublishRecoveryMaintenance.Turn> runPublishRecoveryMaintenanceTurn() {
@@ -93,6 +97,7 @@ public final class TargetWorkerShardFleetRuntime {
     private int messageExpiryCursor;
     private int publishRecoveryCursor;
     private int publishCursor;
+    private int journalSettlementCursor;
     private Thread activeTurnThread;
 
     public TargetWorkerShardFleetRuntime(
@@ -244,6 +249,17 @@ public final class TargetWorkerShardFleetRuntime {
         if (activeTurnThread == Thread.currentThread()) {
             throw new IllegalStateException("cannot reenter Target fleet dispatch from its selected turn");
         }
+    }
+
+    synchronized Optional<TargetJournalNegativeSettlementMaintenance.Turn> runNextJournalSettlementTurnIfPresent() {
+        requireNotInSelectedTurn();
+        if (shards.isEmpty()) { return Optional.empty(); }
+        final var selected = shards.get(journalSettlementCursor);
+        journalSettlementCursor = journalSettlementCursor == shards.size() - 1 ? 0 : journalSettlementCursor + 1;
+        if (selected.pendingCheckpointTask().isPresent()) { return Optional.empty(); }
+        activeTurnThread = Thread.currentThread();
+        try { return selected.runJournalSettlementMaintenanceTurn(); }
+        finally { activeTurnThread = null; }
     }
 
     synchronized Optional<TargetPulsarPublishRuntime.Turn> runNextPublishTurnIfPresent() {

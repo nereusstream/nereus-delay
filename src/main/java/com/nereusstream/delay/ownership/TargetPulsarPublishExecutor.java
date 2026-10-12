@@ -31,6 +31,7 @@ public final class TargetPulsarPublishExecutor {
     private final BoundedDestinationPublishAdapter.TargetPreparedPublishPreflight liveGate;
     private final BoundedDestinationPublishAdapter.TargetNativePreparedPublishPreflight nativeLiveGate;
     private final java.util.function.Consumer<TargetPublishAdmissionStore.Applied> nativeOwnership;
+    private final NegativeSettlement negativeSettlement;
     private final ResultAuthority results;
     private final TargetPublishOutcomeMutationFactory outcomes;
     private final Consumer<SystemMutation> handoff;
@@ -65,6 +66,24 @@ public final class TargetPulsarPublishExecutor {
             java.util.function.Consumer<TargetPublishAdmissionStore.Applied> nativeOwnership,
             ResultAuthority results, TargetPublishOutcomeMutationFactory outcomes, Consumer<SystemMutation> handoff,
             Executor completionExecutor) {
+        this(journal, adapter, artifacts, current, liveGate, nativeLiveGate, nativeOwnership, results,
+                outcomes, handoff, completionExecutor, null);
+    }
+
+    @FunctionalInterface
+    public interface NegativeSettlement {
+        java.util.concurrent.CompletableFuture<Void> settle(TargetPublishAdmissionStore.Applied applied,
+                PulsarAttemptJournal.Mapping mapping, PulsarPreparedRecord record, SystemMutation outcome);
+    }
+
+    public TargetPulsarPublishExecutor(
+            PulsarAttemptJournal journal, BoundedDestinationPublishAdapter adapter, ArtifactGenerationSet artifacts,
+            Supplier<TargetPublishAdmissionStore.Applied> current,
+            BoundedDestinationPublishAdapter.TargetPreparedPublishPreflight liveGate,
+            BoundedDestinationPublishAdapter.TargetNativePreparedPublishPreflight nativeLiveGate,
+            java.util.function.Consumer<TargetPublishAdmissionStore.Applied> nativeOwnership,
+            ResultAuthority results, TargetPublishOutcomeMutationFactory outcomes, Consumer<SystemMutation> handoff,
+            Executor completionExecutor, NegativeSettlement negativeSettlement) {
         this.journal = Objects.requireNonNull(journal, "journal");
         this.adapter = Objects.requireNonNull(adapter, "adapter");
         this.artifacts = Objects.requireNonNull(artifacts, "artifacts");
@@ -72,6 +91,7 @@ public final class TargetPulsarPublishExecutor {
         this.liveGate = Objects.requireNonNull(liveGate, "liveGate");
         this.nativeLiveGate = nativeLiveGate;
         this.nativeOwnership = nativeOwnership;
+        this.negativeSettlement = negativeSettlement;
         this.results = Objects.requireNonNull(results, "results");
         this.outcomes = Objects.requireNonNull(outcomes, "outcomes");
         this.handoff = Objects.requireNonNull(handoff, "handoff");
@@ -183,6 +203,33 @@ public final class TargetPulsarPublishExecutor {
                 || !Bytes.constantTimeEquals(result.mutationHash(), submission.mutation.mutationHash())) {
             throw new IllegalStateException("Target publication Outcome was not applied as its exact first result");
         }
+        if (submission.result.disposition() == DestinationPublishResult.Disposition.DEFINITIVELY_NOT_PUBLISHED
+                && submission.mapping != null) {
+            final var state = journal.state(submission.mapping.mappingId());
+            if (state == PulsarAttemptJournal.AttemptState.OWNERSHIP_STARTED || submission.negativeSettling != null) {
+                if (negativeSettlement == null) {
+                    throw new IllegalStateException("post-ownership Source-negative result requires configured Journal settlement");
+                }
+                if (submission.negativeSettling == null) {
+                    submission.negativeSettling = Objects.requireNonNull(negativeSettlement.settle(submission.applied,
+                            submission.mapping, submission.record, submission.mutation), "Journal settlement future");
+                }
+                if (!submission.negativeSettling.isDone()) { return false; }
+                try { submission.negativeSettling.join(); }
+                catch (java.util.concurrent.CompletionException failed) {
+                    if (failed.getCause() instanceof com.nereusstream.delay.store.ReadIncompleteException
+                            || failed.getCause() instanceof java.util.concurrent.RejectedExecutionException) {
+                        submission.negativeSettling = null;
+                    }
+                    throw failed;
+                }
+                if (journal.state(submission.mapping.mappingId()) != PulsarAttemptJournal.AttemptState.RESOLVED_NOT_PUBLISHED) {
+                    throw new IllegalStateException("Source-negative flight lacks durable Journal terminal settlement");
+                }
+            } else if (state != PulsarAttemptJournal.AttemptState.RETIRED_NOT_PUBLISHED) {
+                throw new IllegalStateException("negative flight has no authenticated terminal Journal settlement");
+            }
+        }
         pending = null;
         return true;
     }
@@ -235,6 +282,7 @@ public final class TargetPulsarPublishExecutor {
         private volatile Throwable failure;
         private volatile boolean handedOff;
         private volatile boolean journalResolved;
+        private java.util.concurrent.CompletableFuture<Void> negativeSettling;
 
         private Submission(TargetPublishAdmissionStore.Applied applied) {
             this.applied = applied;

@@ -143,7 +143,7 @@ public final class PulsarPreparedRecordFactory {
         }
     }
 
-    private static PulsarRecordTemplate targetTemplate(
+    public static PulsarRecordTemplate targetTemplate(
             final TargetOrdinaryPublicationBinding publication, final PayloadForPublish payload) {
         Objects.requireNonNull(publication, "publication");
         if (publication.physical().resource().kind() != BrokerResourceIdentity.Kind.PULSAR
@@ -272,7 +272,7 @@ public final class PulsarPreparedRecordFactory {
         }
     }
 
-    private static PulsarRecordTemplate targetTemplate(
+    public static PulsarRecordTemplate targetTemplate(
             final com.nereusstream.delay.protocol.TargetNativePublicationBinding publication, final PayloadForPublish payload) {
         Objects.requireNonNull(publication, "publication");
         if (publication.physical().resource().kind() != BrokerResourceIdentity.Kind.PULSAR

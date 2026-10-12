@@ -2143,3 +2143,19 @@ installed lineage，不能靠不同 Store incarnation 放行。native UNKNOWN �
 `createRecovered` 只在完成时返回实际最终切点。普通 active Source 构造器检查实际 Claim
 范围为空，不能以 ACTIVE lease 提前暴露遗留 CLAIMED。配置缺恢复 identity/Journal/history/
 fencing 权限、预算不完整或失权，都不形成 READY。
+
+
+### 2026-10-13 Source negative / Journal settlement 费用与保护
+
+Source attempt Budget.resolve 仍是唯一相应计费转换。新的 Journal kind5 只在 actual
+RESOLVED_AWAITING_FLOOR、原 APPLIED Admission/negative 首结果/POSITION/source/digest
+齐全时建立私有 proof，再取得独立认证及真实 writer/physical/retention/pin 权利。它只
+解除该 Producer 的单未决 sequence slot，不重复扣 Budget、改变冻结 accounting、回收
+sequence 或释放 physical/zombie/evidence/receipt/Journal 权利。closed record 整体 bytes
+包含两份 Source frames/positions/first results 与完整 template，计入原有限 Journal
+retained record/byte limits；新增 reader/Artifact 机制覆盖后才启用 writer。
+
+后续实际 Floor/release writer 必须取得该 exact managed negative mapping 的真实 durable
+kind5 完成依据及相应 pins/祖先覆盖，不得仅凭 Budget 已 resolved 或 aggregate 终态清除
+Admission/首结果/证据。当前新分支保持 readNegativeOutcome 对已 Floor/released 的拒绝，
+保护解除与实际删除将在包 2 同原契约装配；不以接口或 callback 代替实际门禁。

@@ -25,7 +25,8 @@ public final class PulsarAttemptJournalRecordCodec {
     public static byte[] encode(final PulsarAttemptJournal.AppendRequest request) {
         final PulsarAttemptJournal.AppendRequest exact = Objects.requireNonNull(request, "request");
         final PulsarAttemptJournal.Mapping mapping = exact.mapping();
-        if (!mapping.isCurrentGeneration() || mapping.producer().isTarget()) {
+        if (!mapping.isCurrentGeneration() || mapping.producer().isTarget()
+                || exact.kind().wireValue() > 4 || exact.settlement() != null) {
             throw new IllegalArgumentException("physical Attempt Journal accepts only current mappings");
         }
         final PulsarAttemptJournal.ProducerKey producer = mapping.producer();
@@ -113,7 +114,7 @@ public final class PulsarAttemptJournalRecordCodec {
 
     private static PulsarAttemptJournal.RecordKind recordKind(final long wireValue) {
         for (PulsarAttemptJournal.RecordKind kind : PulsarAttemptJournal.RecordKind.values()) {
-            if (kind.wireValue() == wireValue) {
+            if (kind.wireValue() <= 4 && kind.wireValue() == wireValue) {
                 return kind;
             }
         }

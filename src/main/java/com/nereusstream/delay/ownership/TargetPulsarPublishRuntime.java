@@ -94,6 +94,8 @@ public final class TargetPulsarPublishRuntime {
     private final TargetPublishAdmissionWorkClassExecutor admissions;
     private final TargetOutcomeWorkClassExecutor outcomes;
     private final TargetPulsarPublishExecutor publisher;
+    private final PulsarAttemptJournal journal;
+    private final boolean negativeSettlementConfigured;
     private final AtomicReference<Flight> pending = new AtomicReference<>();
     private final AtomicBoolean active = new AtomicBoolean();
 
@@ -105,7 +107,22 @@ public final class TargetPulsarPublishRuntime {
             BoundedDestinationPublishAdapter.TargetPreparedPublishPreflight ordinaryGate,
             BoundedDestinationPublishAdapter.TargetNativePreparedPublishPreflight nativeGate,
             TargetPulsarPublishExecutor.ResultAuthority results) {
+        this(worker, appender, signer, outcomeSigner, journal, adapter, artifacts, preparation, payloads, reads,
+                time, ownerClock, io, completion, ordinaryGate, nativeGate, results, null);
+    }
+
+    public TargetPulsarPublishRuntime(TargetWorkerShardRuntime worker, ShardLogMutationAppender appender,
+            TargetPublishAdmissionMutationFactory signer, TargetPublishOutcomeMutationFactory outcomeSigner,
+            PulsarAttemptJournal journal, BoundedDestinationPublishAdapter adapter, ArtifactGenerationSet artifacts,
+            Preparation preparation, Payloads payloads, Supplier<BoundedReadBudget> reads,
+            Supplier<TrustedUtcIntervalEvidence> time, LongSupplier ownerClock, Executor io, Executor completion,
+            BoundedDestinationPublishAdapter.TargetPreparedPublishPreflight ordinaryGate,
+            BoundedDestinationPublishAdapter.TargetNativePreparedPublishPreflight nativeGate,
+            TargetPulsarPublishExecutor.ResultAuthority results,
+            PulsarAttemptJournal.NegativeSettlementAuthority negativeAuthority) {
         this.worker = Objects.requireNonNull(worker, "worker");
+        this.journal = Objects.requireNonNull(journal, "journal");
+        negativeSettlementConfigured = negativeAuthority != null;
         this.signer = Objects.requireNonNull(signer, "signer");
         this.preparation = Objects.requireNonNull(preparation, "preparation");
         this.payloads = Objects.requireNonNull(payloads, "payloads");
@@ -122,11 +139,35 @@ public final class TargetPulsarPublishRuntime {
         }, ordinaryGate, Objects.requireNonNull(nativeGate, "nativeGate"),
                 applied -> worker.requireNativeOwnership(readBudget(), applied,
                         Objects.requireNonNull(time.get(), "trusted interval"), ownerClock),
-                results, outcomeSigner, image -> outcomes.submit(image, ownerClock), completion);
+                results, outcomeSigner, image -> outcomes.submit(image, ownerClock), completion,
+                negativeAuthority == null ? null : (applied, mapping, record, outcome) -> {
+                    final var settled = new CompletableFuture<Void>();
+                    try {
+                        io.execute(() -> {
+                            try {
+                                final var proof = worker.readNegativeOutcome(readBudget(), mapping.mappingId(),
+                                        applied.image(), outcome, record.template(), ownerClock);
+                                journal.resolveNotPublished(mapping, proof, negativeAuthority);
+                                settled.complete(null);
+                            } catch (RuntimeException | Error failure) { settled.completeExceptionally(failure); }
+                        });
+                    } catch (RuntimeException rejected) { settled.completeExceptionally(rejected); }
+                    return settled;
+                });
     }
 
     void requireWorker(TargetWorkerShardRuntime expected) {
         if (worker != expected) { throw new IllegalArgumentException("publisher belongs to another Worker"); }
+    }
+
+    void requireNegativeSettlementConfigured() {
+        if (!negativeSettlementConfigured) {
+            throw new IllegalStateException("configured Target publisher lacks post-ownership Journal settlement authority");
+        }
+    }
+
+    void requireJournal(PulsarAttemptJournal expected) {
+        if (journal != expected) { throw new IllegalArgumentException("publisher/cleanup must share the same protected Journal"); }
     }
 
     /** The scheduler checks this before Claim; acceptance retains only one already durable Claim. */

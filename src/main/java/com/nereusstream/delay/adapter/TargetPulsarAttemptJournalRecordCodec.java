@@ -18,6 +18,10 @@ public final class TargetPulsarAttemptJournalRecordCodec {
     public static final int MAX_CANONICAL_BYTES = TargetChannelIdentity.MAX_CANONICAL_BYTES
             + CanonicalTargetPartition.MAX_CANONICAL_BYTES + TargetSourcePosition.MAX_CANONICAL_BYTES + 512;
 
+    public static final int SETTLEMENT_VERSION = 2;
+    public static final int MAX_SETTLEMENT_BYTES = MAX_CANONICAL_BYTES
+            + com.nereusstream.delay.protocol.TargetJournalNegativeSettlement.MAX_CANONICAL_BYTES + 5;
+
     private TargetPulsarAttemptJournalRecordCodec() {}
 
     static byte[] mappingBody(final PulsarAttemptJournal.Mapping mapping) {
@@ -49,12 +53,13 @@ public final class TargetPulsarAttemptJournalRecordCodec {
     public static byte[] encode(final PulsarAttemptJournal.AppendRequest request) {
         Objects.requireNonNull(request, "request");
         final byte[] result = CanonicalProtobuf.message(out -> {
-            CanonicalProtobuf.uint32(out, 1, VERSION);
+            CanonicalProtobuf.uint32(out, 1, request.settlement() == null ? VERSION : SETTLEMENT_VERSION);
             CanonicalProtobuf.uint32(out, 2, request.kind().wireValue());
             out.writeBytes(mappingBody(request.mapping()));
             CanonicalProtobuf.bytes(out, 14, request.mapping().mappingId());
+            if (request.settlement() != null) { CanonicalProtobuf.bytes(out, 15, request.settlement().canonicalBytes()); }
         });
-        if (result.length > MAX_CANONICAL_BYTES) {
+        if (result.length > (request.settlement() == null ? MAX_CANONICAL_BYTES : MAX_SETTLEMENT_BYTES)) {
             throw new IllegalArgumentException("Target Journal record exceeds its byte bound");
         }
         return result;
@@ -62,26 +67,32 @@ public final class TargetPulsarAttemptJournalRecordCodec {
 
     public static PulsarAttemptJournal.JournalRecord decode(
             final byte[] encoded, final PulsarAttemptJournal.JournalPosition position) {
-        if (encoded == null || encoded.length > MAX_CANONICAL_BYTES) {
+        if (encoded == null || encoded.length > MAX_SETTLEMENT_BYTES) {
             throw new IllegalArgumentException("Target Journal record exceeds its byte bound");
         }
         final var fields = new ArrayList<CanonicalProtobuf.Reader.Field>(14);
         final var reader = new CanonicalProtobuf.Reader(encoded);
         while (reader.hasRemaining()) {
-            if (fields.size() == 14) {
+            if (fields.size() == 15) {
                 throw new IllegalArgumentException("Target Journal record exceeds its field bound");
             }
             fields.add(reader.next());
         }
-        QueryCodecSupport.requireNumbers(fields,
-                new int[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14}, "Target Pulsar Journal");
-        if (QueryCodecSupport.uint32(fields.getFirst(), 1) != VERSION) {
-            throw new IllegalArgumentException("unsupported Target Journal version");
+        final long version = QueryCodecSupport.uint32(fields.getFirst(), 1);
+        final boolean settlementRecord = version == SETTLEMENT_VERSION;
+        QueryCodecSupport.requireNumbers(fields, settlementRecord
+                ? new int[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
+                : new int[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14}, "Target Pulsar Journal");
+        if (!settlementRecord && (version != VERSION || encoded.length > MAX_CANONICAL_BYTES)) {
+            throw new IllegalArgumentException("unsupported Target Journal version/bound");
         }
         final long kindNumber = QueryCodecSupport.uint32(fields.get(1), 2);
         final var kind = Arrays.stream(PulsarAttemptJournal.RecordKind.values())
-                .filter(k -> k.wireValue() == kindNumber).findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("unknown Target Journal record kind"));
+                .filter(k -> k.wireValue() == kindNumber && (settlementRecord
+                        ? k == PulsarAttemptJournal.RecordKind.RESOLVED_NOT_PUBLISHED : k.wireValue() <= 4))
+                .findFirst().orElseThrow(() -> new IllegalArgumentException("unsupported Target Journal kind/version"));
+        final var settlement = settlementRecord ? com.nereusstream.delay.protocol.TargetJournalNegativeSettlement
+                .decode(QueryCodecSupport.bytes(fields.get(14), 15)) : null;
         final var channel = TargetChannelIdentity.decode(QueryCodecSupport.bytes(fields.get(2), 3));
         final var physical = CanonicalTargetPartition.decode(QueryCodecSupport.bytes(fields.get(3), 4));
         final var source = TargetSourcePosition.decode(QueryCodecSupport.bytes(fields.get(11), 12));
@@ -94,12 +105,12 @@ public final class TargetPulsarAttemptJournalRecordCodec {
         final var mapping = PulsarAttemptJournal.Mapping.createCurrent(
                 channel.context().sourceShard(), PulsarAttemptJournal.ProducerKey.target(channel, physical),
                 QueryCodecSupport.uint(fields.get(4), 5), identity);
-        if (!Bytes.constantTimeEquals(mapping.mappingId(), QueryCodecSupport.fixed(fields.getLast(), 14, 32))) {
+        if (!Bytes.constantTimeEquals(mapping.mappingId(), QueryCodecSupport.fixed(fields.get(13), 14, 32))) {
             throw new IllegalArgumentException("Target Journal mapping ID differs from its closed body");
         }
         final var result = new PulsarAttemptJournal.JournalRecord(kind, mapping,
-                Objects.requireNonNull(position, "position"));
-        QueryCodecSupport.requireCanonical(encoded, encode(new PulsarAttemptJournal.AppendRequest(kind, mapping)),
+                Objects.requireNonNull(position, "position"), settlement);
+        QueryCodecSupport.requireCanonical(encoded, encode(new PulsarAttemptJournal.AppendRequest(kind, mapping, settlement)),
                 "Target Pulsar Journal");
         return result;
     }

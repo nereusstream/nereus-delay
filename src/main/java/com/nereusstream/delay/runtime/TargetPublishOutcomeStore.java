@@ -172,6 +172,59 @@ public final class TargetPublishOutcomeStore {
         return prepared.result;
     }
 
+    /** Actual retained Source proof. No caller-created first-result DTO can construct this writer input. */
+    public static final class NegativeOutcome {
+        private final com.nereusstream.delay.protocol.TargetJournalNegativeSettlement binding;
+        private NegativeOutcome(com.nereusstream.delay.protocol.TargetJournalNegativeSettlement binding) {
+            this.binding = binding;
+        }
+        public com.nereusstream.delay.protocol.TargetJournalNegativeSettlement binding() { return binding; }
+        public void requireMapping(com.nereusstream.delay.adapter.PulsarAttemptJournal.Mapping mapping) {
+            binding.requireMapping(mapping);
+        }
+    }
+
+    /** Reads actual first results and the unreleased resolved budget; external authentication is separate. */
+    public NegativeOutcome readNegativeOutcome(final BoundedReadBudget budget, final byte[] mappingId,
+            final SystemMutation admission, final SystemMutation outcome,
+            final com.nereusstream.delay.protocol.PulsarRecordTemplate template,
+            final TargetStoreBackend.ReadAuthority authority) {
+        return backend.guardedRead(budget, reader -> {
+            final var admitted = TargetPublishAdmissionBody.decode(admission.canonicalBody());
+            final var admissionFirst = admissionProof(reader, admission);
+            final var first = TargetResultRecord.decode(TargetValueEnvelope.decode(required(reader, ColumnFamily.DEDUPE,
+                    systemResultKey(outcome)), TargetResultRecord.VALUE_TYPE).payload());
+            first.requireOwner(root(reader));
+            first.mutation().requireAtOrBefore(reader.aggregate().mutation());
+            final byte[] attemptKey = Bytes.concat(new byte[] {TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG,
+                    TargetKeyCodec.KEY_FORMAT}, admitted.publishAttemptId());
+            final var attempt = TargetQuotaAttemptBudget.decodeForStore(attemptKey,
+                    TargetValueEnvelope.decode(required(reader, ColumnFamily.META, attemptKey),
+                            TargetQuotaAttemptBudget.VALUE_TYPE).payload(), scope.shard());
+            if (attempt.phase() != TargetQuotaAttemptBudget.Phase.RESOLVED_AWAITING_FLOOR
+                    || !Arrays.equals(attempt.recoveryLineage(), lineage)
+                    || !attempt.locator().equals(admitted.locator())
+                    || !Arrays.equals(attempt.admissionDigest(), admission.mutationHash())
+                    || !attempt.commitment().equals(admitted.commitment())
+                    || attempt.executionBytes() != admitted.executionBytes()
+                    || !attempt.resolvedAt().equals(first.mutation())) {
+                throw new IllegalStateException("Journal settlement lacks its exact retained Source-resolved budget");
+            }
+            final var binding = new com.nereusstream.delay.protocol.TargetJournalNegativeSettlement(mappingId,
+                    admission, admissionFirst.mutation().source(), admissionFirst,
+                    outcome, first.mutation().source(), first, template);
+            final var position = TargetResultRecord.decode(TargetValueEnvelope.decode(required(reader, ColumnFamily.DEDUPE,
+                    positionResultKey(first.mutation().source())), TargetResultRecord.VALUE_TYPE).payload());
+            position.requireFirst(first);
+            position.requireOwner(root(reader));
+            if (position.kind() != TargetResultRecord.Kind.POSITION_SYSTEM || !position.mutation().equals(first.mutation())) {
+                throw new IllegalStateException("negative Source first result lost its exact POSITION companion");
+            }
+            reader.requireWithinElapsedBudget();
+            return new NegativeOutcome(binding);
+        }, authority);
+    }
+
     private OutcomeProjection unknown(
             final TargetStoreBackend.Reader reader,
             final PublishOutcomeBody outcome,

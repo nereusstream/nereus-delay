@@ -94,6 +94,7 @@ public final class TargetWorkerShardRuntime
     private volatile TargetMessageExpiryMaintenance messageExpiryMaintenance;
     private TargetCheckpointCandidateWorkClassExecutor.Submission pendingCheckpoint;
     private TargetPublishRecoveryMaintenance publishRecoveryMaintenance;
+    private volatile TargetJournalNegativeSettlementMaintenance journalSettlement;
     private volatile TargetPulsarPublishRuntime publishRuntime;
     private volatile TargetChannelControlWorkClassExecutor channelControlHandoff;
     private SourceRecordConsumer.CheckpointCut preparedCheckpointCut;
@@ -315,6 +316,15 @@ public final class TargetWorkerShardRuntime
     }
 
     /** Binds one lifecycle submission slot to this exact Worker and caller-owned registry/client protection. */
+    public synchronized com.nereusstream.delay.runtime.TargetPublishOutcomeStore.NegativeOutcome readNegativeOutcome(
+            final BoundedReadBudget budget, final byte[] mappingId, final SystemMutation admission,
+            final SystemMutation outcome, final com.nereusstream.delay.protocol.PulsarRecordTemplate template,
+            final LongSupplier clock) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        return target.readNegativeOutcome(budget, mappingId, admission, outcome, template, clock);
+    }
+
     public synchronized TargetChannelControlWorkClassExecutor configureChannelControlHandoff(
             final ShardLogMutationAppender appender, final ControlTargetRegistrationAuthority registrations,
             final Runnable protection) {
@@ -417,11 +427,72 @@ public final class TargetWorkerShardRuntime
             final com.nereusstream.delay.adapter.BoundedDestinationPublishAdapter.TargetPreparedPublishPreflight ordinaryGate,
             final com.nereusstream.delay.adapter.BoundedDestinationPublishAdapter.TargetNativePreparedPublishPreflight nativeGate,
             final TargetPulsarPublishExecutor.ResultAuthority results) {
+        return configurePulsarPublishing(appender, signer, outcomeSigner, journal, adapter, artifacts, preparation,
+                payloads, reads, time, clock, io, completion, ordinaryGate, nativeGate, results, null);
+    }
+
+    public synchronized TargetPulsarPublishRuntime configurePulsarPublishing(
+            final ShardLogMutationAppender appender, final TargetPublishAdmissionMutationFactory signer,
+            final TargetPublishOutcomeMutationFactory outcomeSigner,
+            final com.nereusstream.delay.adapter.PulsarAttemptJournal journal,
+            final com.nereusstream.delay.adapter.BoundedDestinationPublishAdapter adapter,
+            final com.nereusstream.delay.protocol.ArtifactGenerationSet artifacts,
+            final TargetPulsarPublishRuntime.Preparation preparation, final TargetPulsarPublishRuntime.Payloads payloads,
+            final Supplier<BoundedReadBudget> reads,
+            final Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
+            final LongSupplier clock, final java.util.concurrent.Executor io, final java.util.concurrent.Executor completion,
+            final com.nereusstream.delay.adapter.BoundedDestinationPublishAdapter.TargetPreparedPublishPreflight ordinaryGate,
+            final com.nereusstream.delay.adapter.BoundedDestinationPublishAdapter.TargetNativePreparedPublishPreflight nativeGate,
+            final TargetPulsarPublishExecutor.ResultAuthority results,
+            final com.nereusstream.delay.adapter.PulsarAttemptJournal.NegativeSettlementAuthority negativeAuthority) {
         requirePublishRecoveryOwner(clock);
         if (publishRuntime != null) { throw new IllegalStateException("Target publication runtime is already configured"); }
+        if (journalSettlement != null) { journalSettlement.requireJournal(journal); }
         publishRuntime = new TargetPulsarPublishRuntime(this, appender, signer, outcomeSigner, journal, adapter,
-                artifacts, preparation, payloads, reads, time, clock, io, completion, ordinaryGate, nativeGate, results);
+                artifacts, preparation, payloads, reads, time, clock, io, completion, ordinaryGate, nativeGate, results, negativeAuthority);
         return publishRuntime;
+    }
+
+    public synchronized TargetJournalNegativeSettlementMaintenance configureJournalNegativeSettlement(
+            final com.nereusstream.delay.adapter.PulsarAttemptJournal journal,
+            final com.nereusstream.delay.adapter.PulsarAttemptJournal.NegativeSettlementAuthority authority,
+            final Runnable protection, final Supplier<BoundedReadBudget> reads,
+            final TargetJournalNegativeSettlementMaintenance.History history,
+            final java.util.concurrent.Executor io, final LongSupplier clock) {
+        requirePublishRecoveryOwner(clock);
+        if (journalSettlement != null) { throw new IllegalStateException("Journal settlement maintenance is already configured"); }
+        if (publishRuntime != null) { publishRuntime.requireJournal(journal); }
+        journalSettlement = new TargetJournalNegativeSettlementMaintenance(this, journal, authority, protection,
+                reads, history, io, clock);
+        return journalSettlement;
+    }
+
+    synchronized long confirmJournalSweep(
+            com.nereusstream.delay.runtime.TargetPublishRecoveryDiscovery.Cursor completeScan) {
+        requireNewTurnsAdmitted();
+        synchronized (store) {
+            completeScan.requireSameRetainedCut(new com.nereusstream.delay.runtime.TargetQueueSnapshotReader.Cut(
+                    store.metadata().storeIncarnation(), store.latestSequenceNumber()));
+            return store.shardMutationSequence();
+        }
+    }
+
+    synchronized long publicationSourceSequence() { return store.shardMutationSequence(); }
+
+    boolean hasLivePublicationAttempt(byte[] attempt) {
+        final var publisher = publishRuntime;
+        return publisher != null && publisher.ownsAttempt(attempt);
+    }
+
+    @Override
+    public Optional<TargetJournalNegativeSettlementMaintenance.Turn> runJournalSettlementMaintenanceTurn() {
+        final var configured = journalSettlement;
+        return configured == null ? Optional.empty() : Optional.of(configured.runTurn());
+    }
+
+    void requirePulsarStartupClosure() {
+        Objects.requireNonNull(publishRuntime, "configured Target publisher").requireNegativeSettlementConfigured();
+        Objects.requireNonNull(journalSettlement, "configured retained Source/Journal cleanup");
     }
 
     boolean publisherAvailable() { return publishRuntime != null && publishRuntime.available(); }
@@ -993,6 +1064,9 @@ public final class TargetWorkerShardRuntime
         if (publishRuntime != null && !publishRuntime.available()) {
             throw new IllegalStateException("Target Worker cannot pause a retained publication flight");
         }
+        if (journalSettlement != null && !journalSettlement.completedForSource(store.shardMutationSequence())) {
+            throw new IllegalStateException("Target Worker cannot pause an unfinished Journal settlement sweep");
+        }
         sourceAndMaintenancePaused = true;
         preparedCheckpointCut = null;
     }
@@ -1023,10 +1097,10 @@ public final class TargetWorkerShardRuntime
     public Optional<WorkClassTask> settlePendingPublicationForDrain(final SchedulerBudget workBudget,
             final SchedulerBudget sourceBudget, final LongSupplier clock) {
         final var publisher = publishRuntime;
-        if (publisher == null || publisher.available()) { return Optional.empty(); }
+        if (publisher == null || publisher.available()) { return settleJournalForDrain(clock); }
         final var turn = publisher.runTurn();
         if (turn.failure() != null) { throw new IllegalStateException("retained publication could not settle", turn.failure()); }
-        if (publisher.available()) { return Optional.empty(); }
+        if (publisher.available()) { return settleJournalForDrain(clock); }
         workClasses.runTurn(workBudget);
         synchronized (this) {
             requireNewTurnsAdmitted();
@@ -1037,7 +1111,18 @@ public final class TargetWorkerShardRuntime
         if (settled.failure() != null) {
             throw new IllegalStateException("retained publication Source turn could not settle", settled.failure());
         }
-        return publisher.pendingTask();
+        final var task = publisher.pendingTask();
+        return task.isPresent() ? task : settleJournalForDrain(clock);
+    }
+
+    private Optional<WorkClassTask> settleJournalForDrain(final LongSupplier clock) {
+        final var configured = journalSettlement;
+        if (configured == null) { return Optional.empty(); }
+        final var turn = configured.runTurn();
+        if (turn.failure() != null) { throw new IllegalStateException("Source-decided Journal cleanup is unsettled", turn.failure()); }
+        return configured.pending() ? Optional.of(new WorkClassTask(
+                com.nereusstream.delay.scheduler.WorkClass.OUTCOME_AND_CONTROL,
+                "target-journal-settlement/" + shardId, 1)) : Optional.empty();
     }
 
     @Override

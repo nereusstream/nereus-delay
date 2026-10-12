@@ -588,6 +588,7 @@ public final class TargetWorkerHostRuntime {
             final BoundedAsyncMetricExporter metrics, final Consumer<Throwable> failureConsumer) {
         final var delegate = Objects.requireNonNull(requests, "requests");
         final var workers = currentTargetWorkers();
+        workers.forEach(TargetWorkerShardRuntime::requirePulsarStartupClosure);
         if (workers.stream().anyMatch(worker -> !worker.publisherAvailable())) {
             throw new IllegalStateException("configure every admitted Target publisher before starting its Claim loop");
         }
@@ -1349,6 +1350,11 @@ public final class TargetWorkerHostRuntime {
                     if (gc.isPresent()) {
                         return new ShardDrain(shard.shardId(), Status.PENDING_GC, sourceTurn, null,
                                 gc.orElseThrow(), null);
+                    }
+                    final var settledJournal = shard.settlePendingPublicationForDrain(request.gcBudget(), sourceBudget, ownerClock);
+                    if (settledJournal.isPresent()) {
+                        return new ShardDrain(shard.shardId(), Status.PENDING_PUBLICATION, sourceTurn,
+                                null, null, null, null, null, settledJournal.orElseThrow());
                     }
                     if (!schedule.hasCurrentPublishedCut(shard)) {
                         final var task = schedule.submitFinalForDrain(shard, checkpointClock.getAsLong());

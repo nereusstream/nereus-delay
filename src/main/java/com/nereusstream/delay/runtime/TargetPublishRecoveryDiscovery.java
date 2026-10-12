@@ -51,9 +51,10 @@ public final class TargetPublishRecoveryDiscovery {
 
         /** Identity comparison only; owning Worker/Owner and current Store protection are still mandatory. */
         public void requireSameRetainedCut(TargetQueueSnapshotReader.Cut expected) {
-            if (!retainedInputs || !cut.equals(Objects.requireNonNull(expected, "expected"))) {
-                throw new IllegalStateException("Target Admission inputs belong to another checkpoint Store cut");
+            if (!retainedInputs) {
+                throw new IllegalStateException("Target Admission inputs are not a retained checkpoint scan");
             }
+            if (!cut.equals(Objects.requireNonNull(expected, "expected"))) { throw new StaleCursor(); }
         }
     }
 

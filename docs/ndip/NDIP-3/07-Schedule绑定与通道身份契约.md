@@ -541,3 +541,51 @@ active Source 构造器拒绝实际未完成 Claim 范围，ACTIVE lease 不是�
 审计覆盖整个合法恢复边界；每个局部撤销只核对本批事实/保护，不重复全库 audit。
 组件编译不代表恢复/Broker/权限场景已验证。包 1 仍缺 post-ownership definitive
 NOT_PUBLISHED Journal 收尾及其真实跨重启连接。
+
+
+### 2026-10-13 Target Journal 负终态与跨重启收尾
+
+独立 Target Journal record v2 仅用于 kind 5 RESOLVED_NOT_PUBLISHED；v1 的 1–4 kinds、
+原 Mapping canonical/ID/sequence、Lane generation 3 bytes 保持。两个旧 codec 明确拒绝
+新增 kind；v2 保留 mapping fields 3–14，field 15 是完整有界
+TargetJournalNegativeSettlement。其 schema v1 fields 1–10 为 version、mappingId、
+原 signed Admission frame/Source/first result、原 signed Outcome 或 Resolution
+frame/Source/first result、完整 PulsarRecordTemplate、独立 digest。完整 Source frames 与
+first result/schema/payload 均按声明上限封闭，不把 parsed DTO 当权威。新 record canonical
+使用独立 v2 域并包含完整 settlement payload，映射的冻结 Artifact 不改写。
+
+TargetPublishOutcomeStore.readNegativeOutcome 只从实际受保护 Store 取得私有
+NegativeOutcome：核对两份实际 APPLIED 首结果、POSITION companion、原 admitted body、
+RESOLVED_AWAITING_FLOOR Budget/admission digest/commitment/execution/resolvedAt、root/
+lineage 和当前 aggregate；Floor 已释放或首结果缺失不合成证明。完整 mapping/channel/
+Target/template/contract/payload hash/Artifact/Source/attempt 身份另外精确相关。
+
+PulsarAttemptJournal.resolveNotPublished 必须取得上述私有 proof 与独立实际 history/
+evidence/writer/physical/retention/pin authentication，源已决后才 append；状态只允许
+OWNERSHIP_STARTED → kind 5，与 PUBLISHED 互斥。durable position 和 held rights 复核
+后才撤销所有 SEND/retransmit 资格并清 unresolved slot，后续 sequence 仍严格加一。
+原 pre-ownership retirement 不接受新负终态，也不反用该记录认证产生它自身的 Source
+NOT_PUBLISHED。append/ACK UNKNOWN 或失权沿 writeUncertain/fence/reopen，不先放开。
+
+实时 TargetPulsarPublishExecutor 在 Source negative APPLIED 后仍保留 flight，等待受限
+I/O executor 上的 durable settlement future 完成。后台
+TargetJournalNegativeSettlementMaintenance 从实际 retained Budget 的 resolvedAt 找原
+Admission/Outcome/template，不只扫描 ADMITTED，覆盖 OWNER live rejection 和 SERVICE
+UNKNOWN resolution、Source 已决而 Journal 未收尾的崩溃窗口。每 tick 一行/一项 future，
+复用原维护 fleet，活跃 flight 交自己的结算路径；扫描 cut 改变重启，完整 range end 与
+源序列同一切点核对后才宣告 sweep 完成。无新线程/全局队列、无第二次 Source 扣费。
+
+Host configured startup 要求 live settlement 与 retained cleanup 且共用同一 Journal；
+normal drain 使用 PENDING_PUBLICATION 等待 cleanup，Source/GC 后复查再做最终切点。
+metadata-only checkpoint 写不冒充新 Source negative；源序列推进使旧 sweep 失效。
+物理/zombie/receipt/Journal/evidence 保护和实际 Floor 后删除仍分别处理，不因终态释放。
+
+真实 P1 PulsarClientArtifactAttemptJournal 增加带独立 NegativeReplayAuthority 的
+openTarget 入口。新 writer/reader 必须在 TargetWriterGuard.requireRecordVersion 取得
+实际 covering schema/Artifact/eligible-reader activation；旧 functional guard 默认拒绝
+v2。replay(kind5) 必须独立 authenticate 原 Source/history 并保持 rights；重复（同物理
+position 或 ACK 丢失后的不同 position）先匹配完整 settlement bytes，内容冲突 fence。
+旧 replay 不能解析新 kind 后直接开 next mapping。
+
+此批只有编译开发证据，没有测试/Broker/生产激活证明。真实提供者权利、资源额度、
+checkpoint/恢复/删除统一装配仍按四包继续；包 1/全部切片不因这个分支闭合而完成。

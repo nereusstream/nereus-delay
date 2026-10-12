@@ -183,7 +183,7 @@ public final class PulsarAttemptJournal {
             break;
         }
         if (matching != null) {
-            if (matching.retired) {
+            if (matching.retired || matching.resolvedNotPublishedRecord != null) {
                 throw conflict("retired publish attempt cannot be sent again");
             }
             return new AppendResult(matching.mappedRecord, true);
@@ -203,7 +203,7 @@ public final class PulsarAttemptJournal {
                 return appendNextCurrent(producer, identity);
             }
             if (!sameFrozenProducer(existing.mapping.producer(), producer)
-                    || !sameCurrentAttemptIdentity(existing.mapping, identity) || existing.retired) {
+                    || !sameCurrentAttemptIdentity(existing.mapping, identity) || existing.retired || existing.resolvedNotPublishedRecord != null) {
                 throw conflict("Target attempt changes its frozen Journal identity or is retired");
             }
             return new AppendResult(existing.mappedRecord, true);
@@ -221,7 +221,7 @@ public final class PulsarAttemptJournal {
             break;
         }
         if (matching != null) {
-            if (matching.retired) {
+            if (matching.retired || matching.resolvedNotPublishedRecord != null) {
                 throw conflict("retired publish attempt cannot be sent again");
             }
             return new AppendResult(matching.mappedRecord, true);
@@ -301,7 +301,7 @@ public final class PulsarAttemptJournal {
     /** Durably marks Producer ownership before invoking the physical SEND. */
     public synchronized AppendResult markOwnershipStarted(final byte[] mappingId) {
         final MappingState state = requireMapping(mappingId);
-        if (state.published || state.retired) {
+        if (state.published || state.retired || state.resolvedNotPublishedRecord != null) {
             throw conflict("terminal mapping cannot enter ownership");
         }
         if (state.ownershipStarted) {
@@ -320,8 +320,8 @@ public final class PulsarAttemptJournal {
     /** Durably records an authenticated Broker publication for the exact mapping. */
     public synchronized AppendResult markPublished(final byte[] mappingId) {
         final MappingState state = requireMapping(mappingId);
-        if (state.retired) {
-            throw conflict("retired mapping cannot become published");
+        if (state.retired || state.resolvedNotPublishedRecord != null) {
+            throw conflict("negative terminal mapping cannot become published");
         }
         if (!state.ownershipStarted) {
             throw conflict("PUBLISHED requires an OWNERSHIP_STARTED predecessor");
@@ -337,6 +337,56 @@ public final class PulsarAttemptJournal {
         record(record);
         lastPosition = position;
         return new AppendResult(record, false);
+    }
+
+    /** Authenticated Source/history and current writer/physical/retention rights; never a boolean absence provider. */
+    @FunctionalInterface
+    public interface NegativeSettlementAuthority {
+        Runnable requireAuthenticated(Mapping mapping,
+                com.nereusstream.delay.runtime.TargetPublishOutcomeStore.NegativeOutcome source);
+    }
+
+    /** Only an actual private Store proof plus real held authentication can close a post-ownership slot. */
+    public AppendResult resolveNotPublished(final Mapping mapping,
+            final com.nereusstream.delay.runtime.TargetPublishOutcomeStore.NegativeOutcome source,
+            final NegativeSettlementAuthority authority) {
+        if (!targetNamespace) { throw conflict("Lane Journal cannot write a Target negative settlement"); }
+        Objects.requireNonNull(source, "actual Source proof").requireMapping(mapping);
+        final var protection = Objects.requireNonNull(Objects.requireNonNull(authority, "authority")
+                .requireAuthenticated(mapping, source), "held settlement rights");
+        synchronized (this) {
+            requireShard(mapping);
+            requireWritable();
+            protection.run();
+            final var state = requireMapping(mapping.mappingId());
+            if (!state.mapping.sameCanonical(mapping) || !state.ownershipStarted || state.retired || state.published) {
+                throw conflict("negative settlement requires the exact OWNERSHIP_STARTED mapping");
+            }
+            final var binding = source.binding();
+            if (state.resolvedNotPublishedRecord != null) {
+                if (!sameSettlement(state.resolvedNotPublishedRecord.settlement(), binding)) {
+                    throw conflict("post-ownership negative settlement changes its first payload");
+                }
+                protection.run();
+                return new AppendResult(state.resolvedNotPublishedRecord, true);
+            }
+            final var position = append(RecordKind.RESOLVED_NOT_PUBLISHED, mapping, binding);
+            final var record = new JournalRecord(RecordKind.RESOLVED_NOT_PUBLISHED, mapping, position, binding);
+            try { protection.run(); }
+            catch (RuntimeException lostRights) { writeUncertain = true; throw lostRights; }
+            state.resolvedNotPublishedRecord = record;
+            state.targetFirstSendAvailable = false;
+            state.producer.unresolvedMappingId = null;
+            record(record);
+            lastPosition = position;
+            return new AppendResult(record, false);
+        }
+    }
+
+    private static boolean sameSettlement(com.nereusstream.delay.protocol.TargetJournalNegativeSettlement first,
+            com.nereusstream.delay.protocol.TargetJournalNegativeSettlement second) {
+        return first == null ? second == null : second != null
+                && Arrays.equals(first.canonicalBytes(), second.canonicalBytes());
     }
 
     /** Returns the exact four-state H3 projection for one mapping. */
@@ -368,12 +418,38 @@ public final class PulsarAttemptJournal {
 
     /** Replays one already-durable Journal record during local recovery. */
     public synchronized void replay(final JournalRecord record) {
+        if (record.kind() == RecordKind.RESOLVED_NOT_PUBLISHED) {
+            throw conflict("Target negative replay requires independent Source/history authentication");
+        }
         evidenceRevision = Math.incrementExact(evidenceRevision);
         try {
             replayInternal(record);
         } catch (RuntimeException incompleteOrCorruptReplay) {
             writeUncertain = targetNamespace;
             throw incompleteOrCorruptReplay;
+        }
+    }
+
+    @FunctionalInterface
+    public interface NegativeReplayAuthority {
+        Runnable requireAuthenticated(JournalRecord original);
+    }
+
+    /** Resolve original Source authentication outside the Journal monitor, then replay under held snapshots. */
+    public void replay(final JournalRecord record, final NegativeReplayAuthority authority) {
+        if (record.kind() != RecordKind.RESOLVED_NOT_PUBLISHED) { replay(record); return; }
+        final var protection = Objects.requireNonNull(Objects.requireNonNull(authority, "Source/history authority")
+                .requireAuthenticated(record), "negative replay protection");
+        synchronized (this) {
+            evidenceRevision = Math.incrementExact(evidenceRevision);
+            try {
+                protection.run();
+                replayInternal(record);
+                protection.run();
+            } catch (RuntimeException failedAuthenticationOrReplay) {
+                writeUncertain = true;
+                throw failedAuthenticationOrReplay;
+            }
         }
     }
 
@@ -392,6 +468,9 @@ public final class PulsarAttemptJournal {
                 throw conflict("Attempt Journal mapping id/body conflict");
             }
             final JournalRecord prior = current.record(record.kind());
+            if (prior != null && !sameSettlement(prior.settlement(), record.settlement())) {
+                throw conflict("duplicate Journal negative settlement has different complete payload");
+            }
             // JournalPosition is reconstructed during replay; compare its
             // canonical bytes rather than relying on record identity.
             if (prior != null) {
@@ -415,14 +494,14 @@ public final class PulsarAttemptJournal {
             switch (record.kind()) {
                 case MAPPED -> throw conflict("duplicate mapped record replay conflict");
                 case OWNERSHIP_STARTED -> {
-                    if (current.retired || current.published || current.ownershipStarted) {
+                    if (current.retired || current.published || current.resolvedNotPublishedRecord != null || current.ownershipStarted) {
                         throw conflict("invalid OWNERSHIP_STARTED replay transition");
                     }
                     current.ownershipStarted = true;
                     current.ownershipRecord = record;
                 }
                 case PUBLISHED -> {
-                    if (current.retired || current.published || !current.ownershipStarted) {
+                    if (current.retired || current.published || current.resolvedNotPublishedRecord != null || !current.ownershipStarted) {
                         throw conflict("invalid PUBLISHED replay transition");
                     }
                     current.published = true;
@@ -430,11 +509,20 @@ public final class PulsarAttemptJournal {
                     current.producer.unresolvedMappingId = null;
                 }
                 case RETIRED_NOT_PUBLISHED -> {
-                    if (current.retired || current.published || current.ownershipStarted) {
+                    if (current.retired || current.published || current.resolvedNotPublishedRecord != null || current.ownershipStarted) {
                         throw conflict("invalid RETIRED_NOT_PUBLISHED replay transition");
                     }
                     current.retired = true;
                     current.retirementRecord = record;
+                    current.producer.unresolvedMappingId = null;
+                }
+                case RESOLVED_NOT_PUBLISHED -> {
+                    if (!targetNamespace || current.retired || current.published || !current.ownershipStarted
+                            || current.resolvedNotPublishedRecord != null) {
+                        throw conflict("invalid Target post-ownership negative replay transition");
+                    }
+                    current.resolvedNotPublishedRecord = record;
+                    current.targetFirstSendAvailable = false;
                     current.producer.unresolvedMappingId = null;
                 }
             }
@@ -467,6 +555,14 @@ public final class PulsarAttemptJournal {
     public synchronized TargetAttemptAbsence readTargetAttemptAbsence(ShardId sourceShard, byte[] attemptId) {
         requireTargetAttemptAbsent(sourceShard, attemptId);
         return new TargetAttemptAbsence(this, evidenceRevision);
+    }
+
+    /** Actual retained mapping lookup; the caller still holds authenticated Journal/cursor protection. */
+    public synchronized Optional<Mapping> targetMapping(byte[] attemptId) {
+        Bytes.requireLength(attemptId, HASH_LENGTH, "attemptId");
+        if (!targetNamespace || writeUncertain) { throw conflict("Target mapping lookup lacks a complete replayed Journal"); }
+        final var state = targetAttempts.get(Bytes.hex(attemptId));
+        return state == null ? Optional.empty() : Optional.of(state.mapping);
     }
 
     /** Causal consistency check over this protected, fully replayed Target Journal; not a standalone absence proof. */
@@ -898,6 +994,12 @@ public final class PulsarAttemptJournal {
         if (latest.published) {
             return Resolution.published(latest.mapping);
         }
+        if (latest.resolvedNotPublishedRecord != null) {
+            return evidence.brokerLastSequenceId() >= 0
+                    && Long.compareUnsigned(evidence.brokerLastSequenceId(), latest.mapping.sequenceId()) >= 0
+                    ? Resolution.divergence(latest.mapping, "Source-negative mapping has contradictory Broker publication")
+                    : Resolution.notPublished(latest.mapping);
+        }
         if (evidence.brokerLastSequenceId() >= 0
                 && Long.compareUnsigned(evidence.brokerLastSequenceId(), latest.mapping.sequenceId()) >= 0) {
             if (latest.retired) {
@@ -925,6 +1027,7 @@ public final class PulsarAttemptJournal {
             if (state == null
                     || !state.mapping.sameCanonical(mapping)
                     || state.retired
+                    || state.resolvedNotPublishedRecord != null
                     || state.ownershipStarted
                     || state.published) {
                 throw conflict("target SEND has no exact durable non-retired mapping");
@@ -952,6 +1055,7 @@ public final class PulsarAttemptJournal {
                     || !state.mapping.sameCanonical(mapping)
                     || !state.ownershipStarted
                     || state.retired
+                    || state.resolvedNotPublishedRecord != null
                     || state.published) {
                 throw conflict("target SEND requires an exact durable ownership marker");
             }
@@ -1050,12 +1154,17 @@ public final class PulsarAttemptJournal {
     }
 
     private JournalPosition append(final RecordKind kind, final Mapping mapping) {
+        return append(kind, mapping, null);
+    }
+
+    private JournalPosition append(final RecordKind kind, final Mapping mapping,
+            final com.nereusstream.delay.protocol.TargetJournalNegativeSettlement settlement) {
         evidenceRevision = Math.incrementExact(evidenceRevision);
         requireWritable();
-        requireRecordCapacity(new JournalRecord(kind, mapping, new JournalPosition(0, 0, 0, 1, 0)));
+        requireRecordCapacity(new JournalRecord(kind, mapping, new JournalPosition(0, 0, 0, 1, 0), settlement));
         final JournalPosition position;
         try {
-            position = appender.append(new AppendRequest(kind, mapping));
+            position = appender.append(new AppendRequest(kind, mapping, settlement));
         } catch (RuntimeException failure) {
             writeUncertain = targetNamespace;
             throw failure;
@@ -1175,7 +1284,8 @@ public final class PulsarAttemptJournal {
         MAPPED(1),
         OWNERSHIP_STARTED(2),
         PUBLISHED(3),
-        RETIRED_NOT_PUBLISHED(4);
+        RETIRED_NOT_PUBLISHED(4),
+        RESOLVED_NOT_PUBLISHED(5);
 
         private final int wireValue;
 
@@ -1193,7 +1303,8 @@ public final class PulsarAttemptJournal {
         MAPPED(1),
         OWNERSHIP_STARTED(2),
         PUBLISHED(3),
-        RETIRED_NOT_PUBLISHED(4);
+        RETIRED_NOT_PUBLISHED(4),
+        RESOLVED_NOT_PUBLISHED(5);
 
         private final int wireValue;
 
@@ -1213,10 +1324,13 @@ public final class PulsarAttemptJournal {
         DIVERGENCE
     }
 
-    public record AppendRequest(RecordKind kind, Mapping mapping) {
+    public record AppendRequest(RecordKind kind, Mapping mapping,
+            com.nereusstream.delay.protocol.TargetJournalNegativeSettlement settlement) {
+        public AppendRequest(RecordKind kind, Mapping mapping) { this(kind, mapping, null); }
         public AppendRequest {
             Objects.requireNonNull(kind, "kind");
             Objects.requireNonNull(mapping, "mapping");
+            requireSettlementShape(kind, mapping, settlement);
         }
     }
 
@@ -1297,20 +1411,35 @@ public final class PulsarAttemptJournal {
         }
     }
 
-    public record JournalRecord(RecordKind kind, Mapping mapping, JournalPosition position) {
+    public record JournalRecord(RecordKind kind, Mapping mapping, JournalPosition position,
+            com.nereusstream.delay.protocol.TargetJournalNegativeSettlement settlement) {
+        public JournalRecord(RecordKind kind, Mapping mapping, JournalPosition position) {
+            this(kind, mapping, position, null);
+        }
         public JournalRecord {
             Objects.requireNonNull(kind, "kind");
             Objects.requireNonNull(mapping, "mapping");
             Objects.requireNonNull(position, "position");
-            if (kind == RecordKind.RETIRED_NOT_PUBLISHED && mapping == null) {
-                throw new IllegalArgumentException("retirement record requires a mapping");
-            }
+            requireSettlementShape(kind, mapping, settlement);
         }
 
         public byte[] canonicalBytes() {
-            return Bytes.concat(
-                    RECORD_DOMAIN, Bytes.u8(kind.wireValue()), mapping.canonicalBytes(), position.canonicalBytes());
+            return settlement == null ? Bytes.concat(
+                    RECORD_DOMAIN, Bytes.u8(kind.wireValue()), mapping.canonicalBytes(), position.canonicalBytes())
+                    : Bytes.concat(Bytes.utf8("nereus-delay-target-journal-record-v2\0"),
+                            Bytes.u8(kind.wireValue()), mapping.canonicalBytes(),
+                            Bytes.lp32(settlement.canonicalBytes()), position.canonicalBytes());
         }
+    }
+
+    private static void requireSettlementShape(RecordKind kind, Mapping mapping,
+            com.nereusstream.delay.protocol.TargetJournalNegativeSettlement settlement) {
+        if ((kind == RecordKind.RESOLVED_NOT_PUBLISHED) != (settlement != null)
+                || settlement != null && (!mapping.producer().isTarget() || !mapping.isCurrentGeneration()
+                        || !Arrays.equals(settlement.mappingId(), mapping.mappingId()))) {
+            throw new IllegalArgumentException("Journal negative settlement belongs only to Target v2 and its exact mapping");
+        }
+        if (settlement != null) { settlement.requireMapping(mapping); }
     }
 
     public record ProducerKey(
@@ -1761,6 +1890,7 @@ public final class PulsarAttemptJournal {
         private JournalRecord publishedRecord;
         private boolean retired;
         private JournalRecord retirementRecord;
+        private JournalRecord resolvedNotPublishedRecord;
 
         private MappingState(final Mapping mapping, final ProducerState producer, final JournalRecord mappedRecord) {
             this.mapping = mapping;
@@ -1769,6 +1899,7 @@ public final class PulsarAttemptJournal {
         }
 
         private AttemptState state() {
+            if (resolvedNotPublishedRecord != null) { return AttemptState.RESOLVED_NOT_PUBLISHED; }
             if (retired) {
                 return AttemptState.RETIRED_NOT_PUBLISHED;
             }
@@ -1787,6 +1918,7 @@ public final class PulsarAttemptJournal {
                 case OWNERSHIP_STARTED -> ownershipRecord;
                 case PUBLISHED -> publishedRecord;
                 case RETIRED_NOT_PUBLISHED -> retirementRecord;
+                case RESOLVED_NOT_PUBLISHED -> resolvedNotPublishedRecord;
             };
         }
     }

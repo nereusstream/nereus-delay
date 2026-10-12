@@ -890,6 +890,16 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         return applied;
     }
 
+    synchronized com.nereusstream.delay.runtime.TargetPublishOutcomeStore.NegativeOutcome readNegativeOutcome(
+            final BoundedReadBudget budget, final byte[] mappingId, final SystemMutation admission,
+            final SystemMutation outcome, final com.nereusstream.delay.protocol.PulsarRecordTemplate template,
+            final LongSupplier clock) {
+        requireGcOwner(clock);
+        final var proof = targetOutcomes.readNegativeOutcome(budget, mappingId, admission, outcome, template, workerReads(clock));
+        requireGcOwner(clock);
+        return proof;
+    }
+
     synchronized TargetPublishAdmissionStore.Recovery readRecoveryAdmission(
             final BoundedReadBudget budget, final SystemMutation image, final LongSupplier ownerClock) {
         final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
