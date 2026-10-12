@@ -659,6 +659,9 @@ class TargetWorkerShardFleetRuntimeTest {
                         TargetWorkerHostRuntime.Status.PENDING_CHECKPOINT,
                         host.drainAll(new TargetOwnerDrainCoordinator.Request(5_000, budget), budget, () -> 101)
                                 .shards().getFirst().status());
+                assertEquals(1, first.checkpointStopRequests.get());
+                assertEquals(1, second.checkpointStopRequests.get());
+                assertEquals(0, first.drainCalls.get());
                 assertTrue(schedule.settle(first.shard, new SchedulerBudget(1, 1, 1_000_000), 110).isEmpty());
                 assertTrue(schedule.pendingTask(first.shard).isPresent());
                 assertEquals(
@@ -1212,6 +1215,7 @@ class TargetWorkerShardFleetRuntimeTest {
         private volatile CountDownLatch releaseDrain;
         private volatile Runnable duringMaintenance;
         private volatile WorkClassTask pendingCheckpoint;
+        private final AtomicInteger checkpointStopRequests = new AtomicInteger();
         private volatile WorkClassTask pendingMessageExpiry;
         private volatile SourceReplayEntry pendingSource;
         private volatile int sourceSettlementsBeforeAck;
@@ -1331,6 +1335,9 @@ class TargetWorkerShardFleetRuntimeTest {
         public Optional<WorkClassTask> pendingCheckpointTask() {
             return Optional.ofNullable(pendingCheckpoint);
         }
+
+        @Override
+        public void requestCheckpointRegistrationStop() { checkpointStopRequests.incrementAndGet(); }
 
         @Override
         public Optional<TargetCheckpointCandidateWorkClassExecutor.Outcome> runCheckpointTurn(

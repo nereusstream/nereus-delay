@@ -2355,3 +2355,10 @@ I/O 退出。Worker 对注册失败保留 checkpoint cut/原 task，显式 settl
 旧 provider 必须保证其 owned completion 包含实际 I/O 退出，或覆盖 begin 提供独立 exit fact。
 调用方先推进并结清原 operation，再关闭共享 executor/client/pin/物理资源。shutdownNow 移除 queued
 任务需要独立 exact no-start 证明，完整装配尚未闭合；I/O 退出也不能排除 uncertain CAS 晚到提交。
+
+Oxia registration 的 `RegistrationAttempt.requestStop()` 是本地停止请求：queued 时在同一
+start-lock下证明无 metadata I/O 并撤下 exact Runnable；started 时保留同一 RPC，后续 guard拒绝，
+实际退出后才结清。receipt取消仍不具备该证明。Host drain自动请求已有注册停止，Worker也提供
+`requestCheckpointRegistrationStop()`；pending RPC继续报告 PENDING_CHECKPOINT，显式 settlement
+后再重试drain。仅注册阶段有此入口，已进入 history/image/publication 的 task仍按原流程结清。
+在关闭caller executor/client/pin前先stop并确认实际退出；未知server commit仍须原值对账/reaper。

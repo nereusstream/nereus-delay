@@ -733,6 +733,12 @@ public final class TargetWorkerShardRuntime
         return submitted;
     }
 
+    /** Requests local registration withdrawal before Host drain; an active RPC remains owned. */
+    @Override
+    public synchronized void requestCheckpointRegistrationStop() {
+        if (pendingCheckpoint != null) { pendingCheckpoint.requestRegistrationStop(); }
+    }
+
     /** Runs one shared bounded turn and releases the local source/maintenance cut only after settlement. */
     public synchronized Optional<TargetCheckpointCandidateWorkClassExecutor.Outcome> runCheckpointTurn(
             final SchedulerBudget budget) {

@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.ownership.OwnerLease;
 import com.nereusstream.delay.ownership.OxiaOwnerLeaseStore;
@@ -52,6 +53,8 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -102,6 +105,26 @@ class OxiaRealCheckpointPublicationSmokeTest {
                     throw new IllegalStateException("checkpoint registration Owner changed");
                 }
             }, executor);
+            final var entered = new CountDownLatch(1);
+            final var release = new CountDownLatch(1);
+            executor.execute(() -> {
+                entered.countDown();
+                try { release.await(); }
+                catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+            });
+            try {
+                assertTrue(entered.await(5, TimeUnit.SECONDS));
+                final var queued = provider.begin(pending);
+                assertFalse(queued.ioExited());
+                queued.requestStop();
+                assertTrue(queued.ioExited());
+                assertTrue(assertThrows(ExecutionException.class,
+                        () -> queued.receipt().get(5, TimeUnit.SECONDS)).getCause().getMessage()
+                        .contains("stopped before metadata I/O"));
+                assertTrue(reader.current(pending).isEmpty());
+            } finally {
+                release.countDown();
+            }
             final var attempt = provider.begin(pending);
             assertEquals(pending, attempt.receipt().get(10, TimeUnit.SECONDS));
             assertTrue(attempt.ioExited());

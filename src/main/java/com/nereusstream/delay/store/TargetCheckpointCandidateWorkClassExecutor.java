@@ -37,16 +37,26 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
     public static final class RegistrationAttempt {
         private final java.util.concurrent.CompletableFuture<CheckpointUploadIntent> receipt;
         private final java.util.function.BooleanSupplier ioExited;
+        private final Runnable requestStop;
 
         public RegistrationAttempt(java.util.concurrent.CompletableFuture<CheckpointUploadIntent> receipt,
                 java.util.function.BooleanSupplier ioExited) {
+            this(receipt, ioExited, () -> {});
+        }
+
+        public RegistrationAttempt(java.util.concurrent.CompletableFuture<CheckpointUploadIntent> receipt,
+                java.util.function.BooleanSupplier ioExited, Runnable requestStop) {
             this.receipt = Objects.requireNonNull(receipt, "receipt");
             this.ioExited = Objects.requireNonNull(ioExited, "ioExited");
+            this.requestStop = Objects.requireNonNull(requestStop, "requestStop");
         }
 
         public java.util.concurrent.CompletableFuture<CheckpointUploadIntent> receipt() { return receipt.copy(); }
 
         public boolean ioExited() { return ioExited.getAsBoolean(); }
+
+        /** Prompt local request; an already-started RPC remains owned until its actual exit. */
+        public void requestStop() { requestStop.run(); }
     }
     private static final byte[] TASK_DOMAIN = Bytes.utf8("nereus-delay-target-candidate-handoff\0");
 
@@ -200,6 +210,7 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
                     }
                     registered.set(true);
                     guard.run(); // Includes the mandatory exact durable reread, not just the completed future.
+                    submission.registrationAccepted = true;
                     return;
                 }
                 final var snapshot = Objects.requireNonNull(inputs.get(), "semantic inputs");
@@ -435,6 +446,7 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
         private RegistrationAttempt registration;
         private java.util.concurrent.CompletableFuture<CheckpointUploadIntent> registrationReceipt;
         private Outcome retainedOutcome;
+        private boolean registrationAccepted;
         private Runnable preparationGuard;
         private WorkClassExecutionRegistry preparationRegistry;
 
@@ -451,6 +463,13 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
         }
 
         public boolean preparing() { return outcome == null && nextStep != null; }
+
+        /** Stops only an existing registration between bounded actions; completed history preparation is unchanged. */
+        public synchronized void requestRegistrationStop() {
+            if (registration == null || registrationAccepted || outcome != null || retainedOutcome != null
+                    || preparationRegistry.state(task).isPresent()) { return; }
+            complete(new Outcome(null, new IllegalStateException("Target checkpoint registration stopped")));
+        }
 
         /** Only the owning Worker uses this to admit history reads while its ordinary turns are paused. */
         public void requirePreparationCurrent() {
@@ -499,6 +518,7 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
                 throw new IllegalStateException("Target candidate action already completed");
             }
             Objects.requireNonNull(completed, "completed");
+            if (registration != null && completed.failure() != null) { registration.requestStop(); }
             if (registration != null && !registration.ioExited()) {
                 retainedOutcome = completed;
                 nextStep = null;

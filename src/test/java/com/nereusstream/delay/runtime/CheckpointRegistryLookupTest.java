@@ -12,10 +12,68 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 
 class CheckpointRegistryLookupTest {
+    @Test
+    void repeatedRunnableCannotCompleteWhileOriginalIoIsStillRunning() throws Exception {
+        try (var executor = pool()) {
+            final var entered = new CountDownLatch(1);
+            final var release = new CountDownLatch(1);
+            final var calls = new AtomicInteger();
+            final var owned = CheckpointRegistryLookup.submitOwned(guard -> {
+                if (calls.incrementAndGet() == 1) { entered.countDown(); await(release); }
+                return "value";
+            }, Duration.ofSeconds(5), () -> {}, executor, System::nanoTime);
+            try {
+                assertTrue(entered.await(5, TimeUnit.SECONDS));
+                owned.run();
+                assertEquals(1, calls.get());
+                assertFalse(owned.ioExited());
+                release.countDown();
+                assertEquals("value", owned.receipt().get(5, TimeUnit.SECONDS));
+                assertTrue(owned.ioExited());
+            } finally {
+                release.countDown();
+            }
+        }
+    }
+
+    @Test
+    void stoppedExecutorQueueCannotStartRemovedRegistration() throws Exception {
+        try (var executor = pool()) {
+            final var entered = new CountDownLatch(1);
+            final var release = new CountDownLatch(1);
+            final var called = new AtomicBoolean();
+            executor.execute(() -> {
+                entered.countDown();
+                try { release.await(); }
+                catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+            });
+            try {
+                assertTrue(entered.await(5, TimeUnit.SECONDS));
+                final var owned = CheckpointRegistryLookup.submitOwned(guard -> {
+                    called.set(true);
+                    return "value";
+                }, Duration.ofSeconds(5), () -> {}, executor, System::nanoTime);
+                final var removed = executor.shutdownNow();
+                assertTrue(removed.contains(owned));
+                assertFalse(owned.ioExited());
+                owned.requestStop();
+                assertTrue(owned.ioExited());
+                assertTrue(assertThrows(ExecutionException.class,
+                        () -> owned.receipt().get(5, TimeUnit.SECONDS)).getCause().getMessage()
+                        .contains("stopped before metadata I/O"));
+                removed.forEach(Runnable::run); // Even a retained Runnable cannot resurrect the original operation.
+                assertFalse(called.get());
+            } finally {
+                release.countDown();
+            }
+        }
+    }
+
     @Test
     void registrationProtectionRunsOnTheFiniteExecutor() throws Exception {
         try (var executor = pool()) {

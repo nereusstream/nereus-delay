@@ -619,3 +619,7 @@ C5（2026-10-12）：`OxiaCheckpointIntentRegistration` 已接既有有限 execu
 C5（2026-10-12）：注册 receipt 与 I/O exit 分离，失权时原失败/task/native cut 保留到实际客户端
 I/O 退出再结清；future view 取消不能释放保护。Source close 同样等待 checkpoint。未知 CAS 对账、
 完整 executor/service shutdown 与 Broker 联合验收继续开放，状态/flags 不提升。
+
+C5（2026-10-12）：Oxia 注册 exact Runnable 的 queued stop 已给出 no-start 证明；started stop
+保留 RPC 到实际退出。Candidate failure 与 Host drain 接 requestStop，既有 history/publication 仍
+按原流程结清。未知提交对账和完整 service shutdown/Broker联合义务继续，状态不提升。

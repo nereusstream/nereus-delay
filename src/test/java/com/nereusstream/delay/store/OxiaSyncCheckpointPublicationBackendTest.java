@@ -50,6 +50,44 @@ class OxiaSyncCheckpointPublicationBackendTest {
             new CheckpointManifestLimits(100, Long.MAX_VALUE, Long.MAX_VALUE, 4_096, 1 << 20, 100, 4_096);
 
     @Test
+    void startedRegistrationStopWaitsForRpcExitAndRetainsCommittedValue() throws Exception {
+        final var records = new FakeRecordClient();
+        final var backend = new OxiaSyncCheckpointPublicationBackend(records, "delay/stop-active-registration", LIMITS);
+        final var pending = pending(9, null);
+        final var entered = new CountDownLatch(1);
+        final var release = new CountDownLatch(1);
+        try (var executor = new ThreadPoolExecutor(1, 1, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<>(2),
+                new ThreadPoolExecutor.AbortPolicy())) {
+            records.afterPut = () -> {
+                entered.countDown();
+                try {
+                    if (!release.await(5, TimeUnit.SECONDS)) { throw new IllegalStateException("I/O gate expired"); }
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(interrupted);
+                }
+            };
+            try {
+                final var provider = new OxiaCheckpointIntentRegistration(
+                        backend, Duration.ofSeconds(10), () -> {}, executor);
+                final var attempt = provider.begin(pending);
+                assertTrue(entered.await(5, TimeUnit.SECONDS));
+                attempt.requestStop();
+                assertFalse(attempt.ioExited());
+                assertFalse(attempt.receipt().isDone());
+                release.countDown();
+                assertTrue(assertThrows(ExecutionException.class,
+                        () -> attempt.receipt().get(5, TimeUnit.SECONDS)).getCause().getMessage().contains("stop"));
+                assertTrue(attempt.ioExited());
+                assertEquals(pending, backend.current(pending).orElseThrow());
+                assertEquals(1, records.putCount);
+            } finally {
+                release.countDown();
+            }
+        }
+    }
+
+    @Test
     void receiptCancellationCannotProveThatRegistrationIoExited() throws Exception {
         final var records = new FakeRecordClient();
         final var backend = new OxiaSyncCheckpointPublicationBackend(records, "delay/owned-registration", LIMITS);

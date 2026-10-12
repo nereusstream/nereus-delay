@@ -27,6 +27,25 @@ final class CheckpointRegistryLookup {
     private static <T> CompletableFuture<T> submitBounded(Function<Runnable, T> operation, Duration timeout,
             Runnable protection, ThreadPoolExecutor executor, LongSupplier nanos, boolean checkBeforeAdmission) {
         Objects.requireNonNull(operation, "operation");
+        final Runnable guard = newGuard(timeout, protection, executor, nanos, checkBeforeAdmission);
+        return CompletableFuture.supplyAsync(() -> {
+            guard.run();
+            final T result = operation.apply(guard);
+            guard.run();
+            return result;
+        }, executor);
+    }
+
+    static <T> OwnedLookup<T> submitOwned(Function<Runnable, T> operation, Duration timeout,
+            Runnable protection, ThreadPoolExecutor executor, LongSupplier nanos) {
+        final var owned = new OwnedLookup<>(Objects.requireNonNull(operation, "operation"),
+                newGuard(timeout, protection, executor, nanos, false), executor);
+        executor.execute(owned);
+        return owned;
+    }
+
+    private static Runnable newGuard(Duration timeout, Runnable protection, ThreadPoolExecutor executor,
+            LongSupplier nanos, boolean checkBeforeAdmission) {
         Objects.requireNonNull(protection, "protection");
         Objects.requireNonNull(nanos, "nanos");
         final long duration;
@@ -45,17 +64,78 @@ final class CheckpointRegistryLookup {
         }
         final long started = nanos.getAsLong();
         if (checkBeforeAdmission) { protection.run(); }
-        final Runnable guard = () -> {
+        return () -> {
             requireDeadline(nanos, started, duration);
             protection.run();
             requireDeadline(nanos, started, duration);
         };
-        return CompletableFuture.supplyAsync(() -> {
+    }
+
+    /** Owns the exact queued Runnable and serializes no-start proof against the actual executor start. */
+    static final class OwnedLookup<T> implements Runnable {
+        private final Function<Runnable, T> operation;
+        private final Runnable guard;
+        private final ThreadPoolExecutor executor;
+        private final CompletableFuture<T> receipt = new CompletableFuture<>();
+        private boolean started;
+        private boolean stopping;
+        private boolean exited;
+
+        private OwnedLookup(Function<Runnable, T> operation, Runnable guard, ThreadPoolExecutor executor) {
+            this.operation = operation;
+            this.guard = guard;
+            this.executor = executor;
+        }
+
+        CompletableFuture<T> receipt() { return receipt.copy(); }
+
+        synchronized boolean ioExited() { return exited; }
+
+        void requestStop() {
+            synchronized (this) {
+                if (exited) { return; }
+                stopping = true;
+                if (started) { return; }
+                exited = true;
+            }
+            executor.remove(this);
+            receipt.completeExceptionally(new IllegalStateException("registration stopped before metadata I/O"));
+        }
+
+        private void requireCurrent() {
+            requireNotStopped();
             guard.run();
-            final T result = operation.apply(guard);
-            guard.run();
-            return result;
-        }, pool);
+            requireNotStopped();
+        }
+
+        private synchronized void requireNotStopped() {
+            if (stopping) { throw new IllegalStateException("registration I/O stop requested"); }
+        }
+
+        @Override
+        public void run() {
+            synchronized (this) {
+                if (started || exited) { return; }
+                started = true;
+            }
+            T value = null;
+            Throwable failure = null;
+            try {
+                requireCurrent();
+                value = operation.apply(this::requireCurrent);
+                requireCurrent();
+            } catch (Throwable rejected) {
+                failure = rejected;
+            }
+            synchronized (this) {
+                if (stopping && failure == null) {
+                    failure = new IllegalStateException("registration I/O stop requested");
+                }
+                exited = true;
+            }
+            if (failure == null) { receipt.complete(value); }
+            else { receipt.completeExceptionally(failure); }
+        }
     }
 
     private static void requireDeadline(LongSupplier nanos, long started, long duration) {

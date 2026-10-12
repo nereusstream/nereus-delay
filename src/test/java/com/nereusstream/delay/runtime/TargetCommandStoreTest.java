@@ -8540,6 +8540,7 @@ class TargetCommandStoreTest {
             final var registrationAllowed = new java.util.concurrent.atomic.AtomicBoolean(true);
             final var lateRegistration = new java.util.concurrent.CompletableFuture<CheckpointUploadIntent>();
             final var registrationExited = new java.util.concurrent.atomic.AtomicBoolean();
+            final var registrationStopRequested = new java.util.concurrent.atomic.AtomicBoolean();
             final var ownedRegistration = new com.nereusstream.delay.store
                     .TargetCheckpointCandidateWorkClassExecutor.IntentRegistration() {
                 @Override
@@ -8552,7 +8553,8 @@ class TargetCommandStoreTest {
                 public com.nereusstream.delay.store.TargetCheckpointCandidateWorkClassExecutor.RegistrationAttempt
                         begin(CheckpointUploadIntent pending) {
                     return new com.nereusstream.delay.store.TargetCheckpointCandidateWorkClassExecutor
-                            .RegistrationAttempt(lateRegistration, registrationExited::get);
+                            .RegistrationAttempt(lateRegistration, registrationExited::get,
+                                    () -> registrationStopRequested.set(true));
                 }
             };
             final var expiringRequest =
@@ -8567,6 +8569,7 @@ class TargetCommandStoreTest {
             assertTrue(worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L)).isEmpty());
             registrationAllowed.set(false);
             worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L));
+            assertTrue(registrationStopRequested.get());
             assertTrue(expiring.outcome().isEmpty());
             assertEquals(expiring.task(), worker.pendingCheckpointTask().orElseThrow());
             assertThrows(IllegalStateException.class, worker::pauseNewTurns);
@@ -8588,6 +8591,51 @@ class TargetCommandStoreTest {
             assertEquals(beforeCollection, store.latestSequenceNumber());
             assertFalse(java.nio.file.Files.exists(image));
             assertTrue(worker.pendingCheckpointTask().isEmpty());
+            final var blockedMetadata = new java.util.concurrent.CountDownLatch(1);
+            final var releaseMetadata = new java.util.concurrent.CountDownLatch(1);
+            try (var metadataExecutor = new java.util.concurrent.ThreadPoolExecutor(1, 1, 0,
+                    java.util.concurrent.TimeUnit.SECONDS, new java.util.concurrent.ArrayBlockingQueue<>(2),
+                    new java.util.concurrent.ThreadPoolExecutor.AbortPolicy())) {
+                metadataExecutor.execute(() -> {
+                    blockedMetadata.countDown();
+                    try { releaseMetadata.await(); }
+                    catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+                });
+                try {
+                    assertTrue(blockedMetadata.await(5, java.util.concurrent.TimeUnit.SECONDS));
+                    final var metadataBackend = com.nereusstream.delay.store.TargetCheckpointCandidateTestBridge
+                            .oxiaPublicationModel(physicalLimits);
+                    final var metadataProvider = new OxiaCheckpointIntentRegistration(metadataBackend,
+                            java.time.Duration.ofSeconds(10), () -> assertFalse(Thread.holdsLock(store)),
+                            metadataExecutor);
+                    final var stopRequest = new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule
+                            .CollectedSemanticRequest(
+                            new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.Request(
+                                    metadataBackend, () -> 102, image, intent,
+                                    physicalLimits, quotaLimits, ledgerLimits),
+                            collection, collectedLimits, candidateRequest.protection(), null, metadataProvider);
+                    final var stopped = worker.submitCollectedSemanticCheckpointCandidate(stopRequest);
+                    assertTrue(worker.runCheckpointTurn(
+                            new SchedulerBudget(1, 1_000_000, 60_000_000_000L)).isEmpty());
+                    assertEquals(stopped.task(), worker.pendingCheckpointTask().orElseThrow());
+                    worker.requestCheckpointRegistrationStop();
+                    assertTrue(stopped.outcome().orElseThrow().failure().getMessage().contains("registration stopped"));
+                    assertTrue(worker.runCheckpointTurn(
+                            new SchedulerBudget(1, 1_000_000, 60_000_000_000L)).isPresent());
+                    assertTrue(worker.pendingCheckpointTask().isEmpty());
+                    assertTrue(metadataBackend.current(intent).isEmpty());
+                    assertTrue(metadataExecutor.getQueue().isEmpty());
+                    assertFalse(metadataExecutor.isShutdown());
+                    assertFalse(admissionRequested.get());
+                    assertEquals(beforeCollection, store.latestSequenceNumber());
+                    assertFalse(java.nio.file.Files.exists(image));
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError(interrupted);
+                } finally {
+                    releaseMetadata.countDown();
+                }
+            }
             final var registeringRequest =
                     new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.CollectedSemanticRequest(
                             candidateRequest.candidate(), collection, collectedLimits, candidateRequest.protection(),
