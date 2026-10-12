@@ -645,7 +645,8 @@
         "src/main/java/com/nereusstream/delay/runtime/TargetReservationClosureStore.java",
         "src/main/java/com/nereusstream/delay/store/TargetKeyCodec.java",
         "src/main/java/com/nereusstream/delay/semantic/OxiaSyncTargetNativePolicyAuthority.java"
-      ]
+      ],
+      "currentCodeScope": "Package 1: durable channel lifecycle and the real configured Claim→Admission Source APPLIED→Journal/ordinary and Native SDK→exact signed Outcome apply/settle→reopen/takeover chain remain code gaps. Existing DRR, physical admission, publisher and recovery maintenance components are implemented; their insufficient integrated evidence is a validation obligation, not a separate new feature."
     },
     {
       "id": "C3",
@@ -1031,7 +1032,8 @@
         "src/main/java/com/nereusstream/delay/runtime/TargetCloseStore.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetReservationClosureStore.java",
         "src/main/java/com/nereusstream/delay/store/TargetKeyCodec.java"
-      ]
+      ],
+      "currentCodeScope": "Package 2: existing bootstrap/Owner/Source factory, history/Registry collectors, Manifest v2, atomic Oxia Catalog/publication, restore/install and final drain are implemented components. The single real provider/credential/artifact/pin/object-store/physical lifecycle composition and protected post-Floor ledger release remain code gaps. Broker/permission/fault combinations are deferred validation."
     },
     {
       "id": "D1",
@@ -1255,7 +1257,8 @@
         "src/main/java/com/nereusstream/delay/runtime/TargetCommandStore.java",
         "src/test/java/com/nereusstream/delay/runtime/TargetQuotaGrantStoreTest.java",
         "src/test/java/com/nereusstream/delay/ownership/TargetWorkerOrdinaryDrrTest.java"
-      ]
+      ],
+      "currentCodeScope": "Package 1: bounded execution-domain projections and configured domain/resource limits exist. Real channel/Host composition remains; full-K and recovery/Broker/fault coverage belongs to deferred validation."
     },
     {
       "id": "E3",
@@ -1544,7 +1547,8 @@
         "src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactTargetWorkerSourceSmoke.java",
         "src/main/java/com/nereusstream/delay/ownership/TargetCheckpointRuntimeConfig.java"
       ],
-      "validationHandoff": "12-集中验证交接清单.md"
+      "validationHandoff": "12-集中验证交接清单.md",
+      "currentCodeScope": "Package 3: unified config/loader, actual K1/P1 backlog readers/cache, Host observations, Source ingress backpressure and same-log bounded system append window are implemented. Runtime-wide real composition and complete maximum legal mutation/resource service envelope remain code gaps. RSS/space/device-I/O/UNKNOWN/cleanup and configured Host combinations are deferred validation; no production authority inferred."
     },
     {
       "id": "E7",
@@ -1566,7 +1570,8 @@
       "implementationFiles": [
         "src/main/java/com/nereusstream/delay/assessment/LegacyCheckpointMigrationDryRun.java"
       ],
-      "progress": "2026-10-12: read-only LegacyCheckpointMigrationDryRun binds the authenticated format-1 image inventory to a retained protected Source cut and a distinct proposed format-2 Store identity. It emits bounded deterministic diagnostic JSON with exact positions/identities, message status/disposition counts and stable record conflicts. Source identity mismatch, unapplied tail and cut alias are batch blockers. Full fenced maintenance authority, state mapping, external Admission/Journal/protection joins and independent conservation remain explicit unaudited blockers; READY, destination Store creation, activation, migration and retirement are unavailable. Main compilation only; all tests and environment execution deferred until implementation completes."
+      "progress": "2026-10-12: read-only LegacyCheckpointMigrationDryRun binds the authenticated format-1 image inventory to a retained protected Source cut and a distinct proposed format-2 Store identity. It emits bounded deterministic diagnostic JSON with exact positions/identities, message status/disposition counts and stable record conflicts. Source identity mismatch, unapplied tail and cut alias are batch blockers. Full fenced maintenance authority, state mapping, external Admission/Journal/protection joins and independent conservation remain explicit unaudited blockers; READY, destination Store creation, activation, migration and retirement are unavailable. Main compilation only; all tests and environment execution deferred until implementation completes.",
+      "currentCodeScope": "Package 4: cut-bound diagnostic foundation exists but cannot produce READY. Complete state converter, independent conservation, durable cutover/activation/rollback and applicability tooling remain code gaps. Actual per-environment migration is a separate deferred execution obligation."
     },
     {
       "id": "F2",
@@ -1575,7 +1580,8 @@
       "evidence": [],
       "implementationStatus": "NOT_STARTED",
       "validationStatus": "PENDING_CENTRAL_VALIDATION",
-      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration."
+      "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
+      "currentCodeScope": "Package 4: protected retirement inventory/eligibility/execution tooling remains a code gap. Actual deletion after exact protection closure is a separate deferred environment action, not authorized by the implementation plan."
     },
     {
       "id": "F3",
@@ -1597,7 +1603,17 @@
     "handoffChecklist": "12-集中验证交接清单.md",
     "completionRule": "All implementation plus source-bound centralized validation and applicable controlled migration/retirement remain required. No automatic promotion from implementation status.",
     "iterationValidation": "DEFERRED_UNTIL_ALL_IMPLEMENTATION_COMPLETE",
-    "implementationIterationTestsDeferred": true
+    "implementationIterationTestsDeferred": true,
+    "remainingImplementationPlan": "02-实施计划.md#当前剩余开发四个完整功能包2026-10-12",
+    "implementationPackageOrder": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "decisionThreadId": "01a13046-4fcd-7e90-8a56-dc2c3828fe23",
+    "implementationThreadId": "01a129b8-dcdd-7743-a630-3531e3a406c1",
+    "developmentEndpoint": "All four package code conditions hold and no known required writer/provider/integration remains; then freeze source and hand off the finite validation/environment matrix, without open-ended follow-on development."
   },
   "implementationComplete": false,
   "centralValidationComplete": false,
