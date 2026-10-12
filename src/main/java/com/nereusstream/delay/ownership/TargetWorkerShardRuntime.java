@@ -625,9 +625,25 @@ public final class TargetWorkerShardRuntime
             final com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot snapshot,
             final com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.Limits semanticLimits,
             final Runnable protectionGuard) {
-        final var cut = protectCheckpointCut();
+        return submitProtectedSemanticCheckpointCandidate(intents, ownerClock, checkpointPath, pending,
+                physicalLimits, quotaLimits, ledgerLimits, snapshot, semanticLimits, protectionGuard,
+                protectCheckpointCut());
+    }
+
+    synchronized TargetCheckpointCandidateWorkClassExecutor.Submission submitProtectedSemanticCheckpointCandidate(
+            CheckpointUploadIntentAuthority intents, LongSupplier ownerClock, Path checkpointPath,
+            CheckpointUploadIntent pending, CheckpointManifestLimits physicalLimits,
+            TargetCheckpointRootVerifier.QuotaAuditLimits quotaLimits,
+            TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits,
+            com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot snapshot,
+            com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.Limits semanticLimits,
+            Runnable protectionGuard, SourceRecordConsumer.CheckpointCut cut) {
         requireNewTurnsAdmitted();
         resources.requireRuntimeBusinessAdmission();
+        if (preparedCheckpointCut != Objects.requireNonNull(cut, "cut") || maintenance.hasPendingTurn()
+                || hasUnsettledMessageExpiry()) {
+            throw new IllegalStateException("Target semantic checkpoint cut is no longer prepared for this Shard");
+        }
         cut.requireCurrent();
         final var submitted = target.submitSemanticCheckpointCandidate(workClasses, intents, ownerClock,
                 checkpointPath, pending, physicalLimits, quotaLimits, ledgerLimits, snapshot, semanticLimits,

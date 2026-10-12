@@ -50,6 +50,41 @@ public final class TargetCheckpointCandidateSchedule {
         }
     }
 
+    @FunctionalInterface
+    public interface SemanticRequestFactory {
+        SemanticRequest create(TargetWorkerShardRuntime shard, ScheduledCheckpoint claim,
+                SourceRecordConsumer.CheckpointCut cut);
+    }
+
+    public record SemanticRequest(Request candidate,
+            com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot snapshot,
+            com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.Limits semanticLimits,
+            Runnable protection) {
+        public SemanticRequest {
+            Objects.requireNonNull(candidate, "candidate");
+            Objects.requireNonNull(snapshot, "snapshot");
+            Objects.requireNonNull(semanticLimits, "semanticLimits");
+            Objects.requireNonNull(protection, "protection");
+        }
+    }
+
+    /** Schedules complete semantic candidates under the same native cut captured before request construction. */
+    public static TargetCheckpointCandidateSchedule semantic(TargetWorkerHostRuntime host,
+            CheckpointScheduler scheduler, SemanticRequestFactory factory) {
+        Objects.requireNonNull(factory, "factory");
+        return new TargetCheckpointCandidateSchedule(host, scheduler, (Dispatcher) (shard, claim) -> {
+            final var worker = (TargetWorkerShardRuntime) shard;
+            final var cut = worker.protectCheckpointCut();
+            final var semantic = Objects.requireNonNull(factory.create(worker, claim, cut), "semantic request");
+            final var request = semantic.candidate();
+            final var submission = worker.submitProtectedSemanticCheckpointCandidate(request.intents(),
+                    request.ownerClock(), request.checkpointPath(), request.pending(), request.physicalLimits(),
+                    request.quotaLimits(), request.ledgerLimits(), semantic.snapshot(), semantic.semanticLimits(),
+                    semantic.protection(), cut);
+            return new Candidate(submission.task(), submission::outcome);
+        });
+    }
+
     interface Dispatcher {
         Candidate submit(TargetWorkerHostRuntime.Shard shard, ScheduledCheckpoint claim);
     }

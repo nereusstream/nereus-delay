@@ -477,7 +477,10 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                         || store.shardMutationSequence() != 2) {
                     throw new IllegalStateException("Pulsar Target Store did not durably advance before ACK");
                 }
-                verifyControlHistory(client, guard, store, worker, scope, leases, active, signingKeys);
+                final var semanticInputs = verifyControlHistory(client, guard, store, worker, scope, leases,
+                        active, signingKeys);
+                verifyScheduledSemanticCandidate(host, worker, store, scope, leases, active, signingKeys,
+                        semanticInputs, storeRoot);
                 verifyRejectedOutcomeHistory(client, consumer, guard, physicalTopic, host, worker, store, scope,
                         leases, active, signingKeys, successor);
                 recoveryTip = (PulsarSourcePosition) store.appliedShardLogPosition();
@@ -564,6 +567,91 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                         recoveryTip, storeRoot);
             } finally { checkpoint.historyClient().set(null); }
         }
+    }
+
+    /** Actual receipt-confirmed native cut and Host schedule; namespace/pin permissions remain fixtures. */
+    private static void verifyScheduledSemanticCandidate(TargetWorkerHostRuntime host,
+            TargetWorkerShardRuntime worker, ShardStore store, TargetQuotaScope scope, OxiaOwnerLeaseStore leases,
+            OwnerLease active, KeyPair keys,
+            com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Result inputs, Path root) {
+        final var physical = new CheckpointManifestLimits(1_000, 256L << 20, 256L << 20,
+                1_024, 4 << 20, 1_000, 1_024);
+        final var quota = new TargetCheckpointRootVerifier.QuotaAuditLimits(4096, 32L << 20);
+        final var ledger = new TargetCheckpointRootVerifier.LedgerAuditLimits(4096, 32L << 20, 16_384, 32L << 20);
+        final var semanticLimits = new TargetCheckpointSemanticSnapshot.Limits(64, 1 << 20, 1 << 20);
+        final var dependencies = inputs.cut().dependencies();
+        final var snapshot = TargetCheckpointSemanticSnapshot.collect(dependencies, List.of(),
+                new com.nereusstream.delay.runtime.InMemoryProfileCatalog(),
+                new com.nereusstream.delay.runtime.InMemoryRetryPolicyCatalog(),
+                new com.nereusstream.delay.runtime.InMemoryPayloadProofTrustSetCatalog(), budget(), semanticLimits,
+                () -> {}).withControlInputs(dependencies, inputs.inputs(), budget(), semanticLimits,
+                        (input, first) -> keys.getPublic(), () -> {});
+        final long now = System.currentTimeMillis();
+        final var pending = new CheckpointUploadIntent(new ShardSubject(scope.shard()),
+                dependencies.root().root().recoveryLineage(), bytes(16, 0x71),
+                new OwnerIdentity(bytes(8, 0x72), bytes(8, 0x73), active.ownerEpoch(), active.leaseToken()),
+                store.metadata().storeIncarnation(), bytes(32, 0x74), 1, null, null,
+                new com.nereusstream.delay.protocol.ProfileRef(Bytes.utf8("scheduled-semantic-fixture"), 1,
+                        bytes(32, 0x75), com.nereusstream.delay.protocol.ProfileKind.OBJECT_STORE),
+                new TrustedUtcIntervalEvidence(now - 1, now, TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                        bytes(8, 0x76), 1, 1, 1, bytes(32, 0x77), 0, null), now + 60_000,
+                CheckpointUploadState.PENDING_UPLOAD, 1, null, null);
+        final var intents = new CheckpointUploadIntentStore();
+        intents.create(pending);
+        final var refuse = new java.util.concurrent.atomic.AtomicBoolean(true);
+        final var scheduled = com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.semantic(host,
+                new com.nereusstream.delay.store.CheckpointScheduler(1_000, 0, 1), (selected, claim, cut) -> {
+                    cut.requireCurrent();
+                    if (selected != worker || !cut.position().equals(dependencies.root().source())) {
+                        throw new IllegalStateException("scheduled semantic request received another native cut");
+                    }
+                    return new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.SemanticRequest(
+                            new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.Request(intents,
+                                    System::currentTimeMillis, root.resolve("scheduled-semantic-image"), pending,
+                                    physical, quota, ledger), snapshot, semanticLimits, () -> {
+                                        if (refuse.get()) {
+                                            throw new IllegalStateException("scheduled semantic protection unavailable");
+                                        }
+                                    });
+                });
+        final long sourceSequence = store.shardMutationSequence();
+        final var source = store.appliedShardLogPosition();
+        final long due = scheduled.register(worker, now);
+        final long beforeRefusal = store.latestSequenceNumber();
+        try {
+            scheduled.claimDueAndSubmit(due, 1);
+            throw new AssertionError("unprotected semantic candidate was queued");
+        } catch (IllegalStateException refused) {
+            if (!refused.getMessage().contains("protection unavailable")) { throw refused; }
+        }
+        if (store.latestSequenceNumber() != beforeRefusal || scheduled.pendingTask(scope.shard()).isPresent()
+                || Files.exists(root.resolve("scheduled-semantic-image"))) {
+            throw new IllegalStateException("semantic factory refusal leaked claim or changed Store/files");
+        }
+        refuse.set(false);
+        final long retried = due + 1_000;
+        if (scheduled.claimDueAndSubmit(retried, 1).size() != 1
+                || scheduled.claimDueAndSubmit(retried, 1).size() != 0
+                || scheduled.pendingTask(scope.shard()).isEmpty()) {
+            throw new IllegalStateException("scheduled semantic candidate did not retain its exact due claim");
+        }
+        final var result = scheduled.settle(scope.shard(), new SchedulerBudget(1, 4L << 20,
+                TimeUnit.SECONDS.toNanos(10)), retried).orElseThrow();
+        if (result.failure() != null) { throw new IllegalStateException("scheduled P1 candidate", result.failure()); }
+        final var proof = TargetCheckpointRootVerifier.auditPersistedSemanticSnapshot(result.checkpointPath(),
+                scope.shard(), physical, quota, ledger, semanticLimits);
+        if (!source.equals(proof.root().source()) || sourceSequence != proof.root().mutationSequence()
+                || !source.equals(store.appliedShardLogPosition()) || store.shardMutationSequence() != sourceSequence
+                || scheduled.pendingTask(scope.shard()).isPresent()
+                || intents.current(pending).orElseThrow().state() != CheckpointUploadState.PENDING_UPLOAD) {
+            throw new IllegalStateException("scheduled semantic candidate changed Source or claimed publication");
+        }
+        scheduled.unregister(scope.shard());
+        if (!leases.current(scope.shard()).orElseThrow().sameIdentity(active)) {
+            throw new IllegalStateException("scheduled semantic candidate lost its Owner");
+        }
+        System.out.println("P1 actual receipt-confirmed Host scheduled semantic candidate retained exact claim/cut, "
+                + "persisted companion, settled, stayed unpublished and resumed original Source.");
     }
 
     /** Actual P1 grant cut and File image; global Catalog history/permissions remain explicit test fixtures. */
