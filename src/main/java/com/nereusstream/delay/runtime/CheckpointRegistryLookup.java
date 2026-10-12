@@ -28,12 +28,12 @@ final class CheckpointRegistryLookup {
             Runnable protection, ThreadPoolExecutor executor, LongSupplier nanos, boolean checkBeforeAdmission) {
         Objects.requireNonNull(operation, "operation");
         final Runnable guard = newGuard(timeout, protection, executor, nanos, checkBeforeAdmission);
-        return CompletableFuture.supplyAsync(() -> {
+        return com.nereusstream.delay.ownership.CheckpointInputFuture.track(CompletableFuture.supplyAsync(() -> {
             guard.run();
             final T result = operation.apply(guard);
             guard.run();
             return result;
-        }, executor);
+        }, executor));
     }
 
     static <T> OwnedLookup<T> submitOwned(Function<Runnable, T> operation, Duration timeout,

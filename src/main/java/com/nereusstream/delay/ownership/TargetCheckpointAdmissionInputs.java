@@ -98,6 +98,7 @@ public final class TargetCheckpointAdmissionInputs {
                 return new Turn(Status.LOADING, null);
             }
             final var image = Objects.requireNonNull(loading.join(), "Admission image");
+            if (!CheckpointInputFuture.ioExited(loading)) { return new Turn(Status.LOADING, null); }
             final var input = new Input(selected, image);
             final long nextBytes = Math.addExact(bytes, image.encodeFrame().length);
             if (nextBytes > limits.maximumFrameBytes()) {
@@ -155,6 +156,10 @@ public final class TargetCheckpointAdmissionInputs {
         }
     }
 
+    public synchronized boolean ioExited() { return CheckpointInputFuture.ioExited(loading); }
+
+    public synchronized Throwable pendingIoFailure() { return CheckpointInputFuture.ownedFailure(loading); }
+
     private BoundedReadBudget readBudget() { return Objects.requireNonNull(reads.get(), "read budget"); }
 
     private Turn fail(Throwable invalid) {
@@ -162,7 +167,7 @@ public final class TargetCheckpointAdmissionInputs {
         complete = false;
         inputs.clear();
         selected = null;
-        loading = null;
+        // Retain the exact future/native cleanup until actual I/O exits.
         return new Turn(Status.FAILED, invalid);
     }
 }

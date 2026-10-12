@@ -8266,11 +8266,12 @@ class TargetCommandStoreTest {
         intents.create(intent);
         final var held = new java.util.concurrent.atomic.AtomicBoolean(true);
         final var requested = new java.util.concurrent.atomic.AtomicBoolean();
+        final var pendingControl = new java.util.concurrent.CompletableFuture<SystemMutation>();
         final Path path = store.dbPath().getParent().resolve("collected-failure-" + current.phase());
         final var controls = new com.nereusstream.delay.ownership.TargetCheckpointControlInputs(worker,
                 TargetCommandStoreTest::budget, ledger, ref -> {
                     requested.set(true);
-                    return new java.util.concurrent.CompletableFuture<>();
+                    return pendingControl;
                 }, new com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Limits(64, 1 << 20), () -> 102);
         final var outcomes = new com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs(worker,
                 TargetCommandStoreTest::budget, ledger,
@@ -8334,6 +8335,10 @@ class TargetCommandStoreTest {
         assertThrows(IllegalStateException.class, () -> worker.runSourceTurn(
                 new SchedulerBudget(1, 1_000_000, 60_000_000_000L), () -> 102));
         held.set(false);
+        assertTrue(worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L)).isEmpty());
+        assertEquals(task, worker.pendingCheckpointTask().orElseThrow());
+        assertThrows(IllegalStateException.class, worker::closeSource);
+        pendingControl.completeExceptionally(new IllegalStateException("original history I/O exited"));
         final var failed = worker.runCheckpointTurn(
                 new SchedulerBudget(1, 1_000_000, 60_000_000_000L)).orElseThrow();
         assertNotNull(failed.failure());
@@ -8342,6 +8347,16 @@ class TargetCommandStoreTest {
         assertEquals(source, store.appliedShardLogPosition());
         assertFalse(java.nio.file.Files.exists(path));
         assertTrue(intents.current(intent).isPresent());
+    }
+
+    private static final class RetainedCheckpointInputCleanup extends IllegalStateException
+            implements com.nereusstream.delay.ownership.CheckpointInputFuture.Cleanup {
+        private static final long serialVersionUID = 1L;
+        private final java.util.concurrent.atomic.AtomicBoolean closed =
+                new java.util.concurrent.atomic.AtomicBoolean();
+
+        @Override
+        public boolean cleanupComplete() { return closed.get(); }
     }
 
     /** Full immutable nonempty image read; catalog/history/key/permission providers remain test fixtures. */
@@ -8457,6 +8472,9 @@ class TargetCommandStoreTest {
             final var waitingRegistration = new java.util.concurrent.CompletableFuture<CheckpointUploadIntent>();
             final var admissionRequested = new java.util.concurrent.atomic.AtomicBoolean();
             final var waitingAdmission = new java.util.concurrent.CompletableFuture<SystemMutation>();
+            final var admissionView = new java.util.concurrent.atomic.AtomicReference<
+                    java.util.concurrent.CompletableFuture<SystemMutation>>(
+                            com.nereusstream.delay.ownership.CheckpointInputFuture.track(waitingAdmission));
             final var registryDependencies = new java.util.concurrent.atomic.AtomicReference<
                     TargetCheckpointDependencies>();
             final var waitingProfile = new java.util.concurrent.CompletableFuture<ProfileSemanticEnvelope>();
@@ -8498,11 +8516,12 @@ class TargetCommandStoreTest {
                             ref -> java.util.concurrent.CompletableFuture.completedFuture(context.outcomes().stream()
                                     .filter(input -> input.source().equals(ref.source()))
                                     .findFirst().orElseThrow().image()),
-                            ref -> { admissionRequested.set(true); return waitingAdmission; }, providers, authorities,
+                            ref -> { admissionRequested.set(true); return admissionView.get(); },
+                            providers, authorities,
                             () -> 102, () -> checkpointYield.get()
                                     ? readClock.getAndAdd(60_000_000_000L) : readClock.get(),
                             () -> assertFalse(Thread.holdsLock(store)));
-            final var collection = newCollection.get();
+            var collection = newCollection.get();
             final long beforeCollection = store.latestSequenceNumber();
             final var sourceBefore = store.appliedShardLogPosition();
             final long sequenceBefore = store.shardMutationSequence();
@@ -8668,7 +8687,33 @@ class TargetCommandStoreTest {
             assertFalse(java.nio.file.Files.exists(image));
             assertThrows(IllegalStateException.class, () -> worker.runSourceTurn(
                     new SchedulerBudget(1, 1_000_000, 60_000_000_000L), () -> 102));
-            waitingAdmission.complete(images.getFirst().image());
+            assertTrue(admissionView.get().cancel(false));
+            for (int turn = 0; turn < 4; turn++) {
+                worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L));
+            }
+            assertTrue(submitted.outcome().isEmpty());
+            assertEquals(submitted.task(), worker.pendingCheckpointTask().orElseThrow());
+            assertFalse(waitingAdmission.isDone());
+            final var retainedCleanup = new RetainedCheckpointInputCleanup();
+            waitingAdmission.completeExceptionally(retainedCleanup);
+            assertTrue(worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L)).isEmpty());
+            assertSame(retainedCleanup, worker.pendingCheckpointIoFailure().orElseThrow());
+            assertThrows(IllegalStateException.class, worker::closeSource);
+            assertThrows(IllegalStateException.class, worker::pauseNewTurns);
+            assertEquals(beforeCollection, store.latestSequenceNumber());
+            assertFalse(java.nio.file.Files.exists(image));
+            retainedCleanup.closed.set(true);
+            worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L));
+            assertNotNull(submitted.outcome().orElseThrow().failure());
+            assertTrue(worker.pendingCheckpointTask().isEmpty());
+            admissionView.set(com.nereusstream.delay.ownership.CheckpointInputFuture.track(
+                    java.util.concurrent.CompletableFuture.completedFuture(images.getFirst().image())));
+            collection = newCollection.get();
+            final var retryCollection = collection;
+            submitted = worker.submitCollectedSemanticCheckpointCandidate(
+                    new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.CollectedSemanticRequest(
+                            candidateRequest.candidate(), retryCollection, collectedLimits,
+                            candidateRequest.protection(), null));
             for (int turn = 0; turn < 64 && requestedProfile.get() == null; turn++) {
                 assertTrue(worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L)).isEmpty());
                 assertEquals(submitted.task(), worker.pendingCheckpointTask().orElseThrow());
@@ -8719,7 +8764,7 @@ class TargetCommandStoreTest {
                             .canonicalBytes());
             assertTrue(requestedUses.stream().anyMatch(use ->
                     use.reference().profileKind() == ProfileKind.DELIVERY_CAPABILITY));
-            assertThrows(IllegalStateException.class, collection::get); // Candidate metadata invalidates the live cut.
+            assertThrows(IllegalStateException.class, retryCollection::get); // Candidate metadata invalidates the cut.
             assertTrue(worker.pendingCheckpointTask().isEmpty());
             assertTrue(intentStore.current(intent).isPresent());
             assertEquals(0, classes.pending(com.nereusstream.delay.scheduler.WorkClass.CHECKPOINT));

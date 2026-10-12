@@ -2362,3 +2362,10 @@ start-lock下证明无 metadata I/O 并撤下 exact Runnable；started 时保留
 `requestCheckpointRegistrationStop()`；pending RPC继续报告 PENDING_CHECKPOINT，显式 settlement
 后再重试drain。仅注册阶段有此入口，已进入 history/image/publication 的 task仍按原流程结清。
 在关闭caller executor/client/pin前先stop并确认实际退出；未知server commit仍须原值对账/reaper。
+
+checkpoint输入使用 `CheckpointInputFuture` 时，取消或手工完成view不构成实际I/O退出。
+Worker对history/Registry错误保留同一task/cut；`pendingCheckpointIoFailure()`可读取原native
+CleanupFailure，并按已有same-cursor retryClose或明确original-client backend shutdown权限清理。
+清理确认后运行原checkpoint settlement，再继续Source/Owner drain；不能提前释放pin/physical
+资源或换client/cursor来掩盖未退出。自定义额外async SnapshotFactory须提供真实ioExited诊断，
+旧plain-future completion仍须包含实际I/O退出。queued history撤回及整体服务关闭仍待补齐。

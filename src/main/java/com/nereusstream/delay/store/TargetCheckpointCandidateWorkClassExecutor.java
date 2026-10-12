@@ -21,6 +21,11 @@ import java.util.function.Supplier;
 
 /** Bounded CHECKPOINT handoff for a local, unpublished format-2 candidate. */
 public final class TargetCheckpointCandidateWorkClassExecutor {
+    /** Local observation of all provider I/O/cleanup retained by one semantic preparation. */
+    public interface PreparationIo {
+        boolean ioExited();
+        Throwable pendingIoFailure();
+    }
     @FunctionalInterface
     public interface IntentRegistration {
         /** Prompt return; provider owns finite metadata I/O, namespace/Owner protection and uncertain/late cleanup. */
@@ -190,6 +195,7 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
         requireServiceable(task);
         submission.preparationGuard = guard;
         submission.preparationRegistry = workClasses;
+        submission.preparationIo = inputs instanceof PreparationIo io ? io : null;
         submission.nextStep = () -> workClasses.submit(task, () -> {
             try {
                 guard.run();
@@ -447,6 +453,7 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
         private java.util.concurrent.CompletableFuture<CheckpointUploadIntent> registrationReceipt;
         private Outcome retainedOutcome;
         private boolean registrationAccepted;
+        private PreparationIo preparationIo;
         private Runnable preparationGuard;
         private WorkClassExecutionRegistry preparationRegistry;
 
@@ -489,13 +496,25 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
         /** Local failure settlement only; no Owner, Store, history or new business admission is performed. */
         public synchronized boolean settleFailedRegistrationIo() {
             if (retainedOutcome != null) {
-                if (preparationRegistry.state(task).isEmpty() && registration.ioExited()) {
+                if (preparationRegistry.state(task).isEmpty() && ioExited()) {
                     outcome = retainedOutcome;
                     retainedOutcome = null;
                 }
                 return true;
             }
             return false;
+        }
+
+        /** Nonterminal diagnostic preserves native cleanup handles without granting completion/publication. */
+        public synchronized Optional<Throwable> pendingIoFailure() {
+            if (retainedOutcome == null) { return Optional.empty(); }
+            final var cleanup = preparationIo == null ? null : preparationIo.pendingIoFailure();
+            return Optional.ofNullable(cleanup == null ? retainedOutcome.failure() : cleanup);
+        }
+
+        private boolean ioExited() {
+            return (registration == null || registration.ioExited())
+                    && (preparationIo == null || preparationIo.ioExited());
         }
 
         /** Empty until the complete protected creation/auth/upload/Catalog action has succeeded. */
@@ -519,7 +538,7 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
             }
             Objects.requireNonNull(completed, "completed");
             if (registration != null && completed.failure() != null) { registration.requestStop(); }
-            if (registration != null && !registration.ioExited()) {
+            if (!ioExited()) {
                 retainedOutcome = completed;
                 nextStep = null;
                 return;

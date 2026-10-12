@@ -769,6 +769,11 @@ public final class TargetWorkerShardRuntime
                 : Optional.of(pendingCheckpoint.task());
     }
 
+    /** Exact nonterminal provider failure, including its original native cursor cleanup handle. */
+    public synchronized Optional<Throwable> pendingCheckpointIoFailure() {
+        return pendingCheckpoint == null ? Optional.empty() : pendingCheckpoint.pendingIoFailure();
+    }
+
     /** Stops new source polls and maintenance submissions after retained maintenance work settles. */
     public synchronized void pauseNewTurns() {
         requireCheckpointSettled();

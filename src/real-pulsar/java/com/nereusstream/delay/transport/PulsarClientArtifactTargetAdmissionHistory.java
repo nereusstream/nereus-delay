@@ -116,11 +116,12 @@ public final class PulsarClientArtifactTargetAdmissionHistory {
         }
         final long started = System.nanoTime();
         guard.run();
-        return java.util.concurrent.CompletableFuture.supplyAsync(() -> {
-            final long remaining = timeoutMs * 1_000_000L - (System.nanoTime() - started);
-            if (remaining < 1_000_000L) { throw new IllegalStateException("queued P1 history deadline expired"); }
-            return operation.apply(Duration.ofNanos(remaining));
-        }, pool);
+        return com.nereusstream.delay.ownership.CheckpointInputFuture.track(
+                java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+                    final long remaining = timeoutMs * 1_000_000L - (System.nanoTime() - started);
+                    if (remaining < 1_000_000L) { throw new IllegalStateException("queued P1 history deadline expired"); }
+                    return operation.apply(Duration.ofNanos(remaining));
+                }, pool));
     }
 
     private static SystemMutation read(final PulsarClient client, final TopicResourceGuard resource,
@@ -210,7 +211,8 @@ public final class PulsarClientArtifactTargetAdmissionHistory {
     }
 
     /** Retains exact native cleanup; callback/result failure alone cannot release provider pins/charges. */
-    public static final class CleanupFailure extends IllegalStateException {
+    public static final class CleanupFailure extends IllegalStateException
+            implements com.nereusstream.delay.ownership.CheckpointInputFuture.Cleanup {
         private static final long serialVersionUID = 1L;
         private final transient com.nereusstream.delay.ownership.OwnedSourceCursor<?> cleanup;
         private final transient PulsarClient client;

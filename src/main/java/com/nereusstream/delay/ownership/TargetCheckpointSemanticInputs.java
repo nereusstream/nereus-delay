@@ -10,7 +10,8 @@ import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 
 /** Complete original Control/Outcome collection on one frozen Worker cut, without waiting for provider futures. */
-public final class TargetCheckpointSemanticInputs implements Supplier<Optional<TargetCheckpointSemanticSnapshot>> {
+public final class TargetCheckpointSemanticInputs implements Supplier<Optional<TargetCheckpointSemanticSnapshot>>,
+        com.nereusstream.delay.store.TargetCheckpointCandidateWorkClassExecutor.PreparationIo {
     @FunctionalInterface
     public interface SnapshotFactory {
         /** Supplies and authenticates all other semantic values under the caller's finite budgets and held rights. */
@@ -29,6 +30,10 @@ public final class TargetCheckpointSemanticInputs implements Supplier<Optional<T
         /** Advances one bounded step; empty means its caller-owned I/O is still pending. */
         Optional<TargetCheckpointSemanticSnapshot> create(TargetCheckpointControlInputs.Result controls,
                 TargetCheckpointOutcomeInputs.Result outcomes, List<TargetCheckpointAdmissionInputs.Input> admissions);
+
+        default boolean ioExited() { return true; }
+
+        default Throwable pendingIoFailure() { return null; }
     }
 
     /** Original history and issuer authorities, supplied under held role/key/Owner/credential/pin protection. */
@@ -88,6 +93,12 @@ public final class TargetCheckpointSemanticInputs implements Supplier<Optional<T
         private TargetCheckpointRegistryInputs registry;
 
         RegistrySnapshotFactory(Preparation preparation) { this.preparation = preparation; }
+
+        @Override
+        public boolean ioExited() { return registry == null || registry.ioExited(); }
+
+        @Override
+        public Throwable pendingIoFailure() { return registry == null ? null : registry.pendingIoFailure(); }
 
         @Override
         public Optional<TargetCheckpointSemanticSnapshot> create(TargetCheckpointControlInputs.Result control,
@@ -221,5 +232,19 @@ public final class TargetCheckpointSemanticInputs implements Supplier<Optional<T
             throw new IllegalArgumentException("complete Target history collection requires original Outcome schema");
         }
         return snapshot;
+    }
+
+    @Override
+    public boolean ioExited() {
+        return controls.ioExited() && outcomes.ioExited() && (admissions == null || admissions.ioExited())
+                && factory.ioExited();
+    }
+
+    @Override
+    public Throwable pendingIoFailure() {
+        if (controls.pendingIoFailure() != null) { return controls.pendingIoFailure(); }
+        if (outcomes.pendingIoFailure() != null) { return outcomes.pendingIoFailure(); }
+        if (admissions != null && admissions.pendingIoFailure() != null) { return admissions.pendingIoFailure(); }
+        return factory.pendingIoFailure();
     }
 }

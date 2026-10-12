@@ -107,6 +107,7 @@ public final class TargetCheckpointControlInputs {
             if (!loading.isDone()) { return new Turn(Status.LOADING, null); }
             final var image = selected.requireImage(Objects.requireNonNull(loading.join(), "Control image"),
                     selected.source());
+            if (!CheckpointInputFuture.ioExited(loading)) { return new Turn(Status.LOADING, null); }
             final long nextBytes = Math.addExact(bytes, image.encodeFrame().length);
             if (nextBytes > limits.maximumFrameBytes()) {
                 throw new IllegalArgumentException("Control history frames exceed their byte bound");
@@ -142,6 +143,10 @@ public final class TargetCheckpointControlInputs {
         if (cut != null) { worker.requireCheckpointControlInputsCurrent(readBudget(), cut, ownerClock); }
     }
 
+    public synchronized boolean ioExited() { return CheckpointInputFuture.ioExited(loading); }
+
+    public synchronized Throwable pendingIoFailure() { return CheckpointInputFuture.ownedFailure(loading); }
+
     private BoundedReadBudget readBudget() { return Objects.requireNonNull(reads.get(), "read budget"); }
 
     private Turn fail(Throwable invalid) {
@@ -149,7 +154,7 @@ public final class TargetCheckpointControlInputs {
         complete = false;
         inputs.clear();
         // Do not cancel caller-owned history I/O; its provider must finish cleanup even after invalidation.
-        loading = null;
+        // Retain the exact future/native cleanup until actual I/O exits.
         return new Turn(Status.FAILED, invalid);
     }
 }

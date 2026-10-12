@@ -623,3 +623,7 @@ I/O 退出再结清；future view 取消不能释放保护。Source close 同样
 C5（2026-10-12）：Oxia 注册 exact Runnable 的 queued stop 已给出 no-start 证明；started stop
 保留 RPC 到实际退出。Candidate failure 与 Host drain 接 requestStop，既有 history/publication 仍
 按原流程结清。未知提交对账和完整 service shutdown/Broker联合义务继续，状态不提升。
+
+C5（2026-10-12）：history/Registry view取消与实际 I/O/cursor cleanup分离，collector失败保留
+原句柄，Worker cut/task待全部退出后结清。K1/P1及Oxia provider接tracked future，权限与格式
+不变；完整shutdown/queued history/故障/迁退/集中验收仍开放，flags不提升。

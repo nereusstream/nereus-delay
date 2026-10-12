@@ -142,6 +142,7 @@ public final class TargetCheckpointRegistryInputs {
             }
             if (!loading.isDone()) { return new Turn(Status.LOADING, null); }
             final Object value = Objects.requireNonNull(loading.join(), "Registry semantic value");
+            if (!CheckpointInputFuture.ioExited(loading)) { return new Turn(Status.LOADING, null); }
             requireCurrent();
             if (selectedProfile != null) {
                 final var profile = (ProfileSemanticEnvelope) value;
@@ -197,6 +198,10 @@ public final class TargetCheckpointRegistryInputs {
             return Optional.empty();
         }
     }
+
+    public synchronized boolean ioExited() { return CheckpointInputFuture.ioExited(loading); }
+
+    public synchronized Throwable pendingIoFailure() { return CheckpointInputFuture.ownedFailure(loading); }
 
     private void addProfile(TargetCheckpointDependencies.ProfileUse use) {
         final String key = Bytes.hex(use.canonicalBytes());

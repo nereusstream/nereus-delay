@@ -113,11 +113,12 @@ public final class KafkaClientArtifactTargetAdmissionHistory {
         }
         final long started = System.nanoTime();
         guard.run();
-        return java.util.concurrent.CompletableFuture.supplyAsync(() -> {
-            final long remaining = timeoutMs * 1_000_000L - (System.nanoTime() - started);
-            if (remaining < 1_000_000L) { throw new IllegalStateException("queued K1 history deadline expired"); }
-            return operation.apply(Duration.ofNanos(remaining));
-        }, pool);
+        return com.nereusstream.delay.ownership.CheckpointInputFuture.track(
+                java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+                    final long remaining = timeoutMs * 1_000_000L - (System.nanoTime() - started);
+                    if (remaining < 1_000_000L) { throw new IllegalStateException("queued K1 history deadline expired"); }
+                    return operation.apply(Duration.ofNanos(remaining));
+                }, pool));
     }
 
     private static SystemMutation read(final Map<String, Object> configuration, final String physicalTopic,
@@ -202,11 +203,12 @@ public final class KafkaClientArtifactTargetAdmissionHistory {
     }
 
     /** Exact private cursor remains charged after failed close; retry never opens a replacement. */
-    public static final class CleanupFailure extends IllegalStateException {
+    public static final class CleanupFailure extends IllegalStateException
+            implements com.nereusstream.delay.ownership.CheckpointInputFuture.Cleanup {
         private static final long serialVersionUID = 1L;
         private final transient GuardedConsumer<byte[], byte[]> consumer;
         private final transient Duration timeout;
-        private boolean complete;
+        private volatile boolean complete;
 
         private CleanupFailure(GuardedConsumer<byte[], byte[]> consumer, Duration timeout, Throwable failure) {
             super("K1 Source history cleanup is not confirmed", failure);
@@ -214,7 +216,7 @@ public final class KafkaClientArtifactTargetAdmissionHistory {
             this.timeout = timeout;
         }
 
-        public synchronized boolean cleanupComplete() { return complete; }
+        public boolean cleanupComplete() { return complete; }
         public synchronized void retryClose() {
             if (!complete) {
                 consumer.close(CloseOptions.timeout(timeout));
