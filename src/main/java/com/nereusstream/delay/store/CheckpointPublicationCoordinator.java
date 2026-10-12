@@ -50,6 +50,18 @@ public final class CheckpointPublicationCoordinator {
         return uploadCoordinator.resources();
     }
 
+    void requirePublicationCurrent(CheckpointPublication publication, Runnable protection) {
+        protection.run();
+        final var expected = publication.catalogPublication().manifest();
+        final var current = catalog.manifest(expected.checkpointId()).orElseThrow(
+                () -> new IllegalStateException("published checkpoint is absent from current Catalog"));
+        if (!java.util.Arrays.equals(current.canonicalJsonBytes(), expected.canonicalJsonBytes())) {
+            throw new IllegalStateException("published checkpoint differs from current Catalog");
+        }
+        catalog.validatePublishedRestoreCandidate(current);
+        protection.run();
+    }
+
     /**
      * Uploads one exact checkpoint and then binds its published object to the
      * expected catalog generation. The catalog generation is checked before

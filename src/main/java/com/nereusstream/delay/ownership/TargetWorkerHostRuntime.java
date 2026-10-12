@@ -69,6 +69,12 @@ public final class TargetWorkerHostRuntime {
 
         default void requestCheckpointPreparationStop() { requestCheckpointRegistrationStop(); }
 
+        default Optional<WorkClassTask> settlePendingGcForDrain(SchedulerBudget budget) { return Optional.empty(); }
+
+        default boolean canPublishFinalCheckpoint() { return true; }
+
+        default long checkpointStoreSequence() { return 0; }
+
         Optional<TargetCheckpointCandidateWorkClassExecutor.Outcome> runCheckpointTurn(SchedulerBudget budget);
 
         default Optional<WorkClassTask> settlePendingMessageExpiryForDrain(
@@ -167,6 +173,7 @@ public final class TargetWorkerHostRuntime {
     private LongSupplier checkpointClock;
     private SchedulerBudget checkpointBudget;
     private int checkpointCursor;
+    private boolean finalCheckpointOnDrain;
 
     /** Registers the admitted fleet once and uses the existing maintenance loop for bounded claim/settlement. */
     public synchronized TargetCheckpointCandidateSchedule configurePeriodicSemanticCheckpoints(
@@ -244,7 +251,7 @@ public final class TargetWorkerHostRuntime {
                 schedule.register(worker, now);
                 admitted.add(worker.shardId());
             }
-            configurePeriodicCheckpoints(schedule, clock, budget);
+            configurePeriodicCheckpoints(schedule, clock, budget, true);
             return schedule;
         } catch (RuntimeException | Error failure) {
             for (var shard : admitted) {
@@ -258,6 +265,11 @@ public final class TargetWorkerHostRuntime {
     /** Deterministic lifecycle seam; callers register the exact admitted test Shards first. */
     synchronized void configurePeriodicCheckpoints(TargetCheckpointCandidateSchedule schedule, LongSupplier clock,
             SchedulerBudget budget) {
+        configurePeriodicCheckpoints(schedule, clock, budget, false);
+    }
+
+    synchronized void configurePeriodicCheckpoints(TargetCheckpointCandidateSchedule schedule, LongSupplier clock,
+            SchedulerBudget budget, boolean finalPublication) {
         if (stopping || checkpointSchedule != null) {
             throw new IllegalStateException("Target Host checkpoint scheduling is stopping or already configured");
         }
@@ -268,6 +280,7 @@ public final class TargetWorkerHostRuntime {
         checkpointSchedule = schedule;
         checkpointClock = selectedClock;
         checkpointBudget = selectedBudget;
+        finalCheckpointOnDrain = finalPublication;
     }
 
     /** At most one exact Shard action per tick; provider/WorkClass I/O stays outside the Host monitor. */
@@ -295,6 +308,7 @@ public final class TargetWorkerHostRuntime {
                 withdrawnShard = withdrawn.contains(shard.shardId());
             }
             if (!withdrawnShard) { schedule.ensureRegistered(shard, now, budget); }
+            if (schedule.hasFinalDrainFlight(shard)) { continue; }
             if (schedule.pendingTask(shard.shardId()).isPresent()) {
                 final var settled = schedule.settle(shard.shardId(), budget, now);
                 if (settled.isPresent() && settled.orElseThrow().failure() != null) {
@@ -1192,7 +1206,7 @@ public final class TargetWorkerHostRuntime {
                 .orElseThrow(() -> new IllegalArgumentException("Target host does not contain shard " + requested));
     }
 
-    private static ShardDrain drainOne(
+    private ShardDrain drainOne(
             final Shard shard,
             final TargetOwnerDrainCoordinator.Request request,
             final SchedulerBudget sourceBudget,
@@ -1200,11 +1214,27 @@ public final class TargetWorkerHostRuntime {
         synchronized (shard) {
             SourceApplyCoordinator.TurnResult sourceTurn = null;
             try {
-                shard.requestCheckpointPreparationStop();
+                final var schedule = checkpointSchedule;
+                final boolean finalFlight = schedule != null && schedule.hasFinalDrainFlight(shard);
+                if (!finalFlight) { shard.requestCheckpointPreparationStop(); }
                 final Optional<WorkClassTask> checkpoint = shard.pendingCheckpointTask();
-                if (checkpoint.isPresent()) {
+                if (finalFlight) {
+                    final var settled = schedule.settleForDrain(shard, checkpointBudget, checkpointClock.getAsLong());
+                    if (settled.isEmpty()) {
+                        return new ShardDrain(shard.shardId(), Status.PENDING_CHECKPOINT, null,
+                                schedule.pendingTask(shard.shardId()).orElseThrow(), null, null);
+                    }
+                    if (settled.orElseThrow().failure() != null) {
+                        throw new IllegalStateException("final Target checkpoint failed",
+                                settled.orElseThrow().failure());
+                    }
+                } else if (checkpoint.isPresent()) {
                     return new ShardDrain(
                             shard.shardId(), Status.PENDING_CHECKPOINT, null, checkpoint.orElseThrow(), null, null);
+                }
+                if (schedule != null && schedule.pendingTask(shard.shardId()).isPresent()) {
+                    // A separately settled old task still owns its process-local claim.
+                    schedule.settleForDrain(shard, checkpointBudget, checkpointClock.getAsLong());
                 }
                 final Optional<WorkClassTask> pendingExpiry = shard.settlePendingMessageExpiryForDrain(
                         request.gcBudget(), sourceBudget, ownerClock);
@@ -1223,6 +1253,17 @@ public final class TargetWorkerHostRuntime {
                             .orElse(null);
                     if (shard.pendingSourceEntry().isPresent()) {
                         return new ShardDrain(shard.shardId(), Status.PENDING_SOURCE, sourceTurn, null, null, null);
+                    }
+                }
+                if (finalCheckpointOnDrain && shard.canPublishFinalCheckpoint()) {
+                    final var gc = shard.settlePendingGcForDrain(request.gcBudget());
+                    if (gc.isPresent()) {
+                        return new ShardDrain(shard.shardId(), Status.PENDING_GC, sourceTurn, null,
+                                gc.orElseThrow(), null);
+                    }
+                    if (!schedule.hasCurrentPublishedCut(shard)) {
+                        final var task = schedule.submitFinalForDrain(shard, checkpointClock.getAsLong());
+                        return new ShardDrain(shard.shardId(), Status.PENDING_CHECKPOINT, sourceTurn, task, null, null);
                     }
                 }
                 final TargetOwnerDrainCoordinator.Result drained = shard.drain(request, ownerClock);

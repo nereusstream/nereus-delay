@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.DelayMessageId;
@@ -622,6 +623,161 @@ class TargetWorkerShardFleetRuntimeTest {
     }
 
     @Test
+    void finalPublicationPrecedesOwnerDrainAndCloseRetryReusesItsCompletedPublication() {
+        final var registry = registry();
+        final var executor = Executors.newSingleThreadScheduledExecutor();
+        try (var resources = new SharedRocksDbResources(
+                ShardStoreConfig.defaults(tempDir.resolve("final-publication")))) {
+            final var shard = new StubShard(new ShardId(RouteIncarnation.random(), 1), registry, resources);
+            final var fleet = new TargetWorkerShardFleetRuntime(registry, resources, shard);
+            final var budget = new SchedulerBudget(1, 1_000, 1_000_000);
+            final var loop = new TargetWorkerMaintenanceLoop(fleet, budget, Duration.ofSeconds(10),
+                    failure -> {}, executor);
+            final var host = new TargetWorkerHostRuntime(fleet, loop, List.of(shard));
+            final var submissions = new AtomicInteger();
+            final var published = new java.util.concurrent.atomic.AtomicBoolean();
+            final var schedule = new TargetCheckpointCandidateSchedule(host, new CheckpointScheduler(1_000, 0, 1),
+                    (TargetCheckpointCandidateSchedule.Dispatcher) (selected, claim) -> {
+                        assertSame(shard, selected);
+                        assertFalse(Thread.holdsLock(host));
+                        assertEquals(0, shard.drainCalls.get());
+                        final var task = new WorkClassTask(WorkClass.CHECKPOINT,
+                                "final/" + submissions.incrementAndGet(), 64);
+                        shard.pendingCheckpoint = task;
+                        return new TargetCheckpointCandidateSchedule.Candidate(task,
+                                () -> shard.pendingCheckpoint == null
+                                        ? Optional.of(new TargetCheckpointCandidateWorkClassExecutor.Outcome(
+                                                Path.of("final-image"), null)) : Optional.empty(), published::get);
+                    });
+            try {
+                schedule.registerShard(shard, 100);
+                host.configurePeriodicCheckpoints(schedule, () -> 101, budget, true);
+                final var request = new TargetOwnerDrainCoordinator.Request(5_000, budget);
+                final var first = host.drainShard(shard, request, budget, () -> 101);
+                assertEquals(TargetWorkerHostRuntime.Status.PENDING_CHECKPOINT, first.status());
+                assertSame(first.pendingCheckpointTask(), schedule.pendingTask(shard.shard).orElseThrow());
+                // A local image alone must not authorize release.
+                final var rejected = host.drainShard(shard, request, budget, () -> 101);
+                assertEquals(TargetWorkerHostRuntime.Status.FAILED, rejected.status());
+                assertTrue(rejected.failure().getMessage().contains("without Catalog publication"));
+                assertEquals(0, shard.drainCalls.get());
+                published.set(true);
+                assertEquals(TargetWorkerHostRuntime.Status.PENDING_CHECKPOINT,
+                        host.drainShard(shard, request, budget, () -> 101).status());
+                shard.failNextDrain = true;
+                assertEquals(TargetWorkerHostRuntime.Status.FAILED,
+                        host.drainShard(shard, request, budget, () -> 101).status());
+                assertEquals(2, submissions.get());
+                assertTrue(host.drainShard(shard, request, budget, () -> 101).complete());
+                assertEquals(2, submissions.get());
+                assertTrue(host.drainAll(request, budget, () -> 101).complete());
+            } finally { loop.close(); }
+        } finally { executor.shutdownNow(); }
+    }
+
+    @Test
+    void finalCutWaitsForGcAndRejectsAStaleCompletedStoreSequence() {
+        final var registry = registry();
+        final var executor = Executors.newSingleThreadScheduledExecutor();
+        try (var resources = new SharedRocksDbResources(
+                ShardStoreConfig.defaults(tempDir.resolve("final-cut")))) {
+            final var shard = new StubShard(new ShardId(RouteIncarnation.random(), 1), registry, resources);
+            final var fleet = new TargetWorkerShardFleetRuntime(registry, resources, shard);
+            final var budget = new SchedulerBudget(1, 1_000, 1_000_000);
+            final var loop = new TargetWorkerMaintenanceLoop(fleet, budget, Duration.ofSeconds(10),
+                    failure -> {}, executor);
+            final var host = new TargetWorkerHostRuntime(fleet, loop, List.of(shard));
+            final var submissions = new AtomicInteger();
+            final var schedule = new TargetCheckpointCandidateSchedule(host, new CheckpointScheduler(1_000, 0, 1),
+                    (TargetCheckpointCandidateSchedule.Dispatcher) (selected, claim) -> {
+                        assertNull(shard.pendingGc);
+                        final var task = new WorkClassTask(WorkClass.CHECKPOINT,
+                                "final-cut/" + submissions.incrementAndGet(), 64);
+                        shard.pendingCheckpoint = task;
+                        return new TargetCheckpointCandidateSchedule.Candidate(task,
+                                () -> shard.pendingCheckpoint == null
+                                        ? Optional.of(new TargetCheckpointCandidateWorkClassExecutor.Outcome(
+                                                Path.of("final-image"), null)) : Optional.empty(), () -> true,
+                                shard::checkpointStoreSequence);
+                    });
+            try {
+                schedule.registerShard(shard, 100);
+                host.configurePeriodicCheckpoints(schedule, () -> 101, budget, true);
+                final var request = new TargetOwnerDrainCoordinator.Request(5_000, budget);
+                shard.pendingGc = new WorkClassTask(WorkClass.GC, "prior-gc", 64);
+                shard.gcDrainSteps = 1;
+                assertEquals(TargetWorkerHostRuntime.Status.PENDING_GC,
+                        host.drainShard(shard, request, budget, () -> 101).status());
+                assertEquals(0, submissions.get());
+                assertEquals(0, shard.drainCalls.get());
+                assertEquals(TargetWorkerHostRuntime.Status.PENDING_CHECKPOINT,
+                        host.drainShard(shard, request, budget, () -> 101).status());
+                assertThrows(IllegalStateException.class, () -> schedule.settle(shard.shard, budget, 101));
+                assertFalse(host.runNextPeriodicCheckpointTurn());
+                shard.failNextDrain = true;
+                assertEquals(TargetWorkerHostRuntime.Status.FAILED,
+                        host.drainShard(shard, request, budget, () -> 101).status());
+                shard.storeSequence++;
+                assertEquals(TargetWorkerHostRuntime.Status.PENDING_CHECKPOINT,
+                        host.drainShard(shard, request, budget, () -> 101).status());
+                assertEquals(2, submissions.get());
+                assertTrue(host.drainShard(shard, request, budget, () -> 101).complete());
+            } finally { loop.close(); }
+        } finally { executor.shutdownNow(); }
+    }
+
+    @Test
+    void publishedCutUsesItsOriginalSequenceAndStillRequiresCurrentProtectionAtDrain() {
+        final var registry = registry();
+        final var executor = Executors.newSingleThreadScheduledExecutor();
+        try (var resources = new SharedRocksDbResources(
+                ShardStoreConfig.defaults(tempDir.resolve("published-cut-reuse")))) {
+            final var shard = new StubShard(new ShardId(RouteIncarnation.random(), 1), registry, resources);
+            final var fleet = new TargetWorkerShardFleetRuntime(registry, resources, shard);
+            final var budget = new SchedulerBudget(1, 1_000, 1_000_000);
+            final var loop = new TargetWorkerMaintenanceLoop(fleet, budget, Duration.ofSeconds(10),
+                    failure -> {}, executor);
+            final var host = new TargetWorkerHostRuntime(fleet, loop, List.of(shard));
+            final var submissions = new AtomicInteger();
+            final var held = new java.util.concurrent.atomic.AtomicBoolean(true);
+            final var schedule = new TargetCheckpointCandidateSchedule(host, new CheckpointScheduler(1_000, 0, 1),
+                    (TargetCheckpointCandidateSchedule.Dispatcher) (selected, claim) -> {
+                        final long originalSequence = shard.storeSequence;
+                        final var task = new WorkClassTask(WorkClass.CHECKPOINT,
+                                "published-cut/" + submissions.incrementAndGet(), 64);
+                        shard.pendingCheckpoint = task;
+                        return new TargetCheckpointCandidateSchedule.Candidate(task,
+                                () -> shard.pendingCheckpoint == null
+                                        ? Optional.of(new TargetCheckpointCandidateWorkClassExecutor.Outcome(
+                                                Path.of("published-image"), null)) : Optional.empty(),
+                                () -> true, () -> originalSequence, () -> {
+                                    if (!held.get()) { throw new IllegalStateException("publication protection lost"); }
+                                });
+                    });
+            try {
+                schedule.registerShard(shard, 100);
+                host.configurePeriodicCheckpoints(schedule, () -> 1_100, budget, true);
+                schedule.claimDueAndSubmit(1_100, 1);
+                host.settlePendingCheckpointTurn(shard, budget);
+                shard.storeSequence++; // A new write precedes the schedule's late terminal observation.
+                assertTrue(schedule.settle(shard.shard, budget, 1_100).isPresent());
+                final var request = new TargetOwnerDrainCoordinator.Request(5_000, budget);
+                assertEquals(TargetWorkerHostRuntime.Status.PENDING_CHECKPOINT,
+                        host.drainShard(shard, request, budget, () -> 1_100).status());
+                assertEquals(2, submissions.get());
+                held.set(false);
+                final var failed = host.drainShard(shard, request, budget, () -> 1_100);
+                assertEquals(TargetWorkerHostRuntime.Status.FAILED, failed.status());
+                assertEquals("publication protection lost", failed.failure().getMessage());
+                assertEquals(0, shard.drainCalls.get());
+                held.set(true);
+                assertTrue(host.drainShard(shard, request, budget, () -> 1_100).complete());
+                assertEquals(2, submissions.get());
+            } finally { loop.close(); }
+        } finally { executor.shutdownNow(); }
+    }
+
+    @Test
     void scheduledCandidatesRetainClaimsUntilExactTerminalOutcomeAcrossHostStop() {
         final var registry = registry();
         final var executor = Executors.newSingleThreadScheduledExecutor();
@@ -1206,6 +1362,9 @@ class TargetWorkerShardFleetRuntimeTest {
         private final WorkClassExecutionRegistry registry;
         private final SharedRocksDbResources resources;
         private final AtomicInteger maintenanceTurns = new AtomicInteger();
+        private WorkClassTask pendingGc;
+        private int gcDrainSteps;
+        private long storeSequence;
         private final AtomicInteger drainCalls = new AtomicInteger();
         private volatile boolean failNextMaintenance;
         private volatile boolean failNextDrain;
@@ -1367,6 +1526,19 @@ class TargetWorkerShardFleetRuntimeTest {
             pendingMessageExpiry = null;
             return Optional.empty();
         }
+
+        @Override
+        public Optional<WorkClassTask> settlePendingGcForDrain(SchedulerBudget budget) {
+            if (gcDrainSteps > 0) {
+                gcDrainSteps--;
+                return Optional.of(pendingGc);
+            }
+            pendingGc = null;
+            return Optional.empty();
+        }
+
+        @Override
+        public long checkpointStoreSequence() { return storeSequence; }
 
         @Override
         public TargetOwnerDrainCoordinator.Result drain(

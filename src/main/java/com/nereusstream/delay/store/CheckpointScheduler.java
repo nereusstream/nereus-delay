@@ -101,6 +101,18 @@ public final class CheckpointScheduler {
         return claimDueInternal(shardId, nowEpochMs, limit);
     }
 
+    /** Claims one idle registered Shard immediately for its final drain checkpoint. */
+    public synchronized ScheduledCheckpoint claimForDrain(final ShardId shardId, final long nowEpochMs) {
+        requireTime(nowEpochMs, "nowEpochMs");
+        final State state = requireState(Objects.requireNonNull(shardId, "shardId"));
+        if (state.inFlight()) {
+            throw new IllegalStateException("cannot replace an in-flight checkpoint during drain");
+        }
+        final var claim = new ScheduledCheckpoint(shardId, nowEpochMs);
+        states.put(shardId, new State(nowEpochMs, claim, true));
+        return claim;
+    }
+
     private List<ScheduledCheckpoint> claimDueInternal(
             final ShardId shardFilter, final long nowEpochMs, final int limit) {
         requireTime(nowEpochMs, "nowEpochMs");

@@ -804,6 +804,21 @@ public final class TargetWorkerShardRuntime
         return maintenance.settlePendingTurn(Objects.requireNonNull(budget, "budget"));
     }
 
+    @Override
+    public synchronized Optional<WorkClassTask> settlePendingGcForDrain(SchedulerBudget budget) {
+        return settlePendingMaintenance(budget).filter(TargetReservationGcRuntime.Turn::pending)
+                .map(TargetReservationGcRuntime.Turn::task);
+    }
+
+    @Override
+    public synchronized boolean canPublishFinalCheckpoint() {
+        return !target.fenced() && !store.isCloseStarted()
+                && !store.isWriteOutcomeUncertain();
+    }
+
+    @Override
+    public synchronized long checkpointStoreSequence() { return store.latestSequenceNumber(); }
+
     /** Advances only the retained expiry append and its source result by one bounded drain step. */
     @Override
     public Optional<WorkClassTask> settlePendingMessageExpiryForDrain(

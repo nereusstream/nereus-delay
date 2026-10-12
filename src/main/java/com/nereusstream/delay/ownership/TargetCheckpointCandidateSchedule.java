@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.BooleanSupplier;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 
@@ -114,7 +115,8 @@ public final class TargetCheckpointCandidateSchedule {
             final var cut = worker.protectCheckpointCut();
             final var request = Objects.requireNonNull(factory.create(worker, claim, cut), "collected request");
             final var submission = worker.submitCollectedSemanticCheckpointCandidate(request, cut, settlementBudget);
-            return new Candidate(submission.task(), submission::outcome);
+            return new Candidate(submission.task(), submission::outcome, () -> submission.publication().isPresent(),
+                    submission::publicationStoreSequence, submission::requirePublicationCurrent);
         });
     }
 
@@ -136,7 +138,8 @@ public final class TargetCheckpointCandidateSchedule {
                     request.ownerClock(), request.checkpointPath(), request.pending(), request.physicalLimits(),
                     request.quotaLimits(), request.ledgerLimits(), semantic.snapshot(), semantic.semanticLimits(),
                     semantic.protection(), cut, semantic.publication(), settlementBudget);
-            return new Candidate(submission.task(), submission::outcome);
+            return new Candidate(submission.task(), submission::outcome, () -> submission.publication().isPresent(),
+                    submission::publicationStoreSequence, submission::requirePublicationCurrent);
         });
     }
 
@@ -145,20 +148,39 @@ public final class TargetCheckpointCandidateSchedule {
     }
 
     record Candidate(
-            WorkClassTask task, Supplier<Optional<TargetCheckpointCandidateWorkClassExecutor.Outcome>> outcome) {
+            WorkClassTask task, Supplier<Optional<TargetCheckpointCandidateWorkClassExecutor.Outcome>> outcome,
+            BooleanSupplier published, LongSupplier publicationStoreSequence, Runnable requirePublicationCurrent) {
+        Candidate(WorkClassTask task, Supplier<Optional<TargetCheckpointCandidateWorkClassExecutor.Outcome>> outcome) {
+            this(task, outcome, () -> false, () -> 0, () -> {});
+        }
+        Candidate(WorkClassTask task, Supplier<Optional<TargetCheckpointCandidateWorkClassExecutor.Outcome>> outcome,
+                BooleanSupplier published) {
+            this(task, outcome, published, () -> 0, () -> {});
+        }
+        Candidate(WorkClassTask task, Supplier<Optional<TargetCheckpointCandidateWorkClassExecutor.Outcome>> outcome,
+                BooleanSupplier published, LongSupplier publicationStoreSequence) {
+            this(task, outcome, published, publicationStoreSequence, () -> {});
+        }
         Candidate {
             Objects.requireNonNull(task, "task");
             Objects.requireNonNull(outcome, "outcome");
+            Objects.requireNonNull(published, "published");
+            Objects.requireNonNull(publicationStoreSequence, "publicationStoreSequence");
+            Objects.requireNonNull(requirePublicationCurrent, "requirePublicationCurrent");
         }
     }
 
-    private record Flight(TargetWorkerHostRuntime.Shard shard, ScheduledCheckpoint claim, Candidate candidate) {}
+    private record Flight(TargetWorkerHostRuntime.Shard shard, ScheduledCheckpoint claim, Candidate candidate,
+            boolean finalDrain) {}
+
+    private record PublishedCut(TargetWorkerHostRuntime.Shard shard, long nativeSequence, Runnable requireCurrent) {}
 
     private final TargetWorkerHostRuntime host;
     private final CheckpointScheduler scheduler;
     private final Dispatcher dispatcher;
     private final Map<ShardId, TargetWorkerHostRuntime.Shard> registered = new HashMap<>();
     private final Map<ShardId, Flight> flights = new HashMap<>();
+    private final Map<ShardId, PublishedCut> publishedCuts = new HashMap<>();
 
     public TargetCheckpointCandidateSchedule(
             final TargetWorkerHostRuntime host, final CheckpointScheduler scheduler, final RequestFactory factory) {
@@ -209,6 +231,7 @@ public final class TargetCheckpointCandidateSchedule {
     public synchronized void unregister(final ShardId shardId) {
         scheduler.unregister(shardId);
         registered.remove(shardId);
+        publishedCuts.remove(shardId);
     }
 
     /**
@@ -273,7 +296,7 @@ public final class TargetCheckpointCandidateSchedule {
                         shard, () -> dispatcher.submit(shard, claim));
                 synchronized (this) {
                     scheduler.requireCurrentClaim(claim);
-                    flights.put(claim.shardId(), new Flight(shard, claim, candidate));
+                    flights.put(claim.shardId(), new Flight(shard, claim, candidate, false));
                 }
                 submitted.add(candidate.task());
             } catch (RuntimeException | Error failure) {
@@ -298,6 +321,9 @@ public final class TargetCheckpointCandidateSchedule {
             if (flight == null) {
                 return Optional.empty();
             }
+            if (flight.finalDrain()) {
+                throw new IllegalStateException("final checkpoint must be settled by Host drain");
+            }
             scheduler.requireCurrentClaim(flight.claim());
         }
         // An independent host settlement may already have made the candidate terminal.
@@ -308,6 +334,7 @@ public final class TargetCheckpointCandidateSchedule {
             outcome = flight.candidate().outcome().get();
         }
         if (outcome.isPresent()) {
+            rememberPublished(flight, outcome.orElseThrow());
             synchronized (this) {
                 if (flights.get(shardId) == flight) {
                     scheduler.complete(flight.claim(), completedAtEpochMs);
@@ -321,5 +348,90 @@ public final class TargetCheckpointCandidateSchedule {
     public synchronized Optional<WorkClassTask> pendingTask(final ShardId shardId) {
         final Flight flight = flights.get(Objects.requireNonNull(shardId, "shardId"));
         return flight == null ? Optional.empty() : Optional.of(flight.candidate().task());
+    }
+
+    synchronized boolean hasFinalDrainFlight(TargetWorkerHostRuntime.Shard shard) {
+        final var flight = flights.get(shard.shardId());
+        return flight != null && flight.shard() == shard && flight.finalDrain();
+    }
+
+    boolean hasCurrentPublishedCut(TargetWorkerHostRuntime.Shard shard) {
+        final PublishedCut cut;
+        synchronized (this) { cut = publishedCuts.get(shard.shardId()); }
+        if (cut == null || cut.shard() != shard || cut.nativeSequence() != shard.checkpointStoreSequence()) {
+            return false;
+        }
+        cut.requireCurrent().run();
+        return cut.nativeSequence() == shard.checkpointStoreSequence();
+    }
+
+    private void rememberPublished(Flight flight, TargetCheckpointCandidateWorkClassExecutor.Outcome outcome) {
+        if (outcome.failure() == null && flight.candidate().published().getAsBoolean()) {
+            final long sequence = flight.candidate().publicationStoreSequence().getAsLong();
+            synchronized (this) {
+                publishedCuts.put(flight.shard().shardId(), new PublishedCut(flight.shard(), sequence,
+                        flight.candidate().requirePublicationCurrent()));
+            }
+        }
+    }
+
+    /** Called only inside the exact Host drain lifecycle slot and Shard lock, after prior work settles. */
+    WorkClassTask submitFinalForDrain(TargetWorkerHostRuntime.Shard shard, long now) {
+        final ScheduledCheckpoint claim;
+        synchronized (this) {
+            if (flights.containsKey(shard.shardId())) {
+                throw new IllegalStateException("final checkpoint cannot discard an earlier claim");
+            }
+            if (registered.get(shard.shardId()) != shard) {
+                if (registered.containsKey(shard.shardId())) { unregister(shard.shardId()); }
+                scheduler.register(shard.shardId(), now);
+                registered.put(shard.shardId(), shard);
+            }
+            claim = scheduler.claimForDrain(shard.shardId(), now);
+        }
+        try {
+            final var candidate = dispatcher.submit(shard, claim);
+            synchronized (this) {
+                scheduler.requireCurrentClaim(claim);
+                flights.put(shard.shardId(), new Flight(shard, claim, candidate, true));
+            }
+            return candidate.task();
+        } catch (RuntimeException | Error failure) {
+            synchronized (this) { scheduler.complete(claim, now); }
+            throw failure;
+        }
+    }
+
+    /** Settles under the caller's existing drain slot, without reacquiring Host admission. */
+    Optional<TargetCheckpointCandidateWorkClassExecutor.Outcome> settleForDrain(
+            TargetWorkerHostRuntime.Shard shard, SchedulerBudget budget, long now) {
+        final Flight flight;
+        synchronized (this) {
+            flight = flights.get(shard.shardId());
+            if (flight == null) { return Optional.empty(); }
+            if (flight.shard() != shard) { throw new IllegalStateException("drain checkpoint Shard was replaced"); }
+            scheduler.requireCurrentClaim(flight.claim());
+        }
+        var outcome = flight.candidate().outcome().get();
+        if (outcome.isEmpty()) {
+            final var pending = shard.pendingCheckpointTask();
+            if (pending.isEmpty() || pending.orElseThrow() != flight.candidate().task()) {
+                throw new IllegalStateException("drain checkpoint task has changed");
+            }
+            shard.runCheckpointTurn(budget);
+            outcome = flight.candidate().outcome().get();
+        }
+        if (outcome.isPresent()) {
+            final boolean published = flight.candidate().published().getAsBoolean();
+            rememberPublished(flight, outcome.orElseThrow());
+            synchronized (this) {
+                scheduler.complete(flight.claim(), now);
+                flights.remove(shard.shardId());
+            }
+            if (flight.finalDrain() && outcome.orElseThrow().failure() == null && !published) {
+                throw new IllegalStateException("final checkpoint completed without Catalog publication");
+            }
+        }
+        return outcome;
     }
 }

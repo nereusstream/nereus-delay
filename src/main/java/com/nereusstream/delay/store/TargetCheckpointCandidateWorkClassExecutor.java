@@ -247,15 +247,26 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
         try {
             requireCurrentSemantic(semantic, publication != null);
             final var request = semantic.candidate();
-            final Path path = Files.exists(request.checkpointPath(), LinkOption.NOFOLLOW_LINKS)
-                    ? store.reuseTargetSemanticCheckpointCandidate(
-                            request.checkpointPath(), request.pending().checkpointId(),
-                            request.pending().recoveryLineageId(), request.physicalLimits(), request.quotaLimits(),
-                            request.ledgerLimits(), semantic.snapshot(), semantic.limits())
-                    : store.createTargetSemanticCheckpointCandidate(
-                            request.checkpointPath(), request.pending().checkpointId(),
-                            request.pending().recoveryLineageId(), request.physicalLimits(), request.quotaLimits(),
-                            request.ledgerLimits(), semantic.snapshot(), semantic.limits());
+            final Path path;
+            final long imageSequence;
+            synchronized (store) {
+                path = Files.exists(request.checkpointPath(), LinkOption.NOFOLLOW_LINKS)
+                        ? store.reuseTargetSemanticCheckpointCandidate(
+                                request.checkpointPath(), request.pending().checkpointId(),
+                                request.pending().recoveryLineageId(), request.physicalLimits(), request.quotaLimits(),
+                                request.ledgerLimits(), semantic.snapshot(), semantic.limits())
+                        : store.createTargetSemanticCheckpointCandidate(
+                                request.checkpointPath(), request.pending().checkpointId(),
+                                request.pending().recoveryLineageId(), request.physicalLimits(), request.quotaLimits(),
+                                request.ledgerLimits(), semantic.snapshot(), semantic.limits());
+                imageSequence = store.latestSequenceNumber();
+            }
+            final Runnable imageProtection = () -> {
+                requireCurrentSemantic(semantic, publication != null);
+                if (store.latestSequenceNumber() != imageSequence) {
+                    throw new IllegalStateException("Target Store changed after checkpoint image creation");
+                }
+            };
             requireCurrentSemantic(semantic, publication != null);
             if (publication != null) {
                 final var objects = new java.util.ArrayList<CheckpointManifest.FileEntry>();
@@ -268,15 +279,20 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
                                 publication.lineageGeneration(), objects, request.physicalLimits(),
                                 request.quotaLimits(),
                                 request.ledgerLimits(), semantic.limits(), publication.authority(),
-                                () -> requireCurrentSemantic(semantic, publication != null)));
+                                imageProtection));
                 if (publication.initialization() != null) {
                     publication.coordinator().initializeTarget(request.pending(), image, publication.initialization());
                 }
                 final var published = publication.coordinator().publishTarget(request.pending(), image,
                         request.pending().baseCatalogGeneration(), ownerClock.getAsLong(), publication.adapter());
-                requireCurrentSemantic(semantic, publication != null);
+                imageProtection.run();
                 submission.published = published;
                 submission.authenticatedImage = image;
+                submission.publicationStoreSequence = imageSequence;
+                submission.requirePublicationCurrent = () -> {
+                    image.requireCurrent();
+                    publication.coordinator().requirePublicationCurrent(published, image::requireCurrent);
+                };
             }
             submission.complete(new Outcome(path, null));
         } catch (RuntimeException failure) {
@@ -449,6 +465,8 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
         private final WorkClassTask task;
         private volatile Outcome outcome;
         private CheckpointPublicationCoordinator.CheckpointPublication published;
+        private long publicationStoreSequence;
+        private Runnable requirePublicationCurrent;
         private TargetCheckpointRootVerifier.AuthenticatedImage authenticatedImage;
         private volatile Runnable nextStep;
         private RegistrationAttempt registration;
@@ -537,6 +555,22 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
         public Optional<CheckpointPublicationCoordinator.CheckpointPublication> publication() {
             final var completed = outcome;
             return completed == null || completed.failure() != null ? Optional.empty() : Optional.ofNullable(published);
+        }
+
+        /** Exact native Store sequence at successful publication, never sampled after ordinary work resumes. */
+        public long publicationStoreSequence() {
+            if (publication().isEmpty()) {
+                throw new IllegalStateException("checkpoint has no successful publication");
+            }
+            return publicationStoreSequence;
+        }
+
+        /** Revalidates held protection and current immutable Catalog binding before unchanged-cut drain reuse. */
+        public void requirePublicationCurrent() {
+            if (publication().isEmpty()) {
+                throw new IllegalStateException("checkpoint has no successful publication");
+            }
+            requirePublicationCurrent.run();
         }
 
         public Optional<TargetCheckpointRootVerifier.AuthenticatedImage> authenticatedImage() {

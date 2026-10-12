@@ -26,8 +26,9 @@ control/Outcome历史、生产catalog/Artifact/credential/pins、正式发布/�
 > **当前执行阶段：先完成全部实际运行代码，最后集中测试（用户于 2026-09-08 调整）。**
 > 保持当前模型、单 agent、直接 main、分阶段 scoped commit/push。先贯通原 29 切片的
 > 代码、运行路径装配、配置及迁移/清退工具；完整回归、真实 Broker、性能、故障恢复
-> 和依赖验证的实际迁移/清退，留待用户切换模型后集中执行。当前只保留编译、格式/
-> 文档一致性和影响开发正确性的最小局部检查；不需要现在确认或切换模型。
+> 和依赖验证的实际迁移/清退，留待开发完成后集中执行。用户于 2026-10-12 再次明确：
+> 先完成所有开发，最后再做测试；实施迭代不再运行单测、Broker 场景或验收检查。
+> 必要的源码审阅/编译属于开发工作；不需要现在确认或切换模型。
 > 原目标总范围不变，实现状态与验证状态分别记录；未验证实现不得标记 VERIFIED、
 > 提案治理 Implemented 或方案完成。
 
@@ -639,3 +640,11 @@ C5（2026-10-12）：原native cleanup可由Worker显式在同有限executor重�
 C5 cleanup stop（2026-10-12）：原读取退出后仍停止 retained queued close；已发起 async close 的
 completion 不因 receipt 被 stop 置为异常而丢弃。local52/styles/锁定 SDK compile通过；完整
 原生故障和资源关闭继续集中验证，状态/完成 flags 保持。详见执行记录与代码级设计同期条目。
+
+C5（2026-10-12）：正式 Host 正常退场先完成最终 checkpoint/Catalog publication，再关闭
+Store/释放 Owner；exact 未变化已发布 native cut 可在当前保护/Catalog 重验后复用。local36
+和真实 P1 Source 前进/子 Manifest/安装后的 Source 恢复已记录；local ordinal 单独变化的
+父子协议待用户澄清，完整联合权限/资源/迁退/集中义务与 status/flags 保持。
+
+2026-10-12 用户决策：采用 format 2 受认证切点纳入 local ordinal 并定义父子单调性；
+这是已授权方案，尚未计作已完成实现/验收。后续代码实施保留 format 1 的既有严格推进规则。

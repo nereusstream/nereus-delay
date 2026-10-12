@@ -2386,3 +2386,12 @@ failed-open backend shutdown仍需独立明确权限。队列拒绝/close失败�
 Checkpoint preparation 已保留 cleanup 失败时，重复 stop 会传到原 cleanup attempt。queued close
 撤回只证明未发起该命令，不能证明原 cursor 已关闭；running async close 必须等原 completion
 及 cleanupComplete，receipt 的 stop 异常不能授权释放 Worker cut 或 client/pin/physical 资源。
+
+配置 periodic semantic/collected checkpoints 的 Target Host 正常 drain 现在会立即触发最终
+publication；重复调用 drain 在原有限 CHECKPOINT budget 内推进，PENDING_CHECKPOINT/FAILED
+不允许关闭 Store 或释放 Owner。final task 由 drain 结清，不能交给 periodic settle；原
+Worker pending Io cleanup/stop 诊断仍可使用。exact 未变化 publication 复用须保持原保护且
+当前 Catalog 校验通过；每次 Store 写使旧 native sequence 无效。先清理 observer，再完成
+checkpoint，最后关闭 history/client/executor/pin/physical；共享 primary/history client 不得
+因 observer 失败提前关闭。仅 local ordinal 前进的子 checkpoint 当前仍被父子规则拒绝，
+持久协议尚待澄清；不得伪造 Source 或把直接组件 drain 当作正式最终发布证据。

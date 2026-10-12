@@ -13,6 +13,24 @@ import org.junit.jupiter.api.Test;
 
 class CheckpointSchedulerTest {
     @Test
+    void drainClaimsBeforeTheIntervalWithoutReplacingAnExistingClaim() {
+        final var scheduler = new CheckpointScheduler(1_000, 0, 1);
+        final var shard = new ShardId(RouteIncarnation.random(), 0);
+        scheduler.register(shard, 100);
+        final var first = scheduler.claimForDrain(shard, 101);
+        assertEquals(101, first.dueAtEpochMs());
+        assertThrows(IllegalStateException.class, () -> scheduler.claimForDrain(shard, 102));
+        assertThrows(IllegalStateException.class,
+                () -> scheduler.requireCurrentClaim(new CheckpointScheduler.ScheduledCheckpoint(shard, 101)));
+        assertTrue(scheduler.claimDue(1_100, 1).isEmpty());
+        scheduler.complete(first, 102);
+        final var next = scheduler.claimForDrain(shard, 103);
+        assertThrows(IllegalStateException.class, () -> scheduler.complete(first, 104));
+        scheduler.complete(next, 104);
+        assertFalse(scheduler.isInFlight(shard));
+    }
+
+    @Test
     void deterministicJitterStaysWithinIntervalAndReschedulesAfterCompletion() {
         final ShardId shard = new ShardId(RouteIncarnation.fromUuid(new java.util.UUID(1, 2)), 3);
         final CheckpointScheduler first = new CheckpointScheduler(1_000, 20, 2);

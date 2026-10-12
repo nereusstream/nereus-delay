@@ -391,7 +391,8 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
             PulsarSourcePosition recoveryTip = null;
             TargetWorkerHostRuntime host = null;
             java.util.concurrent.ThreadPoolExecutor observerExecutor = null;
-            try {
+            Runnable verifyFinalPublication = () -> {};
+            try (PulsarClient observationClient = PulsarClientArtifactClientBuilder.builder(serviceUrl).build()) {
                 worker.configureMessageExpiryMaintenance(
                         mutation -> { throw new AssertionError("Cancel fixture cannot append Message expiry"); },
                         () -> expiryRequest(active, signingKeys));
@@ -411,7 +412,7 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                 host.configureSourceObservations(observerCache,
                         (actualWorker, cut) -> {
                             final boolean rejected = rejectObservation.get();
-                            final var query = PulsarClientArtifactTargetSourceBacklog.open(client,
+                            final var query = PulsarClientArtifactTargetSourceBacklog.open(observationClient,
                                     rejected ? new TopicResourceGuard(CLUSTER, INCARNATION, CREATION_TIMESTAMP + 1)
                                             : guard, cut,
                                 new com.nereusstream.delay.ownership.TargetSourceBacklog.Limits(
@@ -482,8 +483,9 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                         leases, active, signingKeys, successor);
                 final var semanticInputs = verifyControlHistory(client, guard, store, worker, scope, leases,
                         active, signingKeys);
-                verifyScheduledSemanticCandidate(client, guard, host, worker, store, scope, leases, active, signingKeys,
-                        registration, actor, semanticInputs, storeRoot, observerExecutor);
+                verifyFinalPublication = verifyScheduledSemanticCandidate(
+                        client, consumer, guard, physicalTopic, successor, host, worker, store, scope,
+                        leases, active, signingKeys, registration, actor, semanticInputs, storeRoot, observerExecutor);
                 recoveryTip = (PulsarSourcePosition) store.appliedShardLogPosition();
                 // The service owns this exact client. After the last primary ACK, test a real failed SUBSCRIBE
                 // and service shutdown; no timeout handler may close a shared primary client automatically.
@@ -535,6 +537,11 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                                             new SchedulerBudget(64, 4L << 20, TimeUnit.SECONDS.toNanos(10))),
                                     new SchedulerBudget(64, 4L << 20, TimeUnit.SECONDS.toNanos(10)),
                                     System::currentTimeMillis);
+                            if (drained.shards().stream().anyMatch(
+                                    shard -> shard.status() == TargetWorkerHostRuntime.Status.FAILED)) {
+                                throw new IllegalStateException("P1 final drain failed",
+                                        drained.shards().getFirst().failure());
+                            }
                             if (!drained.complete()) { Thread.sleep(1); }
                         } while (!drained.complete() && System.nanoTime() < drainDeadline);
                         if (!drained.complete() || drained.shards().size() != 1
@@ -542,8 +549,10 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                                 || host.firstMaintenanceFailure() != null
                                 || leases.current(scope.shard()).isPresent() || !store.isCloseStarted()) {
                             throw new IllegalStateException("P1 Host did not close Store/Source and release Owner: "
-                                    + drained.shards(), host.firstMaintenanceFailure());
+                                    + drained.shards(), worker.pendingCheckpointIoFailure()
+                                            .orElse(host.firstMaintenanceFailure()));
                         }
+                        verifyFinalPublication.run();
                         activeHolder[0] = null;
                         System.out.println("P1 Host Source observer: existing tick refreshed; cleanup preceded Owner "
                                 + "drain; Store/Source closed and lease released.");
@@ -571,13 +580,15 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
     }
 
     /** Actual receipt-confirmed native cut and Host schedule; namespace/pin permissions remain fixtures. */
-    private static void verifyScheduledSemanticCandidate(PulsarClient client, TopicResourceGuard resource,
+    private static Runnable verifyScheduledSemanticCandidate(PulsarClient client, GuardedConsumer<byte[]> primary,
+            TopicResourceGuard resource, String topic,
+            java.util.concurrent.atomic.AtomicReference<SourceReplaySuccessor> successor,
             TargetWorkerHostRuntime host,
             TargetWorkerShardRuntime worker, ShardStore store, TargetQuotaScope scope, OxiaOwnerLeaseStore leases,
             OwnerLease active, KeyPair keys, InMemoryControlTargetRegistrationAuthority registration,
             ControlAuthorizationContext actor,
             com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Result inputs, Path root,
-            java.util.concurrent.ThreadPoolExecutor historyExecutor) {
+            java.util.concurrent.ThreadPoolExecutor historyExecutor) throws Exception {
         final var physical = new CheckpointManifestLimits(1_000, 256L << 20, 256L << 20,
                 1_024, 4 << 20, 1_000, 1_024);
         final var quota = new TargetCheckpointRootVerifier.QuotaAuditLimits(4096, 32L << 20);
@@ -629,6 +640,7 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                         bytes(8, 0x76), 1, 1, 1, bytes(32, 0x77), 0, null), now + 60_000,
                 CheckpointUploadState.PENDING_UPLOAD, 1, null, null);
         final var intents = new CheckpointUploadIntentStore();
+        final var finalIntents = new CheckpointUploadIntentStore();
         final var registrationRequested = new java.util.concurrent.atomic.AtomicBoolean();
         final var releaseRegistration = new java.util.concurrent.CompletableFuture<CheckpointUploadIntent>();
         final var catalog = new RecoveryCatalog();
@@ -685,7 +697,7 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
         final com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.CollectedSemanticRequestFactory
                 factory = (selected, claim, cut) -> {
                     cut.requireCurrent();
-                    if (selected != worker || !cut.position().equals(dependencies.root().source())) {
+                    if (selected != worker || !cut.position().equals(store.appliedShardLogPosition())) {
                         throw new IllegalStateException("scheduled semantic request received another native cut");
                     }
                     final var controls = new com.nereusstream.delay.ownership.TargetCheckpointControlInputs(
@@ -728,21 +740,41 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                             });
                     final var collection = TargetCheckpointSemanticInputs.authenticated(
                             controls, outcomes, admissions, preparation);
+                    final boolean followup = catalog.manifest(pending.checkpointId()).isPresent();
+                    final var proposed = followup ? new CheckpointUploadIntent(pending.shard(),
+                            pending.recoveryLineageId(), bytes(16, 0x78), pending.owner(),
+                            pending.sourceStoreIncarnation(), bytes(32, 0x79), catalog.catalogGeneration(),
+                            pending.checkpointId(), catalog.manifest(pending.checkpointId()).orElseThrow()
+                                    .manifestSha256(), pending.objectStoreProfile(), pending.checkpointCreatedAt(),
+                            pending.uploadDeadlineEpochMs(), CheckpointUploadState.PENDING_UPLOAD, 1, null, null)
+                            : pending;
+                    final var publication = followup ? new TargetCheckpointCandidateWorkClassExecutor.PublicationPlan(
+                            new CheckpointPublicationCoordinator(store.sharedResources(), finalIntents,
+                                    physical, catalog), 1,
+                            file -> new CheckpointManifest.FileEntry(file.name(), file.length(), file.checksum(),
+                                    Bytes.utf8("final/" + file.name()), Bytes.utf8("immutable-1"), null),
+                            plan.authority(), plan.adapter(), null) : plan;
+                    final TargetCheckpointCandidateWorkClassExecutor.IntentRegistration register = followup
+                            ? intent -> {
+                                finalIntents.create(intent);
+                                return java.util.concurrent.CompletableFuture.completedFuture(intent);
+                            } : intent -> {
+                                if (!pending.equals(intent) || registrationRequested.getAndSet(true)) {
+                                    throw new IllegalStateException("checkpoint registration identity changed");
+                                }
+                                return releaseRegistration;
+                            };
                     return new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule
                             .CollectedSemanticRequest(
-                            new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.Request(intents,
-                                    System::currentTimeMillis, root.resolve("scheduled-semantic-image"), pending,
+                            new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.Request(
+                                    followup ? finalIntents : intents,
+                                    System::currentTimeMillis, root.resolve(followup
+                                            ? "final-semantic-image" : "scheduled-semantic-image"), proposed,
                                     physical, quota, ledger), collection, semanticLimits, () -> {
                                         if (refuse.get()) {
                                             throw new IllegalStateException("scheduled semantic protection unavailable");
                                         }
-                                    }, plan, proposed -> {
-                                        if (!pending.equals(proposed)
-                                                || registrationRequested.getAndSet(true)) {
-                                            throw new IllegalStateException("checkpoint registration identity changed");
-                                        }
-                                        return releaseRegistration;
-                                    });
+                                    }, publication, register);
                 };
         final var undersized = com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.collectedSemantic(
                 host, new com.nereusstream.delay.store.CheckpointScheduler(1_000, 0, 1), factory,
@@ -863,6 +895,37 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                 + "then claim/settle native ACK "
                 + "semantic candidate/full auth/Catalog init/File upload/PUBLISHED CAS, "
                 + "blocked new Source during I/O, then settled/resumed.");
+        // A real redelivery of the exact signed rejected Outcome advances Source while preserving its first result.
+        final var originalOutcome = PulsarClientArtifactTargetAdmissionHistory.readOutcome(client, resource,
+                dependencies.outcomeReferences().getFirst(), Duration.ofSeconds(10), () -> {});
+        final var previous = store.appliedShardLogPosition();
+        final var appended = appendFirstGrant(client, primary, resource, topic, scope.shard(), originalOutcome);
+        final var priorSuccessor = successor.get();
+        successor.set((before, after) -> before.equals(previous) && after instanceof PulsarSourcePosition actual
+                && actual.ledgerId() == appended.ledgerId() && actual.entryId() == appended.entryId()
+                && actual.normalizedBatchIndex() == appended.normalizedBatchIndex()
+                || priorSuccessor.isSuccessor(before, after));
+        final var duplicate = runUntilApplied(host, scope.shard());
+        final var finalSource = store.appliedShardLogPosition();
+        final long finalSequence = store.shardMutationSequence();
+        if (duplicate.status() != SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED
+                || duplicate.appliedOutcome().systemMutationResult().stableCode()
+                        != StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED
+                || finalSource.compareTo(source) <= 0 || finalSequence != sourceSequence + 1) {
+            throw new IllegalStateException("P1 duplicate Outcome did not advance the actual Source cut");
+        }
+        return () -> {
+            final var finalManifest = catalog.manifest(bytes(16, 0x78)).orElseThrow();
+            if (catalog.catalogGeneration() != 3 || finalManifest.lineageGeneration() != 1
+                    || !finalManifest.appliedShardLogPosition().equals(finalSource)
+                    || finalManifest.shardMutationSequence() != finalSequence
+                    || !Arrays.equals(finalManifest.parentCheckpoint().checkpointId(), pending.checkpointId())
+                    || scheduled.pendingTask(scope.shard()).isPresent()) {
+                throw new IllegalStateException("final Target publication lost its exact Source/parent/cut");
+            }
+            System.out.println("P1 Host final drain: native Control/Outcome recollected, authenticated File image "
+                    + "and Catalog successor published before Store close and exact Owner release.");
+        };
     }
 
     /** Actual P1 grant cut and File image; global Catalog history/permissions remain explicit test fixtures. */
@@ -1086,11 +1149,18 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                         throw new IllegalStateException("P1 installed Store did not first-apply its real Cancel");
                     }
                     final var second = recovery.runTurn();
-                    if (!second.complete() || second.outcomes().size() != 1
-                            || second.outcomes().getFirst().systemMutationResult() == null
+                    if (second.complete() || second.outcomes().size() != 1
                             || second.outcomes().getFirst().systemMutationResult().stableCode()
                                     != StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED
-                            || !tip.equals(store.appliedShardLogPosition()) || store.shardMutationSequence() != 3
+                            || store.shardMutationSequence() != 3) {
+                        throw new IllegalStateException("P1 installed Store did not retain original rejected Outcome");
+                    }
+                    final var third = recovery.runTurn();
+                    if (!third.complete() || third.outcomes().size() != 1
+                            || third.outcomes().getFirst().systemMutationResult() == null
+                            || third.outcomes().getFirst().systemMutationResult().stableCode()
+                                    != StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED
+                            || !tip.equals(store.appliedShardLogPosition()) || store.shardMutationSequence() != 4
                             || store.recoveryMetadata().installState().phase()
                                     != com.nereusstream.delay.protocol.RecoveryInstallPhase.OPEN
                             || recovery.activeLease().state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS

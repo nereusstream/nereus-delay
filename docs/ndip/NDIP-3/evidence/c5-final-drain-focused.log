@@ -1,0 +1,249 @@
+C5 formal final drain 2026-10-12
+Base commit b6d5c37ae32ef3ac2b4b388b81fb37fe5f083375
+Earlier local35; final local36 = Host24/Scheduler11/actual Store UNKNOWN-resolved1, zero fail/error/skip; styles/locked P1 compile56s.
+Scope: immediate exact drain claim, current Shard/task, GC-before-cut, formal publication prerequisite, late-settlement sequence and held/current guard.
+No local-only ordinal protocol change; full metadata/Broker permissions/pins/physical/service/central/migration authority remains incomplete.
+Command: GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew test --tests com.nereusstream.delay.store.CheckpointSchedulerTest --tests com.nereusstream.delay.ownership.TargetWorkerShardFleetRuntimeTest checkstyleMain checkstyleTest compileRealPulsar -PpulsarClientClasspath=/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-client/build/libs/pulsar-client-original-5.0.0-M1.jar:/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-client-api/build/libs/pulsar-client-api-5.0.0-M1.jar:/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-common/build/libs/pulsar-common-5.0.0-M1.jar --no-daemon --console=plain
+SHA256 9381ce126d8d858dd44ccf39bc118465f0ec66debf5e0c6175140c7e52035e33 src/main/java/com/nereusstream/delay/ownership/TargetCheckpointCandidateSchedule.java
+SHA256 9b73fca89ce642bff6b82c0a8f0b61a1bec2d38e4b1ebeb2369f7515a801f156 src/main/java/com/nereusstream/delay/ownership/TargetWorkerHostRuntime.java
+SHA256 8df277e76bf10c1c48e2426ab172e203b059dd7b2539b8f843fb999823837778 src/main/java/com/nereusstream/delay/ownership/TargetWorkerShardRuntime.java
+SHA256 a405af43697720fa09fcef0a621280a44f6c1c4e686aae049e03e9f3bb116329 src/main/java/com/nereusstream/delay/store/CheckpointScheduler.java
+SHA256 adfeae24deaddf94a9b3a8217dd8c62a16982ea24171d72afdb12b93427fafef src/main/java/com/nereusstream/delay/store/CheckpointPublicationCoordinator.java
+SHA256 ad5f12046d3eb6605eea6a989ab240eae789787d8104ff503f5ca5e144d2653c src/main/java/com/nereusstream/delay/store/TargetCheckpointCandidateWorkClassExecutor.java
+SHA256 76f4460fc2027910b33c76f077b2d76f5df52b65351f98cb17e643afd45bd60c src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactTargetWorkerSourceSmoke.java
+SHA256 237c92a50ee8bec9ac3e3890755813baff5ba3ed6843e413abb7ace75da4fe1a src/test/java/com/nereusstream/delay/ownership/TargetWorkerShardFleetRuntimeTest.java
+SHA256 bb7e585ec2132a0bc6b5c094294e95b846aef1380ff5c8e317de69c2c334ed7f src/test/java/com/nereusstream/delay/store/CheckpointSchedulerTest.java
+TEST-com.nereusstream.delay.ownership.TargetWorkerShardFleetRuntimeTest.xml {'tests': '24', 'failures': '0', 'errors': '0', 'skipped': '0'} SHA256 bca83068dcac2d0eb5529d5c32f295b56745ff8851b502d6545da4abca1fb405
+TEST-com.nereusstream.delay.store.CheckpointSchedulerTest.xml {'tests': '11', 'failures': '0', 'errors': '0', 'skipped': '0'} SHA256 2d6139c1e91188a1142e6657b9d4161f1b6911e907c6a90a70b40dc30308bfb6
+
+RAW ndip3-final-drain-focused.log
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :extractIncludeRealPulsarProto UP-TO-DATE
+> Task :extractRealPulsarProto UP-TO-DATE
+> Task :generateRealPulsarProto NO-SOURCE
+
+> Task :compileRealPulsar FAILED
+/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactTargetWorkerSourceSmoke.java:892: 错误: 找不到符号
+                    || !Arrays.equals(finalManifest.parentCheckpointId(), pending.checkpointId())
+                                                   ^
+  符号:   方法 parentCheckpointId()
+  位置: 类型为CheckpointManifest的变量 finalManifest
+1 个错误
+
+> Task :checkstyleTest
+
+> Task :checkstyleMain
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/ownership/TargetCheckpointCandidateSchedule.java:21:1: 导入 'java.util.function.BooleanSupplier' 顺序错误。 [ImportOrder]
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/ownership/TargetWorkerHostRuntime.java:1229: 本行字符数 123个，最多：120个。 [LineLength]
+
+> Task :checkstyleMain FAILED
+
+[Incubating] Problems report is available at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/problems/problems-report.html
+
+FAILURE: Build completed with 2 failures.
+
+1: Task failed with an exception.
+-----------
+* What went wrong:
+Execution failed for task ':compileRealPulsar'.
+> Compilation failed; see the compiler output below.
+  /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactTargetWorkerSourceSmoke.java:892: 错误: 找不到符号
+                      || !Arrays.equals(finalManifest.parentCheckpointId(), pending.checkpointId())
+                                                     ^
+    符号:   方法 parentCheckpointId()
+    位置: 类型为CheckpointManifest的变量 finalManifest
+  1 个错误
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+==============================================================================
+
+2: Task failed with an exception.
+-----------
+* What went wrong:
+Execution failed for task ':checkstyleMain'.
+> A failure occurred while executing org.gradle.api.plugins.quality.internal.CheckstyleAction
+   > Checkstyle rule violations were found. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/checkstyle/main.html
+     Checkstyle files with violations: 2
+     Checkstyle violations by severity: [error:2]
+
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+==============================================================================
+
+BUILD FAILED in 36s
+18 actionable tasks: 6 executed, 12 up-to-date
+
+
+RAW ndip3-final-drain-green.log
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava UP-TO-DATE
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses UP-TO-DATE
+> Task :test
+> Task :extractIncludeRealPulsarProto UP-TO-DATE
+> Task :extractRealPulsarProto UP-TO-DATE
+> Task :generateRealPulsarProto NO-SOURCE
+> Task :compileRealPulsar
+> Task :checkstyleTest
+> Task :checkstyleMain
+
+BUILD SUCCESSFUL in 35s
+18 actionable tasks: 6 executed, 12 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+
+
+RAW ndip3-final-drain-final-focused.log
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :extractIncludeRealPulsarProto UP-TO-DATE
+> Task :extractRealPulsarProto UP-TO-DATE
+> Task :generateRealPulsarProto NO-SOURCE
+> Task :compileRealPulsar
+> Task :checkstyleTest
+
+> Task :checkstyleMain
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/store/TargetCheckpointCandidateWorkClassExecutor.java:546: 本行字符数 121个，最多：120个。 [LineLength]
+
+> Task :checkstyleMain FAILED
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':checkstyleMain'.
+> A failure occurred while executing org.gradle.api.plugins.quality.internal.CheckstyleAction
+   > Checkstyle rule violations were found. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/checkstyle/main.html
+     Checkstyle files with violations: 1
+     Checkstyle violations by severity: [error:1]
+
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 36s
+18 actionable tasks: 7 executed, 11 up-to-date
+
+
+RAW ndip3-final-drain-verified.log
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :extractIncludeRealPulsarProto UP-TO-DATE
+> Task :extractRealPulsarProto UP-TO-DATE
+> Task :generateRealPulsarProto NO-SOURCE
+> Task :compileRealPulsar UP-TO-DATE
+> Task :checkstyleTest
+> Task :checkstyleMain
+
+BUILD SUCCESSFUL in 41s
+18 actionable tasks: 6 executed, 12 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+
+Final command adds --tests com.nereusstream.delay.runtime.TargetCommandStoreTest.checkpointAdmissionAuthenticationPreservesUnknownAndResolvedOriginalSource
+FINAL SHA256 28ff9df2d43fb52c7bb653c1e48791f0f01d972ed1480a445ad61796d91b9c77 src/main/java/com/nereusstream/delay/store/TargetCheckpointCandidateWorkClassExecutor.java
+FINAL SHA256 adfeae24deaddf94a9b3a8217dd8c62a16982ea24171d72afdb12b93427fafef src/main/java/com/nereusstream/delay/store/CheckpointPublicationCoordinator.java
+FINAL SHA256 9381ce126d8d858dd44ccf39bc118465f0ec66debf5e0c6175140c7e52035e33 src/main/java/com/nereusstream/delay/ownership/TargetCheckpointCandidateSchedule.java
+FINAL SHA256 237c92a50ee8bec9ac3e3890755813baff5ba3ed6843e413abb7ace75da4fe1a src/test/java/com/nereusstream/delay/ownership/TargetWorkerShardFleetRuntimeTest.java
+TEST-com.nereusstream.delay.ownership.TargetWorkerShardFleetRuntimeTest.xml {'tests': '24', 'failures': '0', 'errors': '0', 'skipped': '0'} SHA256 f481f4ef92dc36b76a39fe20c2be13961daf888c43afda31486f7dac86f20b2f
+TEST-com.nereusstream.delay.store.CheckpointSchedulerTest.xml {'tests': '11', 'failures': '0', 'errors': '0', 'skipped': '0'} SHA256 b469802285fc18e9cc54c8335091a04885525b3e5346e0285d85d889a145d66c
+TEST-com.nereusstream.delay.runtime.TargetCommandStoreTest.xml {'tests': '1', 'failures': '0', 'errors': '0', 'skipped': '0'} SHA256 86b01d97ffeddf101ef4f12d6012a96bc0129273ab63b6add5c5238c873ba3bc
+
+RAW final image sequence checks
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava UP-TO-DATE
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses UP-TO-DATE
+> Task :test
+> Task :extractIncludeRealPulsarProto UP-TO-DATE
+> Task :extractRealPulsarProto UP-TO-DATE
+> Task :generateRealPulsarProto NO-SOURCE
+> Task :compileRealPulsar UP-TO-DATE
+> Task :checkstyleTest
+> Task :checkstyleMain
+
+BUILD SUCCESSFUL in 56s
+18 actionable tasks: 5 executed, 13 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+
+checkDocumentation terminal0/1m21s was observed in this conversation. Original temporary log is missing at archival; full documentation raw not retained. No rerun under the user current defer-all-testing policy.
