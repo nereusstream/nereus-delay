@@ -824,7 +824,7 @@ public final class TargetWorkerOrdinaryDrr {
                             guarded.operationDigest(),
                             guarded.quota(),
                             guarded.physicalWrites(),
-                            ownerClock)),
+                            ownerClock, decision.policyHeadRef())),
                     OptionalLong.empty());
         };
     }

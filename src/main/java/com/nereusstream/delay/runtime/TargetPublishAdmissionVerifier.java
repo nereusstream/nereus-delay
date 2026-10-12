@@ -48,7 +48,15 @@ public final class TargetPublishAdmissionVerifier {
             long maximumBrokerTimestampDivergenceMs,
             long maximumMutationEnqueueAgeMs,
             DecisionTimeAuthority decisionTime,
-            MaterializationAuthority materialization) {
+            MaterializationAuthority materialization,
+            com.nereusstream.delay.semantic.TargetNativePolicyAuthority nativePolicies) {
+        public Authorization(
+                PublicKey writerKey, ProtocolTuple activatedTuple, long maximumDecisionWidthMs,
+                long maximumBrokerTimestampDivergenceMs, long maximumMutationEnqueueAgeMs,
+                DecisionTimeAuthority decisionTime, MaterializationAuthority materialization) {
+            this(writerKey, activatedTuple, maximumDecisionWidthMs, maximumBrokerTimestampDivergenceMs,
+                    maximumMutationEnqueueAgeMs, decisionTime, materialization, null);
+        }
         public Authorization(
                 PublicKey writerKey,
                 ProtocolTuple activatedTuple,
@@ -122,9 +130,9 @@ public final class TargetPublishAdmissionVerifier {
         }
         final Authorization authorized = authority.resolve(shardScope, author, mutation, source);
         if (authorized == null
-                || !(body.publication() == null
-                                ? ProtocolTuple.targetPublishAdmission()
-                                : ProtocolTuple.targetMaterializedPublishAdmission())
+                || !(body.nativePublication() != null ? ProtocolTuple.targetNativeMaterializedPublishAdmission()
+                        : body.materialized() ? ProtocolTuple.targetMaterializedPublishAdmission()
+                                : ProtocolTuple.targetPublishAdmission())
                         .equals(authorized.activatedTuple())
                 || !mutation.verifySignature(authorized.writerKey())) {
             return rejected(StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
@@ -146,11 +154,14 @@ public final class TargetPublishAdmissionVerifier {
         if (distance > enqueueBound || !authorized.decisionTime().verifies(shardScope, author, source, time)) {
             return rejected(StableCode.STALE_SYSTEM_MUTATION);
         }
-        if (body.publication() != null) {
+        if (body.materialized()) {
             if (authorized.materialization() == null) {
                 throw new IllegalStateException("Target materialization authority is unavailable");
             }
             authorized.materialization().requireAuthorized(body, source);
+            if (body.nativePublication() != null && authorized.nativePolicies() == null) {
+                throw new IllegalStateException("Target Native current-head authority is unavailable");
+            }
         }
         return new Decision(body, null, authorized);
     }

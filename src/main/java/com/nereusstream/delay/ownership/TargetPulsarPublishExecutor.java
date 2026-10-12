@@ -29,6 +29,8 @@ public final class TargetPulsarPublishExecutor {
     private final ArtifactGenerationSet artifacts;
     private final Supplier<TargetPublishAdmissionStore.Applied> current;
     private final BoundedDestinationPublishAdapter.TargetPreparedPublishPreflight liveGate;
+    private final BoundedDestinationPublishAdapter.TargetNativePreparedPublishPreflight nativeLiveGate;
+    private final java.util.function.Consumer<TargetPublishAdmissionStore.Applied> nativeOwnership;
     private final ResultAuthority results;
     private final TargetPublishOutcomeMutationFactory outcomes;
     private final Consumer<SystemMutation> handoff;
@@ -41,11 +43,35 @@ public final class TargetPulsarPublishExecutor {
             BoundedDestinationPublishAdapter.TargetPreparedPublishPreflight liveGate, ResultAuthority results,
             TargetPublishOutcomeMutationFactory outcomes, Consumer<SystemMutation> handoff,
             Executor completionExecutor) {
+        this(journal, adapter, artifacts, current, liveGate, null, results, outcomes, handoff, completionExecutor);
+    }
+
+    public TargetPulsarPublishExecutor(
+            PulsarAttemptJournal journal, BoundedDestinationPublishAdapter adapter, ArtifactGenerationSet artifacts,
+            Supplier<TargetPublishAdmissionStore.Applied> current,
+            BoundedDestinationPublishAdapter.TargetPreparedPublishPreflight liveGate,
+            BoundedDestinationPublishAdapter.TargetNativePreparedPublishPreflight nativeLiveGate,
+            ResultAuthority results, TargetPublishOutcomeMutationFactory outcomes, Consumer<SystemMutation> handoff,
+            Executor completionExecutor) {
+        this(journal, adapter, artifacts, current, liveGate, nativeLiveGate, null, results, outcomes,
+                handoff, completionExecutor);
+    }
+
+    public TargetPulsarPublishExecutor(
+            PulsarAttemptJournal journal, BoundedDestinationPublishAdapter adapter, ArtifactGenerationSet artifacts,
+            Supplier<TargetPublishAdmissionStore.Applied> current,
+            BoundedDestinationPublishAdapter.TargetPreparedPublishPreflight liveGate,
+            BoundedDestinationPublishAdapter.TargetNativePreparedPublishPreflight nativeLiveGate,
+            java.util.function.Consumer<TargetPublishAdmissionStore.Applied> nativeOwnership,
+            ResultAuthority results, TargetPublishOutcomeMutationFactory outcomes, Consumer<SystemMutation> handoff,
+            Executor completionExecutor) {
         this.journal = Objects.requireNonNull(journal, "journal");
         this.adapter = Objects.requireNonNull(adapter, "adapter");
         this.artifacts = Objects.requireNonNull(artifacts, "artifacts");
         this.current = Objects.requireNonNull(current, "current");
         this.liveGate = Objects.requireNonNull(liveGate, "liveGate");
+        this.nativeLiveGate = nativeLiveGate;
+        this.nativeOwnership = nativeOwnership;
         this.results = Objects.requireNonNull(results, "results");
         this.outcomes = Objects.requireNonNull(outcomes, "outcomes");
         this.handoff = Objects.requireNonNull(handoff, "handoff");
@@ -59,29 +85,45 @@ public final class TargetPulsarPublishExecutor {
             return pending;
         }
         final var publication = applied.body().publication();
-        final var producer = PulsarAttemptJournal.ProducerKey.target(publication.channel(), publication.physical());
-        final var identity = PulsarPreparedRecordFactory.targetJournalIdentity(
-                publication, applied.message(), payload, applied.source());
-        publication.requirePayload(Objects.requireNonNull(resolved, "resolved").bytes());
+        final var nativePublication = applied.body().nativePublication();
+        if (nativePublication != null && (nativeLiveGate == null || nativeOwnership == null)) {
+            throw new IllegalStateException("Target Native final ownership gate is unavailable");
+        }
+        final var producer = PulsarAttemptJournal.ProducerKey.target(applied.body().channel(),
+                publication != null ? publication.physical() : nativePublication.physical());
+        final var identity = publication != null ? PulsarPreparedRecordFactory.targetJournalIdentity(
+                publication, applied.message(), payload, applied.source())
+                : PulsarPreparedRecordFactory.targetJournalIdentity(
+                        nativePublication, applied.message(), payload, applied.source());
+        final var resolvedBytes = Objects.requireNonNull(resolved, "resolved").bytes();
+        if (publication != null) { publication.requirePayload(resolvedBytes); }
+        else { nativePublication.requirePayload(resolvedBytes); }
         final var submission = new Submission(applied);
         pending = submission;
         try {
             final var mapping = journal.appendOrReuseCurrent(producer, identity).record().mapping();
             submission.mapping = mapping;
-            final var record = PulsarPreparedRecordFactory.targetManaged(
-                    publication, applied.message(), payload, resolved, mapping, artifacts);
+            final var record = publication != null ? PulsarPreparedRecordFactory.targetManaged(
+                    publication, applied.message(), payload, resolved, mapping, artifacts)
+                    : PulsarPreparedRecordFactory.targetManaged(
+                            nativePublication, applied.message(), payload, resolved, mapping, artifacts);
             submission.record = record;
             if (journal.state(mapping.mappingId()) != PulsarAttemptJournal.AttemptState.MAPPED) {
                 observe(submission,
                         DestinationPublishResult.unknown(StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, null), null);
                 return submission;
             }
+            if (nativePublication != null) { nativeOwnership.accept(applied); }
             journal.markOwnershipStarted(mapping);
             final var physical = journal.sendAfterOwnershipStarted(mapping, ignored -> {
-                submission.call = adapter.submitTargetPreparedRecord(publication, record, artifacts, (p, r, a) -> {
-                    applied.requireSame(Objects.requireNonNull(current.get(), "current applied Admission"));
-                    return liveGate.check(p, r, a);
-                });
+                submission.call = publication != null
+                        ? adapter.submitTargetPreparedRecord(publication, record, artifacts, (p, r, a) -> {
+                            applied.requireSame(Objects.requireNonNull(current.get(), "current applied Admission"));
+                            return liveGate.check(p, r, a);
+                        }) : adapter.submitTargetPreparedRecord(nativePublication, record, artifacts, (p, r, a) -> {
+                            applied.requireSame(Objects.requireNonNull(current.get(), "current applied Admission"));
+                            return nativeLiveGate.check(p, r, a);
+                        });
                 return submission.call.outcome();
             });
             physical.whenComplete((value, failure) -> observe(submission, value, failure));

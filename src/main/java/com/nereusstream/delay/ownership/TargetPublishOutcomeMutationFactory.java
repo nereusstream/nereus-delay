@@ -45,16 +45,26 @@ public final class TargetPublishOutcomeMutationFactory {
                 throw new IllegalArgumentException("Target Outcome changes frozen Admission charge transfer");
             }
             if (effect == 1) {
-                evidence.requireOrdinaryTargetPublishedBinding(body.publication());
+                if (body.nativePublication() == null) {
+                    evidence.requireOrdinaryTargetPublishedBinding(body.publication());
+                } else {
+                    evidence.requireNativeTargetPublishedBinding(body.nativePublication());
+                }
+                final var target = body.nativePublication() == null
+                        ? body.publication().physical() : body.nativePublication().physical();
                 if (physical.brokerResource() == null
-                        || !physical.brokerResource().equals(body.publication().physical().resource())
+                        || !physical.brokerResource().equals(target.resource())
                         || Integer.toUnsignedLong(physical.brokerPartition())
-                                != body.publication().physical().physicalPartition()
+                                != target.physicalPartition()
                         || !Arrays.equals(physical.externalDeliveryIdentity(), body.publishAttemptId())) {
                     throw new IllegalArgumentException("Target Outcome result changes physical request identity");
                 }
             } else {
-                evidence.requireOrdinaryTargetNotPublishedBinding(body.publication());
+                if (body.nativePublication() == null) {
+                    evidence.requireOrdinaryTargetNotPublishedBinding(body.publication());
+                } else {
+                    evidence.requireNativeTargetNotPublishedBinding(body.nativePublication());
+                }
             }
         } else if (physical.evidence() != null && physical.evidence().length != 0) {
             throw new IllegalArgumentException("Target UNKNOWN cannot carry definitive/opaque evidence");

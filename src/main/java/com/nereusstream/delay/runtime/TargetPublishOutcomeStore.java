@@ -285,7 +285,11 @@ public final class TargetPublishOutcomeStore {
             return OutcomeProjection.stale(StableCode.STALE_SYSTEM_MUTATION);
         }
         final var evidence = PublishEvidence.decode(outcome.evidence());
-        if (outcome.sideEffect() == 1) {
+        final boolean nativeHandoff = admission.nativePublication() != null;
+        if (nativeHandoff) {
+            if (outcome.sideEffect() == 1) { evidence.requireNativeTargetPublishedBinding(admission.nativePublication()); }
+            else { evidence.requireNativeTargetNotPublishedBinding(admission.nativePublication()); }
+        } else if (outcome.sideEffect() == 1) {
             evidence.requireOrdinaryTargetPublishedBinding(admission.publication());
         } else {
             evidence.requireOrdinaryTargetNotPublishedBinding(admission.publication());
@@ -305,7 +309,22 @@ public final class TargetPublishOutcomeStore {
         if (outcome.retryDecision().cause() != outcome.stableCode()) {
             throw new IllegalArgumentException("Target definitive retry decision changes its observed cause");
         }
-        if (resolution) {
+        if (nativeHandoff) {
+            // Authenticate the retained request and its historical snapshot; current policy/lease cannot undo ownership.
+            TargetNativePolicyStoreAuthority.inView(reader, scope, lineage).requireTrusted(
+                    admission.nativePublication().policyScope(), admission.nativePublication().policySnapshot(),
+                    proof.mutation().source());
+            if (resolution) {
+                if (context.nativeResolutionAuthority() == null) {
+                    throw new IllegalStateException("Target Native resolution cursor/history authority is unavailable");
+                }
+                context.nativeResolutionAuthority().requireAuthenticated(admission.nativePublication(), evidence,
+                        outcome.evidenceCursor(), proof.mutation().source(), budget.mutation().source(), stamp.source());
+            } else {
+                context.nativeAuthority().requireAuthenticated(
+                        admission.nativePublication(), evidence, proof.mutation().source(), stamp.source());
+            }
+        } else if (resolution) {
             if (context.resolutionAuthority() == null) {
                 throw new IllegalStateException("Target resolution cursor/history authority is unavailable");
             }
@@ -333,9 +352,10 @@ public final class TargetPublishOutcomeStore {
                 ? TargetClaimStore.current(reader, before) : null;
         final TargetMessageRecord after = generation.historical() ? null
                 : resolution ? before.evidenceOutcome(outcome.publishAttemptId(), published, permanent,
-                        retryAt, claim == null ? null : claim.work())
+                        retryAt, claim == null ? null : claim.work(), published && nativeHandoff)
                 : before.runtime().terminal() ? before.terminalOutcome(outcome.publishAttemptId(), published)
-                : published ? before.publishedOutcome(outcome.publishAttemptId())
+                : published ? nativeHandoff ? before.handedOffOutcome(outcome.publishAttemptId())
+                        : before.publishedOutcome(outcome.publishAttemptId())
                 : before.notPublishedOutcome(outcome.publishAttemptId(), closed || outcome.disposition() == 2,
                         closed || !outcome.retryDecision().hasNextRetryAt()
                                 ? null : outcome.retryDecision().nextRetryAt());

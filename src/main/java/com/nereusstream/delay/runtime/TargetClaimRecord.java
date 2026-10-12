@@ -19,11 +19,14 @@ import java.util.Objects;
 public final class TargetClaimRecord {
     public static final int VALUE_TYPE = 36;
     public static final int VERSION = 1;
-    public static final int MAX_CANONICAL_BYTES = TargetGenerationRuntimeIndex.MAX_CANONICAL_BYTES
+    public static final int MAX_V1_CANONICAL_BYTES = TargetGenerationRuntimeIndex.MAX_CANONICAL_BYTES
             + TargetHeadRef.MAX_CANONICAL_BYTES
             + TargetQuotaClaimCharge.MAX_OWNER_BYTES
             + TargetQuotaMutation.MAX_CANONICAL_BYTES
             + 1024;
+    public static final int NATIVE_VERSION = 2;
+    public static final int MAX_POLICY_HEAD_BYTES = 2 * 34 + 2 * 11;
+    public static final int MAX_CANONICAL_BYTES = MAX_V1_CANONICAL_BYTES + MAX_POLICY_HEAD_BYTES + 2;
     private static final byte[] ID_DOMAIN = Bytes.utf8("nereus-delay-target-claim-id\0");
     private static final byte[] DIGEST_DOMAIN = Bytes.utf8("nereus-delay-target-claim-record\0");
     private final TargetGenerationRuntimeIndex original;
@@ -39,6 +42,7 @@ public final class TargetClaimRecord {
     private final TargetQuotaMutation creation;
     private final byte[] claimId;
     private final byte[] digest;
+    private final com.nereusstream.delay.protocol.HandoffPolicyHeadRef policyHead;
 
     public TargetClaimRecord(
             final TargetGenerationRuntimeIndex original,
@@ -52,6 +56,16 @@ public final class TargetClaimRecord {
             final long executionBytes,
             final long controlVersion,
             final TargetQuotaMutation creation) {
+        this(original, messageVersion, messageDigest, selected, owner, storeIncarnation, sequence, deadline,
+                executionBytes, controlVersion, creation, null);
+    }
+
+    public TargetClaimRecord(
+            final TargetGenerationRuntimeIndex original, final long messageVersion, final byte[] messageDigest,
+            final TargetHeadRef selected, final OwnerIdentity owner, final byte[] storeIncarnation,
+            final long sequence, final long deadline, final long executionBytes, final long controlVersion,
+            final TargetQuotaMutation creation,
+            final com.nereusstream.delay.protocol.HandoffPolicyHeadRef policyHead) {
         this.original = Objects.requireNonNull(original, "original");
         this.selected = Objects.requireNonNull(selected, "selected");
         this.owner = Objects.requireNonNull(owner, "owner");
@@ -85,9 +99,18 @@ public final class TargetClaimRecord {
         this.deadline = deadline;
         this.executionBytes = executionBytes;
         this.controlVersion = controlVersion;
-        claimId = Bytes.sha256(ID_DOMAIN, fields());
-        digest = Bytes.sha256(DIGEST_DOMAIN, fields(), claimId);
+        if (policyHead != null && (!selected.nativeCandidate() || policyHead.oxiaVersion() <= 0
+                || policyHead.canonicalBytes().length > MAX_POLICY_HEAD_BYTES)) {
+            throw new IllegalArgumentException("Native Claim requires a bounded positive policy head revision");
+        }
+        this.policyHead = policyHead;
+        claimId = Bytes.sha256(ID_DOMAIN, identityFields());
+        digest = Bytes.sha256(DIGEST_DOMAIN, identityFields(), claimId);
     }
+
+    public int version() { return policyHead == null ? VERSION : NATIVE_VERSION; }
+
+    public com.nereusstream.delay.protocol.HandoffPolicyHeadRef policyHead() { return policyHead; }
 
     public TargetTimelineWorkRef work() {
         return original.timeline();
@@ -307,7 +330,7 @@ public final class TargetClaimRecord {
 
     private byte[] fields() {
         return CanonicalProtobuf.message(out -> {
-            CanonicalProtobuf.uint32(out, 1, VERSION);
+            CanonicalProtobuf.uint32(out, 1, version());
             CanonicalProtobuf.bytes(out, 2, original.canonicalBytes());
             CanonicalProtobuf.uint64Bits(out, 3, messageVersion);
             CanonicalProtobuf.bytes(out, 4, messageDigest);
@@ -322,11 +345,19 @@ public final class TargetClaimRecord {
         });
     }
 
+    private byte[] identityFields() {
+        return CanonicalProtobuf.message(out -> {
+            out.writeBytes(fields());
+            if (policyHead != null) { CanonicalProtobuf.bytes(out, 15, policyHead.canonicalBytes()); }
+        });
+    }
+
     public byte[] canonicalBytes() {
         return CanonicalProtobuf.message(out -> {
             out.writeBytes(fields());
             CanonicalProtobuf.bytes(out, 13, claimId);
             CanonicalProtobuf.bytes(out, 14, digest);
+            if (policyHead != null) { CanonicalProtobuf.bytes(out, 15, policyHead.canonicalBytes()); }
         });
     }
 
@@ -337,14 +368,17 @@ public final class TargetClaimRecord {
         final var reader = new CanonicalProtobuf.Reader(encoded);
         final var f = new ArrayList<CanonicalProtobuf.Reader.Field>();
         while (reader.hasRemaining()) {
-            if (f.size() == 14) {
+            if (f.size() == 15) {
                 throw new IllegalArgumentException("Target Claim field count exceeded");
             }
             f.add(reader.next());
         }
-        QueryCodecSupport.requireNumbers(
-                f, new int[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14}, "TargetClaimRecord");
-        if (QueryCodecSupport.uint32(f.get(0), 1) != VERSION) {
+        final boolean nativeV2 = QueryCodecSupport.uint32(f.get(0), 1) == NATIVE_VERSION;
+        QueryCodecSupport.requireNumbers(f, nativeV2
+                ? new int[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
+                : new int[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14}, "TargetClaimRecord");
+        if (!nativeV2 && (QueryCodecSupport.uint32(f.get(0), 1) != VERSION
+                || encoded.length > MAX_V1_CANONICAL_BYTES)) {
             throw new IllegalArgumentException("unknown Target Claim version");
         }
         final byte[] owner = QueryCodecSupport.bytes(f.get(5), 6);
@@ -362,7 +396,9 @@ public final class TargetClaimRecord {
                 QueryCodecSupport.uint(f.get(8), 9),
                 QueryCodecSupport.uint(f.get(9), 10),
                 QueryCodecSupport.uint64Bits(f.get(10), 11),
-                TargetQuotaMutation.decode(QueryCodecSupport.bytes(f.get(11), 12)));
+                TargetQuotaMutation.decode(QueryCodecSupport.bytes(f.get(11), 12)),
+                nativeV2 ? com.nereusstream.delay.protocol.HandoffPolicyHeadRef.decode(
+                        QueryCodecSupport.bytes(f.get(14), 15)) : null);
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "TargetClaimRecord");
         return result;
     }

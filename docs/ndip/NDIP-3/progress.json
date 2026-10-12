@@ -642,7 +642,9 @@
         "src/main/java/com/nereusstream/delay/runtime/TargetChannelControlStore.java",
         "src/main/java/com/nereusstream/delay/runtime/TargetChannelControlVerifier.java",
         "src/main/java/com/nereusstream/delay/ownership/TargetChannelControlMutationFactory.java",
-        "src/main/java/com/nereusstream/delay/ownership/TargetChannelControlWorkClassExecutor.java"
+        "src/main/java/com/nereusstream/delay/ownership/TargetChannelControlWorkClassExecutor.java",
+        "src/main/java/com/nereusstream/delay/protocol/TargetNativePublicationBinding.java",
+        "src/main/java/com/nereusstream/delay/ownership/TargetPublishAdmissionMutationFactory.java"
       ],
       "validationHandoff": "12-集中验证交接清单.md",
       "implementationSources": [
@@ -655,7 +657,7 @@
         "src/main/java/com/nereusstream/delay/store/TargetKeyCodec.java",
         "src/main/java/com/nereusstream/delay/semantic/OxiaSyncTargetNativePolicyAuthority.java"
       ],
-      "currentCodeScope": "Package 1 in progress: user selected signed CONTROL Source channel lifecycle. Closed request/body, atomic lifecycle identity/history/current-slot/source accounting and first results, exact current-generation Admission checks, Source history fold/reopen audit and bounded exact Admission handoff are implemented in this development batch. Real configured lifecycle submission/signing/registration providers and the complete ordinary/Native SDK/Outcome/reopen takeover composition remain code gaps. All tests/Broker/acceptance are deferred; component compilation does not close package 1. Configured dual-signature lifecycle preparation, original-byte restore, actual session-bound Oxia registration/Source append and Host pending-lifecycle drain are now wired; only main compilation is recorded. Native v5/HANDED_OFF architecture is approved by the user-delegated decision thread and implementation remains open with the full package-1 SDK/Outcome/takeover chain."
+      "currentCodeScope": "Package 1 IN_PROGRESS: signed CONTROL Source channel lifecycle and bounded handoff are implemented. New Native NV36 Claim v2 freezes the exact policy head without reencoding v1; independent Target materialized Admission v5 binds full Target snapshot/channel/contract and Source trust/current-head checks. Managed Journal Native record/ACK evidence, HANDED_OFF Source projection, original historical resolution and checkpoint dependencies are implemented components. Actual Claim/Store-derived Admission preparation and finite configured OWNER signer are added. Full configured publisher/takeover/Host lifecycle composition and real authority providers remain code gaps. Tests/Broker/acceptance remain deferred; compilation does not close the package."
     },
     {
       "id": "C3",

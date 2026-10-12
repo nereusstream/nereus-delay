@@ -224,6 +224,20 @@ public final class TargetMessageRecord {
                 runtime.publishedOutcome(attemptId));
     }
 
+    public TargetMessageRecord handedOffOutcome(final byte[] attemptId) {
+        return new TargetMessageRecord(
+                locator,
+                TargetQueueState.nextRevision(stateVersion),
+                deliverAtEpochMs,
+                expireAtEpochMs,
+                retryEligibilityAtEpochMs,
+                nativeDeliveryPolicy,
+                scheduleSource,
+                inlinePayload,
+                payloadReference,
+                runtime.handedOffOutcome(attemptId));
+    }
+
     public TargetMessageRecord terminalOutcome(final byte[] attemptId, final boolean published) {
         return new TargetMessageRecord(
                 locator, TargetQueueState.nextRevision(stateVersion), deliverAtEpochMs, expireAtEpochMs,
@@ -235,6 +249,12 @@ public final class TargetMessageRecord {
     public TargetMessageRecord evidenceOutcome(
             final byte[] attemptId, final boolean published, final boolean permanent,
             final Long nextRetryAt, final TargetTimelineWorkRef claimedWork) {
+        return evidenceOutcome(attemptId, published, permanent, nextRetryAt, claimedWork, false);
+    }
+
+    public TargetMessageRecord evidenceOutcome(
+            final byte[] attemptId, final boolean published, final boolean permanent,
+            final Long nextRetryAt, final TargetTimelineWorkRef claimedWork, final boolean nativeHandoff) {
         final boolean uncertainRemaining = runtime.attemptObligations().stream()
                 .anyMatch(ref -> !Arrays.equals(ref.publishAttemptId(), attemptId)
                         && ref.ledgerState() == AttemptLedgerState.UNCERTAIN);
@@ -261,7 +281,7 @@ public final class TargetMessageRecord {
                 deliverAtEpochMs, expireAtEpochMs,
                 retry == null ? retryEligibilityAtEpochMs : retry.retryEligibilityAtEpochMs(),
                 nativeDeliveryPolicy, scheduleSource, inlinePayload, payloadReference,
-                runtime.evidenceOutcome(attemptId, published, permanent, retry));
+                runtime.evidenceOutcome(attemptId, published, permanent, retry, nativeHandoff));
     }
 
     /** Settles only the exact current attempt; older uncertain obligations prevent a definitive retry. */

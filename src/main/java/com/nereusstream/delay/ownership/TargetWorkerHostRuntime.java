@@ -774,6 +774,23 @@ public final class TargetWorkerHostRuntime {
             final TargetQuotaDelta.LocalClaimAuthority quota,
             final TargetStoreBackend.CommitAuthority physicalWrites,
             final LongSupplier ownerClock) {
+        return claim(expectedShard, budget, selected, owner, nowEpochMs, deadlineEpochMs, executionBytes, operationDigest,
+                quota, physicalWrites, ownerClock, null);
+    }
+
+    public TargetClaimRecord claim(
+            final TargetWorkerShardRuntime expectedShard,
+            final BoundedReadBudget budget,
+            final TargetHeadRef selected,
+            final OwnerIdentity owner,
+            final long nowEpochMs,
+            final long deadlineEpochMs,
+            final long executionBytes,
+            final byte[] operationDigest,
+            final TargetQuotaDelta.LocalClaimAuthority quota,
+            final TargetStoreBackend.CommitAuthority physicalWrites,
+            final LongSupplier ownerClock,
+            final com.nereusstream.delay.protocol.HandoffPolicyHeadRef policyHead) {
         return withShardAdmission(
                 expectedShard,
                 () -> expectedShard.claim(
@@ -786,7 +803,7 @@ public final class TargetWorkerHostRuntime {
                         operationDigest,
                         quota,
                         physicalWrites,
-                        ownerClock));
+                        ownerClock, policyHead));
     }
 
     /** Revokes one unadmitted Claim only through its currently admitted exact Shard instance. */

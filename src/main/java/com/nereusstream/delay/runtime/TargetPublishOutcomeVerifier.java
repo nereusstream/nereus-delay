@@ -71,17 +71,52 @@ public final class TargetPublishOutcomeVerifier {
                 SourcePosition admissionSource, SourcePosition unknownSource, SourcePosition resolutionSource);
     }
 
+    @FunctionalInterface
+    public interface NativeEvidenceAuthority {
+        void requireAuthenticated(
+                com.nereusstream.delay.protocol.TargetNativePublicationBinding publication,
+                PublishEvidence evidence, SourcePosition admissionSource, SourcePosition outcomeSource);
+    }
+
+    @FunctionalInterface
+    public interface NativeResolutionAuthority {
+        void requireAuthenticated(
+                com.nereusstream.delay.protocol.TargetNativePublicationBinding publication,
+                PublishEvidence evidence, EvidenceCursor cursor, SourcePosition admissionSource,
+                SourcePosition unknownSource, SourcePosition resolutionSource);
+    }
+
     public record EvidenceContext(
-            SystemMutation admission, EvidenceAuthority authority, ResolutionAuthority resolutionAuthority) {
+            SystemMutation admission, EvidenceAuthority authority, ResolutionAuthority resolutionAuthority,
+            NativeEvidenceAuthority nativeAuthority, NativeResolutionAuthority nativeResolutionAuthority) {
         public EvidenceContext(SystemMutation admission, EvidenceAuthority authority) {
-            this(admission, authority, null);
+            this(admission, authority, null, null, null);
+        }
+        public EvidenceContext(SystemMutation admission, EvidenceAuthority authority,
+                ResolutionAuthority resolutionAuthority) {
+            this(admission, authority, resolutionAuthority, null, null);
+        }
+        public static EvidenceContext nativeContext(SystemMutation admission, NativeEvidenceAuthority authority,
+                NativeResolutionAuthority resolution) {
+            return new EvidenceContext(admission, null, null, authority, resolution);
         }
         public EvidenceContext {
             RetryContext.requireAdmission(admission);
-            if (TargetPublishAdmissionBody.decode(admission.canonicalBody()).publication() == null) {
-                throw new IllegalArgumentException("Target physical evidence requires materialized Admission v4");
+            final var body = TargetPublishAdmissionBody.decode(admission.canonicalBody());
+            if (!body.materialized()) {
+                throw new IllegalArgumentException("Target physical evidence requires materialized Admission v4/v5");
             }
-            Objects.requireNonNull(authority, "evidenceAuthority");
+            if (body.nativePublication() != null) {
+                Objects.requireNonNull(nativeAuthority, "nativeEvidenceAuthority");
+                if (authority != null || resolutionAuthority != null) {
+                    throw new IllegalArgumentException("Native evidence cannot use ordinary authority");
+                }
+            } else {
+                Objects.requireNonNull(authority, "evidenceAuthority");
+                if (nativeAuthority != null || nativeResolutionAuthority != null) {
+                    throw new IllegalArgumentException("ordinary evidence cannot use Native authority");
+                }
+            }
         }
     }
 
@@ -154,7 +189,7 @@ public final class TargetPublishOutcomeVerifier {
             Objects.requireNonNull(mutation, "admission");
             if (mutation.type() != SystemMutationType.TARGET_PUBLISH_ADMISSION
                     || mutation.canonicalEnvelope().length
-                            > 2 * TargetPublishAdmissionBody.MAX_MATERIALIZED_BYTES + 1024) {
+                            > 2 * TargetPublishAdmissionBody.MAX_SUPPORTED_BYTES + 1024) {
                 throw new IllegalArgumentException("Target retry context requires a bounded Target Admission image");
             }
             final var body = TargetPublishAdmissionBody.decode(mutation.canonicalBody());
@@ -246,11 +281,14 @@ public final class TargetPublishOutcomeVerifier {
     public static void requireHistoricalRetryWindow(TargetPublishAdmissionBody current,
             TargetPublishAdmissionBody first,
             RetryPolicySemantic policy, PublishOutcomeBody outcome) {
-        if (current.publication() == null) {
+        if (!current.materialized()) {
             throw new IllegalStateException("historical Outcome requires protected materialized Admission window");
         }
-        requireRetryWindow(current.locator(), current.publication().deliverAtEpochMs(),
-                current.publication().expireAtEpochMs(), current, first, policy, outcome);
+        requireRetryWindow(current.locator(), current.nativePublication() != null
+                        ? current.nativePublication().deliverAtEpochMs() : current.publication().deliverAtEpochMs(),
+                current.nativePublication() != null
+                        ? current.nativePublication().expireAtEpochMs() : current.publication().expireAtEpochMs(),
+                current, first, policy, outcome);
     }
 
     static void requireRetryWindow(TargetMessageLocator locator, long deliverAt, long expireAt,

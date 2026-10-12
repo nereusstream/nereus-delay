@@ -300,6 +300,10 @@ public final class TargetGenerationRuntimeIndex {
         return definitiveOutcome(attemptId, GenerationAggregateState.PUBLISHED, null);
     }
 
+    public TargetGenerationRuntimeIndex handedOffOutcome(final byte[] attemptId) {
+        return definitiveOutcome(attemptId, GenerationAggregateState.HANDED_OFF, null);
+    }
+
     /** Settles one initial result after terminalization, preserving the terminal decision and other obligations. */
     public TargetGenerationRuntimeIndex terminalOutcome(final byte[] attemptId, final boolean published) {
         return terminalOutcome(attemptId, published, AttemptLedgerState.PUBLISHING);
@@ -336,6 +340,15 @@ public final class TargetGenerationRuntimeIndex {
     TargetGenerationRuntimeIndex evidenceOutcome(
             final byte[] attemptId, final boolean published, final boolean permanent,
             final TargetTimelineWorkRef retry) {
+        return evidenceOutcome(attemptId, published, permanent, retry, false);
+    }
+
+    TargetGenerationRuntimeIndex evidenceOutcome(
+            final byte[] attemptId, final boolean published, final boolean permanent,
+            final TargetTimelineWorkRef retry, final boolean nativeHandoff) {
+        if (nativeHandoff && !published) {
+            throw new IllegalArgumentException("Native handoff requires verified publication");
+        }
         if (terminal()) {
             return terminalOutcome(attemptId, published, AttemptLedgerState.UNCERTAIN);
         }
@@ -356,7 +369,8 @@ public final class TargetGenerationRuntimeIndex {
         }
         final boolean preservePublisher = !published && currentWorkKind == CurrentSendWorkKind.PUBLISHING;
         final boolean uncertain = remaining.stream().anyMatch(ref -> ref.ledgerState() == AttemptLedgerState.UNCERTAIN);
-        final GenerationAggregateState next = published ? GenerationAggregateState.PUBLISHED
+        final GenerationAggregateState next = published
+                ? nativeHandoff ? GenerationAggregateState.HANDED_OFF : GenerationAggregateState.PUBLISHED
                 : preservePublisher ? uncertain
                         ? GenerationAggregateState.UNCERTAIN : GenerationAggregateState.PUBLISHING
                 : permanent ? GenerationAggregateState.DEAD_LETTER

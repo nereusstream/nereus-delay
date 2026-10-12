@@ -199,6 +199,96 @@ public final class PublishEvidence {
         }
     }
 
+    /** Static Native Target binding only; a resolved provider authority must authenticate the full response. */
+    public void requireNativeTargetPublishedBinding(final TargetNativePublicationBinding publication) {
+        Objects.requireNonNull(publication, "publication");
+        requireBusinessMutation(publication.publishAttemptId(), true);
+        final var fields = QueryCodecSupport.read(branch, "Native Target publication evidence");
+        final int targetField;
+        final int partitionField;
+        final int preparedField;
+        if (evidenceKind == PublishEvidenceKind.PULSAR_SEND_ACK
+                && publication.channel().context().kind() == ChannelKind.PULSAR_DEDUP_PRODUCER) {
+            final boolean record = fields.size() == 22;
+            if (!record) { throw new IllegalArgumentException("Native Target requires generation-2 ACK"); }
+            final var sequence = PulsarSequenceAuthority.decode(nested(fields, 18));
+            if (sequence.kind() != PulsarSequenceAuthority.Kind.MANAGED_JOURNAL
+                    || sequence.sequenceId() != uint(fields, 13)
+                    || !Arrays.equals(sequence.producerNameHash(), fixed(fields, 9))
+                    || !Arrays.equals(sequence.producerNameHash(),
+                            Bytes.sha256(publication.channel().context().producerIdentity()))
+                    || !Arrays.equals(fixed(fields, 21), publication.policyScope().artifacts().sourceLock())) {
+                throw new IllegalArgumentException("Native ACK changes its Managed Journal/Producer/source lock");
+            }
+            targetField = record ? 2 : 1;
+            partitionField = record ? 3 : 2;
+            preparedField = record ? 15 : 10;
+            if (record && !Arrays.equals(fixed(fields, 22), publication.artifactGenerationSetDigest())) {
+                throw new IllegalArgumentException("Target ACK changes its frozen artifact set");
+            }
+        } else if (evidenceKind == PublishEvidenceKind.PULSAR_ATTEMPT_JOURNAL) {
+            final var cursor = EvidenceCursor.decode(nested(fields, 1));
+            requireTargetJournalCursor(publication, cursor);
+            if (!Arrays.equals(fixed(fields, 6), publication.preparedPublishHash())
+                    || !Arrays.equals(fixed(fields, 7),
+                            Bytes.sha256(publication.channel().context().producerIdentity()))) {
+                throw new IllegalArgumentException("Target Journal evidence changes its frozen request/Producer");
+            }
+            return;
+        } else {
+            throw new IllegalStateException("Target publication evidence branch requires its recovery-domain verifier");
+        }
+        final var target = BrokerResourceIdentity.decode(nested(fields, targetField));
+        if (!Arrays.equals(target.canonicalBytes(), publication.physical().resource().canonicalBytes())
+                || uint(fields, partitionField) != publication.physical().physicalPartition()
+                || !Arrays.equals(fixed(fields, preparedField), publication.preparedPublishHash())) {
+            throw new IllegalArgumentException("Target evidence changes its frozen physical request identity");
+        }
+    }
+
+    /** Static namespace/resource binding only; full durable record/retention authentication remains mandatory. */
+    public static void requireTargetJournalCursor(
+            final TargetNativePublicationBinding publication, final EvidenceCursor cursor) {
+        final var context = publication.channel().context();
+        if (!cursor.isTarget() || publication.physical().resource().kind() != BrokerResourceIdentity.Kind.PULSAR
+                || context.evidenceGeneration() == null || cursor.evidenceGeneration() != context.evidenceGeneration()
+                || cursor.physicalPartition() != context.sourceShard().partition()) {
+            throw new IllegalArgumentException("Target Journal cursor namespace/generation/partition mismatch");
+        }
+        final var expected = new EvidenceCursor.TargetScope(context.sourceShard(), context.target(), context.domain(),
+                context.accountingIncarnation(), Bytes.sha256(context.producerIdentity()));
+        if (!Arrays.equals(cursor.targetScope().canonicalBytes(), expected.canonicalBytes())) {
+            throw new IllegalArgumentException("Target Journal cursor belongs to another frozen Producer scope");
+        }
+    }
+
+    /** Static direct Broker rejection binding; the resolved authority must authenticate and classify the response. */
+    public void requireNativeTargetNotPublishedBinding(final TargetNativePublicationBinding publication) {
+        Objects.requireNonNull(publication, "publication");
+        requireBusinessMutation(publication.publishAttemptId(), false);
+        if (evidenceKind == PublishEvidenceKind.PULSAR_JOURNAL_ABSENCE) {
+            final var fields = QueryCodecSupport.read(branch, "Target Journal absence evidence");
+            requireTargetJournalCursor(publication, EvidenceCursor.decode(nested(fields, 1)));
+            final var channel = TargetChannelIdentity.decode(nested(fields, 2));
+            requireTargetFencedChannel(publication.channel(), channel);
+            if (!Arrays.equals(fixed(fields, 4), publication.preparedPublishHash())
+                    || !Arrays.equals(fixed(fields, 5), Bytes.sha256(channel.context().producerIdentity()))) {
+                throw new IllegalArgumentException("Target Journal absence changes its frozen request/Producer");
+            }
+            return;
+        }
+        if (evidenceKind != PublishEvidenceKind.BROKER_DEFINITIVE_REJECTION) {
+            throw new IllegalStateException("Target absence evidence requires its recovery-domain verifier");
+        }
+        final var fields = QueryCodecSupport.read(branch, "Native Target rejection evidence");
+        final var target = BrokerResourceIdentity.decode(nested(fields, 2));
+        if (!target.equals(publication.physical().resource())
+                || uint(fields, 3) != publication.physical().physicalPartition()
+                || !Arrays.equals(fixed(fields, 5), publication.preparedPublishHash())) {
+            throw new IllegalArgumentException("Target rejection changes its frozen physical request identity");
+        }
+    }
+
     /** Identity/generation checks only; a channel value is not a Broker fencing receipt. */
     public static void requireTargetFencedChannel(
             final TargetChannelIdentity admitted, final TargetChannelIdentity fenced) {

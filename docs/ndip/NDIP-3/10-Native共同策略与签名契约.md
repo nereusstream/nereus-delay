@@ -229,6 +229,43 @@ TrustedUtcIntervalEvidence。时间 DTO 的合法编码不等于时钟认证。�
 5. 进入 ownership/Journal OWNERSHIP_STARTED 后，lease 到期或 Disable 不制造 NOT_SENT；
    继续原 UNKNOWN、Journal、恢复与清退义务。保留所有已有强能力边界和单未决限制。
 
+### Target Claim v2 与 materialized Native Admission v5
+
+普通 NV36 Claim 保持 schema v1。新 Native Claim 使用 schema v2：fields 1–12 的既有
+身份事实保持，field 13/14 仍为 Claim ID/record digest，field 15 为完整
+HandoffPolicyHeadRef。身份 preimage 是 fields 1–12 加 field 15；序列化按
+1…15 排序。version=2 纳入原 ID/digest 域，不能把 v1 解码后重编码为 v2。ref 上限
+90 bytes，正 Target publication revision；Claim envelope 增量最多 92 bytes。它连同
+ref 进入实际 NV36 charge、嵌入 Admission 的 Claim proof、checkpoint/reopen 账本。
+`nativeClaimSelector` 的 expectedHead 原样贯穿 Host/Shard/Store，并由最终 commit guard
+重验；本地 operation digest 精确绑定该 ref。v1 Native 缺 ref 不后补当前策略。
+
+Target 独立 type 13 的 operation body v5 保留 v3/v4 编码。其 field 22 是完整
+TargetNativePublicationBinding，field 23 是完整 v2 Claim proof；激活 tuple 为
+`(1,1,SYSTEM_MUTATION,1,5)`。Native binding schema v1 fields 1–18、可选 20、21 是
+locator/physical/channel/attempt/Claim/Message/Profile/payload/metadata/window/Artifact；
+23/24/25 分别完整 Target scope/snapshot/head，26 为 actionAt，27 固定
+PULSAR_NATIVE_DELIVERY，28 为独立 Native prepared hash。不存在将 Target snapshot 转为
+Lane 或把 ordinary binding 当 Native 的路径。binding 拒绝非初次、非 BEST_EFFORT、
+非 Pulsar、非 Managed Journal 通道及 scope/domain/hash 不一致。
+
+`TargetPublishAdmissionStore.prepareBody` 从实际 committed Claim、Message、binding、
+physical、NV20/NV44 与历史 Native authority 准备 unsigned body；配置的 OWNER signer
+检查实际 Source frame 上限后签名，同日志 handoff 仍等待真实 Source 首结果。
+v5 首应用读取实际 v2 Claim 并匹配其 ref；Native actionAt 与 ordinary due 分别检查，
+同批消费 Claim、写 Budget/Message/index/head/首结果/Source 和实际 quota。首次发送
+使用原 APPLIED proof；首次 Journal marker 前重读 actual Store 并验证冻结 policy/credential
+区间及 Admission Source 下的 trust，最后 SDK gate 保留。已有 ownership marker 不重送。
+
+Native ACK 复用 generation-2 PULSAR_SEND_ACK，仍为 publishAttempt identity 与
+MANAGED_JOURNAL sequence。必须匹配独立 prepared hash、Target/physical、Producer、
+sequence/Artifact/P1 source lock，并由真实 provider 鉴别响应；Journal evidence/absence
+保留原 Target cursor/fenced channel 精确绑定。成功 Outcome 三态保持，Source 按冻结
+Native contract 投影 HANDED_OFF；ordinary v4 投影 PUBLISHED。resolution 使用独立
+Native historical authority，已 terminal/new generation 的决策保持；definitive retry 只
+产生 ordinary work，UNKNOWN 不释放。完整配置入口/实际 provider/SDK 接管装配仍属
+包 1 未完成代码，以上不构成生产 activation 或 Broker 验证。
+
 DISABLED head 中的 authorizedLeaseUntil 是既有 ENABLED lease 的高水位。只有已过该
 边界并独立证明无新 ownership marker，才可宣告 EFFECTIVE_DISABLED；head 标量单独
 不证明后者。scope、cap、namespace、dispatch/control 或 artifact 变化不原地重写旧

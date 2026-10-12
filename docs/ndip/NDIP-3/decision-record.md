@@ -60,3 +60,20 @@ payload owner 转 H；旧 attempt B、physical/zombie、Journal/evidence/pins/re
 v5 同步进入 history/checkpoint/reopen/ledger audit/envelope 和 covering schema/Artifact/
 eligible readers。签名分工仍 CONTROL lifecycle、OWNER Admission/initial Outcome、
 SERVICE resolution。本条是源码架构决定，未计作实现完成或 SDK/Broker 验证。
+
+
+## 2026-10-12：Native Claim 独立 v2 冻结 policy head
+
+决策主会话核对实际 `nativeCommitAuthority → Host.claim → Shard.claim → TargetClaimStore`
+后批准必要的 NV36 schema v2。原闭包只验证 expectedHead，v1 持久 Claim 没有保存它；
+不能以 controlVersion 或事后 current-head 查询替代 scope/generation/snapshot/revision。
+普通 Claim 与全部 v1 canonical bytes/ID/digest 保留；新 Native Claim 必须 v2，field 15
+保存完整 bounded HandoffPolicyHeadRef，纳入独立 v2 identity preimage、record digest、
+实际 quota charge 和最大 envelope。同一 expectedHead 贯穿调度、guard 和持久写入；
+Native 本地 operation digest 也绑定该 ref。未知记录版本拒绝。
+
+v5 首应用读取实际完整 v2 Claim，精确匹配冻结 ref，再执行既定 snapshot/trust/current
+head 两次读取；新 writer 依赖覆盖该 v2/v5 的 schema/Artifact/eligible readers。旧 Native
+v1 保留解码、重开、审计与历史恢复；尚未 Admission 的可逆 Claim 只能按原 Owner/Store/
+原子计费撤销后重新选择。已 Admission、UNKNOWN 或 Journal ownership 保留原义务，
+不得补 ref、原地升级或套用可逆 Claim 清理。本决定没有真实迁移、批量删除或生产激活授权。

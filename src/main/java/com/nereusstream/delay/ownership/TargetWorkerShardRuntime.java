@@ -211,6 +211,22 @@ public final class TargetWorkerShardRuntime
             final TargetQuotaDelta.LocalClaimAuthority quota,
             final TargetStoreBackend.CommitAuthority physicalWrites,
             final LongSupplier ownerClock) {
+        return claim(budget, selected, owner, nowEpochMs, deadlineEpochMs, executionBytes, operationDigest,
+                quota, physicalWrites, ownerClock, null);
+    }
+
+    public synchronized TargetClaimRecord claim(
+            final BoundedReadBudget budget,
+            final TargetHeadRef selected,
+            final OwnerIdentity owner,
+            final long nowEpochMs,
+            final long deadlineEpochMs,
+            final long executionBytes,
+            final byte[] operationDigest,
+            final TargetQuotaDelta.LocalClaimAuthority quota,
+            final TargetStoreBackend.CommitAuthority physicalWrites,
+            final LongSupplier ownerClock,
+            final com.nereusstream.delay.protocol.HandoffPolicyHeadRef policyHead) {
         requireNewTurnsAdmitted();
         resources.requireRuntimeBusinessAdmission();
         return target.claim(
@@ -223,7 +239,7 @@ public final class TargetWorkerShardRuntime
                 operationDigest,
                 quota,
                 physicalWrites,
-                ownerClock);
+                ownerClock, policyHead);
     }
 
     /** Revokes an exact unadmitted Claim while this Worker still admits business turns. */
@@ -256,6 +272,30 @@ public final class TargetWorkerShardRuntime
         requireNewTurnsAdmitted();
         resources.requireRuntimeBusinessAdmission();
         return target.readTargetQueue(budget, targetId, ownerClock);
+    }
+
+    public synchronized SystemMutation preparePublishAdmission(
+            final BoundedReadBudget budget, final TargetClaimRecord claim,
+            final com.nereusstream.delay.protocol.TargetChannelIdentity channel,
+            final com.nereusstream.delay.protocol.ProfileRef capability, final byte[] artifacts,
+            final long retryUntilEpochMs, final com.nereusstream.delay.protocol.CapacityVector commitment,
+            final com.nereusstream.delay.protocol.CapacityVector allocated,
+            final com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence time,
+            final com.nereusstream.delay.semantic.TargetNativePolicyAuthority policies,
+            final TargetPublishAdmissionMutationFactory signer, final LongSupplier clock) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        return Objects.requireNonNull(signer, "admissionSigner").sign(target.preparePublishAdmission(
+                budget, claim, channel, capability, artifacts, retryUntilEpochMs, commitment, allocated,
+                time, policies, clock));
+    }
+
+    public synchronized void requireNativeOwnership(final BoundedReadBudget budget,
+            final com.nereusstream.delay.runtime.TargetPublishAdmissionStore.Applied applied,
+            final com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence time, final LongSupplier clock) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        target.requireNativeOwnership(budget, applied, time, clock);
     }
 
     public synchronized com.nereusstream.delay.runtime.TargetPublishAdmissionStore.Applied readAppliedAdmission(

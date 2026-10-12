@@ -165,6 +165,102 @@ public final class TargetPublishAdmissionStore {
         }, Objects.requireNonNull(authority, "readAuthority"));
     }
 
+    /** Materializes exact committed Claim and Source-applied channel facts; this only prepares an unsigned request. */
+    public TargetPublishAdmissionBody prepareBody(
+            final BoundedReadBudget budget, final TargetClaimRecord expected,
+            final com.nereusstream.delay.protocol.TargetChannelIdentity channel,
+            final com.nereusstream.delay.protocol.ProfileRef capability,
+            final byte[] artifacts, final long retryUntilEpochMs,
+            final com.nereusstream.delay.protocol.CapacityVector commitment,
+            final com.nereusstream.delay.protocol.CapacityVector allocated,
+            final com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence time,
+            final com.nereusstream.delay.semantic.TargetNativePolicyAuthority policies,
+            final TargetStoreBackend.ReadAuthority authority) {
+        Objects.requireNonNull(expected, "expectedClaim");
+        Objects.requireNonNull(channel, "channel");
+        return backend.guardedRead(budget, reader -> {
+            final var locator = expected.work().locator();
+            final byte[] messageKey = TargetKeyCodec.message(locator.messageId());
+            final byte[] raw = reader.get(ColumnFamily.ID, messageKey);
+            if (raw == null) { throw new StaleAdmission(); }
+            final var message = TargetMessageRecord.decodeForStore(messageKey,
+                    TargetValueEnvelope.decode(raw, TargetMessageRecord.VALUE_TYPE).payload(), scope.shard());
+            final var claim = TargetClaimStore.current(reader, message);
+            if (!Arrays.equals(claim.canonicalBytes(), expected.canonicalBytes())
+                    || !Arrays.equals(claim.storeIncarnation(), reader.metadata().storeIncarnation())) {
+                throw new StaleAdmission();
+            }
+            final byte[] bindingKey = TargetKeyCodec.scheduleBinding(locator.scheduleBindingDigest());
+            final byte[] bindingRaw = reader.get(ColumnFamily.ID, bindingKey);
+            final byte[] identityKey = TargetKeyCodec.identity(locator.target());
+            final byte[] identityRaw = reader.get(ColumnFamily.META, identityKey);
+            if (bindingRaw == null || identityRaw == null) {
+                throw new IllegalStateException("Claim publication lacks its applied binding/Target identity");
+            }
+            final var binding = com.nereusstream.delay.protocol.TargetScheduleBinding.decodeForStore(bindingKey,
+                    TargetValueEnvelope.decode(bindingRaw,
+                            com.nereusstream.delay.protocol.TargetScheduleBinding.VALUE_TYPE).payload(), scope.shard());
+            final var physical = com.nereusstream.delay.protocol.CanonicalTargetPartition.decodeForStore(identityKey,
+                    TargetValueEnvelope.decode(identityRaw,
+                            com.nereusstream.delay.protocol.CanonicalTargetPartition.VALUE_TYPE).payload());
+            final int attemptNo = claim.work().candidateAttemptNo();
+            final byte[] attempt = SystemMutation.computePublishAttemptLogicalIdentity(claim.claimId(),
+                    locator.messageId(), Integer.toUnsignedLong(locator.generation()), Integer.toUnsignedLong(attemptNo));
+            final var obligation = new AttemptObligationRef(attempt, locator.generation(), AttemptLedgerState.PUBLISHING,
+                    com.nereusstream.delay.store.KeyCodec.inflight((byte) 2, claim.owner().ownerEpoch(), attempt));
+            final TargetPublishAdmissionBody body;
+            if (claim.selected().nativeCandidate()) {
+                if (claim.policyHead() == null) {
+                    throw new IllegalStateException("legacy Native Claim has no frozen policy head; revoke before reselecting");
+                }
+                final var nativeScope = TargetNativePolicyStoreAuthority.requireScope(
+                        reader, scope, claim.policyHead().scopeDigest());
+                nativeScope.requireQueue(queue(reader, message));
+                final var publication = Objects.requireNonNull(policies, "nativePolicies")
+                        .requireCurrent(nativeScope.digest());
+                final long actionAt = message.deliverAtEpochMs() - publication.head().snapshot().effectiveLeadMs();
+                final var snapshot = com.nereusstream.delay.scheduler.TargetNativePolicyChecks.freezeCurrent(
+                        nativeScope, claim.policyHead(), message.deliverAtEpochMs(), actionAt, policies,
+                        TargetNativePolicyStoreAuthority.inView(reader, scope, lineage), reader.source(), time);
+                final var frozen = com.nereusstream.delay.protocol.TargetNativePublicationBinding.fromClaim(
+                        claim, message, binding, physical, channel, capability, artifacts,
+                        nativeScope, snapshot, claim.policyHead(), actionAt);
+                body = TargetPublishAdmissionBody.nativeMaterialized(scope.shard(), retryUntilEpochMs, claim.owner(),
+                        claim.storeIncarnation(), claim.claimId(), locator, attemptNo, attempt, obligation,
+                        claim.executionBytes(), commitment, allocated, time, frozen, claim);
+            } else {
+                final var frozen = com.nereusstream.delay.protocol.TargetOrdinaryPublicationBinding.fromClaim(
+                        claim, message, binding, physical, channel, capability, artifacts);
+                body = new TargetPublishAdmissionBody(scope.shard(), retryUntilEpochMs, claim.owner(),
+                        claim.storeIncarnation(), claim.claimId(), locator, attemptNo, attempt, obligation,
+                        claim.executionBytes(), commitment, allocated, time, frozen, claim);
+            }
+            currentClaim(reader, body);
+            reader.requireWithinElapsedBudget();
+            return body;
+        }, Objects.requireNonNull(authority, "readAuthority"));
+    }
+
+    /** Before a first Journal ownership marker, revalidate only the frozen lease and historical Admission trust. */
+    public void requireNativeOwnership(final BoundedReadBudget budget, final Applied expected,
+            final com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence time,
+            final TargetStoreBackend.ReadAuthority authority) {
+        expected.requireSame(readApplied(budget, expected.image(), authority));
+        final var nativeBinding = Objects.requireNonNull(expected.body().nativePublication(), "nativePublication");
+        backend.guardedRead(budget, reader -> {
+            com.nereusstream.delay.scheduler.TargetNativePolicyChecks.requireFrozen(nativeBinding.policyScope(),
+                    nativeBinding.policySnapshot(), nativeBinding.deliverAtEpochMs(), nativeBinding.actionAtEpochMs(),
+                    TargetNativePolicyStoreAuthority.inView(reader, scope, lineage), expected.source(), time, false);
+            final var lease = nativeBinding.channel().credentialLease();
+            if (time.latestEpochMs() >= lease.validUntilEpochMs()
+                    || time.latestEpochMs() >= nativeBinding.expireAtEpochMs()) {
+                throw new IllegalArgumentException("Native first ownership exceeds its frozen credential/message lease");
+            }
+            reader.requireWithinElapsedBudget();
+            return Boolean.TRUE;
+        }, authority);
+    }
+
     /** Reads old Owner/Store Admission facts under the current read guard; this never authorizes a first send. */
     public Recovery readRecovery(
             final BoundedReadBudget budget, final SystemMutation image,
@@ -180,8 +276,8 @@ public final class TargetPublishAdmissionStore {
             throw new IllegalArgumentException("Target send image belongs to another operation/Shard");
         }
         final var body = TargetPublishAdmissionBody.decode(image.canonicalBody());
-        if (firstSend && body.publication() == null) {
-            throw new IllegalArgumentException("Target send requires materialized Admission v4");
+        if (firstSend && !body.materialized()) {
+            throw new IllegalArgumentException("Target send requires materialized Admission v4/v5");
         }
         return backend.guardedRead(budget, reader -> {
             if (firstSend && !Arrays.equals(body.storeIncarnation(), reader.metadata().storeIncarnation())) {
@@ -419,16 +515,19 @@ public final class TargetPublishAdmissionStore {
             throw new StaleAdmission();
         }
         TargetClaimStore.current(reader, before);
-        if (body.publication() != null) {
+        if (body.materialized()) {
             if (!Arrays.equals(claim.canonicalBytes(), body.claimProof().canonicalBytes())) {
                 throw new StaleAdmission();
             }
             final var publication = body.publication();
+            final var nativePublication = body.nativePublication();
+            final var frozenChannel = body.channel();
+            final var frozenPhysical = publication != null ? publication.physical() : nativePublication.physical();
             final byte[] bindingKey = TargetKeyCodec.scheduleBinding(locator.scheduleBindingDigest());
             final byte[] bindingRaw = reader.get(ColumnFamily.ID, bindingKey);
             final byte[] identityKey = TargetKeyCodec.identity(locator.target());
             final byte[] identityRaw = reader.get(ColumnFamily.META, identityKey);
-            final byte[] channelKey = publication.channel().encodedKey();
+            final byte[] channelKey = frozenChannel.encodedKey();
             final byte[] channelRaw = reader.get(ColumnFamily.META, channelKey);
             if (bindingRaw == null || identityRaw == null || channelRaw == null) {
                 throw new IllegalStateException("materialized Admission lacks its applied binding/Target/channel");
@@ -450,10 +549,10 @@ public final class TargetPublishAdmissionStore {
                                     com.nereusstream.delay.protocol.TargetChannelIdentity.VALUE_TYPE)
                             .payload(),
                     scope.shard());
-            if (!Arrays.equals(identity.canonicalBytes(), publication.physical().canonicalBytes())) {
+            if (!Arrays.equals(identity.canonicalBytes(), frozenPhysical.canonicalBytes())) {
                 throw new StaleAdmission();
             }
-            channel.requireExactFrozenIdentity(publication.channel());
+            channel.requireExactFrozenIdentity(frozenChannel);
             final var slot = TargetChannelControlVerifier.readSlot(reader, channel, lineage);
             if (slot == null) {
                 throw new IllegalStateException("materialized Admission lacks its Source-applied channel slot");
@@ -464,7 +563,15 @@ public final class TargetPublishAdmissionStore {
                 throw new StaleAdmission();
             }
             channel.requireQueueProjection(queue(reader, before));
-            publication.requireClaim(claim, before, binding);
+            if (publication != null) {
+                publication.requireClaim(claim, before, binding);
+            } else {
+                nativePublication.requireClaim(claim, before, binding);
+                nativePublication.policyScope().requireQueue(queue(reader, before));
+                final var storedScope = TargetNativePolicyStoreAuthority.requireScope(
+                        reader, scope, nativePublication.policyScope().digest());
+                if (!storedScope.equals(nativePublication.policyScope())) { throw new StaleAdmission(); }
+            }
             if (body.decisionTime().latestEpochMs() >= channel.credentialLease().validUntilEpochMs()
                     || body.decisionTime().latestEpochMs() >= claim.deadlineEpochMs()) {
                 throw new StaleAdmission();
@@ -486,7 +593,8 @@ public final class TargetPublishAdmissionStore {
         final var locator = body.locator();
         final byte[] claimKey = claim.key();
         final var time = body.decisionTime();
-        final long requiredEarliest = claim.work().retryEligibilityAtEpochMs();
+        final long requiredEarliest = body.nativePublication() != null
+                ? body.nativePublication().actionAtEpochMs() : claim.work().ordinaryEligibilityAtEpochMs();
         final long notAfter = before.expireAtEpochMs();
         final long brokerBound;
         try {
@@ -496,16 +604,39 @@ public final class TargetPublishAdmissionStore {
         } catch (ArithmeticException overflow) {
             throw new StaleAdmission();
         }
-        if (body.publication() != null
+        if (body.materialized()
                 && brokerBound >= Math.min(
-                        claim.deadlineEpochMs(), body.publication().channel().credentialLease().validUntilEpochMs())) {
+                        claim.deadlineEpochMs(), body.channel().credentialLease().validUntilEpochMs())) {
             throw new StaleAdmission();
         }
         if (time.earliestEpochMs() < requiredEarliest
                 || time.latestEpochMs() >= notAfter
                 || brokerBound >= notAfter
-                || (claim.work().nativeCandidate() && time.latestEpochMs() >= before.deliverAtEpochMs())) {
+                || (claim.selected().nativeCandidate() && time.latestEpochMs() >= before.deliverAtEpochMs())) {
             throw new StaleAdmission();
+        }
+        if (body.nativePublication() != null) {
+            final var nativeBinding = body.nativePublication();
+            final var policies = decision.authorization().nativePolicies();
+            final var observed = policies.requireCurrent(nativeBinding.policyScope().digest());
+            if (!observed.head().ref(observed.revision()).equals(nativeBinding.policyHead())) {
+                throw new StaleAdmission();
+            }
+            final com.nereusstream.delay.protocol.TargetNativePolicySnapshot frozen;
+            try {
+                com.nereusstream.delay.scheduler.TargetNativePolicyChecks.requireFrozen(
+                        nativeBinding.policyScope(), observed.head().snapshot(), nativeBinding.deliverAtEpochMs(),
+                        nativeBinding.actionAtEpochMs(), TargetNativePolicyStoreAuthority.inView(reader, scope, lineage),
+                        source, time, true);
+                frozen = observed.head().snapshot();
+            } catch (IllegalArgumentException ineligible) {
+                throw new StaleAdmission();
+            }
+            if (!observed.sameHead(policies.requireCurrent(nativeBinding.policyScope().digest()))
+                    || !Arrays.equals(frozen.canonicalBytes(), nativeBinding.policySnapshot().canonicalBytes())
+                    || brokerBound >= frozen.validUntilEpochMs()) {
+                throw new StaleAdmission();
+            }
         }
         final var root = root(reader);
         final var targetIdentity = new TargetQuotaIdentity(

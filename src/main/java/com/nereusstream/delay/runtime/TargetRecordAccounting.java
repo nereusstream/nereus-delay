@@ -539,6 +539,22 @@ public final class TargetRecordAccounting {
                         payload(ColumnFamily.META, claim.chargeKey(), TargetQuotaClaimCharge.VALUE_TYPE));
                 claim.requireCharge(charge);
                 claim.requireCurrent(message(claim.work().locator().messageId()));
+                if (claim.policyHead() != null) {
+                    final byte[] scopeKey = TargetKeyCodec.nativePolicyScope(claim.policyHead().scopeDigest());
+                    final var nativeScope = TargetNativePolicyScope.decodeForStore(scopeKey,
+                            payload(ColumnFamily.META, scopeKey, TargetNativePolicyScope.VALUE_TYPE), scope.shard());
+                    final byte[] bindingKey = TargetKeyCodec.scheduleBinding(claim.work().locator().scheduleBindingDigest());
+                    final var binding = TargetScheduleBinding.decodeForStore(bindingKey,
+                            payload(ColumnFamily.ID, bindingKey, TargetScheduleBinding.VALUE_TYPE), scope.shard());
+                    nativeScope.requireBinding(binding);
+                    final var snapshot = TargetNativePolicySnapshot.decode(payload(ColumnFamily.META,
+                            TargetKeyCodec.nativePolicySnapshot(claim.policyHead().snapshotDigest()),
+                            TargetNativePolicySnapshot.VALUE_TYPE));
+                    snapshot.requireScope(nativeScope);
+                    if (!snapshot.headRef(claim.policyHead().oxiaVersion()).equals(claim.policyHead())) {
+                        throw new IllegalStateException("Native Claim changes its retained snapshot/head reference");
+                    }
+                }
                 final var owner = descriptor(charge.primaryIdentity());
                 charge.requireDescriptor(owner);
                 claim.creation().requireAtOrBefore(operation);

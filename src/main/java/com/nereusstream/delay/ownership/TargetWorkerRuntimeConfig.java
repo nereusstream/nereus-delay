@@ -138,6 +138,11 @@ public record TargetWorkerRuntimeConfig(
         return new SystemWriterAppendBudget(systemWriter, classes, sharedResources);
     }
 
+    public TargetPublishAdmissionMutationFactory newPublishAdmissionFactory(
+            final int keyVersion, final java.security.PrivateKey key) {
+        return new TargetPublishAdmissionMutationFactory(keyVersion, key, maximumSourceFrameBytes);
+    }
+
     public TargetChannelControlMutationFactory newChannelControlFactory(final int keyVersion,
             final java.security.PrivateKey key, final long queryPolicyVersion) {
         return new TargetChannelControlMutationFactory(keyVersion, key, queryPolicyVersion, maximumSourceFrameBytes);

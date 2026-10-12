@@ -646,15 +646,25 @@ public final class TargetCheckpointDependencies {
         void nativeScope(TargetNativePolicyScope scope) { artifact(scope.artifacts().digest()); }
 
         void admissionImage(AdmissionImage input) {
-            final var publication = TargetPublishAdmissionBody.decode(input.image().canonicalBody()).publication();
-            if (publication == null) {
+            final var body = TargetPublishAdmissionBody.decode(input.image().canonicalBody());
+            if (!body.materialized()) {
                 throw new IllegalArgumentException(
                         "unmaterialized Target Admission requires protected historical closure");
             }
-            profileUse(new ProfileUse(publication.destinationProfile(), input.source()));
-            profileUse(new ProfileUse(publication.capabilityProfile(), input.source()));
-            profileUse(new ProfileUse(publication.channel().credentialLease().profile(), input.source()));
-            artifact(publication.artifactGenerationSetDigest());
+            if (body.nativePublication() != null) {
+                final var publication = body.nativePublication();
+                profileUse(new ProfileUse(publication.destinationProfile(), input.source()));
+                profileUse(new ProfileUse(publication.capabilityProfile(), input.source()));
+                profileUse(new ProfileUse(publication.channel().credentialLease().profile(), input.source()));
+                artifact(publication.artifactGenerationSetDigest());
+                artifact(publication.policyScope().artifacts().digest());
+            } else {
+                final var publication = body.publication();
+                profileUse(new ProfileUse(publication.destinationProfile(), input.source()));
+                profileUse(new ProfileUse(publication.capabilityProfile(), input.source()));
+                profileUse(new ProfileUse(publication.channel().credentialLease().profile(), input.source()));
+                artifact(publication.artifactGenerationSetDigest());
+            }
         }
 
         void profileUse(ProfileUse use) {

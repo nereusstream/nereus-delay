@@ -104,7 +104,7 @@ public final class TargetCheckpointOutcomeAuthority implements TargetCheckpointD
             }
         } else {
             final var evidenceContext = authority.evidenceContext();
-            if (evidenceContext == null || admitted.publication() == null) {
+            if (evidenceContext == null || !admitted.materialized()) {
                 throw new IllegalStateException("Outcome original physical evidence context unavailable");
             }
             final var evidenceAdmission = requireAdmission(evidenceContext.admission());
@@ -115,19 +115,37 @@ public final class TargetCheckpointOutcomeAuthority implements TargetCheckpointD
                 throw new IllegalArgumentException("Outcome evidence changes original Admission/transfer/writer/cause");
             }
             final var evidence = PublishEvidence.decode(body.evidence());
-            if (body.sideEffect() == 1) { evidence.requireOrdinaryTargetPublishedBinding(admitted.publication()); }
-            else { evidence.requireOrdinaryTargetNotPublishedBinding(admitted.publication()); }
-            before();
-            if (resolution) {
-                if (evidenceContext.resolutionAuthority() == null) {
-                    throw new IllegalStateException("Outcome resolution original cursor/history authority unavailable");
+            if (admitted.nativePublication() != null) {
+                final var publication = admitted.nativePublication();
+                if (body.sideEffect() == 1) { evidence.requireNativeTargetPublishedBinding(publication); }
+                else { evidence.requireNativeTargetNotPublishedBinding(publication); }
+                before();
+                if (resolution) {
+                    if (evidenceContext.nativeResolutionAuthority() == null) {
+                        throw new IllegalStateException("Native resolution original cursor/history authority unavailable");
+                    }
+                    final var unknown = requireUnknown(admitted.publishAttemptId(), input);
+                    evidenceContext.nativeResolutionAuthority().requireAuthenticated(publication, evidence,
+                            body.evidenceCursor(), current.source(), unknown.source(), input.source());
+                } else {
+                    evidenceContext.nativeAuthority().requireAuthenticated(publication, evidence,
+                            current.source(), input.source());
                 }
-                final var unknown = requireUnknown(admitted.publishAttemptId(), input);
-                evidenceContext.resolutionAuthority().requireAuthenticated(admitted.publication(), evidence,
-                        body.evidenceCursor(), current.source(), unknown.source(), input.source());
             } else {
-                evidenceContext.authority().requireAuthenticated(admitted.publication(), evidence,
-                        current.source(), input.source());
+                if (body.sideEffect() == 1) { evidence.requireOrdinaryTargetPublishedBinding(admitted.publication()); }
+                else { evidence.requireOrdinaryTargetNotPublishedBinding(admitted.publication()); }
+                before();
+                if (resolution) {
+                    if (evidenceContext.resolutionAuthority() == null) {
+                        throw new IllegalStateException("Outcome resolution original cursor/history authority unavailable");
+                    }
+                    final var unknown = requireUnknown(admitted.publishAttemptId(), input);
+                    evidenceContext.resolutionAuthority().requireAuthenticated(admitted.publication(), evidence,
+                            body.evidenceCursor(), current.source(), unknown.source(), input.source());
+                } else {
+                    evidenceContext.authority().requireAuthenticated(admitted.publication(), evidence,
+                            current.source(), input.source());
+                }
             }
             after();
         }

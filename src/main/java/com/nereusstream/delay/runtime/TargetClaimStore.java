@@ -75,7 +75,18 @@ public final class TargetClaimStore {
             final long deadlineEpochMs,
             final long executionBytes,
             final byte[] operationDigest) {
+        return prepareClaim(budget, selected, owner, nowEpochMs, deadlineEpochMs, executionBytes,
+                operationDigest, null);
+    }
+
+    public Prepared prepareClaim(
+            final BoundedReadBudget budget, final TargetHeadRef selected, final OwnerIdentity owner,
+            final long nowEpochMs, final long deadlineEpochMs, final long executionBytes, final byte[] operationDigest,
+            final com.nereusstream.delay.protocol.HandoffPolicyHeadRef policyHead) {
         Objects.requireNonNull(selected, "selected");
+        if (selected.nativeCandidate() != (policyHead != null)) {
+            throw new IllegalArgumentException("new Native Claim requires its exact frozen policy head");
+        }
         Objects.requireNonNull(owner, "owner");
         if (nowEpochMs < 0
                 || (!selected.nativeCandidate() && selected.timeEpochMs() > nowEpochMs)
@@ -114,7 +125,13 @@ public final class TargetClaimStore {
                                     selected.nativeCandidate() ? domain.nativeHead() : domain.ordinaryHead())) {
                         throw new IllegalStateException("Target Claim selected head/control/domain changed");
                     }
-                    final var operation = localOperation(reader, operationDigest);
+                    if (policyHead != null && !Arrays.equals(policyHead.scopeDigest(), binding.nativePolicyScopeRef())) {
+                        throw new IllegalStateException("Native Claim head changes its applied Target scope/domain");
+                    }
+                    final byte[] exactDigest = policyHead == null ? operationDigest : Bytes.sha256(
+                            Bytes.utf8("nereus-delay-target-native-claim-operation\0"), operationDigest,
+                            policyHead.canonicalBytes());
+                    final var operation = localOperation(reader, exactDigest);
                     final var claim = new TargetClaimRecord(
                             message.runtime(),
                             message.stateVersion(),
@@ -126,7 +143,7 @@ public final class TargetClaimStore {
                             deadlineEpochMs,
                             executionBytes,
                             queue.controlVersion(),
-                            operation);
+                            operation, policyHead);
                     final var locator = message.locator();
                     final var identity = new TargetQuotaIdentity(
                             TargetQuotaIdentity.Kind.TARGET,

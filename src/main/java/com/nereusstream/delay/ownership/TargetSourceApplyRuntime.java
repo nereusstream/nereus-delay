@@ -723,6 +723,22 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             final TargetQuotaDelta.LocalClaimAuthority quota,
             final TargetStoreBackend.CommitAuthority physicalWrites,
             final LongSupplier ownerClock) {
+        return claim(budget, selected, owner, nowEpochMs, deadlineEpochMs, executionBytes, operationDigest,
+                quota, physicalWrites, ownerClock, null);
+    }
+
+    synchronized TargetClaimRecord claim(
+            final BoundedReadBudget budget,
+            final TargetHeadRef selected,
+            final OwnerIdentity owner,
+            final long nowEpochMs,
+            final long deadlineEpochMs,
+            final long executionBytes,
+            final byte[] operationDigest,
+            final TargetQuotaDelta.LocalClaimAuthority quota,
+            final TargetStoreBackend.CommitAuthority physicalWrites,
+            final LongSupplier ownerClock,
+            final com.nereusstream.delay.protocol.HandoffPolicyHeadRef policyHead) {
         final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
         requireGcOwner(clock);
         final var exactOwner = Objects.requireNonNull(owner, "owner");
@@ -733,7 +749,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         final var claims =
                 new TargetClaimStore(backend, scope, lineage, limits.domains(), Objects.requireNonNull(quota, "quota"));
         final var prepared = claims.prepareClaim(
-                budget, selected, exactOwner, nowEpochMs, deadlineEpochMs, executionBytes, operationDigest);
+                budget, selected, exactOwner, nowEpochMs, deadlineEpochMs, executionBytes, operationDigest, policyHead);
         claims.commit(prepared, (actual, actualScope, mutation) -> {
             if (!mutation.quota().counters().mutation().isLocalClaim()) {
                 throw new IllegalStateException("Target Claim cannot commit another mutation kind");
@@ -797,6 +813,38 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         requireGcOwner(clock);
         return new TargetQueueSnapshotReader(backend, limits.domains(), targetQueueHeadCache)
                 .readTarget(budget, target, workerReads(clock));
+    }
+
+    synchronized TargetPublishAdmissionBody preparePublishAdmission(
+            final BoundedReadBudget budget, final TargetClaimRecord claim,
+            final com.nereusstream.delay.protocol.TargetChannelIdentity channel,
+            final com.nereusstream.delay.protocol.ProfileRef capability, final byte[] artifacts,
+            final long retryUntilEpochMs, final com.nereusstream.delay.protocol.CapacityVector commitment,
+            final com.nereusstream.delay.protocol.CapacityVector allocated,
+            final com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence time,
+            final com.nereusstream.delay.semantic.TargetNativePolicyAuthority policies, final LongSupplier clock) {
+        requireGcOwner(clock);
+        if (claim.owner().ownerEpoch() != lease.ownerEpoch()
+                || !Bytes.constantTimeEquals(claim.owner().leaseFencingDigest(), lease.leaseToken())) {
+            throw new IllegalStateException("Admission Claim differs from the current Owner lease");
+        }
+        final var body = targetAdmissions.prepareBody(budget, claim, channel, capability, artifacts,
+                retryUntilEpochMs, commitment, allocated, time, policies, workerReads(clock));
+        requireGcOwner(clock);
+        return body;
+    }
+
+    synchronized void requireNativeOwnership(final BoundedReadBudget budget,
+            final TargetPublishAdmissionStore.Applied applied,
+            final com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence time, final LongSupplier clock) {
+        requireGcOwner(clock);
+        final var owner = applied.body().owner();
+        if (owner.ownerEpoch() != lease.ownerEpoch()
+                || !Bytes.constantTimeEquals(owner.leaseFencingDigest(), lease.leaseToken())) {
+            throw new IllegalStateException("Native first ownership belongs to another Owner lease");
+        }
+        targetAdmissions.requireNativeOwnership(budget, applied, time, workerReads(clock));
+        requireGcOwner(clock);
     }
 
     synchronized TargetPublishAdmissionStore.Applied readAppliedAdmission(

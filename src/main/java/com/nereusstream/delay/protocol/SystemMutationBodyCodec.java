@@ -20,7 +20,8 @@ public final class SystemMutationBodyCodec {
         if (type == SystemMutationType.TARGET_PUBLISH_ADMISSION
                 && fields.size() > 3
                 && fields.get(3).number() == 10
-                && fields.get(3).unsignedValue() == TargetPublishAdmissionBody.MATERIALIZED_BODY_VERSION) {
+                && (fields.get(3).unsignedValue() == TargetPublishAdmissionBody.MATERIALIZED_BODY_VERSION
+                        || fields.get(3).unsignedValue() == TargetPublishAdmissionBody.NATIVE_MATERIALIZED_BODY_VERSION)) {
             specs = Arrays.copyOf(specs, specs.length + 2);
             specs[specs.length - 2] = nested(22);
             specs[specs.length - 1] = nested(23);
@@ -40,7 +41,8 @@ public final class SystemMutationBodyCodec {
         }
         if (type == SystemMutationType.TARGET_PUBLISH_ADMISSION
                 && fields.get(3).unsignedValue() != TargetPublishAdmissionBody.BODY_VERSION
-                && fields.get(3).unsignedValue() != TargetPublishAdmissionBody.MATERIALIZED_BODY_VERSION) {
+                && fields.get(3).unsignedValue() != TargetPublishAdmissionBody.MATERIALIZED_BODY_VERSION
+                && fields.get(3).unsignedValue() != TargetPublishAdmissionBody.NATIVE_MATERIALIZED_BODY_VERSION) {
             throw new IllegalArgumentException("unsupported Target Publish Admission body version");
         }
     }

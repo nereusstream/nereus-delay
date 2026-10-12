@@ -200,6 +200,22 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
                                 ? completedUnknownValue() : preflight.check(publication, r, a)));
     }
 
+    public PublishCall submitTargetPreparedRecord(
+            final com.nereusstream.delay.protocol.TargetNativePublicationBinding publication,
+            final PulsarPreparedRecord record,
+            final ArtifactGenerationSet artifacts,
+            final TargetNativePreparedPublishPreflight preflight) {
+        Objects.requireNonNull(preflight, "preflight");
+        PulsarPreparedRecordFactory.requireTargetBinding(publication, record, artifacts);
+        return submitPhysical(
+                () -> admission.tryAcquireTarget(publication.channel(), record.physicalByteCharge()),
+                () -> !admission.targetChannelSnapshot(publication.channel()).ready()
+                        ? completedUnknownValue() : null,
+                () -> delegate.publishPreparedRecord(record, artifacts, (r, a) ->
+                        !admission.targetChannelSnapshot(publication.channel()).ready()
+                                ? completedUnknownValue() : preflight.check(publication, r, a)));
+    }
+
     private PublishCall submit(
             final DestinationPublishRequest request,
             final PublishPreflight preflight,
@@ -609,6 +625,13 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
         DestinationPublishResult check(
                 TargetOrdinaryPublicationBinding publication, PulsarPreparedRecord record,
                 ArtifactGenerationSet artifacts);
+    }
+
+    @FunctionalInterface
+    public interface TargetNativePreparedPublishPreflight {
+        DestinationPublishResult check(
+                com.nereusstream.delay.protocol.TargetNativePublicationBinding publication,
+                PulsarPreparedRecord record, ArtifactGenerationSet artifacts);
     }
 
     public static final class PublishCall {
