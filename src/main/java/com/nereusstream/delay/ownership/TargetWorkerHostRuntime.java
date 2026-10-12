@@ -159,6 +159,93 @@ public final class TargetWorkerHostRuntime {
     private LongSupplier sourceObservationOwnerClock;
     private int sourceObservationCursor;
 
+    private TargetCheckpointCandidateSchedule checkpointSchedule;
+    private LongSupplier checkpointClock;
+    private SchedulerBudget checkpointBudget;
+    private int checkpointCursor;
+
+    /** Registers the admitted fleet once and uses the existing maintenance loop for bounded claim/settlement. */
+    public synchronized TargetCheckpointCandidateSchedule configurePeriodicSemanticCheckpoints(
+            com.nereusstream.delay.store.CheckpointScheduler scheduler,
+            TargetCheckpointCandidateSchedule.SemanticRequestFactory factory, LongSupplier clock,
+            SchedulerBudget budget) {
+        if (stopping || checkpointSchedule != null) {
+            throw new IllegalStateException("Target Host checkpoint scheduling is stopping or already configured");
+        }
+        Objects.requireNonNull(clock, "clock");
+        Objects.requireNonNull(budget, "budget");
+        final var schedule = TargetCheckpointCandidateSchedule.semantic(this, scheduler, factory);
+        final var admitted = new ArrayList<ShardId>();
+        try {
+            final long now = clock.getAsLong();
+            for (var shard : shards) {
+                if (!(shard instanceof TargetWorkerShardRuntime worker)) {
+                    throw new IllegalArgumentException("periodic semantic scheduling requires actual Target Workers");
+                }
+                schedule.register(worker, now);
+                admitted.add(worker.shardId());
+            }
+            configurePeriodicCheckpoints(schedule, clock, budget);
+            return schedule;
+        } catch (RuntimeException | Error failure) {
+            for (var shard : admitted) {
+                try { schedule.unregister(shard); }
+                catch (RuntimeException | Error cleanup) { failure.addSuppressed(cleanup); }
+            }
+            throw failure;
+        }
+    }
+
+    /** Deterministic lifecycle seam; callers register the exact admitted test Shards first. */
+    synchronized void configurePeriodicCheckpoints(TargetCheckpointCandidateSchedule schedule, LongSupplier clock,
+            SchedulerBudget budget) {
+        if (stopping || checkpointSchedule != null) {
+            throw new IllegalStateException("Target Host checkpoint scheduling is stopping or already configured");
+        }
+        Objects.requireNonNull(schedule, "schedule").requireHost(this);
+        final var selectedClock = Objects.requireNonNull(clock, "clock");
+        final var selectedBudget = Objects.requireNonNull(budget, "budget");
+        maintenanceLoop.configureCheckpointTurn(this::runNextPeriodicCheckpointTurn);
+        checkpointSchedule = schedule;
+        checkpointClock = selectedClock;
+        checkpointBudget = selectedBudget;
+    }
+
+    /** At most one exact Shard action per tick; provider/WorkClass I/O stays outside the Host monitor. */
+    public boolean runNextPeriodicCheckpointTurn() {
+        final TargetCheckpointCandidateSchedule schedule;
+        final LongSupplier clock;
+        final SchedulerBudget budget;
+        final int count;
+        synchronized (this) {
+            if (stopping || checkpointSchedule == null) { return false; }
+            schedule = checkpointSchedule;
+            clock = checkpointClock;
+            budget = checkpointBudget;
+            count = shards.size();
+        }
+        final long now = clock.getAsLong();
+        for (int visited = 0; visited < count; visited++) {
+            final Shard shard;
+            final boolean withdrawnShard;
+            synchronized (this) {
+                if (stopping) { return false; }
+                if (checkpointCursor >= shards.size()) { checkpointCursor = 0; }
+                shard = shards.get(checkpointCursor++);
+                if (completed.containsKey(shard.shardId()) || draining.contains(shard.shardId())) { continue; }
+                withdrawnShard = withdrawn.contains(shard.shardId());
+            }
+            if (!withdrawnShard) { schedule.ensureRegistered(shard, now, budget); }
+            if (schedule.pendingTask(shard.shardId()).isPresent()) {
+                schedule.settle(shard.shardId(), budget, now);
+                return true;
+            }
+            if (!withdrawnShard && shard.pendingSourceEntry().isEmpty()
+                    && !schedule.claimDueForShard(shard.shardId(), now, 1).isEmpty()) { return true; }
+        }
+        return false;
+    }
+
     /** One shared cache/provider for the admitted fleet; maintenance only queues one bounded refresh per tick. */
     public synchronized void configureSourceObservations(final TargetSourceBacklogCache cache,
             final java.util.function.BiFunction<TargetWorkerShardRuntime, TargetSourceBacklog.Cut,
@@ -187,7 +274,8 @@ public final class TargetWorkerHostRuntime {
             if (sourceObservationCursor >= count) { sourceObservationCursor = 0; }
             final var shard = shards.get(sourceObservationCursor++);
             if (shard instanceof TargetWorkerShardRuntime worker && !withdrawn.contains(shard.shardId())
-                    && !completed.containsKey(shard.shardId()) && !draining.contains(shard.shardId())) {
+                    && !completed.containsKey(shard.shardId()) && !draining.contains(shard.shardId())
+                    && worker.pendingCheckpointTask().isEmpty()) {
                 return sourceObservationCache.refresh(worker, sourceObservationOwnerClock,
                         cut -> sourceObservationFactory.apply(worker, cut));
             }

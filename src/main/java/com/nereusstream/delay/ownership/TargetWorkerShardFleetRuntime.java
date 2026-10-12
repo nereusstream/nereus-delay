@@ -22,6 +22,8 @@ public final class TargetWorkerShardFleetRuntime {
 
         void requireFleetComposition(WorkClassExecutionRegistry workClasses, SharedRocksDbResources resources);
 
+        default Optional<WorkClassTask> pendingCheckpointTask() { return Optional.empty(); }
+
         SourceApplyCoordinator.TurnResult runSourceTurn(SchedulerBudget budget, LongSupplier ownerClock);
 
         TargetReservationGcRuntime.Turn runMaintenanceTurn(SchedulerBudget budget);
@@ -205,6 +207,7 @@ public final class TargetWorkerShardFleetRuntime {
         }
         final var selected = shards.get(maintenanceCursor);
         maintenanceCursor = maintenanceCursor == shards.size() - 1 ? 0 : maintenanceCursor + 1;
+        if (selected.pendingCheckpointTask().isPresent()) { return Optional.empty(); }
         activeTurnThread = Thread.currentThread();
         try {
             return Optional.of(new MaintenanceTurn(selected.shardId(), selected.runMaintenanceTurn(budget)));
@@ -223,6 +226,7 @@ public final class TargetWorkerShardFleetRuntime {
         }
         final var selected = shards.get(messageExpiryCursor);
         messageExpiryCursor = messageExpiryCursor == shards.size() - 1 ? 0 : messageExpiryCursor + 1;
+        if (selected.pendingCheckpointTask().isPresent()) { return Optional.empty(); }
         activeTurnThread = Thread.currentThread();
         try {
             return Optional.of(new MessageExpiryTurn(selected.shardId(), selected.runMessageExpiryMaintenanceTurn()));
@@ -247,6 +251,7 @@ public final class TargetWorkerShardFleetRuntime {
         }
         final var selected = shards.get(publishRecoveryCursor);
         publishRecoveryCursor = publishRecoveryCursor == shards.size() - 1 ? 0 : publishRecoveryCursor + 1;
+        if (selected.pendingCheckpointTask().isPresent()) { return Optional.empty(); }
         activeTurnThread = Thread.currentThread();
         try {
             return Optional.of(new PublishRecoveryTurn(

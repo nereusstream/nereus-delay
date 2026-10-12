@@ -3,6 +3,7 @@ package com.nereusstream.delay.ownership;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.DelayMessageId;
@@ -500,6 +501,113 @@ class TargetWorkerShardFleetRuntimeTest {
         } finally {
             executor.shutdownNow();
         }
+    }
+
+    @Test
+    void periodicCheckpointTickRotatesClaimsAndSettlementsAndStopPreservesQueuedTask() {
+        final var registry = registry();
+        final var executor = Executors.newSingleThreadScheduledExecutor();
+        try (var resources = new SharedRocksDbResources(
+                ShardStoreConfig.defaults(tempDir.resolve("periodic-checkpoints")))) {
+            final var first = new StubShard(new ShardId(RouteIncarnation.random(), 1), registry, resources);
+            final var second = new StubShard(new ShardId(RouteIncarnation.random(), 2), registry, resources);
+            final var fleet = new TargetWorkerShardFleetRuntime(registry, resources, first, second);
+            final var budget = new SchedulerBudget(1, 1_000, 1_000_000);
+            final var loop = new TargetWorkerMaintenanceLoop(fleet, budget, Duration.ofSeconds(10),
+                    failure -> { throw new AssertionError(failure); }, executor);
+            final var host = new TargetWorkerHostRuntime(fleet, loop, List.of(first, second));
+            final var schedule = new TargetCheckpointCandidateSchedule(host, new CheckpointScheduler(10, 0, 2),
+                    (TargetCheckpointCandidateSchedule.Dispatcher) (selected, claim) -> {
+                        final var stub = (StubShard) selected;
+                        stub.pendingCheckpoint = new WorkClassTask(WorkClass.CHECKPOINT,
+                                "periodic/" + stub.shard.partition(), 64);
+                        return new TargetCheckpointCandidateSchedule.Candidate(stub.pendingCheckpoint,
+                                () -> stub.pendingCheckpoint == null ? Optional.of(
+                                        new TargetCheckpointCandidateWorkClassExecutor.Outcome(
+                                                Path.of("candidate"), null))
+                                        : Optional.empty());
+                    });
+            final var now = new java.util.concurrent.atomic.AtomicLong(110);
+            schedule.registerShard(first, 100);
+            schedule.registerShard(second, 100);
+            host.configurePeriodicCheckpoints(schedule, now::get, budget);
+            try {
+                loop.pollNow();
+                assertTrue(schedule.pendingTask(first.shard).isPresent());
+                assertTrue(schedule.pendingTask(second.shard).isEmpty());
+                final int firstMaintenance = first.maintenanceTurns.get();
+                loop.pollNow();
+                assertTrue(schedule.pendingTask(second.shard).isPresent());
+                assertEquals(firstMaintenance, first.maintenanceTurns.get());
+                loop.pollNow();
+                assertTrue(schedule.pendingTask(first.shard).isEmpty());
+                loop.pollNow();
+                assertTrue(schedule.pendingTask(second.shard).isEmpty());
+                assertNull(loop.firstFailure());
+                now.set(120);
+                loop.pollNow();
+                assertTrue(schedule.pendingTask(first.shard).isPresent());
+                final var stopped = host.drainAll(new TargetOwnerDrainCoordinator.Request(5_000, budget),
+                        budget, () -> 101);
+                assertFalse(stopped.complete());
+                assertEquals(TargetWorkerHostRuntime.Status.PENDING_CHECKPOINT, stopped.shards().getFirst().status());
+                assertFalse(host.runNextPeriodicCheckpointTurn());
+                assertTrue(schedule.pendingTask(second.shard).isEmpty());
+                assertTrue(schedule.settle(first.shard, budget, 120).isPresent());
+                assertTrue(host.drainAll(new TargetOwnerDrainCoordinator.Request(5_000, budget), budget,
+                        () -> 101).complete());
+            } finally { loop.close(); }
+        } finally { executor.shutdownNow(); }
+    }
+
+    @Test
+    void periodicCheckpointMembershipRegistersNewAndReplacedAdmittedShards() {
+        final var registry = registry();
+        final var executor = Executors.newSingleThreadScheduledExecutor();
+        try (var resources = new SharedRocksDbResources(
+                ShardStoreConfig.defaults(tempDir.resolve("periodic-membership")))) {
+            final var first = new StubShard(new ShardId(RouteIncarnation.random(), 1), registry, resources);
+            final var second = new StubShard(new ShardId(RouteIncarnation.random(), 2), registry, resources);
+            final var fleet = new TargetWorkerShardFleetRuntime(registry, resources, first);
+            final var budget = new SchedulerBudget(1, 1_000, 1_000_000);
+            final var loop = new TargetWorkerMaintenanceLoop(fleet, budget, Duration.ofSeconds(10),
+                    failure -> { throw new AssertionError(failure); }, executor);
+            final var host = new TargetWorkerHostRuntime(fleet, loop, List.of(first));
+            final var submitted = new ArrayList<TargetWorkerHostRuntime.Shard>();
+            final var schedule = new TargetCheckpointCandidateSchedule(host, new CheckpointScheduler(10, 0, 2),
+                    (TargetCheckpointCandidateSchedule.Dispatcher) (selected, claim) -> {
+                        submitted.add(selected);
+                        final var stub = (StubShard) selected;
+                        stub.pendingCheckpoint = new WorkClassTask(WorkClass.CHECKPOINT,
+                                "membership/" + submitted.size(), 64);
+                        return new TargetCheckpointCandidateSchedule.Candidate(stub.pendingCheckpoint,
+                                () -> stub.pendingCheckpoint == null ? Optional.of(
+                                        new TargetCheckpointCandidateWorkClassExecutor.Outcome(
+                                                Path.of("candidate"), null)) : Optional.empty());
+                    });
+            final var now = new java.util.concurrent.atomic.AtomicLong(100);
+            schedule.registerShard(first, 100);
+            host.configurePeriodicCheckpoints(schedule, now::get, budget);
+            try {
+                host.admitShard(second, second);
+                assertFalse(host.runNextPeriodicCheckpointTurn());
+                now.set(110);
+                assertTrue(host.runNextPeriodicCheckpointTurn());
+                assertTrue(host.runNextPeriodicCheckpointTurn());
+                assertEquals(List.of(first, second), submitted);
+                assertTrue(host.runNextPeriodicCheckpointTurn());
+                assertTrue(host.runNextPeriodicCheckpointTurn());
+                assertTrue(host.drainShard(first,
+                        new TargetOwnerDrainCoordinator.Request(5_000, budget), budget, () -> 101).complete());
+                final var replacement = new StubShard(first.shard, registry, resources);
+                host.admitShard(replacement, replacement);
+                assertFalse(host.runNextPeriodicCheckpointTurn());
+                now.set(120);
+                assertTrue(host.runNextPeriodicCheckpointTurn());
+                assertEquals(replacement, submitted.getLast());
+                assertTrue(schedule.pendingTask(first.shard).isPresent());
+            } finally { loop.close(); }
+        } finally { executor.shutdownNow(); }
     }
 
     @Test

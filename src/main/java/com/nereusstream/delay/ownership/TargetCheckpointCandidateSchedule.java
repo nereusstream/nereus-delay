@@ -169,6 +169,38 @@ public final class TargetCheckpointCandidateSchedule {
      * retains its claim until {@link #settle(ShardId, SchedulerBudget, long)} observes its outcome.
      */
     public List<WorkClassTask> claimDueAndSubmit(final long nowEpochMs, final int limit) {
+        return claimDueAndSubmit(null, nowEpochMs, limit);
+    }
+
+    /** Host round-robin selects a single eligible Shard without claiming a withdrawn sibling. */
+    List<WorkClassTask> claimDueForShard(ShardId shardId, long nowEpochMs, int limit) {
+        return claimDueAndSubmit(Objects.requireNonNull(shardId, "shardId"), nowEpochMs, limit);
+    }
+
+    /** Refreshes membership only for an actually admitted replacement; an old in-flight task is never discarded. */
+    void ensureRegistered(TargetWorkerHostRuntime.Shard shard, long now, SchedulerBudget budget) {
+        final Flight oldFlight;
+        synchronized (this) {
+            if (registered.get(shard.shardId()) == shard) { return; }
+            oldFlight = flights.get(shard.shardId());
+        }
+        if (oldFlight != null) {
+            if (oldFlight.candidate().outcome().get().isEmpty()) {
+                throw new IllegalStateException("replacement still has an in-flight checkpoint claim");
+            }
+            settle(shard.shardId(), Objects.requireNonNull(budget, "budget"), now);
+        }
+        synchronized (this) {
+            if (registered.containsKey(shard.shardId())) { unregister(shard.shardId()); }
+        }
+        registerShard(shard, now);
+    }
+
+    void requireHost(TargetWorkerHostRuntime expected) {
+        if (host != expected) { throw new IllegalArgumentException("checkpoint schedule belongs to another Host"); }
+    }
+
+    private List<WorkClassTask> claimDueAndSubmit(ShardId selectedShard, long nowEpochMs, int limit) {
         if (limit <= 0) {
             throw new IllegalArgumentException("checkpoint claim limit must be positive");
         }
@@ -177,7 +209,8 @@ public final class TargetCheckpointCandidateSchedule {
             final ScheduledCheckpoint claim;
             final TargetWorkerHostRuntime.Shard shard;
             synchronized (this) {
-                final List<ScheduledCheckpoint> due = scheduler.claimDue(nowEpochMs, 1);
+                final List<ScheduledCheckpoint> due = selectedShard == null ? scheduler.claimDue(nowEpochMs, 1)
+                        : scheduler.claimDueForShard(selectedShard, nowEpochMs, 1);
                 if (due.isEmpty()) {
                     break;
                 }

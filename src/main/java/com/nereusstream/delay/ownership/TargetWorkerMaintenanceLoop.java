@@ -24,6 +24,16 @@ public final class TargetWorkerMaintenanceLoop implements AutoCloseable {
     private volatile Thread activeTurnThread;
     private ScheduledFuture<?> scheduled;
     private volatile Runnable sourceObservationTurn;
+    private volatile Runnable checkpointTurn;
+
+    void configureCheckpointTurn(Runnable turn) {
+        synchronized (this) {
+            if (closed || checkpointTurn != null) {
+                throw new IllegalStateException("Target maintenance checkpoint is closed or already configured");
+            }
+            checkpointTurn = Objects.requireNonNull(turn, "turn");
+        }
+    }
 
     void configureSourceObservationTurn(final Runnable turn) {
         synchronized (this) {
@@ -171,6 +181,13 @@ public final class TargetWorkerMaintenanceLoop implements AutoCloseable {
                                 }
                             }
                         } catch (RuntimeException | Error caught) {
+                            firstFailure.compareAndSet(null, caught);
+                            failure = combineFailures(failure, caught);
+                        }
+                    }
+                    if (!(failure instanceof Error) && checkpointTurn != null) {
+                        try { checkpointTurn.run(); }
+                        catch (RuntimeException | Error caught) {
                             firstFailure.compareAndSet(null, caught);
                             failure = combineFailures(failure, caught);
                         }

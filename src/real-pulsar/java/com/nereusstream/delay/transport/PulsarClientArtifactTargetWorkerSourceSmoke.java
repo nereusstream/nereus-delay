@@ -638,7 +638,8 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                 }, (initialization, image) -> ownerCommitAuthority(leases, active)
                         .acquire(store.metadata(), scope, null));
         final var refuse = new java.util.concurrent.atomic.AtomicBoolean(true);
-        final var scheduled = com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.semantic(host,
+        final var checkpointClock = new java.util.concurrent.atomic.AtomicLong(now);
+        final var scheduled = host.configurePeriodicSemanticCheckpoints(
                 new com.nereusstream.delay.store.CheckpointScheduler(1_000, 0, 1), (selected, claim, cut) -> {
                     cut.requireCurrent();
                     if (selected != worker || !cut.position().equals(dependencies.root().source())) {
@@ -652,10 +653,10 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                                             throw new IllegalStateException("scheduled semantic protection unavailable");
                                         }
                                     }, plan);
-                });
+                }, checkpointClock::get, new SchedulerBudget(1, 4L << 20, TimeUnit.SECONDS.toNanos(10)));
         final long sourceSequence = store.shardMutationSequence();
         final var source = store.appliedShardLogPosition();
-        final long due = scheduled.register(worker, now);
+        final long due = now + 1_000;
         final long beforeRefusal = store.latestSequenceNumber();
         try {
             scheduled.claimDueAndSubmit(due, 1);
@@ -669,15 +670,21 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
         }
         refuse.set(false);
         final long retried = due + 1_000;
-        if (scheduled.claimDueAndSubmit(retried, 1).size() != 1
-                || scheduled.claimDueAndSubmit(retried, 1).size() != 0
-                || scheduled.pendingTask(scope.shard()).isEmpty()) {
-            throw new IllegalStateException("scheduled semantic candidate did not retain its exact due claim");
+        checkpointClock.set(retried);
+        final long publicationDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
+        while (catalog.manifest(pending.checkpointId()).isEmpty() || scheduled.pendingTask(scope.shard()).isPresent()) {
+            if (System.nanoTime() >= publicationDeadline || host.firstMaintenanceFailure() != null) {
+                throw new IllegalStateException("periodic P1 checkpoint did not settle",
+                        host.firstMaintenanceFailure());
+            }
+            try { Thread.sleep(10); }
+            catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("interrupted while awaiting periodic checkpoint", interrupted);
+            }
         }
-        final var result = scheduled.settle(scope.shard(), new SchedulerBudget(1, 4L << 20,
-                TimeUnit.SECONDS.toNanos(10)), retried).orElseThrow();
-        if (result.failure() != null) { throw new IllegalStateException("scheduled P1 candidate", result.failure()); }
-        final var proof = TargetCheckpointRootVerifier.auditPersistedSemanticSnapshot(result.checkpointPath(),
+        final Path publishedPath = root.resolve("scheduled-semantic-image");
+        final var proof = TargetCheckpointRootVerifier.auditPersistedSemanticSnapshot(publishedPath,
                 scope.shard(), physical, quota, ledger, semanticLimits);
         if (!source.equals(proof.root().source()) || sourceSequence != proof.root().mutationSequence()
                 || !source.equals(store.appliedShardLogPosition()) || store.shardMutationSequence() != sourceSequence
@@ -687,12 +694,12 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                 || catalog.manifest(pending.checkpointId()).isEmpty()) {
             throw new IllegalStateException("scheduled semantic publication changed Source or lacked Catalog binding");
         }
-        scheduled.unregister(scope.shard());
         if (!leases.current(scope.shard()).orElseThrow().sameIdentity(active)) {
             throw new IllegalStateException("scheduled semantic candidate lost its Owner");
         }
-        System.out.println("P1 exact Host/native ACK due claim retained through semantic candidate/full auth/"
-                + "Catalog init/File upload/PUBLISHED CAS, blocked new Source during I/O, then settled/resumed.");
+        System.out.println("P1 existing maintenance ticks automatically claim/settle exact native ACK "
+                + "semantic candidate/full auth/Catalog init/File upload/PUBLISHED CAS, "
+                + "blocked new Source during I/O, then settled/resumed.");
     }
 
     /** Actual P1 grant cut and File image; global Catalog history/permissions remain explicit test fixtures. */
