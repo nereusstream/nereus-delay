@@ -1,0 +1,149 @@
+C5 exact Artifact/eligible-reader protection at Target Catalog initialization scoped receipt.
+Baseline 828f53c7b7a981355c86372472dea21a59128738; main/single agent.
+Actual existing capability coordinator and native ephemeral capability rows; schema bundle/deployment eligibility/protection and namespace permission remain trusted fixtures, not a full production activation/reader pin. No wire/version/schema change or new RPC/threads/queue.
+SOURCE_SHA256 e3771948391bc70dfb4f5a412e9edc35dfc0d64546633fc7dbf63538904660c1 src/main/java/com/nereusstream/delay/ownership/ProtocolCompatibleCatalogInitializationAuthority.java
+SOURCE_SHA256 55b6d5978fa004841e57242452bda184a4b5596b12ed4adeed244e8c0bb9d32a src/test/java/com/nereusstream/delay/store/TargetCheckpointCandidateTestBridge.java
+
+Selector:
+#!/bin/bash
+set -euo pipefail
+cd /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay
+export NEREUS_DELAY_OXIA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/oxia
+[[ "$(git -C "$NEREUS_DELAY_OXIA_CHECKOUT" rev-parse HEAD)" == 37a17bef17202d5fd6e23282da5fd26d94865484 ]]
+[[ -z "$(git -C "$NEREUS_DELAY_OXIA_CHECKOUT" status --porcelain)" ]]
+export NEREUS_DELAY_OXIA_E2E_PORT="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
+project="ndip3-catalog-reader-protection-oxia-$$"
+cleanup() { docker compose -f e2e/docker-compose.oxia.yml -p "$project" down --volumes --remove-orphans; }
+trap cleanup EXIT
+echo "Owned project=$project endpoint=localhost:$NEREUS_DELAY_OXIA_E2E_PORT checkout=37a17bef17202d5fd6e23282da5fd26d94865484"
+docker compose -f e2e/docker-compose.oxia.yml -p "$project" build oxia
+docker compose -f e2e/docker-compose.oxia.yml -p "$project" up -d oxia
+healthy=0
+for attempt in {1..60}; do
+  if docker compose -f e2e/docker-compose.oxia.yml -p "$project" exec -T oxia oxia health --host 127.0.0.1 --port 6648 --timeout 2s; then healthy=1; break; fi
+  sleep 0.5
+done
+[[ "$healthy" == 1 ]]
+NEREUS_DELAY_OXIA_ENDPOINT="localhost:$NEREUS_DELAY_OXIA_E2E_PORT" NEREUS_DELAY_OXIA_NAMESPACE=default \
+  GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew test --rerun \
+  --tests com.nereusstream.delay.runtime.TargetCommandStoreTest.realOxiaCheckpointAdmissionAuthenticationPreservesUnknownAndResolvedOriginalSource \
+  checkstyleTest --no-daemon --console=plain
+
+
+
+SDK_CHECKOUT_HEAD 37a17bef17202d5fd6e23282da5fd26d94865484; clean before/after.
+TEST_XML {'name': 'com.nereusstream.delay.runtime.TargetCommandStoreTest', 'tests': '1', 'skipped': '0', 'failures': '0', 'errors': '0', 'timestamp': '2026-10-12T00:26:56.064Z', 'hostname': 'liusinandeMacBook-Pro.local', 'time': '15.701'} SHA256 e6b03fef92f0c3c81ddde60097c66603c80ba6c79a51df636ca23db7f0713d9b
+Final terminal0, 32s: real session-bound old/current capability CAS rows and original exact Catalog init/File/restore/UNKNOWN/resolved duplicate recovery continue. Reader-set pinned protection/eligibility/schema bundle and namespace trust remain fixtures.
+Owned project=ndip3-catalog-reader-protection-oxia-96704 endpoint=localhost:49607 checkout=37a17bef17202d5fd6e23282da5fd26d94865484
+ Image ndip3-catalog-reader-protection-oxia-96704-oxia Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 614B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 1.34kB done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/golang:1.26-alpine
+#3 ...
+
+#4 [internal] load metadata for docker.io/library/alpine:3.22
+#4 DONE 2.8s
+
+#3 [internal] load metadata for docker.io/library/golang:1.26-alpine
+#3 DONE 2.8s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 2B done
+#5 DONE 0.0s
+
+#6 [build 1/5] FROM docker.io/library/golang:1.26-alpine@sha256:3082400e369fa24d5fc60bca20edab3f6d604e0c5a690ec66b295eff4dd87ade
+#6 DONE 0.0s
+
+#7 [runtime 1/8] FROM docker.io/library/alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
+#7 DONE 0.0s
+
+#8 [internal] load build context
+#8 transferring context: 39.30kB 0.0s done
+#8 DONE 0.0s
+
+#9 [build 4/5] COPY . .
+#9 CACHED
+
+#10 [runtime 4/8] WORKDIR /oxia
+#10 CACHED
+
+#11 [runtime 2/8] RUN apk add --no-cache bash bash-completion jq
+#11 CACHED
+
+#12 [build 5/5] RUN --mount=type=cache,target=/go/pkg/mod     --mount=type=cache,target=/root/.cache/go-build     make
+#12 CACHED
+
+#13 [runtime 5/8] COPY --from=build /src/oxia/bin/oxia /oxia/bin/oxia
+#13 CACHED
+
+#14 [build 3/5] WORKDIR /src/oxia
+#14 CACHED
+
+#15 [runtime 7/8] COPY --from=build /src/oxia/conf/dataserver.yaml /oxia/conf/dataserver.yaml
+#15 CACHED
+
+#16 [runtime 6/8] COPY --from=build /src/oxia/conf/coordinator.yaml /oxia/conf/coordinator.yaml
+#16 CACHED
+
+#17 [build 2/5] RUN apk add --no-cache make git build-base bash
+#17 CACHED
+
+#18 [runtime 3/8] RUN apk upgrade --no-cache
+#18 CACHED
+
+#19 [runtime 8/8] RUN oxia completion bash > ~/.bashrc
+#19 CACHED
+
+#20 exporting to image
+#20 exporting layers done
+#20 writing image sha256:a44a64006d0f13750b440f35a0a6a4a8529bc39430dff3dcccb59b020b629c03 done
+#20 naming to docker.io/library/ndip3-catalog-reader-protection-oxia-96704-oxia done
+#20 DONE 0.0s
+
+#21 resolving provenance for metadata file
+#21 DONE 0.0s
+ Image ndip3-catalog-reader-protection-oxia-96704-oxia Built 
+ Network ndip3-catalog-reader-protection-oxia-96704_default Creating 
+ Network ndip3-catalog-reader-protection-oxia-96704_default Creating 
+ Network ndip3-catalog-reader-protection-oxia-96704_default Created 
+ Network ndip3-catalog-reader-protection-oxia-96704_default Created 
+ Container ndip3-catalog-reader-protection-oxia-96704-oxia-1 Creating 
+ Container ndip3-catalog-reader-protection-oxia-96704-oxia-1 Created 
+ Container ndip3-catalog-reader-protection-oxia-96704-oxia-1 Starting 
+ Container ndip3-catalog-reader-protection-oxia-96704-oxia-1 Started 
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava UP-TO-DATE
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses UP-TO-DATE
+> Task :test
+> Task :checkstyleTest UP-TO-DATE
+
+BUILD SUCCESSFUL in 32s
+14 actionable tasks: 2 executed, 12 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+ Container ndip3-catalog-reader-protection-oxia-96704-oxia-1 Stopping 
+ Container ndip3-catalog-reader-protection-oxia-96704-oxia-1 Stopped 
+ Container ndip3-catalog-reader-protection-oxia-96704-oxia-1 Removing 
+ Container ndip3-catalog-reader-protection-oxia-96704-oxia-1 Removed 
+ Network ndip3-catalog-reader-protection-oxia-96704_default Removing 
+ Network ndip3-catalog-reader-protection-oxia-96704_default Removed 
