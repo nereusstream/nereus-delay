@@ -256,6 +256,17 @@ public final class LegacyCheckpointStateInventory {
                                                 "legacy Message source position belongs to another Shard");
                                     }
                                     final byte[] oldMessageKey = KeyCodec.idMessage(messageId);
+                                    if (!schedulePosition.sameSourceIdentity(proof.appliedSourcePosition())
+                                            || schedulePosition.compareTo(proof.appliedSourcePosition()) > 0
+                                            || (schedulePosition.compareTo(proof.appliedSourcePosition()) == 0
+                                                    && !Arrays.equals(
+                                                            schedulePosition.canonicalBytes(),
+                                                            proof.appliedSourcePosition().canonicalBytes()))) {
+                                        conflicts.add(conflict(
+                                                oldMessageKey,
+                                                schedulePosition,
+                                                ConflictReason.MESSAGE_SCHEDULE_SOURCE_OUTSIDE_CHECKPOINT));
+                                    }
                                     final TimelineWorkRef timelineWork = message.runtimeIndex().timeline();
                                     final byte[] currentTimelineKey = message.status() == MessageStatus.SCHEDULED
                                                     && timelineWork != null
@@ -1417,6 +1428,7 @@ public final class LegacyCheckpointStateInventory {
         TIMELINE_INDEX_KEY_MALFORMED,
         TIMELINE_INDEX_ORPHANED_OR_STALE,
         MESSAGE_KEY_MALFORMED,
+        MESSAGE_SCHEDULE_SOURCE_OUTSIDE_CHECKPOINT,
         ATTEMPT_OBLIGATION_MISSING,
         ATTEMPT_OBLIGATION_VALUE_MISMATCH,
         ATTEMPT_LEDGER_KEY_VALUE_MISMATCH,
