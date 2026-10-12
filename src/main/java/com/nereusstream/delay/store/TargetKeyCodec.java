@@ -44,6 +44,8 @@ public final class TargetKeyCodec {
     public static final int NATIVE_ACTIVATION_TAG = 33;
     public static final int NATIVE_MEMBER_TAG = 34;
     public static final int NATIVE_MEMBER_CLOSURE_TAG = 35;
+    public static final int CHANNEL_CONTROL_TAG = 36;
+    public static final int CHANNEL_SLOT_TAG = 37;
     // Target result tags belong to DEDUPE, independently of META and ID tags.
     public static final int RESULT_COMMAND_TAG = 6;
     public static final int RESULT_QUERY_TAG = 7;
@@ -59,6 +61,17 @@ public final class TargetKeyCodec {
     public static final int CANDIDATE_PREFIX_BYTES = 2 + TargetPartitionId.LENGTH + 2 + 8;
 
     private TargetKeyCodec() {}
+
+    public static byte[] channelControl(final byte[] operationIdentity) {
+        Bytes.requireLength(operationIdentity, 32, "channelControlIdentity");
+        return Bytes.concat(new byte[] {CHANNEL_CONTROL_TAG, KEY_FORMAT}, operationIdentity);
+    }
+
+    public static byte[] channelSlot(final byte[] stableProducerIdentity) {
+        Objects.requireNonNull(stableProducerIdentity, "stableProducerIdentity");
+        return Bytes.concat(new byte[] {CHANNEL_SLOT_TAG, KEY_FORMAT},
+                Bytes.sha256(Bytes.utf8("nereus-delay-target-channel-slot\0"), stableProducerIdentity));
+    }
 
     public static byte[] closeCursor(TargetPartitionId target) {
         return Bytes.concat(

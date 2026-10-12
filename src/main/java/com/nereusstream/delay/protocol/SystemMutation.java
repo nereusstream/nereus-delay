@@ -205,6 +205,9 @@ public final class SystemMutation {
         } else if (kind >= TargetNativePolicyControlRequest.INSTALL_PUBLISHER_CONTROL_KIND
                 && kind <= TargetNativePolicyControlRequest.CLOSE_MEMBER_CONTROL_KIND) {
             logicalIdentity = TargetNativePolicyControlBody.decode(envelope.body()).logicalIdentity();
+        } else if (kind >= TargetChannelControlRequest.CREATE_CONTROL_KIND
+                && kind <= TargetChannelControlRequest.STOP_CONTROL_KIND) {
+            logicalIdentity = TargetChannelControlBody.decode(envelope.body()).logicalIdentity();
         } else {
             logicalIdentity = SystemMutationIdentity.resolve(envelope.shardId(), envelope.type(), envelope.body());
         }

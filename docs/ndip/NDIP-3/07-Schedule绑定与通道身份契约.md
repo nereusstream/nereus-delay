@@ -424,3 +424,49 @@ evidence generation 并递增 channel generation；完整 mapping/Admission Sour
 另行核对。这些字节不构成真实 Broker fencing 或 retention 认证，ResolutionAuthority 必须
 独立认证。OWNERSHIP_STARTED/PUBLISHED 不可通过本路径退休；后续缺席协议仍开放。字段与
 barrier digest recipe 见 PROTOCOL-REGISTRY，测试范围见[执行记录](04-执行记录.md)。
+
+## 2026-10-12：Source channel 生命周期与当前代
+
+用户已选择同 Shard 的 signed Source 事件，决定来源见[决策记录](decision-record.md)。
+`ControlOperationKind` 25/26/27 分别为 CREATE_TARGET_CHANNEL、RENEW_TARGET_CHANNEL、
+STOP_TARGET_CHANNEL_NEW_WORK；请求 oneof branch 同号，最低角色沿现有平台资源操作
+使用 PLATFORM_OPERATOR，完整 actor/resource scope 仍须认证。APPLY_SHARD_CONTROL
+内部 kind 为 24/25/26，保持 CONTROL 作者。Prepared operation 固定一个 SHARD target
+index=0，并通过原 ControlTargetMutationBinding 登记精确 body/hash/logical identity。
+
+request schema=1：field1 version；2 完整 NV20 identity；3 prior identity digest[32]
+（CREATE 省略）；4 当前请求 OwnerIdentity（受已有 4096-byte 上界约束）；5 STOP reason
+（其他操作省略）。CREATE 要求 generation=1 和 slot 不存在；RENEW 要求开放 slot 的
+exact prior digest、原 producer/evidence domain 和 generation+1；STOP 保留 exact identity，
+不开放新 Admission，也不清理旧代/attempt/Journal/physical/zombie。停止的 slot 不通过
+普通 RENEW 重新开放；本实现没有 slot-reset 或删除绕过。旧数据缺 anchor/creation history
+仍需受保护的 history/backfill/迁移，不视为可默认初始化的新 slot。
+
+body 保留原 ApplyShardControl fields1/2/3/10–15：完整 Shard、type、retryUntil、
+ControlRef、kind、schema1、semanticHash、expected-record-state（CREATE=1、其余=0）与
+唯一对应 kind 的 ControlPayload。semantic domain 为
+`nereus-delay-target-channel-control` 加 NUL；logical ID 复用 ControlRef 的 kind 派生。
+
+NV43 是不可变 first-applied lifecycle record，META `24 01 + logicalID[32]`：schema1、
+完整 body、Source-only TargetQuotaMutation、原 ControlAuthor、lineage[16]、digest[32]，
+fields1–6；digest domain 为 `nereus-delay-target-channel-control-record` 加 NUL。
+NV44 为 slot 当前代，META `25 01 + SHA256(slot-key-domain + stableProducerIdentity)`；
+slot-key-domain 是 `nereus-delay-target-channel-slot` 加 NUL。fields1–7 为 schema1、
+完整当前 identity、phase OPEN=1/STOPPED=2、最新 logicalID[32]、Source-only mutation、
+lineage[16]、digest[32]；digest domain 为 `nereus-delay-target-channel-slot-record` 加 NUL。
+
+首应用保持实际 Source 严格推进，双签名、注册操作、RBAC/scope、当前 Owner/fencing 和
+held materialization/schema/reader/credential/resource authority 缺一不可；上述外部保护必须
+持续到 native commit。NV20（CREATE/RENEW）、NV43、NV44、实际 metadata 差额账本、SYSTEM/
+POSITION 首结果和 Source 同批提交。重复记录复用原首结果；STOP 不写/删 NV20。
+
+新 Admission 的 append preflight 与 Source 首应用共用 actual Claim/channel 检查，要求
+Source-applied slot OPEN 且 exact generation。已 APPLIED 的旧 Admission 继续用其原冻结
+身份，续代/STOP 不反向改写它。checkpoint/reopen 独立折叠全部 lifecycle history，核对
+每个 NV20 的唯一创建、续代 predecessor 和完整当前 slot，拒绝 bare NV20。NV43 首结果
+精确核对原 body/hash/source/author，并进入原 Control history 与 semantic 摘要。
+
+当前只有源码编译开发检查，测试统一后置；真实配置入口/签名注册 provider/lifecycle
+提交、SDK/普通及 Native SEND、重开接管的包 1 整链尚未完成。不得据上述 codec/writer
+存在授予生产权限；activated canonical schema bundle/eligible readers 必须覆盖新分支及
+NV43/44，旧 Lane reader 格式保持拒绝。

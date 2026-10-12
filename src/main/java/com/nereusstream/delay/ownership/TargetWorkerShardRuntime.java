@@ -386,6 +386,54 @@ public final class TargetWorkerShardRuntime
         workClasses.submit(task, action);
     }
 
+    synchronized void submitAdmissionAction(
+            final WorkClassTask task, final SystemMutation mutation,
+            final LongSupplier ownerClock, final Runnable action) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        if (target.admissionMutationResult(mutation, ownerClock).isEmpty()) {
+            target.requireAdmissionWriter(mutation, ownerClock);
+        }
+        workClasses.submit(task, action);
+    }
+
+    record AdmissionAppend(SystemMutationResult firstResult, ShardLogMutationAppender.AppendOutcome append) {
+        AdmissionAppend {
+            if ((firstResult == null) == (append == null)) {
+                throw new IllegalArgumentException("Admission turn must observe a first result or one append outcome");
+            }
+        }
+    }
+
+    synchronized AdmissionAppend appendAdmission(
+            final SystemMutation mutation, final ShardLogMutationAppender appender, final LongSupplier ownerClock) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        final var first = target.admissionMutationResult(mutation, ownerClock).orElse(null);
+        if (first != null) {
+            return new AdmissionAppend(first, null);
+        }
+        target.requireAdmissionWriter(mutation, ownerClock);
+        try {
+            final var appended = Objects.requireNonNull(appender.append(mutation), "Target Admission append");
+            if (appended.disposition() == ShardLogMutationAppender.AppendDisposition.PERSISTED) {
+                target.requireCurrentExpiryLogPosition(appended.sourcePosition(), appended.sourceConnectionGeneration(),
+                        appended.guardAttestationDigest(), ownerClock);
+            }
+            return new AdmissionAppend(null, appended);
+        } catch (RuntimeException | Error uncertainAppend) {
+            target.fence();
+            throw uncertainAppend;
+        }
+    }
+
+    synchronized Optional<SystemMutationResult> admissionMutationResult(
+            final SystemMutation mutation, final LongSupplier ownerClock) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        return target.admissionMutationResult(mutation, ownerClock);
+    }
+
     synchronized ShardLogMutationAppender.AppendOutcome appendOutcome(
             final com.nereusstream.delay.protocol.SystemMutation mutation,
             final ShardLogMutationAppender appender, final LongSupplier ownerClock) {

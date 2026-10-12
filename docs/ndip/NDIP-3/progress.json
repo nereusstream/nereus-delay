@@ -633,7 +633,14 @@
         "src/main/java/com/nereusstream/delay/runtime/TargetPublishOutcomeVerifier.java",
         "src/main/java/com/nereusstream/delay/protocol/EvidenceCursor.java",
         "src/test/java/com/nereusstream/delay/protocol/EvidenceCursorTest.java",
-        "src/test/java/com/nereusstream/delay/store/TargetStoreBackendTest.java"
+        "src/test/java/com/nereusstream/delay/store/TargetStoreBackendTest.java",
+        "src/main/java/com/nereusstream/delay/ownership/TargetPublishAdmissionWorkClassExecutor.java",
+        "src/main/java/com/nereusstream/delay/protocol/TargetChannelControlRequest.java",
+        "src/main/java/com/nereusstream/delay/protocol/TargetChannelControlBody.java",
+        "src/main/java/com/nereusstream/delay/protocol/TargetChannelControlRecord.java",
+        "src/main/java/com/nereusstream/delay/protocol/TargetChannelSlot.java",
+        "src/main/java/com/nereusstream/delay/runtime/TargetChannelControlStore.java",
+        "src/main/java/com/nereusstream/delay/runtime/TargetChannelControlVerifier.java"
       ],
       "validationHandoff": "12-集中验证交接清单.md",
       "implementationSources": [
@@ -646,7 +653,7 @@
         "src/main/java/com/nereusstream/delay/store/TargetKeyCodec.java",
         "src/main/java/com/nereusstream/delay/semantic/OxiaSyncTargetNativePolicyAuthority.java"
       ],
-      "currentCodeScope": "Package 1: durable channel lifecycle and the real configured Claim→Admission Source APPLIED→Journal/ordinary and Native SDK→exact signed Outcome apply/settle→reopen/takeover chain remain code gaps. Existing DRR, physical admission, publisher and recovery maintenance components are implemented; their insufficient integrated evidence is a validation obligation, not a separate new feature."
+      "currentCodeScope": "Package 1 in progress: user selected signed CONTROL Source channel lifecycle. Closed request/body, atomic lifecycle identity/history/current-slot/source accounting and first results, exact current-generation Admission checks, Source history fold/reopen audit and bounded exact Admission handoff are implemented in this development batch. Real configured lifecycle submission/signing/registration providers and the complete ordinary/Native SDK/Outcome/reopen takeover composition remain code gaps. All tests/Broker/acceptance are deferred; component compilation does not close package 1."
     },
     {
       "id": "C3",

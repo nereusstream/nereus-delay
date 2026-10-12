@@ -74,6 +74,9 @@ public final class ControlOperationAuthorization {
                     GET_CHECKPOINT_CATALOG,
                     PUBLISH_QUOTA_GRANT,
                     PUBLISH_TARGET_QUOTA_GRANT,
+                    CREATE_TARGET_CHANNEL,
+                    RENEW_TARGET_CHANNEL,
+                    STOP_TARGET_CHANNEL_NEW_WORK,
                     CLOSE_TARGET,
                     ROTATE_EQUIVALENT_SECRET_REFERENCE -> new ControlRole[] {ControlRole.PLATFORM_OPERATOR};
         };

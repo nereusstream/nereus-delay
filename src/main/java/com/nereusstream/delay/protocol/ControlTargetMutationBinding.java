@@ -51,6 +51,15 @@ public final class ControlTargetMutationBinding {
         final byte[] expectedLogicalIdentity;
         switch (mutation.type()) {
             case APPLY_SHARD_CONTROL -> {
+                if (prepared.request().branch() instanceof TargetChannelControlRequest expected) {
+                    final var body = TargetChannelControlBody.decode(mutation.canonicalBody());
+                    requireControlRef(expectedControlRef, body.controlRef());
+                    if (!expected.equals(body.request())) {
+                        throw new IllegalArgumentException("channel Control body differs from registered request");
+                    }
+                    expectedLogicalIdentity = body.logicalIdentity();
+                    break;
+                }
                 if (prepared.request().branch() instanceof TargetCloseRequest expected) {
                     final var body = TargetCloseBody.decode(mutation.canonicalBody());
                     requireControlRef(expectedControlRef, body.controlRef());
@@ -121,6 +130,9 @@ public final class ControlTargetMutationBinding {
                     CLOSE_TARGET_MEMBERSHIP,
                     PUBLISH_TARGET_QUOTA_GRANT,
                     CLOSE_TARGET,
+                    CREATE_TARGET_CHANNEL,
+                    RENEW_TARGET_CHANNEL,
+                    STOP_TARGET_CHANNEL_NEW_WORK,
                     INSTALL_TARGET_NATIVE_PUBLISHER_PERMISSION,
                     CLOSE_TARGET_NATIVE_PUBLISHER_PERMISSION,
                     ACTIVATE_TARGET_NATIVE_POLICY,

@@ -137,6 +137,34 @@ public final class TargetPublishAdmissionStore {
         return new Applied(facts.image(), facts.body(), facts.source(), facts.generation().current());
     }
 
+    /**
+     * Read-only append preflight for the exact reversible Claim. This does not authenticate the prospective
+     * Source position, apply Admission, allocate an attempt, or grant SDK submission authority.
+     */
+    public void requireCurrentSubmission(
+            final BoundedReadBudget budget, final SystemMutation image,
+            final TargetStoreBackend.ReadAuthority authority) {
+        Objects.requireNonNull(image, "image");
+        if (image.type() != SystemMutationType.TARGET_PUBLISH_ADMISSION || !image.shardId().equals(scope.shard())) {
+            throw new IllegalArgumentException("Target Admission submission belongs to another operation/Shard");
+        }
+        final var body = TargetPublishAdmissionBody.decode(image.canonicalBody());
+        final var author = com.nereusstream.delay.protocol.AuthorIdentity.decode(image.authorIdentity());
+        if (!body.shard().equals(scope.shard()) || body.retryUntilEpochMs() != image.retryUntilEpochMs()
+                || !Arrays.equals(body.publishAttemptId(), image.logicalOperationIdentity())
+                || !body.owner().equals(author.asOwnerIdentity())) {
+            throw new IllegalArgumentException("Target Admission submission changes its signed body identity");
+        }
+        backend.guardedRead(Objects.requireNonNull(budget, "budget"), reader -> {
+            if (!Arrays.equals(body.storeIncarnation(), reader.metadata().storeIncarnation())) {
+                throw new IllegalStateException("Target Admission submission belongs to another Store incarnation");
+            }
+            currentClaim(reader, body);
+            reader.requireWithinElapsedBudget();
+            return Boolean.TRUE;
+        }, Objects.requireNonNull(authority, "readAuthority"));
+    }
+
     /** Reads old Owner/Store Admission facts under the current read guard; this never authorizes a first send. */
     public Recovery readRecovery(
             final BoundedReadBudget budget, final SystemMutation image,
@@ -352,13 +380,9 @@ public final class TargetPublishAdmissionStore {
         return prepared.result;
     }
 
-    private AdmissionProjection admission(
-            final TargetStoreBackend.Reader reader,
-            final TargetPublishAdmissionVerifier.Decision decision,
-            final SystemMutation mutation,
-            final com.nereusstream.delay.protocol.SourcePosition source,
-            final TargetQuotaMutation stamp) {
-        final var body = decision.body();
+    private record CurrentClaim(TargetMessageRecord message, TargetClaimRecord claim) {}
+
+    private CurrentClaim currentClaim(final TargetStoreBackend.Reader reader, final TargetPublishAdmissionBody body) {
         final TargetMessageLocator locator = body.locator();
         final byte[] messageKey = TargetKeyCodec.message(locator.messageId());
         final byte[] rawMessage = reader.get(ColumnFamily.ID, messageKey);
@@ -430,6 +454,15 @@ public final class TargetPublishAdmissionStore {
                 throw new StaleAdmission();
             }
             channel.requireExactFrozenIdentity(publication.channel());
+            final var slot = TargetChannelControlVerifier.readSlot(reader, channel, lineage);
+            if (slot == null) {
+                throw new IllegalStateException("materialized Admission lacks its Source-applied channel slot");
+            }
+            try {
+                slot.requireNewWork(channel);
+            } catch (IllegalStateException stoppedOrRenewed) {
+                throw new StaleAdmission();
+            }
             channel.requireQueueProjection(queue(reader, before));
             publication.requireClaim(claim, before, binding);
             if (body.decisionTime().latestEpochMs() >= channel.credentialLease().validUntilEpochMs()
@@ -437,6 +470,21 @@ public final class TargetPublishAdmissionStore {
                 throw new StaleAdmission();
             }
         }
+        return new CurrentClaim(before, claim);
+    }
+
+    private AdmissionProjection admission(
+            final TargetStoreBackend.Reader reader,
+            final TargetPublishAdmissionVerifier.Decision decision,
+            final SystemMutation mutation,
+            final com.nereusstream.delay.protocol.SourcePosition source,
+            final TargetQuotaMutation stamp) {
+        final var body = decision.body();
+        final var current = currentClaim(reader, body);
+        final var before = current.message();
+        final var claim = current.claim();
+        final var locator = body.locator();
+        final byte[] claimKey = claim.key();
         final var time = body.decisionTime();
         final long requiredEarliest = claim.work().retryEligibilityAtEpochMs();
         final long notAfter = before.expireAtEpochMs();

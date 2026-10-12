@@ -14,6 +14,7 @@ import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
 import com.nereusstream.delay.protocol.TargetCloseBody;
+import com.nereusstream.delay.protocol.TargetChannelControlBody;
 import com.nereusstream.delay.protocol.TargetCloseRequest;
 import com.nereusstream.delay.protocol.TargetExpireGenerationBody;
 import com.nereusstream.delay.protocol.TargetHeadRef;
@@ -215,6 +216,21 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         OutcomeControl resolve(SourceReplayMutation entry);
     }
 
+    public record ChannelControl(PreparedControlOperation prepared,
+            com.nereusstream.delay.runtime.TargetChannelControlVerifier.Authority authority,
+            TargetStoreBackend.CommitAuthority commit) {
+        public ChannelControl {
+            Objects.requireNonNull(prepared, "prepared");
+            Objects.requireNonNull(authority, "authority");
+            Objects.requireNonNull(commit, "commit");
+        }
+    }
+
+    @FunctionalInterface
+    public interface ChannelControls {
+        ChannelControl resolve(SourceReplayMutation entry);
+    }
+
     public record CommandControl(
             TargetCommandStore.Policy policy,
             TargetCommandStore.CancellationControls cancellations,
@@ -251,7 +267,24 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             Commands commands,
             NativePolicyControls nativePolicyControls,
             TargetAdmissions admissions,
-            TargetOutcomes outcomes) {
+            TargetOutcomes outcomes,
+            ChannelControls channelControls) {
+        public Authorities(OxiaOwnerLeaseStore leases, SourceReplaySuccessor successor, GrantControls grants,
+                Fences fences, ExpiryControls expiries, Closes closes, MembershipControls membershipControls,
+                TargetStoreBackend.CommitAuthority duplicateWrites, TargetStoreBackend.ReadAuthority reads,
+                Commands commands, NativePolicyControls nativePolicyControls, TargetAdmissions admissions,
+                TargetOutcomes outcomes) {
+            this(leases, successor, grants, fences, expiries, closes, membershipControls, duplicateWrites, reads,
+                    commands, nativePolicyControls, admissions, outcomes, entry -> {
+                        throw new IllegalStateException("Target channel lifecycle authorities are not configured");
+                    });
+        }
+
+        public Authorities withChannelControls(final ChannelControls selected) {
+            return new Authorities(leases, successor, grants, fences, expiries, closes, membershipControls,
+                    duplicateWrites, reads, commands, nativePolicyControls, admissions, outcomes,
+                    Objects.requireNonNull(selected, "channelControls"));
+        }
         public Authorities(
                 final OxiaOwnerLeaseStore leases,
                 final SourceReplaySuccessor successor,
@@ -362,6 +395,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             Objects.requireNonNull(nativePolicyControls, "nativePolicyControls");
             Objects.requireNonNull(admissions, "admissions");
             Objects.requireNonNull(outcomes, "outcomes");
+            Objects.requireNonNull(channelControls, "channelControls");
         }
     }
 
@@ -380,6 +414,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     private final TargetCloseStore closes;
     private final TargetMembershipControlStore membershipControls;
     private final TargetNativePolicyControlStore nativePolicyControls;
+    private final com.nereusstream.delay.runtime.TargetChannelControlStore channelControls;
     private final TargetSystemReplayStore replay;
     private final TargetCommandReplayStore commandReplay;
     private final TargetCommandStore commands;
@@ -503,6 +538,8 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 new TargetMembershipControlStore(backend, scope, lineage, limits.counters(), limits.domains());
         nativePolicyControls =
                 new TargetNativePolicyControlStore(backend, scope, lineage, limits.counters(), limits.domains());
+        channelControls = new com.nereusstream.delay.runtime.TargetChannelControlStore(
+                backend, scope, lineage, limits.counters(), limits.domains());
         replay = new TargetSystemReplayStore(backend, scope, lineage, limits.counters(), limits.domains());
         commandReplay = new TargetCommandReplayStore(backend, scope, lineage, limits.counters(), limits.domains());
         commands = new TargetCommandStore(backend, scope, lineage, limits.counters(), limits.domains());
@@ -895,6 +932,35 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 || !Bytes.constantTimeEquals(author.asOwnerIdentity().leaseFencingDigest(), lease.leaseToken())) {
             throw new IllegalStateException("Target Outcome writer differs from current Source/Owner");
         }
+    }
+
+    synchronized void requireAdmissionWriter(final SystemMutation mutation, final LongSupplier clock) {
+        requireGcOwner(clock);
+        final var author = AuthorIdentity.decode(mutation.authorIdentity());
+        if (mutation.type() != SystemMutationType.TARGET_PUBLISH_ADMISSION
+                || !mutation.shardId().equals(scope.shard())
+                || author.kind() != AuthorIdentity.Kind.OWNER
+                || author.asOwnerIdentity().ownerEpoch() != lease.ownerEpoch()
+                || !Bytes.constantTimeEquals(author.asOwnerIdentity().leaseFencingDigest(), lease.leaseToken())) {
+            throw new IllegalStateException("Target Admission writer differs from current Source/Owner");
+        }
+        targetAdmissions.requireCurrentSubmission(
+                new BoundedReadBudget(limits.records(), limits.bytes(), limits.elapsedNanos(), monotonicClock),
+                mutation, workerReads(clock));
+        requireGcOwner(clock);
+    }
+
+    synchronized Optional<SystemMutationResult> admissionMutationResult(
+            final SystemMutation mutation, final LongSupplier ownerClock) {
+        final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
+        requireGcOwner(clock);
+        if (mutation.type() != SystemMutationType.TARGET_PUBLISH_ADMISSION
+                || !mutation.shardId().equals(scope.shard())) {
+            throw new IllegalArgumentException("Target Admission reconciliation requires its exact Source mutation");
+        }
+        return replay.appliedResult(
+                new BoundedReadBudget(limits.records(), limits.bytes(), limits.elapsedNanos(), monotonicClock),
+                mutation, workerReads(clock));
     }
 
     synchronized Optional<SystemMutationResult> outcomeMutationResult(
@@ -1322,6 +1388,22 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                     throw new ReadYield(incomplete);
                 }
                 result = targetOutcomes.commit(first, writes(control.commit(), entry, clock));
+            } else if (isChannelControl(mutation.mutation())) {
+                final var control = Objects.requireNonNull(authorities.channelControls().resolve(mutation),
+                        "Target channel lifecycle authority");
+                final var actualOwner = control.authority().currentOwner();
+                if (actualOwner.ownerEpoch() != lease.ownerEpoch()
+                        || !Bytes.constantTimeEquals(actualOwner.leaseFencingDigest(), lease.leaseToken())) {
+                    throw new IllegalStateException("channel authority belongs to another active Owner");
+                }
+                final com.nereusstream.delay.runtime.TargetChannelControlStore.Prepared first;
+                try {
+                    first = channelControls.prepareFirst(budget, control.prepared(), mutation.mutation(),
+                            entry.position(), control.authority(), actualOwner);
+                } catch (ReadIncompleteException incomplete) {
+                    throw new ReadYield(incomplete);
+                }
+                result = channelControls.commit(first, writes(control.commit(), entry, clock));
             } else if (isTargetClose(mutation.mutation())) {
                 final var control =
                         Objects.requireNonNull(authorities.closes().resolve(mutation), "Target Close control");
@@ -1607,7 +1689,9 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             throw new IllegalArgumentException(
                     "Target source business branch is not wired yet; source must remain pending");
         }
-        if (isTargetClose(mutation.mutation())) {
+        if (isChannelControl(mutation.mutation())) {
+            TargetChannelControlBody.decode(mutation.mutation().canonicalBody());
+        } else if (isTargetClose(mutation.mutation())) {
             TargetCloseBody.decode(mutation.mutation().canonicalBody());
         } else if (isMembershipControl(mutation.mutation())) {
             TargetMembershipControlBody.decode(mutation.mutation().canonicalBody());
@@ -1631,6 +1715,12 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     private static boolean isNativePolicyControl(com.nereusstream.delay.protocol.SystemMutation mutation) {
         final int kind = targetControlKind(mutation);
         return kind >= 19 && kind <= 23;
+    }
+
+    private static boolean isChannelControl(final SystemMutation mutation) {
+        final int kind = targetControlKind(mutation);
+        return kind >= com.nereusstream.delay.protocol.TargetChannelControlRequest.CREATE_CONTROL_KIND
+                && kind <= com.nereusstream.delay.protocol.TargetChannelControlRequest.STOP_CONTROL_KIND;
     }
 
     private static int targetControlKind(com.nereusstream.delay.protocol.SystemMutation mutation) {

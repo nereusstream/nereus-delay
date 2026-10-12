@@ -276,6 +276,17 @@ public final class PreparedControlOperation {
             throw new IllegalArgumentException("Control Operation requires at least one target");
         }
         switch (kind) {
+            case CREATE_TARGET_CHANNEL, RENEW_TARGET_CHANNEL, STOP_TARGET_CHANNEL_NEW_WORK -> {
+                requireOnlyKinds(values, ControlTargetKind.SHARD);
+                requireCount(values, ControlTargetKind.SHARD, 1, 1);
+                requireMutationPresence(values, ControlTargetKind.SHARD, true);
+                final var channel = branch(request, TargetChannelControlRequest.class);
+                if (values.getFirst().targetIndex() != 0
+                        || !values.getFirst().shard().shardId()
+                                .equals(channel.channel().context().sourceShard())) {
+                    throw new IllegalArgumentException("channel Control target must be its exact Source Shard at zero");
+                }
+            }
             case CLOSE_TARGET -> {
                 requireOnlyKinds(values, ControlTargetKind.SHARD);
                 final var close = branch(request, TargetCloseRequest.class);

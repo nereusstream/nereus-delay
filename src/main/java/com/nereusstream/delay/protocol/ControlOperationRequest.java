@@ -118,6 +118,10 @@ public final class ControlOperationRequest {
                 Objects.requireNonNull(branch, "branch").operationKind(), branch);
     }
 
+    public static ControlOperationRequest targetChannel(final TargetChannelControlRequest branch) {
+        return Objects.requireNonNull(branch, "branch").operationRequest();
+    }
+
     private static ControlOperationRequestBranch decodeBranch(final ControlOperationKind kind, final byte[] encoded) {
         return switch (kind) {
             case STOP_NEW_SCHEDULES -> StopNewSchedulesRequest.decode(encoded);
@@ -135,6 +139,8 @@ public final class ControlOperationRequest {
             case PUBLISH_QUOTA_GRANT -> PublishQuotaGrantRequest.decode(encoded);
             case PUBLISH_TARGET_QUOTA_GRANT -> TargetQuotaGrantControlRequest.decode(encoded);
             case CLOSE_TARGET -> TargetCloseRequest.decode(encoded);
+            case CREATE_TARGET_CHANNEL, RENEW_TARGET_CHANNEL, STOP_TARGET_CHANNEL_NEW_WORK ->
+                TargetChannelControlRequest.decode(kind, encoded);
             case ROTATE_EQUIVALENT_SECRET_REFERENCE -> RotateEquivalentSecretRequest.decode(encoded);
             case GRANT_TARGET_MEMBERSHIP, CLOSE_TARGET_MEMBERSHIP ->
                 TargetMembershipControlRequest.decode(kind, encoded);
@@ -163,6 +169,8 @@ public final class ControlOperationRequest {
                     case DEPRECATE_DESTINATION_PROFILE_VERSION -> branch instanceof DeprecateDestinationProfileRequest;
                     case PUBLISH_QUOTA_GRANT -> branch instanceof PublishQuotaGrantRequest;
                     case PUBLISH_TARGET_QUOTA_GRANT -> branch instanceof TargetQuotaGrantControlRequest;
+                    case CREATE_TARGET_CHANNEL, RENEW_TARGET_CHANNEL, STOP_TARGET_CHANNEL_NEW_WORK ->
+                        branch instanceof TargetChannelControlRequest channel && channel.operationKind() == kind;
                     case CLOSE_TARGET -> branch instanceof TargetCloseRequest;
                     case ROTATE_EQUIVALENT_SECRET_REFERENCE -> branch instanceof RotateEquivalentSecretRequest;
                     case GRANT_TARGET_MEMBERSHIP, CLOSE_TARGET_MEMBERSHIP ->

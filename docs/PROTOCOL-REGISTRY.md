@@ -3155,3 +3155,29 @@ retention/key/pin rights. Publication requires caller-held authorization/protect
 or a competing writer must reread the exact durable bytes under the same live session and held protection.
 Async reads share the caller-owned finite executor/start/result deadline and configured client request timeout;
 future cancellation never ends underlying RPC/resource obligations. No deletion or retention authority is inferred.
+
+### NDIP-3 Target channel Source lifecycle (2026-10-12)
+
+User selected ordered Source events; this is recorded in NDIP-3 decision-record, not a
+production activation receipt. ControlOperationKind/request branches 25, 26, 27 register
+CREATE_TARGET_CHANNEL, RENEW_TARGET_CHANNEL and STOP_TARGET_CHANNEL_NEW_WORK. Their
+ApplyShardControl kinds are 24, 25, 26. AuthorIdentity remains CONTROL; minimum role is
+PLATFORM_OPERATOR with authenticated exact resource scope and current Owner fencing.
+
+Closed requests and bodies, Source record identity, maximum sizes, NV43 immutable
+lifecycle history and NV44 current slot are specified in NDIP-3/07 section
+“Source channel 生命周期与当前代”. META tags are decimal36/37 (hex24/25), each
+followed by format01 and a 32-byte logical operation ID / domain-separated stable
+Producer identity hash. TargetValueEnvelope accepts NV1..44; legacy ValueEnvelope
+and format1 layouts stay unchanged. All new branches require a covering activated
+canonical schema bundle and eligible readers; codec availability grants no authority.
+
+First Source application atomically persists identities/history/current slot, exact
+record-delta counters/totals/aggregate, SYSTEM/POSITION result and actual Source.
+Renewal preserves stable Producer/Journal/sequence/evidence scope; STOP prevents
+new Admission while retaining old identities and all unresolved/physical obligations.
+Same signed bytes replay the original result. Full Source history fold is required
+for checkpoint/reopen; a bare NV20 is not a default initialized slot. Original
+Admission facts remain frozen after renewal/STOP. No local Claim ordinal authorizes
+channel lifecycle writes. Implementation is pending complete package1 composition
+and all deferred validation; no production or overall completion claim.

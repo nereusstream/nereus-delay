@@ -13,6 +13,9 @@ import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
 import com.nereusstream.delay.protocol.TargetChannelIdentity;
+import com.nereusstream.delay.protocol.TargetChannelControlRecord;
+import com.nereusstream.delay.protocol.TargetChannelSlot;
+import com.nereusstream.delay.protocol.ControlOperationKind;
 import com.nereusstream.delay.protocol.TargetInitialControlSnapshot;
 import com.nereusstream.delay.protocol.TargetMembershipClosureRecord;
 import com.nereusstream.delay.protocol.TargetMembershipGrant;
@@ -116,6 +119,9 @@ final class TargetCheckpointLedgerAudit {
         final List<TargetQuotaGrantActivation> grantActivations = new ArrayList<>();
         final List<TargetMembershipClosureRecord> membershipClosures = new ArrayList<>();
         final List<TargetNativePolicyControlRecord> nativeControls = new ArrayList<>();
+        final List<TargetChannelControlRecord> channelControls = new ArrayList<>();
+        final List<TargetChannelIdentity> channelIdentities = new ArrayList<>();
+        final List<TargetChannelSlot> channelSlots = new ArrayList<>();
         final List<TargetInitialControlSnapshot> initialControls = new ArrayList<>();
         final List<TargetQuotaAttemptBudget> attemptBudgets = new ArrayList<>();
         final List<AttemptProjection> attemptProjections = new ArrayList<>();
@@ -159,6 +165,11 @@ final class TargetCheckpointLedgerAudit {
                             final var control = TargetNativePolicyControlRecord.decode(payload);
                             dependencies.nativeScope(control.body().request().scope());
                             if (control.grant() != null) { dependencies.membership(control.grant()); }
+                        } else if (type == TargetChannelControlRecord.VALUE_TYPE) {
+                            final var event = TargetChannelControlRecord.decode(payload);
+                            dependencies.profileUse(new TargetCheckpointDependencies.ProfileUse(
+                                    event.body().request().channel().credentialLease().profile(),
+                                    event.mutation().source()));
                         } else if (type == TargetQuotaPayloadOwner.VALUE_TYPE) {
                             final var owner = TargetQuotaPayloadOwner.decode(payload);
                             if (owner.objectStoreProfileHash() != null) {
@@ -175,6 +186,14 @@ final class TargetCheckpointLedgerAudit {
                         auditMessageDependencies(message, view);
                     } else if (family == ColumnFamily.META && type == TargetOrderState.VALUE_TYPE) {
                         auditOrderStateDependencies(TargetOrderState.decode(payload), view);
+                    } else if (family == ColumnFamily.META && type == TargetChannelIdentity.VALUE_TYPE) {
+                        channelIdentities.add(TargetChannelIdentity.decodeForStore(
+                                key, payload, proof.metadata().shardId()));
+                    } else if (family == ColumnFamily.META && type == TargetChannelControlRecord.VALUE_TYPE) {
+                        channelControls.add(TargetChannelControlRecord.decodeForStore(
+                                key, payload, proof.metadata().shardId()));
+                    } else if (family == ColumnFamily.META && type == TargetChannelSlot.VALUE_TYPE) {
+                        channelSlots.add(TargetChannelSlot.decodeForStore(key, payload, proof.metadata().shardId()));
                     } else if (family == ColumnFamily.META && type == TargetQuotaGrantActivation.VALUE_TYPE) {
                         grantActivations.add(TargetQuotaGrantActivation.decodeForStore(
                                 key, payload, proof.metadata().shardId(), proof.bookkeeping().tenantScope()));
@@ -258,7 +277,8 @@ final class TargetCheckpointLedgerAudit {
                 throw new IllegalStateException("Target initial control snapshot changes its original Control author");
             }
         }
-        auditControlResults(membershipClosures, nativeControls, resultRows, proof.root().identity());
+        auditControlResults(membershipClosures, nativeControls, channelControls, resultRows, proof.root().identity());
+        auditChannelHistory(channelControls, channelIdentities, channelSlots);
         final var admissions = auditAdmissionResults(attemptBudgets, resultRows, proof.root().identity());
         TargetQuotaDelta.audit(proof.aggregate(), counters, rebuilt);
         for (final var stored : resultRows) {
@@ -575,6 +595,7 @@ final class TargetCheckpointLedgerAudit {
     private static void auditControlResults(
             final List<TargetMembershipClosureRecord> closures,
             final List<TargetNativePolicyControlRecord> controls,
+            final List<TargetChannelControlRecord> channels,
             final List<TargetResultLedgerAudit.Stored> resultRows,
             final TargetQuotaIdentity root) {
         final Map<String, TargetResultRecord> systems = new HashMap<>();
@@ -594,6 +615,87 @@ final class TargetCheckpointLedgerAudit {
             requireControlResult(systems, root, control.mutation(), body.retryUntil(), body.logicalIdentity(),
                     body.canonicalBytes(), AuthorIdentity.control(author.operationActorIdHash(),
                             author.authenticatedRoleSetHash(), author.tenantResourceScopeHash()).canonicalBytes());
+        }
+        for (final var control : channels) {
+            final var body = control.body();
+            final var author = control.author();
+            requireControlResult(systems, root, control.mutation(), body.retryUntil(), body.logicalIdentity(),
+                    body.canonicalBytes(), AuthorIdentity.control(author.operationActorIdHash(),
+                            author.authenticatedRoleSetHash(), author.tenantResourceScopeHash()).canonicalBytes());
+        }
+    }
+
+    private static void auditChannelHistory(final List<TargetChannelControlRecord> controls,
+            final List<TargetChannelIdentity> identities, final List<TargetChannelSlot> slots) {
+        final Map<String, TargetChannelIdentity> byIdentity = new HashMap<>();
+        final Map<String, TargetChannelSlot> bySlot = new HashMap<>();
+        final Map<String, List<TargetChannelControlRecord>> history = new HashMap<>();
+        final java.util.Set<String> created = new java.util.HashSet<>();
+        for (final var identity : identities) {
+            if (byIdentity.putIfAbsent(Bytes.hex(identity.digest()), identity) != null) {
+                throw new IllegalStateException("checkpoint repeats a channel immutable identity");
+            }
+        }
+        for (final var slot : slots) {
+            if (bySlot.putIfAbsent(Bytes.hex(slot.key()), slot) != null) {
+                throw new IllegalStateException("checkpoint repeats a current channel slot");
+            }
+        }
+        for (final var event : controls) {
+            final var requested = event.body().request().channel();
+            final var identity = byIdentity.get(Bytes.hex(requested.digest()));
+            if (identity == null || !Arrays.equals(identity.canonicalBytes(), requested.canonicalBytes())) {
+                throw new IllegalStateException("channel lifecycle event lacks its exact retained NV20 identity");
+            }
+            final String key = Bytes.hex(TargetKeyCodec.channelSlot(identity.context().producerIdentity()));
+            history.computeIfAbsent(key, ignored -> new ArrayList<>()).add(event);
+        }
+        if (history.size() != bySlot.size()) {
+            throw new IllegalStateException("channel history and current slot inventory differ");
+        }
+        for (final var entry : history.entrySet()) {
+            final var events = entry.getValue();
+            events.sort((left, right) -> left.mutation().source().compareTo(right.mutation().source()));
+            TargetChannelSlot prior = null;
+            for (final var event : events) {
+                final var request = event.body().request();
+                final var channel = request.channel();
+                if (prior != null) { event.mutation().requireAfter(prior.mutation()); }
+                switch (request.operationKind()) {
+                    case CREATE_TARGET_CHANNEL -> {
+                        if (prior != null) {
+                            throw new IllegalStateException("channel creation overwrote an existing stable slot");
+                        }
+                    }
+                    case RENEW_TARGET_CHANNEL -> {
+                        if (prior == null || prior.phase() != TargetChannelSlot.Phase.OPEN
+                                || !Arrays.equals(prior.channel().digest(), request.expectedPriorDigest())) {
+                            throw new IllegalStateException("channel renewal lacks its exact open predecessor");
+                        }
+                        channel.requireSuccessorOf(prior.channel());
+                    }
+                    case STOP_TARGET_CHANNEL_NEW_WORK -> {
+                        if (prior == null) {
+                            throw new IllegalStateException("channel stop lacks its earlier Source creation");
+                        }
+                        prior.channel().requireExactFrozenIdentity(channel);
+                    }
+                    default -> throw new IllegalStateException("unregistered channel lifecycle operation");
+                }
+                if (request.operationKind() != ControlOperationKind.STOP_TARGET_CHANNEL_NEW_WORK
+                        && !created.add(Bytes.hex(channel.digest()))) {
+                    throw new IllegalStateException("channel immutable generation has multiple creation events");
+                }
+                prior = new TargetChannelSlot(event);
+            }
+            final var current = bySlot.get(entry.getKey());
+            if (current == null || prior == null
+                    || !Arrays.equals(current.canonicalBytes(), prior.canonicalBytes())) {
+                throw new IllegalStateException("current channel slot differs from its complete Source history fold");
+            }
+        }
+        if (created.size() != byIdentity.size()) {
+            throw new IllegalStateException("bare channel identity has no authenticated Source creation history");
         }
     }
 

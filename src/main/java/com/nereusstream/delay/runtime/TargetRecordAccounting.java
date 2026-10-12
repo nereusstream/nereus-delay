@@ -333,6 +333,34 @@ public final class TargetRecordAccounting {
                         key,
                         payload));
             }
+            case com.nereusstream.delay.protocol.TargetChannelControlRecord.VALUE_TYPE -> {
+                requireFamily(family, ColumnFamily.META);
+                final var record = com.nereusstream.delay.protocol.TargetChannelControlRecord.decodeForStore(
+                        key, payload, scope.shard());
+                if (!Arrays.equals(record.recoveryLineage(), lineage)) {
+                    throw new IllegalStateException("channel lifecycle record belongs to another lineage");
+                }
+                record.mutation().requireAtOrBefore(operation);
+                final var context = record.body().request().channel().context();
+                final var owner = targetOwner(context.target(), context.accountingIncarnation());
+                result = new Charge(owner, resources(owner.accounting().recordCharge(
+                        com.nereusstream.delay.protocol.TargetQuotaAccounting.RecordClass.STATE,
+                        key.length, payload.length)));
+            }
+            case com.nereusstream.delay.protocol.TargetChannelSlot.VALUE_TYPE -> {
+                requireFamily(family, ColumnFamily.META);
+                final var slot = com.nereusstream.delay.protocol.TargetChannelSlot.decodeForStore(
+                        key, payload, scope.shard());
+                if (!Arrays.equals(slot.recoveryLineage(), lineage)) {
+                    throw new IllegalStateException("channel slot belongs to another lineage");
+                }
+                slot.mutation().requireAtOrBefore(operation);
+                final var context = slot.channel().context();
+                final var owner = targetOwner(context.target(), context.accountingIncarnation());
+                result = new Charge(owner, resources(owner.accounting().recordCharge(
+                        com.nereusstream.delay.protocol.TargetQuotaAccounting.RecordClass.STATE,
+                        key.length, payload.length)));
+            }
             case TargetNativePolicyScope.VALUE_TYPE -> {
                 requireFamily(family, ColumnFamily.META);
                 final var nativeScope = TargetNativePolicyScope.decodeForStore(key, payload, scope.shard());
