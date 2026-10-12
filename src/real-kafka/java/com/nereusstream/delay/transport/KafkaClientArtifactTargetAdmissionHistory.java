@@ -61,8 +61,8 @@ public final class KafkaClientArtifactTargetAdmissionHistory {
         final var config = new HashMap<>(Objects.requireNonNull(configuration, "configuration"));
         final var ref = Objects.requireNonNull(reference, "reference");
         final var guard = Objects.requireNonNull(historyGuard, "historyGuard");
-        return readAsync(timeout, guard, executor, remaining ->
-                readControl(config, physicalTopic, ref, remaining, guard));
+        return readAsync(timeout, guard, executor, (remaining, active) ->
+                readControl(config, physicalTopic, ref, remaining, active));
     }
 
     /** Exact original Outcome history, including rejected first results, on an independent no-commit cursor. */
@@ -82,8 +82,8 @@ public final class KafkaClientArtifactTargetAdmissionHistory {
         final var config = new HashMap<>(Objects.requireNonNull(configuration, "configuration"));
         final var ref = Objects.requireNonNull(reference, "reference");
         final var guard = Objects.requireNonNull(historyGuard, "historyGuard");
-        return readAsync(timeout, guard, executor, remaining ->
-                readOutcome(config, physicalTopic, ref, remaining, guard));
+        return readAsync(timeout, guard, executor, (remaining, active) ->
+                readOutcome(config, physicalTopic, ref, remaining, active));
     }
 
     /** Bounded original Admission read; caller owns the executor and all history/cleanup obligations. */
@@ -94,12 +94,12 @@ public final class KafkaClientArtifactTargetAdmissionHistory {
         final var config = new HashMap<>(Objects.requireNonNull(configuration, "configuration"));
         final var ref = Objects.requireNonNull(reference, "reference");
         final var guard = Objects.requireNonNull(historyGuard, "historyGuard");
-        return readAsync(timeout, guard, executor, remaining -> read(config, physicalTopic, ref, remaining, guard));
+        return readAsync(timeout, guard, executor, (remaining, active) -> read(config, physicalTopic, ref, remaining, active));
     }
 
     private static java.util.concurrent.CompletableFuture<SystemMutation> readAsync(Duration timeout, Runnable guard,
             java.util.concurrent.ThreadPoolExecutor executor,
-            java.util.function.Function<Duration, SystemMutation> operation) {
+            java.util.function.BiFunction<Duration, Runnable, SystemMutation> operation) {
         final var pool = Objects.requireNonNull(executor, "executor");
         if (pool.getMaximumPoolSize() == Integer.MAX_VALUE
                 || (long) pool.getQueue().size() + pool.getQueue().remainingCapacity() >= Integer.MAX_VALUE
@@ -112,13 +112,16 @@ public final class KafkaClientArtifactTargetAdmissionHistory {
             throw new IllegalArgumentException("async history timeout must fit a positive millisecond int");
         }
         final long started = System.nanoTime();
-        guard.run();
-        return com.nereusstream.delay.ownership.CheckpointInputFuture.track(
-                java.util.concurrent.CompletableFuture.supplyAsync(() -> {
-                    final long remaining = timeoutMs * 1_000_000L - (System.nanoTime() - started);
-                    if (remaining < 1_000_000L) { throw new IllegalStateException("queued K1 history deadline expired"); }
-                    return operation.apply(Duration.ofNanos(remaining));
-                }, pool));
+        final long timeoutNanos = timeoutMs * 1_000_000L;
+        final Runnable boundedGuard = () -> {
+            remainingMs(started, timeoutNanos);
+            guard.run();
+            remainingMs(started, timeoutNanos);
+        };
+        return com.nereusstream.delay.ownership.OwnedCheckpointIo.submit(active -> {
+            final long remaining = timeoutNanos - (System.nanoTime() - started);
+            return operation.apply(Duration.ofNanos(remaining), active);
+        }, boundedGuard, pool).receipt();
     }
 
     private static SystemMutation read(final Map<String, Object> configuration, final String physicalTopic,
@@ -200,6 +203,12 @@ public final class KafkaClientArtifactTargetAdmissionHistory {
             if (failure != null && closeFailure != failure) { retained.addSuppressed(closeFailure); }
             throw retained;
         }
+    }
+
+    private static long remainingMs(long started, long timeoutNanos) {
+        final long remaining = timeoutNanos - (System.nanoTime() - started);
+        if (remaining < 1_000_000L) { throw new IllegalStateException("K1 history deadline exhausted"); }
+        return java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(remaining);
     }
 
     /** Exact private cursor remains charged after failed close; retry never opens a replacement. */

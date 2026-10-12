@@ -25,6 +25,7 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
     public interface PreparationIo {
         boolean ioExited();
         Throwable pendingIoFailure();
+        default void requestStop() {}
     }
     @FunctionalInterface
     public interface IntentRegistration {
@@ -478,6 +479,12 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
             complete(new Outcome(null, new IllegalStateException("Target checkpoint registration stopped")));
         }
 
+        /** Stops only the retained preparation between actions, preserving running I/O/native cleanup. */
+        public synchronized void requestPreparationStop() {
+            if (!preparing() || preparationRegistry.state(task).isPresent()) { return; }
+            complete(new Outcome(null, new IllegalStateException("Target checkpoint preparation stopped")));
+        }
+
         /** Only the owning Worker uses this to admit history reads while its ordinary turns are paused. */
         public void requirePreparationCurrent() {
             if (!preparing()) { throw new IllegalStateException("Target checkpoint history is no longer preparing"); }
@@ -538,6 +545,7 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
             }
             Objects.requireNonNull(completed, "completed");
             if (registration != null && completed.failure() != null) { registration.requestStop(); }
+            if (preparationIo != null && completed.failure() != null) { preparationIo.requestStop(); }
             if (!ioExited()) {
                 retainedOutcome = completed;
                 nextStep = null;

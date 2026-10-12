@@ -627,3 +627,7 @@ C5（2026-10-12）：Oxia 注册 exact Runnable 的 queued stop 已给出 no-sta
 C5（2026-10-12）：history/Registry view取消与实际 I/O/cursor cleanup分离，collector失败保留
 原句柄，Worker cut/task待全部退出后结清。K1/P1及Oxia provider接tracked future，权限与格式
 不变；完整shutdown/queued history/故障/迁退/集中验收仍开放，flags不提升。
+
+C5（2026-10-12）：注册的单次start/stop状态复用到K1/P1 history与Oxia Registry，queued撤回
+给出no-start事实，running仍保留读取/cleanup。Host接新的preparation stop，registration专用
+API保持原义；完整故障/资源/权限/迁退与集中验收仍开放，flags不提升。

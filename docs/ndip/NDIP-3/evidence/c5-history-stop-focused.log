@@ -1,0 +1,229 @@
+C5 queued history/Registry stop 2026-10-12
+Base commit ee354cdff353bc8e5b61af23b943da95c28a08f1
+Final local46 = input-future5/lookup8/actual Store1/Host21/backend11; zero failure/error/skip, styles/K1-P1 compile47s.
+New P1 smoke queued-history assertion was added after local46 and is covered by its own native compilation/run42s; no production change after local46.
+Scope: queued no-start and shared local lifecycle; started-read model retains failed native cleanup. No native close-failure/full physical-service proof.
+Initial local46 failed an expected registration-only error message during preliminary general-stop wiring. Kept registration public API behavior and introduced separate preparation stop. Main line-length131 failed overall after tests passed; fixed.
+Final command: GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew test --tests com.nereusstream.delay.ownership.CheckpointInputFutureTest --tests com.nereusstream.delay.runtime.CheckpointRegistryLookupTest --tests com.nereusstream.delay.runtime.TargetCommandStoreTest.checkpointAdmissionAuthenticationPreservesUnknownAndResolvedOriginalSource --tests com.nereusstream.delay.ownership.TargetWorkerShardFleetRuntimeTest --tests com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackendTest checkstyleMain checkstyleTest compileRealKafka -PkafkaClientJar=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1/clients/build/libs/kafka-clients-4.4.0-SNAPSHOT.jar compileRealPulsar -PpulsarClientClasspath=/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-client/build/libs/pulsar-client-original-5.0.0-M1.jar:/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-client-api/build/libs/pulsar-client-api-5.0.0-M1.jar:/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-common/build/libs/pulsar-common-5.0.0-M1.jar --no-daemon --console=plain
+SHA256 1cf3227295d354023833bf410b3d4a27b8b66700dbef61daab1c2db0dd6a0bec src/main/java/com/nereusstream/delay/ownership/OwnedCheckpointIo.java
+SHA256 055f7543aec645b1c1fa196d786b24cd2e60c5f5c57a692c4bbfbec7d4bc382a src/main/java/com/nereusstream/delay/ownership/CheckpointInputFuture.java
+SHA256 bd6ceb39657251908f14967f104ffe0ce1af56523c17c1bce3cc089bcd6e426f src/main/java/com/nereusstream/delay/ownership/TargetCheckpointControlInputs.java
+SHA256 9fa9fe7cc955af7f95e8d0c2363048d607c2904fb4002b947297f8bebb72cc95 src/main/java/com/nereusstream/delay/ownership/TargetCheckpointOutcomeInputs.java
+SHA256 26de11f84bb9ba4c0155993e70f45f26347f34fb01470b4aa10f4fc05cda33c8 src/main/java/com/nereusstream/delay/ownership/TargetCheckpointAdmissionInputs.java
+SHA256 95fa7c77d92144d5aebae252fe4489be37570a066c6a3d97700bd6e1fd010434 src/main/java/com/nereusstream/delay/ownership/TargetCheckpointRegistryInputs.java
+SHA256 b6b48e342b5b876a9ec35910a2cd8a8e238e0d99b35b1254bb00318942663293 src/main/java/com/nereusstream/delay/ownership/TargetCheckpointSemanticInputs.java
+SHA256 6986e8a9a9909f0ce88e5fc090ea305a1b6146d6f5a1d31461328c9db6ad0a06 src/main/java/com/nereusstream/delay/ownership/TargetWorkerShardRuntime.java
+SHA256 64d581fcb245493ff619a9a4f8573e79cf46dacb83f8703bf922f0055fa9e787 src/main/java/com/nereusstream/delay/ownership/TargetWorkerHostRuntime.java
+SHA256 80b0eafdb2502369019aa66c86a715d2fe9bc0ef3fdace49edf2b46af26f164b src/main/java/com/nereusstream/delay/store/TargetCheckpointCandidateWorkClassExecutor.java
+SHA256 3d25f9e0c9311a3ccd340f0b5ee9c9445536c0706a8224eb816f1c88828ea190 src/main/java/com/nereusstream/delay/runtime/CheckpointRegistryLookup.java
+SHA256 0a3da1d43739c0e264be651cccf825c31d43da49d9c554d694a7078d44969d54 src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetAdmissionHistory.java
+SHA256 98e853341a0bd14ec3587e627beb9b7eea8bc517dbdb2ea0f171e1b9c3553a35 src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactTargetAdmissionHistory.java
+SHA256 dc1621fe69f667d8d84315eef6a4dfde7dcafa65676737f55ea1593d53e4c815 src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactTargetWorkerSourceSmoke.java
+SHA256 4ea8ff057229bd3bd51136cbfe0888e46d8058d85163354631d7dc573ab1e85c src/test/java/com/nereusstream/delay/ownership/CheckpointInputFutureTest.java
+SHA256 d84023066ccb4821d0b93224569a607bf27b5134713726d936601e084b628cf1 src/test/java/com/nereusstream/delay/runtime/CheckpointRegistryLookupTest.java
+SHA256 1d581d4c4523ee5373077721a4e2739252a99816e1c506e5cfc395c04029e1af src/test/java/com/nereusstream/delay/runtime/TargetCommandStoreTest.java
+
+RAW ndip3-history-stop-local-xml.txt
+TEST-com.nereusstream.delay.runtime.CheckpointRegistryLookupTest.xml {'tests': '8', 'failures': '0', 'errors': '0', 'skipped': '0'} SHA256 ae176366247b3ffa06d2562bad485c5b2f069c0188f4fcf2eac8545cbe7e14fd
+TEST-com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackendTest.xml {'tests': '11', 'failures': '0', 'errors': '0', 'skipped': '0'} SHA256 f60e2538e8822728a65fb91e673ab99591c1e508e8a4b1cade03648f1e028d3b
+TEST-com.nereusstream.delay.runtime.TargetCommandStoreTest.xml {'tests': '1', 'failures': '0', 'errors': '0', 'skipped': '0'} SHA256 7007d03c3c7f2c36df9317d481a09429ddd96f96569387d3052c5ec1d194756a
+TEST-com.nereusstream.delay.ownership.CheckpointInputFutureTest.xml {'tests': '5', 'failures': '0', 'errors': '0', 'skipped': '0'} SHA256 e705db8881abb841973bee3ae901c3ea5b7f87cf929ac4a29bbfa39f4d0aeece
+TEST-com.nereusstream.delay.ownership.TargetWorkerShardFleetRuntimeTest.xml {'tests': '21', 'failures': '0', 'errors': '0', 'skipped': '0'} SHA256 8bf91cc3d04ffae92177dced634f50f04643377d427205040725ae6df145909f
+
+RAW ndip3-history-stop-focused.log
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+
+> Task :test
+
+TargetCommandStoreTest > checkpointAdmissionAuthenticationPreservesUnknownAndResolvedOriginalSource() FAILED
+    org.opentest4j.AssertionFailedError at TargetCommandStoreTest.java:8641
+
+46 tests completed, 1 failed
+
+> Task :test FAILED
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':test'.
+> There were failing tests. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/tests/test/index.html
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 25s
+13 actionable tasks: 5 executed, 8 up-to-date
+
+RAW ndip3-history-stop-style-failure.log
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :extractIncludeRealKafkaProto UP-TO-DATE
+> Task :extractRealKafkaProto UP-TO-DATE
+> Task :generateRealKafkaProto NO-SOURCE
+> Task :compileRealKafka
+> Task :extractIncludeRealPulsarProto UP-TO-DATE
+> Task :extractRealPulsarProto UP-TO-DATE
+> Task :generateRealPulsarProto NO-SOURCE
+> Task :compileRealPulsar
+> Task :checkstyleTest
+
+> Task :checkstyleMain
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/main/java/com/nereusstream/delay/runtime/CheckpointRegistryLookup.java:34: 本行字符数 131个，最多：120个。 [LineLength]
+
+> Task :checkstyleMain FAILED
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':checkstyleMain'.
+> A failure occurred while executing org.gradle.api.plugins.quality.internal.CheckstyleAction
+   > Checkstyle rule violations were found. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/checkstyle/main.html
+     Checkstyle files with violations: 1
+     Checkstyle violations by severity: [error:1]
+
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 47s
+21 actionable tasks: 7 executed, 14 up-to-date
+
+RAW ndip3-history-stop-final.log
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :extractIncludeRealKafkaProto UP-TO-DATE
+> Task :extractRealKafkaProto UP-TO-DATE
+> Task :generateRealKafkaProto NO-SOURCE
+> Task :compileRealKafka
+> Task :extractIncludeRealPulsarProto UP-TO-DATE
+> Task :extractRealPulsarProto UP-TO-DATE
+> Task :generateRealPulsarProto NO-SOURCE
+> Task :compileRealPulsar
+> Task :checkstyleTest
+> Task :checkstyleMain
+
+BUILD SUCCESSFUL in 47s
+21 actionable tasks: 8 executed, 13 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+
+Final OwnedCheckpointIo EOF blank-line cleanup only; verification source SHA256 411b01eff662da7b8b8b1e34e221b0640dd64eee4667e557c4c68916903eaa5c; final SHA256 1cf3227295d354023833bf410b3d4a27b8b66700dbef61daab1c2db0dd6a0bec. No semantic code change.
+
+RAW checkDocumentation
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+
+> Task :testNdip1ImplementationVerifier
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 62.641s
+
+OK
+
+> Task :testNdip1PackageVerifier
+..............
+----------------------------------------------------------------------
+Ran 14 tests in 0.085s
+
+OK
+
+> Task :verifyNdip1HistoricalClosure
+proposal=NDIP-1
+receipt_status=IMPLEMENTED
+lifecycle_authority=true
+implementation=CLOSED
+lifecycle=CLOSED
+certified_commit=b4e077e9978f262cdb93cf3562ea12eee32430e2
+runtime_source_sha256=03ce17ede4b9e70e2f70dd2bbef681087f529159549a4cd979d0d7aa34fa9948
+runtime_source_files=835
+implemented_package_sha256=792ca54e239d884ba6f95315747f565bab57ee0fc02338a77369cb19bbe8e8a7
+staging_run=20260901055333-78920
+deployment=SEPARATE_FUTURE_WORK
+performance_and_scale=SEPARATE_FUTURE_WORK
+production_rollout=SEPARATE_FUTURE_WORK
+production_authority=false
+
+> Task :verifyNdip1PackageAccepted
+proposal=NDIP-1
+receipt_status=ACCEPTED
+authority=true
+package_source_commit=77ffa61136c0cd401244ebea4375a5a18b097b17
+file_sha256 70d9dd7c113fa5f457a20a97996322ef9a2018772efd225aa982c13ec4935140 docs/ndip/NDIP-1/01-调查与决策记录.md
+file_sha256 c167ed42dd29c383c08a8a102f36b0e4deee8ae5c7a5da115a09d04ffcb9fa6f docs/ndip/NDIP-1/02-NDIP-1-Pulsar-Native-Delivery.md
+file_sha256 9affafa81952959d39ed9c09a00abe6b84da4fd3b0b6280422f297684d56f727 docs/ndip/NDIP-1/03-实施计划.md
+file_sha256 2a26c107cd69ee522ea138b3487b8ec206e913acc6ad5b862aa69288ddcaa88e docs/ndip/NDIP-1/04-代码级目标设计.md
+package_sha256=13caab8ecdc201901f06e905f1c0bf9792780e50c6f5948f93abf2bdb8f4d21b
+gate_b=PASS
+implementation=AUTHORIZED
+local_disposable_testing=AUTHORIZED_WITH_EXACT_ATTESTATION
+gate_c=PENDING_DEPLOYMENT
+shadow=BLOCKED_BY_GATE_C
+enabled=BLOCKED_BY_GATE_C_AND_SHADOW_REQUIREMENTS
+
+> Task :verifyNdip2PackageAccepted
+proposal=NDIP-2
+receipt_status=ACCEPTED
+authority=true
+file_sha256 0a105fb2b73d63cabddf42d0ba3d5a9590b4edddd47242495f196bf56d15f642 docs/ndip/NDIP-2/01-NDIP-生命周期与认证源码权威分层.md
+file_sha256 c882ecaa32413cb9e177243cf3efe91b97810c3cc10be81e61e7e458030c4ffa docs/ndip/NDIP-2/02-实施计划.md
+file_sha256 ec1ba68ab3ac91aa667647e6289cd252b99da84d899f42f879821d6e5d7752e9 docs/ndip/NDIP-2/03-代码级目标设计.md
+package_sha256=856e1d768210a31fc9aad811af3a93c1de33189cc03c65bc1e36d57affbf10db
+gate_b=PASS
+implementation=AUTHORIZED
+deployment_authority=false
+
+> Task :checkDocumentation
+
+BUILD SUCCESSFUL in 1m 21s
+6 actionable tasks: 6 executed
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html

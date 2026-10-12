@@ -2369,3 +2369,10 @@ CleanupFailure，并按已有same-cursor retryClose或明确original-client back
 清理确认后运行原checkpoint settlement，再继续Source/Owner drain；不能提前释放pin/physical
 资源或换client/cursor来掩盖未退出。自定义额外async SnapshotFactory须提供真实ioExited诊断，
 旧plain-future completion仍须包含实际I/O退出。queued history撤回及整体服务关闭仍待补齐。
+
+原held checkpoint history/Registry future可用CheckpointInputFuture.requestStop(view)请求停止
+同一operation；queued提供start-lock内的no-start，running保留RPC/原cursor直到cleanup确认。
+Worker提供requestCheckpointPreparationStop，由Host drain调用；原registration专用停止入口
+保持原义。不要将future.cancel作为资源退出或shutdownNow移除queued任务的证明。关闭caller
+client/executor/pin/physical之前，先stop、处理原CleanupFailure并结清同task；publication action
+已开始时沿原流程完成或失败，不用停止请求制造成功。custom factory独立I/O仍须明确自己的义务。

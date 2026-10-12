@@ -127,6 +127,8 @@ public final class TargetCheckpointOutcomeInputs {
         if (cut != null) { worker.requireCheckpointControlInputsCurrent(readBudget(), cut, ownerClock); }
     }
 
+    public synchronized void requestStop() { CheckpointInputFuture.requestStop(loading); }
+
     public synchronized boolean ioExited() { return CheckpointInputFuture.ioExited(loading); }
 
     public synchronized Throwable pendingIoFailure() { return CheckpointInputFuture.ownedFailure(loading); }

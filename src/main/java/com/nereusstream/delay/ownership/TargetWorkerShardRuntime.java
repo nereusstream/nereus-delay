@@ -739,6 +739,11 @@ public final class TargetWorkerShardRuntime
         if (pendingCheckpoint != null) { pendingCheckpoint.requestRegistrationStop(); }
     }
 
+    @Override
+    public synchronized void requestCheckpointPreparationStop() {
+        if (pendingCheckpoint != null) { pendingCheckpoint.requestPreparationStop(); }
+    }
+
     /** Runs one shared bounded turn and releases the local source/maintenance cut only after settlement. */
     public synchronized Optional<TargetCheckpointCandidateWorkClassExecutor.Outcome> runCheckpointTurn(
             final SchedulerBudget budget) {

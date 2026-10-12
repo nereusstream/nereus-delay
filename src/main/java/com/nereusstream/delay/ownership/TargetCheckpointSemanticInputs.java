@@ -34,6 +34,8 @@ public final class TargetCheckpointSemanticInputs implements Supplier<Optional<T
         default boolean ioExited() { return true; }
 
         default Throwable pendingIoFailure() { return null; }
+
+        default void requestStop() {}
     }
 
     /** Original history and issuer authorities, supplied under held role/key/Owner/credential/pin protection. */
@@ -99,6 +101,9 @@ public final class TargetCheckpointSemanticInputs implements Supplier<Optional<T
 
         @Override
         public Throwable pendingIoFailure() { return registry == null ? null : registry.pendingIoFailure(); }
+
+        @Override
+        public void requestStop() { if (registry != null) { registry.requestStop(); } }
 
         @Override
         public Optional<TargetCheckpointSemanticSnapshot> create(TargetCheckpointControlInputs.Result control,
@@ -238,6 +243,14 @@ public final class TargetCheckpointSemanticInputs implements Supplier<Optional<T
     public boolean ioExited() {
         return controls.ioExited() && outcomes.ioExited() && (admissions == null || admissions.ioExited())
                 && factory.ioExited();
+    }
+
+    @Override
+    public void requestStop() {
+        controls.requestStop();
+        outcomes.requestStop();
+        if (admissions != null) { admissions.requestStop(); }
+        factory.requestStop();
     }
 
     @Override

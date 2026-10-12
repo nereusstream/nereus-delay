@@ -65,7 +65,7 @@ class CheckpointRegistryLookupTest {
                 assertTrue(owned.ioExited());
                 assertTrue(assertThrows(ExecutionException.class,
                         () -> owned.receipt().get(5, TimeUnit.SECONDS)).getCause().getMessage()
-                        .contains("stopped before metadata I/O"));
+                        .contains("stopped before I/O"));
                 removed.forEach(Runnable::run); // Even a retained Runnable cannot resurrect the original operation.
                 assertFalse(called.get());
             } finally {

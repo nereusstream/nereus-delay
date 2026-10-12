@@ -67,6 +67,8 @@ public final class TargetWorkerHostRuntime {
 
         default void requestCheckpointRegistrationStop() {}
 
+        default void requestCheckpointPreparationStop() { requestCheckpointRegistrationStop(); }
+
         Optional<TargetCheckpointCandidateWorkClassExecutor.Outcome> runCheckpointTurn(SchedulerBudget budget);
 
         default Optional<WorkClassTask> settlePendingMessageExpiryForDrain(
@@ -1198,7 +1200,7 @@ public final class TargetWorkerHostRuntime {
         synchronized (shard) {
             SourceApplyCoordinator.TurnResult sourceTurn = null;
             try {
-                shard.requestCheckpointRegistrationStop();
+                shard.requestCheckpointPreparationStop();
                 final Optional<WorkClassTask> checkpoint = shard.pendingCheckpointTask();
                 if (checkpoint.isPresent()) {
                     return new ShardDrain(

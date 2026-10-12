@@ -584,6 +584,40 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
         final var ledger = new TargetCheckpointRootVerifier.LedgerAuditLimits(4096, 32L << 20, 16_384, 32L << 20);
         final var semanticLimits = new TargetCheckpointSemanticSnapshot.Limits(64, 1 << 20, 1 << 20);
         final var dependencies = inputs.cut().dependencies();
+        final var queuedHistoryEntered = new java.util.concurrent.CountDownLatch(1);
+        final var releaseQueuedHistory = new java.util.concurrent.CountDownLatch(1);
+        final var historyGuardCalled = new java.util.concurrent.atomic.AtomicBoolean();
+        historyExecutor.execute(() -> {
+            queuedHistoryEntered.countDown();
+            try { releaseQueuedHistory.await(); }
+            catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+        });
+        try {
+            if (!queuedHistoryEntered.await(5, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("queued history gate did not start");
+            }
+            final var queuedHistory = PulsarClientArtifactTargetAdmissionHistory.readControlAsync(client, resource,
+                    dependencies.controlReferences().getFirst(), Duration.ofSeconds(10),
+                    () -> historyGuardCalled.set(true), historyExecutor);
+            com.nereusstream.delay.ownership.CheckpointInputFuture.requestStop(queuedHistory);
+            try {
+                queuedHistory.get(5, TimeUnit.SECONDS);
+                throw new AssertionError("queued history stop reported success");
+            } catch (java.util.concurrent.ExecutionException stopped) {
+                if (!stopped.getCause().getMessage().contains("stopped before I/O")) { throw stopped; }
+            }
+            if (historyGuardCalled.get()
+                    || !com.nereusstream.delay.ownership.CheckpointInputFuture.ioExited(queuedHistory)) {
+                throw new IllegalStateException("queued P1 history opened I/O or lacked no-start proof");
+            }
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(interrupted);
+        } catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException failed) {
+            throw new IllegalStateException("queued P1 history stop failed", failed);
+        } finally {
+            releaseQueuedHistory.countDown();
+        }
         final long now = System.currentTimeMillis();
         final var pending = new CheckpointUploadIntent(new ShardSubject(scope.shard()),
                 dependencies.root().root().recoveryLineage(), bytes(16, 0x71),

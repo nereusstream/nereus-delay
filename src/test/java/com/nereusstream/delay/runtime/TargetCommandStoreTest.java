@@ -8638,7 +8638,8 @@ class TargetCommandStoreTest {
                             new SchedulerBudget(1, 1_000_000, 60_000_000_000L)).isEmpty());
                     assertEquals(stopped.task(), worker.pendingCheckpointTask().orElseThrow());
                     worker.requestCheckpointRegistrationStop();
-                    assertTrue(stopped.outcome().orElseThrow().failure().getMessage().contains("registration stopped"));
+                    assertTrue(stopped.outcome().orElseThrow().failure().getMessage()
+                            .contains("registration stopped"));
                     assertTrue(worker.runCheckpointTurn(
                             new SchedulerBudget(1, 1_000_000, 60_000_000_000L)).isPresent());
                     assertTrue(worker.pendingCheckpointTask().isEmpty());

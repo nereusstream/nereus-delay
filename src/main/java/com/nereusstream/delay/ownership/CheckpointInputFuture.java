@@ -12,12 +12,21 @@ public final class CheckpointInputFuture<T> extends CompletableFuture<T> {
     }
 
     private final CompletableFuture<?> owned;
+    private final Runnable requestStop;
 
-    private CheckpointInputFuture(CompletableFuture<?> owned) { this.owned = owned; }
+    private CheckpointInputFuture(CompletableFuture<?> owned, Runnable requestStop) {
+        this.owned = owned;
+        this.requestStop = requestStop;
+    }
 
     /** Caller must keep the owned future private and complete it only after the actual read method exits. */
     public static <T> CheckpointInputFuture<T> track(CompletableFuture<T> owned) {
-        final var view = new CheckpointInputFuture<T>(Objects.requireNonNull(owned, "owned"));
+        return track(owned, () -> {});
+    }
+
+    public static <T> CheckpointInputFuture<T> track(CompletableFuture<T> owned, Runnable requestStop) {
+        final var view = new CheckpointInputFuture<T>(Objects.requireNonNull(owned, "owned"),
+                Objects.requireNonNull(requestStop, "requestStop"));
         owned.whenComplete((value, failure) -> {
             if (failure == null) { view.complete(value); }
             else { view.completeExceptionally(failure); }
@@ -27,7 +36,11 @@ public final class CheckpointInputFuture<T> extends CompletableFuture<T> {
 
     /** Dependent/copy views keep the same provider I/O fact even if their own result is cancelled or replaced. */
     @Override
-    public <U> CompletableFuture<U> newIncompleteFuture() { return new CheckpointInputFuture<U>(owned); }
+    public <U> CompletableFuture<U> newIncompleteFuture() {
+        return new CheckpointInputFuture<U>(owned, requestStop);
+    }
+
+    public void requestStop() { requestStop.run(); }
 
     public boolean ioExited() {
         if (!owned.isDone()) { return false; }
@@ -52,5 +65,9 @@ public final class CheckpointInputFuture<T> extends CompletableFuture<T> {
 
     public static Throwable ownedFailure(CompletableFuture<?> future) {
         return future instanceof CheckpointInputFuture<?> tracked ? tracked.ownedFailure() : null;
+    }
+
+    public static void requestStop(CompletableFuture<?> future) {
+        if (future instanceof CheckpointInputFuture<?> tracked) { tracked.requestStop(); }
     }
 }

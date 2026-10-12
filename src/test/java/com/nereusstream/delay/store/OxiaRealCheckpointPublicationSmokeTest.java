@@ -120,7 +120,7 @@ class OxiaRealCheckpointPublicationSmokeTest {
                 assertTrue(queued.ioExited());
                 assertTrue(assertThrows(ExecutionException.class,
                         () -> queued.receipt().get(5, TimeUnit.SECONDS)).getCause().getMessage()
-                        .contains("stopped before metadata I/O"));
+                        .contains("stopped before I/O"));
                 assertTrue(reader.current(pending).isEmpty());
             } finally {
                 release.countDown();
