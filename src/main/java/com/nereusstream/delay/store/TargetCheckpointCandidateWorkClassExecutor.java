@@ -482,6 +482,10 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
 
         /** Stops only the retained preparation between actions, preserving running I/O/native cleanup. */
         public synchronized void requestPreparationStop() {
+            if (retainedOutcome != null) {
+                if (preparationIo != null) { preparationIo.requestStop(); }
+                return;
+            }
             if (!preparing() || preparationRegistry.state(task).isPresent()) { return; }
             complete(new Outcome(null, new IllegalStateException("Target checkpoint preparation stopped")));
         }

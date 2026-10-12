@@ -17,6 +17,56 @@ import org.junit.jupiter.api.Test;
 
 class CheckpointInputFutureTest {
     @Test
+    void stopAfterAsyncCloseStartsCannotDiscardItsPendingCompletion() throws Exception {
+        try (var executor = new ThreadPoolExecutor(1, 1, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<>(2),
+                new ThreadPoolExecutor.AbortPolicy())) {
+            final var cleanup = new RetainedCleanup();
+            final var owned = OwnedCheckpointIo.submit(guard -> { throw cleanup; }, () -> {}, executor);
+            assertThrows(ExecutionException.class, () -> owned.receipt().get(5, TimeUnit.SECONDS));
+            cleanup.beforeRetryReturn = owned::requestStop;
+            owned.retryCleanup();
+            executor.submit(() -> {}).get(5, TimeUnit.SECONDS);
+            assertEquals(1, cleanup.retries.get());
+            cleanup.closed.set(true);
+            assertFalse(owned.ioExited());
+            cleanup.closeCompletion.complete(null);
+            assertTrue(owned.ioExited());
+        }
+    }
+
+    @Test
+    void removedQueuedCleanupCanBeStoppedWithoutFalselyClosingItsNativeHandle() throws Exception {
+        try (var executor = new ThreadPoolExecutor(1, 1, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<>(2),
+                new ThreadPoolExecutor.AbortPolicy())) {
+            final var cleanup = new RetainedCleanup();
+            final var owned = OwnedCheckpointIo.submit(guard -> { throw cleanup; }, () -> {}, executor);
+            assertThrows(ExecutionException.class, () -> owned.receipt().get(5, TimeUnit.SECONDS));
+            final var entered = new CountDownLatch(1);
+            final var release = new CountDownLatch(1);
+            executor.execute(() -> {
+                entered.countDown();
+                try { release.await(); }
+                catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+            });
+            try {
+                assertTrue(entered.await(5, TimeUnit.SECONDS));
+                owned.retryCleanup();
+                final var removed = executor.shutdownNow();
+                assertEquals(1, removed.size());
+                owned.requestStop();
+                assertFalse(owned.ioExited());
+                assertEquals(0, cleanup.retries.get());
+                cleanup.closed.set(true); // Independent confirmation of the original native cleanup is still needed.
+                assertTrue(owned.ioExited());
+                removed.forEach(Runnable::run);
+                assertEquals(0, cleanup.retries.get());
+            } finally {
+                release.countDown();
+            }
+        }
+    }
+
+    @Test
     void sameHandleCleanupRetryWaitsForActualCompletionWithoutDuplicateClose() throws Exception {
         try (var executor = new ThreadPoolExecutor(1, 1, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<>(2),
                 new ThreadPoolExecutor.AbortPolicy())) {
@@ -145,6 +195,7 @@ class CheckpointInputFutureTest {
         private final AtomicInteger retries = new AtomicInteger();
         private final transient CountDownLatch retryEntered = new CountDownLatch(1);
         private final transient CompletableFuture<Void> closeCompletion = new CompletableFuture<>();
+        private transient Runnable beforeRetryReturn = () -> {};
 
         @Override
         public boolean cleanupComplete() { return closed.get(); }
@@ -153,6 +204,7 @@ class CheckpointInputFutureTest {
         public CompletableFuture<Void> retryCleanup() {
             retries.incrementAndGet();
             retryEntered.countDown();
+            beforeRetryReturn.run();
             return closeCompletion;
         }
     }

@@ -14,6 +14,7 @@ public final class OwnedCheckpointIo<T> implements Runnable {
     private final CheckpointInputFuture<T> view = CheckpointInputFuture.track(receipt, this::requestStop,
             this::retryCleanup, this::cleanupIdle);
     private OwnedCheckpointIo<CompletableFuture<Void>> cleanupAttempt;
+    private CompletableFuture<Void> cleanupCompletion;
     private boolean started;
     private boolean stopping;
     private boolean exited;
@@ -49,21 +50,26 @@ public final class OwnedCheckpointIo<T> implements Runnable {
             return;
         }
         if (cleanupAttempt != null && !cleanupIdle()) { return; }
-        cleanupAttempt = submit(ignored -> Objects.requireNonNull(cleanup.retryCleanup(), "cleanup future"),
-                () -> {}, executor);
+        cleanupCompletion = null;
+        cleanupAttempt = submit(ignored -> {
+            final var closing = Objects.requireNonNull(cleanup.retryCleanup(), "cleanup future");
+            synchronized (this) { cleanupCompletion = closing; }
+            return closing;
+        }, () -> {}, executor);
     }
 
     private synchronized boolean cleanupIdle() {
         if (cleanupAttempt == null) { return true; }
         if (!cleanupAttempt.ioExited()) { return false; }
-        final var result = cleanupAttempt.receipt;
-        try { return result.join().isDone(); }
-        catch (RuntimeException failed) { return true; }
+        return cleanupCompletion == null || cleanupCompletion.isDone();
     }
 
     public void requestStop() {
         synchronized (this) {
-            if (exited) { return; }
+            if (exited) {
+                if (cleanupAttempt != null) { cleanupAttempt.requestStop(); }
+                return;
+            }
             stopping = true;
             if (started) { return; }
             exited = true;

@@ -2382,3 +2382,7 @@ client/executor/pin/physical之前，先stop、处理原CleanupFailure并结清�
 命令实际退出后运行原settlement，保留原失败而不报告新的成功。此请求不关闭共享client；P1
 failed-open backend shutdown仍需独立明确权限。队列拒绝/close失败后保持原句柄与所有保护，
 不要在retry或async close仍pending时释放executor/client/pin/physical资源。
+
+Checkpoint preparation 已保留 cleanup 失败时，重复 stop 会传到原 cleanup attempt。queued close
+撤回只证明未发起该命令，不能证明原 cursor 已关闭；running async close 必须等原 completion
+及 cleanupComplete，receipt 的 stop 异常不能授权释放 Worker cut 或 client/pin/physical 资源。

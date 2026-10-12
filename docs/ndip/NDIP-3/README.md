@@ -635,3 +635,7 @@ API保持原义；完整故障/资源/权限/迁退与集中验收仍开放，fl
 C5（2026-10-12）：原native cleanup可由Worker显式在同有限executor重试，pending close不并发
 重复，原failure/cut等待cleanup事实和command exit。新cursor/shared-client自动关闭均不引入；
 本轮local/compile，完整native故障/service/权限/迁退/中央义务与flags保持。
+
+C5 cleanup stop（2026-10-12）：原读取退出后仍停止 retained queued close；已发起 async close 的
+completion 不因 receipt 被 stop 置为异常而丢弃。local52/styles/锁定 SDK compile通过；完整
+原生故障和资源关闭继续集中验证，状态/完成 flags 保持。详见执行记录与代码级设计同期条目。
