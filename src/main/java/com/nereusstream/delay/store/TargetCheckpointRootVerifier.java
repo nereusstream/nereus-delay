@@ -484,7 +484,7 @@ public final class TargetCheckpointRootVerifier {
                 proof.metadata().shardId(), proof.metadata().dbIdentity(), proof.metadata().storeIncarnationUuid(),
                 proof.metadata().storeFormatVersion(), proof.mutationSequence(), proof.source(),
                 snapshot.snapshotDigest(), snapshot.semanticInputsDigest(), fields.evidenceCursors(),
-                candidate.fileObjects());
+                candidate.fileObjects(), proof.aggregate().mutation().localOrdinal());
         return authenticateImage(candidate.image(), manifest, candidate.physical(), candidate.quota(),
                 candidate.ledger(), candidate.semantic(), candidate.authority(), candidate.protection());
     }
@@ -899,6 +899,8 @@ public final class TargetCheckpointRootVerifier {
                 || !proof.metadata().storeIncarnationUuid().equals(manifest.sourceStoreIncarnation())
                 || !Bytes.constantTimeEquals(proof.root().recoveryLineage(), manifest.recoveryLineageId())
                 || proof.mutationSequence() != manifest.shardMutationSequence()
+                || manifest.targetLocalOrdinal() != null
+                        && manifest.targetLocalOrdinal().longValue() != proof.aggregate().mutation().localOrdinal()
                 || !Bytes.constantTimeEquals(
                         proof.source().canonicalBytes(),
                         manifest.appliedShardLogPosition().canonicalBytes())) {

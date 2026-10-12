@@ -797,6 +797,19 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
             }
         }
         final SourcePosition position = manifest.appliedShardLogPosition();
+        if (parent.targetLocalOrdinal() != null && manifest.targetLocalOrdinal() == null) {
+            throw new IllegalArgumentException("checkpoint cannot discard the authenticated Target local cut");
+        }
+        if (manifest.storeFormatVersion() == 2 && parent.storeFormatVersion() == 2
+                && manifest.targetLocalOrdinal() != null && parent.targetLocalOrdinal() != null
+                && position.compareTo(parent.appliedShardLogPosition()) == 0) {
+            if (!Bytes.constantTimeEquals(position.canonicalBytes(), parent.appliedShardLogPosition().canonicalBytes())
+                    || manifest.shardMutationSequence() != parent.shardMutationSequence()
+                    || Long.compareUnsigned(manifest.targetLocalOrdinal(), parent.targetLocalOrdinal()) <= 0) {
+                throw new IllegalArgumentException("Target local checkpoint cut does not advance parent");
+            }
+            return;
+        }
         if (position.compareTo(parent.appliedShardLogPosition()) <= 0
                 || Long.compareUnsigned(manifest.shardMutationSequence(), parent.shardMutationSequence()) <= 0) {
             throw new IllegalArgumentException("checkpoint source position does not advance parent");

@@ -41,7 +41,8 @@ public record CheckpointManifest(
         byte[] controlStateDigest,
         byte[] referencedSemanticVersionsDigest,
         List<EvidenceCursor> evidenceCursors,
-        List<FileEntry> files) {
+        List<FileEntry> files,
+        Long targetLocalOrdinal) {
     private static final int ID_LENGTH = 16;
 
     public CheckpointManifest {
@@ -57,6 +58,9 @@ public record CheckpointManifest(
         Objects.requireNonNull(sourceStoreIncarnation, "sourceStoreIncarnation");
         if (storeFormatVersion != 1 && storeFormatVersion != 2) {
             throw new IllegalArgumentException("unsupported store format version");
+        }
+        if (targetLocalOrdinal != null && storeFormatVersion != 2) {
+            throw new IllegalArgumentException("local ordinal cut requires Target store format 2");
         }
         Objects.requireNonNull(appliedShardLogPosition, "appliedShardLogPosition");
         if (!shardId.equals(appliedShardLogPosition.shardId())) {
@@ -106,6 +110,19 @@ public record CheckpointManifest(
         referencedSemanticVersionsDigest = Bytes.copy(referencedSemanticVersionsDigest);
         evidenceCursors = List.copyOf(evidenceCursors);
         files = List.copyOf(files);
+    }
+
+    /** Existing format-1 and legacy format-2 bytes remain manifest version 1. */
+    public CheckpointManifest(byte[] checkpointId, byte[] recoveryLineageId, long lineageGeneration,
+            ParentCheckpoint parentCheckpoint, byte[] restoredFromCheckpointId, CreatedBy createdBy,
+            CreatedAt createdAt, ShardId shardId, byte[] dbIdentity, UUID sourceStoreIncarnation,
+            int storeFormatVersion, long shardMutationSequence, SourcePosition appliedShardLogPosition,
+            byte[] controlStateDigest, byte[] referencedSemanticVersionsDigest,
+            List<EvidenceCursor> evidenceCursors, List<FileEntry> files) {
+        this(checkpointId, recoveryLineageId, lineageGeneration, parentCheckpoint, restoredFromCheckpointId,
+                createdBy, createdAt, shardId, dbIdentity, sourceStoreIncarnation, storeFormatVersion,
+                shardMutationSequence, appliedShardLogPosition, controlStateDigest, referencedSemanticVersionsDigest,
+                evidenceCursors, files, null);
     }
 
     /** Backwards-compatible empty-cursor constructor for local callers. */
@@ -181,6 +198,8 @@ public record CheckpointManifest(
         return canonicalJson().getBytes(StandardCharsets.UTF_8);
     }
 
+    public int manifestVersion() { return targetLocalOrdinal == null ? 1 : 2; }
+
     public String canonicalJson() {
         final StringBuilder json = new StringBuilder(4096);
         json.append('{');
@@ -207,7 +226,7 @@ public record CheckpointManifest(
         }
         json.append(']');
         field(json, "lineageGeneration", quote(u64Bits(lineageGeneration)));
-        field(json, "manifestVersion", "1");
+        field(json, "manifestVersion", Integer.toString(manifestVersion()));
         field(json, "parentCheckpoint", parentCheckpoint == null ? "null" : parentCheckpoint.toJson());
         field(json, "recoveryLineageId", quote(b64(recoveryLineageId)));
         field(json, "referencedSemanticVersionsDigest", quote(hex(referencedSemanticVersionsDigest)));
@@ -219,6 +238,9 @@ public record CheckpointManifest(
         field(json, "shardMutationSequence", quote(u64Bits(shardMutationSequence)));
         field(json, "sourceStoreIncarnation", quote(sourceStoreIncarnation.toString()));
         field(json, "storeFormatVersion", Integer.toString(storeFormatVersion));
+        if (targetLocalOrdinal != null) {
+            field(json, "targetLocalOrdinal", quote(u64Bits(targetLocalOrdinal)));
+        }
         json.append('}');
         return json.toString();
     }

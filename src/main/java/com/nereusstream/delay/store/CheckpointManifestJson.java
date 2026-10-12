@@ -130,7 +130,16 @@ final class CheckpointManifestJson {
         final Parser parser = new Parser(json, Math.max(limits.maxFiles(), limits.maxEvidenceCursors()));
         final Map<String, Object> root = object(parser.parse(), "manifest");
         parser.ensureEnd();
-        keys(root, ROOT_KEYS, "manifest");
+        final int version = number(root.get("manifestVersion"), "manifestVersion");
+        if (version == 1) {
+            keys(root, ROOT_KEYS, "manifest");
+        } else if (version == 2) {
+            final var extended = java.util.Arrays.copyOf(ROOT_KEYS, ROOT_KEYS.length + 1);
+            extended[ROOT_KEYS.length] = "targetLocalOrdinal";
+            keys(root, extended, "manifest");
+        } else {
+            throw new IllegalArgumentException("unsupported manifest version");
+        }
 
         final CheckpointManifest manifest = new CheckpointManifest(
                 base64(root.get("checkpointId"), "checkpointId"),
@@ -149,12 +158,10 @@ final class CheckpointManifestJson {
                 hex(root.get("controlStateDigest"), "controlStateDigest"),
                 hex(root.get("referencedSemanticVersionsDigest"), "referencedSemanticVersionsDigest"),
                 decodeEvidenceCursors(root.get("evidenceCursors")),
-                decodeFiles(root.get("files")));
+                decodeFiles(root.get("files")),
+                version == 2 ? unsignedDecimal(root.get("targetLocalOrdinal"), "targetLocalOrdinal") : null);
         manifest.validateLimits(limits);
 
-        if (number(root.get("manifestVersion"), "manifestVersion") != 1) {
-            throw new IllegalArgumentException("unsupported manifest version");
-        }
         if (!java.util.Arrays.equals(encoded, manifest.canonicalJsonBytes())) {
             throw new IllegalArgumentException("manifest JSON is not canonical JSON");
         }

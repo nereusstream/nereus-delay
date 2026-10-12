@@ -725,6 +725,20 @@ For Lane controls, outer field 14 `expected_prior_control_version`, when present
 
 `CheckpointUploadIntent` exact fields: 1 version=1; 2 `ShardSubject shard`; 3 Recovery Lineage ID[16]; 4 checkpoint ID[16]; 5 `OwnerIdentity owner`; 6 source Store Incarnation[16]; 7 nonzero random upload token[32]; 8 nonzero `uint64 base_catalog_generation`; optional pair 9 parent checkpoint ID[16] / 10 parent manifest hash[32]; 11 Object Store `ProfileRef`; 12 `TrustedUtcIntervalEvidence checkpoint_created_at`; 13 nonnegative `int64 upload_deadline_epoch_ms`; 14 `CheckpointUploadState state`; 15 nonzero checked `uint64 state_revision`; optional 16 `CheckpointResource published_manifest`; optional 17 `TrustedUtcIntervalEvidence reaping_started_at`; 18 intent digest[32] over domain `nereus-delay-checkpoint-upload-intent\0` plus canonical fields 1–17. `PENDING_UPLOAD` forbids 16–17; `PUBLISHED` requires 16 and forbids 17; `REAPING` requires 17 and forbids 16. Fields 3–4/12 must equal the draft/manifest; parent fields are both present exactly for a non-genesis candidate.
 
+Target checkpoint JSON Manifest version 2 adds `targetLocalOrdinal` to the closed version-1 root
+projection. It is a canonical unsigned-64 decimal string, including zero, and is permitted only
+with `storeFormatVersion=2`. New Target writers derive it from the authenticated image's actual
+aggregate mutation; image verification must match it exactly. Existing format-1 and legacy
+format-2 Manifest version-1 bytes remain unchanged. Unsupported versions/fields fail closed.
+For extended Target parent/child nodes at the same complete canonical Source and equal mutation
+sequence, the child ordinal must strictly increase unsigned; advancing Source retains the
+existing strictly advancing mutation-sequence rule. Parent hash/lineage/cursor dominance still
+apply. An extended cut cannot drop this field; a legacy parent's missing ordinal is unknown,
+never inferred as zero. The exact Manifest hash continues to bind Catalog/Floor/Candidate/Pin
+references. Activated schema bundles and eligible reader declarations must cover Manifest v2
+before production writes; codec support alone does not grant activation authority.
+
+
 Intent creation compares the exact active Owner Lease/session/Store and base catalog. Publication is one Oxia transaction comparing state/revision/token, Owner Lease/session, lineage head and base catalog, then changing `PENDING_UPLOAD -> PUBLISHED` and adding field 16 to the Recovery Set. Reaping can win only through the competing `PENDING_UPLOAD -> REAPING` CAS: either the exact live Owner explicitly abandons, or another actor proves the recorded Owner Lease/session is no longer current and Trusted UTC has passed field 13. `REAPING` permanently forbids catalog publication. Object deletion waits until `earliestUtcNow >= checkedAdd(reaping_started_at.latest, checkpointUploadRequestQuiescenceHorizon)`, no `RecoveryPin` or published catalog entry protects the prefix, and the certified old-Owner local guard plus provider-ownership horizon excludes another late request. The reaper then enumerates the unique checkpoint prefix, exact-version deletes, and performs a final empty-prefix sweep; response loss restarts this same state, token and prefix. A mere upload deadline or missing callback never authorizes deletion while the old Owner Lease/session remains current.
 
 `RetireIntentRef`: 1 System Mutation ID[32]; 2 mutation hash[32]; 3 exact resource identity SHA-256[32]; 4 expected resource-state version `uint64`. This `uint64` carries the complete 64-bit pattern; implementations must not reject the high bit merely because their host integer type is signed. `ExternalDeleteEvidence`: 1 exact resource identity SHA-256[32]; 2 provider request ID hash[32]; 3 `DeleteOutcome outcome`; 4 optional exact observed immutable version; 5 optional exact observed etag; 6 authenticated HEAD/delete response SHA-256[32]; 7 `TrustedUtcIntervalEvidence observed_at`. `ALREADY_ABSENT` forbids version/etag presence; `DELETED` requires every provider-returned identity field.

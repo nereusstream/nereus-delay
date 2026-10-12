@@ -648,3 +648,7 @@ Store/释放 Owner；exact 未变化已发布 native cut 可在当前保护/Cata
 
 2026-10-12 用户决策：采用 format 2 受认证切点纳入 local ordinal 并定义父子单调性；
 这是已授权方案，尚未计作已完成实现/验收。后续代码实施保留 format 1 的既有严格推进规则。
+
+2026-10-12：已实现 format2 Manifest v2 authenticated targetLocalOrdinal 与父子单调性，
+字段从 actual image aggregate取得；同Source同sequence仅允许ordinal严格增加，旧Manifest
+v1无字段不按零推断，format1规则保持。main编译通过，测试/Broker/验收统一延期，不提升flags。
