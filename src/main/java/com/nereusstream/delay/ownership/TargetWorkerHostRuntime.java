@@ -169,12 +169,26 @@ public final class TargetWorkerHostRuntime {
             com.nereusstream.delay.store.CheckpointScheduler scheduler,
             TargetCheckpointCandidateSchedule.SemanticRequestFactory factory, LongSupplier clock,
             SchedulerBudget budget) {
+        return registerPeriodicCheckpointSchedule(
+                TargetCheckpointCandidateSchedule.semantic(this, scheduler, factory), clock, budget);
+    }
+
+    /** Uses the same maintenance loop while original history is collected in bounded CHECKPOINT steps. */
+    public synchronized TargetCheckpointCandidateSchedule configurePeriodicCollectedSemanticCheckpoints(
+            com.nereusstream.delay.store.CheckpointScheduler scheduler,
+            TargetCheckpointCandidateSchedule.CollectedSemanticRequestFactory factory, LongSupplier clock,
+            SchedulerBudget budget) {
+        return registerPeriodicCheckpointSchedule(
+                TargetCheckpointCandidateSchedule.collectedSemantic(this, scheduler, factory), clock, budget);
+    }
+
+    private TargetCheckpointCandidateSchedule registerPeriodicCheckpointSchedule(
+            TargetCheckpointCandidateSchedule schedule, LongSupplier clock, SchedulerBudget budget) {
         if (stopping || checkpointSchedule != null) {
             throw new IllegalStateException("Target Host checkpoint scheduling is stopping or already configured");
         }
         Objects.requireNonNull(clock, "clock");
         Objects.requireNonNull(budget, "budget");
-        final var schedule = TargetCheckpointCandidateSchedule.semantic(this, scheduler, factory);
         final var admitted = new ArrayList<ShardId>();
         try {
             final long now = clock.getAsLong();
@@ -237,7 +251,11 @@ public final class TargetWorkerHostRuntime {
             }
             if (!withdrawnShard) { schedule.ensureRegistered(shard, now, budget); }
             if (schedule.pendingTask(shard.shardId()).isPresent()) {
-                schedule.settle(shard.shardId(), budget, now);
+                final var settled = schedule.settle(shard.shardId(), budget, now);
+                if (settled.isPresent() && settled.orElseThrow().failure() != null) {
+                    throw new IllegalStateException("periodic Target checkpoint failed",
+                            settled.orElseThrow().failure());
+                }
                 return true;
             }
             if (!withdrawnShard && shard.pendingSourceEntry().isEmpty()

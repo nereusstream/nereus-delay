@@ -138,7 +138,7 @@ public final class TargetCheckpointControlInputs {
     }
 
     private void requireCurrent() {
-        worker.requirePublishRecoveryOwner(ownerClock);
+        worker.requireCheckpointHistoryOwner(ownerClock);
         if (cut != null) { worker.requireCheckpointControlInputsCurrent(readBudget(), cut, ownerClock); }
     }
 

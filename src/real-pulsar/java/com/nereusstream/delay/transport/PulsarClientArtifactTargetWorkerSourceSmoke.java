@@ -477,12 +477,12 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                         || store.shardMutationSequence() != 2) {
                     throw new IllegalStateException("Pulsar Target Store did not durably advance before ACK");
                 }
+                verifyRejectedOutcomeHistory(client, consumer, guard, physicalTopic, host, worker, store, scope,
+                        leases, active, signingKeys, successor);
                 final var semanticInputs = verifyControlHistory(client, guard, store, worker, scope, leases,
                         active, signingKeys);
                 verifyScheduledSemanticCandidate(client, guard, host, worker, store, scope, leases, active, signingKeys,
-                        registration, actor, semanticInputs, storeRoot);
-                verifyRejectedOutcomeHistory(client, consumer, guard, physicalTopic, host, worker, store, scope,
-                        leases, active, signingKeys, successor);
+                        registration, actor, semanticInputs, storeRoot, observerExecutor);
                 recoveryTip = (PulsarSourcePosition) store.appliedShardLogPosition();
                 // The service owns this exact client. After the last primary ACK, test a real failed SUBSCRIBE
                 // and service shutdown; no timeout handler may close a shared primary client automatically.
@@ -575,19 +575,14 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
             TargetWorkerShardRuntime worker, ShardStore store, TargetQuotaScope scope, OxiaOwnerLeaseStore leases,
             OwnerLease active, KeyPair keys, InMemoryControlTargetRegistrationAuthority registration,
             ControlAuthorizationContext actor,
-            com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Result inputs, Path root) {
+            com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Result inputs, Path root,
+            java.util.concurrent.ThreadPoolExecutor historyExecutor) {
         final var physical = new CheckpointManifestLimits(1_000, 256L << 20, 256L << 20,
                 1_024, 4 << 20, 1_000, 1_024);
         final var quota = new TargetCheckpointRootVerifier.QuotaAuditLimits(4096, 32L << 20);
         final var ledger = new TargetCheckpointRootVerifier.LedgerAuditLimits(4096, 32L << 20, 16_384, 32L << 20);
         final var semanticLimits = new TargetCheckpointSemanticSnapshot.Limits(64, 1 << 20, 1 << 20);
         final var dependencies = inputs.cut().dependencies();
-        final var snapshot = TargetCheckpointSemanticSnapshot.collect(dependencies, List.of(),
-                new com.nereusstream.delay.runtime.InMemoryProfileCatalog(),
-                new com.nereusstream.delay.runtime.InMemoryRetryPolicyCatalog(),
-                new com.nereusstream.delay.runtime.InMemoryPayloadProofTrustSetCatalog(), budget(), semanticLimits,
-                () -> {}).withControlInputs(dependencies, inputs.inputs(), budget(), semanticLimits,
-                        (input, first) -> keys.getPublic(), () -> {});
         final long now = System.currentTimeMillis();
         final var pending = new CheckpointUploadIntent(new ShardSubject(scope.shard()),
                 dependencies.root().root().recoveryLineage(), bytes(16, 0x71),
@@ -621,6 +616,16 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                                     prepared -> true), budget(), () -> {});
                     controls.authenticateSnapshot(folded.dependencies(), semantic, semanticLimits,
                             (input, registered, mutation, at) -> keys.getPublic());
+                    semantic.authenticateOutcomes(folded.dependencies(), semanticLimits, budget(), (input, first) -> {
+                        final var reference = folded.dependencies().outcomeReferences().stream()
+                                .filter(ref -> ref.source().equals(input.source())).findFirst().orElseThrow();
+                        final var original = PulsarClientArtifactTargetAdmissionHistory.readOutcome(client, resource,
+                                reference, Duration.ofSeconds(10), () -> {});
+                        if (!Arrays.equals(original.canonicalEnvelope(), input.image().canonicalEnvelope())) {
+                            throw new IllegalStateException("scheduled image differs from original P1 Outcome");
+                        }
+                        return keys.getPublic();
+                    }, () -> {});
                 }, request -> {
                     // Receipt/Source ownership cannot advance between candidate and Catalog completion.
                     try {
@@ -639,16 +644,49 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                         .acquire(store.metadata(), scope, null));
         final var refuse = new java.util.concurrent.atomic.AtomicBoolean(true);
         final var checkpointClock = new java.util.concurrent.atomic.AtomicLong(now);
-        final var scheduled = host.configurePeriodicSemanticCheckpoints(
+        final var historyRequested = new java.util.concurrent.atomic.AtomicBoolean();
+        final var releaseHistory = new java.util.concurrent.CompletableFuture<Void>();
+        final var scheduled = host.configurePeriodicCollectedSemanticCheckpoints(
                 new com.nereusstream.delay.store.CheckpointScheduler(1_000, 0, 1), (selected, claim, cut) -> {
                     cut.requireCurrent();
                     if (selected != worker || !cut.position().equals(dependencies.root().source())) {
                         throw new IllegalStateException("scheduled semantic request received another native cut");
                     }
-                    return new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.SemanticRequest(
+                    final var controls = new com.nereusstream.delay.ownership.TargetCheckpointControlInputs(
+                            selected, PulsarClientArtifactTargetWorkerSourceSmoke::budget, ledger, ref -> {
+                                historyRequested.set(true);
+                                return PulsarClientArtifactTargetAdmissionHistory.readControlAsync(client, resource,
+                                        ref, Duration.ofSeconds(10), cut::requireCurrent, historyExecutor)
+                                        .thenCombine(releaseHistory, (frame, ignored) -> frame);
+                            }, new com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Limits(64, 1 << 20),
+                            System::currentTimeMillis);
+                    final var outcomes = new com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs(
+                            selected, PulsarClientArtifactTargetWorkerSourceSmoke::budget, ledger,
+                            ref -> PulsarClientArtifactTargetAdmissionHistory.readOutcomeAsync(client, resource,
+                                    ref, Duration.ofSeconds(10), cut::requireCurrent, historyExecutor),
+                            new com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs.Limits(64, 1 << 20),
+                            System::currentTimeMillis);
+                    final var collection = new com.nereusstream.delay.ownership.TargetCheckpointSemanticInputs(
+                            controls, outcomes, (control, outcome) -> {
+                                final var collected = control.cut().dependencies();
+                                if (outcome.inputs().size() != 1) {
+                                    throw new IllegalStateException("scheduled checkpoint lost original Outcome");
+                                }
+                                return TargetCheckpointSemanticSnapshot.collect(collected, List.of(),
+                                        new com.nereusstream.delay.runtime.InMemoryProfileCatalog(),
+                                        new com.nereusstream.delay.runtime.InMemoryRetryPolicyCatalog(),
+                                        new com.nereusstream.delay.runtime.InMemoryPayloadProofTrustSetCatalog(),
+                                        budget(), semanticLimits, cut::requireCurrent)
+                                        .withControlInputs(collected, control.inputs(), budget(), semanticLimits,
+                                                (input, first) -> keys.getPublic(), cut::requireCurrent)
+                                        .withOutcomeInputs(collected, outcome.inputs(), budget(), semanticLimits,
+                                                (input, first) -> keys.getPublic(), cut::requireCurrent);
+                            });
+                    return new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule
+                            .CollectedSemanticRequest(
                             new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.Request(intents,
                                     System::currentTimeMillis, root.resolve("scheduled-semantic-image"), pending,
-                                    physical, quota, ledger), snapshot, semanticLimits, () -> {
+                                    physical, quota, ledger), collection, semanticLimits, () -> {
                                         if (refuse.get()) {
                                             throw new IllegalStateException("scheduled semantic protection unavailable");
                                         }
@@ -671,6 +709,30 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
         refuse.set(false);
         final long retried = due + 1_000;
         checkpointClock.set(retried);
+        final long historyDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
+        while (!historyRequested.get()) {
+            if (System.nanoTime() >= historyDeadline || host.firstMaintenanceFailure() != null) {
+                throw new IllegalStateException("periodic P1 checkpoint did not start async history",
+                        host.firstMaintenanceFailure());
+            }
+            try { Thread.sleep(10); }
+            catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("interrupted while awaiting checkpoint history", interrupted);
+            }
+        }
+        if (scheduled.pendingTask(scope.shard()).isEmpty() || store.latestSequenceNumber() != beforeRefusal
+                || Files.exists(root.resolve("scheduled-semantic-image"))) {
+            throw new IllegalStateException("pending history lost its claim or wrote a checkpoint");
+        }
+        try {
+            worker.runSourceTurn(new SchedulerBudget(1, 4L << 20, TimeUnit.SECONDS.toNanos(10)),
+                    System::currentTimeMillis);
+            throw new AssertionError("Source advanced while checkpoint history was waiting");
+        } catch (IllegalStateException protectedCut) {
+            if (!protectedCut.getMessage().contains("checkpoint cut is still pending")) { throw protectedCut; }
+        }
+        releaseHistory.complete(null);
         final long publicationDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
         while (catalog.manifest(pending.checkpointId()).isEmpty() || scheduled.pendingTask(scope.shard()).isPresent()) {
             if (System.nanoTime() >= publicationDeadline || host.firstMaintenanceFailure() != null) {
@@ -697,7 +759,8 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
         if (!leases.current(scope.shard()).orElseThrow().sameIdentity(active)) {
             throw new IllegalStateException("scheduled semantic candidate lost its Owner");
         }
-        System.out.println("P1 existing maintenance ticks automatically claim/settle exact native ACK "
+        System.out.println("P1 existing maintenance ticks collect original Control/nonempty Outcome asynchronously "
+                + "then claim/settle native ACK "
                 + "semantic candidate/full auth/Catalog init/File upload/PUBLISHED CAS, "
                 + "blocked new Source during I/O, then settled/resumed.");
     }
@@ -1400,14 +1463,15 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
         final var policies = new EnumMap<WorkClass, WorkClassPolicy>(WorkClass.class);
         for (WorkClass workClass : WorkClass.values()) {
             final boolean protectedClass = workClass != WorkClass.QUERY && workClass != WorkClass.CHECKPOINT;
+            final long bytes = workClass == WorkClass.CHECKPOINT ? 4L << 20 : 1_000_000;
             policies.put(
                     workClass,
                     new WorkClassPolicy(
                             1,
                             1,
-                            1_000_000,
+                            bytes,
                             1,
-                            1_000_000,
+                            bytes,
                             1_000,
                             protectedClass ? 1 : 0,
                             protectedClass ? 1 : 0,

@@ -306,14 +306,14 @@ public final class TargetWorkerShardRuntime
     synchronized TargetCheckpointControlInputs.Cut captureCheckpointControlInputs(final BoundedReadBudget budget,
             final com.nereusstream.delay.store.TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits,
             final LongSupplier ownerClock) {
-        requireNewTurnsAdmitted();
+        requireCheckpointHistoryOwner(ownerClock);
         resources.requireRuntimeBusinessAdmission();
         return target.captureCheckpointControlInputs(budget, ledgerLimits, ownerClock);
     }
 
     synchronized void requireCheckpointControlInputsCurrent(final BoundedReadBudget budget,
             final TargetCheckpointControlInputs.Cut cut, final LongSupplier ownerClock) {
-        requireNewTurnsAdmitted();
+        requireCheckpointHistoryOwner(ownerClock);
         resources.requireRuntimeBusinessAdmission();
         target.requireCheckpointControlInputsCurrent(budget, cut, ownerClock);
     }
@@ -336,6 +336,16 @@ public final class TargetWorkerShardRuntime
 
     synchronized void requirePublishRecoveryOwner(final LongSupplier clock) {
         requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        target.requirePublishRecoveryOwner(clock);
+    }
+
+    synchronized void requireCheckpointHistoryOwner(LongSupplier clock) {
+        if (pendingCheckpoint == null) {
+            requireNewTurnsAdmitted();
+        } else {
+            pendingCheckpoint.requirePreparationCurrent();
+        }
         resources.requireRuntimeBusinessAdmission();
         target.requirePublishRecoveryOwner(clock);
     }
@@ -666,6 +676,33 @@ public final class TargetWorkerShardRuntime
         return submitted;
     }
 
+    public synchronized TargetCheckpointCandidateWorkClassExecutor.Submission
+            submitCollectedSemanticCheckpointCandidate(
+            TargetCheckpointCandidateSchedule.CollectedSemanticRequest request) {
+        return submitCollectedSemanticCheckpointCandidate(Objects.requireNonNull(request, "request"),
+                protectCheckpointCut());
+    }
+
+    synchronized TargetCheckpointCandidateWorkClassExecutor.Submission submitCollectedSemanticCheckpointCandidate(
+            TargetCheckpointCandidateSchedule.CollectedSemanticRequest request,
+            SourceRecordConsumer.CheckpointCut cut) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        if (preparedCheckpointCut != Objects.requireNonNull(cut, "cut") || maintenance.hasPendingTurn()
+                || hasUnsettledMessageExpiry()) {
+            throw new IllegalStateException("Target semantic collection cut is no longer prepared for this Shard");
+        }
+        cut.requireCurrent();
+        final var candidate = request.candidate();
+        final var submitted = target.submitCollectedSemanticCheckpointCandidate(workClasses, candidate.intents(),
+                candidate.ownerClock(), candidate.checkpointPath(), candidate.pending(), candidate.physicalLimits(),
+                candidate.quotaLimits(), candidate.ledgerLimits(), request.inputs(), request.semanticLimits(),
+                cut::requireCurrent, request.protection(), request.publication());
+        pendingCheckpoint = submitted;
+        preparedCheckpointCut = null;
+        return submitted;
+    }
+
     /** Runs one shared bounded turn and releases the local source/maintenance cut only after settlement. */
     public synchronized Optional<TargetCheckpointCandidateWorkClassExecutor.Outcome> runCheckpointTurn(
             final SchedulerBudget budget) {
@@ -674,6 +711,7 @@ public final class TargetWorkerShardRuntime
         }
         resources.requireRuntimeBusinessAdmission();
         if (pendingCheckpoint.outcome().isEmpty()) {
+            pendingCheckpoint.enqueueNextPreparation();
             workClasses.runTurn(Objects.requireNonNull(budget, "budget"));
         }
         final var outcome = pendingCheckpoint.outcome();

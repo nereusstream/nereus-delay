@@ -574,6 +574,7 @@ class TargetWorkerShardFleetRuntimeTest {
                     failure -> { throw new AssertionError(failure); }, executor);
             final var host = new TargetWorkerHostRuntime(fleet, loop, List.of(first));
             final var submitted = new ArrayList<TargetWorkerHostRuntime.Shard>();
+            final var fail = new java.util.concurrent.atomic.AtomicReference<TargetWorkerHostRuntime.Shard>();
             final var schedule = new TargetCheckpointCandidateSchedule(host, new CheckpointScheduler(10, 0, 2),
                     (TargetCheckpointCandidateSchedule.Dispatcher) (selected, claim) -> {
                         submitted.add(selected);
@@ -581,9 +582,14 @@ class TargetWorkerShardFleetRuntimeTest {
                         stub.pendingCheckpoint = new WorkClassTask(WorkClass.CHECKPOINT,
                                 "membership/" + submitted.size(), 64);
                         return new TargetCheckpointCandidateSchedule.Candidate(stub.pendingCheckpoint,
-                                () -> stub.pendingCheckpoint == null ? Optional.of(
-                                        new TargetCheckpointCandidateWorkClassExecutor.Outcome(
-                                                Path.of("candidate"), null)) : Optional.empty());
+                                () -> {
+                                    if (stub.pendingCheckpoint != null) { return Optional.empty(); }
+                                    return Optional.of(stub == fail.get()
+                                            ? new TargetCheckpointCandidateWorkClassExecutor.Outcome(null,
+                                                    new IllegalStateException("original checkpoint failure"))
+                                            : new TargetCheckpointCandidateWorkClassExecutor.Outcome(
+                                                    Path.of("candidate"), null));
+                                });
                     });
             final var now = new java.util.concurrent.atomic.AtomicLong(100);
             schedule.registerShard(first, 100);
@@ -601,11 +607,16 @@ class TargetWorkerShardFleetRuntimeTest {
                         new TargetOwnerDrainCoordinator.Request(5_000, budget), budget, () -> 101).complete());
                 final var replacement = new StubShard(first.shard, registry, resources);
                 host.admitShard(replacement, replacement);
+                fail.set(replacement);
                 assertFalse(host.runNextPeriodicCheckpointTurn());
                 now.set(120);
                 assertTrue(host.runNextPeriodicCheckpointTurn());
                 assertEquals(replacement, submitted.getLast());
                 assertTrue(schedule.pendingTask(first.shard).isPresent());
+                assertTrue(host.runNextPeriodicCheckpointTurn());
+                final var reported = assertThrows(IllegalStateException.class, host::runNextPeriodicCheckpointTurn);
+                assertEquals("original checkpoint failure", reported.getCause().getMessage());
+                assertTrue(schedule.pendingTask(first.shard).isEmpty());
             } finally { loop.close(); }
         } finally { executor.shutdownNow(); }
     }

@@ -7439,8 +7439,38 @@ class TargetCommandStoreTest {
                         }, (a, b, c) -> guard())),
                 new TargetSourceApplyRuntime.Limits(4096, 32L << 20, 60_000_000_000L, 16, 1), System::nanoTime);
         final var pending = new java.util.concurrent.atomic.AtomicReference<SourceRecordConsumer.PolledSourceRecord>();
+        // Local adapter fixture: seed the inherited durable frontier, then advance only on confirmed ACK.
+        final var confirmed = new java.util.concurrent.atomic.AtomicReference<>(store.appliedShardLogPosition());
+        final SourceRecordConsumer sourceFixture = new SourceRecordConsumer() {
+            @Override
+            public java.util.Optional<PolledSourceRecord> poll() {
+                return java.util.Optional.ofNullable(pending.getAndSet(null)).map(record ->
+                        new PolledSourceRecord(record.entry(), (entry, applied) -> {
+                            final var result = record.acknowledger().acknowledge(entry, applied);
+                            if (result.disposition() == SourceAcknowledgement.Disposition.ACKED) {
+                                confirmed.set(entry.position());
+                            }
+                            return result;
+                        }));
+            }
+
+            @Override
+            public CheckpointCut checkpointCut(SourcePosition expected) {
+                return new CheckpointCut() {
+                    @Override
+                    public SourcePosition position() { return expected; }
+                    @Override
+                    public void requireCurrent() {
+                        if (!expected.equals(confirmed.get()) || !expected.equals(store.appliedShardLogPosition())
+                                || !active.sameIdentity(leases.current(scope.shard()).orElseThrow())) {
+                            throw new IllegalStateException("local checkpoint ACK/Owner cut changed");
+                        }
+                    }
+                };
+            }
+        };
         final var worker = TargetWorkerShardFactory.create(
-                () -> java.util.Optional.ofNullable(pending.getAndSet(null)), runtime.acceptedAssignment(),
+                sourceFixture, runtime.acceptedAssignment(),
                 classes, store, resources, runtime,
                 new TargetWorkerShardRuntime.Maintenance(
                         new TargetCloseStore(reopened.backend(), scope, reopened.root().recoveryLineage(), 16, 1)
@@ -7807,7 +7837,8 @@ class TargetCommandStoreTest {
                 new byte[] {TargetKeyCodec.RESULT_SYSTEM_TAG, TargetKeyCodec.KEY_FORMAT}, position.logicalId());
         final byte[] unknownFirstBytes = store.get(ColumnFamily.DEDUPE, unknownFirstKey);
         final var collectingUnknown = assertRetainedAdmissionInput(
-                backend, store, scope, lineage, worker, admission, held, keys, policy, checkpointContext);
+                backend, store, scope, lineage, worker, admission, held, keys, policy,
+                checkpointContext, classes, owner);
         final var prior = (KafkaSourcePosition) store.appliedShardLogPosition();
         final var at = source(prior, prior.offset() + 1, prior.brokerPersistenceTimeEpochMs() + 1);
         final long observed = Math.max(at.brokerPersistenceTimeEpochMs(), body.decisionTime().latestEpochMs());
@@ -7943,7 +7974,8 @@ class TargetCommandStoreTest {
         assertThrows(IllegalStateException.class, () -> store.recordEvidenceCursors(List.of()));
         assertEquals(beforeSeedBypass, store.latestSequenceNumber());
         final var collectingResolved = assertRetainedAdmissionInput(
-                backend, store, scope, lineage, worker, admission, resolved, keys, policy, checkpointContext);
+                backend, store, scope, lineage, worker, admission, resolved, keys, policy,
+                checkpointContext, classes, owner);
         final byte[] budgetBefore = store.get(ColumnFamily.META, attemptKey);
         final var firstAdmission = TargetResultRecord.decode(TargetValueEnvelope.decode(
                 store.get(ColumnFamily.DEDUPE, systemKey(admission)), TargetResultRecord.VALUE_TYPE).payload());
@@ -7996,7 +8028,8 @@ class TargetCommandStoreTest {
     private static CheckpointInputFixture assertRetainedAdmissionInput(
             TargetStoreBackend backend, ShardStore store, TargetQuotaScope scope, byte[] lineage,
             TargetWorkerShardRuntime worker, SystemMutation admission, TargetQuotaAttemptBudget current, KeyPair keys,
-            com.nereusstream.delay.protocol.RetryPolicySemantic policy, CheckpointImageContext checkpointContext) {
+            com.nereusstream.delay.protocol.RetryPolicySemantic policy, CheckpointImageContext checkpointContext,
+            WorkClassExecutionRegistry classes, OwnerIdentity owner) {
         final var discovery = new TargetPublishRecoveryDiscovery(backend, scope, lineage);
         final long before = store.latestSequenceNumber();
         final var limited = discovery.scanRetainedInputs(
@@ -8155,6 +8188,7 @@ class TargetCommandStoreTest {
             assertTrue(rejected.result().isEmpty());
         }
         if (checkpointContext != null) {
+            assertCollectedCheckpointProtectionFailure(store, worker, classes, current, owner, lineage);
             assertNonemptyAdmissionImage(store, scope, lineage, dependencies, images, current, keys, policy,
                     checkpointContext, originalHistory, originalAuthority);
         }
@@ -8206,6 +8240,74 @@ class TargetCommandStoreTest {
         assertEquals(beforeChangingHistory, store.latestSequenceNumber());
         // Caller changes the actual Store while this original-cut collection is waiting for its next turn.
         return new CheckpointInputFixture(changing, changingHistory, collector, inputs);
+    }
+
+    private static void assertCollectedCheckpointProtectionFailure(ShardStore store,
+            TargetWorkerShardRuntime worker, WorkClassExecutionRegistry classes, TargetQuotaAttemptBudget current,
+            OwnerIdentity owner, byte[] lineage) {
+        final var physical = new CheckpointManifestLimits(1_000, 256L << 20, 256L << 20,
+                1_024, 1 << 20, 1_000, 1_024);
+        final var quota = new TargetCheckpointRootVerifier.QuotaAuditLimits(4096, 32L << 20);
+        final var ledger = new TargetCheckpointRootVerifier.LedgerAuditLimits(4096, 32L << 20, 16_384, 32L << 20);
+        final var semantic = new com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.Limits(
+                64, 512 << 10, 512 << 10);
+        final var intent = new CheckpointUploadIntent(new ShardSubject(worker.shardId()), lineage,
+                bytes(16, 0xA0 + current.phase().ordinal()), owner, store.metadata().storeIncarnation(),
+                bytes(32, 0xA4), 1, null, null,
+                new ProfileRef(Bytes.utf8("collected-checkpoint-fixture"), 1, bytes(32, 0xA5),
+                        ProfileKind.OBJECT_STORE),
+                new TrustedUtcIntervalEvidence(100, 101, TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                        bytes(8, 0xA6), 1, 1, 1, bytes(32, 0xA7), 0, null), 1_000,
+                CheckpointUploadState.PENDING_UPLOAD, 1, null, null);
+        final var intents = new CheckpointUploadIntentStore();
+        intents.create(intent);
+        final var held = new java.util.concurrent.atomic.AtomicBoolean(true);
+        final var requested = new java.util.concurrent.atomic.AtomicBoolean();
+        final Path path = store.dbPath().getParent().resolve("collected-failure-" + current.phase());
+        final var controls = new com.nereusstream.delay.ownership.TargetCheckpointControlInputs(worker,
+                TargetCommandStoreTest::budget, ledger, ref -> {
+                    requested.set(true);
+                    return new java.util.concurrent.CompletableFuture<>();
+                }, new com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Limits(64, 1 << 20), () -> 102);
+        final var outcomes = new com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs(worker,
+                TargetCommandStoreTest::budget, ledger,
+                ref -> { throw new AssertionError("Control collection has not completed"); },
+                new com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs.Limits(64, 1 << 20), () -> 102);
+        final var collection = new com.nereusstream.delay.ownership.TargetCheckpointSemanticInputs(
+                controls, outcomes, (a, b) -> { throw new AssertionError("history is still pending"); });
+        final var request = new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule
+                .CollectedSemanticRequest(
+                new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.Request(intents,
+                        () -> 102, path, intent, physical, quota, ledger), collection, semantic,
+                () -> { if (!held.get()) { throw new IllegalStateException("history protection lost"); } }, null);
+        final long before = store.latestSequenceNumber();
+        final var source = store.appliedShardLogPosition();
+        if (worker.pendingSourceEntry().isPresent()) {
+            assertThrows(IllegalStateException.class,
+                    () -> worker.submitCollectedSemanticCheckpointCandidate(request));
+            assertEquals(before, store.latestSequenceNumber());
+            assertTrue(worker.pendingCheckpointTask().isEmpty());
+            assertFalse(java.nio.file.Files.exists(path));
+            return;
+        }
+        final var submission = worker.submitCollectedSemanticCheckpointCandidate(request);
+        final var task = submission.task();
+        for (int i = 0; i < 8 && !requested.get(); i++) {
+            assertTrue(worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L)).isEmpty());
+            assertEquals(task, worker.pendingCheckpointTask().orElseThrow());
+        }
+        assertTrue(requested.get());
+        assertThrows(IllegalStateException.class, () -> worker.runSourceTurn(
+                new SchedulerBudget(1, 1_000_000, 60_000_000_000L), () -> 102));
+        held.set(false);
+        final var failed = worker.runCheckpointTurn(
+                new SchedulerBudget(1, 1_000_000, 60_000_000_000L)).orElseThrow();
+        assertNotNull(failed.failure());
+        assertTrue(worker.pendingCheckpointTask().isEmpty());
+        assertEquals(before, store.latestSequenceNumber());
+        assertEquals(source, store.appliedShardLogPosition());
+        assertFalse(java.nio.file.Files.exists(path));
+        assertTrue(intents.current(intent).isPresent());
     }
 
     /** Full immutable nonempty image read; catalog/history/key/permission providers remain test fixtures. */

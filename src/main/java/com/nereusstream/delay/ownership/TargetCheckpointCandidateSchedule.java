@@ -75,6 +75,37 @@ public final class TargetCheckpointCandidateSchedule {
         }
     }
 
+    @FunctionalInterface
+    public interface CollectedSemanticRequestFactory {
+        CollectedSemanticRequest create(TargetWorkerShardRuntime shard, ScheduledCheckpoint claim,
+                SourceRecordConsumer.CheckpointCut cut);
+    }
+
+    public record CollectedSemanticRequest(Request candidate,
+            Supplier<Optional<com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot>> inputs,
+            com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.Limits semanticLimits,
+            Runnable protection, TargetCheckpointCandidateWorkClassExecutor.PublicationPlan publication) {
+        public CollectedSemanticRequest {
+            Objects.requireNonNull(candidate, "candidate");
+            Objects.requireNonNull(inputs, "inputs");
+            Objects.requireNonNull(semanticLimits, "semanticLimits");
+            Objects.requireNonNull(protection, "protection");
+        }
+    }
+
+    /** Queues bounded history preparation under the same pending task and due claim as image/publication. */
+    public static TargetCheckpointCandidateSchedule collectedSemantic(TargetWorkerHostRuntime host,
+            CheckpointScheduler scheduler, CollectedSemanticRequestFactory factory) {
+        Objects.requireNonNull(factory, "factory");
+        return new TargetCheckpointCandidateSchedule(host, scheduler, (Dispatcher) (shard, claim) -> {
+            final var worker = (TargetWorkerShardRuntime) shard;
+            final var cut = worker.protectCheckpointCut();
+            final var request = Objects.requireNonNull(factory.create(worker, claim, cut), "collected request");
+            final var submission = worker.submitCollectedSemanticCheckpointCandidate(request, cut);
+            return new Candidate(submission.task(), submission::outcome);
+        });
+    }
+
     /** Schedules complete semantic candidates under the same native cut captured before request construction. */
     public static TargetCheckpointCandidateSchedule semantic(TargetWorkerHostRuntime host,
             CheckpointScheduler scheduler, SemanticRequestFactory factory) {

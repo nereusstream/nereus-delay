@@ -16,6 +16,7 @@ import java.nio.file.Path;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.LongSupplier;
+import java.util.function.Supplier;
 
 /** Bounded CHECKPOINT handoff for a local, unpublished format-2 candidate. */
 public final class TargetCheckpointCandidateWorkClassExecutor {
@@ -105,6 +106,50 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
                         + Bytes.hex(Bytes.sha256(TASK_DOMAIN, identity)), identity.length);
         final var submission = new Submission(task);
         workClasses.submit(task, () -> executeSemantic(semantic, submission, publication));
+        return submission;
+    }
+
+    /** One bounded history step per CHECKPOINT invocation; an unfinished step keeps the same logical task. */
+    public Submission submitCollectedSemantic(Request request,
+            Supplier<Optional<TargetCheckpointSemanticSnapshot>> inputs,
+            TargetCheckpointSemanticSnapshot.Limits limits, Runnable protection, PublicationPlan publication) {
+        Objects.requireNonNull(inputs, "inputs");
+        Objects.requireNonNull(limits, "limits");
+        Objects.requireNonNull(protection, "protection");
+        if (publication != null && publication.coordinator().resources() != store.sharedResources()) {
+            throw new IllegalArgumentException("Target publication uses another Worker resource graph");
+        }
+        final Runnable guard = () -> { requireCurrent(request); protection.run(); };
+        guard.run();
+        final byte[] identity = canonicalIdentity(request);
+        final var task = new WorkClassTask(WorkClass.CHECKPOINT,
+                "target-collected-semantic/" + Bytes.hex(Bytes.sha256(TASK_DOMAIN, identity)),
+                Math.addExact(identity.length, limits.maximumBytes()));
+        final var submission = new Submission(task);
+        submission.preparationGuard = guard;
+        submission.preparationRegistry = workClasses;
+        submission.nextStep = () -> workClasses.submit(task, () -> {
+            try {
+                guard.run();
+                final var snapshot = Objects.requireNonNull(inputs.get(), "semantic inputs");
+                guard.run();
+                if (snapshot.isEmpty()) { return; }
+                if (snapshot.orElseThrow().schemaVersion() != 3) {
+                    throw new IllegalArgumentException("collected Target checkpoint requires original Outcome schema");
+                }
+                final var semantic = new SemanticRequest(request, snapshot.orElseThrow(), limits, protection);
+                submission.nextStep = null;
+                executeSemantic(semantic, submission, publication);
+            } catch (ReadIncompleteException incomplete) {
+                // A fresh bounded read may continue on the next exact task invocation.
+            } catch (RuntimeException failure) {
+                if (submission.outcome().isEmpty()) { submission.complete(new Outcome(null, failure)); }
+            } catch (Error failure) {
+                if (submission.outcome().isEmpty()) { submission.complete(new Outcome(null, failure)); }
+                throw failure;
+            }
+        });
+        submission.nextStep.run();
         return submission;
     }
 
@@ -306,6 +351,9 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
         private volatile Outcome outcome;
         private CheckpointPublicationCoordinator.CheckpointPublication published;
         private TargetCheckpointRootVerifier.AuthenticatedImage authenticatedImage;
+        private volatile Runnable nextStep;
+        private Runnable preparationGuard;
+        private WorkClassExecutionRegistry preparationRegistry;
 
         private Submission(final WorkClassTask task) {
             this.task = task;
@@ -317,6 +365,22 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
 
         public Optional<Outcome> outcome() {
             return Optional.ofNullable(outcome);
+        }
+
+        public boolean preparing() { return outcome == null && nextStep != null; }
+
+        /** Only the owning Worker uses this to admit history reads while its ordinary turns are paused. */
+        public void requirePreparationCurrent() {
+            if (!preparing()) { throw new IllegalStateException("Target checkpoint history is no longer preparing"); }
+            preparationGuard.run();
+        }
+
+        /** Reoffers an unfinished preparation only after its previous bounded invocation left the registry. */
+        public synchronized void enqueueNextPreparation() {
+            if (!preparing() || preparationRegistry.state(task).isPresent()) { return; }
+            try { requirePreparationCurrent(); nextStep.run(); }
+            catch (RuntimeException failure) { complete(new Outcome(null, failure)); }
+            catch (Error failure) { complete(new Outcome(null, failure)); throw failure; }
         }
 
         /** Empty until the complete protected creation/auth/upload/Catalog action has succeeded. */
