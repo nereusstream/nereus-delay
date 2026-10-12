@@ -2295,3 +2295,12 @@ Target手动candidate也必须满足class/pool结构容量；动态增大某次c
 NDIP-3完整三路checkpoint可用TargetCheckpointSemanticInputs(controls,outcomes,admissions,CompleteSnapshotFactory)；Admission loader必须promptly返回finite future，两SDK readAdmissionAsync复用caller-owned finite executor/原native cleanup。完成输入须用result(Control cut)核对同Worker/native physical cut，callback仍负责完整原Admission/auth/materialization/Profile/Artifact/credential/pin权限，不把opaque cursor equality/future完成当授权。pending task仅preparing允许这些history reads；Source/Owner/GC保护持续至整体terminal。Native K1本次只证明非空Admission standalone读取/原ACK-loss，P1整体本场Admission为空，禁止拼成非空protected production整链或解除Floor/迁退保护。证据NDIP-3/evidence/c5-collected-admission-*。
 
 NDIP-3 Registry values可用TargetCheckpointRegistryInputs配合SemanticInputs.asynchronous：先完成同cut Control/Outcome/Admission，再用完整dependencies启动有限providers。Profile/Retry provider须验证原Source use及immutable版本，传递Capability使用同use；Trust provider仍负责其既有public semantic/auth/key/pin契约，不能从checkpoint Source补发布时间。factory empty保留原task/cut，返回完整值后fromCollectedValues再加original frames并保持full ImageAuthority。physical cut失效后不得复用已完成值；future/credential/pin/cleanup仍属caller/provider，非整链生产验收。证据NDIP-3/evidence/c5-checkpoint-registry-inputs-*。
+
+Target periodic collected checkpoint 可用 `TargetCheckpointSemanticInputs.authenticated` 直接组合原三路
+collector 与有界 `Preparation`。`OriginalAuthorityFactory` 必须从已受保护的原历史、RBAC/issuer/key、
+Owner/native time、credential/Artifact/pin 权限构造真实 authorities，不能从输入签名或 Registry 行存在
+推断这些权限；factory 与 held guard 必须短步骤返回，远端值仍由原有限异步 provider/executor/deadline
+提供。原 Admission 在 Registry 读取前和返回后分别认证；源切点/Owner/整个资源保护贯穿 snapshot、
+full image auth、upload/Catalog 与终态。可使用 `Providers.fromOxiaCatalogs` 接三类 public catalog，
+但它不授予 Source activation/发行/保留/生产部署权限，future 取消不结清底层 I/O/pin 责任。应用级
+真实 provider 配置和授权、非空 native checkpoint 联合恢复、Floor/迁退与集中验收门禁仍须满足。

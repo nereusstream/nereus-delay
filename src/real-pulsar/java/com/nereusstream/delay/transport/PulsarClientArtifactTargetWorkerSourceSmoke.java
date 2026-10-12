@@ -9,6 +9,7 @@ import com.nereusstream.delay.ownership.SourceApplyCoordinator;
 import com.nereusstream.delay.ownership.SourceReplayMutation;
 import com.nereusstream.delay.ownership.SourceReplayRecord;
 import com.nereusstream.delay.ownership.SourceReplaySuccessor;
+import com.nereusstream.delay.ownership.TargetCheckpointSemanticInputs;
 import com.nereusstream.delay.ownership.TargetOwnerRecoveryCoordinator;
 import com.nereusstream.delay.ownership.TargetSourceApplyRuntime;
 import com.nereusstream.delay.ownership.TargetWorkerHostRuntime;
@@ -672,22 +673,26 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                                     ref, Duration.ofSeconds(10), cut::requireCurrent, historyExecutor),
                             new com.nereusstream.delay.ownership.TargetCheckpointAdmissionInputs.Limits(64, 1 << 20),
                             System::currentTimeMillis);
-                    final var collection = new com.nereusstream.delay.ownership.TargetCheckpointSemanticInputs(
-                            controls, outcomes, admissions, (control, outcome, retained) -> {
-                                final var collected = control.cut().dependencies();
+                    final var preparation = new TargetCheckpointSemanticInputs.Preparation(
+                            selected, PulsarClientArtifactTargetWorkerSourceSmoke::budget, System::currentTimeMillis,
+                            cut::requireCurrent,
+                            new com.nereusstream.delay.ownership.TargetCheckpointRegistryInputs.Providers(
+                                    use -> { throw new AssertionError("empty checkpoint has no Profile use"); },
+                                    use -> { throw new AssertionError("empty checkpoint has no Retry use"); },
+                                    ref -> { throw new AssertionError("empty checkpoint has no Trust Set use"); }),
+                            new com.nereusstream.delay.ownership.TargetCheckpointRegistryInputs.Limits(64, 1 << 20),
+                            semanticLimits, (control, outcome, retained, complete) -> {
                                 if (outcome.inputs().size() != 1 || !retained.isEmpty()) {
                                     throw new IllegalStateException("scheduled checkpoint lost original Outcome");
                                 }
-                                return TargetCheckpointSemanticSnapshot.collect(collected, List.of(),
-                                        new com.nereusstream.delay.runtime.InMemoryProfileCatalog(),
-                                        new com.nereusstream.delay.runtime.InMemoryRetryPolicyCatalog(),
-                                        new com.nereusstream.delay.runtime.InMemoryPayloadProofTrustSetCatalog(),
-                                        budget(), semanticLimits, cut::requireCurrent)
-                                        .withControlInputs(collected, control.inputs(), budget(), semanticLimits,
-                                                (input, first) -> keys.getPublic(), cut::requireCurrent)
-                                        .withOutcomeInputs(collected, outcome.inputs(), budget(), semanticLimits,
-                                                (input, first) -> keys.getPublic(), cut::requireCurrent);
+                                return new TargetCheckpointSemanticInputs.OriginalAuthorities(
+                                        (input, first) -> { throw new AssertionError("no retained Admission"); },
+                                        (actualScope, writer, mutation, at) -> {
+                                            throw new AssertionError("no retained Admission issuer");
+                                        }, (input, first) -> keys.getPublic(), (input, first) -> keys.getPublic());
                             });
+                    final var collection = TargetCheckpointSemanticInputs.authenticated(
+                            controls, outcomes, admissions, preparation);
                     return new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule
                             .CollectedSemanticRequest(
                             new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.Request(intents,

@@ -8439,59 +8439,41 @@ class TargetCommandStoreTest {
                     new TargetCheckpointAdmissionInputs.Limits(64, 32L << 20), () -> 102);
             final var registryDependencies = new java.util.concurrent.atomic.AtomicReference<
                     TargetCheckpointDependencies>();
-            final var registryInputs = new java.util.concurrent.atomic.AtomicReference<
-                    com.nereusstream.delay.ownership.TargetCheckpointRegistryInputs>();
             final var waitingProfile = new java.util.concurrent.CompletableFuture<ProfileSemanticEnvelope>();
             final var requestedProfile = new java.util.concurrent.atomic.AtomicReference<
                     TargetCheckpointDependencies.ProfileUse>();
             final var requestedUses = new java.util.ArrayList<TargetCheckpointDependencies.ProfileUse>();
-            final var collection = com.nereusstream.delay.ownership.TargetCheckpointSemanticInputs.asynchronous(
-                    controlInputs, outcomeInputs, admissionInputs, (control, outcome, retained) -> {
-                        assertEquals(images.size(), retained.size());
-                        final var originals = retained.stream().map(input ->
-                                new TargetCheckpointDependencies.AdmissionImage(input.reference().source(),
-                                        input.image())).toList();
-                        final var complete = control.cut().dependencies().withAdmissionInputs(retained, 32L << 20)
-                                .authenticateAdmissionImages(originals, 32L << 20, budget(), history, admissions,
-                                        () -> assertFalse(Thread.holdsLock(store)));
-                        if (registryInputs.get() == null) {
-                            registryDependencies.set(complete);
-                            registryInputs.set(new com.nereusstream.delay.ownership.TargetCheckpointRegistryInputs(
-                                    worker, control.cut(), complete, TargetCommandStoreTest::budget, () -> 102,
-                                    () -> assertFalse(Thread.holdsLock(store)),
-                                    new com.nereusstream.delay.ownership.TargetCheckpointRegistryInputs.Providers(
-                                            use -> {
-                                                requestedUses.add(use);
-                                                if (requestedProfile.compareAndSet(null, use)) {
-                                                    return waitingProfile;
-                                                }
-                                                return java.util.concurrent.CompletableFuture.completedFuture(
-                                                        profiles.resolve(use.reference()));
-                                            }, use -> java.util.concurrent.CompletableFuture.completedFuture(
-                                                    use.reference().matches(policy) ? policy : null),
-                                            ref -> { throw new AssertionError("inline fixture has no Trust Set"); }),
-                                    new com.nereusstream.delay.ownership.TargetCheckpointRegistryInputs.Limits(
-                                            64, 32L << 20)));
-                        }
-                        final var turn = registryInputs.get().runTurn();
-                        assertNull(turn.failure(), () -> String.valueOf(turn.failure()));
-                        final var result = registryInputs.get().result();
-                        if (result.isEmpty()) { return java.util.Optional.empty(); }
-                        final var values = result.orElseThrow();
-                        final var collected = com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot
-                                .fromCollectedValues(complete, originals, values.profiles(), values.retries(),
-                                        values.trusts(), collectedLimits, () -> assertFalse(Thread.holdsLock(store)))
-                                .withControlInputs(complete, control.inputs(), budget(), collectedLimits, controls,
-                                        () -> assertFalse(Thread.holdsLock(store)))
-                                .withOutcomeInputs(complete, outcome.inputs(), budget(), collectedLimits,
-                                        outcomeAuthority, () -> assertFalse(Thread.holdsLock(store)));
-                        assertArrayEquals(semantics.canonicalBytes(), collected.canonicalBytes());
-                        return java.util.Optional.of(collected);
+            final var admissionAllowed = new java.util.concurrent.atomic.AtomicBoolean(true);
+            final var registryYield = new java.util.concurrent.atomic.AtomicBoolean();
+            final var preparation = new com.nereusstream.delay.ownership.TargetCheckpointSemanticInputs.Preparation(
+                    worker, () -> {
+                        if (!registryYield.get()) { return budget(); }
+                        final var nanos = new java.util.concurrent.atomic.AtomicLong();
+                        return new BoundedReadBudget(1, 1, 1, nanos::getAndIncrement);
+                    }, () -> 102, () -> assertFalse(Thread.holdsLock(store)),
+                    new com.nereusstream.delay.ownership.TargetCheckpointRegistryInputs.Providers(use -> {
+                        requestedUses.add(use);
+                        if (requestedProfile.compareAndSet(null, use)) { return waitingProfile; }
+                        return java.util.concurrent.CompletableFuture.completedFuture(
+                                profiles.resolve(use.reference()));
+                    }, use -> java.util.concurrent.CompletableFuture.completedFuture(
+                            use.reference().matches(policy) ? policy : null),
+                            ref -> { throw new AssertionError("inline fixture has no Trust Set"); }),
+                    new com.nereusstream.delay.ownership.TargetCheckpointRegistryInputs.Limits(64, 32L << 20),
+                    collectedLimits, (control, outcome, originals, complete) -> {
+                        assertEquals(images.size(), originals.size());
+                        registryDependencies.set(complete);
+                        return new com.nereusstream.delay.ownership.TargetCheckpointSemanticInputs.OriginalAuthorities(
+                                history, (actualScope, writer, mutation, at) -> admissionAllowed.get()
+                                        ? admissions.resolve(actualScope, writer, mutation, at) : null,
+                                controls, outcomeAuthority);
                     });
+            final var collection = com.nereusstream.delay.ownership.TargetCheckpointSemanticInputs.authenticated(
+                    controlInputs, outcomeInputs, admissionInputs, preparation);
             final long beforeCollection = store.latestSequenceNumber();
             final var sourceBefore = store.appliedShardLogPosition();
             final long sequenceBefore = store.shardMutationSequence();
-            final var submitted = worker.submitCollectedSemanticCheckpointCandidate(
+            var submitted = worker.submitCollectedSemanticCheckpointCandidate(
                     new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.CollectedSemanticRequest(
                             new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.Request(intentStore,
                                     () -> 102, image, intent, physicalLimits, quotaLimits, ledgerLimits), collection,
@@ -8515,18 +8497,49 @@ class TargetCommandStoreTest {
                     Arrays.equals(use.canonicalBytes(), requestedProfile.get().canonicalBytes())));
             assertEquals(beforeCollection, store.latestSequenceNumber());
             assertFalse(java.nio.file.Files.exists(image));
+            registryYield.set(true);
+            assertTrue(worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L)).isEmpty());
+            assertEquals(submitted.task(), worker.pendingCheckpointTask().orElseThrow());
+            assertEquals(beforeCollection, store.latestSequenceNumber());
+            assertFalse(java.nio.file.Files.exists(image));
+            registryYield.set(false);
             waitingProfile.complete(profiles.resolve(requestedProfile.get().reference()));
+            final boolean rejectLateAdmission = current.phase() == TargetQuotaAttemptBudget.Phase.UNKNOWN;
+            if (rejectLateAdmission) { admissionAllowed.set(false); }
             for (int turn = 0; turn < 64 && submitted.outcome().isEmpty(); turn++) {
                 worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L));
+            }
+            if (rejectLateAdmission) {
+                assertNotNull(submitted.outcome().orElseThrow().failure());
+                assertTrue(submitted.outcome().orElseThrow().failure().getMessage()
+                        .contains("UNAUTHORIZED_SYSTEM_MUTATION"));
+                assertEquals(beforeCollection, store.latestSequenceNumber());
+                assertFalse(java.nio.file.Files.exists(image));
+                assertTrue(worker.pendingCheckpointTask().isEmpty());
+                admissionAllowed.set(true);
+                final var retry = com.nereusstream.delay.ownership.TargetCheckpointSemanticInputs.authenticated(
+                        controlInputs, outcomeInputs, admissionInputs, preparation);
+                submitted = worker.submitCollectedSemanticCheckpointCandidate(
+                        new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.CollectedSemanticRequest(
+                                new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.Request(
+                                        intentStore, () -> 102, image, intent,
+                                        physicalLimits, quotaLimits, ledgerLimits),
+                                retry, collectedLimits, () -> assertFalse(Thread.holdsLock(store)), null));
+                for (int turn = 0; turn < 64 && submitted.outcome().isEmpty(); turn++) {
+                    worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L));
+                }
             }
             final var completed = submitted.outcome().orElseThrow();
             assertNull(completed.failure(), () -> String.valueOf(completed.failure()));
             assertEquals(image.toAbsolutePath().normalize(), completed.checkpointPath());
             assertEquals(sourceBefore, store.appliedShardLogPosition());
             assertEquals(sequenceBefore, store.shardMutationSequence());
+            assertArrayEquals(semantics.canonicalBytes(),
+                    com.nereusstream.delay.store.TargetCheckpointSemanticSnapshotFile.read(image, collectedLimits)
+                            .canonicalBytes());
             assertTrue(requestedUses.stream().anyMatch(use ->
                     use.reference().profileKind() == ProfileKind.DELIVERY_CAPABILITY));
-            assertTrue(registryInputs.get().result().isEmpty()); // Candidate metadata writes invalidate the live cut.
+            assertThrows(IllegalStateException.class, collection::get); // Candidate metadata invalidates the live cut.
             assertTrue(worker.pendingCheckpointTask().isEmpty());
             assertTrue(intentStore.current(intent).isPresent());
             assertEquals(0, classes.pending(com.nereusstream.delay.scheduler.WorkClass.CHECKPOINT));
