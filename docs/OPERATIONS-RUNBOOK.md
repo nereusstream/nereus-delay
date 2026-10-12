@@ -2329,3 +2329,9 @@ actual formal PublicationPlan 和持续有效的全部 permissions/protections�
 本次 scheduler，不关闭 caller 的 Store/Source 或释放 Owner。正常 maintenance 保留原 GC→expiry→
 publish recovery→checkpoint→Source observation 顺序；安装在 tick 前不表示 checkpoint 获得抢占优先级。
 实际发布/restore/Floor、provider uncertain I/O/late cleanup、资源/容量认证与迁退门禁仍须独立完成。
+
+Target candidate 必须读取 `current(identity)` 的完整值并与原 PENDING intent 比较；Oxia 返回 identity 当前
+状态不等于 pending 仍有效。本地 exact-filter store 的 empty/present 行为不能替代这个比较。
+REAPING/foreign pending 或普通路径的 PUBLISHED 立即拒绝；formal composite 对自己已经提交的 exact
+PUBLISHED successor 只通过 `currentPublishedFor(originalPending)` 继续原恢复/settlement，不新建 upload
+或借此授予 delete/Floor 权限。仍须保护原 Owner/Source/session/catalog/pin/资源及 uncertain I/O 生命周期。

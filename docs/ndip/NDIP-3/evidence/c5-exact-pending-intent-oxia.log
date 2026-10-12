@@ -1,0 +1,116 @@
+Command: NEREUS_DELAY_OXIA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/oxia NEREUS_DELAY_OXIA_E2E_PORT=19675 NEREUS_DELAY_E2E_GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle bash e2e/.ndip3-exact-pending-intent.sh
+Original service setup/health/trap retained; selector only final tests/filter --rerun. Real backend creates and reads REAPING, exact Worker guard rejects old pending with zero queue/history/Store/image actions; existing UNKNOWN/resolved/Owner/Source/recovery assertions preserved. No native Broker/history/auth/production claim.
+Oxia checkout: /Users/liusinan/apps/ideaproject/nereusstream/oxia@37a17bef17202d5fd6e23282da5fd26d94865484
+Compose project: nereus-delay-oxia-e2e-1791790793-61022
+Host endpoint: 127.0.0.1:19675
+ Image nereus-delay-oxia-e2e-1791790793-61022-oxia Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 606B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 1.34kB done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/golang:1.26-alpine
+#3 DONE 3.7s
+
+#4 [internal] load metadata for docker.io/library/alpine:3.22
+#4 DONE 3.7s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 2B done
+#5 DONE 0.0s
+
+#6 [runtime 1/8] FROM docker.io/library/alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
+#6 DONE 0.0s
+
+#7 [build 1/5] FROM docker.io/library/golang:1.26-alpine@sha256:3082400e369fa24d5fc60bca20edab3f6d604e0c5a690ec66b295eff4dd87ade
+#7 DONE 0.0s
+
+#8 [internal] load build context
+#8 transferring context: 39.30kB 0.0s done
+#8 DONE 0.0s
+
+#9 [build 2/5] RUN apk add --no-cache make git build-base bash
+#9 CACHED
+
+#10 [runtime 3/8] RUN apk upgrade --no-cache
+#10 CACHED
+
+#11 [runtime 6/8] COPY --from=build /src/oxia/conf/coordinator.yaml /oxia/conf/coordinator.yaml
+#11 CACHED
+
+#12 [build 5/5] RUN --mount=type=cache,target=/go/pkg/mod     --mount=type=cache,target=/root/.cache/go-build     make
+#12 CACHED
+
+#13 [build 4/5] COPY . .
+#13 CACHED
+
+#14 [runtime 2/8] RUN apk add --no-cache bash bash-completion jq
+#14 CACHED
+
+#15 [runtime 5/8] COPY --from=build /src/oxia/bin/oxia /oxia/bin/oxia
+#15 CACHED
+
+#16 [build 3/5] WORKDIR /src/oxia
+#16 CACHED
+
+#17 [runtime 7/8] COPY --from=build /src/oxia/conf/dataserver.yaml /oxia/conf/dataserver.yaml
+#17 CACHED
+
+#18 [runtime 4/8] WORKDIR /oxia
+#18 CACHED
+
+#19 [runtime 8/8] RUN oxia completion bash > ~/.bashrc
+#19 CACHED
+
+#20 exporting to image
+#20 exporting layers done
+#20 writing image sha256:47ba304c53df6d4f583d36a1aa9819bf157c270dd7a95dc4aaad724a9895d0ef done
+#20 naming to docker.io/library/nereus-delay-oxia-e2e-1791790793-61022-oxia done
+#20 DONE 0.0s
+
+#21 resolving provenance for metadata file
+#21 DONE 0.0s
+ Image nereus-delay-oxia-e2e-1791790793-61022-oxia Built 
+ Network nereus-delay-oxia-e2e-1791790793-61022_default Creating 
+ Network nereus-delay-oxia-e2e-1791790793-61022_default Creating 
+ Network nereus-delay-oxia-e2e-1791790793-61022_default Created 
+ Network nereus-delay-oxia-e2e-1791790793-61022_default Created 
+ Container nereus-delay-oxia-e2e-1791790793-61022-oxia-1 Creating 
+ Container nereus-delay-oxia-e2e-1791790793-61022-oxia-1 Created 
+ Container nereus-delay-oxia-e2e-1791790793-61022-oxia-1 Starting 
+ Container nereus-delay-oxia-e2e-1791790793-61022-oxia-1 Started 
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+
+BUILD SUCCESSFUL in 1m 26s
+13 actionable tasks: 3 executed, 10 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+Dockerized Oxia real-service smoke passed for 37a17bef17202d5fd6e23282da5fd26d94865484
+89282094787d468b6c1c8b479a274f83736f30e0adbb6a4fe18d3abcc3837ca5  e2e/.ndip3-exact-pending-intent.sh
+fe9af46755bb950abea24d2afc745dd2ed8b778bf16fe8988ac5fe8c708374ef  e2e/run-oxia-real-service.sh
+6bfc9680f5b373210c8ca623d6cdc50d113bc484a0a7fdc5a3a3ce1d7ceda39e  e2e/docker-compose.oxia.yml
+042de74dba92d5ebefd69a281c529e19d13f49ad94b4de7163b9df9ce5c82ef0  /Users/liusinan/apps/ideaproject/nereusstream/oxia/Dockerfile
+14477edc589cf2421327fa327a5b47bc93772441585ad632cf37cdd5af23bef5  build/test-results/test/TEST-com.nereusstream.delay.runtime.TargetCommandStoreTest.xml
+{'tests': '1', 'failures': '0', 'errors': '0', 'skipped': '0'}
+Owned original-trap cleanup: zero containers for nereus-delay-oxia-e2e-1791790793-61022
+Oxia checkout clean37a17bef17202d5fd6e23282da5fd26d94865484

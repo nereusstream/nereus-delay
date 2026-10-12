@@ -307,7 +307,7 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
                 || !current.validAt(now)) {
             throw new IllegalStateException("Target candidate Owner Lease changed or expired");
         }
-        if (intents.current(pending).isEmpty()
+        if (intents.current(pending).filter(pending::equals).isEmpty()
                 && !(allowPublished && intents.currentPublishedFor(pending).isPresent())) {
             throw new IllegalStateException("Target candidate pending intent changed or is absent");
         }

@@ -9,6 +9,12 @@ import java.nio.file.Path;
 public final class TargetCheckpointCandidateTestBridge {
     private TargetCheckpointCandidateTestBridge() {}
 
+    /** Real Oxia publication codec/CAS operations over a deterministic record transport, not a native service. */
+    public static OxiaSyncCheckpointPublicationBackend oxiaPublicationModel(CheckpointManifestLimits limits) {
+        return new OxiaSyncCheckpointPublicationBackend(
+                new OxiaSyncCheckpointPublicationBackendTest.FakeRecordClient(), "candidate-intent-fixture", limits);
+    }
+
     public static Path create(
             final ShardStore store,
             final Path path,

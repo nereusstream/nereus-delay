@@ -373,7 +373,7 @@ class OxiaSyncCheckpointPublicationBackendTest {
                 Bytes.lp32(Bytes.utf8("fake-publication-session")));
     }
 
-    private static final class FakeRecordClient implements OxiaSyncCheckpointPublicationBackend.RecordClient {
+    static final class FakeRecordClient implements OxiaSyncCheckpointPublicationBackend.RecordClient {
         private final Map<String, GetResult> records = new HashMap<>();
         private long nextVersion = 1;
         private int putCount;

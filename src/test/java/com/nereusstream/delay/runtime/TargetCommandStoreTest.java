@@ -8293,6 +8293,37 @@ class TargetCommandStoreTest {
             assertFalse(java.nio.file.Files.exists(path));
             return;
         }
+        final String endpoint = System.getenv("NEREUS_DELAY_OXIA_ENDPOINT");
+        final String prefix = "candidate-reaping/" + java.util.UUID.randomUUID();
+        try (var nativeClient = endpoint == null || endpoint.isBlank() ? null
+                : com.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend.connect(endpoint, "default", prefix,
+                        java.time.Duration.ofSeconds(15), java.time.Duration.ofSeconds(5), prefix + "/session")) {
+            final var reapingIntents = nativeClient == null
+                    ? com.nereusstream.delay.store.TargetCheckpointCandidateTestBridge.oxiaPublicationModel(physical)
+                    : new com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend(nativeClient,
+                            prefix + "/publication", physical);
+            reapingIntents.create(intent);
+            final var reaped = reapingIntents.beginReaping(intent, new TrustedUtcIntervalEvidence(1000, 1001,
+                    TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, bytes(8, 0xA8), 1, 1, 1,
+                    bytes(32, 0xA9), 0, null));
+            assertEquals(CheckpointUploadState.REAPING, reaped.state());
+            // Oxia identity lookup returns the current state, not an exact pending-value filter.
+            assertEquals(reaped, reapingIntents.current(intent).orElseThrow());
+            final var reapingRequest = new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule
+                    .CollectedSemanticRequest(
+                    new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.Request(reapingIntents,
+                            () -> 102, path, intent, physical, quota, ledger), collection, semantic, () -> {}, null);
+            assertThrows(IllegalStateException.class,
+                    () -> worker.submitCollectedSemanticCheckpointCandidate(reapingRequest));
+            assertTrue(worker.pendingCheckpointTask().isEmpty());
+            assertEquals(0, classes.pending(WorkClass.CHECKPOINT));
+            assertEquals(before, store.latestSequenceNumber());
+            assertEquals(source, store.appliedShardLogPosition());
+            assertFalse(java.nio.file.Files.exists(path));
+            assertFalse(requested.get());
+        } catch (java.io.IOException | io.oxia.client.api.exceptions.OxiaException failure) {
+            throw new AssertionError("native candidate intent fixture failed", failure);
+        }
         final var submission = worker.submitCollectedSemanticCheckpointCandidate(request);
         final var task = submission.task();
         for (int i = 0; i < 8 && !requested.get(); i++) {
