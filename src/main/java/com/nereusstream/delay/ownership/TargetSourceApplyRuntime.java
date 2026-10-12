@@ -765,6 +765,13 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     }
 
     /** Restores only an unadmitted, exact Claim under the same active Owner and Store guards. */
+    synchronized boolean claimStillCurrent(final BoundedReadBudget budget, final TargetClaimRecord claim,
+            final TargetQuotaDelta.LocalClaimAuthority quota, final LongSupplier clock) {
+        requireGcOwner(clock);
+        return new TargetClaimStore(backend, scope, lineage, limits.domains(), quota)
+                .isCurrent(budget, claim, workerReads(clock));
+    }
+
     synchronized void revokeClaim(
             final BoundedReadBudget budget,
             final TargetClaimRecord expected,

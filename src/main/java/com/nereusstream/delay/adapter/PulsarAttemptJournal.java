@@ -572,22 +572,40 @@ public final class PulsarAttemptJournal {
      * authenticated Broker namespace, retained-history/cursor and accepted service-writer authority.
      */
     public synchronized void requireTargetPublishedEvidence(
-            final Mapping mapping,
-            final com.nereusstream.delay.protocol.TargetOrdinaryPublicationBinding publication,
+            final Mapping mapping, final com.nereusstream.delay.protocol.TargetOrdinaryPublicationBinding publication,
+            final com.nereusstream.delay.protocol.SourcePosition admissionSource,
+            final EvidenceCursor cursor, final PublishEvidence evidence) {
+        evidence.requireOrdinaryTargetPublishedBinding(publication);
+        requireTargetPublishedEvidence(mapping, publication.channel(), publication.locator(), publication.preparedPublishHash(),
+                publication.artifactGenerationSetDigest(), publication.publishAttemptId(), DeliveryContract.NEREUS_MANAGED_NOT_BEFORE, admissionSource, cursor, evidence);
+    }
+
+    public synchronized void requireTargetPublishedEvidence(
+            final Mapping mapping, final com.nereusstream.delay.protocol.TargetNativePublicationBinding publication,
+            final com.nereusstream.delay.protocol.SourcePosition admissionSource,
+            final EvidenceCursor cursor, final PublishEvidence evidence) {
+        evidence.requireNativeTargetPublishedBinding(publication);
+        requireTargetPublishedEvidence(mapping, publication.channel(), publication.locator(), publication.preparedPublishHash(),
+                publication.artifactGenerationSetDigest(), publication.publishAttemptId(), DeliveryContract.PULSAR_NATIVE_DELIVERY, admissionSource, cursor, evidence);
+    }
+
+    private void requireTargetPublishedEvidence(final Mapping mapping, final TargetChannelIdentity channel,
+            final com.nereusstream.delay.protocol.TargetMessageLocator locator,
+            final byte[] preparedHash, final byte[] artifactDigest, final byte[] attemptId,
+            final DeliveryContract contract,
             final com.nereusstream.delay.protocol.SourcePosition admissionSource,
             final EvidenceCursor cursor, final PublishEvidence evidence) {
         requireShard(Objects.requireNonNull(mapping, "mapping"));
-        Objects.requireNonNull(publication, "publication");
         if (!mapping.producer().isTarget() || !mapping.isCurrentGeneration()
-                || mapping.deliveryContract() != DeliveryContract.NEREUS_MANAGED_NOT_BEFORE
+                || mapping.deliveryContract() != contract
                 || !Arrays.equals(mapping.producer().targetChannel().canonicalBytes(),
-                        publication.channel().canonicalBytes())
-                || !mapping.delayMessageId().equals(publication.locator().messageId())
-                || mapping.generation() != publication.locator().generation()
-                || !Arrays.equals(mapping.publishAttemptId(), publication.publishAttemptId())
-                || !Arrays.equals(mapping.preparedPublishHash(), publication.preparedPublishHash())
+                        channel.canonicalBytes())
+                || !mapping.delayMessageId().equals(locator.messageId())
+                || mapping.generation() != locator.generation()
+                || !Arrays.equals(mapping.publishAttemptId(), attemptId)
+                || !Arrays.equals(mapping.preparedPublishHash(), preparedHash)
                 || !Arrays.equals(mapping.sourcePosition(), admissionSource.canonicalBytes())
-                || !Arrays.equals(mapping.artifactGenerationSetDigest(), publication.artifactGenerationSetDigest())) {
+                || !Arrays.equals(mapping.artifactGenerationSetDigest(), artifactDigest)) {
             throw conflict("Target Journal mapping differs from its frozen Admission/source");
         }
         final MappingState state = mappings.get(Bytes.hex(mapping.mappingId()));
@@ -595,7 +613,6 @@ public final class PulsarAttemptJournal {
                 || !state.published || state.publishedRecord == null) {
             throw conflict("Target Journal evidence lacks its exact durable PUBLISHED record");
         }
-        evidence.requireOrdinaryTargetPublishedBinding(publication);
         if (evidence.evidenceKind() != PublishEvidenceKind.PULSAR_ATTEMPT_JOURNAL) {
             throw conflict("Target Journal verifier requires its Journal evidence branch");
         }
@@ -708,20 +725,40 @@ public final class PulsarAttemptJournal {
 
     /** Exact retained retirement/channel/cursor join; this never upgrades OWNERSHIP_STARTED to NOT_PUBLISHED. */
     public synchronized void requireTargetNotPublishedEvidence(
-            final Mapping mapping,
-            final com.nereusstream.delay.protocol.TargetOrdinaryPublicationBinding publication,
+            final Mapping mapping, final com.nereusstream.delay.protocol.TargetOrdinaryPublicationBinding publication,
+            final com.nereusstream.delay.protocol.SourcePosition admissionSource,
+            final EvidenceCursor cursor, final PublishEvidence evidence) {
+        evidence.requireOrdinaryTargetNotPublishedBinding(publication);
+        requireTargetNotPublishedEvidence(mapping, publication.channel(), publication.locator(), publication.preparedPublishHash(),
+                publication.artifactGenerationSetDigest(), publication.publishAttemptId(), DeliveryContract.NEREUS_MANAGED_NOT_BEFORE, admissionSource, cursor, evidence);
+    }
+
+    public synchronized void requireTargetNotPublishedEvidence(
+            final Mapping mapping, final com.nereusstream.delay.protocol.TargetNativePublicationBinding publication,
+            final com.nereusstream.delay.protocol.SourcePosition admissionSource,
+            final EvidenceCursor cursor, final PublishEvidence evidence) {
+        evidence.requireNativeTargetNotPublishedBinding(publication);
+        requireTargetNotPublishedEvidence(mapping, publication.channel(), publication.locator(), publication.preparedPublishHash(),
+                publication.artifactGenerationSetDigest(), publication.publishAttemptId(), DeliveryContract.PULSAR_NATIVE_DELIVERY, admissionSource, cursor, evidence);
+    }
+
+    private void requireTargetNotPublishedEvidence(final Mapping mapping, final TargetChannelIdentity channel,
+            final com.nereusstream.delay.protocol.TargetMessageLocator locator,
+            final byte[] preparedHash, final byte[] artifactDigest, final byte[] attemptId,
+            final DeliveryContract contract,
             final com.nereusstream.delay.protocol.SourcePosition admissionSource,
             final EvidenceCursor cursor, final PublishEvidence evidence) {
         requireShard(Objects.requireNonNull(mapping, "mapping"));
         if (!mapping.producer().isTarget() || !mapping.isCurrentGeneration()
+                || mapping.deliveryContract() != contract
                 || !Arrays.equals(mapping.producer().targetChannel().canonicalBytes(),
-                        publication.channel().canonicalBytes())
-                || !mapping.delayMessageId().equals(publication.locator().messageId())
-                || mapping.generation() != publication.locator().generation()
-                || !Arrays.equals(mapping.publishAttemptId(), publication.publishAttemptId())
-                || !Arrays.equals(mapping.preparedPublishHash(), publication.preparedPublishHash())
+                        channel.canonicalBytes())
+                || !mapping.delayMessageId().equals(locator.messageId())
+                || mapping.generation() != locator.generation()
+                || !Arrays.equals(mapping.publishAttemptId(), attemptId)
+                || !Arrays.equals(mapping.preparedPublishHash(), preparedHash)
                 || !Arrays.equals(mapping.sourcePosition(), admissionSource.canonicalBytes())
-                || !Arrays.equals(mapping.artifactGenerationSetDigest(), publication.artifactGenerationSetDigest())) {
+                || !Arrays.equals(mapping.artifactGenerationSetDigest(), artifactDigest)) {
             throw conflict("Target retirement mapping differs from its frozen Admission/source");
         }
         final var state = requireMapping(mapping.mappingId());
@@ -729,19 +766,18 @@ public final class PulsarAttemptJournal {
                 || state.ownershipStarted || state.published) {
             throw conflict("Target absence lacks its exact pre-ownership retirement");
         }
-        evidence.requireOrdinaryTargetNotPublishedBinding(publication);
         if (evidence.evidenceKind() != PublishEvidenceKind.PULSAR_JOURNAL_ABSENCE) {
             throw conflict("Target retirement requires its Journal absence branch");
         }
         final var fields = QueryCodecSupport.read(evidence.branch(), "Target Journal absence");
         final var embedded = EvidenceCursor.decode(QueryCodecSupport.nested(fields.get(0), 1));
-        final var channel = TargetChannelIdentity.decode(QueryCodecSupport.nested(fields.get(1), 2));
+        final var fencedChannel = TargetChannelIdentity.decode(QueryCodecSupport.nested(fields.get(1), 2));
         final var current = evidenceCursor(mapping.producer(), cursor.evidenceGeneration()).orElseThrow();
         final var retired = state.retirementRecord.position();
         if (!Arrays.equals(cursor.canonicalBytes(), embedded.canonicalBytes()) || !current.dominates(cursor)
                 || QueryCodecSupport.uint64Bits(fields.get(5), 6) != mapping.sequenceId()
                 || !Arrays.equals(QueryCodecSupport.fixed(fields.get(6), 7, 32),
-                        targetRetirementBarrier(state.retirementRecord, channel, cursor))
+                        targetRetirementBarrier(state.retirementRecord, fencedChannel, cursor))
                 || cursor.maxBrokerPersistedAtThroughCursor() < retired.brokerEntryTimestampEpochMs()
                 || Long.compareUnsigned(cursor.ledgerId(), retired.ledgerId()) < 0
                 || cursor.ledgerId() == retired.ledgerId()

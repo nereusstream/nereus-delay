@@ -90,7 +90,7 @@ public final class TargetPublishAdmissionStore {
         }
     }
 
-    private static final class StaleAdmission extends RuntimeException {
+    public static final class StaleAdmission extends RuntimeException {
         private static final long serialVersionUID = 1L;
     }
 
@@ -219,9 +219,14 @@ public final class TargetPublishAdmissionStore {
                 final var publication = Objects.requireNonNull(policies, "nativePolicies")
                         .requireCurrent(nativeScope.digest());
                 final long actionAt = message.deliverAtEpochMs() - publication.head().snapshot().effectiveLeadMs();
-                final var snapshot = com.nereusstream.delay.scheduler.TargetNativePolicyChecks.freezeCurrent(
-                        nativeScope, claim.policyHead(), message.deliverAtEpochMs(), actionAt, policies,
-                        TargetNativePolicyStoreAuthority.inView(reader, scope, lineage), reader.source(), time);
+                final com.nereusstream.delay.protocol.TargetNativePolicySnapshot snapshot;
+                try {
+                    snapshot = com.nereusstream.delay.scheduler.TargetNativePolicyChecks.freezeCurrent(
+                            nativeScope, claim.policyHead(), message.deliverAtEpochMs(), actionAt, policies,
+                            TargetNativePolicyStoreAuthority.inView(reader, scope, lineage), reader.source(), time);
+                } catch (IllegalArgumentException ineligible) {
+                    throw new StaleAdmission();
+                }
                 final var frozen = com.nereusstream.delay.protocol.TargetNativePublicationBinding.fromClaim(
                         claim, message, binding, physical, channel, capability, artifacts,
                         nativeScope, snapshot, claim.policyHead(), actionAt);

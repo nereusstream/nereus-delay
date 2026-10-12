@@ -93,6 +93,9 @@ public final class TargetClaimStore {
                 || deadlineEpochMs <= nowEpochMs) {
             throw new IllegalArgumentException("Target Claim is not eligible or has an expired deadline");
         }
+        final byte[] exactDigest = policyHead == null ? operationDigest : Bytes.sha256(
+                Bytes.utf8("nereus-delay-target-native-claim-operation\0"), operationDigest,
+                policyHead.canonicalBytes());
         final var result = new TargetClaimRecord[1];
         final var prepared = messages.prepareAccounted(
                 budget,
@@ -128,9 +131,6 @@ public final class TargetClaimStore {
                     if (policyHead != null && !Arrays.equals(policyHead.scopeDigest(), binding.nativePolicyScopeRef())) {
                         throw new IllegalStateException("Native Claim head changes its applied Target scope/domain");
                     }
-                    final byte[] exactDigest = policyHead == null ? operationDigest : Bytes.sha256(
-                            Bytes.utf8("nereus-delay-target-native-claim-operation\0"), operationDigest,
-                            policyHead.canonicalBytes());
                     final var operation = localOperation(reader, exactDigest);
                     final var claim = new TargetClaimRecord(
                             message.runtime(),
@@ -207,7 +207,7 @@ public final class TargetClaimStore {
                                             TargetQuotaClaimCharge.VALUE_TYPE,
                                             charge.canonicalBytes())));
                 },
-                accounting(operationDigest, TargetQuotaDelta.LocalClaimKind.CLAIM));
+                accounting(exactDigest, TargetQuotaDelta.LocalClaimKind.CLAIM));
         return new Prepared(this, prepared, result[0]);
     }
 
@@ -229,6 +229,39 @@ public final class TargetClaimStore {
                 payload(reader, ColumnFamily.META, claim.chargeKey(), TargetQuotaClaimCharge.VALUE_TYPE));
         claim.requireCharge(charge);
         return claim;
+    }
+
+    public boolean isCurrent(final BoundedReadBudget budget, final TargetClaimRecord expected,
+            final TargetStoreBackend.ReadAuthority authority) {
+        return backend.guardedRead(budget, reader -> {
+            final byte[] raw = reader.get(ColumnFamily.INFLIGHT, expected.key());
+            if (raw == null) {
+                if (reader.get(ColumnFamily.META, expected.chargeKey()) != null) {
+                    throw new IllegalStateException("removed Claim retains its execution charge");
+                }
+                final byte[] messageKey = TargetKeyCodec.message(expected.work().locator().messageId());
+                final byte[] messageRaw = reader.get(ColumnFamily.ID, messageKey);
+                if (messageRaw != null) {
+                    final var message = TargetMessageRecord.decodeForStore(messageKey,
+                            TargetValueEnvelope.decode(messageRaw, TargetMessageRecord.VALUE_TYPE).payload(), scope.shard());
+                    if (message.runtime().currentWorkKind() == CurrentSendWorkKind.CLAIMED
+                            && Arrays.equals(message.runtime().claimId(), expected.claimId())) {
+                        throw new IllegalStateException("current Message references a missing Claim");
+                    }
+                }
+                reader.requireWithinElapsedBudget();
+                return Boolean.FALSE;
+            }
+            final var stored = TargetClaimRecord.decode(TargetValueEnvelope.decode(raw, TargetClaimRecord.VALUE_TYPE).payload());
+            if (!Arrays.equals(stored.canonicalBytes(), expected.canonicalBytes())) {
+                throw new IllegalStateException("Claim identity has conflicting stored bytes");
+            }
+            final var message = message(reader, expected.selected());
+            expected.requireCurrent(message);
+            current(reader, message);
+            reader.requireWithinElapsedBudget();
+            return Boolean.TRUE;
+        }, authority);
     }
 
     /** Revoke restores only the same semantic work and increments its instance revision; no Admission is spent. */

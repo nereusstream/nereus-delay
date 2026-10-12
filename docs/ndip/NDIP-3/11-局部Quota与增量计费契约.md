@@ -2094,3 +2094,21 @@ key+payload+NV+artifact STATE收费，root/tenant mirror同量，before/after差
 旧fixed bookkeeping reserve覆盖，也不能通过初始化后普通metadata API改seed。旧非空
 未计费/旧accepted未seed状态需受控protected history/backfill/计费闭合，不静默reprice/
 replay补账或提前释放Floor。局部61/Oxia12范围见[执行记录](04-执行记录.md)。
+
+
+### §19 恢复权限补充（2026-10-12）
+
+新 Owner takeover revoke 由实际 startup/recovery 保护流程产生权限，普通同 Owner/
+Store revoke 不放宽。先 Source replay 到 accepted activation barrier、完整 root/lineage/
+账本审计和真实旧 writer fencing，再核对当前持久 openedOwnerEpoch/lease/token/session；
+epoch 必须 unsigned 严格高于候选 Claim Owner。候选 exact Claim/charge/Message、派生
+Admission/AttemptBudget/obligation 与 Journal ownership/未决 append 保护必须在完整覆盖
+下成立，单条 DB absence 不是恢复授权。只恢复尚未 Admission 的 reversible work。
+
+撤销沿现有 REVOKE/新 local ordinal，同批扣首次冻结 Claim execution/STATE、实际 NV36/
+Message/index/head/order delta，更新原 counter/mirror/total/aggregate；不动其他 attempt/
+payload/reserve/physical-zombie、不重定价。跨 Store 必须证明来自受认证恢复 lineage，
+提交 guard 保护当前 Store/read cut 与完整恢复依据，不删除原普通 commit Store 检查。
+入正常 Host 前收敛；扫描有界、未知保留、commit UNKNOWN fence/reopen 精读、完成后
+必要审计，不以最初 audited.view 对后续 ordinal 冒充当前证明。完整边界见既有
+[决策记录](decision-record.md#2026-10-12独立受保护-claim-takeover-revoke)，当前入口待实现。

@@ -94,6 +94,7 @@ public final class TargetWorkerShardRuntime
     private volatile TargetMessageExpiryMaintenance messageExpiryMaintenance;
     private TargetCheckpointCandidateWorkClassExecutor.Submission pendingCheckpoint;
     private TargetPublishRecoveryMaintenance publishRecoveryMaintenance;
+    private volatile TargetPulsarPublishRuntime publishRuntime;
     private volatile TargetChannelControlWorkClassExecutor channelControlHandoff;
     private SourceRecordConsumer.CheckpointCut preparedCheckpointCut;
 
@@ -243,6 +244,13 @@ public final class TargetWorkerShardRuntime
     }
 
     /** Revokes an exact unadmitted Claim while this Worker still admits business turns. */
+    synchronized boolean claimStillCurrent(final BoundedReadBudget budget, final TargetClaimRecord claim,
+            final TargetQuotaDelta.LocalClaimAuthority quota, final LongSupplier clock) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        return target.claimStillCurrent(budget, claim, quota, clock);
+    }
+
     public synchronized void revokeClaim(
             final BoundedReadBudget budget,
             final TargetClaimRecord expected,
@@ -396,6 +404,38 @@ public final class TargetWorkerShardRuntime
     }
 
     /** Install before Host ticks begin. History must return promptly and perform its bounded I/O asynchronously. */
+    public synchronized TargetPulsarPublishRuntime configurePulsarPublishing(
+            final ShardLogMutationAppender appender, final TargetPublishAdmissionMutationFactory signer,
+            final TargetPublishOutcomeMutationFactory outcomeSigner,
+            final com.nereusstream.delay.adapter.PulsarAttemptJournal journal,
+            final com.nereusstream.delay.adapter.BoundedDestinationPublishAdapter adapter,
+            final com.nereusstream.delay.protocol.ArtifactGenerationSet artifacts,
+            final TargetPulsarPublishRuntime.Preparation preparation, final TargetPulsarPublishRuntime.Payloads payloads,
+            final Supplier<BoundedReadBudget> reads,
+            final Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
+            final LongSupplier clock, final java.util.concurrent.Executor io, final java.util.concurrent.Executor completion,
+            final com.nereusstream.delay.adapter.BoundedDestinationPublishAdapter.TargetPreparedPublishPreflight ordinaryGate,
+            final com.nereusstream.delay.adapter.BoundedDestinationPublishAdapter.TargetNativePreparedPublishPreflight nativeGate,
+            final TargetPulsarPublishExecutor.ResultAuthority results) {
+        requirePublishRecoveryOwner(clock);
+        if (publishRuntime != null) { throw new IllegalStateException("Target publication runtime is already configured"); }
+        publishRuntime = new TargetPulsarPublishRuntime(this, appender, signer, outcomeSigner, journal, adapter,
+                artifacts, preparation, payloads, reads, time, clock, io, completion, ordinaryGate, nativeGate, results);
+        return publishRuntime;
+    }
+
+    boolean publisherAvailable() { return publishRuntime != null && publishRuntime.available(); }
+
+    void acceptPublicationClaim(final TargetClaimRecord claim) {
+        Objects.requireNonNull(publishRuntime, "configured Target publisher").accept(claim);
+    }
+
+    @Override
+    public Optional<TargetPulsarPublishRuntime.Turn> runPublishMaintenanceTurn() {
+        final var runtime = publishRuntime;
+        return runtime == null ? Optional.empty() : Optional.of(runtime.runTurn());
+    }
+
     public synchronized TargetPublishRecoveryMaintenance configurePublishRecoveryMaintenance(
             final TargetPublishOutcomeMutationFactory outcomes, final ShardLogMutationAppender appender,
             final Supplier<BoundedReadBudget> reads, final TargetPublishRecoveryMaintenance.History history,
@@ -431,6 +471,9 @@ public final class TargetWorkerShardRuntime
             final com.nereusstream.delay.runtime.TargetPublishRecoveryDiscovery.Reference reference,
             final LongSupplier clock) {
         requirePublishRecoveryOwner(clock);
+        if (publishRuntime != null && publishRuntime.ownsAttempt(reference.attempt().publishAttemptId())) {
+            return false;
+        }
         return target.publishRecoveryStillAdmitted(budget, reference, clock);
     }
 
@@ -947,6 +990,9 @@ public final class TargetWorkerShardRuntime
         if (channelControlHandoff != null && channelControlHandoff.pending().isPresent()) {
             throw new IllegalStateException("Target Worker cannot pause a pending channel lifecycle submission");
         }
+        if (publishRuntime != null && !publishRuntime.available()) {
+            throw new IllegalStateException("Target Worker cannot pause a retained publication flight");
+        }
         sourceAndMaintenancePaused = true;
         preparedCheckpointCut = null;
     }
@@ -972,6 +1018,27 @@ public final class TargetWorkerShardRuntime
 
     @Override
     public synchronized long checkpointStoreSequence() { return store.latestSequenceNumber(); }
+
+    @Override
+    public Optional<WorkClassTask> settlePendingPublicationForDrain(final SchedulerBudget workBudget,
+            final SchedulerBudget sourceBudget, final LongSupplier clock) {
+        final var publisher = publishRuntime;
+        if (publisher == null || publisher.available()) { return Optional.empty(); }
+        final var turn = publisher.runTurn();
+        if (turn.failure() != null) { throw new IllegalStateException("retained publication could not settle", turn.failure()); }
+        if (publisher.available()) { return Optional.empty(); }
+        workClasses.runTurn(workBudget);
+        synchronized (this) {
+            requireNewTurnsAdmitted();
+            if (sourceLoop.pendingEntry().isPresent()) { sourceLoop.settlePendingEntry(sourceBudget, clock); }
+            else { sourceLoop.runTurn(sourceBudget, clock); }
+        }
+        final var settled = publisher.runTurn();
+        if (settled.failure() != null) {
+            throw new IllegalStateException("retained publication Source turn could not settle", settled.failure());
+        }
+        return publisher.pendingTask();
+    }
 
     @Override
     public Optional<WorkClassTask> settlePendingChannelControlForDrain(final SchedulerBudget workBudget,

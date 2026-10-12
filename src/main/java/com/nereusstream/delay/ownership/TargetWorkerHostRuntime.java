@@ -74,6 +74,9 @@ public final class TargetWorkerHostRuntime {
         default Optional<WorkClassTask> settlePendingChannelControlForDrain(SchedulerBudget workBudget,
                 SchedulerBudget sourceBudget, LongSupplier clock) { return Optional.empty(); }
 
+        default Optional<WorkClassTask> settlePendingPublicationForDrain(SchedulerBudget workBudget,
+                SchedulerBudget sourceBudget, LongSupplier clock) { return Optional.empty(); }
+
         default boolean canPublishFinalCheckpoint() { return true; }
 
         default long checkpointStoreSequence() { return 0; }
@@ -97,6 +100,7 @@ public final class TargetWorkerHostRuntime {
         PENDING_GC,
         PENDING_MESSAGE_EXPIRY,
         PENDING_CHANNEL_CONTROL,
+        PENDING_PUBLICATION,
         RELEASED,
         UNCERTAIN_RELEASED,
         OWNER_LOST_CLOSED,
@@ -111,7 +115,15 @@ public final class TargetWorkerHostRuntime {
             WorkClassTask pendingGcTask,
             RuntimeException failure,
             WorkClassTask pendingMessageExpiryTask,
-            WorkClassTask pendingChannelControlTask) {
+            WorkClassTask pendingChannelControlTask,
+            WorkClassTask pendingPublicationTask) {
+        public ShardDrain(final ShardId shardId, final Status status,
+                final SourceApplyCoordinator.TurnResult sourceTurn, final WorkClassTask pendingCheckpointTask,
+                final WorkClassTask pendingGcTask, final RuntimeException failure,
+                final WorkClassTask pendingMessageExpiryTask, final WorkClassTask pendingChannelControlTask) {
+            this(shardId, status, sourceTurn, pendingCheckpointTask, pendingGcTask, failure,
+                    pendingMessageExpiryTask, pendingChannelControlTask, null);
+        }
         public ShardDrain(final ShardId shardId, final Status status,
                 final SourceApplyCoordinator.TurnResult sourceTurn, final WorkClassTask pendingCheckpointTask,
                 final WorkClassTask pendingGcTask, final RuntimeException failure,
@@ -136,7 +148,8 @@ public final class TargetWorkerHostRuntime {
                     || (status == Status.PENDING_CHECKPOINT) != (pendingCheckpointTask != null)
                     || (status == Status.PENDING_GC) != (pendingGcTask != null)
                     || (status == Status.PENDING_MESSAGE_EXPIRY) != (pendingMessageExpiryTask != null)
-                    || (status == Status.PENDING_CHANNEL_CONTROL) != (pendingChannelControlTask != null)) {
+                    || (status == Status.PENDING_CHANNEL_CONTROL) != (pendingChannelControlTask != null)
+                    || (status == Status.PENDING_PUBLICATION) != (pendingPublicationTask != null)) {
                 throw new IllegalArgumentException("Target host drain result has inconsistent evidence");
             }
         }
@@ -566,6 +579,40 @@ public final class TargetWorkerHostRuntime {
             remaining = timeoutNanos - (System.nanoTime() - started);
         }
         return !draining.contains(requested);
+    }
+
+    /** Configured ordinary/Native Claim consumption and per-Shard backpressure for actual publisher runtimes. */
+    public synchronized TargetWorkerOrdinaryLoop startPulsarPublishing(
+            final TargetWorkerOrdinaryDrr.Requests requests, final LongSupplier ownerClock,
+            final LongSupplier schedulerClock, final LongSupplier monotonicClock,
+            final BoundedAsyncMetricExporter metrics, final Consumer<Throwable> failureConsumer) {
+        final var delegate = Objects.requireNonNull(requests, "requests");
+        final var workers = currentTargetWorkers();
+        if (workers.stream().anyMatch(worker -> !worker.publisherAvailable())) {
+            throw new IllegalStateException("configure every admitted Target publisher before starting its Claim loop");
+        }
+        final var guarded = new TargetWorkerOrdinaryDrr.Requests() {
+            @Override
+            public Optional<TargetWorkerOrdinaryDrr.Request> resolve(TargetWorkerShardRuntime worker,
+                    TargetHeadCostProbe.Cost cost) {
+                return worker.publisherAvailable() ? delegate.resolve(worker, cost) : Optional.empty();
+            }
+            @Override
+            public Optional<TargetWorkerOrdinaryDrr.NativePolicyContext> resolveNativePolicyContext(
+                    TargetWorkerShardRuntime worker, TargetHeadCostProbe.Cost cost) {
+                return worker.publisherAvailable() ? delegate.resolveNativePolicyContext(worker, cost) : Optional.empty();
+            }
+            @Override
+            public java.io.Closeable subscribeNativePolicyChanges(Runnable listener) {
+                return delegate.subscribeNativePolicyChanges(listener);
+            }
+        };
+        return startOrdinaryScheduling(guarded, claim -> {
+            final var shard = claim.work().locator().messageId().routingId().shardId();
+            final var worker = workers.stream().filter(candidate -> candidate.shardId().equals(shard))
+                    .findFirst().orElseThrow(() -> new IllegalStateException("Claim belongs to an unconfigured Worker"));
+            worker.acceptPublicationClaim(claim);
+        }, ownerClock, schedulerClock, monotonicClock, metrics, failureConsumer);
     }
 
     /** Starts the single bounded ordinary-first Claim loop for this Host. */
@@ -1271,6 +1318,12 @@ public final class TargetWorkerHostRuntime {
                 if (channel.isPresent()) {
                     return new ShardDrain(shard.shardId(), Status.PENDING_CHANNEL_CONTROL, null,
                             null, null, null, null, channel.orElseThrow());
+                }
+                final Optional<WorkClassTask> publication = shard.settlePendingPublicationForDrain(
+                        request.gcBudget(), sourceBudget, ownerClock);
+                if (publication.isPresent()) {
+                    return new ShardDrain(shard.shardId(), Status.PENDING_PUBLICATION, null,
+                            null, null, null, null, null, publication.orElseThrow());
                 }
                 final Optional<WorkClassTask> pendingExpiry = shard.settlePendingMessageExpiryForDrain(
                         request.gcBudget(), sourceBudget, ownerClock);

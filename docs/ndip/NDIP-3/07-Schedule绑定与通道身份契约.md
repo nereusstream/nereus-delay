@@ -485,3 +485,36 @@ Store/Owner/credential/资源 gate。Host 正常 drain 在 final checkpoint/Owne
 独立 Native v5/HANDED_OFF 的主会话决策见现有 decision-record；不修改普通 v4。
 上述提交接线仍是包 1 的开发部分，完整运行入口与普通/Native发送、Outcome及接管
 继续实施。测试/Broker/验收全部后置。
+
+
+### 2026-10-12 有界普通/Native 发布驱动接线
+
+`TargetWorkerShardRuntime.configurePulsarPublishing` 将实际同日志 appender、OWNER signers、
+Target namespace Journal、bounded SDK adapter、Artifact、真实准备/对象解析和最后 gate
+组成唯一 `TargetPulsarPublishRuntime`。每个 exact Worker 至多持有一个已 committed Claim；
+`TargetWorkerHostRuntime.startPulsarPublishing` 对普通/Native Requests 做同一容量反压，
+ClaimConsumer 实际交给相应 Worker，复用现有 ordinary-first loop 和 maintenance fleet
+轮转，不创建新的线程/队列。外部 I/O 使用调用方受限 executor/future；Scope/Profile/
+credential/lease/Artifact 实际权威仍须在提供者与 Source verifier/最终 SDK gate 中成立，
+构造 Inputs 或预选某个 channel 不提供该权威。
+
+实际步骤是从 Store 准备 exact body、签名一次、原 Admission 同 Source append、等待
+真实 APPLIED 首结果、重新读取私有构造 Applied proof、按原 payload commitment 解析、
+真实 Journal/SDK 普通或 Managed Native 发送、保留原 signed Outcome 和 Source 首结果，
+实际结算后才清理该进程 flight。ReadIncomplete 让出 turn；不因 append receipt 或
+超时进入 SEND。明确 Admission 首拒绝先按真实 Claim/charge/Message 查询原子撤销；
+签名前资格变化的可逆 Claim 同样撤销，无 Source ACK/Admission 成功造假。
+
+正常 recovery maintenance 排除本 Worker 当前 flight 所持的 exact attempt，避免与活跃
+SDK 发送竞争制造恢复 UNKNOWN；新 Worker 无旧进程 flight，继续从真实 retained
+Admission/Source history 接管。完整新 Owner 未 Admission Claim takeover 入口尚未完成。
+
+Host drain 增加 PENDING_PUBLICATION，有限推进已有 flight/Source action，未结算时不
+执行最终 checkpoint、Store pause/close 或 Owner release。未配置、未持有实际权威、
+未完成 I/O/fencing 或 Source first result 的路径保持非完成状态。Native Journal
+published/absence verifier 已接受独立 Native binding 与实际 contract，复用同一精确
+mapping/Source/Producer/cursor 审计；旧 pre-ownership retirement 语义保持。
+
+本批 main compileJava 结束 exit 0、BUILD SUCCESSFUL in 6s；测试/Broker/格式和文档验收
+按用户安排后置。包 1 未关闭：完整新 Owner takeover、Journal ownership 后真实
+NOT_PUBLISHED 的受保护收尾仍待接通；不能用驱动类/编译结果宣称生产链已验收。

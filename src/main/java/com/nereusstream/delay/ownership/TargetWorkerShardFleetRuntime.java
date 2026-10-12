@@ -32,6 +32,8 @@ public final class TargetWorkerShardFleetRuntime {
             return Optional.empty();
         }
 
+        default Optional<TargetPulsarPublishRuntime.Turn> runPublishMaintenanceTurn() { return Optional.empty(); }
+
         default Optional<TargetPublishRecoveryMaintenance.Turn> runPublishRecoveryMaintenanceTurn() {
             return Optional.empty();
         }
@@ -90,6 +92,7 @@ public final class TargetWorkerShardFleetRuntime {
     private int maintenanceCursor;
     private int messageExpiryCursor;
     private int publishRecoveryCursor;
+    private int publishCursor;
     private Thread activeTurnThread;
 
     public TargetWorkerShardFleetRuntime(
@@ -241,6 +244,17 @@ public final class TargetWorkerShardFleetRuntime {
         if (activeTurnThread == Thread.currentThread()) {
             throw new IllegalStateException("cannot reenter Target fleet dispatch from its selected turn");
         }
+    }
+
+    synchronized Optional<TargetPulsarPublishRuntime.Turn> runNextPublishTurnIfPresent() {
+        requireNotInSelectedTurn();
+        if (shards.isEmpty()) { return Optional.empty(); }
+        final var selected = shards.get(publishCursor);
+        publishCursor = publishCursor == shards.size() - 1 ? 0 : publishCursor + 1;
+        if (selected.pendingCheckpointTask().isPresent()) { return Optional.empty(); }
+        activeTurnThread = Thread.currentThread();
+        try { return selected.runPublishMaintenanceTurn(); }
+        finally { activeTurnThread = null; }
     }
 
     /** Independent rotation; incomplete asynchronous history never blocks another Shard's recovery selection. */

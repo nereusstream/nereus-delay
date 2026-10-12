@@ -77,3 +77,31 @@ head 两次读取；新 writer 依赖覆盖该 v2/v5 的 schema/Artifact/eligibl
 v1 保留解码、重开、审计与历史恢复；尚未 Admission 的可逆 Claim 只能按原 Owner/Store/
 原子计费撤销后重新选择。已 Admission、UNKNOWN 或 Journal ownership 保留原义务，
 不得补 ref、原地升级或套用可逆 Claim 清理。本决定没有真实迁移、批量删除或生产激活授权。
+
+
+## 2026-10-12：独立受保护 Claim takeover revoke
+
+决策主会话批准补齐已有 quota §19 的恢复业务证明；普通 local revoke 保留同 Owner/
+Store 限制，不新增 Source mutation、通用恢复框架或持久任务队列。新 Owner 必须先
+受保护回放达到当前 accepted assignment 的完整 activation barrier，完成实际 root/
+lineage/账本审计与旧 writer fencing，并持有完整当前 lease/token/session、已持久
+openedOwnerEpoch；epoch 按 unsigned 严格高于旧 Claim Owner。仅 checkpoint CLAIMED、
+epoch 增大或 DB 查无单条 Admission 均不足以取得权限。
+
+在新 Owner 激活后、将 Shard 暴露给普通 poll/Claim/Admission/SEND/维护之前，有限 turn
+扫描实际遗留 Claim；同 DB 重开及新 Store checkpoint restore 均适用。候选必须同 view
+核对 full Claim/key/首次 charge/key/Message CLAIMED、scope/accounting/lineage/恢复来源，
+exact 派生 attempt 的 Admission/Budget/obligation 与已完整 Source barrier。无任何已
+Admission/UNKNOWN/Journal ownership 或未决 append 矛盾方可撤销；未知/缺保护失败关闭，
+不能新造 false-returning absence provider。非候选交原 settlement，不改回 TIMELINE。
+
+复用 claim.revoked 的完整语义，保留 generation、其他义务、Admission 数与 uncertain
+retry 权限，推进 revision；原子恢复 indexes/head/order 并删除 exact Claim/首次 charge，
+仅扣原冻结费用和实际 delta。新 local ordinal 的 operation digest 绑定旧完整 bytes、
+转换与新恢复 Owner/Store/lineage/barrier；prepared/native commit guard 保护当前切点及
+全部 before bytes。失权/新写/commit UNKNOWN 沿原 fence/reopen 精确重读，容量只在
+确定提交后释放；崩溃后重走原审计/barrier，不后补 Native ref或重发旧 Attempt。
+
+初始/完成审计沿现有恢复边界；每个合法局部批次只核对本次读写集/保护，不每 Claim
+重扫全库或复用已经过期 audited.view。本条是必要实现裁决，入口尚未完成；不提升
+包 1/全部切片/生产或验证状态。源码回归与真实恢复仍统一后置。
