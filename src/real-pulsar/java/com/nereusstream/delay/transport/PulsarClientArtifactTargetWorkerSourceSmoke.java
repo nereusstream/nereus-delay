@@ -666,10 +666,16 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                                     ref, Duration.ofSeconds(10), cut::requireCurrent, historyExecutor),
                             new com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs.Limits(64, 1 << 20),
                             System::currentTimeMillis);
+                    final var admissions = new com.nereusstream.delay.ownership.TargetCheckpointAdmissionInputs(
+                            selected, PulsarClientArtifactTargetWorkerSourceSmoke::budget,
+                            ref -> PulsarClientArtifactTargetAdmissionHistory.readAdmissionAsync(client, resource,
+                                    ref, Duration.ofSeconds(10), cut::requireCurrent, historyExecutor),
+                            new com.nereusstream.delay.ownership.TargetCheckpointAdmissionInputs.Limits(64, 1 << 20),
+                            System::currentTimeMillis);
                     final var collection = new com.nereusstream.delay.ownership.TargetCheckpointSemanticInputs(
-                            controls, outcomes, (control, outcome) -> {
+                            controls, outcomes, admissions, (control, outcome, retained) -> {
                                 final var collected = control.cut().dependencies();
-                                if (outcome.inputs().size() != 1) {
+                                if (outcome.inputs().size() != 1 || !retained.isEmpty()) {
                                     throw new IllegalStateException("scheduled checkpoint lost original Outcome");
                                 }
                                 return TargetCheckpointSemanticSnapshot.collect(collected, List.of(),

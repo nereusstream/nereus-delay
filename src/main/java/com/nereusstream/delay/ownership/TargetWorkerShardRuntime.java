@@ -289,7 +289,7 @@ public final class TargetWorkerShardRuntime
             final BoundedReadBudget budget,
             final com.nereusstream.delay.runtime.TargetPublishRecoveryDiscovery.Cursor continuation,
             final int maximumRows, final LongSupplier ownerClock) {
-        requireNewTurnsAdmitted();
+        requireCheckpointHistoryOwner(ownerClock);
         resources.requireRuntimeBusinessAdmission();
         return target.discoverCheckpointInputs(budget, continuation, maximumRows, ownerClock);
     }
@@ -298,9 +298,18 @@ public final class TargetWorkerShardRuntime
     synchronized void requireCheckpointInputsCurrent(final BoundedReadBudget budget,
             final com.nereusstream.delay.runtime.TargetPublishRecoveryDiscovery.Cursor cursor,
             final LongSupplier ownerClock) {
-        requireNewTurnsAdmitted();
+        requireCheckpointHistoryOwner(ownerClock);
         resources.requireRuntimeBusinessAdmission();
         target.requireCheckpointInputsCurrent(budget, cursor, ownerClock);
+    }
+
+    synchronized void requireCheckpointAdmissionInputsSameCut(BoundedReadBudget budget,
+            com.nereusstream.delay.runtime.TargetPublishRecoveryDiscovery.Cursor cursor,
+            TargetCheckpointControlInputs.Cut expected, LongSupplier ownerClock) {
+        requireCheckpointHistoryOwner(ownerClock);
+        target.requireCheckpointInputsCurrent(budget, cursor, ownerClock);
+        target.requireCheckpointControlInputsCurrent(budget, expected, ownerClock);
+        cursor.requireSameRetainedCut(expected.view);
     }
 
     synchronized TargetCheckpointControlInputs.Cut captureCheckpointControlInputs(final BoundedReadBudget budget,

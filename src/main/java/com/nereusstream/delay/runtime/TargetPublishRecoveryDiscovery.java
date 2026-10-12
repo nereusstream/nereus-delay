@@ -48,6 +48,13 @@ public final class TargetPublishRecoveryDiscovery {
             this.cut = cut;
             this.retainedInputs = retainedInputs;
         }
+
+        /** Identity comparison only; owning Worker/Owner and current Store protection are still mandatory. */
+        public void requireSameRetainedCut(TargetQueueSnapshotReader.Cut expected) {
+            if (!retainedInputs || !cut.equals(Objects.requireNonNull(expected, "expected"))) {
+                throw new IllegalStateException("Target Admission inputs belong to another checkpoint Store cut");
+            }
+        }
     }
 
     public record Page(List<Reference> entries, Cursor continuation, Stop stop) {

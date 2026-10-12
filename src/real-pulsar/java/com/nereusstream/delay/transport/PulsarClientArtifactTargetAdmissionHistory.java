@@ -64,24 +64,8 @@ public final class PulsarClientArtifactTargetAdmissionHistory {
         Objects.requireNonNull(resource, "resource");
         final var ref = Objects.requireNonNull(reference, "reference");
         final var guard = Objects.requireNonNull(historyGuard, "historyGuard");
-        final var pool = Objects.requireNonNull(executor, "executor");
-        if (pool.getMaximumPoolSize() == Integer.MAX_VALUE
-                || (long) pool.getQueue().size() + pool.getQueue().remainingCapacity() >= Integer.MAX_VALUE
-                || pool.getRejectedExecutionHandler().getClass()
-                        != java.util.concurrent.ThreadPoolExecutor.AbortPolicy.class) {
-            throw new IllegalArgumentException("history executor must have finite threads/queue and abort on overflow");
-        }
-        final long timeoutMs = Objects.requireNonNull(timeout, "timeout").toMillis();
-        if (timeoutMs < 1 || timeoutMs > Integer.MAX_VALUE) {
-            throw new IllegalArgumentException("async history timeout must fit a positive millisecond int");
-        }
-        final long started = System.nanoTime();
-        guard.run();
-        return java.util.concurrent.CompletableFuture.supplyAsync(() -> {
-            final long remaining = timeoutMs * 1_000_000L - (System.nanoTime() - started);
-            if (remaining < 1_000_000L) { throw new IllegalStateException("queued P1 history deadline expired"); }
-            return readControl(client, resource, ref, Duration.ofNanos(remaining), guard);
-        }, pool);
+        return readAsync(timeout, guard, executor, remaining ->
+                readControl(client, resource, ref, remaining, guard));
     }
 
     /** Exact original Outcome history, including rejected first results, on an independent no-ACK cursor. */
@@ -101,6 +85,24 @@ public final class PulsarClientArtifactTargetAdmissionHistory {
         Objects.requireNonNull(resource, "resource");
         final var ref = Objects.requireNonNull(reference, "reference");
         final var guard = Objects.requireNonNull(historyGuard, "historyGuard");
+        return readAsync(timeout, guard, executor, remaining ->
+                readOutcome(client, resource, ref, remaining, guard));
+    }
+
+    /** Bounded original Admission read; caller owns the executor and all history/cleanup obligations. */
+    public static java.util.concurrent.CompletableFuture<SystemMutation> readAdmissionAsync(PulsarClient client,
+            TopicResourceGuard resource, TargetPublishRecoveryDiscovery.Reference reference, Duration timeout,
+            Runnable historyGuard, java.util.concurrent.ThreadPoolExecutor executor) {
+        Objects.requireNonNull(client, "client");
+        Objects.requireNonNull(resource, "resource");
+        final var ref = Objects.requireNonNull(reference, "reference");
+        final var guard = Objects.requireNonNull(historyGuard, "historyGuard");
+        return readAsync(timeout, guard, executor, remaining -> read(client, resource, ref, remaining, guard));
+    }
+
+    private static java.util.concurrent.CompletableFuture<SystemMutation> readAsync(Duration timeout, Runnable guard,
+            java.util.concurrent.ThreadPoolExecutor executor,
+            java.util.function.Function<Duration, SystemMutation> operation) {
         final var pool = Objects.requireNonNull(executor, "executor");
         if (pool.getMaximumPoolSize() == Integer.MAX_VALUE
                 || (long) pool.getQueue().size() + pool.getQueue().remainingCapacity() >= Integer.MAX_VALUE
@@ -117,7 +119,7 @@ public final class PulsarClientArtifactTargetAdmissionHistory {
         return java.util.concurrent.CompletableFuture.supplyAsync(() -> {
             final long remaining = timeoutMs * 1_000_000L - (System.nanoTime() - started);
             if (remaining < 1_000_000L) { throw new IllegalStateException("queued P1 history deadline expired"); }
-            return readOutcome(client, resource, ref, Duration.ofNanos(remaining), guard);
+            return operation.apply(Duration.ofNanos(remaining));
         }, pool);
     }
 

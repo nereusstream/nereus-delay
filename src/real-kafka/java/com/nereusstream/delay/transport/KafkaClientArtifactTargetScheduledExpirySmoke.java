@@ -1067,15 +1067,44 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
         config.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG,
                 org.apache.kafka.common.serialization.ByteArrayDeserializer.class.getName());
         final var guards = new AtomicInteger();
-        final var recovered = KafkaClientArtifactTargetAdmissionHistory.read(
-                config, topic, retained.entries().getFirst(),
-                Duration.ofSeconds(10), () -> {
-                    guards.incrementAndGet();
-                    // This smoke owns a retained disposable topic. Production must resolve protected history/pins.
-                    worker.readRecoveryAdmission(
-                            new BoundedReadBudget(2048, 16L << 20, 60_000_000_000L, System::nanoTime),
-                            fixture.mutation(), System::currentTimeMillis);
-                });
+        final Runnable historyGuard = () -> {
+            guards.incrementAndGet();
+            // This smoke owns a retained disposable topic. Production must resolve protected history/pins.
+            worker.readRecoveryAdmission(
+                    new BoundedReadBudget(2048, 16L << 20, 60_000_000_000L, System::nanoTime),
+                    fixture.mutation(), System::currentTimeMillis);
+        };
+        final var historyExecutor = new java.util.concurrent.ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS,
+                new java.util.concurrent.ArrayBlockingQueue<>(1),
+                new java.util.concurrent.ThreadPoolExecutor.AbortPolicy());
+        final SystemMutation recovered;
+        try {
+            final var collector = new com.nereusstream.delay.ownership.TargetCheckpointAdmissionInputs(worker,
+                    () -> new BoundedReadBudget(2048, 16L << 20, 60_000_000_000L, System::nanoTime),
+                    ref -> KafkaClientArtifactTargetAdmissionHistory.readAdmissionAsync(config, topic, ref,
+                            Duration.ofSeconds(10), historyGuard, historyExecutor),
+                    new com.nereusstream.delay.ownership.TargetCheckpointAdmissionInputs.Limits(64, 32L << 20),
+                    System::currentTimeMillis);
+            final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
+            while (true) {
+                final var turn = collector.runTurn();
+                if (turn.failure() != null || System.nanoTime() >= deadline) {
+                    throw new IllegalStateException("K1 async Admission inputs failed", turn.failure());
+                }
+                if (turn.status() == com.nereusstream.delay.ownership.TargetCheckpointAdmissionInputs.Status.COMPLETE) {
+                    final var inputs = collector.result().orElseThrow();
+                    if (inputs.size() != 1) { throw new IllegalStateException("K1 Admission input count changed"); }
+                    recovered = inputs.getFirst().image();
+                    break;
+                }
+                Thread.sleep(5);
+            }
+        } finally {
+            historyExecutor.shutdown();
+            if (!historyExecutor.awaitTermination(25, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("K1 Admission history executor did not settle");
+            }
+        }
         if (!java.util.Arrays.equals(fixture.mutation().encodeFrame(), recovered.encodeFrame())
                 || store.latestSequenceNumber() != sequenceAfterUnknown || guards.get() < 3) {
             throw new IllegalStateException("K1 guarded history changed exact Admission bytes or local Store");
@@ -1086,7 +1115,7 @@ final class KafkaClientArtifactTargetScheduledExpirySmoke {
         if (groupAfterHistory == null || groupAfterHistory.offset() != committedAfterRetry.offset()) {
             throw new IllegalStateException("K1 history read advanced the active Worker group offset");
         }
-        System.out.println("K1 exact Target Admission history passed: authenticated Fetch/resource, "
+        System.out.println("K1 async Target Admission history passed: authenticated Fetch/resource, "
                 + "Worker checkpoint input/initial references agree, full envelope/source match, "
                 + "independent consumer, no group commit, no Store write, guard calls="
                 + guards.get());

@@ -132,8 +132,24 @@ public final class TargetCheckpointAdmissionInputs {
         }
     }
 
+    /** Binds completed Admission history to the exact Control/Outcome physical cut before snapshot composition. */
+    public synchronized Optional<List<Input>> result(TargetCheckpointControlInputs.Cut expected) {
+        final var completed = result();
+        if (completed.isEmpty()) { return completed; }
+        try {
+            worker.requireCheckpointAdmissionInputsSameCut(readBudget(), cursor,
+                    Objects.requireNonNull(expected, "expected"), ownerClock);
+            return completed;
+        } catch (ReadIncompleteException incomplete) {
+            throw incomplete;
+        } catch (RuntimeException invalid) {
+            fail(invalid);
+            return Optional.empty();
+        }
+    }
+
     private void requireCurrent() {
-        worker.requirePublishRecoveryOwner(ownerClock);
+        worker.requireCheckpointHistoryOwner(ownerClock);
         if (cursor != null) {
             worker.requireCheckpointInputsCurrent(readBudget(), cursor, ownerClock);
         }

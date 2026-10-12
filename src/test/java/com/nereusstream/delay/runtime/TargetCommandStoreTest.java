@@ -8190,7 +8190,7 @@ class TargetCommandStoreTest {
         if (checkpointContext != null) {
             assertCollectedCheckpointProtectionFailure(store, worker, classes, current, owner, lineage);
             assertNonemptyAdmissionImage(store, scope, lineage, dependencies, images, current, keys, policy,
-                    checkpointContext, originalHistory, originalAuthority);
+                    checkpointContext, originalHistory, originalAuthority, worker, classes, owner);
         }
         if (checkpointContext != null) {
             final var completedOutcomes = new com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs(worker,
@@ -8316,7 +8316,8 @@ class TargetCommandStoreTest {
             TargetQuotaAttemptBudget current, KeyPair keys,
             com.nereusstream.delay.protocol.RetryPolicySemantic policy, CheckpointImageContext context,
             TargetCheckpointDependencies.AdmissionHistoryAuthority history,
-            TargetPublishAdmissionVerifier.Authority admissions) {
+            TargetPublishAdmissionVerifier.Authority admissions, TargetWorkerShardRuntime worker,
+            WorkClassExecutionRegistry classes, OwnerIdentity owner) {
         final var physicalLimits = new CheckpointManifestLimits(1_000, 256L << 20, 256L << 20,
                 1_024, 32 << 20, 1_000, 1_024);
         final var quotaLimits = new TargetCheckpointRootVerifier.QuotaAuditLimits(100_000, 256L << 20);
@@ -8407,8 +8408,82 @@ class TargetCommandStoreTest {
 
         final byte[] checkpointId = bytes(16, 0x40 + current.phase().ordinal());
         final Path image = store.dbPath().getParent().resolve("admission-image-" + current.phase());
-        com.nereusstream.delay.store.TargetCheckpointCandidateTestBridge.createSemantic(store, image, checkpointId,
-                lineage, physicalLimits, quotaLimits, ledgerLimits, semantics, semanticLimits);
+        if (worker.pendingSourceEntry().isEmpty()) {
+            final var collectedLimits = new com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.Limits(
+                    256, 512 << 10, 512L << 10);
+            final var intent = new CheckpointUploadIntent(new ShardSubject(scope.shard()), lineage, checkpointId,
+                    owner, store.metadata().storeIncarnation(), bytes(32, 0xB4), 1, null, null,
+                    new ProfileRef(Bytes.utf8("collected-admission-fixture"), 1, bytes(32, 0xB5),
+                            ProfileKind.OBJECT_STORE),
+                    new TrustedUtcIntervalEvidence(100, 101, TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                            bytes(8, 0xB6), 1, 1, 1, bytes(32, 0xB7), 0, null), 1_000,
+                    CheckpointUploadState.PENDING_UPLOAD, 1, null, null);
+            final var intentStore = new CheckpointUploadIntentStore();
+            intentStore.create(intent);
+            final var admissionRequested = new java.util.concurrent.atomic.AtomicBoolean();
+            final var waitingAdmission = new java.util.concurrent.CompletableFuture<SystemMutation>();
+            final var controlInputs = new com.nereusstream.delay.ownership.TargetCheckpointControlInputs(worker,
+                    TargetCommandStoreTest::budget, ledgerLimits, ref -> java.util.concurrent.CompletableFuture
+                            .completedFuture(context.controls().stream().filter(input -> input.source().equals(
+                                    ref.source())).findFirst().orElseThrow().image()),
+                    new com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Limits(64, 32L << 20),
+                    () -> 102);
+            final var outcomeInputs = new com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs(worker,
+                    TargetCommandStoreTest::budget, ledgerLimits, ref -> java.util.concurrent.CompletableFuture
+                            .completedFuture(context.outcomes().stream().filter(input -> input.source().equals(
+                                    ref.source())).findFirst().orElseThrow().image()),
+                    new com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs.Limits(64, 32L << 20),
+                    () -> 102);
+            final var admissionInputs = new TargetCheckpointAdmissionInputs(worker, TargetCommandStoreTest::budget,
+                    ref -> { admissionRequested.set(true); return waitingAdmission; },
+                    new TargetCheckpointAdmissionInputs.Limits(64, 32L << 20), () -> 102);
+            final var collection = new com.nereusstream.delay.ownership.TargetCheckpointSemanticInputs(controlInputs,
+                    outcomeInputs, admissionInputs, (control, outcome, retained) -> {
+                        assertEquals(images.size(), retained.size());
+                        final var originals = retained.stream().map(input ->
+                                new TargetCheckpointDependencies.AdmissionImage(input.reference().source(),
+                                        input.image())).toList();
+                        final var complete = control.cut().dependencies().withAdmissionInputs(retained, 32L << 20)
+                                .authenticateAdmissionImages(originals, 32L << 20, budget(), history, admissions,
+                                        () -> assertFalse(Thread.holdsLock(store)));
+                        semantics.validateAgainst(complete, collectedLimits);
+                        assertEquals(context.controls().size(), control.inputs().size());
+                        assertEquals(context.outcomes().size(), outcome.inputs().size());
+                        return semantics;
+                    });
+            final long beforeCollection = store.latestSequenceNumber();
+            final var sourceBefore = store.appliedShardLogPosition();
+            final long sequenceBefore = store.shardMutationSequence();
+            final var submitted = worker.submitCollectedSemanticCheckpointCandidate(
+                    new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.CollectedSemanticRequest(
+                            new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.Request(intentStore,
+                                    () -> 102, image, intent, physicalLimits, quotaLimits, ledgerLimits), collection,
+                            collectedLimits, () -> assertFalse(Thread.holdsLock(store)), null));
+            for (int turn = 0; turn < 64 && !admissionRequested.get(); turn++) {
+                assertTrue(worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L)).isEmpty());
+                assertEquals(submitted.task(), worker.pendingCheckpointTask().orElseThrow());
+            }
+            assertTrue(admissionRequested.get());
+            assertEquals(beforeCollection, store.latestSequenceNumber());
+            assertFalse(java.nio.file.Files.exists(image));
+            assertThrows(IllegalStateException.class, () -> worker.runSourceTurn(
+                    new SchedulerBudget(1, 1_000_000, 60_000_000_000L), () -> 102));
+            waitingAdmission.complete(images.getFirst().image());
+            for (int turn = 0; turn < 64 && submitted.outcome().isEmpty(); turn++) {
+                worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L));
+            }
+            final var completed = submitted.outcome().orElseThrow();
+            assertNull(completed.failure(), () -> String.valueOf(completed.failure()));
+            assertEquals(image.toAbsolutePath().normalize(), completed.checkpointPath());
+            assertEquals(sourceBefore, store.appliedShardLogPosition());
+            assertEquals(sequenceBefore, store.shardMutationSequence());
+            assertTrue(worker.pendingCheckpointTask().isEmpty());
+            assertTrue(intentStore.current(intent).isPresent());
+            assertEquals(0, classes.pending(com.nereusstream.delay.scheduler.WorkClass.CHECKPOINT));
+        } else {
+            com.nereusstream.delay.store.TargetCheckpointCandidateTestBridge.createSemantic(store, image, checkpointId,
+                    lineage, physicalLimits, quotaLimits, ledgerLimits, semantics, semanticLimits);
+        }
         final long afterCreate = store.latestSequenceNumber();
         final var files = com.nereusstream.delay.store.CheckpointFileInventory.collect(image, physicalLimits).stream()
                 .map(file -> new com.nereusstream.delay.store.CheckpointManifest.FileEntry(file.name(), file.length(),
