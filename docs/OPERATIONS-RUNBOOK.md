@@ -2321,3 +2321,11 @@ physical/quota/ledger/semantic bounds 构造 candidate request，并提供真实
 `newRegistryProviders` 仅设置 acceptance deadline。不能用透明 supplier/tag/签名正确或 fixture 声明代替这些
 权限。实际 task identity 加 semantic bytes 仍在 queue admission 校验；大过固定 turn/class/pool 的任务拒绝。
 本地必要数值检查不是最大合法 mutation/全持久状态、真实 IO/恢复、RSS/空间或生产容量的认证。
+
+配置化正式 checkpoint startup 使用 `TargetWorkerHostRuntime.startWithCollectedCheckpoints(config, classes,
+resources, workers, factory, checkpointClock, failureConsumer)`。同资源/配置检查和 expiry 装配完成后，
+在首个 maintenance tick 前安装周期 schedule；factory 仍短步骤提供 exact native cut、配置的三路 inputs、
+actual formal PublicationPlan 和持续有效的全部 permissions/protections。安装失败只撤销本 Host signal 与
+本次 scheduler，不关闭 caller 的 Store/Source 或释放 Owner。正常 maintenance 保留原 GC→expiry→
+publish recovery→checkpoint→Source observation 顺序；安装在 tick 前不表示 checkpoint 获得抢占优先级。
+实际发布/restore/Floor、provider uncertain I/O/late cleanup、资源/容量认证与迁退门禁仍须独立完成。

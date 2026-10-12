@@ -28,4 +28,15 @@ public final class TargetWorkerHostTestBridge {
             final TargetWorkerHostRuntime host) {
         return host.drainTargetQueueChanges();
     }
+
+    /** Stops only an owned test timer; leaves the actual Host/Worker admission graph for explicit test turns. */
+    public static void stopMaintenanceTimer(TargetWorkerHostRuntime host) {
+        try {
+            final var field = TargetWorkerHostRuntime.class.getDeclaredField("maintenanceLoop");
+            field.setAccessible(true);
+            ((TargetWorkerMaintenanceLoop) field.get(host)).close();
+        } catch (ReflectiveOperationException failure) {
+            throw new AssertionError("cannot close configured Host test timer", failure);
+        }
+    }
 }

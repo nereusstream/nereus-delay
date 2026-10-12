@@ -8,6 +8,15 @@ public final class WorkerRuntimeTestSupport {
     private WorkerRuntimeTestSupport() {}
 
     public static SharedRocksDbResources openWithSyntheticObservation(final ShardStoreConfig config) {
+        final var envelope = envelope(config);
+        final var observation = new WorkerRuntimeResourceObservation(
+                256 * MIB, 128 * MIB, 256 * MIB, envelope.effectiveCgroupMemoryLimitBytes(),
+                envelope.maxProcessOpenFiles(), 1, envelope.maxFilesystemBytes(), 12 * GIB);
+        return new SharedRocksDbResources(config, envelope, observation);
+    }
+
+    /** Exact numeric fixture reused by configured Host tests; never a real-host observation or capacity declaration. */
+    public static WorkerResourceEnvelope envelope(final ShardStoreConfig config) {
         final long rocksDbNativeBytes =
                 Math.addExact(config.sharedBlockCacheBytes(), config.sharedWriteBufferBudgetBytes());
         final long heapBytes = 512 * MIB;
@@ -22,8 +31,7 @@ public final class WorkerRuntimeTestSupport {
         final long cgroupLimitBytes = Math.addExact(processRssBytes, containerHeadroomBytes);
         final long maxProcessOpenFiles = Math.addExact(config.maxTotalOpenFiles(), 10_000L);
         final long filesystemBytes = 16 * GIB;
-        final long usableFilesystemBytes = 12 * GIB;
-        final var envelope = new WorkerResourceEnvelope(
+        return new WorkerResourceEnvelope(
                 heapBytes,
                 directBytes,
                 rocksDbNativeBytes,
@@ -40,15 +48,5 @@ public final class WorkerRuntimeTestSupport {
                 GIB,
                 64 * MIB,
                 10_000);
-        final var observation = new WorkerRuntimeResourceObservation(
-                256 * MIB,
-                128 * MIB,
-                256 * MIB,
-                cgroupLimitBytes,
-                maxProcessOpenFiles,
-                1,
-                filesystemBytes,
-                usableFilesystemBytes);
-        return new SharedRocksDbResources(config, envelope, observation);
     }
 }

@@ -1084,7 +1084,8 @@ class TargetCommandStoreTest {
                     loseReleaseResponse,
                     throwTransitionAfterCommit,
                     throwReleaseAfterCommit);
-            final var workerClasses = workClasses();
+            final var workerClasses = checkpointAdmissionImages
+                    ? new WorkClassExecutionRegistry(workClassConfig(60_000_000_000L), () -> 0) : workClasses();
             TargetClaimRecord claim = null;
             if (claimed) {
                 final var actualQueue = TargetQueueState.decode(TargetValueEnvelope.decode(
@@ -7608,7 +7609,9 @@ class TargetCommandStoreTest {
                 com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Prepared>();
         final var secondHistory = new java.util.concurrent.CompletableFuture<
                 com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Prepared>();
-        final var host = TargetWorkerHostTestBridge.withoutMaintenanceTimer(classes, resources, List.of(worker));
+        final var host = checkpointContext == null
+                ? TargetWorkerHostTestBridge.withoutMaintenanceTimer(classes, resources, List.of(worker))
+                : assertCheckpointStartupBeforeTick(store, worker, classes);
         final var maintenance = host.configurePublishRecoveryMaintenance(worker, factory,
                 image -> {
                     appends.incrementAndGet();
@@ -10385,6 +10388,89 @@ class TargetCommandStoreTest {
     }
 
     private static WorkClassExecutionRegistry workClasses() {
+        return new WorkClassExecutionRegistry(workClassConfig(1_000), () -> 0);
+    }
+
+    private static com.nereusstream.delay.ownership.TargetWorkerHostRuntime assertCheckpointStartupBeforeTick(
+            ShardStore store, TargetWorkerShardRuntime worker, WorkClassExecutionRegistry classes) {
+        final var checkpoint = new com.nereusstream.delay.ownership.TargetCheckpointRuntimeConfig(1000, 0,
+                new SchedulerBudget(1, 1_000_000, 60_000_000_000L), 2048, 32L << 20, 60_000_000_000L,
+                java.time.Duration.ofSeconds(10),
+                new com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Limits(16, 512L << 10),
+                new com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs.Limits(16, 512L << 10),
+                new TargetCheckpointAdmissionInputs.Limits(16, 512L << 10),
+                new com.nereusstream.delay.ownership.TargetCheckpointRegistryInputs.Limits(16, 32L << 20),
+                new com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.Limits(64, 512 << 10, 512L << 10),
+                new CheckpointManifestLimits(1000, 256L << 20, 256L << 20, 1024, 32 << 20, 1000, 1024),
+                new TargetCheckpointRootVerifier.QuotaAuditLimits(100_000, 256L << 20),
+                new TargetCheckpointRootVerifier.LedgerAuditLimits(100_000, 256L << 20, 500_000, 256L << 20));
+        final var workerStore = ShardStoreConfig.defaults(
+                store.dbPath().getParent().getParent().getParent().getParent().getParent().getParent());
+        final var envelope = WorkerRuntimeTestSupport.envelope(workerStore);
+        final long[] caps = new long[CapacityDimension.COUNT];
+        Arrays.fill(caps, 1L << 30);
+        caps[CapacityDimension.CONTROL_RESERVE_BYTES.wireValue() - 1] = envelope.controlReserveBytes();
+        caps[CapacityDimension.CONTROL_RESERVE_RECORDS.wireValue() - 1] = envelope.controlReserveRecords();
+        caps[CapacityDimension.ROCKSDB_NATIVE_BYTES.wireValue() - 1] = envelope.maxRocksDbNativeBytes();
+        caps[CapacityDimension.DIRECT_BUFFER_BYTES.wireValue() - 1] = envelope.maxDirectMemoryBytes();
+        caps[CapacityDimension.OTHER_NATIVE_BYTES.wireValue() - 1] = envelope.maxOtherNativeBytes();
+        final var config = new com.nereusstream.delay.ownership.TargetWorkerRuntimeConfig(workerStore, envelope,
+                new CapacityVector(caps), workClassConfig(60_000_000_000L),
+                new TargetSourceApplyRuntime.Limits(4096, 32L << 20, 60_000_000_000L, 16, 1), 1_000_000,
+                new com.nereusstream.delay.ownership.SystemWriterAppendBudget.Limits(1, 1_000_000, 1_000_000, 1),
+                new com.nereusstream.delay.ownership.TargetSourceBacklog.Limits(2, 2_000_000, 1_000_000,
+                        60_000_000_000L),
+                new com.nereusstream.delay.ownership.TargetSourceBacklogAdmission.Limits(4, 4_000_000, 1000,
+                        60_000_000_000L),
+                new com.nereusstream.delay.ownership.TargetWorkerTargetInventory.Limits(workerStore.maxOwnedShards(),
+                        4, 2, 2, 4096, 32L << 20, 60_000_000_000L),
+                new com.nereusstream.delay.ownership.TargetWorkerOrdinaryDrr.Limits(256, 1_000_000, 1_000_000,
+                        4, 16, 32L << 20, 60_000_000_000L),
+                new SchedulerBudget(1, 1_000_000, 60_000_000_000L), java.time.Duration.ofDays(1),
+                new SchedulerBudget(1, 1_000_000, 60_000_000_000L), java.time.Duration.ofDays(1), checkpoint);
+        worker.configureMessageExpiryMaintenance(mutation -> {
+            throw new AssertionError("failed startup must not append expiry");
+        }, () -> { throw new IllegalStateException("expiry startup gate fixture"); });
+        final var requests = new java.util.concurrent.atomic.AtomicInteger();
+        final long before = store.latestSequenceNumber();
+        final var failed = assertThrows(IllegalArgumentException.class,
+                () -> com.nereusstream.delay.ownership.TargetWorkerHostRuntime.startWithCollectedCheckpoints(
+                        config, classes, store.sharedResources(), List.of(worker), (selected, claim, cut) -> {
+                            requests.incrementAndGet();
+                            throw new AssertionError("failed schedule registration must not create a request");
+                        }, () -> -1, failure -> {
+                            throw new AssertionError("tick ran before successful setup", failure);
+                        }));
+        assertEquals("nowEpochMs must be non-negative", failed.getMessage());
+        assertEquals(0, requests.get());
+        assertEquals(before, store.latestSequenceNumber());
+        final var tickFailed = new java.util.concurrent.CountDownLatch(1);
+        final var checkpointClock = new java.util.concurrent.atomic.AtomicLong();
+        final var started = com.nereusstream.delay.ownership.TargetWorkerHostRuntime.startWithCollectedCheckpoints(
+                config, classes, store.sharedResources(), List.of(worker), (selected, claim, cut) -> {
+                    requests.incrementAndGet();
+                    assertEquals(worker, selected);
+                    cut.requireCurrent();
+                    throw new IllegalStateException("checkpoint startup gate fixture");
+                }, () -> checkpointClock.getAndSet(1000), failure -> tickFailed.countDown());
+        try {
+            assertTrue(tickFailed.await(5, java.util.concurrent.TimeUnit.SECONDS));
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(interrupted);
+        } finally {
+            TargetWorkerHostTestBridge.stopMaintenanceTimer(started);
+        }
+        assertEquals("expiry startup gate fixture", started.firstMaintenanceFailure().getCause().getMessage());
+        assertTrue(Arrays.stream(started.firstMaintenanceFailure().getSuppressed())
+                .anyMatch(failure -> "checkpoint startup gate fixture".equals(failure.getMessage())));
+        assertEquals(1, requests.get());
+        assertEquals(before, store.latestSequenceNumber());
+        assertTrue(worker.pendingCheckpointTask().isEmpty());
+        return started;
+    }
+
+    private static WorkClassRuntimeConfig workClassConfig(long turnNanos) {
         final var policies = new java.util.EnumMap<WorkClass, WorkClassPolicy>(WorkClass.class);
         for (var workClass : WorkClass.values()) {
             final boolean protectedClass = workClass != WorkClass.QUERY && workClass != WorkClass.CHECKPOINT;
@@ -10396,12 +10482,12 @@ class TargetCommandStoreTest {
                             1_000_000,
                             1,
                             1_000_000,
-                            1_000,
+                            turnNanos,
                             protectedClass ? 1 : 0,
                             protectedClass ? 1 : 0,
                             workClass == WorkClass.LEASE_FENCE));
         }
-        return new WorkClassExecutionRegistry(new WorkClassRuntimeConfig(policies, 100, 100, 16, 2_000_000), () -> 0);
+        return new WorkClassRuntimeConfig(policies, 100, 100, 16, 2_000_000);
     }
 
     private static TargetQuotaGrantControlVerifier.Authority authority(

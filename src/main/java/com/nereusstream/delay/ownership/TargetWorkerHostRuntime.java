@@ -370,7 +370,8 @@ public final class TargetWorkerHostRuntime {
             final SchedulerBudget maintenanceBudget,
             final Duration maintenanceInterval,
             final Consumer<Throwable> failureConsumer) {
-        return start(null, workClasses, resources, shards, maintenanceBudget, maintenanceInterval, failureConsumer);
+        return start(null, workClasses, resources, shards, maintenanceBudget, maintenanceInterval, failureConsumer,
+                null, null);
     }
 
     /** Starts the configured Host after checking the exact resource, dispatcher and Source limits. */
@@ -382,7 +383,19 @@ public final class TargetWorkerHostRuntime {
             final Consumer<Throwable> failureConsumer) {
         final var selected = Objects.requireNonNull(config, "config");
         return start(selected, workClasses, resources, shards,
-                selected.maintenanceTurn(), selected.maintenanceInterval(), failureConsumer);
+                selected.maintenanceTurn(), selected.maintenanceInterval(), failureConsumer, null, null);
+    }
+
+    /** Installs the configured formal checkpoint schedule before admitting the first maintenance tick. */
+    public static TargetWorkerHostRuntime startWithCollectedCheckpoints(
+            TargetWorkerRuntimeConfig config, WorkClassExecutionRegistry workClasses, SharedRocksDbResources resources,
+            List<TargetWorkerShardRuntime> shards,
+            TargetCheckpointCandidateSchedule.CollectedSemanticRequestFactory factory, LongSupplier checkpointClock,
+            Consumer<Throwable> failureConsumer) {
+        final var selected = Objects.requireNonNull(config, "config");
+        return start(selected, workClasses, resources, shards, selected.maintenanceTurn(),
+                selected.maintenanceInterval(), failureConsumer, Objects.requireNonNull(factory, "factory"),
+                Objects.requireNonNull(checkpointClock, "checkpointClock"));
     }
 
     private static TargetWorkerHostRuntime start(
@@ -392,7 +405,9 @@ public final class TargetWorkerHostRuntime {
             final List<TargetWorkerShardRuntime> shards,
             final SchedulerBudget maintenanceBudget,
             final Duration maintenanceInterval,
-            final Consumer<Throwable> failureConsumer) {
+            final Consumer<Throwable> failureConsumer,
+            final TargetCheckpointCandidateSchedule.CollectedSemanticRequestFactory checkpointFactory,
+            final LongSupplier checkpointClock) {
         if (config != null) {
             config.requireRuntime(workClasses, resources);
         }
@@ -410,6 +425,9 @@ public final class TargetWorkerHostRuntime {
         TargetWorkerHostRuntime host = null;
         try {
             host = new TargetWorkerHostRuntime(fleet, loop, exactShards, config);
+            if (checkpointFactory != null) {
+                host.configurePeriodicCollectedSemanticCheckpoints(checkpointFactory, checkpointClock);
+            }
             loop.start();
             return host;
         } catch (RuntimeException | Error failure) {
