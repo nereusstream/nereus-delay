@@ -117,8 +117,9 @@ public final class EvidenceCursor implements Comparable<EvidenceCursor> {
         this.targetScope = targetScope;
         this.evidenceKind = Objects.requireNonNull(evidenceKind, "evidenceKind");
         if (targetScope != null && (destinationLaneId != null || laneIncarnation != null
-                || evidenceKind != EvidenceKind.PULSAR_ATTEMPT_JOURNAL_CONTIGUOUS)) {
-            throw new IllegalArgumentException("Target cursor cannot alias a Lane or Kafka receipt namespace");
+                || evidenceKind != EvidenceKind.PULSAR_ATTEMPT_JOURNAL_CONTIGUOUS
+                        && evidenceKind != EvidenceKind.KAFKA_RECEIPT_CONTIGUOUS)) {
+            throw new IllegalArgumentException("Target cursor cannot alias a Lane or another evidence namespace");
         }
         this.destinationLaneId = targetScope == null ? fixed(destinationLaneId, 32, "destinationLaneId") : null;
         this.laneIncarnation = targetScope == null ? fixed(laneIncarnation, 16, "laneIncarnation") : null;
@@ -230,6 +231,17 @@ public final class EvidenceCursor implements Comparable<EvidenceCursor> {
                 resourceToken, physicalPartition, evidenceGeneration, maxBrokerPersistedAtThroughCursor,
                 null, 0, 0, resourceToken, physicalTopic, physicalTopicCreationTimestamp,
                 ledgerId, entryId, normalizedBatchIndex, batchSize, Objects.requireNonNull(scope, "Target scope"));
+    }
+
+    /** Independent Target Kafka branch: no Lane bytes, with the exact stable producer recovery scope. */
+    public static EvidenceCursor targetKafka(
+            final TargetScope scope, final byte[] topicUuid, final int physicalPartition,
+            final long evidenceGeneration, final long maxBrokerPersistedAtThroughCursor,
+            final long nextOffsetExclusive, final long lastObservedLsoExclusive) {
+        return new EvidenceCursor(EvidenceKind.KAFKA_RECEIPT_CONTIGUOUS, null, null, topicUuid,
+                physicalPartition, evidenceGeneration, maxBrokerPersistedAtThroughCursor, topicUuid,
+                nextOffsetExclusive, lastObservedLsoExclusive, null, null, 0, 0, 0, 0, 0,
+                Objects.requireNonNull(scope, "Target scope"));
     }
 
     public boolean isTarget() { return targetScope != null; }
@@ -347,6 +359,25 @@ public final class EvidenceCursor implements Comparable<EvidenceCursor> {
 
     public static EvidenceCursor decode(final byte[] encoded) {
         final List<CanonicalProtobuf.Reader.Field> fields = QueryCodecSupport.read(encoded, "EvidenceCursor");
+        if (fields.size() == 7 && fields.get(6).number() == 10) {
+            QueryCodecSupport.requireNumbers(fields, new int[] {1, 4, 5, 6, 7, 8, 10}, "TargetKafkaEvidenceCursor");
+            if (EvidenceKind.fromWire(QueryCodecSupport.uint(fields.getFirst(), 1))
+                    != EvidenceKind.KAFKA_RECEIPT_CONTIGUOUS) {
+                throw new IllegalArgumentException("Target Kafka cursor kind/branch mismatch");
+            }
+            final var member = QueryCodecSupport.read(QueryCodecSupport.nested(fields.get(6), 10), "KafkaReceiptCursor");
+            QueryCodecSupport.requireNumbers(member, new int[] {1, 2, 3}, "KafkaReceiptCursor");
+            final byte[] resource = QueryCodecSupport.fixed(fields.get(1), 4, 16);
+            if (!Arrays.equals(resource, QueryCodecSupport.fixed(member.getFirst(), 1, 16))) {
+                throw new IllegalArgumentException("Target Kafka cursor resource differs from its member");
+            }
+            final var result = targetKafka(TargetScope.decode(QueryCodecSupport.nested(fields.get(5), 8)), resource,
+                    QueryCodecSupport.uint32Bits(fields.get(2), 5), QueryCodecSupport.uint64Bits(fields.get(3), 6),
+                    QueryCodecSupport.uint(fields.get(4), 7), QueryCodecSupport.uint(member.get(1), 2),
+                    QueryCodecSupport.uint(member.get(2), 3));
+            QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "TargetKafkaEvidenceCursor");
+            return result;
+        }
         if (fields.size() == 7) {
             QueryCodecSupport.requireNumbers(fields, new int[] {1, 4, 5, 6, 7, 8, 11}, "TargetEvidenceCursor");
             if (EvidenceKind.fromWire(QueryCodecSupport.uint(fields.getFirst(), 1))

@@ -98,6 +98,7 @@ public final class TargetCheckpointDependencies {
     private final List<TargetResultRecord> controlResults;
     private final List<TargetResultRecord> outcomeResults;
     private final List<Admission> admissions;
+    private final List<com.nereusstream.delay.protocol.TargetKafkaReceiptMapping> kafkaMappings;
     private final List<ProfileRef> profiles;
     private final List<ProfileUse> profileUses;
     private final List<TargetScheduleBinding> bindings;
@@ -114,6 +115,7 @@ public final class TargetCheckpointDependencies {
         controlResults = List.copyOf(builder.controlResults.values());
         outcomeResults = List.copyOf(builder.outcomeResults.values());
         this.admissions = List.copyOf(admissions);
+        kafkaMappings = List.copyOf(builder.kafkaMappings.values());
         profiles = List.copyOf(builder.profiles.values());
         profileUses = List.copyOf(builder.profileUses.values());
         bindings = List.copyOf(builder.bindings.values());
@@ -137,6 +139,7 @@ public final class TargetCheckpointDependencies {
         return outcomeResults.stream().map(OutcomeReference::new).toList();
     }
     public List<Admission> admissions() { return admissions; }
+    public List<com.nereusstream.delay.protocol.TargetKafkaReceiptMapping> kafkaMappings() { return kafkaMappings; }
     public List<ProfileRef> profiles() { return profiles; }
     public List<ProfileUse> profileUses() { return profileUses; }
     public TargetScheduleBinding requireBinding(TargetMessageLocator locator) {
@@ -473,6 +476,13 @@ public final class TargetCheckpointDependencies {
             if (bytes > maximumFrameBytes) {
                 throw new IllegalArgumentException("Target semantic Admission frames exceed their byte bound");
             }
+            final var mapping = builder.kafkaMappings.get(Bytes.hex(body.publishAttemptId()));
+            if (body.kafkaReceipt() != null) {
+                if (mapping == null) { throw new IllegalArgumentException("Target v6 Admission lacks its retained immutable K2 mapping"); }
+                mapping.requireOriginal(image, input.source());
+            } else if (mapping != null) {
+                throw new IllegalArgumentException("Target K2 mapping cannot supplement a legacy Admission context");
+            }
             builder.admissionImage(input);
         }
         return new TargetCheckpointDependencies(builder, admissions, true);
@@ -572,6 +582,7 @@ public final class TargetCheckpointDependencies {
         private final Map<String, TargetResultRecord> controlResults = new TreeMap<>();
         private final Map<String, TargetResultRecord> outcomeResults = new TreeMap<>();
         private final Map<String, ProfileRef> profiles = new TreeMap<>();
+        private final Map<String, com.nereusstream.delay.protocol.TargetKafkaReceiptMapping> kafkaMappings = new TreeMap<>();
         private final Map<String, ProfileUse> profileUses = new TreeMap<>();
         private final Map<String, TargetScheduleBinding> bindings = new TreeMap<>();
         private final Map<String, RetryPolicyRef> retries = new TreeMap<>();
@@ -588,6 +599,7 @@ public final class TargetCheckpointDependencies {
                     control.valueType(), control.payload()); }
             prior.controlResults.forEach(this::controlResult);
             prior.outcomeResults.forEach(this::outcomeResult);
+            prior.kafkaMappings.forEach(this::kafkaMapping);
             prior.profiles.forEach(this::profile);
             prior.profileUses.forEach(this::profileUse);
             prior.bindings.forEach(this::binding);
@@ -596,6 +608,14 @@ public final class TargetCheckpointDependencies {
             prior.trustSets.forEach(this::trust);
             prior.objectProfileHashes.forEach(this::objectHash);
             prior.artifactDigests.forEach(this::artifact);
+        }
+
+        void kafkaMapping(com.nereusstream.delay.protocol.TargetKafkaReceiptMapping mapping) {
+            final String attempt = Bytes.hex(mapping.admission().publishAttemptId());
+            final var previous = kafkaMappings.putIfAbsent(attempt, mapping);
+            if (previous != null && !Arrays.equals(previous.canonicalBytes(), mapping.canonicalBytes())) {
+                throw new IllegalStateException("Target checkpoint has divergent mappings for one K2 attempt");
+            }
         }
 
         void control(ColumnFamily family, byte[] key, int type, byte[] payload) {

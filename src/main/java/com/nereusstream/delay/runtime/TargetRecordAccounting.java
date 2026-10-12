@@ -361,6 +361,26 @@ public final class TargetRecordAccounting {
                         com.nereusstream.delay.protocol.TargetQuotaAccounting.RecordClass.STATE,
                         key.length, payload.length)));
             }
+            case com.nereusstream.delay.protocol.TargetKafkaReceiptMapping.VALUE_TYPE -> {
+                requireFamily(family, ColumnFamily.META);
+                final var mapping = com.nereusstream.delay.protocol.TargetKafkaReceiptMapping.decodeForStore(key, payload, scope.shard());
+                if (!Arrays.equals(mapping.recoveryLineage(), lineage)) { throw new IllegalStateException("Target K2 mapping lineage differs"); }
+                mapping.mutation().requireAtOrBefore(operation);
+                final var context = mapping.admission().channel().context();
+                final var owner = targetOwner(context.target(), context.accountingIncarnation());
+                result = new Charge(owner, resources(owner.accounting().recordCharge(
+                        com.nereusstream.delay.protocol.TargetQuotaAccounting.RecordClass.STATE, key.length, payload.length)));
+            }
+            case com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.VALUE_TYPE -> {
+                requireFamily(family, ColumnFamily.META);
+                final var slot = com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.decodeForStore(key, payload, scope.shard());
+                if (!Arrays.equals(slot.recoveryLineage(), lineage)) { throw new IllegalStateException("Target K2 slot lineage differs"); }
+                slot.mutation().requireAtOrBefore(operation);
+                final var context = slot.channel().context();
+                final var owner = targetOwner(context.target(), context.accountingIncarnation());
+                result = new Charge(owner, resources(owner.accounting().recordCharge(
+                        com.nereusstream.delay.protocol.TargetQuotaAccounting.RecordClass.STATE, key.length, payload.length)));
+            }
             case TargetNativePolicyScope.VALUE_TYPE -> {
                 requireFamily(family, ColumnFamily.META);
                 final var nativeScope = TargetNativePolicyScope.decodeForStore(key, payload, scope.shard());

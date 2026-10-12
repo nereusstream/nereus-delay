@@ -621,3 +621,67 @@ handoff；只有实际 exact Source APPLIED 首结果才能释放本进程 pendi
 使用当前锁定客户端 artifacts。没有运行单测、Broker、格式/文档或集中验收。实际
 Profile/key/time/credential/provider/resource 启动装配、K2、真实重启恢复与最终故障验收
 仍开放；typed ACK DTO 和可注入 ResultAuthority 不等于独立生产证据认证。
+
+
+## 2026-10-13：K2 Source Admission v6 与 receipt 恢复域
+
+主会话批准独立 Target K2 namespace，并裁定唯一 durable mapping 边界为实际 Source
+Admission 首应用批次。Kafka receipt topic 不写非事务 MAPPED，不增加 Journal 后端。
+Target v3/v4/v5、旧 Lane mapping/receipt/cursor bytes 保持；v6 只用于普通 Kafka
+KAFKA_TRANSACTIONAL_RECEIPT。新增独立 ProtocolTuple body generation=6，沿 v4 fields
+1–23，required field24 是 TargetKafkaReceiptBinding v1。旧 v4 K2 缺上下文的历史 Admission
+可按原权限读回，不能补字段改签、重造 first-send permission。
+
+K2 binding 的 closed fields1–9 为：schema1、target physical topic、原 Registry
+KafkaReceiptSlotResource、receipt physical topic、slotsPerShard、receipt partition、真实
+protected scanStartOffset、同次观察 digest[32]、retention protection digest[32]。两个 Kafka
+物理名各≤249 ASCII bytes，资源 cluster≤256 UTF-8 bytes，binding≤2048 bytes；slot 物理
+几何及同 cluster/source Shard/transactional channel 在解码/first application 核对。
+签名的数字/digest 不是观察或保留权威；实际 MaterializationAuthority 必须独立认证。
+
+NV45 TargetKafkaReceiptMapping v1 位于 META `26 01 + mappingId[32]`，closed fields1–7
+为 schema1、原完整 v6 body、原 mutation hash、actual Source TargetQuotaMutation、非零 raw
+uint64 logicalSequence、lineage[16]、mappingId[32]。mappingId 是 SHA-256(UTF-8
+`nereus-delay-target-kafka-receipt-mapping` + NUL + canonical fields1–6)。不反向依赖 APPLIED
+结果 hash，不改原 signed body/envelope/prepared hash。NV46 TargetKafkaReceiptSlot v1 位于
+META `27 01 + slotId[32]`；slotId=SHA-256(UTF-8 `nereus-delay-target-kafka-receipt-slot` + NUL
++ stable producer identity)。closed fields1–6 为 schema1、最近分配的完整 channel、lastAllocated
+raw sequence、optional pending mappingId、actual Source stamp、lineage。FREE 省略 field4，保留
+counter；channel renewal/换 Owner 不换 slot。logical sequence 独立于 Kafka PID/内部 sequence。
+
+首次 Admission 同批消耗 exact Claim/原 charge，保存 Message/Attempt budget、immutable
+mapping、pending slot、SYSTEM/POSITION 首结果、Source frontier、实际 record delta 账本。
+busy/exhausted slot 沿稳定 STALE 拒绝路径，仅推进结果/Source；不部分消耗 Claim、不阻塞
+Source 等待 slot。只有实际 APPLIED/OK first result、映射及 pending slot 完整关联才产生
+私有 Applied proof。新/历史 record 的冻结 Target accounting 以既有 STATE class 计实际
+key/value 字节，不增加维度、不重复收费业务 payload、不重定价原 Attempt obligation。
+
+Source definitive Outcome/Resolution 独立认证 evidence 后，在同批更新 exact pending slot、
+Attempt/Message/结果及费用；UNKNOWN 保持 pending。正向只接受 Target K2 同事务
+read_committed receipt，拒绝普通 Produce ACK；负向必须为 protected transaction/receipt
+absence，不能以单个 target Broker rejection 清 slot。旧/重复结果仍走 immutable first result
+和 retained attempt 分支，不能清掉后续 mapping 的 slot。逻辑 FREE 不解除 physical/zombie、
+receipt/pin/query/Floor 保护。checkpoint full audit 核对 mapping→原 Admission/first/budget、
+channel history、唯一 slot sequence、pending 或 actual settling Source result；semantic 原
+Admission inputs 再比对 mapping 的 original signed bytes/Source，缺失/多余/替换失败关闭。
+
+Target Kafka cursor 新 branch 保留 fields1/4/5/6/7/8，field8 为 TargetScope，field10 为既有
+Kafka cursor member；不带 Lane fields2/3。旧 Target Pulsar field11 branch 及 Lane branch 不变。
+Target receipt key=SHA-256(UTF-8 `nereus-delay-target-kafka-receipt-key` + NUL + mappingId)，
+每个 mapping 独立 key；value 是 UTF-8 `nereus-delay-target-kafka-receipt-value` + NUL + closed
+schema1 fields1–8：version、mappingId、logicalSequence、attempt、prepared hash、actual Source、
+stable transactional ID hash、K2 binding hash。wire record hash 使用独立
+`nereus-delay-target-kafka-receipt-wire-record` + NUL + lp32(key) + lp32(value)。成功证据复用
+既有八字段 KAFKA_TRANSACTIONAL_RECEIPT shape，静态比对完整 mapping 及 receipt/cursor/LSO。
+静态 decoder 不授予独立 Broker/retention/fencing authority。
+
+已开发 actual K1 `KafkaClientArtifactTargetReceiptReader`：从 frozen scanStartOffset 读取，
+一 poll/turn，固定 UUID/partition/read_committed、有限 records/bytes/time、explicit continuation、
+真实 guarded record/LogAppendTime/LSO 和 exact key/value 校验。可找到 receipt 并返回私有
+实际 Observation，恢复不依赖旧 callback/已知 receiptOffset。empty poll 不造否定证据。
+
+本批 compileJava/compileRealKafka 通过，未执行测试。真实 K2 transaction first-send/资源
+factory/driver、受保护初始空 range anchor、完整 fencing/absence 及 provider/startup/reopen
+仍待连接，包1未完成。已确认原锁 K1 缺 logStartOffset 投影并丢失实际空 Fetch 证据；
+主会话批准在既有 K1 worktree 最小 client 扩展、普通 fork 分支发布和开发锁更新，原
+05849884 历史证据保持其原 scope，不修改 Broker wire或提前宣告新组合已验证。

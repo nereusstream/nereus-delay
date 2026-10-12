@@ -3181,3 +3181,14 @@ for checkpoint/reopen; a bare NV20 is not a default initialized slot. Original
 Admission facts remain frozen after renewal/STOP. No local Claim ordinal authorizes
 channel lifecycle writes. Implementation is pending complete package1 composition
 and all deferred validation; no production or overall completion claim.
+
+
+Target K2 development addition (2026-10-13): the independent Target Admission generation 6,
+required field24 K2 context, NV45/META38 mapping, NV46/META39 stable slot, independent
+Target Kafka EvidenceCursor field10 branch and receipt key/value/hash domains are defined in
+NDIP-3/07 section “K2 Source Admission v6 与 receipt 恢复域”. Old Target Admission generations
+3/4/5, Lane K2 bytes and Target Pulsar cursor bytes remain closed and unchanged. Mapping is
+Source-applied intent, not a committed receipt. New writers require the v6 tuple and activated
+schema/Artifact/eligible-reader coverage; this development entry and compilation grant no
+production authority. Exact authenticated empty Fetch/log-start, fencing/LSO/retention and
+transaction/runtime integration remain pending, with all tests deferred to final validation.

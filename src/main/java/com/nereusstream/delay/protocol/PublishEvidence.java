@@ -126,6 +126,16 @@ public final class PublishEvidence {
             targetField = 1;
             partitionField = 2;
             preparedField = 7;
+        } else if (evidenceKind == PublishEvidenceKind.KAFKA_TRANSACTIONAL_RECEIPT
+                && publication.channel().context().kind() == ChannelKind.KAFKA_TRANSACTIONAL_RECEIPT) {
+            final var cursor = EvidenceCursor.decode(nested(fields, 1));
+            requireTargetKafkaCursor(publication, cursor);
+            if (!Arrays.equals(fixed(fields, 7), Bytes.sha256(publication.channel().context().producerIdentity()))) {
+                throw new IllegalArgumentException("Target receipt changes stable transactional identity");
+            }
+            targetField = 5;
+            partitionField = 6;
+            preparedField = 4;
         } else if (evidenceKind == PublishEvidenceKind.PULSAR_SEND_ACK
                 && (publication.channel().context().kind() == ChannelKind.BASELINE_PRODUCER
                         || publication.channel().context().kind() == ChannelKind.PULSAR_DEDUP_PRODUCER)) {
@@ -156,6 +166,21 @@ public final class PublishEvidence {
         }
     }
 
+    private static void requireTargetKafkaCursor(final TargetOrdinaryPublicationBinding publication, final EvidenceCursor cursor) {
+        final var c = publication.channel().context();
+        if (!cursor.isTarget() || cursor.evidenceKind() != EvidenceKind.KAFKA_RECEIPT_CONTIGUOUS
+                || c.kind() != ChannelKind.KAFKA_TRANSACTIONAL_RECEIPT
+                || publication.physical().resource().kind() != BrokerResourceIdentity.Kind.KAFKA
+                || !cursor.targetScope().sourceShard().equals(c.sourceShard())
+                || !cursor.targetScope().target().equals(c.target())
+                || !cursor.targetScope().domain().equals(c.domain())
+                || !Arrays.equals(cursor.targetScope().accountingIncarnation(), c.accountingIncarnation())
+                || !Arrays.equals(cursor.targetScope().producerNameHash(), Bytes.sha256(c.producerIdentity()))
+                || cursor.evidenceGeneration() != c.evidenceGeneration()) {
+            throw new IllegalArgumentException("Target Kafka cursor changes its stable recovery scope");
+        }
+    }
+
     /** Static namespace/resource binding only; full durable record/retention authentication remains mandatory. */
     public static void requireTargetJournalCursor(
             final TargetOrdinaryPublicationBinding publication, final EvidenceCursor cursor) {
@@ -176,6 +201,17 @@ public final class PublishEvidence {
     public void requireOrdinaryTargetNotPublishedBinding(final TargetOrdinaryPublicationBinding publication) {
         Objects.requireNonNull(publication, "publication");
         requireBusinessMutation(publication.publishAttemptId(), false);
+        if (evidenceKind == PublishEvidenceKind.KAFKA_RECEIPT_ABSENCE) {
+            final var fields = QueryCodecSupport.read(branch, "Target receipt absence");
+            requireTargetKafkaCursor(publication, EvidenceCursor.decode(nested(fields, 1)));
+            final var channel = TargetChannelIdentity.decode(nested(fields, 2));
+            requireTargetFencedChannel(publication.channel(), channel);
+            if (!Arrays.equals(fixed(fields, 4), publication.preparedPublishHash())
+                    || !Arrays.equals(fixed(fields, 5), Bytes.sha256(channel.context().producerIdentity()))) {
+                throw new IllegalArgumentException("Target receipt absence changes frozen request/transactional identity");
+            }
+            return;
+        }
         if (evidenceKind == PublishEvidenceKind.PULSAR_JOURNAL_ABSENCE) {
             final var fields = QueryCodecSupport.read(branch, "Target Journal absence evidence");
             requireTargetJournalCursor(publication, EvidenceCursor.decode(nested(fields, 1)));
@@ -294,7 +330,8 @@ public final class PublishEvidence {
             final TargetChannelIdentity admitted, final TargetChannelIdentity fenced) {
         final var old = admitted.context();
         final var current = fenced.context();
-        if (old.kind() != ChannelKind.PULSAR_DEDUP_PRODUCER || current.kind() != old.kind()
+        if (old.kind() != ChannelKind.PULSAR_DEDUP_PRODUCER && old.kind() != ChannelKind.KAFKA_TRANSACTIONAL_RECEIPT
+                || current.kind() != old.kind()
                 || !old.sourceShard().equals(current.sourceShard()) || !old.target().equals(current.target())
                 || !old.domain().equals(current.domain())
                 || !Arrays.equals(old.accountingIncarnation(), current.accountingIncarnation())
@@ -441,8 +478,14 @@ public final class PublishEvidence {
                 EvidenceCursor.decode(nested(fields, 1)),
                 EvidenceKind.KAFKA_RECEIPT_CONTIGUOUS,
                 "Kafka receipt absence");
-        requireChannelAdapter(
-                ChannelResourceIdentity.decode(nested(fields, 2)), AdapterKind.KAFKA, "Kafka receipt absence");
+        final var cursor = EvidenceCursor.decode(nested(fields, 1));
+        if (cursor.isTarget()) {
+            if (TargetChannelIdentity.decode(nested(fields, 2)).context().kind() != ChannelKind.KAFKA_TRANSACTIONAL_RECEIPT) {
+                throw new IllegalArgumentException("Target Kafka absence requires its transactional channel");
+            }
+        } else {
+            requireChannelAdapter(ChannelResourceIdentity.decode(nested(fields, 2)), AdapterKind.KAFKA, "Kafka receipt absence");
+        }
         ExternalDeliveryIdentity.decode(nested(fields, 3));
         fixed(fields, 4);
         fixed(fields, 5);

@@ -1092,6 +1092,8 @@ public final class TargetStoreBackend {
                             case 31, 32, 33, 34, 35 -> 42;
                             case 36 -> 43;
                             case 37 -> 44;
+                            case 38 -> 45;
+                            case 39 -> 46;
                             default -> 0;
                         };
                     default -> 0;

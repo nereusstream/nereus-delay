@@ -419,6 +419,26 @@ public final class TargetPublishOutcomeStore {
             extra.add(reader.replace(ColumnFamily.META, claim.chargeKey(),
                     com.nereusstream.delay.protocol.TargetQuotaClaimCharge.VALUE_TYPE, null));
         }
+        if (admission.kafkaReceipt() != null) {
+            final byte[] slotKey = com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.key(admission.channel());
+            final var slot = com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.decodeForStore(slotKey,
+                    TargetValueEnvelope.decode(required(reader, ColumnFamily.META, slotKey),
+                            com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.VALUE_TYPE).payload(), scope.shard());
+            if (slot.pendingMappingId() == null) { throw new IllegalStateException("unresolved K2 attempt has no pending slot"); }
+            final byte[] mappingKey = Bytes.concat(new byte[] {TargetKeyCodec.KAFKA_RECEIPT_MAPPING_TAG, TargetKeyCodec.KEY_FORMAT}, slot.pendingMappingId());
+            final var mapping = com.nereusstream.delay.protocol.TargetKafkaReceiptMapping.decodeForStore(mappingKey,
+                    TargetValueEnvelope.decode(required(reader, ColumnFamily.META, mappingKey),
+                            com.nereusstream.delay.protocol.TargetKafkaReceiptMapping.VALUE_TYPE).payload(), scope.shard());
+            mapping.requireOriginal(context.admission(), proof.mutation().source());
+            slot.requirePending(mapping);
+            if (!mapping.mutation().equals(proof.mutation()) || !Arrays.equals(mapping.recoveryLineage(), lineage)
+                    || !Arrays.equals(slot.recoveryLineage(), lineage)) { throw new IllegalStateException("K2 settlement mapping/slot lineage or Source differs"); }
+            if (published) { com.nereusstream.delay.protocol.TargetKafkaReceiptWire.requirePublished(mapping, evidence); }
+            else { com.nereusstream.delay.protocol.TargetKafkaReceiptWire.requireNotPublished(mapping, evidence); }
+            final var settled = slot.settle(mapping, stamp);
+            extra.add(reader.replace(ColumnFamily.META, slotKey,
+                    com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.VALUE_TYPE, settled.canonicalBytes()));
+        }
         final var resolved = budget.resolve(evidence.verificationStatus(), budget.allocated(), stamp);
         extra.add(reader.replace(
                 ColumnFamily.META, budgetKey, TargetQuotaAttemptBudget.VALUE_TYPE, resolved.canonicalBytes()));

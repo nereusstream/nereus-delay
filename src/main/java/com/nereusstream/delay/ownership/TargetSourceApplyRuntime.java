@@ -852,13 +852,26 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             final com.nereusstream.delay.protocol.CapacityVector allocated,
             final com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence time,
             final com.nereusstream.delay.semantic.TargetNativePolicyAuthority policies, final LongSupplier clock) {
+        return preparePublishAdmission(budget, claim, channel, capability, artifacts, retryUntilEpochMs,
+                commitment, allocated, time, policies, null, clock);
+    }
+
+    synchronized TargetPublishAdmissionBody preparePublishAdmission(
+            final BoundedReadBudget budget, final TargetClaimRecord claim,
+            final com.nereusstream.delay.protocol.TargetChannelIdentity channel,
+            final com.nereusstream.delay.protocol.ProfileRef capability, final byte[] artifacts,
+            final long retryUntilEpochMs, final com.nereusstream.delay.protocol.CapacityVector commitment,
+            final com.nereusstream.delay.protocol.CapacityVector allocated,
+            final com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence time,
+            final com.nereusstream.delay.semantic.TargetNativePolicyAuthority policies,
+            final com.nereusstream.delay.protocol.TargetKafkaReceiptBinding kafkaReceipt, final LongSupplier clock) {
         requireGcOwner(clock);
         if (claim.owner().ownerEpoch() != lease.ownerEpoch()
                 || !Bytes.constantTimeEquals(claim.owner().leaseFencingDigest(), lease.leaseToken())) {
             throw new IllegalStateException("Admission Claim differs from the current Owner lease");
         }
         final var body = targetAdmissions.prepareBody(budget, claim, channel, capability, artifacts,
-                retryUntilEpochMs, commitment, allocated, time, policies, workerReads(clock));
+                retryUntilEpochMs, commitment, allocated, time, policies, kafkaReceipt, workerReads(clock));
         requireGcOwner(clock);
         return body;
     }

@@ -2165,3 +2165,12 @@ Admission/首结果/证据。当前新分支保持 readNegativeOutcome 对已 Fl
 最终 ownership gate 和实际 Source Admission/Outcome 单 flight 已连接原 Host driver/drain；
 详见 07 的“Target BASELINE 实际 SDK 与 Source 单 flight”。本批三个相关 compile 通过，
 全部测试继续后置；K2、完整启动 provider/resource 及跨进程恢复仍未完成，不提升验收权威。
+
+
+2026-10-13 K2 开发补充：Source v6、NV45 immutable mapping/NV46 stable pending slot、
+actual APPLIED proof、正负 exact Source 结算和 checkpoint/accounting/history 关联已实现；
+actual K1 reader 可从原 frozen 起点有限找回 committed receipt。规范与界限见 07 的
+“K2 Source Admission v6 与 receipt 恢复域”。本批仅 compileJava/compileRealKafka 通过；
+K2 transaction/factory/driver、empty anchor/完整否定、生产保护及新 Owner 组装仍开放。
+下一依赖为主会话批准的 K1 空 Fetch/logStartOffset client 扩展；Broker/测试/质量检查仍
+集中后置，保留 Kafka AGENTS.md 原必要检查与新的边界验证，不标本轮 PASS。

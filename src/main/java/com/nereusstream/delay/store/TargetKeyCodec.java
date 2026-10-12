@@ -46,6 +46,8 @@ public final class TargetKeyCodec {
     public static final int NATIVE_MEMBER_CLOSURE_TAG = 35;
     public static final int CHANNEL_CONTROL_TAG = 36;
     public static final int CHANNEL_SLOT_TAG = 37;
+    public static final int KAFKA_RECEIPT_MAPPING_TAG = 38;
+    public static final int KAFKA_RECEIPT_SLOT_TAG = 39;
     // Target result tags belong to DEDUPE, independently of META and ID tags.
     public static final int RESULT_COMMAND_TAG = 6;
     public static final int RESULT_QUERY_TAG = 7;

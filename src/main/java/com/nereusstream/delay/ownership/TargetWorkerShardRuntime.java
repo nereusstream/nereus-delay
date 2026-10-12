@@ -292,11 +292,25 @@ public final class TargetWorkerShardRuntime
             final com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence time,
             final com.nereusstream.delay.semantic.TargetNativePolicyAuthority policies,
             final TargetPublishAdmissionMutationFactory signer, final LongSupplier clock) {
+        return preparePublishAdmission(budget, claim, channel, capability, artifacts, retryUntilEpochMs,
+                commitment, allocated, time, policies, null, signer, clock);
+    }
+
+    public synchronized SystemMutation preparePublishAdmission(
+            final BoundedReadBudget budget, final TargetClaimRecord claim,
+            final com.nereusstream.delay.protocol.TargetChannelIdentity channel,
+            final com.nereusstream.delay.protocol.ProfileRef capability, final byte[] artifacts,
+            final long retryUntilEpochMs, final com.nereusstream.delay.protocol.CapacityVector commitment,
+            final com.nereusstream.delay.protocol.CapacityVector allocated,
+            final com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence time,
+            final com.nereusstream.delay.semantic.TargetNativePolicyAuthority policies,
+            final com.nereusstream.delay.protocol.TargetKafkaReceiptBinding kafkaReceipt,
+            final TargetPublishAdmissionMutationFactory signer, final LongSupplier clock) {
         requireNewTurnsAdmitted();
         resources.requireRuntimeBusinessAdmission();
         return Objects.requireNonNull(signer, "admissionSigner").sign(target.preparePublishAdmission(
                 budget, claim, channel, capability, artifacts, retryUntilEpochMs, commitment, allocated,
-                time, policies, clock));
+                time, policies, kafkaReceipt, clock));
     }
 
     public synchronized void requireNativeOwnership(final BoundedReadBudget budget,

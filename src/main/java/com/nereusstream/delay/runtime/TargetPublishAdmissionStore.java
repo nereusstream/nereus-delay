@@ -34,30 +34,37 @@ public final class TargetPublishAdmissionStore {
         private final TargetPublishAdmissionBody body;
         private final SourcePosition source;
         private final TargetMessageRecord message;
+        private final com.nereusstream.delay.protocol.TargetKafkaReceiptMapping kafkaMapping;
 
         private Applied(SystemMutation image, TargetPublishAdmissionBody body,
-                SourcePosition source, TargetMessageRecord message) {
+                SourcePosition source, TargetMessageRecord message,
+                com.nereusstream.delay.protocol.TargetKafkaReceiptMapping kafkaMapping) {
             this.image = image;
             this.body = body;
             this.source = source;
             this.message = message;
+            this.kafkaMapping = kafkaMapping;
         }
 
         public SystemMutation image() { return image; }
         public TargetPublishAdmissionBody body() { return body; }
         public SourcePosition source() { return source; }
         public TargetMessageRecord message() { return message; }
+        public com.nereusstream.delay.protocol.TargetKafkaReceiptMapping kafkaMapping() { return kafkaMapping; }
 
         public void requireSame(final Applied current) {
             if (!Arrays.equals(image.canonicalEnvelope(), current.image.canonicalEnvelope())
                     || !Arrays.equals(source.canonicalBytes(), current.source.canonicalBytes())
-                    || !Arrays.equals(message.canonicalBytes(), current.message.canonicalBytes())) {
+                    || !Arrays.equals(message.canonicalBytes(), current.message.canonicalBytes())
+                    || (kafkaMapping == null) != (current.kafkaMapping == null)
+                    || kafkaMapping != null && !Arrays.equals(kafkaMapping.canonicalBytes(), current.kafkaMapping.canonicalBytes())) {
                 throw new IllegalStateException("Target send snapshot changed after its applied Admission read");
             }
         }
     }
     private record Facts(SystemMutation image, TargetPublishAdmissionBody body,
-            SourcePosition source, RetainedGeneration generation) {}
+            SourcePosition source, RetainedGeneration generation,
+            com.nereusstream.delay.protocol.TargetKafkaReceiptMapping kafkaMapping) {}
 
     /** Retained admitted facts; the current Message can be newer than the admitted terminal generation. */
     public static final class Recovery {
@@ -68,6 +75,7 @@ public final class TargetPublishAdmissionStore {
         public SystemMutation image() { return retained.image(); }
         public TargetPublishAdmissionBody body() { return retained.body(); }
         public SourcePosition source() { return retained.source(); }
+        public com.nereusstream.delay.protocol.TargetKafkaReceiptMapping kafkaMapping() { return retained.kafkaMapping(); }
         public TargetMessageRecord message() { return retained.generation().current(); }
         public TargetGenerationRuntimeIndex runtime() { return retained.generation().runtime(); }
         public java.util.Optional<TargetTerminalGenerationRecord> terminal() {
@@ -134,7 +142,7 @@ public final class TargetPublishAdmissionStore {
             final BoundedReadBudget budget, final SystemMutation image,
             final TargetStoreBackend.ReadAuthority authority) {
         final var facts = readFacts(budget, image, authority, true);
-        return new Applied(facts.image(), facts.body(), facts.source(), facts.generation().current());
+        return new Applied(facts.image(), facts.body(), facts.source(), facts.generation().current(), facts.kafkaMapping());
     }
 
     /**
@@ -176,6 +184,23 @@ public final class TargetPublishAdmissionStore {
             final com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence time,
             final com.nereusstream.delay.semantic.TargetNativePolicyAuthority policies,
             final TargetStoreBackend.ReadAuthority authority) {
+        return prepareBody(budget, expected, channel, capability, artifacts, retryUntilEpochMs, commitment,
+                allocated, time, policies, null, authority);
+    }
+
+    public TargetPublishAdmissionBody prepareBody(
+            final BoundedReadBudget budget, final TargetClaimRecord expected,
+            final com.nereusstream.delay.protocol.TargetChannelIdentity channel,
+            final com.nereusstream.delay.protocol.ProfileRef capability,
+            final byte[] artifacts, final long retryUntilEpochMs,
+            final com.nereusstream.delay.protocol.CapacityVector commitment,
+            final com.nereusstream.delay.protocol.CapacityVector allocated,
+            final com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence time,
+            final com.nereusstream.delay.semantic.TargetNativePolicyAuthority policies,
+            final com.nereusstream.delay.protocol.TargetKafkaReceiptBinding kafkaReceipt,
+            final TargetStoreBackend.ReadAuthority authority) {
+        if ((channel.context().kind() == com.nereusstream.delay.protocol.ChannelKind.KAFKA_TRANSACTIONAL_RECEIPT)
+                != (kafkaReceipt != null)) { throw new StaleAdmission(); }
         Objects.requireNonNull(expected, "expectedClaim");
         Objects.requireNonNull(channel, "channel");
         return backend.guardedRead(budget, reader -> {
@@ -236,9 +261,12 @@ public final class TargetPublishAdmissionStore {
             } else {
                 final var frozen = com.nereusstream.delay.protocol.TargetOrdinaryPublicationBinding.fromClaim(
                         claim, message, binding, physical, channel, capability, artifacts);
-                body = new TargetPublishAdmissionBody(scope.shard(), retryUntilEpochMs, claim.owner(),
+                body = kafkaReceipt == null ? new TargetPublishAdmissionBody(scope.shard(), retryUntilEpochMs, claim.owner(),
                         claim.storeIncarnation(), claim.claimId(), locator, attemptNo, attempt, obligation,
-                        claim.executionBytes(), commitment, allocated, time, frozen, claim);
+                        claim.executionBytes(), commitment, allocated, time, frozen, claim)
+                        : new TargetPublishAdmissionBody(scope.shard(), retryUntilEpochMs, claim.owner(),
+                                claim.storeIncarnation(), claim.claimId(), locator, attemptNo, attempt, obligation,
+                                claim.executionBytes(), commitment, allocated, time, frozen, claim, kafkaReceipt);
             }
             currentClaim(reader, body);
             reader.requireWithinElapsedBudget();
@@ -330,8 +358,30 @@ public final class TargetPublishAdmissionStore {
                     || !runtime.attemptObligations().contains(body.obligation())) {
                 throw new IllegalStateException("Target Admission image differs from actual retained work/proof");
             }
+            com.nereusstream.delay.protocol.TargetKafkaReceiptMapping kafkaMapping = null;
+            if (body.kafkaReceipt() != null) {
+                final byte[] slotKey = com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.key(body.channel());
+                final var slot = com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.decodeForStore(slotKey,
+                        TargetValueEnvelope.decode(required(reader, ColumnFamily.META, slotKey),
+                                com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.VALUE_TYPE).payload(), scope.shard());
+                if (slot.pendingMappingId() == null) { throw new IllegalStateException("admitted Target K2 has no pending Source slot"); }
+                final byte[] mappingKey = Bytes.concat(new byte[] {TargetKeyCodec.KAFKA_RECEIPT_MAPPING_TAG, TargetKeyCodec.KEY_FORMAT}, slot.pendingMappingId());
+                kafkaMapping = com.nereusstream.delay.protocol.TargetKafkaReceiptMapping.decodeForStore(mappingKey,
+                        TargetValueEnvelope.decode(required(reader, ColumnFamily.META, mappingKey),
+                                com.nereusstream.delay.protocol.TargetKafkaReceiptMapping.VALUE_TYPE).payload(), scope.shard());
+                kafkaMapping.requireOriginal(image, first.mutation().source());
+                slot.requirePending(kafkaMapping);
+                if (!kafkaMapping.mutation().equals(first.mutation()) || !slot.mutation().equals(first.mutation())
+                        || !Arrays.equals(kafkaMapping.recoveryLineage(), lineage)
+                        || !Arrays.equals(slot.recoveryLineage(), lineage)) {
+                    throw new IllegalStateException("Target K2 mapping/slot differ from actual Admission first batch");
+                }
+            } else if (firstSend && body.materialized() && body.channel().context().kind()
+                    == com.nereusstream.delay.protocol.ChannelKind.KAFKA_TRANSACTIONAL_RECEIPT) {
+                throw new IllegalStateException("historical Target K2 Admission without v6 context has no first-send authority");
+            }
             reader.requireWithinElapsedBudget();
-            return new Facts(image, body, first.mutation().source(), generation);
+            return new Facts(image, body, first.mutation().source(), generation, kafkaMapping);
         }, Objects.requireNonNull(authority, "authority"));
     }
 
@@ -665,6 +715,23 @@ public final class TargetPublishAdmissionStore {
         if (reader.get(ColumnFamily.META, attemptBudget.key()) != null) {
             throw new StaleAdmission();
         }
+        final var receiptEdits = new ArrayList<TargetStoreBackend.Edit>();
+        if (body.kafkaReceipt() != null) {
+            final byte[] slotKey = com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.key(body.channel());
+            final byte[] slotRaw = reader.get(ColumnFamily.META, slotKey);
+            final var previous = slotRaw == null ? null
+                    : com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.decodeForStore(slotKey,
+                            TargetValueEnvelope.decode(slotRaw, com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.VALUE_TYPE).payload(), scope.shard());
+            if (previous != null && (previous.pendingMappingId() != null
+                    || !Arrays.equals(previous.recoveryLineage(), lineage))) { throw new StaleAdmission(); }
+            if (previous != null && previous.lastAllocatedSequence() == -1L) { throw new StaleAdmission(); }
+            final long sequence = previous == null ? 1 : previous.nextSequence();
+            final var mapping = new com.nereusstream.delay.protocol.TargetKafkaReceiptMapping(body, mutation.mutationHash(), stamp, sequence, lineage);
+            if (reader.get(ColumnFamily.META, mapping.key()) != null) { throw new IllegalStateException("new Source mapping already exists"); }
+            final var slot = new com.nereusstream.delay.protocol.TargetKafkaReceiptSlot(body.channel(), sequence, mapping.mappingId(), stamp, lineage);
+            receiptEdits.add(reader.replace(ColumnFamily.META, mapping.key(), com.nereusstream.delay.protocol.TargetKafkaReceiptMapping.VALUE_TYPE, mapping.canonicalBytes()));
+            receiptEdits.add(reader.replace(ColumnFamily.META, slotKey, com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.VALUE_TYPE, slot.canonicalBytes()));
+        }
         final var obligation = body.obligation();
         final var admitted = claim.admitted(before, obligation, body.attemptNo());
         final TargetStoreBackend.Edit claimEdit = reader.replace(
@@ -680,11 +747,12 @@ public final class TargetPublishAdmissionStore {
                 TargetQuotaAttemptBudget.VALUE_TYPE,
                 attemptBudget.canonicalBytes());
         final List<TargetMessageStore.OrderTransition> order = strictOrder(reader, before, admitted);
+        receiptEdits.addAll(List.of(claimEdit, chargeEdit, budgetEdit));
         return new AdmissionProjection(
                 before,
                 admitted,
                 order.isEmpty() ? null : order.getFirst(),
-                List.of(claimEdit, chargeEdit, budgetEdit));
+                List.copyOf(receiptEdits));
     }
 
     private List<TargetMessageStore.OrderTransition> strictOrder(

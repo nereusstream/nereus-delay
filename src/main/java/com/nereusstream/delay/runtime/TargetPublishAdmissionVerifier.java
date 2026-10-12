@@ -130,7 +130,8 @@ public final class TargetPublishAdmissionVerifier {
         }
         final Authorization authorized = authority.resolve(shardScope, author, mutation, source);
         if (authorized == null
-                || !(body.nativePublication() != null ? ProtocolTuple.targetNativeMaterializedPublishAdmission()
+                || !(body.kafkaReceipt() != null ? ProtocolTuple.targetKafkaReceiptPublishAdmission()
+                        : body.nativePublication() != null ? ProtocolTuple.targetNativeMaterializedPublishAdmission()
                         : body.materialized() ? ProtocolTuple.targetMaterializedPublishAdmission()
                                 : ProtocolTuple.targetPublishAdmission())
                         .equals(authorized.activatedTuple())

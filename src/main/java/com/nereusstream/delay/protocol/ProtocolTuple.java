@@ -61,6 +61,10 @@ public final class ProtocolTuple {
         return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, TargetPublishAdmissionBody.NATIVE_MATERIALIZED_BODY_VERSION);
     }
 
+    public static ProtocolTuple targetKafkaReceiptPublishAdmission() {
+        return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, TargetPublishAdmissionBody.KAFKA_RECEIPT_BODY_VERSION);
+    }
+
     public long framingVersion() {
         return framingVersion;
     }

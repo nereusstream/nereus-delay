@@ -122,6 +122,8 @@ final class TargetCheckpointLedgerAudit {
         final List<TargetChannelControlRecord> channelControls = new ArrayList<>();
         final List<TargetChannelIdentity> channelIdentities = new ArrayList<>();
         final List<TargetChannelSlot> channelSlots = new ArrayList<>();
+        final List<com.nereusstream.delay.protocol.TargetKafkaReceiptMapping> kafkaMappings = new ArrayList<>();
+        final List<com.nereusstream.delay.protocol.TargetKafkaReceiptSlot> kafkaSlots = new ArrayList<>();
         final List<TargetInitialControlSnapshot> initialControls = new ArrayList<>();
         final List<TargetQuotaAttemptBudget> attemptBudgets = new ArrayList<>();
         final List<AttemptProjection> attemptProjections = new ArrayList<>();
@@ -194,6 +196,12 @@ final class TargetCheckpointLedgerAudit {
                                 key, payload, proof.metadata().shardId()));
                     } else if (family == ColumnFamily.META && type == TargetChannelSlot.VALUE_TYPE) {
                         channelSlots.add(TargetChannelSlot.decodeForStore(key, payload, proof.metadata().shardId()));
+                    } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetKafkaReceiptMapping.VALUE_TYPE) {
+                        final var mapping = com.nereusstream.delay.protocol.TargetKafkaReceiptMapping.decodeForStore(key, payload, proof.metadata().shardId());
+                        kafkaMappings.add(mapping);
+                        dependencies.kafkaMapping(mapping);
+                    } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.VALUE_TYPE) {
+                        kafkaSlots.add(com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.decodeForStore(key, payload, proof.metadata().shardId()));
                     } else if (family == ColumnFamily.META && type == TargetQuotaGrantActivation.VALUE_TYPE) {
                         grantActivations.add(TargetQuotaGrantActivation.decodeForStore(
                                 key, payload, proof.metadata().shardId(), proof.bookkeeping().tenantScope()));
@@ -280,6 +288,7 @@ final class TargetCheckpointLedgerAudit {
         auditControlResults(membershipClosures, nativeControls, channelControls, resultRows, proof.root().identity());
         auditChannelHistory(channelControls, channelIdentities, channelSlots);
         final var admissions = auditAdmissionResults(attemptBudgets, resultRows, proof.root().identity());
+        auditKafkaReceiptReferences(kafkaMappings, kafkaSlots, channelIdentities, admissions, resultRows, proof.root().identity());
         TargetQuotaDelta.audit(proof.aggregate(), counters, rebuilt);
         for (final var stored : resultRows) {
             if (stored.key()[0] == TargetKeyCodec.RESULT_SYSTEM_TAG) {
@@ -622,6 +631,103 @@ final class TargetCheckpointLedgerAudit {
             requireControlResult(systems, root, control.mutation(), body.retryUntil(), body.logicalIdentity(),
                     body.canonicalBytes(), AuthorIdentity.control(author.operationActorIdHash(),
                             author.authenticatedRoleSetHash(), author.tenantResourceScopeHash()).canonicalBytes());
+        }
+    }
+
+    private static void auditKafkaReceiptReferences(
+            List<com.nereusstream.delay.protocol.TargetKafkaReceiptMapping> mappings,
+            List<com.nereusstream.delay.protocol.TargetKafkaReceiptSlot> slots, List<TargetChannelIdentity> identities,
+            List<TargetCheckpointDependencies.Admission> admissions, List<TargetResultLedgerAudit.Stored> results,
+            TargetQuotaIdentity root) {
+        if (mappings.isEmpty() && slots.isEmpty()) { return; }
+        final var byAttempt = new HashMap<String, TargetCheckpointDependencies.Admission>();
+        for (var admission : admissions) { byAttempt.put(Bytes.hex(admission.attempt().publishAttemptId()), admission); }
+        final var bySlot = new HashMap<String, com.nereusstream.delay.protocol.TargetKafkaReceiptSlot>();
+        final var byMapping = new HashMap<String, com.nereusstream.delay.protocol.TargetKafkaReceiptMapping>();
+        final var latest = new HashMap<String, com.nereusstream.delay.protocol.TargetKafkaReceiptMapping>();
+        final var sequenceIds = new java.util.HashSet<String>();
+        final var channelIds = new HashMap<String, TargetChannelIdentity>();
+        final var resultsByStamp = new HashMap<String, TargetResultRecord>();
+        for (var row : results) {
+            if (row.key()[0] == TargetKeyCodec.RESULT_SYSTEM_TAG) {
+                final var result = TargetResultRecord.decode(row.payload());
+                if (resultsByStamp.put(Bytes.hex(result.mutation().canonicalBytes()), result) != null) {
+                    throw new IllegalStateException("multiple Source first results share a K2 settlement stamp");
+                }
+            }
+        }
+        for (var channel : identities) { channelIds.put(Bytes.hex(channel.digest()), channel); }
+        for (var slot : slots) {
+            if (bySlot.put(Bytes.hex(slot.key()), slot) != null) { throw new IllegalStateException("duplicate Target K2 slot"); }
+            final var channel = channelIds.get(Bytes.hex(slot.channel().digest()));
+            if (channel == null || !Arrays.equals(channel.canonicalBytes(), slot.channel().canonicalBytes())) {
+                throw new IllegalStateException("Target K2 slot lacks exact retained channel identity");
+            }
+        }
+        for (var mapping : mappings) {
+            final var body = mapping.admission();
+            final var retained = byAttempt.get(Bytes.hex(body.publishAttemptId()));
+            final var first = retained == null ? null : retained.first();
+            final var hash = SystemMutation.computeMutationHash(body.shard(), SystemMutationType.TARGET_PUBLISH_ADMISSION,
+                    body.retryUntilEpochMs(), body.canonicalBytes());
+            if (first == null || !first.primaryIdentity().equals(root) || !mapping.mutation().equals(first.mutation())
+                    || !Arrays.equals(hash, mapping.mutationHash())
+                    || !Arrays.equals(retained.attempt().admissionDigest(), hash)
+                    || !retained.attempt().locator().equals(body.locator())
+                    || retained.attempt().executionBytes() != body.executionBytes()
+                    || !retained.attempt().commitment().equals(body.commitment())) {
+                throw new IllegalStateException("Target K2 mapping lacks exact retained Admission/budget/first Source");
+            }
+            final var original = SystemMutationResult.decode(first.typedPayload());
+            if (!body.owner().equals(AuthorIdentity.decode(original.authorIdentity()).asOwnerIdentity())
+                    || original.retryUntilEpochMs() != body.retryUntilEpochMs()) {
+                throw new IllegalStateException("Target K2 mapping changes original Owner/deadline");
+            }
+            final String slotKey = Bytes.hex(com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.key(body.channel()));
+            final var slot = bySlot.get(slotKey);
+            if (slot == null || Long.compareUnsigned(slot.lastAllocatedSequence(), mapping.logicalSequence()) < 0
+                    || !Arrays.equals(slot.recoveryLineage(), mapping.recoveryLineage())
+                    || !sequenceIds.add(slotKey + "/" + Long.toUnsignedString(mapping.logicalSequence()))
+                    || byMapping.put(Bytes.hex(mapping.mappingId()), mapping) != null) {
+                throw new IllegalStateException("Target K2 mapping lacks its stable sequence/slot history");
+            }
+            final var channel = channelIds.get(Bytes.hex(body.channel().digest()));
+            if (channel == null || !Arrays.equals(channel.canonicalBytes(), body.channel().canonicalBytes())) {
+                throw new IllegalStateException("Target K2 mapping lacks original retained channel generation");
+            }
+            final var previous = latest.get(slotKey);
+            if (previous == null || Long.compareUnsigned(mapping.logicalSequence(), previous.logicalSequence()) > 0) {
+                latest.put(slotKey, mapping);
+            }
+            final boolean unresolved = retained.attempt().phase() == TargetQuotaAttemptBudget.Phase.ADMITTED
+                    || retained.attempt().phase() == TargetQuotaAttemptBudget.Phase.UNKNOWN;
+            if (unresolved) { slot.requirePending(mapping); }
+            else if (Arrays.equals(slot.pendingMappingId(), mapping.mappingId())) {
+                throw new IllegalStateException("resolved Target K2 budget still occupies its logical slot");
+            }
+        }
+        for (var slot : slots) {
+            final String key = Bytes.hex(slot.key());
+            final var mapping = latest.get(key);
+            if (mapping == null || mapping.logicalSequence() != slot.lastAllocatedSequence()) {
+                throw new IllegalStateException("Target K2 slot sequence lacks its immutable latest mapping");
+            }
+            if (slot.pendingMappingId() != null) {
+                slot.requirePending(mapping);
+                if (!slot.mutation().equals(mapping.mutation())) { throw new IllegalStateException("pending K2 slot changes its Admission Source stamp"); }
+            } else {
+                slot.mutation().requireAfter(mapping.mutation());
+                final var outcome = resultsByStamp.get(Bytes.hex(slot.mutation().canonicalBytes()));
+                if (outcome == null) { throw new IllegalStateException("free Target K2 slot lacks its settling Source result"); }
+                final var result = SystemMutationResult.decode(outcome.typedPayload());
+                if (result.applyStatus() != ApplyStatus.APPLIED
+                        || result.mutationType() != SystemMutationType.PUBLISH_OUTCOME
+                                && result.mutationType() != SystemMutationType.EVIDENCE_RESOLUTION
+                        || !Arrays.equals(result.mutationId(), SystemMutation.computeSystemMutationId(root.shard(),
+                                result.mutationType(), mapping.admission().publishAttemptId(), result.mutationHash()))) {
+                    throw new IllegalStateException("free Target K2 slot does not settle its exact latest attempt");
+                }
+            }
         }
     }
 
