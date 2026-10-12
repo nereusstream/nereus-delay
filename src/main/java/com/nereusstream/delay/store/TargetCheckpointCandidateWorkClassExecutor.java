@@ -21,6 +21,11 @@ import java.util.function.Supplier;
 
 /** Bounded CHECKPOINT handoff for a local, unpublished format-2 candidate. */
 public final class TargetCheckpointCandidateWorkClassExecutor {
+    @FunctionalInterface
+    public interface IntentRegistration {
+        /** Prompt return; provider owns finite metadata I/O, namespace/Owner protection and uncertain/late cleanup. */
+        java.util.concurrent.CompletableFuture<CheckpointUploadIntent> register(CheckpointUploadIntent pending);
+    }
     private static final byte[] TASK_DOMAIN = Bytes.utf8("nereus-delay-target-candidate-handoff\0");
 
     private final WorkClassExecutionRegistry workClasses;
@@ -125,17 +130,29 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
     public Submission submitCollectedSemantic(Request request,
             Supplier<Optional<TargetCheckpointSemanticSnapshot>> inputs,
             TargetCheckpointSemanticSnapshot.Limits limits, Runnable protection, PublicationPlan publication) {
+        return submitCollectedSemantic(request, inputs, limits, protection, publication, null);
+    }
+
+    public Submission submitCollectedSemantic(Request request,
+            Supplier<Optional<TargetCheckpointSemanticSnapshot>> inputs,
+            TargetCheckpointSemanticSnapshot.Limits limits, Runnable protection, PublicationPlan publication,
+            IntentRegistration registration) {
         Objects.requireNonNull(inputs, "inputs");
         Objects.requireNonNull(limits, "limits");
         Objects.requireNonNull(protection, "protection");
         if (publication != null && publication.coordinator().resources() != store.sharedResources()) {
             throw new IllegalArgumentException("Target publication uses another Worker resource graph");
         }
-        final Runnable guard = () -> { requireCurrent(request); protection.run(); };
+        final var registered = new java.util.concurrent.atomic.AtomicBoolean(registration == null);
+        final Runnable guard = () -> {
+            requireCurrent(request, false, registered.get());
+            protection.run();
+        };
         guard.run();
         final byte[] identity = canonicalIdentity(request);
         final var task = new WorkClassTask(WorkClass.CHECKPOINT,
-                "target-collected-semantic/" + Bytes.hex(Bytes.sha256(TASK_DOMAIN, identity)),
+                (registration == null ? "target-collected-semantic/" : "target-register-collected-semantic/")
+                        + Bytes.hex(Bytes.sha256(TASK_DOMAIN, identity)),
                 Math.addExact(identity.length, limits.maximumBytes()));
         final var submission = new Submission(task);
         requireServiceable(task);
@@ -144,6 +161,22 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
         submission.nextStep = () -> workClasses.submit(task, () -> {
             try {
                 guard.run();
+                if (!registered.get()) {
+                    if (submission.registration == null) {
+                        submission.registration = Objects.requireNonNull(registration.register(request.pending()),
+                                "intent registration future");
+                        guard.run();
+                        return;
+                    }
+                    if (!submission.registration.isDone()) { return; }
+                    final var receipt = Objects.requireNonNull(submission.registration.join(), "registered intent");
+                    if (!request.pending().equals(receipt)) {
+                        throw new IllegalStateException("checkpoint registration returned another pending value");
+                    }
+                    registered.set(true);
+                    guard.run(); // Includes the mandatory exact durable reread, not just the completed future.
+                    return;
+                }
                 final var snapshot = Objects.requireNonNull(inputs.get(), "semantic inputs");
                 guard.run();
                 if (snapshot.isEmpty()) { return; }
@@ -279,6 +312,10 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
     }
 
     private void requireCurrent(Request request, boolean allowPublished) {
+        requireCurrent(request, allowPublished, true);
+    }
+
+    private void requireCurrent(Request request, boolean allowPublished, boolean requireRegistered) {
         localOwnerGuard.run();
         final CheckpointUploadIntent pending = request.pending();
         final OwnerLease expected = request.expectedLease();
@@ -307,7 +344,7 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
                 || !current.validAt(now)) {
             throw new IllegalStateException("Target candidate Owner Lease changed or expired");
         }
-        if (intents.current(pending).filter(pending::equals).isEmpty()
+        if (requireRegistered && intents.current(pending).filter(pending::equals).isEmpty()
                 && !(allowPublished && intents.currentPublishedFor(pending).isPresent())) {
             throw new IllegalStateException("Target candidate pending intent changed or is absent");
         }
@@ -370,6 +407,7 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
         private CheckpointPublicationCoordinator.CheckpointPublication published;
         private TargetCheckpointRootVerifier.AuthenticatedImage authenticatedImage;
         private volatile Runnable nextStep;
+        private java.util.concurrent.CompletableFuture<CheckpointUploadIntent> registration;
         private Runnable preparationGuard;
         private WorkClassExecutionRegistry preparationRegistry;
 

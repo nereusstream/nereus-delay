@@ -595,7 +595,8 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                         bytes(8, 0x76), 1, 1, 1, bytes(32, 0x77), 0, null), now + 60_000,
                 CheckpointUploadState.PENDING_UPLOAD, 1, null, null);
         final var intents = new CheckpointUploadIntentStore();
-        intents.create(pending);
+        final var registrationRequested = new java.util.concurrent.atomic.AtomicBoolean();
+        final var releaseRegistration = new java.util.concurrent.CompletableFuture<CheckpointUploadIntent>();
         final var catalog = new RecoveryCatalog();
         final var uploaded = new java.util.concurrent.atomic.AtomicBoolean();
         final var adapter = new FilesystemCheckpointUploadAdapter(root.resolve("scheduled-semantic-objects"),
@@ -701,7 +702,13 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
                                         if (refuse.get()) {
                                             throw new IllegalStateException("scheduled semantic protection unavailable");
                                         }
-                                    }, plan);
+                                    }, plan, proposed -> {
+                                        if (!pending.equals(proposed)
+                                                || registrationRequested.getAndSet(true)) {
+                                            throw new IllegalStateException("checkpoint registration identity changed");
+                                        }
+                                        return releaseRegistration;
+                                    });
                 };
         final var undersized = com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.collectedSemantic(
                 host, new com.nereusstream.delay.store.CheckpointScheduler(1_000, 0, 1), factory,
@@ -715,7 +722,8 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
             if (!refused.getMessage().contains("cannot be served")) { throw refused; }
         }
         if (undersized.pendingTask(scope.shard()).isPresent() || worker.pendingCheckpointTask().isPresent()
-                || historyRequested.get() || store.latestSequenceNumber() != beforeBudgetRefusal
+                || registrationRequested.get() || historyRequested.get()
+                || store.latestSequenceNumber() != beforeBudgetRefusal
                 || Files.exists(root.resolve("scheduled-semantic-image"))) {
             throw new IllegalStateException("checkpoint budget refusal queued history or changed Store/files");
         }
@@ -741,6 +749,32 @@ public final class PulsarClientArtifactTargetWorkerSourceSmoke {
         refuse.set(false);
         final long retried = due + 1_000;
         checkpointClock.set(retried);
+        final long registrationDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
+        while (!registrationRequested.get()) {
+            if (System.nanoTime() >= registrationDeadline || host.firstMaintenanceFailure() != null) {
+                throw new IllegalStateException("periodic P1 checkpoint did not start intent registration",
+                        host.firstMaintenanceFailure());
+            }
+            try { Thread.sleep(10); }
+            catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("interrupted while awaiting checkpoint registration", interrupted);
+            }
+        }
+        if (historyRequested.get() || intents.current(pending).isPresent()
+                || scheduled.pendingTask(scope.shard()).isEmpty() || store.latestSequenceNumber() != beforeRefusal
+                || Files.exists(root.resolve("scheduled-semantic-image"))) {
+            throw new IllegalStateException("pending registration read history or changed Store/files");
+        }
+        try {
+            worker.runSourceTurn(new SchedulerBudget(1, 4L << 20, TimeUnit.SECONDS.toNanos(10)),
+                    System::currentTimeMillis);
+            throw new AssertionError("Source advanced while checkpoint intent was waiting");
+        } catch (IllegalStateException protectedCut) {
+            if (!protectedCut.getMessage().contains("checkpoint cut is still pending")) { throw protectedCut; }
+        }
+        intents.create(pending);
+        releaseRegistration.complete(pending);
         final long historyDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
         while (!historyRequested.get()) {
             if (System.nanoTime() >= historyDeadline || host.firstMaintenanceFailure() != null) {

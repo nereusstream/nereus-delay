@@ -726,7 +726,8 @@ public final class TargetWorkerShardRuntime
         final var submitted = target.submitCollectedSemanticCheckpointCandidate(workClasses, candidate.intents(),
                 candidate.ownerClock(), candidate.checkpointPath(), candidate.pending(), candidate.physicalLimits(),
                 candidate.quotaLimits(), candidate.ledgerLimits(), request.inputs(), request.semanticLimits(),
-                cut::requireCurrent, request.protection(), request.publication(), settlementBudget);
+                cut::requireCurrent, request.protection(), request.publication(), settlementBudget,
+                request.registration());
         pendingCheckpoint = submitted;
         preparedCheckpointCut = null;
         return submitted;

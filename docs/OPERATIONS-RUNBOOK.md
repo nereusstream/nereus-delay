@@ -2335,3 +2335,10 @@ Target candidate 必须读取 `current(identity)` 的完整值并与原 PENDING 
 REAPING/foreign pending 或普通路径的 PUBLISHED 立即拒绝；formal composite 对自己已经提交的 exact
 PUBLISHED successor 只通过 `currentPublishedFor(originalPending)` 继续原恢复/settlement，不新建 upload
 或借此授予 delete/Floor 权限。仍须保护原 Owner/Source/session/catalog/pin/资源及 uncertain I/O 生命周期。
+
+周期 collected checkpoint factory 可通过 `CollectedSemanticRequest` 第六参数提供 prompt
+`IntentRegistration`，由原 CHECKPOINT action 启动一次。五参数入口仍要求已持久化 pending。
+factory 不应同步执行远端注册；异步 provider 必须沿用 caller 有限 executor/client requestTimeout、
+namespace/Owner/Source/pin 与物理资源保护。exact receipt 和 durable pending 重读均通过后才读 history。
+失败不会自动取消 I/O、删除或生成另一 intent；实际远端完成与 unknown reconciliation/cleanup 由
+provider 持续负责。该可选入口不构成生产 provider 装配或部署授权。

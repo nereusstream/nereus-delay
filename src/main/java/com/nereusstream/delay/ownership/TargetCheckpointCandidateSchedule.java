@@ -84,7 +84,14 @@ public final class TargetCheckpointCandidateSchedule {
     public record CollectedSemanticRequest(Request candidate,
             Supplier<Optional<com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot>> inputs,
             com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.Limits semanticLimits,
-            Runnable protection, TargetCheckpointCandidateWorkClassExecutor.PublicationPlan publication) {
+            Runnable protection, TargetCheckpointCandidateWorkClassExecutor.PublicationPlan publication,
+            TargetCheckpointCandidateWorkClassExecutor.IntentRegistration registration) {
+        public CollectedSemanticRequest(Request candidate,
+                Supplier<Optional<com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot>> inputs,
+                com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.Limits semanticLimits,
+                Runnable protection, TargetCheckpointCandidateWorkClassExecutor.PublicationPlan publication) {
+            this(candidate, inputs, semanticLimits, protection, publication, null);
+        }
         public CollectedSemanticRequest {
             Objects.requireNonNull(candidate, "candidate");
             Objects.requireNonNull(inputs, "inputs");

@@ -1183,7 +1183,8 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             Supplier<Optional<com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot>> inputs,
             com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.Limits semanticLimits,
             Runnable sourceCutGuard, Runnable protectionGuard,
-            TargetCheckpointCandidateWorkClassExecutor.PublicationPlan publication, SchedulerBudget settlementBudget) {
+            TargetCheckpointCandidateWorkClassExecutor.PublicationPlan publication, SchedulerBudget settlementBudget,
+            TargetCheckpointCandidateWorkClassExecutor.IntentRegistration registration) {
         if (workClasses == null || workClasses != Objects.requireNonNull(registry, "registry")) {
             throw new IllegalStateException("Target semantic collection requires the bound source WorkClass graph");
         }
@@ -1197,7 +1198,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 registry, store, authorities.leases(), intents, ownerClock, guard, settlementBudget);
         return executor.submitCollectedSemantic(new TargetCheckpointCandidateWorkClassExecutor.Request(
                 checkpointPath, pending, lease, physicalLimits, quotaLimits, ledgerLimits), inputs, semanticLimits,
-                guard, publication);
+                guard, publication, registration);
     }
 
     synchronized OxiaOwnerLeaseStore drainAuthority() {
