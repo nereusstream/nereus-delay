@@ -645,7 +645,10 @@
         "src/main/java/com/nereusstream/delay/ownership/TargetChannelControlWorkClassExecutor.java",
         "src/main/java/com/nereusstream/delay/protocol/TargetNativePublicationBinding.java",
         "src/main/java/com/nereusstream/delay/ownership/TargetPublishAdmissionMutationFactory.java",
-        "src/main/java/com/nereusstream/delay/ownership/TargetPulsarPublishRuntime.java"
+        "src/main/java/com/nereusstream/delay/ownership/TargetPulsarPublishRuntime.java",
+        "src/main/java/com/nereusstream/delay/ownership/TargetClaimTakeoverCoordinator.java",
+        "src/main/java/com/nereusstream/delay/ownership/TargetOwnerRecoveryCoordinator.java",
+        "src/main/java/com/nereusstream/delay/ownership/TargetWorkerShardFactory.java"
       ],
       "validationHandoff": "12-集中验证交接清单.md",
       "implementationSources": [
@@ -658,7 +661,7 @@
         "src/main/java/com/nereusstream/delay/store/TargetKeyCodec.java",
         "src/main/java/com/nereusstream/delay/semantic/OxiaSyncTargetNativePolicyAuthority.java"
       ],
-      "currentCodeScope": "Package 1 IN_PROGRESS: signed CONTROL Source channel lifecycle and bounded handoff are implemented. New Native NV36 Claim v2 freezes the exact policy head without reencoding v1; independent Target materialized Admission v5 binds full Target snapshot/channel/contract and Source trust/current-head checks. Managed Journal Native record/ACK evidence, HANDED_OFF Source projection, original historical resolution and checkpoint dependencies are implemented components. Actual Claim/Store-derived Admission preparation and finite configured OWNER signer are added. Full configured publisher/takeover/Host lifecycle composition and real authority providers remain code gaps. Tests/Broker/acceptance remain deferred; compilation does not close the package. Actual configurePulsarPublishing/startPulsarPublishing now compose a one-flight Claim/Store-derived signing/Source-first-result/payload/Journal-SDK/Outcome driver in existing fleet maintenance and Host pending-publication drain; live local attempts are excluded from recovery competition. Full Source-barrier-backed takeover revoke and ownership-started definitive negative Journal settlement remain required code gaps. All validations deferred."
+      "currentCodeScope": "Package 1 IN_PROGRESS: signed CONTROL Source channel lifecycle and bounded handoff are implemented. New Native NV36 Claim v2 freezes the exact policy head without reencoding v1; independent Target materialized Admission v5 binds full Target snapshot/channel/contract and Source trust/current-head checks. Managed Journal Native record/ACK evidence, HANDED_OFF Source projection, original historical resolution and checkpoint dependencies are implemented components. Actual Claim/Store-derived Admission preparation and finite configured OWNER signer are added. Full configured publisher/takeover/Host lifecycle composition and real authority providers remain code gaps. Tests/Broker/acceptance remain deferred; compilation does not close the package. Actual configurePulsarPublishing/startPulsarPublishing now compose a one-flight Claim/Store-derived signing/Source-first-result/payload/Journal-SDK/Outcome driver in existing fleet maintenance and Host pending-publication drain; live local attempts are excluded from recovery competition. Full Source-barrier-backed takeover revoke and ownership-started definitive negative Journal settlement remain required code gaps. All validations deferred. Protected takeover revoke is now connected to both same-DB and installed-checkpoint recovery: complete Source barrier/audit/activation precede one-Claim atomic REVOKE turns, real Journal observation/fencing and final current-root Worker composition. Normal active Source refuses unprocessed Claims; old Native v1 is not upgraded. Post-ownership RESOLVED_NOT_PUBLISHED Journal codec/Source-settlement/reopen closure is approved and still requires implementation. No test/production/completion flags are raised."
     },
     {
       "id": "C3",

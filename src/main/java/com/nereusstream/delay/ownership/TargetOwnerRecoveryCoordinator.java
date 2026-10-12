@@ -48,6 +48,11 @@ public final class TargetOwnerRecoveryCoordinator {
     private SourceApplyWorkClassExecutor sourceApply;
     private SourceReplayEntry pendingEntry;
     private SourceApplyWorkClassExecutor.Submission pending;
+    private TargetClaimTakeoverCoordinator claimTakeover;
+    private com.nereusstream.delay.protocol.OwnerIdentity recoveryOwner;
+    private com.nereusstream.delay.adapter.PulsarAttemptJournal recoveryJournal;
+    private Runnable recoveryJournalProtection;
+    private TargetStoreBootstrap.Reopened completedRoot;
     private boolean complete;
     private int turnNumber;
     private long lastNow = -1;
@@ -59,6 +64,28 @@ public final class TargetOwnerRecoveryCoordinator {
             RecoveryCatalogAuthority catalog, RecoveryPin pin, Runnable protection, ReplayTurnBudget turnBudget,
             WorkClassExecutionRegistry workClasses, LongSupplier clock, LongSupplier monotonic,
             Supplier<BoundedReadBudget> auditBudgets, TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits) {
+        this(store, reopened, assignment, lease, authorities, limits, source, catalog, pin, protection,
+                turnBudget, workClasses, clock, monotonic, auditBudgets, ledgerLimits, true);
+    }
+
+    /** Same-DB restart recovery also replays its accepted barrier and drains unadmitted Claims before exposure. */
+    public TargetOwnerRecoveryCoordinator(ShardStore store, TargetStoreBootstrap.Reopened reopened,
+            SourceAssignment assignment, OwnerLease lease, TargetSourceApplyRuntime.Authorities authorities,
+            TargetSourceApplyRuntime.Limits limits, SourceReplayCursor<? extends SourceReplayEntry> source,
+            Runnable protection, ReplayTurnBudget turnBudget, WorkClassExecutionRegistry workClasses,
+            LongSupplier clock, LongSupplier monotonic, Supplier<BoundedReadBudget> auditBudgets,
+            TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits) {
+        this(store, reopened, assignment, lease, authorities, limits, source, null, null, protection,
+                turnBudget, workClasses, clock, monotonic, auditBudgets, ledgerLimits, false);
+    }
+
+    private TargetOwnerRecoveryCoordinator(ShardStore store, TargetStoreBootstrap.Reopened reopened,
+            SourceAssignment assignment, OwnerLease lease, TargetSourceApplyRuntime.Authorities authorities,
+            TargetSourceApplyRuntime.Limits limits, SourceReplayCursor<? extends SourceReplayEntry> source,
+            RecoveryCatalogAuthority catalog, RecoveryPin pin, Runnable protection, ReplayTurnBudget turnBudget,
+            WorkClassExecutionRegistry workClasses, LongSupplier clock, LongSupplier monotonic,
+            Supplier<BoundedReadBudget> auditBudgets, TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits,
+            boolean checkpointRestore) {
         this.store = Objects.requireNonNull(store, "store");
         initial = Objects.requireNonNull(reopened, "reopened");
         initial.backend().requireStore(store);
@@ -68,8 +95,8 @@ public final class TargetOwnerRecoveryCoordinator {
         this.limits = Objects.requireNonNull(limits, "limits");
         this.source = Objects.requireNonNull(source, "source");
         this.source.requireGuarded();
-        this.catalog = Objects.requireNonNull(catalog, "catalog");
-        this.pin = Objects.requireNonNull(pin, "pin");
+        this.catalog = checkpointRestore ? Objects.requireNonNull(catalog, "catalog") : null;
+        this.pin = checkpointRestore ? Objects.requireNonNull(pin, "pin") : null;
         final var heldProtection = Objects.requireNonNull(protection, "protection");
         this.protection = () -> {
             this.source.requireCurrent();
@@ -82,25 +109,52 @@ public final class TargetOwnerRecoveryCoordinator {
         this.monotonic = Objects.requireNonNull(monotonic, "monotonic");
         this.auditBudgets = Objects.requireNonNull(auditBudgets, "auditBudgets");
         this.ledgerLimits = Objects.requireNonNull(ledgerLimits, "ledgerLimits");
-        manifest = catalog.manifest(pin.candidate().checkpointId())
-                .orElseThrow(() -> new IllegalStateException("Target recovery candidate is not published"));
+        manifest = checkpointRestore ? this.catalog.manifest(this.pin.candidate().checkpointId())
+                .orElseThrow(() -> new IllegalStateException("Target recovery candidate is not published")) : null;
         final var base = store.recoveryMetadata().lineageBase();
-        if (store.metadata().storeFormatVersion() != 2 || base == null
-                || store.recoveryMetadata().installState() == null
+        if (store.metadata().storeFormatVersion() != 2
                 || !store.shardId().equals(assignment.shardId()) || !store.shardId().equals(lease.shardId())
                 || lease.context() == null || !Arrays.equals(lease.sourceAssignmentId(), assignment.assignmentId())
-                || lease.sourceAssignmentEpoch() != assignment.assignmentEpoch()
-                || pin.owner().ownerEpoch() != lease.ownerEpoch()
-                || !pin.shard().shardId().equals(store.shardId())
-                || !Arrays.equals(base.storeIncarnation(), store.metadata().storeIncarnation())
-                || !Arrays.equals(base.checkpointId(), pin.candidate().checkpointId())
-                || !Arrays.equals(base.manifestSha256(), pin.candidate().manifestSha256())
-                || !Arrays.equals(base.recoveryLineageId(), initial.root().recoveryLineage())
-                || !Arrays.equals(base.recoveryLineageId(), pin.candidate().recoveryLineageId())
-                || !Arrays.equals(manifest.manifestSha256(), pin.candidate().manifestSha256())) {
-            throw new IllegalArgumentException("Target recovery lacks exact Store/base/assignment/Owner/Pin identity");
+                || lease.sourceAssignmentEpoch() != assignment.assignmentEpoch()) {
+            throw new IllegalArgumentException("Target recovery lacks exact Store/assignment/Owner identity");
+        }
+        if (checkpointRestore) {
+            if (base == null || store.recoveryMetadata().installState() == null
+                    || pin.owner().ownerEpoch() != lease.ownerEpoch()
+                    || !pin.shard().shardId().equals(store.shardId())
+                    || !Arrays.equals(base.storeIncarnation(), store.metadata().storeIncarnation())
+                    || !Arrays.equals(base.checkpointId(), pin.candidate().checkpointId())
+                    || !Arrays.equals(base.manifestSha256(), pin.candidate().manifestSha256())
+                    || !Arrays.equals(base.recoveryLineageId(), initial.root().recoveryLineage())
+                    || !Arrays.equals(base.recoveryLineageId(), pin.candidate().recoveryLineageId())
+                    || !Arrays.equals(manifest.manifestSha256(), pin.candidate().manifestSha256())) {
+                throw new IllegalArgumentException("Target recovery lacks exact Store/base/assignment/Owner/Pin identity");
+            }
+        } else {
+            final var install = store.recoveryMetadata().installState();
+            if (install != null && (install.phase() == RecoveryInstallPhase.STAGED
+                    || install.phase() == RecoveryInstallPhase.INSTALLED)) {
+                throw new IllegalArgumentException("an incomplete checkpoint install requires published Catalog/Pin recovery");
+            }
         }
         assignment.activationBarrier().validatePosition(store.appliedShardLogPosition());
+    }
+
+    /** Install actual authenticated identity and retained replayed Journal rights before starting recovery. */
+    public synchronized void configureClaimTakeover(com.nereusstream.delay.protocol.OwnerIdentity owner,
+            com.nereusstream.delay.adapter.PulsarAttemptJournal journal, Runnable journalProtection) {
+        if (turnNumber != 0 || claimTakeover != null || recoveryOwner != null) {
+            throw new IllegalStateException("Claim takeover must be configured before recovery begins");
+        }
+        final var current = requireLease(true);
+        if (owner.ownerEpoch() != current.ownerEpoch()
+                || !Arrays.equals(owner.leaseFencingDigest(), current.leaseToken())
+                || (journal == null) != (journalProtection == null)) {
+            throw new IllegalArgumentException("Claim takeover identity/Journal protection does not match current recovery");
+        }
+        recoveryOwner = owner;
+        recoveryJournal = journal;
+        recoveryJournalProtection = journalProtection;
     }
 
     /** One retained Source action at a time; reaching the authenticated barrier, not cursor exhaustion, completes. */
@@ -117,10 +171,10 @@ public final class TargetOwnerRecoveryCoordinator {
             requireCatalog();
             while (true) {
                 if (pending == null && assignment.activationBarrier().reachedBy(store.appliedShardLogPosition())) {
-                    finish();
-                    complete = true;
+                    final boolean finished = finish();
+                    complete = finished;
                     turnNumber = turn;
-                    return new OwnerRecoveryTurn(outcomes, true, turn);
+                    return new OwnerRecoveryTurn(outcomes, finished, turn);
                 }
                 beginReplay();
                 replay.requireRecoveryOwner(clock);
@@ -207,26 +261,43 @@ public final class TargetOwnerRecoveryCoordinator {
         sourceApply = new SourceApplyWorkClassExecutor(workClasses, replay);
     }
 
-    private void finish() {
-        final var current = requireLease(true);
-        if (current.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS) { beginReplay(); }
-        requireCatalog();
-        final var audited = TargetStoreBootstrap.reopen(store, initial.root().scope(),
-                new TargetStoreBackend.WriteLimits(limits.records(), limits.bytes()),
-                Objects.requireNonNull(auditBudgets.get(), "completion audit budget"), (metadata, scope) -> heldGuard(),
-                ledgerLimits);
-        if (store.recoveryMetadata().installState().phase() == RecoveryInstallPhase.INSTALLED) {
-            try (var guard = heldGuard()) {
-                store.completeTargetRecovery(audited.view(), store.recoveryMetadata().lineageBase(), guard);
+    private boolean finish() {
+        if (claimTakeover == null) {
+            final var current = requireLease(true);
+            if (current.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS) { beginReplay(); }
+            requireCatalog();
+            final var audited = reopenAtCurrentCut();
+            final var install = store.recoveryMetadata().installState();
+            if (install != null && install.phase() == RecoveryInstallPhase.INSTALLED) {
+                try (var guard = heldGuard()) {
+                    store.completeTargetRecovery(audited.view(), store.recoveryMetadata().lineageBase(), guard);
+                }
             }
+            requireCatalog();
+            lease = TargetWorkerOwnerActivation.activate(audited, store, assignment, lease, authorities.leases(), clock);
+            requireLease(true);
+            if (lease.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS) {
+                throw new IllegalStateException("Target recovery activation did not retain ACTIVE Owner");
+            }
+            // Owner/install metadata writes can invalidate the prior physical audit cut.
+            final var activated = reopenAtCurrentCut();
+            claimTakeover = new TargetClaimTakeoverCoordinator(store, activated, assignment, recoveryOwner, lease,
+                    authorities.leases(), protection, recoveryJournal, recoveryJournalProtection,
+                    auditBudgets, ledgerLimits, limits, clock);
         }
         requireCatalog();
-        lease = TargetWorkerOwnerActivation.activate(audited, store, assignment, lease, authorities.leases(), clock);
+        if (!claimTakeover.runTurn()) { return false; }
+        completedRoot = claimTakeover.completedRoot();
         requireLease(true);
-        if (lease.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS) {
-            throw new IllegalStateException("Target recovery activation did not retain ACTIVE Owner");
-        }
         if (replay != null) { replay.fence(); }
+        return true;
+    }
+
+    private TargetStoreBootstrap.Reopened reopenAtCurrentCut() {
+        return TargetStoreBootstrap.reopen(store, initial.root().scope(),
+                new TargetStoreBackend.WriteLimits(limits.records(), limits.bytes()),
+                Objects.requireNonNull(auditBudgets.get(), "recovery audit budget"),
+                (metadata, scope) -> heldGuard(), ledgerLimits);
     }
 
     private TargetStoreBackend.CommitGuard heldGuard() {
@@ -264,6 +335,7 @@ public final class TargetOwnerRecoveryCoordinator {
 
     private void requireCatalog() {
         protection.run();
+        if (catalog == null) { return; }
         catalog.validatePublishedRestoreCandidate(manifest);
         if (!catalog.activeRecoveryPin()
                 .orElseThrow(() -> new IllegalStateException("Target recovery Pin is no longer active")).equals(pin)) {
@@ -281,6 +353,22 @@ public final class TargetOwnerRecoveryCoordinator {
     public synchronized OwnerLease activeLease() {
         if (!complete) { throw new IllegalStateException("Target recovery has not completed"); }
         return requireLease(true);
+    }
+
+    /** Exact final audit after all local Claim ordinals, ready for active Source composition. */
+    public synchronized TargetStoreBootstrap.Reopened completedRoot() {
+        if (!complete || completedRoot == null) { throw new IllegalStateException("Target recovery is incomplete"); }
+        requireLease(true);
+        store.withReadView(completedRoot.view(), () -> null);
+        return completedRoot;
+    }
+
+    /** Builds an active Source runtime only from the final, still-current recovery audit and held authorities. */
+    public synchronized TargetSourceApplyRuntime activeRuntime() {
+        final var root = completedRoot();
+        requireCatalog();
+        final var active = activeLease();
+        return new TargetSourceApplyRuntime(root, store, assignment, active, authorities, limits, monotonic);
     }
 
     private static boolean sameEntry(SourceReplayEntry first, SourceReplayEntry second) {

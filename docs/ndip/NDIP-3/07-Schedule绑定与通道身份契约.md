@@ -518,3 +518,26 @@ mapping/Source/Producer/cursor 审计；旧 pre-ownership retirement 语义保�
 本批 main compileJava 结束 exit 0、BUILD SUCCESSFUL in 6s；测试/Broker/格式和文档验收
 按用户安排后置。包 1 未关闭：完整新 Owner takeover、Journal ownership 后真实
 NOT_PUBLISHED 的受保护收尾仍待接通；不能用驱动类/编译结果宣称生产链已验收。
+
+
+### 2026-10-12 实际 Claim 接管与 Worker 启动连接
+
+`TargetOwnerRecoveryCoordinator` 现增加同 DB 重开的受保护 Source replay 入口；checkpoint
+STAGED/INSTALLED 仍必须走原 published Catalog/exact RecoveryPin 校验，不借 local 入口
+绕过 restore。新 `configureClaimTakeover` 接收实际当前 authenticated Owner identity 与
+受保护完整重放的 Target Journal；Source replay 达到 accepted activation barrier 后，
+root/reopen 审计与 durable Owner activation 成立，才逐 Claim 执行 takeover revoke。
+缺 identity/Journal 权威不默认空或返回 false，保持恢复未完成。
+
+每 turn 一个 exact Claim、有限 records/bytes/time，撤销同批保留 original generation/
+其他 obligation/admissionsUsed/uncertain retry 权限并推进 revision。新恢复 digest 与
+当前 Store/cut、原 charge/完整转换及恢复 barrier/Owner/session/lineage 相连。读取或
+提交失权、冲突、Journal 发现 ownership、native write UNKNOWN 等均保持失败关闭，
+重开后从实际记录继续。普通 revoke 同 Owner/Store 检查保持；旧 Native v1 不补 ref。
+
+只有全范围确定结束及最终当前审计后，`completedRoot` 和 `activeRuntime` 返回，再由
+`TargetWorkerShardFactory.createRecovered` 转入 actual accepted Source consumer/Worker。
+active Source 构造器拒绝实际未完成 Claim 范围，ACTIVE lease 不是恢复完成证明。首尾
+审计覆盖整个合法恢复边界；每个局部撤销只核对本批事实/保护，不重复全库 audit。
+组件编译不代表恢复/Broker/权限场景已验证。包 1 仍缺 post-ownership definitive
+NOT_PUBLISHED Journal 收尾及其真实跨重启连接。

@@ -50,7 +50,8 @@ public final class PulsarAttemptJournal {
     private final int maximumRecords;
     private final long maximumRecordBytes;
     private long recordBytes;
-    private boolean writeUncertain;
+    private volatile boolean writeUncertain;
+    private volatile long evidenceRevision;
     private final ShardId shard;
     private final DurableAppender appender;
     private final PulsarJournalResource journalResource;
@@ -367,6 +368,7 @@ public final class PulsarAttemptJournal {
 
     /** Replays one already-durable Journal record during local recovery. */
     public synchronized void replay(final JournalRecord record) {
+        evidenceRevision = Math.incrementExact(evidenceRevision);
         try {
             replayInternal(record);
         } catch (RuntimeException incompleteOrCorruptReplay) {
@@ -445,6 +447,37 @@ public final class PulsarAttemptJournal {
         }
         validatePosition(record.position());
         appendState(record.mapping(), record.position());
+    }
+
+    public static final class TargetAttemptAbsence {
+        private final PulsarAttemptJournal owner;
+        private final long revision;
+        private TargetAttemptAbsence(PulsarAttemptJournal owner, long revision) {
+            this.owner = owner;
+            this.revision = revision;
+        }
+        /** Held immutable observation check; no Journal monitor or Broker I/O under a Store commit. */
+        public void requireCurrent() {
+            if (owner.writeUncertain || owner.evidenceRevision != revision) {
+                throw conflict("Target Journal absence observation changed during Claim recovery");
+            }
+        }
+    }
+
+    public synchronized TargetAttemptAbsence readTargetAttemptAbsence(ShardId sourceShard, byte[] attemptId) {
+        requireTargetAttemptAbsent(sourceShard, attemptId);
+        return new TargetAttemptAbsence(this, evidenceRevision);
+    }
+
+    /** Causal consistency check over this protected, fully replayed Target Journal; not a standalone absence proof. */
+    private void requireTargetAttemptAbsent(final ShardId sourceShard, final byte[] attemptId) {
+        Bytes.requireLength(attemptId, HASH_LENGTH, "attemptId");
+        if (!targetNamespace || writeUncertain || !shard.equals(sourceShard)) {
+            throw conflict("Claim recovery lacks a current complete Target Journal namespace");
+        }
+        if (targetAttempts.containsKey(Bytes.hex(attemptId))) {
+            throw conflict("unadmitted Claim contradicts a retained Journal mapping/ownership record");
+        }
     }
 
     /** Returns the current unresolved mapping, if any, for one Producer. */
@@ -1017,6 +1050,7 @@ public final class PulsarAttemptJournal {
     }
 
     private JournalPosition append(final RecordKind kind, final Mapping mapping) {
+        evidenceRevision = Math.incrementExact(evidenceRevision);
         requireWritable();
         requireRecordCapacity(new JournalRecord(kind, mapping, new JournalPosition(0, 0, 0, 1, 0)));
         final JournalPosition position;

@@ -105,3 +105,34 @@ retry 权限，推进 revision；原子恢复 indexes/head/order 并删除 exact
 初始/完成审计沿现有恢复边界；每个合法局部批次只核对本次读写集/保护，不每 Claim
 重扫全库或复用已经过期 audited.view。本条是必要实现裁决，入口尚未完成；不提升
 包 1/全部切片/生产或验证状态。源码回归与真实恢复仍统一后置。
+
+
+## 2026-10-12：Target Journal post-ownership 负结论收尾
+
+主会话核对 retireNotPublished/replay 后批准 Target namespace 独立
+RESOLVED_NOT_PUBLISHED durable settlement，使用 Target Journal record codec v2 新终态
+分支。旧 Target v1 四种 bytes、Mapping ID/bytes、Lane generation 3 与 pre-ownership
+RETIRED_NOT_PUBLISHED 的含义不变；两个旧 codec 显式封闭四种 kind，不能因 enum
+增加而接受新分支。新增完整 settlement payload 有界并纳入 canonical/hash/cursor/
+checkpoint/replay；重复必须核对完整 payload，不能仅以 mapping/kind/position 接受。
+
+顺序为独立认证的 definitive 否定证据 → 原 OWNER Outcome/SERVICE Resolution 的真实
+exact Source APPLIED 首结果 → durable Journal settlement → 解除 unresolved sequence
+slot/in-process pending。原 Admission/mapping/prepared/template/contract/channel/Producer/
+sequence/Artifact、完整 Source 与首结果、实际 Journal writer/Owner/physical/retention/pin
+权利均须保持；不能以 DTO/boolean/timeout/Disable/expiry 或本地文本造负证明。新负
+终态不得反过来单独认证产生它自身的 Source NOT_PUBLISHED，避免循环自证。
+
+仅 OWNERSHIP_STARTED →新负终态；与 PUBLISHED 互斥，矛盾证据 integrity/fence，禁止
+旧 mapping 再发/retransmit。旧 MAPPED 的 pre-ownership retirement 保持。append/ACK
+UNKNOWN 不先清 slot；严格保持原 stable Producer/Journal/evidence generation 与已分配
+sequence，新 mapping 只用 lastSequenceId+1，不借 renewal/reset 绕过阻塞。不新增
+Outcome 第四态，不第二次扣 Source reserve，physical/zombie/receipt/Journal/evidence
+释放仍独立受保护。
+
+须接通 live definitive rejection 和 UNKNOWN→SERVICE NOT_PUBLISHED，跨崩溃从真实
+Source 已决、Journal 未决的实际材料继续；已有仅 ADMITTED discovery 不足以承接此
+路径，复用有界 retained input/recovery maintenance而不加线程/全局队列。在 Journal
+settlement 未确定前保留对应 Source 首结果/Admission/evidence/pins。新 reader/writer/
+Artifact/eligible readers 与有限空间覆盖此记录后才能激活。当前仅完成架构裁决，
+该 Journal 分支及完整收尾仍待实施；测试和 Broker 验收继续后置。

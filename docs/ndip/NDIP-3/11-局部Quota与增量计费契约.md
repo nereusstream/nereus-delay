@@ -2111,4 +2111,35 @@ payload/reserve/physical-zombie、不重定价。跨 Store 必须证明来自受
 提交 guard 保护当前 Store/read cut 与完整恢复依据，不删除原普通 commit Store 检查。
 入正常 Host 前收敛；扫描有界、未知保留、commit UNKNOWN fence/reopen 精读、完成后
 必要审计，不以最初 audited.view 对后续 ordinal 冒充当前证明。完整边界见既有
-[决策记录](decision-record.md#2026-10-12独立受保护-claim-takeover-revoke)，当前入口待实现。
+[决策记录](decision-record.md#2026-10-12独立受保护-claim-takeover-revoke)，源码入口已接入，真实恢复场景仍待集中验证。
+
+
+### 2026-10-12 实际 takeover 撤销入口
+
+`TargetClaimStore.prepareTakeoverRevoke` 是与普通 local revoke 分开的受恢复权限路径。
+逐项重读完整 NV36、首次 NV34 charge、Message/current projection 与 original work，
+拒绝不严格更高的 Owner epoch、wrong lineage、存在派生 AttemptBudget/obligation 的
+矛盾状态。复用 claim.revoked 和 REVOKE assembler，原 source/sequence 上递增 local
+ordinal；原子删 exact Claim/charge、更新 Message/timeline/head/order 与 counter/mirror/
+total/aggregate，只使用冻结费用和实际记录差额。普通 commit 继续绑定原 Store；
+takeover 的私有 Prepared 由 actual recovery view 绑定当前 commit Store，未放宽其他调用。
+
+`TargetClaimTakeoverCoordinator` 只由 startup recovery 在 barrier、完整审计、实际 ACTIVE
+Owner/openedEpoch 和 held fencing/session/lineage 保护成立后构造；每 turn 至多撤销一个
+Claim。digest 覆盖完整 Claim/charge/Message before/after、physical、当前 Store/cut、
+恢复 Owner/lineage/assignment barrier/session。实际 Journal 观察在 Store monitor 外取得；
+其私有 absence observation 只参与完整 Source-before-Journal 因果一致性校验，commit
+内只检 volatile revision/writeUncertain 和 held rights，不等外部 Journal I/O。
+
+Pulsar 候选必须有受保护、完整重放的真实 Target Journal；发现任何 exact attempt
+mapping（包括 OWNERSHIP_STARTED）即与 CLAIMED 矛盾，失败关闭。Kafka 不构造 Pulsar
+namespace。跨 Store 要求原首次 charge 的 authenticated recovery lineage 对应当前
+installed lineage，不能靠不同 Store incarnation 放行。native UNKNOWN 沿原 fence/reopen，
+成功才推进扫描/容量；已删行的崩溃重入不会重复扣 charge。
+
+同 DB 重开和 installed checkpoint 均经 `TargetOwnerRecoveryCoordinator`，Source barrier
+后才完成 activation、逐项撤销和最终必要审计；有合法 local batch 后不复用旧 audited.view。
+无 batch 时复用仍当前的初始完整 audit。`completedRoot/activeRuntime` 及 factory
+`createRecovered` 只在完成时返回实际最终切点。普通 active Source 构造器检查实际 Claim
+范围为空，不能以 ACTIVE lease 提前暴露遗留 CLAIMED。配置缺恢复 identity/Journal/history/
+fencing 权限、预算不完整或失权，都不形成 READY。

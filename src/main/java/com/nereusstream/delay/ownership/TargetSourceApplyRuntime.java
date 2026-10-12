@@ -523,6 +523,28 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 || !recoveryOnly && !assignment.activationBarrier().reachedBy(store.appliedShardLogPosition())) {
             throw new IllegalArgumentException("Target source runtime lacks exact active Owner/assignment/Store state");
         }
+        if (!recoveryOnly) {
+            // ACTIVE lease alone cannot expose Claims left behind by a previous process or restore.
+            final var claimCheck = backend.prepareRead(new BoundedReadBudget(limits.records(), limits.bytes(),
+                    limits.elapsedNanos(), monotonicClock), reader -> {
+                final var first = reader.first(ColumnFamily.INFLIGHT,
+                        new byte[] {TargetKeyCodec.CLAIM_TAG, TargetKeyCodec.KEY_FORMAT},
+                        new byte[] {TargetKeyCodec.CLAIM_TAG + 1}, java.util.List.of());
+                if (first != null) {
+                    throw new IllegalStateException("Target startup must finish protected reversible Claim recovery before exposure");
+                }
+                reader.requireWithinElapsedBudget();
+                return Boolean.TRUE;
+            });
+            backend.completeRead(claimCheck, (actual, actualScope) -> new TargetStoreBackend.CommitGuard() {
+                @Override public void requireCurrent() {
+                    if (store.runtimeMetadata().lastOpenedOwnerEpoch() != lease.ownerEpoch()) {
+                        throw new IllegalStateException("Target startup Owner epoch changed during Claim gate");
+                    }
+                }
+                @Override public void close() {}
+            });
+        }
         lineage = exactRoot.recoveryLineage();
         grants = new TargetQuotaGrantStore(backend, scope, lineage, limits.counters(), limits.domains());
         targetAdmissions = new TargetPublishAdmissionStore(

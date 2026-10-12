@@ -9,6 +9,16 @@ import java.util.Objects;
 public final class TargetWorkerShardFactory {
     private TargetWorkerShardFactory() {}
 
+    /** Both same-DB and installed-checkpoint startup require final barrier/Claim recovery before Worker exposure. */
+    public static TargetWorkerShardRuntime createRecovered(
+            final SourceRecordConsumer consumer, final SourceAssignment acceptedAssignment,
+            final WorkClassExecutionRegistry workClasses, final ShardStore store,
+            final SharedRocksDbResources resources, final TargetOwnerRecoveryCoordinator recovery,
+            final TargetWorkerShardRuntime.Maintenance maintenance) {
+        final var runtime = Objects.requireNonNull(recovery, "completed recovery").activeRuntime();
+        return create(consumer, acceptedAssignment, workClasses, store, resources, runtime, maintenance);
+    }
+
     /**
      * Binds a broker source adapter to a fully activated Target source runtime. The accepted assignment is checked
      * before ownership of the source adapter transfers to this factory. After that check, a failed Worker
