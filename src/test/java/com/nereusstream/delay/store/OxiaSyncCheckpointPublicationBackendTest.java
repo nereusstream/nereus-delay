@@ -20,6 +20,7 @@ import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
+import com.nereusstream.delay.runtime.OxiaCheckpointIntentRegistration;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.PutResult;
 import io.oxia.client.api.Version;
@@ -29,17 +30,60 @@ import io.oxia.client.api.options.DeleteOption;
 import io.oxia.client.api.options.PutOption;
 import io.oxia.client.api.options.defs.OptionVersionId;
 import java.nio.ByteBuffer;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 
 class OxiaSyncCheckpointPublicationBackendTest {
     private static final CheckpointManifestLimits LIMITS =
             new CheckpointManifestLimits(100, Long.MAX_VALUE, Long.MAX_VALUE, 4_096, 1 << 20, 100, 4_096);
+
+    @Test
+    void asynchronousIntentRegistrationReconcilesLostResponseUsingOriginalCas() throws Exception {
+        final var records = new FakeRecordClient();
+        final var backend = new OxiaSyncCheckpointPublicationBackend(records, "delay/async-intent-loss", LIMITS);
+        final var pending = pending(6, null);
+        try (var executor = new ThreadPoolExecutor(1, 1, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<>(2),
+                new ThreadPoolExecutor.AbortPolicy())) {
+            final var provider = new OxiaCheckpointIntentRegistration(
+                    backend, Duration.ofSeconds(5), () -> {}, executor);
+            records.failNextPutAfterCommit = true;
+            assertEquals(pending, provider.register(pending).get(5, TimeUnit.SECONDS));
+            assertEquals(pending, backend.current(pending).orElseThrow());
+            assertEquals(pending, provider.register(pending).get(5, TimeUnit.SECONDS));
+            assertEquals(1, records.putCount);
+        }
+    }
+
+    @Test
+    void asynchronousRegistrationRejectsLostProtectionButRetainsCommittedIntent() throws Exception {
+        final var records = new FakeRecordClient();
+        final var backend = new OxiaSyncCheckpointPublicationBackend(records, "delay/async-intent-fenced", LIMITS);
+        final var pending = pending(7, null);
+        final var allowed = new AtomicBoolean(true);
+        try (var executor = new ThreadPoolExecutor(1, 1, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<>(2),
+                new ThreadPoolExecutor.AbortPolicy())) {
+            final var provider = new OxiaCheckpointIntentRegistration(backend, Duration.ofSeconds(5), () -> {
+                if (!allowed.get()) { throw new IllegalStateException("registration Owner lost"); }
+            }, executor);
+            records.afterPut = () -> allowed.set(false);
+            final var failure = assertThrows(ExecutionException.class,
+                    () -> provider.register(pending).get(5, TimeUnit.SECONDS));
+            assertEquals("registration Owner lost", failure.getCause().getMessage());
+            assertEquals(pending, backend.current(pending).orElseThrow());
+            assertEquals(1, records.putCount);
+            assertTrue(!executor.isShutdown());
+        }
+    }
 
     @Test
     void atomicallyBindsPublishedIntentAndCatalogManifest() {

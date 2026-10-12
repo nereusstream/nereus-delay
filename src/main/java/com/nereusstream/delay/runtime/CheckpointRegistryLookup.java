@@ -4,15 +4,28 @@ import java.time.Duration;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.function.Function;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 
-/** Shared admission/deadline checks for the two existing synchronous Oxia checkpoint value catalogs. */
+/** Shared finite executor/deadline checks for checkpoint Oxia value reads and intent registration. */
 final class CheckpointRegistryLookup {
     private CheckpointRegistryLookup() {}
 
     static <T> CompletableFuture<T> submit(Supplier<T> operation, Duration timeout, Runnable protection,
             ThreadPoolExecutor executor, LongSupplier nanos) {
+        Objects.requireNonNull(operation, "operation");
+        return submitBounded(guard -> operation.get(), timeout, protection, executor, nanos, true);
+    }
+
+    /** Supplies the same acceptance deadline and protection to each synchronous CAS step. */
+    static <T> CompletableFuture<T> submitProtected(Function<Runnable, T> operation, Duration timeout,
+            Runnable protection, ThreadPoolExecutor executor, LongSupplier nanos) {
+        return submitBounded(operation, timeout, protection, executor, nanos, false);
+    }
+
+    private static <T> CompletableFuture<T> submitBounded(Function<Runnable, T> operation, Duration timeout,
+            Runnable protection, ThreadPoolExecutor executor, LongSupplier nanos, boolean checkBeforeAdmission) {
         Objects.requireNonNull(operation, "operation");
         Objects.requireNonNull(protection, "protection");
         Objects.requireNonNull(nanos, "nanos");
@@ -31,13 +44,16 @@ final class CheckpointRegistryLookup {
             throw new IllegalArgumentException("Registry executor requires finite threads/queue and AbortPolicy");
         }
         final long started = nanos.getAsLong();
-        protection.run();
+        if (checkBeforeAdmission) { protection.run(); }
+        final Runnable guard = () -> {
+            requireDeadline(nanos, started, duration);
+            protection.run();
+            requireDeadline(nanos, started, duration);
+        };
         return CompletableFuture.supplyAsync(() -> {
-            requireDeadline(nanos, started, duration);
-            protection.run();
-            final T result = operation.get();
-            protection.run();
-            requireDeadline(nanos, started, duration);
+            guard.run();
+            final T result = operation.apply(guard);
+            guard.run();
             return result;
         }, pool);
     }

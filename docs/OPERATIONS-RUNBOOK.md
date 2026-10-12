@@ -2342,3 +2342,9 @@ factory 不应同步执行远端注册；异步 provider 必须沿用 caller 有
 namespace/Owner/Source/pin 与物理资源保护。exact receipt 和 durable pending 重读均通过后才读 history。
 失败不会自动取消 I/O、删除或生成另一 intent；实际远端完成与 unknown reconciliation/cleanup 由
 provider 持续负责。该可选入口不构成生产 provider 装配或部署授权。
+
+生产 Oxia 注册入口为 `OxiaCheckpointIntentRegistration(backend, timeout, protection, executor)`，可
+直接作为 collected checkpoint 第六参数。它复用原 publication authority 的 exact create CAS，
+所有可能远端的注册保护检查在 caller 有限 executor 上执行；无新 client/session/thread/queue。
+必须给底层 Oxia client 配置显式有限 requestTimeout，保护与实际 I/O/unknown 对账生命周期仍由
+caller 持有。provider 不负责关闭共享资源或删除未知结果的 intent；完整 service 装配仍须补齐。

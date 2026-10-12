@@ -1,0 +1,209 @@
+C5 finite Oxia intent provider 2026-10-12
+Final local16 = helper6/backend9/actual Store1; zero fail/error/skip. main/test styles passed39s.
+Model response loss/post-commit protection loss are deterministic CAS-codec tests, not native fault injection.
+Source/Owner/native cut guards unchanged in Store test; new provider uses caller finite executor and exact CAS.
+No production/whole implementation/central validation/migration/Floor authority.
+Command: GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew test --tests com.nereusstream.delay.runtime.CheckpointRegistryLookupTest --tests com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackendTest --tests com.nereusstream.delay.runtime.TargetCommandStoreTest.checkpointAdmissionAuthenticationPreservesUnknownAndResolvedOriginalSource checkstyleMain checkstyleTest --no-daemon --console=plain
+SHA256 0aea80d7b17ee741f08a98a0a50a34c94bedd2ca5ffd6658ed716861f904fc58 src/main/java/com/nereusstream/delay/runtime/OxiaCheckpointIntentRegistration.java
+SHA256 bda9ca72946cc5689dd91f4af5708a0fc5c8b89c7e8c6d507ad659de07c1f62f src/main/java/com/nereusstream/delay/runtime/CheckpointRegistryLookup.java
+SHA256 f4c2515fe4311680c2ddce3d0b455f3ed5d8fdb506a7d84a03f915f313ec7b64 src/main/java/com/nereusstream/delay/store/OxiaSyncCheckpointPublicationBackend.java
+SHA256 a90cedd3424ae9407aee2f9f46c1f787aaa3bac48eb6a0a29a7aef7c9624d813 src/test/java/com/nereusstream/delay/runtime/CheckpointRegistryLookupTest.java
+SHA256 77dbd788562bf1c3ff9678d82e81dd4b36c38d787beea7c716308c4fb1b21e90 src/test/java/com/nereusstream/delay/store/OxiaSyncCheckpointPublicationBackendTest.java
+SHA256 fb4e7ffb32e7bf173a3fead3ccd196b497ea4a3f4e055e9f94b491dd4b9b780d src/test/java/com/nereusstream/delay/store/OxiaRealCheckpointPublicationSmokeTest.java
+TEST-com.nereusstream.delay.runtime.CheckpointRegistryLookupTest.xml {'tests': '6', 'failures': '0', 'errors': '0', 'skipped': '0'} SHA256 2313f0911d0bc26707998bd6e5245d940b9ecd0edaf661b3e2f0685eb21f7baf
+TEST-com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackendTest.xml {'tests': '9', 'failures': '0', 'errors': '0', 'skipped': '0'} SHA256 82b7e6c32149e830858c8f1a1f3510b1967c3c3abefc26614301046954a178a1
+TEST-com.nereusstream.delay.runtime.TargetCommandStoreTest.xml {'tests': '1', 'failures': '0', 'errors': '0', 'skipped': '0'} SHA256 1392ff9ac35ff52a4ee702bf580642fa8da26a2dd313baad46071801dc9e4ddf
+
+RAW ndip3-oxia-intent-provider-focused.log
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+
+> Task :checkstyleTest
+[ant:checkstyle] [ERROR] /Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/src/test/java/com/nereusstream/delay/store/OxiaSyncCheckpointPublicationBackendTest.java:57: 本行字符数 122个，最多：120个。 [LineLength]
+
+> Task :checkstyleTest FAILED
+> Task :checkstyleMain
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':checkstyleTest'.
+> A failure occurred while executing org.gradle.api.plugins.quality.internal.CheckstyleAction
+   > Checkstyle rule violations were found. See the report at: file:///Users/liusinan/apps/ideaproject/nereusstream/nereus-delay/build/reports/checkstyle/test.html
+     Checkstyle files with violations: 1
+     Checkstyle violations by severity: [error:1]
+
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+BUILD FAILED in 36s
+15 actionable tasks: 7 executed, 8 up-to-date
+
+RAW ndip3-oxia-intent-provider-prior-green.log
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :checkstyleMain UP-TO-DATE
+> Task :checkstyleTest
+
+BUILD SUCCESSFUL in 35s
+15 actionable tasks: 4 executed, 11 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+
+RAW ndip3-oxia-intent-provider-15-green.log
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :checkstyleTest
+> Task :checkstyleMain
+
+BUILD SUCCESSFUL in 40s
+15 actionable tasks: 6 executed, 9 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+
+RAW ndip3-oxia-intent-provider-final.log
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :protobufDummy UP-TO-DATE
+> Task :extractIncludeProto UP-TO-DATE
+> Task :extractProto UP-TO-DATE
+> Task :generateProto UP-TO-DATE
+> Task :compileJava
+> Task :generateRunningArtifactIdentity
+> Task :processProtoResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes
+> Task :extractIncludeTestProto UP-TO-DATE
+> Task :extractTestProto UP-TO-DATE
+> Task :generateTestProto NO-SOURCE
+> Task :compileTestJava
+> Task :processTestProtoResources UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses
+> Task :test
+> Task :checkstyleTest
+> Task :checkstyleMain
+
+BUILD SUCCESSFUL in 39s
+15 actionable tasks: 6 executed, 9 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html
+
+Base commit: 6d281d2f179e584c4e666245c1af8eab220ad133
+RAW checkDocumentation
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+
+> Task :testNdip1ImplementationVerifier
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 56.004s
+
+OK
+
+> Task :testNdip1PackageVerifier
+..............
+----------------------------------------------------------------------
+Ran 14 tests in 0.081s
+
+OK
+
+> Task :verifyNdip1HistoricalClosure
+proposal=NDIP-1
+receipt_status=IMPLEMENTED
+lifecycle_authority=true
+implementation=CLOSED
+lifecycle=CLOSED
+certified_commit=b4e077e9978f262cdb93cf3562ea12eee32430e2
+runtime_source_sha256=03ce17ede4b9e70e2f70dd2bbef681087f529159549a4cd979d0d7aa34fa9948
+runtime_source_files=835
+implemented_package_sha256=792ca54e239d884ba6f95315747f565bab57ee0fc02338a77369cb19bbe8e8a7
+staging_run=20260901055333-78920
+deployment=SEPARATE_FUTURE_WORK
+performance_and_scale=SEPARATE_FUTURE_WORK
+production_rollout=SEPARATE_FUTURE_WORK
+production_authority=false
+
+> Task :verifyNdip1PackageAccepted
+proposal=NDIP-1
+receipt_status=ACCEPTED
+authority=true
+package_source_commit=77ffa61136c0cd401244ebea4375a5a18b097b17
+file_sha256 70d9dd7c113fa5f457a20a97996322ef9a2018772efd225aa982c13ec4935140 docs/ndip/NDIP-1/01-调查与决策记录.md
+file_sha256 c167ed42dd29c383c08a8a102f36b0e4deee8ae5c7a5da115a09d04ffcb9fa6f docs/ndip/NDIP-1/02-NDIP-1-Pulsar-Native-Delivery.md
+file_sha256 9affafa81952959d39ed9c09a00abe6b84da4fd3b0b6280422f297684d56f727 docs/ndip/NDIP-1/03-实施计划.md
+file_sha256 2a26c107cd69ee522ea138b3487b8ec206e913acc6ad5b862aa69288ddcaa88e docs/ndip/NDIP-1/04-代码级目标设计.md
+package_sha256=13caab8ecdc201901f06e905f1c0bf9792780e50c6f5948f93abf2bdb8f4d21b
+gate_b=PASS
+implementation=AUTHORIZED
+local_disposable_testing=AUTHORIZED_WITH_EXACT_ATTESTATION
+gate_c=PENDING_DEPLOYMENT
+shadow=BLOCKED_BY_GATE_C
+enabled=BLOCKED_BY_GATE_C_AND_SHADOW_REQUIREMENTS
+
+> Task :verifyNdip2PackageAccepted
+proposal=NDIP-2
+receipt_status=ACCEPTED
+authority=true
+file_sha256 0a105fb2b73d63cabddf42d0ba3d5a9590b4edddd47242495f196bf56d15f642 docs/ndip/NDIP-2/01-NDIP-生命周期与认证源码权威分层.md
+file_sha256 c882ecaa32413cb9e177243cf3efe91b97810c3cc10be81e61e7e458030c4ffa docs/ndip/NDIP-2/02-实施计划.md
+file_sha256 ec1ba68ab3ac91aa667647e6289cd252b99da84d899f42f879821d6e5d7752e9 docs/ndip/NDIP-2/03-代码级目标设计.md
+package_sha256=856e1d768210a31fc9aad811af3a93c1de33189cc03c65bc1e36d57affbf10db
+gate_b=PASS
+implementation=AUTHORIZED
+deployment_authority=false
+
+> Task :checkDocumentation
+
+BUILD SUCCESSFUL in 1m 11s
+6 actionable tasks: 6 executed
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.1/userguide/configuration_cache_enabling.html

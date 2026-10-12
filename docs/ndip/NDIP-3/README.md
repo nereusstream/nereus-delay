@@ -611,3 +611,7 @@ C5 pending intent 精确值修复：CandidateWorkClassExecutor 的 guard 先前�
 2026-10-12：C5 可选异步 intent 注册已接同一 CHECKPOINT task，原保护贯穿等待，receipt 后必须
 重读 exact durable pending 才收集 history。有限生产 Oxia 注册及 uncertain I/O 生命周期仍开放；
 本轮 P1 仅编译，不增加 native 验收声明，状态与集中验证延期不变。
+
+C5（2026-10-12）：`OxiaCheckpointIntentRegistration` 已接既有有限 executor 与 exact metadata CAS，
+权限和期限贯穿每步及未知响应重读。失败仍保留可能已提交的 pending；完整 service 资源生命周期
+及 Broker 联合验收仍开放，全部完成/production flags 保持。

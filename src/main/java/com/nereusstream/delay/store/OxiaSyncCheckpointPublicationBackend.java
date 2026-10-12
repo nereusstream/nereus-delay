@@ -141,7 +141,13 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
 
     @Override
     public CheckpointUploadIntent create(final CheckpointUploadIntent pending) {
+        return create(pending, () -> {});
+    }
+
+    /** Caller-held Owner/namespace/Source/resource protection is rechecked around each metadata CAS step. */
+    public CheckpointUploadIntent create(CheckpointUploadIntent pending, Runnable protection) {
         requirePending(pending);
+        Objects.requireNonNull(protection, "protection");
         return mutate(state -> {
             validateScope(state, pending.shard().shardId());
             final CheckpointUploadIntent existing = findIntent(state, pending);
@@ -152,7 +158,7 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
                 return unchanged(existing, state);
             }
             return changed(pending, state.withIntent(pending));
-        });
+        }, protection);
     }
 
     @Override
@@ -423,6 +429,7 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
         for (int attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt++) {
             protection.run();
             final StoredState before = read();
+            protection.run();
             final Change<T> change = Objects.requireNonNull(operation.apply(before.state()), "publication change");
             final byte[] afterBytes = encode(change.state());
             protection.run();
@@ -431,12 +438,12 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
             }
             try {
                 putExact(afterBytes, before.versionId());
-                protection.run();
-                return change.result();
             } catch (KeyAlreadyExistsException | UnexpectedVersionIdException conflict) {
                 // Another authority writer won the record CAS. Re-read the
                 // complete state and apply the exact request again.
+                continue;
             } catch (RuntimeException responseFailure) {
+                protection.run();
                 final StoredState observed = read();
                 protection.run();
                 if (Arrays.equals(afterBytes, observed.encoded())) {
@@ -444,6 +451,8 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
                 }
                 throw responseFailure;
             }
+            protection.run();
+            return change.result();
         }
         throw new IllegalStateException("Oxia checkpoint publication CAS did not converge");
     }

@@ -35,6 +35,7 @@ import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
+import com.nereusstream.delay.runtime.OxiaCheckpointIntentRegistration;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClass;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
@@ -50,6 +51,9 @@ import java.time.Duration;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Tag;
@@ -64,6 +68,48 @@ class OxiaRealCheckpointPublicationSmokeTest {
 
     @TempDir
     Path tempDir;
+
+    @Test
+    void asynchronousIntentRegistrationPersistsUnderCurrentOwnerAndIndependentSession() throws Exception {
+        final String endpoint = endpoint();
+        final String prefix = "nereus-delay-async-checkpoint-intent/" + UUID.randomUUID();
+        final var shard = new ShardId(RouteIncarnation.random(), 29);
+        final var assignment = new SourceAssignment(shard, id32(70), 1,
+                new KafkaActivationBarrier(shard, "cluster", UUID.randomUUID(), 0));
+        try (var first = OxiaSyncOwnerLeaseBackend.connect(endpoint, "default", "async-checkpoint-writer",
+                    Duration.ofSeconds(15), Duration.ofSeconds(5), prefix);
+                var second = OxiaSyncOwnerLeaseBackend.connect(endpoint, "default", "async-checkpoint-reader",
+                    Duration.ofSeconds(15), Duration.ofSeconds(5), prefix);
+                var executor = new ThreadPoolExecutor(1, 1, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<>(2),
+                    new ThreadPoolExecutor.AbortPolicy())) {
+            final var leases = new OxiaOwnerLeaseStore(first.backend());
+            final long now = System.currentTimeMillis();
+            final var acquired = leases.acquire(assignment, "worker", first.sessionIdentity(), now, 60_000)
+                    .orElseThrow();
+            final var active = leases.transitionOrRead(acquired, ShardLifecycleState.ACTIVE_FOR_COMMANDS)
+                    .orElseThrow();
+            final var pending = new CheckpointUploadIntent(new ShardSubject(shard), id16(71), id16(72),
+                    new OwnerIdentity(Bytes.utf8("deployment"), Bytes.utf8("worker"),
+                            active.ownerEpoch(), active.leaseToken()), id16(73), id32(74), 1, null, null,
+                    new ProfileRef(Bytes.utf8("checkpoint-store"), 1, id32(75), ProfileKind.OBJECT_STORE),
+                    evidence(now), now + 60_000, CheckpointUploadState.PENDING_UPLOAD, 1, null, null);
+            final var writer = new OxiaSyncCheckpointPublicationBackend(first, prefix, LIMITS);
+            final var reader = new OxiaSyncCheckpointPublicationBackend(second, prefix, LIMITS);
+            final var provider = new OxiaCheckpointIntentRegistration(writer, Duration.ofSeconds(10), () -> {
+                final var current = leases.current(shard).orElseThrow();
+                if (!active.sameIdentity(current) || current.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS
+                        || !current.validAt(System.currentTimeMillis())) {
+                    throw new IllegalStateException("checkpoint registration Owner changed");
+                }
+            }, executor);
+            assertEquals(pending, provider.register(pending).get(10, TimeUnit.SECONDS));
+            assertEquals(pending, reader.current(pending).orElseThrow());
+            assertEquals(pending, provider.register(pending).get(10, TimeUnit.SECONDS));
+            assertTrue(reader.currentInitialization().isEmpty());
+            assertTrue(reader.manifest(pending.checkpointId()).isEmpty());
+            assertTrue(leases.release(active));
+        }
+    }
 
     @Test
     void workerCheckpointRuntimePublishesAtomicIntentAndCatalogAgainstRealService() throws Exception {

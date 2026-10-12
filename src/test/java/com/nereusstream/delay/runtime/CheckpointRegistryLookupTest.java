@@ -17,6 +17,65 @@ import org.junit.jupiter.api.Test;
 
 class CheckpointRegistryLookupTest {
     @Test
+    void registrationProtectionRunsOnTheFiniteExecutor() throws Exception {
+        try (var executor = pool()) {
+            final var entered = new CountDownLatch(1);
+            final var release = new CountDownLatch(1);
+            final var called = new AtomicBoolean();
+            final Thread caller = Thread.currentThread();
+            executor.execute(() -> { entered.countDown(); await(release); });
+            try {
+                assertTrue(entered.await(5, TimeUnit.SECONDS));
+                final var result = CheckpointRegistryLookup.submitProtected(guard -> "value",
+                        Duration.ofSeconds(5), () -> {
+                            assertTrue(Thread.currentThread() != caller);
+                            called.set(true);
+                        }, executor, System::nanoTime);
+                assertFalse(called.get());
+                release.countDown();
+                assertEquals("value", result.get(5, TimeUnit.SECONDS));
+                assertTrue(called.get());
+            } finally {
+                release.countDown();
+            }
+        }
+    }
+
+    @Test
+    void slowFinalProtectionCannotAcceptAPastDeadlineResult() throws Exception {
+        try (var executor = pool()) {
+            final var nanos = new AtomicLong();
+            final var finished = new AtomicBoolean();
+            final var result = CheckpointRegistryLookup.submit(() -> {
+                finished.set(true);
+                return "value";
+            }, Duration.ofNanos(10), () -> {
+                if (finished.get()) { nanos.set(10); }
+            }, executor, nanos::get);
+            assertTrue(assertThrows(ExecutionException.class,
+                    () -> result.get(5, TimeUnit.SECONDS)).getCause().getMessage().contains("deadline"));
+        }
+    }
+
+    @Test
+    void synchronousCasStepsReceiveTheSameDeadlineGuard() throws Exception {
+        try (var executor = pool()) {
+            final var nanos = new AtomicLong();
+            final var wrote = new AtomicBoolean();
+            final var result = CheckpointRegistryLookup.submitProtected(guard -> {
+                guard.run(); // First metadata read completed within the budget.
+                nanos.set(10);
+                guard.run(); // Must stop before starting a later CAS/write.
+                wrote.set(true);
+                return "value";
+            }, Duration.ofNanos(10), () -> {}, executor, nanos::get);
+            assertTrue(assertThrows(ExecutionException.class,
+                    () -> result.get(5, TimeUnit.SECONDS)).getCause().getMessage().contains("deadline"));
+            assertFalse(wrote.get());
+        }
+    }
+
+    @Test
     void queuedExpiryDoesNotStartIoOrCloseCallerExecutor() throws Exception {
         try (var executor = pool()) {
             final var entered = new CountDownLatch(1);
