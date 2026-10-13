@@ -1527,6 +1527,13 @@ public final class TargetWorkerShardRuntime
         requireCheckpointSettled();
     }
 
+    void requireOxiaAuthority(OxiaOwnerLeaseStore expected,
+            WorkClassExecutionRegistry classes, SharedRocksDbResources resources) {
+        if (target.drainAuthority() != expected || workClasses != classes || this.resources != resources) {
+            throw new IllegalArgumentException("Worker does not belong to the original Oxia/resource graph");
+        }
+    }
+
     public TargetOwnedBackendGroup sourceBackendGroup() { return sourceBackendGroup; }
     public boolean ownsSourceConsumer(SourceRecordConsumer expected) { return actualSourceConsumer == expected; }
 

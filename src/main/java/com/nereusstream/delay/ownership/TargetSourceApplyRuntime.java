@@ -1572,7 +1572,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 guard, publication, registration);
     }
 
-    synchronized OxiaOwnerLeaseStore drainAuthority() {
+    OxiaOwnerLeaseStore drainAuthority() {
         return authorities.leases();
     }
 

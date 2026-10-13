@@ -72,11 +72,31 @@ public final class TargetWorkerOxiaProviders {
                 maximumCredentialLeaseMs, maximumAttestationAgeMs, maximumTrustSetBytes);
     }
 
+    public static TargetWorkerOxiaProviders fromSessions(OxiaSyncOwnerLeaseBackend.ClientHandle owner,
+            OxiaRouteAuthoritySession route, Prefixes prefixes, PublicKey key, TrustedClock time,
+            CredentialAttestationTrustSet trust, long leaseMs, long attestationMs, int trustBytes,
+            java.util.concurrent.ThreadPoolExecutor executor,
+            OxiaSignedRouteSnapshotProvider.RefreshLimits routeLimits, java.util.function.LongSupplier nanos) {
+        owner.backend().requireConfiguredRequestTimeout(); route.requireConfiguredRequestTimeout();
+        owner.backend().requireOriginalConnectedClient(owner.client()); route.sessionIdentity();
+        return new TargetWorkerOxiaProviders(owner, route, prefixes, key, time, trust, leaseMs, attestationMs,
+                trustBytes, executor, routeLimits, nanos);
+    }
+
     private TargetWorkerOxiaProviders(OxiaSyncOwnerLeaseBackend.ClientHandle session,
             OxiaRouteAuthoritySession routeSession, Prefixes prefixes, PublicKey routeKey, TrustedClock time,
             CredentialAttestationTrustSet trust, long leaseMs, long attestationMs, int trustBytes) {
+        this(session, routeSession, prefixes, routeKey, time, trust, leaseMs, attestationMs, trustBytes, null, null, null);
+    }
+
+    private TargetWorkerOxiaProviders(OxiaSyncOwnerLeaseBackend.ClientHandle session,
+            OxiaRouteAuthoritySession routeSession, Prefixes prefixes, PublicKey routeKey, TrustedClock time,
+            CredentialAttestationTrustSet trust, long leaseMs, long attestationMs, int trustBytes,
+            java.util.concurrent.ThreadPoolExecutor executor, OxiaSignedRouteSnapshotProvider.RefreshLimits limits,
+            java.util.function.LongSupplier nanos) {
         this.session = session;
-        routes = new OxiaSignedRouteSnapshotProvider(routeSession, prefixes.routes(), routeKey, time);
+        routes = executor == null ? new OxiaSignedRouteSnapshotProvider(routeSession, prefixes.routes(), routeKey, time)
+                : new OxiaSignedRouteSnapshotProvider(routeSession, prefixes.routes(), routeKey, time, executor, limits, nanos);
         leases = new OxiaOwnerLeaseStore(session.backend());
         assignments = new OxiaSyncWorkerAssignmentBackend(session, prefixes.assignments());
         capabilities = new OxiaSyncProtocolCapabilityBackend(session, prefixes.capabilities());

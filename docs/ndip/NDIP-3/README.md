@@ -1,5 +1,9 @@
 # NDIP-3 工作包：目标分区队列收敛与调度热路径改造
 
+2026-10-14 接续：Oxia实际三client子根已接原Host的正常/fault权限退场与私有close permit；
+Route通知复用有限pool，head引用revision采用有界point-read。三套开发编译通过；完整
+内容providers、服务主根/cold reopen及其余三包继续，集中验证和所有完成flags不变。
+
 2026-10-14 当前开发：Oxia原opening/partial与native cleanup补丁及Worker有限I/O owner已加入，
 SDK分支a3125e3和client/API source+SHA锁已接；必要SDK构建与三套Delay编译通过。
 完整service/root的权限依赖退出顺序、原内容providers及cold reopen继续开发，集中验证

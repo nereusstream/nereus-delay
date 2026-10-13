@@ -199,8 +199,9 @@ public final class TargetWorkerHostRuntime {
         }
     }
 
-    public record Result(List<ShardDrain> shards, boolean ownedBackendsTerminated) {
-        public Result(List<ShardDrain> shards) { this(shards, true); }
+    public record Result(List<ShardDrain> shards, boolean ownedBackendsTerminated, boolean oxiaTerminated) {
+        public Result(List<ShardDrain> shards) { this(shards, true, true); }
+        public Result(List<ShardDrain> shards, boolean ownedBackendsTerminated) { this(shards, ownedBackendsTerminated, true); }
         public Result {
             shards = List.copyOf(Objects.requireNonNull(shards, "shards"));
             if (shards.isEmpty()) {
@@ -209,7 +210,7 @@ public final class TargetWorkerHostRuntime {
         }
 
         public boolean complete() {
-            return ownedBackendsTerminated && shards.stream().allMatch(ShardDrain::complete);
+            return ownedBackendsTerminated && oxiaTerminated && shards.stream().allMatch(ShardDrain::complete);
         }
     }
 
@@ -235,6 +236,9 @@ public final class TargetWorkerHostRuntime {
     private volatile boolean backendQuarantined;
     private boolean quarantineActive;
     private boolean faultExitActive;
+    private TargetWorkerOxiaRuntime oxiaRuntime;
+    private OxiaClosePermit oxiaClosePermit;
+    private final Map<ShardId, TargetOwnerDrainCoordinator.ReplayExit> faultExited = new HashMap<>();
     private boolean backendBarrierEstablished;
     private long quarantineGeneration;
     private final List<TargetOwnedBackendGroup> ownedBackends = new ArrayList<>();
@@ -985,7 +989,7 @@ public final class TargetWorkerHostRuntime {
         final List<TargetWorkerShardRuntime> workers;
         synchronized (this) {
             if (runtimeConfig == null || stopping || backendQuarantined || serviceActivationThread != null
-                    || serviceActivated || ordinaryLoop != null || maintenanceStarted || sourceProcessingConfigured
+                    || serviceActivated || oxiaRuntime == null || ordinaryLoop != null || maintenanceStarted || sourceProcessingConfigured
                     || sourceObservationCache != null || checkpointSchedule == null || !finalCheckpointOnDrain
                     || !draining.isEmpty() || !withdrawn.isEmpty()) {
                 throw new IllegalStateException("configured service requires an idle prepared Host with formal checkpoints");
@@ -1020,6 +1024,70 @@ public final class TargetWorkerHostRuntime {
         } finally {
             synchronized (this) { serviceActivationThread = null; notifyAll(); }
         }
+    }
+
+    /** Registers the original actual authority graph while prepared, including a failed Host retained for fault exit. */
+    public void registerOxiaRuntime(TargetWorkerOxiaRuntime root) {
+        final List<TargetWorkerShardRuntime> workers;
+        synchronized (this) {
+            requireServiceActivationCaller();
+            if (oxiaRuntime == root) return;
+            if (oxiaRuntime != null || maintenanceStarted || serviceActivated || sourceProcessingConfigured
+                    || ordinaryLoop != null || drainAllActive || faultExitActive || !draining.isEmpty()) {
+                throw new IllegalStateException("Oxia root must transfer before Host execution/drain");
+            }
+            workers = currentTargetWorkers();
+        }
+        for (var worker : workers) root.requireWorker(worker);
+        synchronized (this) {
+            if (oxiaRuntime != null || maintenanceStarted || serviceActivated || sourceProcessingConfigured
+                    || ordinaryLoop != null || drainAllActive || faultExitActive || !draining.isEmpty()
+                    || !workers.equals(currentTargetWorkers())) {
+                throw new IllegalStateException("Host changed during original Oxia root transfer");
+            }
+            root.bindHost(this); oxiaRuntime = root;
+        }
+    }
+
+    /** Private-constructor capability; public Result/ReplayExit records do not authorize SDK authority close. */
+    public static final class OxiaClosePermit {
+        private final TargetWorkerHostRuntime host;
+        private final TargetWorkerOxiaRuntime root;
+        private OxiaClosePermit(TargetWorkerHostRuntime host, TargetWorkerOxiaRuntime root) {
+            this.host = host; this.root = root;
+        }
+        void requireOriginalRoot(TargetWorkerOxiaRuntime expected) {
+            synchronized (host) {
+                if (root != expected || host.oxiaRuntime != expected || host.oxiaClosePermit != this || !host.stopping) {
+                    throw new IllegalStateException("Oxia close lacks its original stopped Host permit");
+                }
+            }
+        }
+    }
+
+    private boolean closeOxiaAfterDependencies(boolean fault) {
+        final TargetWorkerOxiaRuntime root;
+        final OxiaClosePermit permit;
+        synchronized (this) {
+            root = oxiaRuntime;
+            if (root == null) return true;
+            if (!stopping || ownedBackends.stream().anyMatch(backend -> !backend.resourcesTerminated())
+                    || shards.stream().anyMatch(shard -> fault ? !faultExited.containsKey(shard.shardId())
+                            : !completed.containsKey(shard.shardId()))) {
+                return false;
+            }
+            if (fault != backendQuarantined) throw new IllegalStateException("Oxia close normal/fault lineage changed");
+            if (oxiaClosePermit == null) oxiaClosePermit = new OxiaClosePermit(this, root);
+            permit = oxiaClosePermit;
+        }
+        root.closeForHost(permit);
+        return root.cleanupComplete();
+    }
+
+    public boolean oxiaCleanupComplete() {
+        final TargetWorkerOxiaRuntime root;
+        synchronized (this) { root = oxiaRuntime; }
+        return root == null || root.cleanupComplete();
     }
 
     /** Configuration changes and manual Source turns must not race the single service startup turn. */
@@ -1384,6 +1452,7 @@ public final class TargetWorkerHostRuntime {
                 throw new IllegalArgumentException("configured Target Host requires a Target Worker Shard");
             }
             worker.requireRuntimeConfiguration(runtimeConfig);
+            if (oxiaRuntime != null) oxiaRuntime.requireWorker(worker);
         }
         final ShardId shardId = Objects.requireNonNull(shard.shardId(), "shardId");
         final int previousIndex = indexOfShard(shardId);
@@ -1484,7 +1553,8 @@ public final class TargetWorkerHostRuntime {
             }
             final boolean backendsClosed = results.stream().allMatch(ShardDrain::complete)
                     && closeOwnedBackendsAfterNormalDrain();
-            return new Result(results, backendsClosed);
+            final boolean authorityClosed = backendsClosed && closeOxiaAfterDependencies(false);
+            return new Result(results, backendsClosed, authorityClosed);
         } finally {
             synchronized (this) {
                 drainAllActive = false;
@@ -1820,11 +1890,17 @@ public final class TargetWorkerHostRuntime {
                     throw new IllegalStateException("fault exit requires actual Worker/Store ownership");
                 }
                 try {
-                    result.add(new QuarantinedShardExit(shard.shardId(),
-                            worker.exitQuarantinedForReplay(request, clock).orElse(null), null));
+                    final TargetOwnerDrainCoordinator.ReplayExit prior;
+                    synchronized (this) { prior = faultExited.get(shard.shardId()); }
+                    final var exited = prior != null ? prior : worker.exitQuarantinedForReplay(request, clock).orElse(null);
+                    if (exited != null) { synchronized (this) { faultExited.put(shard.shardId(), exited); } }
+                    result.add(new QuarantinedShardExit(shard.shardId(), exited, null));
                 } catch (RuntimeException failure) {
                     result.add(new QuarantinedShardExit(shard.shardId(), null, failure));
                 }
+            }
+            if (result.stream().allMatch(exit -> exit.exited() != null && exit.failure() == null)) {
+                closeOxiaAfterDependencies(true);
             }
             return List.copyOf(result);
         } finally {

@@ -28,6 +28,7 @@ public final class TargetWorkerOxiaClientOwner {
     private boolean released;
     private Throwable firstFailure;
     private Duration configuredRequestTimeout;
+    private TargetWorkerOxiaRuntime runtime;
 
     public static TargetWorkerOxiaClientOwner open(OxiaClientBuilder builder, ThreadPoolExecutor executor,
             SharedRocksDbResources resources, String allocationId, long nativeBytes, Duration cleanupBudget,
@@ -135,6 +136,11 @@ public final class TargetWorkerOxiaClientOwner {
 
     public CompletableFuture<SyncOxiaClient> clientReady() { return ready.copy(); }
 
+    public synchronized boolean readyForUse() {
+        return !stopping && !released && openingTask != null && openingReturned && openingTask.ioExited()
+                && ready.isDone() && !ready.isCompletedExceptionally();
+    }
+
     public synchronized SyncOxiaClient requireClient() {
         if (stopping || released || openingTask == null || !openingReturned || !openingTask.ioExited()
                 || !ready.isDone() || ready.isCompletedExceptionally()) {
@@ -144,7 +150,15 @@ public final class TargetWorkerOxiaClientOwner {
     }
 
     /** Root calls this only after Host/Source/Store no longer need this authority for drain or fault cleanup. */
+    synchronized void bindRuntime(TargetWorkerOxiaRuntime expected) {
+        if (runtime != null && runtime != expected) throw new IllegalStateException("Oxia client belongs to another root");
+        runtime = Objects.requireNonNull(expected);
+    }
+
     public void requestClose() {
+        final TargetWorkerOxiaRuntime root;
+        synchronized (this) { root = runtime; }
+        if (root != null) root.requireClientCloseAllowed();
         synchronized (this) {
             stopping = true;
         }
