@@ -22,7 +22,7 @@ import org.apache.kafka.common.record.TimestampType;
 
 /** Bounded resumable read_committed lookup from the original protected range, independent of old producer callbacks. */
 public final class KafkaClientArtifactTargetReceiptReader implements AutoCloseable {
-    public static final String REQUIRED_K1_SOURCE_COMMIT = "5128f46a358b5c3e9991cd5a51f2d1d0ef15339a";
+    public static final String REQUIRED_K1_SOURCE_COMMIT = "a707e84e023d0eb174fdf52c879dc1f9f1d6d2ce";
     public enum Status { WAITING, ADVANCED, PUBLISHED }
     public record Turn(Status status, long nextOffset, Observation observation) {}
 
@@ -32,14 +32,17 @@ public final class KafkaClientArtifactTargetReceiptReader implements AutoCloseab
         private final PublishEvidence evidence;
         private final GuardedFetchEvidence fetch;
         private final long brokerTime;
+        private final long nextOffset;
         private Observation(TargetKafkaReceiptMapping mapping, PublishEvidence evidence,
-                GuardedFetchEvidence fetch, long brokerTime) {
+                GuardedFetchEvidence fetch, long brokerTime, long nextOffset) {
             this.mapping = mapping; this.evidence = evidence; this.fetch = fetch; this.brokerTime = brokerTime;
+            this.nextOffset = nextOffset;
         }
         public TargetKafkaReceiptMapping mapping() { return mapping; }
         public PublishEvidence evidence() { return evidence; }
         public GuardedFetchEvidence fetch() { return fetch; }
         public long brokerPersistenceTime() { return brokerTime; }
+        public long nextOffset() { return nextOffset; }
         public void requireEvidence(final PublishEvidence candidate) {
             if (!Arrays.equals(evidence.canonicalBytes(), candidate.canonicalBytes())) {
                 throw new IllegalArgumentException("Target receipt candidate differs from actual protected read");
@@ -64,6 +67,7 @@ public final class KafkaClientArtifactTargetReceiptReader implements AutoCloseab
     private long maxBrokerTime;
     private Observation observed;
     private GuardedFetchEvidence rangeObservation;
+    private long processedNextOffset = -1;
     private boolean closed;
 
     public KafkaClientArtifactTargetReceiptReader(final Map<String, Object> configuration,
@@ -113,10 +117,20 @@ public final class KafkaClientArtifactTargetReceiptReader implements AutoCloseab
 
     /** Performs one SDK poll and retains its bounded continuation; empty responses never certify absence. */
     public synchronized Turn runTurn() {
+        try { return pollTurn(); }
+        catch (RuntimeException | Error failure) {
+            // Processing failure must not permit a later poll to skip the partially inspected response.
+            try { close(); } catch (RuntimeException | Error closeFailure) { failure.addSuppressed(closeFailure); }
+            throw failure;
+        }
+    }
+
+    private Turn pollTurn() {
         if (closed) { throw new IllegalStateException("Target receipt reader is closed"); }
         protection.requireCurrent(mapping, nextOffset);
         if (observed != null) { return new Turn(Status.PUBLISHED, nextOffset, observed); }
         rangeObservation = null;
+        processedNextOffset = -1;
         final var records = consumer.pollGuarded(timeout);
         final var proof = KafkaClientArtifactFetchEvidence.requireResponse(records, guard);
         if (proof == null) { protection.requireCurrent(mapping, nextOffset); return new Turn(Status.WAITING, nextOffset, null); }
@@ -127,10 +141,12 @@ public final class KafkaClientArtifactTargetReceiptReader implements AutoCloseab
         }
         protection.requireCurrent(mapping, nextOffset);
         rangeObservation = proof;
-        if (records.isEmpty()) {
-            // Real empty/filtered response facts are retained, but neither emptiness nor LSO alone completes a scan.
-            return new Turn(Status.WAITING, nextOffset, null);
+        final var processed = records.nextOffsets().get(partition);
+        if (processed == null || proof.fetchOffset() > nextOffset || processed.offset() < nextOffset
+                || processed.offset() > proof.lastStableOffset()) {
+            throw new IllegalStateException("Target receipt response lacks its paired actual processed continuation");
         }
+        final long before = nextOffset;
         int count = 0;
         long bytes = 0;
         for (var record : records.records(partition)) {
@@ -154,18 +170,24 @@ public final class KafkaClientArtifactTargetReceiptReader implements AutoCloseab
                         maxBrokerTime, nextOffset, proof.lastStableOffset());
                 final var evidence = TargetKafkaReceiptWire.published(mapping, cursor, record.offset());
                 protection.requireCurrent(mapping, nextOffset);
-                observed = new Observation(mapping, evidence, proof, record.timestamp());
+                observed = new Observation(mapping, evidence, proof, record.timestamp(), nextOffset);
                 return new Turn(Status.PUBLISHED, nextOffset, observed);
             }
         }
-        // Re-seek the explicit processed continuation; no offset from an unprocessed batch becomes a proof.
-        consumer.seek(partition, nextOffset);
+        if (processed.offset() < nextOffset) {
+            throw new IllegalStateException("Target receipt processed continuation precedes returned records");
+        }
+        // Adopt SDK continuation only after all returned records were validated. It includes actually
+        // processed control/aborted batches; never infer progress from HW/LSO or consumer.position().
+        nextOffset = processed.offset();
+        processedNextOffset = nextOffset;
         protection.requireCurrent(mapping, nextOffset);
-        return new Turn(Status.ADVANCED, nextOffset, null);
+        return new Turn(nextOffset > before ? Status.ADVANCED : Status.WAITING, nextOffset, null);
     }
 
     /** Actual same-response range facts; this is not a contiguous-scan or NOT_PUBLISHED certification. */
     public synchronized Optional<GuardedFetchEvidence> rangeObservation() { return Optional.ofNullable(rangeObservation); }
+    public synchronized long processedNextOffset() { return processedNextOffset; }
 
     public synchronized Optional<byte[]> rangeObservationImage() {
         if (rangeObservation == null) { return Optional.empty(); }
@@ -195,7 +217,7 @@ public final class KafkaClientArtifactTargetReceiptReader implements AutoCloseab
 
 
     /** Reads the actual loaded SDK JAR, rather than trusting a caller's source-lock string. */
-    private static byte[] requireSdkIdentity() {
+    static byte[] requireSdkIdentity() {
         try {
             final var location = Objects.requireNonNull(GuardedFetchEvidence.class.getProtectionDomain().getCodeSource(),
                     "loaded K1 code source").getLocation().toURI();

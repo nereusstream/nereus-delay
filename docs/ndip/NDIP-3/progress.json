@@ -1671,13 +1671,13 @@
       4
     ],
     "decisionThreadId": "01a13046-4fcd-7e90-8a56-dc2c3828fe23",
-    "implementationThreadId": "01a129b8-dcdd-7743-a630-3531e3a406c1",
+    "implementationThreadId": "01a132f1-3697-7341-b4b8-7f04d57c5650",
     "developmentEndpoint": "All four package code conditions hold and no known required writer/provider/integration remains; then freeze source and hand off the finite validation/environment matrix, without open-ended follow-on development.",
     "developmentKafkaSourceLock": {
       "branch": "nereus/delay-guarded-producer-v1",
-      "commit": "5128f46a358b5c3e9991cd5a51f2d1d0ef15339a",
-      "sdkJarSha256": "7adbb8e6d3bfa76fc62064d598d25ff00ee70cd90b27ddedbde5ed8f878146fe",
-      "scope": "Target K2 same-response log-start and actual guarded empty Fetch; client compilation only; old receipts retain their original source and Broker/image scope."
+      "commit": "a707e84e023d0eb174fdf52c879dc1f9f1d6d2ce",
+      "sdkJarSha256": "da8b1d38ab40c34ba1d00ecfd18d37504941895d4cf9bce3c6728b36ec95040c",
+      "scope": "Target K2 same-response log-start/empty Fetch and one CompletedFetch processing segment per guarded poll, paired with actual nextOffsets; client compilation only; old receipts retain their original source and Broker/image scope."
     }
   },
   "implementationComplete": false,

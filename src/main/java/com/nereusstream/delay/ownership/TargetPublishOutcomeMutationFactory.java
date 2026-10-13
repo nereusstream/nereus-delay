@@ -41,6 +41,13 @@ public final class TargetPublishOutcomeMutationFactory {
         if (effect != 3) {
             final var evidence = PublishEvidence.decode(physical.evidence());
             evidence.requireBusinessMutation(body.publishAttemptId(), effect == 1);
+            if (applied.kafkaMapping() != null) {
+                if (effect == 1) {
+                    com.nereusstream.delay.protocol.TargetKafkaReceiptWire.requirePublished(applied.kafkaMapping(), evidence);
+                } else {
+                    com.nereusstream.delay.protocol.TargetKafkaReceiptWire.requireNotPublished(applied.kafkaMapping(), evidence);
+                }
+            }
             if (!Arrays.equals(c.transfer(), body.outcomeTransfer())) {
                 throw new IllegalArgumentException("Target Outcome changes frozen Admission charge transfer");
             }

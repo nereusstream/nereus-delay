@@ -44,7 +44,13 @@ public final class TargetPulsarPublishRuntime {
     /** Frozen external references are checked against actual Claim/Source facts before signing. */
     public record Inputs(TargetChannelIdentity channel, ProfileRef capability, long retryUntilEpochMs,
             CapacityVector commitment, CapacityVector allocated, TargetNativePolicyAuthority policies,
-            TargetQuotaDelta.LocalClaimAuthority revokeQuota, TargetStoreBackend.CommitAuthority revokeWrites) {
+            TargetQuotaDelta.LocalClaimAuthority revokeQuota, TargetStoreBackend.CommitAuthority revokeWrites,
+            com.nereusstream.delay.protocol.TargetKafkaReceiptBinding kafkaReceipt) {
+        public Inputs(TargetChannelIdentity channel, ProfileRef capability, long retryUntilEpochMs,
+                CapacityVector commitment, CapacityVector allocated, TargetNativePolicyAuthority policies,
+                TargetQuotaDelta.LocalClaimAuthority revokeQuota, TargetStoreBackend.CommitAuthority revokeWrites) {
+            this(channel, capability, retryUntilEpochMs, commitment, allocated, policies, revokeQuota, revokeWrites, null);
+        }
         public Inputs {
             Objects.requireNonNull(channel, "channel");
             Objects.requireNonNull(capability, "capability");
@@ -53,6 +59,10 @@ public final class TargetPulsarPublishRuntime {
             Objects.requireNonNull(revokeQuota, "revokeQuota");
             Objects.requireNonNull(revokeWrites, "revokeWrites");
             if (retryUntilEpochMs < 0) { throw new IllegalArgumentException("negative Admission retry deadline"); }
+            if ((channel.context().kind() == com.nereusstream.delay.protocol.ChannelKind.KAFKA_TRANSACTIONAL_RECEIPT)
+                    != (kafkaReceipt != null)) {
+                throw new IllegalArgumentException("K2 preparation requires its independently authenticated receipt anchor");
+            }
         }
     }
 
@@ -98,6 +108,7 @@ public final class TargetPulsarPublishRuntime {
     private final TargetPulsarPublishExecutor publisher;
     private final PulsarAttemptJournal journal;
     private volatile TargetOrdinaryPublishExecutor ordinaryPublisher;
+    private volatile TargetOrdinaryPublishExecutor kafkaPublisher;
     private final boolean negativeSettlementConfigured;
     private final AtomicReference<Flight> pending = new AtomicReference<>();
     private final AtomicBoolean active = new AtomicBoolean();
@@ -167,6 +178,18 @@ public final class TargetPulsarPublishRuntime {
             Supplier<TrustedUtcIntervalEvidence> time, LongSupplier ownerClock, Executor io, Executor completion,
             BoundedDestinationPublishAdapter.TargetOrdinaryPublishPreflight gate,
             TargetOrdinaryPublishExecutor.ResultAuthority results) {
+        this(worker, appender, signer, outcomeSigner, adapter, artifacts, preparation, payloads, reads, time,
+                ownerClock, io, completion, gate, results, com.nereusstream.delay.protocol.ChannelKind.BASELINE_PRODUCER);
+    }
+
+    TargetPulsarPublishRuntime(TargetWorkerShardRuntime worker, ShardLogMutationAppender appender,
+            TargetPublishAdmissionMutationFactory signer, TargetPublishOutcomeMutationFactory outcomeSigner,
+            BoundedDestinationPublishAdapter adapter, ArtifactGenerationSet artifacts,
+            Preparation preparation, Payloads payloads, Supplier<BoundedReadBudget> reads,
+            Supplier<TrustedUtcIntervalEvidence> time, LongSupplier ownerClock, Executor io, Executor completion,
+            BoundedDestinationPublishAdapter.TargetOrdinaryPublishPreflight gate,
+            TargetOrdinaryPublishExecutor.ResultAuthority results,
+            com.nereusstream.delay.protocol.ChannelKind kind) {
         this.worker = Objects.requireNonNull(worker, "worker");
         this.journal = null;
         this.publisher = null;
@@ -181,7 +204,7 @@ public final class TargetPulsarPublishRuntime {
         this.artifacts = Objects.requireNonNull(artifacts, "artifacts");
         admissions = new TargetPublishAdmissionWorkClassExecutor(worker, appender);
         outcomes = new TargetOutcomeWorkClassExecutor(worker, appender);
-        configureBaseline(adapter, outcomeSigner, gate, results, completion);
+        configureOrdinary(kind, adapter, outcomeSigner, gate, results, completion);
     }
 
     /** Adds the explicit baseline endpoint before scheduling starts; the existing Journal endpoint remains separate. */
@@ -189,20 +212,44 @@ public final class TargetPulsarPublishRuntime {
             TargetPublishOutcomeMutationFactory outcomeSigner,
             BoundedDestinationPublishAdapter.TargetOrdinaryPublishPreflight gate,
             TargetOrdinaryPublishExecutor.ResultAuthority results, Executor completion) {
-        if (ordinaryPublisher != null || !available()) {
-            throw new IllegalStateException("baseline endpoint is already configured or publication is active");
+        configureOrdinary(com.nereusstream.delay.protocol.ChannelKind.BASELINE_PRODUCER,
+                adapter, outcomeSigner, gate, results, completion);
+    }
+
+    synchronized void configureKafkaReceipt(BoundedDestinationPublishAdapter adapter,
+            TargetPublishOutcomeMutationFactory outcomeSigner,
+            BoundedDestinationPublishAdapter.TargetOrdinaryPublishPreflight gate,
+            TargetOrdinaryPublishExecutor.ResultAuthority results, Executor completion) {
+        configureOrdinary(com.nereusstream.delay.protocol.ChannelKind.KAFKA_TRANSACTIONAL_RECEIPT,
+                adapter, outcomeSigner, gate, results, completion);
+    }
+
+    private void configureOrdinary(com.nereusstream.delay.protocol.ChannelKind kind,
+            BoundedDestinationPublishAdapter adapter, TargetPublishOutcomeMutationFactory outcomeSigner,
+            BoundedDestinationPublishAdapter.TargetOrdinaryPublishPreflight gate,
+            TargetOrdinaryPublishExecutor.ResultAuthority results, Executor completion) {
+        if (kind != com.nereusstream.delay.protocol.ChannelKind.BASELINE_PRODUCER
+                && kind != com.nereusstream.delay.protocol.ChannelKind.KAFKA_TRANSACTIONAL_RECEIPT) {
+            throw new IllegalArgumentException("unsupported ordinary endpoint");
         }
-        ordinaryPublisher = new TargetOrdinaryPublishExecutor(adapter, artifacts, () -> {
+        if (!available() || (kind == com.nereusstream.delay.protocol.ChannelKind.BASELINE_PRODUCER
+                ? ordinaryPublisher != null : kafkaPublisher != null)) {
+            throw new IllegalStateException("ordinary endpoint is already configured or publication is active");
+        }
+        final var endpoint = new TargetOrdinaryPublishExecutor(adapter, artifacts, () -> {
             final var flight = Objects.requireNonNull(pending.get(), "pending publication");
             return worker.readAppliedAdmission(readBudget(), flight.admission, ownerClock);
         }, gate, results, outcomeSigner, image -> outcomes.submit(image, ownerClock), completion);
+        if (kind == com.nereusstream.delay.protocol.ChannelKind.BASELINE_PRODUCER) {
+            ordinaryPublisher = endpoint;
+        } else { kafkaPublisher = endpoint; }
     }
 
     boolean supportsNative() { return publisher != null; }
     boolean requiresJournal() { return publisher != null; }
 
     void requireConfiguredEndpoints() {
-        if (publisher == null && ordinaryPublisher == null) {
+        if (publisher == null && ordinaryPublisher == null && kafkaPublisher == null) {
             throw new IllegalStateException("Target publisher has no configured endpoint");
         }
         if (publisher != null) { requireNegativeSettlementConfigured(); }
@@ -290,13 +337,15 @@ public final class TargetPulsarPublishRuntime {
                 final var kind = input.channel().context().kind();
                 if (kind == com.nereusstream.delay.protocol.ChannelKind.BASELINE_PRODUCER
                         ? ordinaryPublisher == null
-                        : kind != com.nereusstream.delay.protocol.ChannelKind.PULSAR_DEDUP_PRODUCER || publisher == null) {
+                        : kind == com.nereusstream.delay.protocol.ChannelKind.KAFKA_TRANSACTIONAL_RECEIPT
+                                ? kafkaPublisher == null
+                                : kind != com.nereusstream.delay.protocol.ChannelKind.PULSAR_DEDUP_PRODUCER || publisher == null) {
                     throw new TargetPublishAdmissionStore.StaleAdmission();
                 }
                 flight.admission = worker.preparePublishAdmission(readBudget(), flight.claim, input.channel(),
                         input.capability(), artifacts.setDigest(), input.retryUntilEpochMs(), input.commitment(),
                         input.allocated(), Objects.requireNonNull(time.get(), "trusted interval"), input.policies(),
-                        signer, ownerClock);
+                        input.kafkaReceipt(), signer, ownerClock);
             }
             if (!flight.admissionSettled) {
                 admissions.submit(flight.admission, ownerClock);
@@ -313,9 +362,10 @@ public final class TargetPulsarPublishRuntime {
                 flight.payload = Objects.requireNonNull(payloads.resolve(flight.applied), "payload future");
             }
             if (!flight.payload.isDone()) { return turn(Status.RESOLVING_PAYLOAD, flight); }
-            if (flight.applied.body().channel().context().kind()
-                    == com.nereusstream.delay.protocol.ChannelKind.BASELINE_PRODUCER) {
-                return runBaselineSend(flight);
+            final var admittedKind = flight.applied.body().channel().context().kind();
+            if (admittedKind == com.nereusstream.delay.protocol.ChannelKind.BASELINE_PRODUCER
+                    || admittedKind == com.nereusstream.delay.protocol.ChannelKind.KAFKA_TRANSACTIONAL_RECEIPT) {
+                return runOrdinarySend(flight);
             }
             if (publisher == null || flight.applied.body().channel().context().kind()
                     != com.nereusstream.delay.protocol.ChannelKind.PULSAR_DEDUP_PRODUCER) {
@@ -357,8 +407,9 @@ public final class TargetPulsarPublishRuntime {
         } finally { active.set(false); }
     }
 
-    private Turn runBaselineSend(final Flight flight) {
-        final var endpoint = Objects.requireNonNull(ordinaryPublisher, "configured baseline endpoint");
+    private Turn runOrdinarySend(final Flight flight) {
+        final var endpoint = Objects.requireNonNull(flight.applied.body().kafkaReceipt() == null
+                ? ordinaryPublisher : kafkaPublisher, "configured ordinary endpoint");
         if (flight.ordinarySending == null) {
             final var payload = Objects.requireNonNull(flight.payload.join(), "resolved payload");
             final var sending = new CompletableFuture<TargetOrdinaryPublishExecutor.Submission>();

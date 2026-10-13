@@ -235,3 +235,42 @@ unknown 使用明确 -1，不默认零；原 persisted v1 evidence encoder/含�
 empty/timeout/旧 ctor/-1/seek/assignment/guard/position、原始或过滤后空批次、LSO及
 truncation/compaction 的实际边界均留待集中验证。K2 transaction/driver、初始 anchor、
 完整受保护否定与新 Owner 恢复装配继续开放；client编译不证明这些路径或生产权威。
+
+
+## 2026-10-13：K2 受保护 fencing、anchor 与有限恢复扫描
+
+决策主会话批准：retained mapping 的同 stable transactional ID 新实际 producer，标准
+`initTransactions` 成功可以成为私有本地 Fence observation。当前 Owner/session/
+credential、同实际客户端 cluster/target 与 receipt UUID 必须操作前后及产生结果时有效；
+旧 Owner 不得重新初始化该 ID 的隔离前提保留。timeout/interrupt/guard 失效不产生 Fence；
+不新增 InitProducerId wire，不编造 Broker 签名/epoch，不由 DTO/hash 授予权限。
+
+先取得持久 retention/compaction/delete/pin 保护，再采样 actual guarded read_committed
+末端空响应，fetchOffset=HW=LSO=scanStartOffset，raw/returned range 一致，才签入 v6。
+保护必须覆盖采样到恢复义务解除的全过程，冷启动按持久 digest 独立重认证；空 callback
+或单次 describe-config 不证明连续保护。KafkaClientArtifactTargetReceiptAnchor 已提供私有
+实际采样与固定 canonical image，provider 的持久保存/重读/认证仍待组装。
+
+扫描采用同 poll `records.nextOffsets()`，只在所有返回记录完整校验后接续；不使用事后
+consumer.position、raw lastOffset+1 或 HW/LSO 推测进度。已确认 Fetch.add 会覆盖同
+partition 前一响应证据；在授权 K1 fork 分支将 guarded collector 限制为一个 CompletedFetch
+处理片段，每片可为部分批次或实际 filtered/aborted/control 处理。普通未 guarded 路径不变，
+不新增公共 Producer/wire/Fetch evidence 字段。K1 `a707e84e023d0eb174fdf52c879dc1f9f1d6d2ce`
+已普通 push；client compileJava、按完整 commitId 的 shadowJar 必要构建通过（jar task
+SKIPPED）。SDK SHA-256=`da8b1d38ab40c34ba1d00ecfd18d37504941895d4cf9bce3c6728b36ec95040c`。
+前序源码锁和 receipts 保持原 scope；Broker/image 未重建，不提升验证状态。
+
+否定必须先完成实际 fencing，再从其后实际响应固定 U，连续处理原 scanStartOffset→U，
+每段有 paired actual continuation，最终 LSO>=U；原区间始终有 deletion/compaction/retention
+保护，同次 logStart 不得越原 start，当前权限有效。exact receipt 优先返回正向。空 poll、
+无 proof、事务未稳定、保护缺失或无法跨重启认证均保留 UNKNOWN/pending slot。
+
+Target 正向独立 transactional transport 只接受 actual Applied v6 mapping，不新写 MAPPED，
+以完整 ordinary metadata 的业务记录及 exact mapping receipt 同事务发送；callback/EndTxn
+不授予 PUBLISHED，必须实际 read_committed 匹配。响应损失/部分 SEND/失败 abort 进入
+UNKNOWN，原 signed Outcome bytes 在既有单 flight driver 保留至实际 Source APPLIED；
+slot/账本由 Source 原子结算。实际 factory 使用同稳定 ID、有限 SDK 超时及 caller-owned
+I/O executor；不新增线程/队列。失败时只有实际 SDK teardown 完成才结束 physical stage，
+teardown 失败保留未完成 stage/资源义务。完整 fencing/absence/实际 provider/reopen 仍待
+连接，包1、集中验证及 productionAuthority 均未完成。Delay compileJava/compileRealKafka
+通过，未执行测试、Broker 或格式/文档验收。

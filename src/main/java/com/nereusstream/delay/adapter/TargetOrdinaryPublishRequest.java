@@ -36,6 +36,15 @@ public final class TargetOrdinaryPublishRequest {
                 || !Arrays.equals(artifacts.setDigest(), publication.artifactGenerationSetDigest())) {
             throw new IllegalArgumentException("ordinary SDK input changes its newly applied Message/payload/Artifact");
         }
+        if ((admission.body().kafkaReceipt() == null) != (admission.kafkaMapping() == null)
+                || (publication.channel().context().kind()
+                        == com.nereusstream.delay.protocol.ChannelKind.KAFKA_TRANSACTIONAL_RECEIPT
+                        && admission.kafkaMapping() == null)) {
+            throw new IllegalArgumentException("ordinary K2 SDK input lacks its actual Source mapping");
+        }
+        if (admission.kafkaMapping() != null) {
+            admission.kafkaMapping().requireOriginal(admission.image(), admission.source());
+        }
     }
 
     public static TargetOrdinaryPublishRequest fromApplied(TargetPublishAdmissionStore.Applied admission,
@@ -49,7 +58,11 @@ public final class TargetOrdinaryPublishRequest {
     public ResolvedPayload resolved() { return resolved; }
     public ArtifactGenerationSet artifacts() { return artifacts; }
     public long physicalByteCharge() {
-        return Math.addExact(Math.addExact(publication().canonicalBytes().length, payload.canonicalBytes().length),
+        final long ordinary = Math.addExact(Math.addExact(publication().canonicalBytes().length, payload.canonicalBytes().length),
                 Math.addExact(resolved.length(), source().canonicalBytes().length));
+        final var mapping = admission.kafkaMapping();
+        return mapping == null ? ordinary : Math.addExact(ordinary, Math.addExact(mapping.canonicalBytes().length,
+                Math.addExact(com.nereusstream.delay.protocol.TargetKafkaReceiptWire.key(mapping).length,
+                        com.nereusstream.delay.protocol.TargetKafkaReceiptWire.value(mapping).length)));
     }
 }

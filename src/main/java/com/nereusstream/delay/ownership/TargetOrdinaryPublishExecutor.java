@@ -20,7 +20,7 @@ import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 
-/** One actual Source-owned baseline SEND followed by the original signed Outcome handoff. */
+/** One actual Source-owned ordinary SEND followed by the original signed Outcome handoff. */
 public final class TargetOrdinaryPublishExecutor {
     private final BoundedDestinationPublishAdapter adapter;
     private final ArtifactGenerationSet artifacts;
@@ -51,8 +51,9 @@ public final class TargetOrdinaryPublishExecutor {
         final var applied = Objects.requireNonNull(current.get(), "actual applied Admission");
         if (pending != null) { pending.request.applied().requireSame(applied); return pending; }
         if (applied.body().publication() == null
-                || applied.body().channel().context().kind() != ChannelKind.BASELINE_PRODUCER) {
-            throw new IllegalArgumentException("baseline publication requires its actual ordinary baseline Admission");
+                || (applied.body().channel().context().kind() != ChannelKind.BASELINE_PRODUCER
+                        && applied.body().channel().context().kind() != ChannelKind.KAFKA_TRANSACTIONAL_RECEIPT)) {
+            throw new IllegalArgumentException("ordinary publication requires its actual baseline or K2 Admission");
         }
         final var request = TargetOrdinaryPublishRequest.fromApplied(applied, payload, resolved, artifacts);
         final var submission = new Submission(request);
@@ -74,9 +75,21 @@ public final class TargetOrdinaryPublishExecutor {
         submission.failure = failure;
         try {
             if (accepted.disposition() == DestinationPublishResult.Disposition.PUBLISHED) {
-                PublishEvidence.decode(accepted.evidence()).requireOrdinaryTargetPublishedBinding(submission.request.publication());
+                final var evidence = PublishEvidence.decode(accepted.evidence());
+                if (submission.request.applied().kafkaMapping() == null) {
+                    evidence.requireOrdinaryTargetPublishedBinding(submission.request.publication());
+                } else {
+                    com.nereusstream.delay.protocol.TargetKafkaReceiptWire.requirePublished(
+                            submission.request.applied().kafkaMapping(), evidence);
+                }
             } else if (accepted.disposition() == DestinationPublishResult.Disposition.DEFINITIVELY_NOT_PUBLISHED) {
-                PublishEvidence.decode(accepted.evidence()).requireOrdinaryTargetNotPublishedBinding(submission.request.publication());
+                final var evidence = PublishEvidence.decode(accepted.evidence());
+                if (submission.request.applied().kafkaMapping() == null) {
+                    evidence.requireOrdinaryTargetNotPublishedBinding(submission.request.publication());
+                } else {
+                    com.nereusstream.delay.protocol.TargetKafkaReceiptWire.requireNotPublished(
+                            submission.request.applied().kafkaMapping(), evidence);
+                }
             } else { accepted = DestinationPublishResult.unknown(accepted.stableCode(), null); }
         } catch (RuntimeException unboundEvidence) {
             submission.failure = unboundEvidence;
@@ -111,7 +124,7 @@ public final class TargetOrdinaryPublishExecutor {
         }
     }
 
-    /** Baseline UNKNOWN enters the durable Source hold; this releases only the completed in-process flight. */
+    /** UNKNOWN enters the durable Source hold; this releases only the completed in-process flight. */
     public synchronized boolean settleApplied(final TargetOutcomeWorkClassExecutor source, final LongSupplier clock) {
         final var submission = Objects.requireNonNull(pending, "pending publication");
         if (submission.mutation == null) { return false; }

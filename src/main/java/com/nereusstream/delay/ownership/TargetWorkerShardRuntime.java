@@ -537,6 +537,40 @@ public final class TargetWorkerShardRuntime
         driver.configureBaseline(adapter, outcomeSigner, gate, results, completion);
     }
 
+    /** K2-only Source driver, with an actual guarded transaction endpoint and independently authenticated anchor. */
+    public synchronized TargetPulsarPublishRuntime configureKafkaReceiptPublishing(
+            ShardLogMutationAppender appender, TargetPublishAdmissionMutationFactory signer,
+            TargetPublishOutcomeMutationFactory outcomeSigner,
+            com.nereusstream.delay.adapter.BoundedDestinationPublishAdapter adapter,
+            com.nereusstream.delay.protocol.ArtifactGenerationSet artifacts,
+            TargetPulsarPublishRuntime.Preparation preparation, TargetPulsarPublishRuntime.Payloads payloads,
+            Supplier<BoundedReadBudget> reads,
+            Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
+            LongSupplier clock, java.util.concurrent.Executor io, java.util.concurrent.Executor completion,
+            com.nereusstream.delay.adapter.BoundedDestinationPublishAdapter.TargetOrdinaryPublishPreflight gate,
+            TargetOrdinaryPublishExecutor.ResultAuthority results) {
+        requirePublishRecoveryOwner(clock);
+        if (publishRuntime != null) { throw new IllegalStateException("Target publication driver is already configured"); }
+        publishRuntime = new TargetPulsarPublishRuntime(this, appender, signer, outcomeSigner, adapter,
+                artifacts, preparation, payloads, reads, time, clock, io, completion, gate, results,
+                com.nereusstream.delay.protocol.ChannelKind.KAFKA_TRANSACTIONAL_RECEIPT);
+        return publishRuntime;
+    }
+
+    /** Adds K2 to the same single-flight Claim/Source driver before Host scheduling starts. */
+    public synchronized void configureKafkaReceiptEndpoint(
+            com.nereusstream.delay.adapter.BoundedDestinationPublishAdapter adapter,
+            com.nereusstream.delay.protocol.ArtifactGenerationSet artifacts,
+            TargetPublishOutcomeMutationFactory outcomeSigner,
+            com.nereusstream.delay.adapter.BoundedDestinationPublishAdapter.TargetOrdinaryPublishPreflight gate,
+            TargetOrdinaryPublishExecutor.ResultAuthority results,
+            java.util.concurrent.Executor completion, LongSupplier clock) {
+        requirePublishRecoveryOwner(clock);
+        final var driver = Objects.requireNonNull(publishRuntime, "configured Source publication driver");
+        driver.requireArtifacts(artifacts);
+        driver.configureKafkaReceipt(adapter, outcomeSigner, gate, results, completion);
+    }
+
     void requirePublishingStartupClosure() {
         final var runtime = Objects.requireNonNull(publishRuntime, "configured Target publisher");
         runtime.requireConfiguredEndpoints();
