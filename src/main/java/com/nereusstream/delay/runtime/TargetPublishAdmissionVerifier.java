@@ -39,6 +39,12 @@ public final class TargetPublishAdmissionVerifier {
     @FunctionalInterface
     public interface MaterializationAuthority {
         void requireAuthorized(TargetPublishAdmissionBody body, SourcePosition source);
+        default void requirePrepared(SystemMutation image) {
+            throw new IllegalStateException("K2 Admission lacks its original durable prepared publication binding");
+        }
+        default TargetKafkaReceiptExternalEvidence externalEvidence(TargetPublishAdmissionBody body, SourcePosition source) {
+            throw new IllegalStateException("K2 Admission has no authenticated durable external evidence materialization");
+        }
     }
 
     public record Authorization(
@@ -160,6 +166,7 @@ public final class TargetPublishAdmissionVerifier {
                 throw new IllegalStateException("Target materialization authority is unavailable");
             }
             authorized.materialization().requireAuthorized(body, source);
+            if (body.kafkaReceipt() != null) { authorized.materialization().requirePrepared(mutation); }
             if (body.nativePublication() != null && authorized.nativePolicies() == null) {
                 throw new IllegalStateException("Target Native current-head authority is unavailable");
             }

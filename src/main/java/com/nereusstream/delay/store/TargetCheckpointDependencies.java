@@ -99,6 +99,7 @@ public final class TargetCheckpointDependencies {
     private final List<TargetResultRecord> outcomeResults;
     private final List<Admission> admissions;
     private final List<com.nereusstream.delay.protocol.TargetKafkaReceiptMapping> kafkaMappings;
+    private final List<com.nereusstream.delay.protocol.TargetExternalEvidenceOwner> externalEvidence;
     private final List<ProfileRef> profiles;
     private final List<ProfileUse> profileUses;
     private final List<TargetScheduleBinding> bindings;
@@ -116,6 +117,7 @@ public final class TargetCheckpointDependencies {
         outcomeResults = List.copyOf(builder.outcomeResults.values());
         this.admissions = List.copyOf(admissions);
         kafkaMappings = List.copyOf(builder.kafkaMappings.values());
+        externalEvidence = List.copyOf(builder.externalEvidence.values());
         profiles = List.copyOf(builder.profiles.values());
         profileUses = List.copyOf(builder.profileUses.values());
         bindings = List.copyOf(builder.bindings.values());
@@ -140,6 +142,54 @@ public final class TargetCheckpointDependencies {
     }
     public List<Admission> admissions() { return admissions; }
     public List<com.nereusstream.delay.protocol.TargetKafkaReceiptMapping> kafkaMappings() { return kafkaMappings; }
+    public List<com.nereusstream.delay.protocol.TargetExternalEvidenceOwner> externalEvidence() { return externalEvidence; }
+
+    /** The actual signed catalog object; neither copied lengths nor Target aggregate counters can satisfy this lookup. */
+    @FunctionalInterface
+    public interface ExternalEvidenceAuthority {
+        com.nereusstream.delay.protocol.TargetKafkaReceiptControlArtifact resolve(
+                com.nereusstream.delay.protocol.TargetExternalEvidenceOwner original);
+    }
+    public record ExternalEvidenceImage(String exactKey, com.nereusstream.delay.protocol.TargetKafkaReceiptControlArtifact artifact) {
+        public ExternalEvidenceImage { Objects.requireNonNull(exactKey, "exact external key"); Objects.requireNonNull(artifact, "actual artifact"); }
+        public byte[] canonicalBytes() { return CanonicalProtobuf.message(out -> {
+            CanonicalProtobuf.bytes(out,1,Bytes.utf8(exactKey)); CanonicalProtobuf.bytes(out,2,artifact.canonicalBytes());
+        }); }
+        public static ExternalEvidenceImage decode(byte[] bytes) {
+            final var fields = com.nereusstream.delay.protocol.QueryCodecSupport.read(bytes, "external checkpoint evidence");
+            com.nereusstream.delay.protocol.QueryCodecSupport.requireNumbers(fields,new int[]{1,2},"external checkpoint evidence");
+            final var image = new ExternalEvidenceImage(new String(com.nereusstream.delay.protocol.QueryCodecSupport.bytes(fields.get(0),1),
+                    java.nio.charset.StandardCharsets.UTF_8), com.nereusstream.delay.protocol.TargetKafkaReceiptControlArtifact.decode(
+                    com.nereusstream.delay.protocol.QueryCodecSupport.nested(fields.get(1),2)));
+            com.nereusstream.delay.protocol.QueryCodecSupport.requireCanonical(bytes,image.canonicalBytes(),"external checkpoint evidence");return image;
+        }
+    }
+    public List<ExternalEvidenceImage> resolveExternalEvidence(ExternalEvidenceAuthority authority,
+            BoundedReadBudget budget, Runnable guard) {
+        if (!externalEvidence.isEmpty()) { Objects.requireNonNull(authority,"authenticated retained external catalog lookup"); }
+        final var values = new java.util.ArrayList<ExternalEvidenceImage>();
+        for (var owner : externalEvidence) {
+            beforeAuthentication(budget,guard);
+            final var actual = Objects.requireNonNull(authority.resolve(owner),"original actual external object");
+            guard.run(); owner.requireObject(actual.kind(),actual.digest(),owner.exactKey(),actual.canonicalBytes());
+            if (!budget.tryCharge(owner.exactKey().getBytes(java.nio.charset.StandardCharsets.UTF_8).length,
+                    actual.canonicalBytes().length)) { throw budget.incomplete(); }
+            values.add(new ExternalEvidenceImage(owner.exactKey(),actual)); afterAuthentication(budget,guard);
+        }
+        requireExternalEvidenceImages(values); return List.copyOf(values);
+    }
+    public void requireExternalEvidenceImages(List<ExternalEvidenceImage> images) {
+        final var byKey = new TreeMap<String,ExternalEvidenceImage>();
+        for (var image : images) { if(byKey.put(image.exactKey(),image)!=null)throw new IllegalArgumentException("duplicate external catalog object"); }
+        if(byKey.size()!=externalEvidence.size())throw new IllegalStateException("checkpoint lacks complete actual external evidence bytes");
+        for(var owner:externalEvidence){final var image=Objects.requireNonNull(byKey.get(owner.exactKey()),"original retained external key");
+            owner.requireObject(image.artifact().kind(),image.artifact().digest(),image.exactKey(),image.artifact().canonicalBytes());
+            if(!Arrays.equals(owner.originalControlDigest(),Bytes.sha256(image.artifact().control().canonicalBytes()))
+                    ||!Arrays.equals(owner.originalControlSource().canonicalBytes(),image.artifact().authorizedAt().canonicalBytes()))
+                throw new IllegalStateException("external checkpoint evidence changed original CONTROL/Source responsibility");
+        }
+    }
+
     public List<ProfileRef> profiles() { return profiles; }
     public List<ProfileUse> profileUses() { return profileUses; }
     public TargetScheduleBinding requireBinding(TargetMessageLocator locator) {
@@ -555,6 +605,7 @@ public final class TargetCheckpointDependencies {
             for (final var hash : objectProfileHashes) { CanonicalProtobuf.bytes(out, 4, hash); }
             for (final var digest : artifactDigests) { CanonicalProtobuf.bytes(out, 5, digest); }
             for (final var use : retryUses) { CanonicalProtobuf.bytes(out, 6, use.canonicalBytes()); }
+            for (final var owner : externalEvidence) { CanonicalProtobuf.bytes(out, 7, owner.canonicalBytes()); }
         });
         return Bytes.sha256(Bytes.utf8("nereus-delay-target-checkpoint-semantic-inputs\0"), fields);
     }
@@ -581,6 +632,7 @@ public final class TargetCheckpointDependencies {
         private final Map<String, StoredControl> controls = new TreeMap<>();
         private final Map<String, TargetResultRecord> controlResults = new TreeMap<>();
         private final Map<String, TargetResultRecord> outcomeResults = new TreeMap<>();
+        private final Map<String, com.nereusstream.delay.protocol.TargetExternalEvidenceOwner> externalEvidence = new TreeMap<>();
         private final Map<String, ProfileRef> profiles = new TreeMap<>();
         private final Map<String, com.nereusstream.delay.protocol.TargetKafkaReceiptMapping> kafkaMappings = new TreeMap<>();
         private final Map<String, ProfileUse> profileUses = new TreeMap<>();
@@ -600,6 +652,7 @@ public final class TargetCheckpointDependencies {
             prior.controlResults.forEach(this::controlResult);
             prior.outcomeResults.forEach(this::outcomeResult);
             prior.kafkaMappings.forEach(this::kafkaMapping);
+            prior.externalEvidence.forEach(this::externalEvidence);
             prior.profiles.forEach(this::profile);
             prior.profileUses.forEach(this::profileUse);
             prior.bindings.forEach(this::binding);
@@ -610,6 +663,10 @@ public final class TargetCheckpointDependencies {
             prior.artifactDigests.forEach(this::artifact);
         }
 
+        void externalEvidence(com.nereusstream.delay.protocol.TargetExternalEvidenceOwner owner) {
+            final var previous=externalEvidence.putIfAbsent(Bytes.hex(owner.key()),owner);
+            if(previous!=null&&!Arrays.equals(previous.canonicalBytes(),owner.canonicalBytes()))throw new IllegalStateException("duplicate external evidence owner");
+        }
         void kafkaMapping(com.nereusstream.delay.protocol.TargetKafkaReceiptMapping mapping) {
             final String attempt = Bytes.hex(mapping.admission().publishAttemptId());
             final var previous = kafkaMappings.putIfAbsent(attempt, mapping);

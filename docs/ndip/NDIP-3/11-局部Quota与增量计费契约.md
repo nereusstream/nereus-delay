@@ -2174,3 +2174,25 @@ actual K1 reader 可从原 frozen 起点有限找回 committed receipt。规范�
 K2 transaction/factory/driver、empty anchor/完整否定、生产保护及新 Owner 组装仍开放。
 下一依赖为主会话批准的 K1 空 Fetch/logStartOffset client 扩展；Broker/测试/质量检查仍
 集中后置，保留 Kafka AGENTS.md 原必要检查与新的边界验证，不标本轮 PASS。
+
+
+2026-10-13 K2 外部实物计费开发补充：NV47 唯一 owner 的 full frozen Target incarnation、
+original CONTROL/Source/domain 与完整外部 key/raw value SHA/实际 canonical length 同实际
+Admission 批次写入。保护归原 APPLIED Channel Control Target；anchor 归首 Admission 的
+冻结 Attempt owner。相同摘要引用不重复复制实物费、不因 Owner/renewal 改价；不同 scope
+不隐式借用。每个实际外部对象一次 EVIDENCE_RECORDS=1，EVIDENCE_BYTES=完整 UTF8 key+
+raw signed canonical value+原 recordOverheadBytes；没有额外 NV envelope 或依赖重复费。
+本地 NV47、每条 NV48 mapping ref 和实际 anchor alias 分别一次 STATE。Attempt reserve
+扣除已由唯一 owner 接管的 anchor 实物份额，原对象继续独立计费，不双算 reservation。
+
+publication staging root 为独立配置的 CONTROL deployment 物理预算，先 reserve 再 put；
+并非 Target 逻辑计费/51–55 append writer reserve。管理整 topic 的物理 image 在 root
+reserve 内，slot 实际 artifact 内嵌 management/CONTROL bytes 已随对象计费。ADOPTED 只转换
+逻辑 staging 状态，不释放物理占用。未知写、BROKEN 或 Source 对账不确定保持原责任。
+Source prepared ID/hash/retry 在 enqueue 前绑定；无当前 ref 不足以证明从未 adopted。
+
+独立 ledger fold 重建 native owner/ref/alias 与 mapping/Attempt/原 Control/adoption 关系，
+schema4 companion 加入完整实际外部对象；Store 锁外重新读取、验签并对照完整 key/value
+bytes，实际长度不由 counter/total/aggregate 宣称。已保留对象的 Floor/retirement、旧 writer
+闭合和真实 external deletion 尚在包2/4，当前拒绝无证据释放。字段和签名域见
+PROTOCOL-REGISTRY，具体调用链见07。当前只通过 main/locked K1 SDK编译，验收统一后置。

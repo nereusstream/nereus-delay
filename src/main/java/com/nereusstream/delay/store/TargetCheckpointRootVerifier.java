@@ -347,6 +347,16 @@ public final class TargetCheckpointRootVerifier {
         return verified.ledger();
     }
 
+    /** Independent actual-object/signature audit after the physical image fold; retained counter values are never inputs. */
+    public static LedgerProof auditManifestExternalEvidenceAuthentication(Path image, CheckpointManifest manifest,
+            CheckpointManifestLimits physicalLimits, QuotaAuditLimits quotaLimits, LedgerAuditLimits ledgerLimits,
+            TargetCheckpointSemanticSnapshot.Limits semanticLimits, BoundedReadBudget authenticationBudget,
+            TargetCheckpointDependencies.ExternalEvidenceAuthority authority, Runnable protectionGuard) {
+        final var verified=auditManifestCompanion(image,manifest,physicalLimits,quotaLimits,ledgerLimits,semanticLimits);
+        verified.snapshot().authenticateExternalEvidence(verified.ledger().dependencies(),semanticLimits,authority,
+                authenticationBudget,protectionGuard);return verified.ledger();
+    }
+
     private record ManifestCompanion(LedgerProof ledger, TargetCheckpointSemanticSnapshot snapshot) {}
 
     /** Must authenticate every original semantic/control/input/evidence and keep all image/Source/pin rights held. */
@@ -469,6 +479,7 @@ public final class TargetCheckpointRootVerifier {
         }
         final var snapshot = TargetCheckpointSemanticSnapshotFile.read(candidate.image(), candidate.semantic());
         snapshot.validateAgainst(inspected.ledger().dependencies(), candidate.semantic());
+        snapshot.requireExternalEvidenceComplete(inspected.ledger().dependencies());
         candidate.protection().run();
         final var time = pending.checkpointCreatedAt();
         final var parent = pending.parentCheckpointId() == null ? null : new CheckpointManifest.ParentCheckpoint(
@@ -525,10 +536,11 @@ public final class TargetCheckpointRootVerifier {
         if (snapshot.schemaVersion() < 2) {
             throw new IllegalArgumentException("Target Manifest requires complete original-Control schema 2");
         }
-        if (!proof.dependencies().outcomeResults().isEmpty() && snapshot.schemaVersion() != 3) {
+        if (!proof.dependencies().outcomeResults().isEmpty() && snapshot.schemaVersion() < 3) {
             throw new IllegalArgumentException("Target Manifest with retained Outcomes requires schema 3");
         }
         snapshot.validateAgainst(proof.dependencies(), semanticLimits);
+        snapshot.requireExternalEvidenceComplete(proof.dependencies());
         if (!Bytes.constantTimeEquals(manifest.controlStateDigest(), snapshot.snapshotDigest())) {
             throw new IllegalArgumentException("Target Manifest control-state digest differs from its companion");
         }

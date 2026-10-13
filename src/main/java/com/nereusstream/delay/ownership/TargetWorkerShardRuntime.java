@@ -152,6 +152,20 @@ public final class TargetWorkerShardRuntime
         return shardId;
     }
 
+    /** Actual native Store/Source/Oxia assignment-session guard for external publication resources; never SEND permission. */
+    public synchronized com.nereusstream.delay.protocol.OwnerIdentity requirePublicationOwner(
+            com.nereusstream.delay.protocol.OwnerIdentity expected, LongSupplier clock) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        return target.requirePublicationOwner(expected, clock);
+    }
+
+    public synchronized com.nereusstream.delay.runtime.TargetExternalEvidenceStore.Adoption readExternalEvidenceAdoption(
+            BoundedReadBudget reads, com.nereusstream.delay.protocol.TargetKafkaReceiptMapping mapping, LongSupplier clock) {
+        requireNewTurnsAdmitted(); resources.requireRuntimeBusinessAdmission();
+        return target.readExternalEvidenceAdoption(reads, mapping, clock);
+    }
+
     @Override
     public void requireFleetComposition(
             final WorkClassExecutionRegistry expectedClasses, final SharedRocksDbResources expectedResources) {

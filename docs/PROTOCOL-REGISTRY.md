@@ -3192,3 +3192,118 @@ Source-applied intent, not a committed receipt. New writers require the v6 tuple
 schema/Artifact/eligible-reader coverage; this development entry and compilation grant no
 production authority. Exact authenticated empty Fetch/log-start, fencing/LSO/retention and
 transaction/runtime integration remain pending, with all tests deferred to final validation.
+
+
+### Target K2 CONTROL catalog and Source external owners (2026-10-13 development)
+
+Dedicated receipt CONTROL artifact schema1 is closed fields1–8: version=1, kind
+(PROTECTION=1, ANCHOR=2, MANAGEMENT=3), full image, protection digest (anchor only;
+empty otherwise), complete original registered PreparedControlOperation, original
+APPLIED authorization SourcePosition, artifact digest, Ed25519 signature[64]. Original
+CREATE/RENEW_TARGET_CHANNEL K2 registration, historical CONTROL key/PLATFORM_OPERATOR
+and explicit receipt scope are required. Management changes also require a current
+authenticated operator and the configured source-bound deployment root/credentials.
+This introduces no ControlOperationKind, Kafka wire operation or Worker issuer right.
+Original Prepared bytes are bounded by 128 KiB; anchor image by 4096 bytes; protection
+policy by 256 KiB; embedded signed management by 16 KiB. The overall bound is
+TargetKafkaReceiptProtection.MAX_CANONICAL_BYTES + 128 KiB + bounded Source + 256.
+
+Protection image schema1 fields1–12 are version, KafkaReceiptSlotResource, physical
+topic, slotsPerShard, physical partition, evidenceGeneration(uint64 bits), capability
+ProfileRef, controlScopeRef[32], managementEpoch[16], full actual Broker policy image,
+full original signed management artifact, releaseRule=1 (retain through Source
+retirement and actual delete confirmation). Management image schema1 fields1–11 are
+version, exact BrokerResourceIdentity, physical topic, complete Capability semantics,
+control scope[32], epoch[16], repeated sorted management principals, repeated sorted
+Worker principals, configured deployment root digest[32], actual Admin configuration
+fingerprint[32], bounded deployment/permission evidence. Each principal list is
+nonempty, distinct and at most32 (each exact User principal at most128 chars);
+deployment evidence <=2048 bytes; canonical image <=8192 bytes. Broker policy image
+schema1 fields1–7 are version, topic-level exact BrokerResourceIdentity, physical
+name, partition count, sorted config key/value pairs, sorted structured ACL images,
+original capability brokerPrerequisiteDigest. ACL image closed fields1–7 are resource
+type, pattern type, resource name, principal, host, operation, permission enum codes.
+
+Protection/management digest domains are respectively
+`nereus-delay-target-kafka-receipt-protection\0` and
+`nereus-delay-target-kafka-receipt-management\0`, applied to unsigned fields1–6.
+Anchor retains the existing `nereus-delay-target-receipt-anchor\0` digest of the
+actual private Observation; it cannot be replaced by a later sample. Signature
+input is the matching `...-protection-signature\0`, `...-anchor-signature\0` or
+`...-management-signature\0` domain + LP32(unsigned fields1–6) + signingKeyVersion
+u32be. BROKEN evidence signature input is
+`nereus-delay-target-kafka-receipt-protection-broken\0` + original artifact digest
++ failure digest[32] + SHA256(original PreparedControlOperation).
+
+One persistent Registry key `/target-kafka-receipt-storage` holds bounded capacity,
+topic-management and publication state. Closed root schema1 fields1–9 are version,
+physicalBytes, physicalRecords, maximumPublications, maximumTopics,
+maximumPreparedReferences, capacitySourceDigest[32], repeated management records,
+repeated publication intents. Physical budget and all maxima are explicit startup
+configuration, must match the retained root, and are independent of logical Target
+fees and system-writer append reserve. Root reserve is
+4096 + maximumTopics*(256 KiB+16 KiB+512) +
+maximumPublications*(4096+maximumPreparedReferences*128), at most16 MiB.
+Limits: publications<=4096, topics<=64, prepared references<=128; root occupies one
+record; each reserved blob consumes its full key/value footprint and one record.
+Adoption does not remove its physical footprint. No TTL, expiry release, implicit
+replacement or orphan-deletion operation exists.
+
+Management state record fields1–7 are original signed artifact, state
+(INSTALLING=1, ACTIVE=2, BROKEN=3), positive revision, actual policy, failure digest,
+failure signature, original installationID[16]. Topic identity is SHA256(
+`nereus-delay-target-kafka-receipt-managed-topic\0` + exact BrokerResourceIdentity).
+An invocation-specific persistent installationID precedes actual Admin effects.
+Historical INSTALLING/BROKEN cannot resume Admin requests or become ACTIVE.
+ACTIVE requires successful real configuration/ACL/UUID observation and exact CAS
+reread; uncertainty holds the original epoch. BROKEN is irreversible.
+
+Publication intent closed fields1–15 are original publicationID, artifact kind,
+complete external key, artifact digest, actual canonical value SHA256, actual value
+length, original CONTROL operationID, original CONTROL SHA256, original Shard[20],
+frozen CONTROL TargetQuotaIdentity, phase (RESERVED=1,PUBLISHED=2,POSSIBLY_SOURCE=3,
+ADOPTED=4), repeated prepared uses, adopted Source digest (empty until adoption),
+broken digest/signature (empty until irreversible failure). Prepared use fields1–3
+are original SystemMutationID[32], mutation hash[32], retryUntil. PublicationID is
+SHA256(`nereus-delay-target-kafka-receipt-publication\0` + kind u32be + artifact
+ digest + LP32(full key UTF8) + CONTROL operationID). Reserve precedes artifact put;
+all success/uncertain writes require exact reread. Prepared binding precedes Source
+enqueue. Only private proof read from actual APPLIED SYSTEM/POSITION, immutable
+mapping and exact owner/ref rows can mark adoption. No two-system atomicity is claimed.
+
+NV47 TargetExternalEvidenceOwner schema1 is META `28 01 + kind[1] + digest[32]`.
+Closed fields1–13: version, kind1/2, artifact digest, complete external key UTF8,
+actual value SHA256, actual canonical value length, full frozen TargetQuotaIncarnation,
+original domain slot/generation, original CONTROL SHA256, original CONTROL Source,
+creator AttemptID (anchor[32], empty for protection), Source adoption mutation.
+NV48 TargetExternalEvidenceReference schema1 is META
+`29 01 + kind[1] + mappingID[32]`; anchor also has an actual physical alias row
+`29 01 03 + attemptID[32]` with the same value. Closed fields1–9: version, kind,
+artifact digest, mappingID, AttemptID, frozen reference TargetQuotaIdentity,
+frozen accounting, original Source Admission mutation, lineage[16]. Native owner
+and each physical ref/alias are STATE records. Each distinct external blob is
+EVIDENCE exactly once, charged as full external key bytes + actual canonical value
+bytes + frozen recordOverheadBytes, with no native NV envelope. Protection owner
+comes from its original actual APPLIED Channel Control Target/accounting incarnation;
+anchor owner comes from first Source Admission's frozen Attempt owner. Renewal,
+new Owner or another reference cannot reprice or move either. Shared management
+is covered by deployment physical storage; embedded bytes are not separately charged.
+Anchor consumption is removed from referencing Attempt effective reserves while the
+independently owned blob remains charged. UNKNOWN/BROKEN/uncertain writes hold all
+original obligations. Old v6 rows without owner/ref closure acquire no first-SEND
+permission; existing Admission v3/v4/v5/v6 and Binding v1 bytes remain unchanged.
+
+Target semantic companion schema4 preserves schema3 fields1–13, adds repeated
+field14 (actual external object image: complete key, full signed artifact), ordered
+by exact key; digest is field15 over fields1–14. Record/byte limits include these
+objects. Native ledger fold correlates unique owners, all mapping refs, physical
+aliases, actual first adoption and original APPLIED Channel Control. Outside Store
+locks the actual catalog objects are reread/authenticated and independently match
+full key, raw bytes, hash, length, original CONTROL and Source. A Manifest retaining
+these records requires schema4 and complete actual objects; counter values never
+supply this evidence. Schema1/2/3 remain readable for their original scope. Complete
+restore still requires original issuer/history/Source/pin/physical authority.
+
+This is development implementation. Main/locked K1 SDK compilation is the current
+check only; tests, Broker/recovery, style/docs gates and full production startup,
+resource lifecycle, retirement and controlled migration remain deferred/open.

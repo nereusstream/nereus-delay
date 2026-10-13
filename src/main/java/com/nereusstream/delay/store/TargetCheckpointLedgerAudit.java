@@ -54,6 +54,7 @@ import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
@@ -124,6 +125,8 @@ final class TargetCheckpointLedgerAudit {
         final List<TargetChannelSlot> channelSlots = new ArrayList<>();
         final List<com.nereusstream.delay.protocol.TargetKafkaReceiptMapping> kafkaMappings = new ArrayList<>();
         final List<com.nereusstream.delay.protocol.TargetKafkaReceiptSlot> kafkaSlots = new ArrayList<>();
+        final List<com.nereusstream.delay.protocol.TargetExternalEvidenceOwner> externalOwners = new ArrayList<>();
+        final Map<String, com.nereusstream.delay.protocol.TargetExternalEvidenceReference> externalReferences = new HashMap<>();
         final List<TargetInitialControlSnapshot> initialControls = new ArrayList<>();
         final List<TargetQuotaAttemptBudget> attemptBudgets = new ArrayList<>();
         final List<AttemptProjection> attemptProjections = new ArrayList<>();
@@ -202,6 +205,16 @@ final class TargetCheckpointLedgerAudit {
                         dependencies.kafkaMapping(mapping);
                     } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.VALUE_TYPE) {
                         kafkaSlots.add(com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.decodeForStore(key, payload, proof.metadata().shardId()));
+                    } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetExternalEvidenceOwner.VALUE_TYPE) {
+                        final var owner = com.nereusstream.delay.protocol.TargetExternalEvidenceOwner.decodeForStore(key,payload,
+                                proof.metadata().shardId(),proof.bookkeeping().tenantScope(),proof.root().recoveryLineage());
+                        owner.createdAt().requireAtOrBefore(proof.aggregate().mutation());
+                        externalOwners.add(owner); dependencies.externalEvidence(owner);
+                    } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetExternalEvidenceReference.VALUE_TYPE) {
+                        final var ref = com.nereusstream.delay.protocol.TargetExternalEvidenceReference.decodeForStore(key,payload,
+                                proof.metadata().shardId(),proof.root().recoveryLineage());
+                        ref.mutation().requireAtOrBefore(proof.aggregate().mutation());
+                        if(externalReferences.put(Bytes.hex(key),ref)!=null)throw new IllegalStateException("duplicate external reference");
                     } else if (family == ColumnFamily.META && type == TargetQuotaGrantActivation.VALUE_TYPE) {
                         grantActivations.add(TargetQuotaGrantActivation.decodeForStore(
                                 key, payload, proof.metadata().shardId(), proof.bookkeeping().tenantScope()));
@@ -289,6 +302,7 @@ final class TargetCheckpointLedgerAudit {
         auditChannelHistory(channelControls, channelIdentities, channelSlots);
         final var admissions = auditAdmissionResults(attemptBudgets, resultRows, proof.root().identity());
         auditKafkaReceiptReferences(kafkaMappings, kafkaSlots, channelIdentities, admissions, resultRows, proof.root().identity());
+        auditExternalEvidenceReferences(kafkaMappings, externalOwners, externalReferences, attemptBudgets, channelControls);
         TargetQuotaDelta.audit(proof.aggregate(), counters, rebuilt);
         for (final var stored : resultRows) {
             if (stored.key()[0] == TargetKeyCodec.RESULT_SYSTEM_TAG) {
@@ -632,6 +646,49 @@ final class TargetCheckpointLedgerAudit {
                     body.canonicalBytes(), AuthorIdentity.control(author.operationActorIdHash(),
                             author.authenticatedRoleSetHash(), author.tenantResourceScopeHash()).canonicalBytes());
         }
+    }
+
+    /** Independent inventory correlation. Complete actual external byte authentication follows outside the Store view. */
+    private static void auditExternalEvidenceReferences(
+            List<com.nereusstream.delay.protocol.TargetKafkaReceiptMapping> mappings,
+            List<com.nereusstream.delay.protocol.TargetExternalEvidenceOwner> owners,
+            Map<String,com.nereusstream.delay.protocol.TargetExternalEvidenceReference> references,
+            List<TargetQuotaAttemptBudget> budgets, List<TargetChannelControlRecord> controls) {
+        final var byOwner = new HashMap<String,com.nereusstream.delay.protocol.TargetExternalEvidenceOwner>();
+        final var byAttempt = new HashMap<String,TargetQuotaAttemptBudget>();
+        final var expected = new java.util.HashSet<String>(); final var used = new java.util.HashSet<String>();
+        final var creation = new java.util.HashSet<String>();
+        for(var owner:owners)if(byOwner.put(Bytes.hex(owner.key()),owner)!=null)throw new IllegalStateException("duplicate external primary owner");
+        for(var budget:budgets)byAttempt.put(Bytes.hex(budget.publishAttemptId()),budget);
+        for(var mapping:mappings){
+            final var attempt=Objects.requireNonNull(byAttempt.get(Bytes.hex(mapping.admission().publishAttemptId())),"external mapping Attempt budget");
+            for(int kind:List.of(1,2)){
+                final byte[] digest=kind==1?mapping.admission().kafkaReceipt().retentionProtectionDigest():mapping.admission().kafkaReceipt().scanObservationDigest();
+                final String key=Bytes.hex(com.nereusstream.delay.protocol.TargetExternalEvidenceReference.key(kind,mapping.mappingId()));
+                final var ref=Objects.requireNonNull(references.get(key),"mapping has no original external reference");expected.add(key);
+                final String ownerKey=Bytes.hex(com.nereusstream.delay.protocol.TargetExternalEvidenceOwner.key(kind,digest));
+                final var owner=Objects.requireNonNull(byOwner.get(ownerKey),"external reference has no unique retained owner"); used.add(ownerKey);
+                if(!Arrays.equals(ref.artifactDigest(),digest)||!Arrays.equals(ref.attemptId(),attempt.publishAttemptId())
+                        ||!ref.referenceOwner().equals(attempt.primaryIdentity())||!ref.accounting().equals(attempt.accounting())
+                        ||!ref.mutation().equals(mapping.mutation())||!owner.originalDomain().equals(mapping.admission().channel().context().domain())
+                        ||!owner.primaryOwner().identity().target().equals(attempt.primaryIdentity().target()))
+                    throw new IllegalStateException("external reference changed mapping/Attempt/frozen domain responsibility");
+                owner.createdAt().requireAtOrBefore(ref.mutation());
+                if(owner.createdAt().equals(mapping.mutation())){
+                    if(kind==2&&!Arrays.equals(owner.creatorAttemptId(),attempt.publishAttemptId()))throw new IllegalStateException("anchor creator is not its first Source Attempt");
+                    creation.add(ownerKey);
+                }
+                if(kind==2){final String alias=Bytes.hex(com.nereusstream.delay.runtime.TargetExternalEvidenceStore.referenceByAttemptKey(attempt.publishAttemptId()));
+                    expected.add(alias);final var actual=Objects.requireNonNull(references.get(alias),"missing exact attempt-reference alias");
+                    if(!Arrays.equals(actual.canonicalBytes(),ref.canonicalBytes()))throw new IllegalStateException("anchor alias differs from its original reference");}
+                final boolean control=controls.stream().anyMatch(c->Arrays.equals(c.mutation().source().canonicalBytes(),owner.originalControlSource().canonicalBytes())
+                        && c.body().request().channel().context().target().equals(owner.primaryOwner().identity().target())
+                        && c.body().request().channel().context().domain().equals(owner.originalDomain()));
+                if(!control)throw new IllegalStateException("external evidence lacks its original APPLIED Channel Control domain");
+            }
+        }
+        if(!expected.equals(references.keySet())||!used.equals(byOwner.keySet())||!creation.equals(byOwner.keySet()))
+            throw new IllegalStateException("external owner/ref inventory lacks complete original mapping/adoption closure");
     }
 
     private static void auditKafkaReceiptReferences(

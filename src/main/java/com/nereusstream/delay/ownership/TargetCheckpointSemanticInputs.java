@@ -44,7 +44,14 @@ public final class TargetCheckpointSemanticInputs implements Supplier<Optional<T
     public record OriginalAuthorities(TargetCheckpointDependencies.AdmissionHistoryAuthority admissionHistory,
             com.nereusstream.delay.runtime.TargetPublishAdmissionVerifier.Authority admissions,
             TargetCheckpointDependencies.ControlImageAuthority controls,
-            TargetCheckpointDependencies.OutcomeImageAuthority outcomes) {
+            TargetCheckpointDependencies.OutcomeImageAuthority outcomes,
+            TargetCheckpointDependencies.ExternalEvidenceAuthority externalEvidence) {
+        public OriginalAuthorities(TargetCheckpointDependencies.AdmissionHistoryAuthority history,
+                com.nereusstream.delay.runtime.TargetPublishAdmissionVerifier.Authority admissions,
+                TargetCheckpointDependencies.ControlImageAuthority controls,
+                TargetCheckpointDependencies.OutcomeImageAuthority outcomes) {
+            this(history,admissions,controls,outcomes,null);
+        }
         public OriginalAuthorities {
             Objects.requireNonNull(admissionHistory, "admissionHistory");
             Objects.requireNonNull(admissions, "admissions");
@@ -151,7 +158,8 @@ public final class TargetCheckpointSemanticInputs implements Supplier<Optional<T
                     .withControlInputs(complete, control.inputs(), budget, p.semanticLimits(), authorities.controls(),
                             p.protection())
                     .withOutcomeInputs(complete, outcome.inputs(), budget, p.semanticLimits(), authorities.outcomes(),
-                            p.protection());
+                            p.protection())
+                    .withExternalEvidence(complete, authorities.externalEvidence(), budget, p.semanticLimits(), p.protection());
             if (registry.result().isEmpty()) { return Optional.empty(); }
             p.protection().run();
             return Optional.of(snapshot);
@@ -238,7 +246,7 @@ public final class TargetCheckpointSemanticInputs implements Supplier<Optional<T
         outcomes.result().orElseThrow();
         if (admissions != null) { admissions.result(control.cut()).orElseThrow(); }
         if (snapshot.isEmpty()) { return Optional.empty(); }
-        if (snapshot.orElseThrow().schemaVersion() != 3) {
+        if (snapshot.orElseThrow().schemaVersion() < 3) {
             throw new IllegalArgumentException("complete Target history collection requires original Outcome schema");
         }
         return snapshot;

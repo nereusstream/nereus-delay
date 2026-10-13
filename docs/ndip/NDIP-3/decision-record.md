@@ -340,3 +340,39 @@ exact resource 和原 capability 耐久前提，再持久发布保护及采样/�
 工具按包2/4实现。包1 catalog/provider 必须默认持久保留并拒绝无证据解除。当前这一真实
 activation→保护→anchor→Admission→冷恢复重读链仍待实现，包1和整体 flags 不变；本条不
 授权当前开发阶段改生产配置、执行实际迁移/删除或解除保护。
+
+
+## 2026-10-13：K2 backing 最终边界及实际 Source adoption 开发
+
+主会话最终决策终止逐级 grant 扩展：整 topic 管理 record 与原 protection/anchor 留在同一
+持久 catalog，闭合 source-bound deployment authorization image 与原 CONTROL/root/scope。
+当前 operator 与配置管理凭据才可发 Admin 操作；原 Prepared 仅为历史授权。持久
+INSTALLING/installationID 和物理 capacity reservation 必须先于远端操作；exact实际
+配置/ACL/UUID 成功后才 ACTIVE，历史 INSTALLING 请求不明或 BROKEN 不可复活。
+Oxia CAS 不冒称远端 fencing，不把 Owner/session 过期当保护解除。
+
+保护 primary 从原实际 APPLIED Channel Control 冻结 TargetQuotaIncarnation 取；anchor
+primary 从首实际 Source Admission 的 Attempt owner 取。management 整 topic 属部署
+物理预算；每份 slot实际artifact的内嵌字节只收费一次。新的独立 owner/ref 行允许，旧
+Binding v1/Admission v6 bytes 保持。外部对象必须在 Store 外认证全 key/raw value/digest/
+实际length，native same batch 写 owner/ref 与原业务/first/Source/双账本；replay 不重复。
+checkpoint 由实际物理行与原外部对象独立折叠，禁止抄 counters。
+
+发布在任何可能 Source enqueue 前持久 reservation 和原 CONTROL publicationID/scope/
+有限 bytes/records/budget/phase；原 prepared Admission ID/hash/retry 在 enqueue 前绑定。
+只有实际 Source APPLIED 私有 proof 可作 adoption。adoption 不删除物理对象，两系统不是
+分布式原子事务。孤儿清退仍须封闭原 writer/retry、Source barrier、从未采用证明及原
+Control/query/Floor/retention；包1先完成 publication→Source adoption→冷重读/保守持有，
+包2/4才实现有原权威依据的解除/GC。
+
+本批已实现上述持久 catalog、实际 Admin、原CONTROL签名/范围验证、原anchor typed
+publication、受实际 Worker/Owner/profile/SDK 约束的 provider、runtime prepared bind→
+APPLIED adoption 等待点、native NV47/NV48和alias计费，及checkpoint schema4原实物闭合。
+冷factory/reader须对账实际mapping和SYSTEM/POSITION/owner/ref，再取得恢复资源权限。
+未知写失败保留原 publication/同signed frame，旧v6缺owner/ref不授首次SEND，release API
+当前明确拒绝无证据解除。
+
+必要编译修正了现有 View/Reader 与 Budget primaryIdentity 类型适配；最新实际编译结果
+见本批执行输出。没有测试/style/docs/Broker/性能/迁退 gate 通过声明，也没有当前生产
+Admin/config/delete 动作。完整服务启动/物理资源与I/O关闭、集中验证、包2/3/4和全部必做
+义务继续；all completion/production flags 保持false。

@@ -41,15 +41,27 @@ public final class TargetPulsarPublishRuntime {
         CompletableFuture<Inputs> load(TargetClaimRecord claim);
     }
 
+    /** Durable publication binding precedes Source submission; exact native APPLIED proof precedes SDK submission. */
+    public interface ReceiptPublications {
+        CompletableFuture<Void> bind(SystemMutation prepared);
+        CompletableFuture<Void> adopt(TargetPublishAdmissionStore.Applied actual);
+    }
+
     /** Frozen external references are checked against actual Claim/Source facts before signing. */
     public record Inputs(TargetChannelIdentity channel, ProfileRef capability, long retryUntilEpochMs,
             CapacityVector commitment, CapacityVector allocated, TargetNativePolicyAuthority policies,
             TargetQuotaDelta.LocalClaimAuthority revokeQuota, TargetStoreBackend.CommitAuthority revokeWrites,
-            com.nereusstream.delay.protocol.TargetKafkaReceiptBinding kafkaReceipt) {
+            com.nereusstream.delay.protocol.TargetKafkaReceiptBinding kafkaReceipt, ReceiptPublications receiptPublications) {
         public Inputs(TargetChannelIdentity channel, ProfileRef capability, long retryUntilEpochMs,
                 CapacityVector commitment, CapacityVector allocated, TargetNativePolicyAuthority policies,
                 TargetQuotaDelta.LocalClaimAuthority revokeQuota, TargetStoreBackend.CommitAuthority revokeWrites) {
-            this(channel, capability, retryUntilEpochMs, commitment, allocated, policies, revokeQuota, revokeWrites, null);
+            this(channel, capability, retryUntilEpochMs, commitment, allocated, policies, revokeQuota, revokeWrites, null, null);
+        }
+        public Inputs(TargetChannelIdentity channel, ProfileRef capability, long retryUntilEpochMs,
+                CapacityVector commitment, CapacityVector allocated, TargetNativePolicyAuthority policies,
+                TargetQuotaDelta.LocalClaimAuthority revokeQuota, TargetStoreBackend.CommitAuthority revokeWrites,
+                com.nereusstream.delay.protocol.TargetKafkaReceiptBinding receipt) {
+            this(channel, capability, retryUntilEpochMs, commitment, allocated, policies, revokeQuota, revokeWrites, receipt, null);
         }
         public Inputs {
             Objects.requireNonNull(channel, "channel");
@@ -59,6 +71,9 @@ public final class TargetPulsarPublishRuntime {
             Objects.requireNonNull(revokeQuota, "revokeQuota");
             Objects.requireNonNull(revokeWrites, "revokeWrites");
             if (retryUntilEpochMs < 0) { throw new IllegalArgumentException("negative Admission retry deadline"); }
+            if (kafkaReceipt != null && receiptPublications == null) {
+                throw new IllegalArgumentException("K2 preparation lacks durable publication/Source adoption lifecycle");
+            }
             if ((channel.context().kind() == com.nereusstream.delay.protocol.ChannelKind.KAFKA_TRANSACTIONAL_RECEIPT)
                     != (kafkaReceipt != null)) {
                 throw new IllegalArgumentException("K2 preparation requires its independently authenticated receipt anchor");
@@ -85,6 +100,8 @@ public final class TargetPulsarPublishRuntime {
         volatile SystemMutation admission;
         TargetPublishAdmissionStore.Applied applied;
         CompletableFuture<Payload> payload;
+        CompletableFuture<Void> receiptBound;
+        CompletableFuture<Void> receiptAdopted;
         CompletableFuture<TargetPulsarPublishExecutor.Submission> sending;
         TargetPulsarPublishExecutor.Submission submission;
         CompletableFuture<TargetOrdinaryPublishExecutor.Submission> ordinarySending;
@@ -347,6 +364,15 @@ public final class TargetPulsarPublishRuntime {
                         input.allocated(), Objects.requireNonNull(time.get(), "trusted interval"), input.policies(),
                         input.kafkaReceipt(), signer, ownerClock);
             }
+            if (flight.inputs.kafkaReceipt() != null) {
+                if (flight.receiptBound == null) {
+                    flight.receiptBound = Objects.requireNonNull(flight.inputs.receiptPublications().bind(flight.admission),
+                            "durable prepared receipt binding");
+                }
+                if (!flight.receiptBound.isDone()) { return turn(Status.PREPARING, flight); }
+                try { flight.receiptBound.join(); }
+                catch (RuntimeException failed) { flight.receiptBound = null; throw failed; }
+            }
             if (!flight.admissionSettled) {
                 admissions.submit(flight.admission, ownerClock);
                 final var first = admissions.settle(ownerClock);
@@ -357,6 +383,15 @@ public final class TargetPulsarPublishRuntime {
                 }
                 flight.applied = worker.readAppliedAdmission(readBudget(), flight.admission, ownerClock);
                 flight.admissionSettled = true;
+            }
+            if (flight.inputs.kafkaReceipt() != null) {
+                if (flight.receiptAdopted == null) {
+                    flight.receiptAdopted = Objects.requireNonNull(flight.inputs.receiptPublications().adopt(flight.applied),
+                            "actual Source receipt adoption");
+                }
+                if (!flight.receiptAdopted.isDone()) { return turn(Status.WAITING_ADMISSION, flight); }
+                try { flight.receiptAdopted.join(); }
+                catch (RuntimeException failed) { flight.receiptAdopted = null; throw failed; }
             }
             if (flight.payload == null) {
                 flight.payload = Objects.requireNonNull(payloads.resolve(flight.applied), "payload future");

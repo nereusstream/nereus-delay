@@ -224,7 +224,7 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
                 final var snapshot = Objects.requireNonNull(inputs.get(), "semantic inputs");
                 guard.run();
                 if (snapshot.isEmpty()) { return; }
-                if (snapshot.orElseThrow().schemaVersion() != 3) {
+                if (snapshot.orElseThrow().schemaVersion() < 3) {
                     throw new IllegalArgumentException("collected Target checkpoint requires original Outcome schema");
                 }
                 final var semantic = new SemanticRequest(request, snapshot.orElseThrow(), limits, protection);

@@ -223,11 +223,11 @@ public final class KafkaClientArtifactTargetReceiptReader implements AutoCloseab
             com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(out, 6, e.partition());
             com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(out, 7, e.requestVersion());
             com.nereusstream.delay.protocol.CanonicalProtobuf.uint32Bits(out, 8, e.correlationId());
-            com.nereusstream.delay.protocol.CanonicalProtobuf.int64(out, 9, e.brokerNodeId());
-            com.nereusstream.delay.protocol.CanonicalProtobuf.int64(out, 10, e.sessionId());
+            com.nereusstream.delay.protocol.CanonicalProtobuf.uint64Bits(out, 9, e.brokerNodeId());
+            com.nereusstream.delay.protocol.CanonicalProtobuf.uint64Bits(out, 10, e.sessionId());
             com.nereusstream.delay.protocol.CanonicalProtobuf.int64(out, 11, e.fetchOffset());
-            com.nereusstream.delay.protocol.CanonicalProtobuf.int64(out, 12, e.firstRecordOffset());
-            com.nereusstream.delay.protocol.CanonicalProtobuf.int64(out, 13, e.lastRecordOffset());
+            com.nereusstream.delay.protocol.CanonicalProtobuf.uint64Bits(out, 12, e.firstRecordOffset());
+            com.nereusstream.delay.protocol.CanonicalProtobuf.uint64Bits(out, 13, e.lastRecordOffset());
             com.nereusstream.delay.protocol.CanonicalProtobuf.int64(out, 14, e.highWatermark());
             com.nereusstream.delay.protocol.CanonicalProtobuf.int64(out, 15, e.lastStableOffset());
             com.nereusstream.delay.protocol.CanonicalProtobuf.int64(out, 16, e.logStartOffset());

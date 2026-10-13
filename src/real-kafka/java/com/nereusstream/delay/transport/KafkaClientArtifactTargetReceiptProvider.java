@@ -1,0 +1,236 @@
+package com.nereusstream.delay.transport;
+
+import com.nereusstream.delay.ownership.TargetWorkerShardRuntime;
+import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.CapacityDimension;
+import com.nereusstream.delay.protocol.CapacityVector;
+import com.nereusstream.delay.protocol.CredentialBinding;
+import com.nereusstream.delay.protocol.OwnerIdentity;
+import com.nereusstream.delay.protocol.TargetChannelIdentity;
+import com.nereusstream.delay.protocol.TargetKafkaReceiptBinding;
+import com.nereusstream.delay.protocol.TargetKafkaReceiptControlArtifact;
+import com.nereusstream.delay.protocol.TargetKafkaReceiptMapping;
+import com.nereusstream.delay.protocol.TargetPublishAdmissionBody;
+import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
+import com.nereusstream.delay.runtime.CredentialAttestationTrustSet;
+import com.nereusstream.delay.runtime.OxiaSyncTargetKafkaReceiptProtectionCatalog;
+import com.nereusstream.delay.runtime.ProfileCatalog;
+import com.nereusstream.delay.runtime.TargetPublishAdmissionVerifier;
+import java.time.Duration;
+import java.util.Arrays;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.function.LongSupplier;
+import java.util.function.Supplier;
+
+/** Actual Registry/Oxia/Worker/Profile-backed receipt and original anchor provider for first SEND and cold recovery. */
+public final class KafkaClientArtifactTargetReceiptProvider implements KafkaClientArtifactTargetReceiptReader.Protection,
+        KafkaClientArtifactTargetTransactionalFactory.Activation, KafkaClientArtifactTargetReceiptAnchor.Protection {
+    private final TargetWorkerShardRuntime worker;
+    private final OwnerIdentity owner;
+    private final TargetChannelIdentity channel;
+    private final OxiaSyncTargetKafkaReceiptProtectionCatalog catalog;
+    private final TargetKafkaReceiptControlArtifact protection;
+    private final ProfileCatalog profiles;
+    private final CredentialAttestationTrustSet credentialTrust;
+    private final Supplier<TrustedUtcIntervalEvidence> time;
+    private final LongSupplier ownerClock;
+    private final byte[] sdkJar;
+    private final CredentialMaterial credentials;
+    private final Supplier<com.nereusstream.delay.store.BoundedReadBudget> adoptionReads;
+
+    /** Actual resolved private transport material must match the exact frozen binding/fingerprint, not a mutable alias. */
+    @FunctionalInterface
+    public interface CredentialMaterial { void requireConfigured(CredentialBinding original); }
+
+    /** Implemented by the CONTROL management entry; the Worker never receives its issuer key. */
+    @FunctionalInterface
+    public interface AnchorPublisher {
+        CompletableFuture<TargetKafkaReceiptBinding> publish(KafkaClientArtifactTargetReceiptAnchor.Observation actual,
+                String targetPhysicalTopic);
+    }
+
+    public KafkaClientArtifactTargetReceiptProvider(TargetWorkerShardRuntime worker, OwnerIdentity owner,
+            TargetChannelIdentity channel, OxiaSyncTargetKafkaReceiptProtectionCatalog catalog,
+            byte[] originalProtectionDigest, com.nereusstream.delay.protocol.KafkaReceiptSlotResource resource,
+            ProfileCatalog profiles, CredentialAttestationTrustSet credentialTrust, CredentialMaterial credentials,
+            Supplier<TrustedUtcIntervalEvidence> time, LongSupplier ownerClock, byte[] activatedSdkJarSha256,
+            Supplier<com.nereusstream.delay.store.BoundedReadBudget> adoptionReads) {
+        this.worker = Objects.requireNonNull(worker, "actual Worker");
+        this.owner = Objects.requireNonNull(owner, "actual configured Owner");
+        this.channel = Objects.requireNonNull(channel, "current registered channel");
+        this.catalog = Objects.requireNonNull(catalog, "actual Registry receipt catalog");
+        this.profiles = Objects.requireNonNull(profiles, "actual immutable Profile/credential catalog");
+        this.credentialTrust = Objects.requireNonNull(credentialTrust, "original credential-attestation trust");
+        this.credentials = Objects.requireNonNull(credentials, "actual configured private SDK material");
+        this.adoptionReads = Objects.requireNonNull(adoptionReads,"finite actual Source adoption read budgets");
+        this.time = Objects.requireNonNull(time, "trusted clock policy");
+        this.ownerClock = Objects.requireNonNull(ownerClock, "Source Owner clock");
+        Bytes.requireLength(activatedSdkJarSha256, 32, "eligible-reader activated SDK JAR");
+        sdkJar = Bytes.copy(activatedSdkJarSha256);
+        if (!worker.shardId().equals(channel.context().sourceShard())) { throw new IllegalArgumentException("receipt provider belongs to another Shard"); }
+        requireWorker();
+        protection = catalog.requireActive(resource, channel.context().evidenceGeneration(), originalProtectionDigest);
+        protection.protection().requireChannel(channel);
+        requireCurrentChannel();
+    }
+
+    /** Real sample, original CONTROL signature and exact durable reread all precede returning the v6 binding. */
+    public CompletableFuture<Optional<TargetKafkaReceiptBinding>> prepareBinding(String targetPhysicalTopic,
+            Map<String, Object> readerConfiguration, AnchorPublisher publisher, Duration timeout, Executor io) {
+        final var p = protection.protection();
+        requireCurrentChannel();
+        return KafkaClientArtifactTargetReceiptAnchor.sample(readerConfiguration, p.resource(), p.physicalTopic(),
+                p.physicalPartition(), this, timeout, io).thenCompose(sample -> {
+                    if (sample.isEmpty()) { return CompletableFuture.completedFuture(Optional.empty()); }
+                    requireCurrentChannel();
+                    return Objects.requireNonNull(publisher, "actual CONTROL anchor publication").publish(
+                            sample.orElseThrow(), targetPhysicalTopic).thenApply(binding -> {
+                                requireBinding(binding); return Optional.of(binding);
+                            });
+                });
+    }
+
+    /** Cold startup reloads original two digests; it never samples a replacement end for an existing mapping. */
+    public TargetKafkaReceiptControlArtifact requireBinding(TargetKafkaReceiptBinding binding) {
+        requireWorker();
+        catalog.requireActive(binding.receiptResource(), protection.protection().evidenceGeneration(), binding.retentionProtectionDigest());
+        final var anchor = catalog.requireAnchor(protection, binding);
+        requireCurrentChannel();
+        return anchor;
+    }
+
+    @Override
+    public void requireCurrent(TargetKafkaReceiptMapping mapping, long nextOffset) {
+        final var admitted = mapping.admission();
+        if (!Arrays.equals(channel.context().producerIdentity(), admitted.channel().context().producerIdentity())
+                || nextOffset < admitted.kafkaReceipt().scanStartOffset()
+                || !admitted.publication().capabilityProfile().equals(protection.protection().capability())) {
+            throw new IllegalArgumentException("receipt recovery changes frozen producer/range/capability");
+        }
+        reconcileAdoption(mapping, adoptionReads.get());
+    }
+
+    @Override public void requireAdoption(TargetKafkaReceiptMapping mapping) {
+        reconcileAdoption(mapping, adoptionReads.get());
+    }
+
+    @Override
+    public OwnerIdentity requireCurrent(TargetChannelIdentity requested, TargetKafkaReceiptBinding receipt, byte[] actualSdkJar) {
+        channel.requireExactFrozenIdentity(requested);
+        requireSdk(actualSdkJar);
+        requireBinding(receipt);
+        return requireWorker();
+    }
+
+    @Override
+    public byte[] requireProtected(com.nereusstream.delay.protocol.KafkaReceiptSlotResource resource, String topic, int partition) {
+        requireWorker(); requireResource(resource, topic, partition);
+        catalog.requireActive(resource, protection.protection().evidenceGeneration(), protection.digest());
+        requireCurrentChannel();
+        return protection.digest();
+    }
+    @Override
+    public void requireCurrent(byte[] digest, com.nereusstream.delay.protocol.KafkaReceiptSlotResource resource,
+            String topic, int partition, byte[] actualSdkJar) {
+        if (!Arrays.equals(digest, protection.digest())) { throw new IllegalArgumentException("anchor protection was replaced"); }
+        requireSdk(actualSdkJar); requireProtected(resource, topic, partition);
+    }
+
+    /** Snapshot lookup runs before the Store view; the apply callback only compares exact preloaded signed bytes and charges. */
+    public TargetPublishAdmissionVerifier.MaterializationAuthority materialization(
+            com.nereusstream.delay.protocol.SystemMutation prepared, com.nereusstream.delay.protocol.SourcePosition source) {
+        final var body = TargetPublishAdmissionBody.decode(prepared.canonicalBody());
+        requireBinding(Objects.requireNonNull(body.kafkaReceipt(), "original v6 receipt binding"));
+        protection.protection().requireChannel(body.channel());
+        if (!body.publication().capabilityProfile().equals(protection.protection().capability())
+                || !source.shardId().equals(worker.shardId()) || source.compareTo(protection.authorizedAt()) <= 0) {
+            throw new IllegalArgumentException("Admission changes original protected CONTROL/capability source use");
+        }
+        final byte[] actualBody = body.canonicalBytes();
+        final byte[] actualSource = source.canonicalBytes();
+        final var material = new com.nereusstream.delay.runtime.TargetKafkaReceiptExternalEvidence(protection,
+                catalog.protectionObjectKey(protection.protection()), requireBinding(body.kafkaReceipt()),
+                catalog.anchorObjectKey(body.kafkaReceipt().scanObservationDigest()));
+        catalog.requirePrepared(protection, material.anchor(), prepared);
+        final byte[] preparedFrame = prepared.encodeFrame();
+        return new TargetPublishAdmissionVerifier.MaterializationAuthority() {
+            @Override public void requirePrepared(com.nereusstream.delay.protocol.SystemMutation candidate) {
+                if (!Arrays.equals(preparedFrame, candidate.encodeFrame())) {
+                    throw new IllegalArgumentException("Source Admission differs from its durable prepared ID/hash/retry binding");
+                }
+            }
+            @Override public void requireAuthorized(TargetPublishAdmissionBody candidate,
+                    com.nereusstream.delay.protocol.SourcePosition at) {
+                if (!Arrays.equals(actualBody, candidate.canonicalBytes()) || !Arrays.equals(actualSource, at.canonicalBytes())) {
+                    throw new IllegalArgumentException("Admission differs from its protected original evidence snapshot");
+                }
+            }
+            @Override public com.nereusstream.delay.runtime.TargetKafkaReceiptExternalEvidence externalEvidence(
+                    TargetPublishAdmissionBody candidate, com.nereusstream.delay.protocol.SourcePosition at) {
+                requireAuthorized(candidate, at); return material;
+            }
+        };
+    }
+
+    /** Same original frame stays retained on UNKNOWN; native APPLIED adoption is reconciled before any first SEND. */
+    public com.nereusstream.delay.ownership.TargetPulsarPublishRuntime.ReceiptPublications publications(
+            Supplier<com.nereusstream.delay.store.BoundedReadBudget> reads, Executor io) {
+        Objects.requireNonNull(reads, "finite native adoption read budget"); Objects.requireNonNull(io, "caller bounded I/O executor");
+        return new com.nereusstream.delay.ownership.TargetPulsarPublishRuntime.ReceiptPublications() {
+            @Override public CompletableFuture<Void> bind(com.nereusstream.delay.protocol.SystemMutation prepared) {
+                return CompletableFuture.runAsync(() -> {
+                    final var body = TargetPublishAdmissionBody.decode(prepared.canonicalBody());
+                    final var anchor = requireBinding(body.kafkaReceipt());
+                    if (!body.owner().equals(requireWorker())) { throw new IllegalStateException("prepared receipt use has another live Owner"); }
+                    catalog.bindPrepared(protection, anchor, prepared); requireWorker();
+                }, io);
+            }
+            @Override public CompletableFuture<Void> adopt(com.nereusstream.delay.runtime.TargetPublishAdmissionStore.Applied actual) {
+                return CompletableFuture.runAsync(() -> reconcileAdoption(actual.kafkaMapping(), reads.get()), io);
+            }
+        };
+    }
+
+    /** Cold restart reconciles from immutable native first-result/owner/ref facts, without re-SEND or a new anchor. */
+    public void reconcileAdoption(TargetKafkaReceiptMapping mapping, com.nereusstream.delay.store.BoundedReadBudget reads) {
+        requireBinding(mapping.admission().kafkaReceipt());
+        final var actual = worker.readExternalEvidenceAdoption(Objects.requireNonNull(reads, "bounded adoption reads"),
+                mapping, ownerClock);
+        catalog.adopt(actual); requireWorker();
+    }
+
+    /** Anchor reservation consumption uses exact external bytes; the shared protection is independently owned once by Source. */
+    public CapacityVector evidenceCharge(TargetKafkaReceiptBinding binding,
+            com.nereusstream.delay.protocol.TargetQuotaAccounting frozenAccounting) {
+        final var anchor = catalog.requireAnchor(protection, binding);
+        return frozenAccounting.externalEvidenceCharge(catalog.anchorObjectKey(anchor.digest()).getBytes(
+                java.nio.charset.StandardCharsets.UTF_8).length, anchor.canonicalBytes().length);
+    }
+
+    private OwnerIdentity requireWorker() { return worker.requirePublicationOwner(owner, ownerClock); }
+    private void requireCurrentChannel() {
+        requireWorker();
+        channel.credentialLease().requireActiveAt(Objects.requireNonNull(time.get(), "actual trusted clock interval"));
+        final var profile = Objects.requireNonNull(profiles.resolve(channel.credentialLease().profile()), "original destination Profile");
+        final var binding = Objects.requireNonNull(profiles.resolveBinding(profile.ref(), channel.credentialLease().secretGeneration()),
+                "original exact credential binding");
+        channel.credentialLease().requireBinding(binding);
+        credentialTrust.verify(profile, binding);
+        credentials.requireConfigured(binding);
+        requireSdk(KafkaClientArtifactTargetReceiptReader.requireSdkIdentity());
+        requireWorker();
+    }
+    private void requireSdk(byte[] actual) {
+        if (!Arrays.equals(sdkJar, actual)) { throw new IllegalStateException("receipt reader/producer differs from the activated actual SDK artifact"); }
+    }
+    private void requireResource(com.nereusstream.delay.protocol.KafkaReceiptSlotResource resource, String topic, int partition) {
+        final var p = protection.protection();
+        if (!resource.equals(p.resource()) || !topic.equals(p.physicalTopic()) || partition != p.physicalPartition()) {
+            throw new IllegalArgumentException("receipt provider changed exact registered resource/geometry");
+        }
+    }
+}

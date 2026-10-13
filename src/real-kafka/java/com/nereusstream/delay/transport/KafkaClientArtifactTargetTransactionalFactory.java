@@ -5,6 +5,7 @@ import com.nereusstream.delay.protocol.CanonicalTargetPartition;
 import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.TargetChannelIdentity;
 import com.nereusstream.delay.protocol.TargetKafkaReceiptBinding;
+import com.nereusstream.delay.protocol.TargetKafkaReceiptMapping;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.HashMap;
@@ -41,6 +42,9 @@ public final class KafkaClientArtifactTargetTransactionalFactory {
     @FunctionalInterface
     public interface Activation {
         OwnerIdentity requireCurrent(TargetChannelIdentity channel, TargetKafkaReceiptBinding resource, byte[] actualSdkJarSha256);
+        default void requireAdoption(TargetKafkaReceiptMapping mapping) {
+            throw new IllegalStateException("cold K2 activation has no original Source/external publication adoption authority");
+        }
     }
 
     public static CompletableFuture<KafkaClientArtifactTargetTransactionalTransport> open(
@@ -107,6 +111,7 @@ public final class KafkaClientArtifactTargetTransactionalFactory {
             try {
                 final byte[] actualJar = KafkaClientArtifactTargetReceiptReader.requireSdkIdentity();
                 final var owner = Objects.requireNonNull(activation.requireCurrent(channel, receipt, actualJar), "current Owner");
+                if (mapping != null) { activation.requireAdoption(mapping); }
                 nativeProducer = new KafkaProducer<>(config, new ByteArraySerializer(), new ByteArraySerializer());
                 if (!(nativeProducer instanceof GuardedTransactionalProducer<byte[], byte[]> guarded)) {
                     throw new IllegalStateException("Target K2 requires its locked guarded transactional Producer");

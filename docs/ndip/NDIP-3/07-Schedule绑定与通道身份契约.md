@@ -720,3 +720,51 @@ unknown 使用明确 -1，不默认零；原 persisted v1 evidence encoder/含�
 empty/timeout/旧 ctor/-1/seek/assignment/guard/position、原始或过滤后空批次、LSO及
 truncation/compaction 的实际边界均留待集中验证。K2 transaction/driver、初始 anchor、
 完整受保护否定与新 Owner 恢复装配继续开放；client编译不证明这些路径或生产权威。
+
+
+## K2 持久 CONTROL backing、Source adoption 与原对象恢复（2026-10-13 开发）
+
+`KafkaClientArtifactTargetReceiptManagement.open` 用实际配置构造 Admin，并核对配置摘要与
+source-bound deployment image；原 registered CONTROL、历史 issuer 与显式整 topic/receipt
+scope 终止信任链，实际 current PLATFORM_OPERATOR 才可管理。闭合管理 image 保留 exact
+cluster/topic UUID、capability、epoch、管理/Worker principals、部署根、配置 fingerprint 与
+权限隔离依据，不增加新的公共 ControlOperationKind 或逐级自授权 grant。
+管理组件与同 session-fenced catalog/trust 一次装配；Worker 仅收到 typed AnchorPublisher。
+
+同一 catalog 的有界物理容量 root 先持久登记 INSTALLING 和本次 installationID，再发实际
+ACL/config Admin 操作，最后核对 exact UUID、整 topic 配置、完整有限 ACL 和原 capability
+前提，CAS/reread ACTIVE。历史 INSTALLING 或 BROKEN 不重发未收敛请求、不倒补连续性。
+管理固定 cleanup.policy=delete、retention.ms/bytes=-1、LogAppendTime、禁 unclean leader
+ election；Worker 有 READ/WRITE/DESCRIBE，并明确 DENY DELETE/ALTER/ALTER_CONFIGS/CREATE。
+后续实际观察失败或 policy 变化持久标记 BROKEN；签名 blob、当前配置快照或 Oxia CAS 本身
+均不冒称远端 Admin fencing。部署前提与真实权限/Broker 验证仍须集中验收。
+
+保护/anchor 保存原完整 CONTROL image 与签名，不跟随 Owner lease 过期。canonical schema、
+签名域、字段与有限上限见 PROTOCOL-REGISTRY 对应开发条目。原 Binding v1/Admission v6
+bytes 未改。保护首次实际 Source adoption 的 primary 是原 APPLIED Channel Control 冻结
+TargetQuotaIncarnation；anchor primary 是首个实际 Source Admission 的 Attempt 冻结 owner。
+相同摘要只能在原 Source/Target/recovery/accounting 域内引用，不隐式转移 owner 或重定价。
+
+发布原对象前持久 capacity/publication intent，未知写必须 exact reread；物理储存额度有明确
+配置，保持全 key/value 成本，adoption 后也不凭逻辑标志释放。Source enqueue 前同时持久
+绑定原 signed Admission ID/hash/retry scope，防止可能已入 Source 的对象被当无引用孤儿。
+实际 Source verifier 预加载原 catalog image 和 prepared 绑定，Store 内仅核对冻结输入；
+Admission 同 native batch 写 NV47 unique owner、NV48 mapping refs 和 anchor-by-attempt
+实际 alias，以及原 Claim/Attempt/Message/mapping/slot/结果/Source 与双账本。
+
+`TargetPulsarPublishRuntime.Inputs` 的 K2 分支必须提供 ReceiptPublications；单 flight 等待
+prepared bind 后才提交 Source，actual APPLIED 后再从 SYSTEM/POSITION、mapping、owner/ref
+实际行构造私有 Adoption 并 CAS 对账 catalog，随后才进入 payload/SDK。失败保留同 signed
+image，下一 caller turn 可对同 ID 重读，不换 attempt、不删原对象。Reader 与 cold factory
+也通过实际 Worker/Owner/native proof 重读并对账 adoption；冷启动仍按原两 digest 和原
+scanStart，不重新采样或补发旧 SEND。缺少新 owner/ref 闭合的历史 v6 不获得首次 SEND 权。
+
+checkpoint 全库折叠增加 owner/ref/alias/mapping/首 adoption/原 Channel Control 关联，schema4
+companion 保存每个原外部对象完整 bytes 一次。在 Store 锁外用实际 catalog 验证原签名、
+exact key/hash/length/CONTROL/Source，恢复/Manifest 必须完整匹配，不能抄 aggregate/counter。
+BROKEN 的原 bytes 仍可审计，但不授予当前 SEND 或 absence 权。Floor/retirement/共享 topic
+引用解除、原 Prepared writer 收口及实际删除仍在包2/4接线；catalog 当前拒绝无证据解除。
+
+本批源码编译通过，不代表全部包1/29切片完成。完整服务启动配置、物理资源/I/O关闭、
+最大状态 envelope、Broker 与跨进程恢复、测试/style/docs 仍开放或集中后置；未改当前生产
+配置，未执行迁移/删除/保护解除。全部 completion 与 production authority flags 不提升。

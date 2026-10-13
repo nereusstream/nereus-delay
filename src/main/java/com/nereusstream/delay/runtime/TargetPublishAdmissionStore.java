@@ -371,6 +371,7 @@ public final class TargetPublishAdmissionStore {
                                 com.nereusstream.delay.protocol.TargetKafkaReceiptMapping.VALUE_TYPE).payload(), scope.shard());
                 kafkaMapping.requireOriginal(image, first.mutation().source());
                 slot.requirePending(kafkaMapping);
+                if (firstSend) { TargetExternalEvidenceStore.readAdoption(reader, kafkaMapping, scope, lineage); }
                 if (!kafkaMapping.mutation().equals(first.mutation()) || !slot.mutation().equals(first.mutation())
                         || !Arrays.equals(kafkaMapping.recoveryLineage(), lineage)
                         || !Arrays.equals(slot.recoveryLineage(), lineage)) {
@@ -731,6 +732,8 @@ public final class TargetPublishAdmissionStore {
             final var slot = new com.nereusstream.delay.protocol.TargetKafkaReceiptSlot(body.channel(), sequence, mapping.mappingId(), stamp, lineage);
             receiptEdits.add(reader.replace(ColumnFamily.META, mapping.key(), com.nereusstream.delay.protocol.TargetKafkaReceiptMapping.VALUE_TYPE, mapping.canonicalBytes()));
             receiptEdits.add(reader.replace(ColumnFamily.META, slotKey, com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.VALUE_TYPE, slot.canonicalBytes()));
+            final var artifacts = decision.authorization().materialization().externalEvidence(body, source);
+            receiptEdits.addAll(TargetExternalEvidenceStore.adopt(reader, scope, lineage, mapping, attemptBudget, artifacts));
         }
         final var obligation = body.obligation();
         final var admitted = claim.admitted(before, obligation, body.attemptNo());

@@ -960,6 +960,24 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         requireGcOwner(Objects.requireNonNull(ownerClock, "ownerClock"));
     }
 
+    synchronized OwnerIdentity requirePublicationOwner(OwnerIdentity expected, LongSupplier clock) {
+        requireGcOwner(clock);
+        if (Objects.requireNonNull(expected, "configured publication Owner").ownerEpoch() != lease.ownerEpoch()
+                || !Bytes.constantTimeEquals(expected.leaseFencingDigest(), lease.leaseToken())) {
+            throw new IllegalStateException("receipt provider belongs to another actual Source/Owner lease");
+        }
+        return expected;
+    }
+
+    synchronized com.nereusstream.delay.runtime.TargetExternalEvidenceStore.Adoption readExternalEvidenceAdoption(
+            BoundedReadBudget reads, com.nereusstream.delay.protocol.TargetKafkaReceiptMapping mapping, LongSupplier clock) {
+        requireGcOwner(clock);
+        final var proof = com.nereusstream.delay.runtime.TargetExternalEvidenceStore.readAdoption(backend, reads, mapping,
+                scope, lineage, workerReads(clock));
+        requireGcOwner(clock);
+        return proof;
+    }
+
     synchronized TargetPublishRecoveryDiscovery.Page discoverCheckpointInputs(
             final BoundedReadBudget budget, final TargetPublishRecoveryDiscovery.Cursor continuation,
             final int maximumRows, final LongSupplier ownerClock) {

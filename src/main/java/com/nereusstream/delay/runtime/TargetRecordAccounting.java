@@ -601,13 +601,39 @@ public final class TargetRecordAccounting {
                 claim.creation().requireAtOrBefore(operation);
                 result = new Charge(owner, resources(claim.contribution()));
             }
+            case com.nereusstream.delay.protocol.TargetExternalEvidenceOwner.VALUE_TYPE -> {
+                requireFamily(family, ColumnFamily.META);
+                final var artifact = com.nereusstream.delay.protocol.TargetExternalEvidenceOwner.decodeForStore(
+                        key, payload, scope.shard(), scope.tenantScope(), lineage);
+                artifact.createdAt().requireAtOrBefore(operation);
+                final var owner = descriptor(artifact.primaryOwner().identity());
+                if (!owner.accounting().equals(artifact.primaryOwner().accounting())) {
+                    throw new IllegalStateException("external blob changes frozen primary accounting");
+                }
+                // STATE is this native owner record; EVIDENCE is its distinct exact external key/value object.
+                result = new Charge(owner, resources(owner.accounting().recordCharge(TargetQuotaAccounting.RecordClass.STATE,
+                        key.length, payload.length).add(artifact.blobCharge())));
+            }
+            case com.nereusstream.delay.protocol.TargetExternalEvidenceReference.VALUE_TYPE -> {
+                requireFamily(family, ColumnFamily.META);
+                final var ref = com.nereusstream.delay.protocol.TargetExternalEvidenceReference.decodeForStore(key, payload, scope.shard(), lineage);
+                ref.mutation().requireAtOrBefore(operation);
+                final var owner = descriptor(ref.referenceOwner());
+                if (!owner.accounting().equals(ref.accounting())) { throw new IllegalStateException("external reference changes frozen accounting"); }
+                final byte[] ownerKey = com.nereusstream.delay.protocol.TargetExternalEvidenceOwner.key(ref.kind(), ref.artifactDigest());
+                com.nereusstream.delay.protocol.TargetExternalEvidenceOwner.decodeForStore(ownerKey,
+                        payload(ColumnFamily.META, ownerKey, com.nereusstream.delay.protocol.TargetExternalEvidenceOwner.VALUE_TYPE),
+                        scope.shard(), scope.tenantScope(), lineage);
+                result = new Charge(owner, resources(owner.accounting().recordCharge(TargetQuotaAccounting.RecordClass.STATE, key.length, payload.length)));
+            }
             case TargetQuotaAttemptBudget.VALUE_TYPE -> {
                 requireFamily(family, ColumnFamily.META);
                 final var budget = TargetQuotaAttemptBudget.decodeForStore(key, payload, scope.shard());
                 final var owner = descriptor(budget.primaryIdentity());
                 owner.requireAttemptBudget(budget);
                 budget.mutation().requireAtOrBefore(operation);
-                result = new Charge(owner, resources(budget.effectiveCharge().add(root.attemptRecordCharge(budget))));
+                result = new Charge(owner, resources(TargetExternalEvidenceStore.remainingAttemptCharge(reader, overlay,
+                        budget, scope, lineage).add(root.attemptRecordCharge(budget))));
             }
             case TargetQuotaGrantActivation.VALUE_TYPE -> {
                 requireFamily(family, ColumnFamily.META);
