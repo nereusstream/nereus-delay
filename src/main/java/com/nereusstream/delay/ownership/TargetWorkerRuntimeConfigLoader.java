@@ -33,6 +33,15 @@ public final class TargetWorkerRuntimeConfigLoader {
 
     /** Reads the deployment's explicit UTF-8 properties before any Worker/native resource allocation. */
     public static TargetWorkerRuntimeConfig load(Path path) throws IOException {
+        return load(readValues(path));
+    }
+
+    /** The service schema shares the same bounded, duplicate-rejecting file read. */
+    public static TargetWorkerProcessRuntime.Configuration loadService(Path path) throws IOException {
+        return loadService(readValues(path));
+    }
+
+    private static Map<String, String> readValues(Path path) throws IOException {
         final var file = Objects.requireNonNull(path, "configuration path").toAbsolutePath().normalize();
         final var before = Files.readAttributes(file, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
         if (!before.isRegularFile() || before.size() > MAX_CONFIGURATION_BYTES) {
@@ -54,7 +63,22 @@ public final class TargetWorkerRuntimeConfigLoader {
         properties.load(new StringReader(decoded.toString()));
         final var values = new HashMap<String, String>();
         properties.forEach((key, value) -> values.put((String) key, (String) value));
-        return load(values);
+        return values;
+    }
+
+    public static TargetWorkerProcessRuntime.Configuration loadService(Map<String, String> values) {
+        final var f = new Fields(values);
+        final var process = new TargetWorkerProcessRuntime.Limits(f.integer("process.ioThreads"),
+                f.integer("process.ioPendingTasks"), f.number("process.ioNativeBytes"),
+                f.number("process.metricNativeBytes"),
+                new com.nereusstream.delay.scheduler.BoundedAsyncMetricExporter.Limits(
+                        f.integer("process.metricPendingRecords"), f.number("process.metricPendingBytes")));
+        final var oxia = new TargetWorkerOxiaRuntime.Connection(f.text("oxia.serviceAddress"),
+                f.text("oxia.namespace"), f.text("oxia.clientIdentifier"), f.text("oxia.ownerPrefix"),
+                f.text("oxia.routeSessionPrefix"), Duration.ofMillis(f.number("oxia.sessionTimeoutMs")),
+                Duration.ofMillis(f.number("oxia.requestTimeoutMs")), Duration.ofMillis(f.number("oxia.startupTimeoutMs")),
+                Duration.ofMillis(f.number("oxia.cleanupBudgetMs")), f.number("oxia.nativeBytesPerClient"));
+        return new TargetWorkerProcessRuntime.Configuration(load(f.remaining), process, oxia);
     }
 
     /** Properties normally discards duplicate keys; deployment settings must have one unambiguous value. */

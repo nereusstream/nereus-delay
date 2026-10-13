@@ -118,14 +118,6 @@ public final class SharedRocksDbResources implements AutoCloseable {
             sharedWriteBufferReservation = nativeResourceLedger.reserve(
                     "shared-write-buffer", NativeResourceUsage.memtable(this.config.sharedWriteBufferBudgetBytes()), 0);
         }
-        env = Env.getDefault();
-        env.setBackgroundThreads(this.config.maxBackgroundJobs());
-        blockCache = new LRUCache(this.config.sharedBlockCacheBytes());
-        writeBufferManager = new WriteBufferManager(this.config.sharedWriteBufferBudgetBytes(), blockCache);
-        // Use the worker-wide checkpoint/compaction I/O budget for every DB
-        // opened by this process. A zero-byte limiter would silently disable
-        // the global bound even though the config declares one.
-        rateLimiter = new RateLimiter(this.config.checkpointIoBytesPerSecond());
         shardAcquireSlots = new Semaphore(this.config.maxConcurrentAcquiresPerWorker(), true);
         ownedShardSlots = new Semaphore(this.config.maxOwnedShards(), true);
         openDbSlots = new Semaphore(this.config.maxOpenShardDbs(), true);
@@ -133,6 +125,82 @@ public final class SharedRocksDbResources implements AutoCloseable {
         checkpointUploadSlots = new Semaphore(this.config.maxConcurrentCheckpointUploadsPerWorker(), true);
         checkpointDownloadSlots = new Semaphore(this.config.maxConcurrentCheckpointDownloadsPerWorker(), true);
         drainSlots = new Semaphore(this.config.maxConcurrentDrainsPerWorker(), true);
+        final var opening = new NativeOpening(sharedBlockCacheReservation, sharedWriteBufferReservation);
+        try {
+            // The default Env is borrowed and must never be closed by this Worker.
+            env = Env.getDefault();
+            env.setBackgroundThreads(this.config.maxBackgroundJobs());
+            opening.cache = new LRUCache(this.config.sharedBlockCacheBytes());
+            opening.buffers = new WriteBufferManager(this.config.sharedWriteBufferBudgetBytes(), opening.cache);
+            // Apply the same configured global I/O bound to every DB.
+            opening.limiter = new RateLimiter(this.config.checkpointIoBytesPerSecond());
+            blockCache = opening.cache;
+            writeBufferManager = opening.buffers;
+            rateLimiter = opening.limiter;
+        } catch (RuntimeException | Error failure) {
+            final var retained = new NativeOpeningFailure(failure, opening);
+            retained.retryCleanup();
+            throw retained;
+        }
+    }
+
+    /** Exact partial JNI allocations survive a constructor failure, including failed first close attempts. */
+    public static final class NativeOpeningFailure extends IllegalStateException {
+        private static final long serialVersionUID = 1L;
+        private final transient NativeOpening opening;
+        private NativeOpeningFailure(Throwable cause, NativeOpening opening) {
+            super("shared RocksDB allocation failed; original native cleanup is retained", cause);
+            this.opening = opening;
+        }
+        public void retryCleanup() { opening.retryCleanup(this); }
+        public boolean cleanupComplete() { return opening.cleanupComplete(); }
+    }
+
+    private static final class NativeOpening {
+        private final WorkerNativeResourceLedger.Reservation cacheCost;
+        private final WorkerNativeResourceLedger.Reservation bufferCost;
+        private Cache cache;
+        private WriteBufferManager buffers;
+        private RateLimiter limiter;
+        private final Throwable[] firstFailures = new Throwable[5];
+        private NativeOpening(WorkerNativeResourceLedger.Reservation cacheCost,
+                WorkerNativeResourceLedger.Reservation bufferCost) {
+            this.cacheCost = cacheCost; this.bufferCost = bufferCost;
+        }
+        private void failed(NativeOpeningFailure original, int resource, Throwable failure) {
+            if (firstFailures[resource] == null) {
+                firstFailures[resource] = failure;
+                if (failure != original && failure != original.getCause()) original.addSuppressed(failure);
+            }
+        }
+        private synchronized void retryCleanup(NativeOpeningFailure original) {
+            if (limiter != null) {
+                try { limiter.close(); limiter = null; }
+                catch (RuntimeException | Error failure) { failed(original, 0, failure); }
+            }
+            if (buffers != null) {
+                try { buffers.close(); buffers = null; }
+                catch (RuntimeException | Error failure) { failed(original, 1, failure); }
+            }
+            if (buffers == null && bufferCost != null && !bufferCost.isReleased()) {
+                try { bufferCost.close(); }
+                catch (RuntimeException | Error failure) { failed(original, 2, failure); }
+            }
+            // The original write-buffer manager may still reference the cache after a failed close.
+            if (buffers == null && cache != null) {
+                try { cache.close(); cache = null; }
+                catch (RuntimeException | Error failure) { failed(original, 3, failure); }
+            }
+            if (cache == null && cacheCost != null && !cacheCost.isReleased()) {
+                try { cacheCost.close(); }
+                catch (RuntimeException | Error failure) { failed(original, 4, failure); }
+            }
+        }
+        private synchronized boolean cleanupComplete() {
+            return limiter == null && buffers == null && cache == null
+                    && (cacheCost == null || cacheCost.isReleased())
+                    && (bufferCost == null || bufferCost.isReleased());
+        }
     }
 
     /** Probes the current process/container before opening shared resources. */
@@ -617,6 +685,13 @@ public final class SharedRocksDbResources implements AutoCloseable {
                 closeFailure = appendCloseFailure(closeFailure, failure);
             }
         }
+        // A running observation can still hold original DB/native references. Retain this close attempt,
+        // fence new admission, and let the owner retry after the actual original monitor threads return.
+        if (runtimeResourceMonitor != null && !runtimeResourceMonitor.terminationComplete()
+                || rocksDbUsageMonitor != null && !rocksDbUsageMonitor.terminationComplete()) {
+            if (closeFailure != null) throwUnchecked(closeFailure);
+            return;
+        }
         // Every process-level native resource must be attempted even if an
         // earlier close reports a JNI/runtime failure. Otherwise a failed
         // rate-limiter shutdown can strand the shared write-buffer manager or
@@ -646,7 +721,7 @@ public final class SharedRocksDbResources implements AutoCloseable {
                 closeFailure = appendCloseFailure(closeFailure, failure);
             }
         }
-        if (!blockCacheClosed) {
+        if (writeBufferManagerClosed && !blockCacheClosed) {
             try {
                 blockCache.close();
                 blockCacheClosed = true;
@@ -684,6 +759,13 @@ public final class SharedRocksDbResources implements AutoCloseable {
             first.addSuppressed(failure);
         }
         return first;
+    }
+
+    /** Includes the original monitor threads and in-flight observations, beyond native close return. */
+    public synchronized boolean cleanupComplete() {
+        return closed.get()
+                && (runtimeResourceMonitor == null || runtimeResourceMonitor.terminationComplete())
+                && (rocksDbUsageMonitor == null || rocksDbUsageMonitor.terminationComplete());
     }
 
     private static void throwUnchecked(final Throwable failure) {

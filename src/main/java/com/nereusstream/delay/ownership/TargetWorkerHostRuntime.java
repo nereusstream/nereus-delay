@@ -238,6 +238,7 @@ public final class TargetWorkerHostRuntime {
     private boolean faultExitActive;
     private TargetWorkerOxiaRuntime oxiaRuntime;
     private OxiaClosePermit oxiaClosePermit;
+    private TargetWorkerProcessRuntime processRuntime;
     private final Map<ShardId, TargetOwnerDrainCoordinator.ReplayExit> faultExited = new HashMap<>();
     private boolean backendBarrierEstablished;
     private long quarantineGeneration;
@@ -1049,6 +1050,31 @@ public final class TargetWorkerHostRuntime {
         }
     }
 
+    /** Transfers the actual process owner before any configured service execution. */
+    void registerProcessRuntime(TargetWorkerProcessRuntime root) {
+        final List<TargetWorkerShardRuntime> workers;
+        final TargetWorkerOxiaRuntime authority;
+        synchronized (this) {
+            requireServiceActivationCaller();
+            if (processRuntime == root) return;
+            if (processRuntime != null || oxiaRuntime == null || maintenanceStarted || serviceActivated
+                    || sourceProcessingConfigured || ordinaryLoop != null || drainAllActive || faultExitActive
+                    || !draining.isEmpty() || oxiaClosePermit != null) {
+                throw new IllegalStateException("process resources must transfer to their prepared original Host");
+            }
+            workers = currentTargetWorkers(); authority = oxiaRuntime;
+        }
+        root.requireHost(authority, this, workers);
+        synchronized (this) {
+            if (processRuntime != null || oxiaRuntime != authority || maintenanceStarted || serviceActivated
+                    || sourceProcessingConfigured || ordinaryLoop != null || drainAllActive || faultExitActive
+                    || !draining.isEmpty() || oxiaClosePermit != null || !workers.equals(currentTargetWorkers())) {
+                throw new IllegalStateException("Host changed during process resource transfer");
+            }
+            processRuntime = root;
+        }
+    }
+
     /** Private-constructor capability; public Result/ReplayExit records do not authorize SDK authority close. */
     public static final class OxiaClosePermit {
         private final TargetWorkerHostRuntime host;
@@ -1081,7 +1107,11 @@ public final class TargetWorkerHostRuntime {
             permit = oxiaClosePermit;
         }
         root.closeForHost(permit);
-        return root.cleanupComplete();
+        if (!root.cleanupComplete()) return false;
+        final TargetWorkerProcessRuntime process;
+        synchronized (this) { process = processRuntime; }
+        if (process != null) process.closeForHost(permit);
+        return true;
     }
 
     public boolean oxiaCleanupComplete() {

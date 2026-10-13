@@ -33,14 +33,18 @@ public final class WorkerRocksDbUsageMonitor implements AutoCloseable {
     private final AtomicReference<Throwable> lastFailure = new AtomicReference<>();
     private ScheduledFuture<?> scheduledProbe;
     private boolean closeCompleted;
+    private java.util.List<Thread> ownedThreads;
+    private int activePolls;
 
     /** Starts a daemon physical-usage monitor for one Worker. */
     public static WorkerRocksDbUsageMonitor start(
             final Duration interval,
             final Supplier<List<RocksDbUsageSnapshot>> probe,
             final Consumer<Throwable> failureConsumer) {
+        final var threads = new java.util.ArrayList<Thread>();
         final WorkerRocksDbUsageMonitor monitor =
-                new WorkerRocksDbUsageMonitor(interval, probe, failureConsumer, daemonThreadExecutor());
+                new WorkerRocksDbUsageMonitor(interval, probe, failureConsumer, daemonThreadExecutor(threads));
+        monitor.ownedThreads = threads;
         monitor.start();
         return monitor;
     }
@@ -77,8 +81,9 @@ public final class WorkerRocksDbUsageMonitor implements AutoCloseable {
 
     /** Runs one bounded physical observation immediately. */
     public void pollNow() {
-        if (closed.get()) {
-            throw new IllegalStateException("RocksDB usage monitor is closed");
+        synchronized (this) {
+            if (closed.get()) throw new IllegalStateException("monitor is closed");
+            activePolls++;
         }
         try {
             final List<RocksDbUsageSnapshot> observation =
@@ -86,6 +91,8 @@ public final class WorkerRocksDbUsageMonitor implements AutoCloseable {
             lastObservation.set(List.copyOf(observation));
         } catch (RuntimeException | Error failure) {
             recordFailure(failure);
+        } finally {
+            synchronized (this) { activePolls--; }
         }
     }
 
@@ -100,6 +107,12 @@ public final class WorkerRocksDbUsageMonitor implements AutoCloseable {
 
     public boolean isClosed() {
         return closed.get();
+    }
+
+    /** Admission closure is distinct from original probe and owned thread exit; never waits on itself. */
+    public synchronized boolean terminationComplete() {
+        if (!closeCompleted || activePolls != 0 || !executor.isTerminated() || ownedThreads == null) return false;
+        synchronized (ownedThreads) { return ownedThreads.stream().noneMatch(Thread::isAlive); }
     }
 
     @Override
@@ -173,10 +186,14 @@ public final class WorkerRocksDbUsageMonitor implements AutoCloseable {
         return value;
     }
 
-    private static ScheduledExecutorService daemonThreadExecutor() {
+    private static ScheduledExecutorService daemonThreadExecutor(java.util.List<Thread> threads) {
         final ThreadFactory factory = runnable -> {
             final Thread thread = new Thread(runnable, "nereus-delay-rocksdb-usage");
             thread.setDaemon(true);
+            synchronized (threads) {
+                threads.removeIf(prior -> prior.getState() == Thread.State.TERMINATED);
+                threads.add(thread);
+            }
             return thread;
         };
         return Executors.newSingleThreadScheduledExecutor(factory);

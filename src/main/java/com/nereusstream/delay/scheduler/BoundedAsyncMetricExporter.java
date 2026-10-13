@@ -251,6 +251,16 @@ public final class BoundedAsyncMetricExporter implements AutoCloseable {
         }
     }
 
+    /** Proves that the original export thread returned, including its final cleanup. Never waits on itself. */
+    public boolean terminationComplete() {
+        lock.lock();
+        try {
+            return !accepting && workerTerminated && !worker.isAlive();
+        } finally {
+            lock.unlock();
+        }
+    }
+
     private void runWorker() {
         boolean stoppedUnexpectedly = false;
         try {
