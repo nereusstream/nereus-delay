@@ -18,6 +18,18 @@ import org.apache.kafka.common.TopicPartition;
 public final class KafkaClientArtifactTargetWorkerSourceFactory {
     private KafkaClientArtifactTargetWorkerSourceFactory() {}
 
+    /** Actual owned Source startup uses the same native instance for positioning, Worker composition and teardown. */
+    public static TargetWorkerShardRuntime create(KafkaClientArtifactOwnedSourceBackend owner,
+            SourceAssignment acceptedAssignment, WorkClassExecutionRegistry workClasses, ShardStore store,
+            SharedRocksDbResources resources, TargetSourceApplyRuntime sourceRuntime,
+            TargetWorkerShardRuntime.Maintenance maintenance) {
+        Objects.requireNonNull(sourceRuntime, "sourceRuntime").requireAcceptedAssignment(acceptedAssignment);
+        Objects.requireNonNull(owner, "actual K1 Source owner").requireWorkerGraph(workClasses, resources);
+        owner.positionAcceptedAssignment(acceptedAssignment);
+        return TargetWorkerShardFactory.create(owner.source(), acceptedAssignment, workClasses, store,
+                resources, sourceRuntime, maintenance);
+    }
+
     /**
      * Creates one Target Worker source for the exact accepted Kafka assignment. The caller must complete Store
      * bootstrap/reopen and Owner activation first; this factory never creates or authorizes a Target root.

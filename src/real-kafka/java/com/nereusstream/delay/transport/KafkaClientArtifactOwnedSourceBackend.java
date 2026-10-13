@@ -71,6 +71,7 @@ public final class KafkaClientArtifactOwnedSourceBackend implements TargetOwnedB
     private boolean cleanupStarting;
     private boolean startupConstructed;
     private boolean sdkTerminated;
+    private com.nereusstream.delay.ownership.SourceAssignment positionedAssignment;
 
     private KafkaClientArtifactOwnedSourceBackend(Settings settings, Map<String, Object> input, byte[] sdkJar,
             TargetDestinationSdkBudget budget, CapacityVector cost, WorkClassExecutionRegistry classes,
@@ -180,13 +181,47 @@ public final class KafkaClientArtifactOwnedSourceBackend implements TargetOwnedB
         }
     }
 
+    /** Position the same owned consumer before Host binding; no application poll or ACK is enabled here. */
+    void positionAcceptedAssignment(com.nereusstream.delay.ownership.SourceAssignment assignment) {
+        final GuardedConsumer<byte[], byte[]> consumer;
+        if (!(assignment.activationBarrier() instanceof com.nereusstream.delay.protocol.KafkaActivationBarrier barrier)
+                || !settings.shard().equals(assignment.shardId())
+                || !settings.authenticatedClusterId().equals(barrier.authenticatedClusterId())
+                || !settings.topicId().equals(barrier.nativeTopicUuid()) || barrier.exclusiveOffset() < 0) {
+            throw new IllegalArgumentException("owned K1 Source differs from the accepted activation barrier");
+        }
+        synchronized (gate) {
+            if (!ready || frozen || host != null || nativeCalls != 0)
+                throw new IllegalStateException("K1 Source positioning is not available before Host binding");
+            if (positionedAssignment != null) {
+                if (!positionedAssignment.sameIdentity(assignment))
+                    throw new IllegalStateException("K1 Source cannot replace its original positioned assignment");
+                return;
+            }
+            nativeCalls++; consumer = nativeConsumer;
+        }
+        try {
+            final var partition = new org.apache.kafka.common.TopicPartition(settings.topic(), settings.shard().partition());
+            consumer.seek(partition, barrier.exclusiveOffset());
+            if (consumer.position(partition, settings.operationTimeout()) != barrier.exclusiveOffset())
+                throw new IllegalStateException("owned K1 Source did not establish its accepted start position");
+            synchronized (gate) {
+                if (frozen) throw new IllegalStateException("K1 Source was frozen during positioning");
+                positionedAssignment = assignment;
+            }
+        } finally {
+            synchronized (gate) { nativeCalls--; }
+            cleanupProgress();
+        }
+    }
+
     @Override public void requireWorkerGraph(WorkClassExecutionRegistry expected, SharedRocksDbResources shared) {
         if (classes != expected || resources != shared) throw new IllegalArgumentException("K1 Source belongs to another Worker graph");
     }
     @Override public void bindHost(TargetWorkerHostRuntime expected, List<TargetWorkerShardRuntime> fleet) {
         for (var member : fleet) member.requireFleetComposition(classes, resources);
         synchronized (gate) {
-            if (!ready || frozen || host != null && host != expected)
+            if (!ready || frozen || positionedAssignment == null || host != null && host != expected)
                 throw new IllegalStateException("K1 Source is unready, frozen or owned by another Host");
             final var matching = fleet.stream().filter(member -> member.ownsSourceConsumer(source)).toList();
             if (matching.size() != 1) throw new IllegalStateException("K1 Source requires its one actual Worker owner");

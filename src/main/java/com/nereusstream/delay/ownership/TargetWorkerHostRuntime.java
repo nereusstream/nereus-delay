@@ -228,6 +228,7 @@ public final class TargetWorkerHostRuntime {
     private TargetWorkerTargetInventory.Snapshot pendingTargetInventory;
     private boolean stopping;
     private boolean drainAllActive;
+    private boolean maintenanceStarted;
     private volatile boolean backendQuarantined;
     private boolean quarantineActive;
     private boolean faultExitActive;
@@ -488,7 +489,37 @@ public final class TargetWorkerHostRuntime {
                 Objects.requireNonNull(checkpointClock, "checkpointClock"));
     }
 
+    /** Compose the actual Host and bind Source backends without admitting any background tick. */
+    public static TargetWorkerHostRuntime prepareWithCollectedCheckpoints(
+            TargetWorkerRuntimeConfig config, WorkClassExecutionRegistry classes, SharedRocksDbResources resources,
+            List<TargetWorkerShardRuntime> shards,
+            TargetCheckpointCandidateSchedule.CollectedSemanticRequestFactory checkpoints, LongSupplier checkpointClock,
+            Consumer<Throwable> failureConsumer) {
+        final var selected = Objects.requireNonNull(config, "config");
+        return compose(selected, classes, resources, shards, selected.maintenanceTurn(), selected.maintenanceInterval(),
+                failureConsumer, Objects.requireNonNull(checkpoints, "checkpoints"),
+                Objects.requireNonNull(checkpointClock, "checkpointClock"), false);
+    }
+
+    /** Activate the existing maintenance loop only after service-specific backends/providers have been installed. */
+    public synchronized void startMaintenance() {
+        if (stopping || backendQuarantined || maintenanceStarted)
+            throw new IllegalStateException("Target Host maintenance is stopping or already started");
+        maintenanceLoop.start();
+        maintenanceStarted = true;
+    }
+
     private static TargetWorkerHostRuntime start(
+            final TargetWorkerRuntimeConfig config,
+            final WorkClassExecutionRegistry classes, final SharedRocksDbResources resources,
+            final List<TargetWorkerShardRuntime> shards, final SchedulerBudget budget, final Duration interval,
+            final Consumer<Throwable> failures,
+            final TargetCheckpointCandidateSchedule.CollectedSemanticRequestFactory checkpoints,
+            final LongSupplier checkpointClock) {
+        return compose(config, classes, resources, shards, budget, interval, failures, checkpoints, checkpointClock, true);
+    }
+
+    private static TargetWorkerHostRuntime compose(
             final TargetWorkerRuntimeConfig config,
             final WorkClassExecutionRegistry workClasses,
             final SharedRocksDbResources resources,
@@ -497,7 +528,7 @@ public final class TargetWorkerHostRuntime {
             final Duration maintenanceInterval,
             final Consumer<Throwable> failureConsumer,
             final TargetCheckpointCandidateSchedule.CollectedSemanticRequestFactory checkpointFactory,
-            final LongSupplier checkpointClock) {
+            final LongSupplier checkpointClock, final boolean activateMaintenance) {
         if (config != null) {
             config.requireRuntime(workClasses, resources);
         }
@@ -515,15 +546,15 @@ public final class TargetWorkerHostRuntime {
         TargetWorkerHostRuntime host = null;
         try {
             host = new TargetWorkerHostRuntime(fleet, loop, exactShards, config);
+            if (checkpointFactory != null) {
+                host.configurePeriodicCollectedSemanticCheckpoints(checkpointFactory, checkpointClock);
+            }
             for (TargetWorkerShardRuntime worker : exactShards) {
                 if (worker.sourceBackendGroup() != null) {
                     host.registerOwnedBackend(worker.sourceBackendGroup());
                 }
             }
-            if (checkpointFactory != null) {
-                host.configurePeriodicCollectedSemanticCheckpoints(checkpointFactory, checkpointClock);
-            }
-            loop.start();
+            if (activateMaintenance) { host.startMaintenance(); }
             return host;
         } catch (RuntimeException | Error failure) {
             if (host != null) {
@@ -536,8 +567,27 @@ public final class TargetWorkerHostRuntime {
                     failure.addSuppressed(closeFailure);
                 }
             }
+            if (host != null && !host.ownedBackends.isEmpty()) {
+                synchronized (host) { host.stopping = true; }
+                for (var backend : host.ownedBackends) {
+                    try { backend.freezeRegistrations(); }
+                    catch (RuntimeException | Error cleanup) { if (cleanup != failure) failure.addSuppressed(cleanup); }
+                }
+                throw new CompositionFailure(failure, host);
+            }
             throw failure;
         }
+    }
+
+    /** Keeps the exact partially composed Host and its bound SDK owners available for explicit fault cleanup. */
+    public static final class CompositionFailure extends IllegalStateException {
+        private static final long serialVersionUID = 1L;
+        private final transient TargetWorkerHostRuntime failedHost;
+        private CompositionFailure(Throwable original, TargetWorkerHostRuntime failedHost) {
+            super("Target Host composition failed after backend ownership transfer", original);
+            this.failedHost = failedHost;
+        }
+        public TargetWorkerHostRuntime failedHost() { return failedHost; }
     }
 
     /** Test seam; production creates the fleet and scheduler from the same exact shards. */

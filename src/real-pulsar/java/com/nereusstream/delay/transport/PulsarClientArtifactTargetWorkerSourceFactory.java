@@ -20,6 +20,19 @@ import org.apache.pulsar.client.api.TopicResourceGuardAttestation;
 public final class PulsarClientArtifactTargetWorkerSourceFactory {
     private PulsarClientArtifactTargetWorkerSourceFactory() {}
 
+    /** Reject an unrelated/shared consumer before handing an actual owned group into the Worker graph. */
+    public static TargetWorkerShardRuntime create(PulsarClientArtifactOwnedBackendGroup group,
+            GuardedConsumer<byte[]> consumer, TopicResourceGuard expectedGuard, String physicalTopic,
+            Duration receiveTimeout, SourceAssignment acceptedAssignment, WorkClassExecutionRegistry workClasses,
+            ShardStore store, SharedRocksDbResources resources, TargetSourceApplyRuntime sourceRuntime,
+            TargetWorkerShardRuntime.Maintenance maintenance) {
+        Objects.requireNonNull(group, "actual P1 group").requireWorkerGraph(workClasses, resources);
+        if (PulsarClientArtifactOwnedBackendGroup.findNative(consumer) != group)
+            throw new IllegalArgumentException("P1 Source consumer is not owned by this actual backend group");
+        return create(consumer, expectedGuard, physicalTopic, receiveTimeout, acceptedAssignment, workClasses,
+                store, resources, sourceRuntime, maintenance);
+    }
+
     /**
      * Creates one Target Worker source for the exact accepted Pulsar assignment. The caller must complete Store
      * bootstrap/reopen and Owner activation first; this factory never creates or authorizes a Target root.
