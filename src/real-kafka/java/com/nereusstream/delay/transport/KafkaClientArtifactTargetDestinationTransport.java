@@ -35,6 +35,7 @@ public final class KafkaClientArtifactTargetDestinationTransport
     private final ProducerResourceGuard guard;
     private final Duration closeTimeout;
     private final TargetDestinationSdkBudget.Client producerBudget;
+    private final com.nereusstream.delay.ownership.TargetDestinationActivation credentialActivation;
     private boolean closing;
     private boolean nativeClosed;
     private final Object closeLock = new Object();
@@ -49,12 +50,21 @@ public final class KafkaClientArtifactTargetDestinationTransport
             final KafkaTargetResource resource, final String physicalTopic,
             final TargetChannelIdentity.Context context, final Duration closeTimeout,
             final TargetDestinationSdkBudget.Client producerBudget) {
+        this(producer, resource, physicalTopic, context, closeTimeout, producerBudget, null);
+    }
+
+    KafkaClientArtifactTargetDestinationTransport(final GuardedProducer<byte[], byte[]> producer,
+            final KafkaTargetResource resource, final String physicalTopic,
+            final TargetChannelIdentity.Context context, final Duration closeTimeout,
+            final TargetDestinationSdkBudget.Client producerBudget,
+            final com.nereusstream.delay.ownership.TargetDestinationActivation activation) {
         this.producer = Objects.requireNonNull(producer, "producer");
         this.resource = Objects.requireNonNull(resource, "resource");
         this.physicalTopic = Objects.requireNonNull(physicalTopic, "physicalTopic");
         this.context = Objects.requireNonNull(context, "context");
         this.closeTimeout = Objects.requireNonNull(closeTimeout, "bounded native close timeout");
         this.producerBudget = producerBudget;
+        this.credentialActivation = activation;
         if (closeTimeout.toMillis() <= 0 || closeTimeout.toMillis() > 60_000) {
             throw new IllegalArgumentException("K1 native close timeout must be finite");
         }
@@ -90,6 +100,7 @@ public final class KafkaClientArtifactTargetDestinationTransport
         final var record = KafkaClientArtifactTargetRecordEncoder.configure(physicalTopic, request);
         final var denied = Objects.requireNonNull(gate, "ownership gate").check(request);
         if (denied != null) { return CompletableFuture.completedFuture(denied); }
+        if (credentialActivation != null) { credentialActivation.requireLoadedMaterial(p.channel()); }
         final CompletableFuture<DestinationPublishResult> result = new CompletableFuture<>();
         // Failure thrown by sendGuarded is not a completion observation; the bounded adapter retains its charge.
         producer.sendGuarded(record, guard, (metadata, failure) -> result.complete(failure == null

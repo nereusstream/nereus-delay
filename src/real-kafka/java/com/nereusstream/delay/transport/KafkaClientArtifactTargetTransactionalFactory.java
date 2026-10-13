@@ -45,6 +45,10 @@ public final class KafkaClientArtifactTargetTransactionalFactory {
         default void requireAdoption(TargetKafkaReceiptMapping mapping) {
             throw new IllegalStateException("cold K2 activation has no original Source/external publication adoption authority");
         }
+        default com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.Receipt credentialReceipt() { return null; }
+        default void requireLoadedMaterial(TargetChannelIdentity channel) {
+            if (credentialReceipt() != null) { throw new IllegalStateException("verified K2 activation lacks a local material gate"); }
+        }
     }
 
     public static CompletableFuture<KafkaClientArtifactTargetTransactionalTransport> open(
@@ -85,8 +89,8 @@ public final class KafkaClientArtifactTargetTransactionalFactory {
                 || !physical.resource().kafka().authenticatedClusterId().equals(receipt.receiptResource().authenticatedClusterId())) {
             throw new IllegalArgumentException("K2 factory requires a Target transactional channel");
         }
-        final var config = new HashMap<>(Objects.requireNonNull(producerConfiguration, "producer configuration"));
-        final var reads = Map.copyOf(Objects.requireNonNull(readerConfiguration, "reader configuration"));
+        final var config = new HashMap<>(secured(producerConfiguration, activation));
+        final var reads = secured(readerConfiguration, activation);
         if (config.containsKey(ProducerConfig.INTERCEPTOR_CLASSES_CONFIG)) {
             throw new IllegalArgumentException("Target K2 cannot run record-transforming interceptors");
         }
@@ -129,7 +133,7 @@ public final class KafkaClientArtifactTargetTransactionalFactory {
             java.util.function.Supplier<com.nereusstream.delay.ownership.TargetDestinationSdkBudget.Client> readers) {
         Objects.requireNonNull(producerBudget,"reserved producer generation"); Objects.requireNonNull(readers,"finite reader generations");
         if(original!=null){com.nereusstream.delay.protocol.PublishEvidence.requireTargetFencedChannel(original.admission().channel(),channel);}
-        final var config = new HashMap<>(producerConfiguration);
+        final var config = new HashMap<>(secured(producerConfiguration, activation));
         final String stable = new String(channel.context().producerIdentity(),StandardCharsets.UTF_8);
         if(config.containsKey(ProducerConfig.TRANSACTIONAL_ID_CONFIG)&&!stable.equals(config.get(ProducerConfig.TRANSACTIONAL_ID_CONFIG)))
             throw new IllegalArgumentException("K2 configuration changes stable producer identity");
@@ -140,7 +144,7 @@ public final class KafkaClientArtifactTargetTransactionalFactory {
         final int millis=Math.toIntExact(limits.operationTimeout().toMillis());
         config.put(ProducerConfig.MAX_BLOCK_MS_CONFIG,(long)millis);config.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG,Math.min(millis,10000));
         config.put(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG,millis);config.put(ProducerConfig.TRANSACTION_TIMEOUT_CONFIG,millis);
-        final var actualConfig=Map.copyOf(config); final var actualReads=Map.copyOf(readerConfiguration);
+        final var actualConfig=Map.copyOf(config); final var actualReads=secured(readerConfiguration, activation);
         try {
             final var opening=com.nereusstream.delay.ownership.OwnedCheckpointIo.submitResource(guard ->
                     createTransport(original,actualConfig,actualReads,physical,channel,receipt,activation,protection,
@@ -185,6 +189,9 @@ public final class KafkaClientArtifactTargetTransactionalFactory {
             requireOwner(owner,activation.requireCurrent(channel,receipt,actualJar));guard.run();
             final var transport=new KafkaClientArtifactTargetTransactionalTransport(guarded,channel,receipt,io,reads,protection,
                     limits.operationTimeout(),limits.pollTimeout(),limits.maximumRecords(),limits.maximumBytes(),budget,readerBudgets);
+            if (activation.credentialReceipt() != null) {
+                transport.installCredentialGate(() -> activation.requireLoadedMaterial(channel));
+            }
             if(mapping!=null)transport.installFence(new Fence(mapping,channel,owner,actualJar,()->{
                 requireOwner(owner,activation.requireCurrent(channel,receipt,actualJar));
                 protection.requireCurrent(mapping,mapping.admission().kafkaReceipt().scanStartOffset());
@@ -204,6 +211,11 @@ public final class KafkaClientArtifactTargetTransactionalFactory {
         if (!expected.equals(Objects.requireNonNull(current, "actual current Owner"))) {
             throw new IllegalStateException("Target producer initialization crossed an Owner/session boundary");
         }
+    }
+
+    private static Map<String,Object> secured(Map<String,Object> operational, Activation activation) {
+        return activation.credentialReceipt() == null ? Map.copyOf(operational)
+                : KafkaClientArtifactMtlsConfiguration.apply(operational, activation.credentialReceipt());
     }
 
     /** Local private observation of this actual same-ID initialization, never a Broker-signed certificate. */

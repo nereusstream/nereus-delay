@@ -42,6 +42,27 @@ public final class KafkaClientArtifactTargetReceiptProvider implements KafkaClie
     private final byte[] sdkJar;
     private final CredentialMaterial credentials;
     private final Supplier<com.nereusstream.delay.store.BoundedReadBudget> adoptionReads;
+    private com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.Receipt credentialReceipt;
+
+    public KafkaClientArtifactTargetReceiptProvider(TargetWorkerShardRuntime worker, OwnerIdentity owner,
+            TargetChannelIdentity channel, OxiaSyncTargetKafkaReceiptProtectionCatalog catalog,
+            byte[] originalProtectionDigest, com.nereusstream.delay.protocol.KafkaReceiptSlotResource resource,
+            ProfileCatalog profiles, CredentialAttestationTrustSet credentialTrust,
+            com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.Receipt material,
+            Supplier<TrustedUtcIntervalEvidence> time, LongSupplier ownerClock, byte[] activatedSdkJarSha256,
+            Supplier<com.nereusstream.delay.store.BoundedReadBudget> adoptionReads, boolean newWork) {
+        this(worker, owner, channel, catalog, originalProtectionDigest, resource, profiles, credentialTrust,
+                material::requireBinding, time, ownerClock, activatedSdkJarSha256, adoptionReads, newWork);
+        credentialReceipt = Objects.requireNonNull(material, "actual resolved K2 mTLS material");
+        requireLoadedMaterial(channel);
+    }
+
+    @Override public com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.Receipt credentialReceipt() { return credentialReceipt; }
+    @Override public void requireLoadedMaterial(TargetChannelIdentity actual) {
+        channel.requireExactFrozenIdentity(actual);
+        if (credentialReceipt == null) { throw new IllegalStateException("new K2 service requires resolved mTLS material"); }
+        credentialReceipt.requireChannel(actual, time.get());
+    }
 
     /** Actual resolved private transport material must match the exact frozen binding/fingerprint, not a mutable alias. */
     @FunctionalInterface
@@ -234,16 +255,19 @@ public final class KafkaClientArtifactTargetReceiptProvider implements KafkaClie
     private OwnerIdentity requireWorker() { return worker.requirePublicationOwner(owner, ownerClock); }
     private void requireCurrentChannel() {
         requireWorker();
-        worker.requireRetainedPublicationChannel(channel,adoptionReads.get(),ownerClock);
+        final var physical = worker.requireRetainedPublicationChannel(channel,adoptionReads.get(),ownerClock);
         channel.credentialLease().requireActiveAt(Objects.requireNonNull(time.get(), "actual trusted clock interval"));
-        final var profile = Objects.requireNonNull(profiles.resolve(channel.credentialLease().profile()), "original destination Profile");
-        final var binding = Objects.requireNonNull(profiles.resolveBinding(profile.ref(), channel.credentialLease().secretGeneration()),
-                "original exact credential binding");
-        channel.credentialLease().requireBinding(binding);
-        credentialTrust.verify(profile, binding);
+        final var binding = com.nereusstream.delay.ownership.TargetDestinationCredentialChecks.requireBinding(
+                channel, physical, profiles, credentialTrust);
         credentials.requireConfigured(binding);
         requireSdk(KafkaClientArtifactTargetReceiptReader.requireSdkIdentity());
         requireWorker();
+        final var afterMaterial = worker.requireRetainedPublicationChannel(channel,adoptionReads.get(),ownerClock);
+        if (!Arrays.equals(physical.canonicalBytes(), afterMaterial.canonicalBytes())) {
+            throw new IllegalStateException("receipt SDK resource changed after credential loading");
+        }
+        channel.credentialLease().requireActiveAt(Objects.requireNonNull(time.get(), "current trusted clock interval"));
+        if (credentialReceipt != null) { requireLoadedMaterial(channel); }
     }
     private void requireSdk(byte[] actual) {
         if (!Arrays.equals(sdkJar, actual)) { throw new IllegalStateException("receipt reader/producer differs from the activated actual SDK artifact"); }

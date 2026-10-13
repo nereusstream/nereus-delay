@@ -49,6 +49,8 @@ public final class KafkaClientArtifactTargetTransactionalTransport implements De
     private final java.util.function.Supplier<com.nereusstream.delay.ownership.TargetDestinationSdkBudget.Client> readerBudgets;
     private Pending pending;
     private boolean producerCloseCompleted;
+    private Runnable credentialGate = () -> {};
+    void installCredentialGate(Runnable gate) { credentialGate = Objects.requireNonNull(gate, "local material gate"); }
     private static final class Pending {
         final CompletableFuture<DestinationPublishResult> result=new CompletableFuture<>();
         boolean started, exited;
@@ -145,14 +147,17 @@ public final class KafkaClientArtifactTargetTransactionalTransport implements De
                     null, TargetKafkaReceiptWire.key(mapping), TargetKafkaReceiptWire.value(mapping));
             var denied = gate.check(request);
             if (denied != null) { outcome=denied; return; }
+            credentialGate.run();
             producer.beginTransaction();
             transaction = true;
             denied = gate.check(request);
             if (denied != null) { producer.abortTransaction(); outcome=denied; return; }
             final long deadline = System.nanoTime() + operationTimeout.toNanos();
+            credentialGate.run();
             final var target = producer.sendGuardedInTransaction(business, targetGuard);
             denied = gate.check(request);
             if (denied != null) { producer.abortTransaction(); outcome=unknown(); return; }
+            credentialGate.run();
             final var receiptSend = producer.sendGuardedInTransaction(record, receiptGuard);
             final var targetAck = await(target, deadline);
             final var receiptAck = await(receiptSend, deadline);

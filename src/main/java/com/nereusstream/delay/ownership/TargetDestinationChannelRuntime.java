@@ -37,6 +37,10 @@ public final class TargetDestinationChannelRuntime implements DestinationPublish
 
         /** Actual pre-existing client owner, including creation failures and late handles before an adapter exists. */
         default TargetOwnedBackendGroup ownedBackendGroup() { return null; }
+        default LocalBrokerMtlsResolver.Receipt credentialReceipt() { return null; }
+        default void requireLoadedMaterial(TargetChannelIdentity channel) {
+            if (credentialReceipt() != null) { throw new IllegalStateException("verified factory lacks its local credential gate"); }
+        }
     }
 
     private final TargetChannelIdentity channel;
@@ -44,6 +48,8 @@ public final class TargetDestinationChannelRuntime implements DestinationPublish
     private final TargetDestinationMux mux;
     private final ThreadPoolExecutor io;
     private final TargetOwnedBackendGroup openingBackend;
+    private final LocalBrokerMtlsResolver.Receipt credentialReceipt;
+    private final Open actualFactory;
     private OwnedCheckpointIo<DestinationPublishAdapter> opening;
     private volatile boolean initializing = true;
     private boolean registeredOwner;
@@ -62,8 +68,9 @@ public final class TargetDestinationChannelRuntime implements DestinationPublish
         this.physical = Objects.requireNonNull(physical, "physical pool");
         this.mux = Objects.requireNonNull(mux, "Worker dispatch");
         this.io = Objects.requireNonNull(io, "bounded I/O pool");
-        final var actualFactory = Objects.requireNonNull(factory, "actual SDK factory");
+        actualFactory = Objects.requireNonNull(factory, "actual SDK factory");
         openingBackend = actualFactory.ownedBackendGroup();
+        credentialReceipt = actualFactory.credentialReceipt();
         if (channel.context().kind() != ChannelKind.BASELINE_PRODUCER
                 && channel.context().kind() != ChannelKind.PULSAR_DEDUP_PRODUCER) {
             throw new IllegalArgumentException("baseline/managed opening cannot replace K2 fencing/anchor startup");
@@ -130,6 +137,7 @@ public final class TargetDestinationChannelRuntime implements DestinationPublish
         return adapter == null ? openingBackend : adapter.ownedBackendGroup();
     }
     @Override public TargetChannelIdentity channelIdentity() { return channel; }
+    @Override public LocalBrokerMtlsResolver.Receipt credentialReceipt() { return credentialReceipt; }
 
     private synchronized DestinationPublishAdapter current() { return ready && !stopping ? adapter : null; }
     private static CompletionStage<DestinationPublishResult> unavailable() {
@@ -141,7 +149,11 @@ public final class TargetDestinationChannelRuntime implements DestinationPublish
             BoundedDestinationPublishAdapter.TargetOrdinaryPublishPreflight gate) {
         channel.requireExactFrozenIdentity(request.publication().channel());
         final var actual = current();
-        return actual == null ? unavailable() : actual.publishTargetOrdinary(request, gate);
+        return actual == null ? unavailable() : actual.publishTargetOrdinary(request, value -> {
+            final var denied = gate.check(value);
+            if (denied == null) { actualFactory.requireLoadedMaterial(value.publication().channel()); }
+            return denied;
+        });
     }
 
     @Override public CompletionStage<DestinationPublishResult> publishTargetPreparedRecord(TargetOrdinaryPublicationBinding publication,
@@ -149,7 +161,11 @@ public final class TargetDestinationChannelRuntime implements DestinationPublish
             BoundedDestinationPublishAdapter.TargetPreparedPublishPreflight gate) {
         channel.requireExactFrozenIdentity(publication.channel());
         final var actual = current();
-        return actual == null ? unavailable() : actual.publishTargetPreparedRecord(publication, record, artifacts, gate);
+        return actual == null ? unavailable() : actual.publishTargetPreparedRecord(publication, record, artifacts, (p, r, a) -> {
+            final var denied = gate.check(p, r, a);
+            if (denied == null) { actualFactory.requireLoadedMaterial(p.channel()); }
+            return denied;
+        });
     }
 
     @Override public CompletionStage<DestinationPublishResult> publishTargetPreparedRecord(TargetNativePublicationBinding publication,
@@ -157,7 +173,11 @@ public final class TargetDestinationChannelRuntime implements DestinationPublish
             BoundedDestinationPublishAdapter.TargetNativePreparedPublishPreflight gate) {
         channel.requireExactFrozenIdentity(publication.channel());
         final var actual = current();
-        return actual == null ? unavailable() : actual.publishTargetPreparedRecord(publication, record, artifacts, gate);
+        return actual == null ? unavailable() : actual.publishTargetPreparedRecord(publication, record, artifacts, (p, r, a) -> {
+            final var denied = gate.check(p, r, a);
+            if (denied == null) { actualFactory.requireLoadedMaterial(p.channel()); }
+            return denied;
+        });
     }
 
     @Override public synchronized boolean settleClose() {

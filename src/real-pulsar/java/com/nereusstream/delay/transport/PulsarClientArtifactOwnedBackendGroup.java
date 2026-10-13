@@ -142,12 +142,52 @@ public final class PulsarClientArtifactOwnedBackendGroup implements TargetOwnedB
             byte[] sdkJar, Authentication authentication, Runnable actualActivation,
             TargetDestinationSdkBudget budget, CapacityVector cost, WorkClassExecutionRegistry classes,
             SharedRocksDbResources resources, ThreadPoolExecutor io) {
+        return openInternal(settings, credential, sdkJar, authentication, actualActivation, budget, cost, classes,
+                resources, io, null);
+    }
+
+    private com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.Receipt credentialReceipt;
+
+    public static PulsarClientArtifactOwnedBackendGroup openVerifiedMtls(Settings settings, CredentialBinding credential,
+            byte[] sdkJar, com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.Receipt receipt,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
+            Runnable actualActivation, TargetDestinationSdkBudget budget, CapacityVector cost,
+            WorkClassExecutionRegistry classes, SharedRocksDbResources resources, ThreadPoolExecutor io) {
+        receipt.requireBinding(credential);
+        receipt.requirePulsarEndpoint(settings.serviceUrl());
+        if (!settings.serviceUrl().startsWith("pulsar+ssl://")) {
+            throw new IllegalArgumentException("new Target P1 mTLS requires a TLS endpoint");
+        }
+        final byte[] cert = receipt.certificateChainPem(), key = receipt.privateKeyPem(), trust = receipt.serverTrustPem();
+        final var authentication = new org.apache.pulsar.client.impl.auth.AuthenticationTls(
+                () -> new java.io.ByteArrayInputStream(cert), () -> new java.io.ByteArrayInputStream(key),
+                () -> new java.io.ByteArrayInputStream(trust));
+        return openInternal(settings, credential, sdkJar, authentication, () -> {
+            actualActivation.run(); receipt.requireActive(time.get());
+        }, budget, cost, classes, resources, io, receipt);
+    }
+
+    @Override public com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.Receipt credentialReceipt() { return credentialReceipt; }
+
+    void requireLoadedMaterial(com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.Receipt receipt) {
+        if (credentialReceipt == null || !credentialReceipt.sameMaterial(receipt)) {
+            throw new IllegalStateException("P1 client did not load this original resolved mTLS snapshot");
+        }
+    }
+
+    private static PulsarClientArtifactOwnedBackendGroup openInternal(Settings settings, CredentialBinding credential,
+            byte[] sdkJar, Authentication authentication, Runnable actualActivation,
+            TargetDestinationSdkBudget budget, CapacityVector cost, WorkClassExecutionRegistry classes,
+            SharedRocksDbResources resources, ThreadPoolExecutor io,
+            com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.Receipt receipt) {
         final var group = new PulsarClientArtifactOwnedBackendGroup(settings, credential, sdkJar, budget, cost,
                 classes, resources, io);
+        group.credentialReceipt = receipt;
         try {
             group.opening = OwnedCheckpointIo.submit(guard -> {
                 guard.run(); actualActivation.run();
                 final var builder = PulsarClient.builder();
+                if (receipt != null) { builder.enableTlsHostnameVerification(true).allowTlsInsecureConnection(false); }
                 TargetSdkArtifactIdentity.requireExact(builder.getClass(), group.sdkJar);
                 group.allocation.beginConstruction();
                 final PulsarClient nativeClient;

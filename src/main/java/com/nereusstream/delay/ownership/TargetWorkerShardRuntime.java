@@ -192,6 +192,7 @@ public final class TargetWorkerShardRuntime
         boolean readyForPublishing();
         default TargetOwnedBackendGroup ownedBackendGroup() { return null; }
         default com.nereusstream.delay.protocol.TargetChannelIdentity channelIdentity() { return null; }
+        default LocalBrokerMtlsResolver.Receipt credentialReceipt() { return null; }
     }
     private final java.util.Map<String,PublicationResources> publicationResources=new java.util.HashMap<>();
     public void registerPublicationResources(String identity,PublicationResources owner,
@@ -699,7 +700,8 @@ public final class TargetWorkerShardRuntime
     /** Complete local dependencies for configured service activation; native/Broker authority stays in each provider. */
     synchronized void requireConfiguredServiceReady(TargetWorkerHostRuntime expected, LongSupplier clock) {
         requirePublishRecoveryOwner(clock);
-        if (publicationHost != expected || sourceBackendGroup == null || !sourceBackendGroup.workerReady(this)) {
+        if (publicationHost != expected || sourceBackendGroup == null || !sourceBackendGroup.workerReady(this)
+                || sourceBackendGroup.credentialReceipt() == null) {
             throw new IllegalStateException("configured service requires its actual owned Source and Host");
         }
         requirePublishingStartupClosure();
@@ -708,6 +710,9 @@ public final class TargetWorkerShardRuntime
         if (publicationResources.values().stream().noneMatch(owner -> !owner.closed() && owner.readyForPublishing())
                 || publicationResources.values().stream().anyMatch(owner -> !owner.closed() && !owner.readyForPublishing())) {
             throw new IllegalStateException("configured service has absent or unfinished actual publication resources");
+        }
+        if (publicationResources.values().stream().anyMatch(owner -> !owner.closed() && owner.credentialReceipt() == null)) {
+            throw new IllegalStateException("new Target service requires actual resolved mTLS publication material");
         }
         if (!publishRuntime.available()) {
             throw new IllegalStateException("configured service activation has an existing publication flight");

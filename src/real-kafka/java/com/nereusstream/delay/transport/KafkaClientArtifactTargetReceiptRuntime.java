@@ -160,7 +160,7 @@ public final class KafkaClientArtifactTargetReceiptRuntime implements Destinatio
         try{
             if(binding==null){
                 if(sampling==null){final var p=provider.protection();
-                    sampling=KafkaClientArtifactTargetReceiptAnchor.sampleOwned(readerConfiguration,p.resource(),p.physicalTopic(),
+                    sampling=KafkaClientArtifactTargetReceiptAnchor.sampleOwned(securedReaders(),p.resource(),p.physicalTopic(),
                             p.physicalPartition(),provider,settings.limits().pollTimeout(),io,readerBudget());return new Turn(Status.SAMPLING,null);}
                 if(!sampling.ioExited())return new Turn(Status.SAMPLING,CheckpointInputFuture.ownedFailure(sampling.receipt()));
                 final var sampled=sampling.receipt().join();
@@ -222,7 +222,7 @@ public final class KafkaClientArtifactTargetReceiptRuntime implements Destinatio
         if(!java.util.Arrays.equals(unknown.mapping().canonicalBytes(),original.canonicalBytes()))throw new IllegalArgumentException("recovery selects another actual UNKNOWN mapping");
         if(recoveryOpening==null){final var reserved=readerBudget();
             try{recoveryOpening=OwnedCheckpointIo.submitResource(guard->{guard.run();
-                return new KafkaClientArtifactTargetReceiptRecovery(original,transport,readerConfiguration,provider,settings.limits(),maximumTurns,reserved);
+                return new KafkaClientArtifactTargetReceiptRecovery(original,transport,securedReaders(),provider,settings.limits(),maximumTurns,reserved);
             },()->{},value->{try{value.close();}catch(RuntimeException | Error failed){throw new KafkaClientArtifactTargetCleanupFailure(failed,value::close);}},io);}
             catch(RuntimeException | Error rejected){reserved.releaseUnstarted();throw rejected;}
             recoveryOpening.receipt().whenComplete((value,failure)->{if(failure!=null){try{reserved.releaseUnstarted();}catch(IllegalStateException held){/* original cleanup holds its charge */}}});
@@ -247,6 +247,11 @@ public final class KafkaClientArtifactTargetReceiptRuntime implements Destinatio
     }
     @Override public synchronized boolean closed(){return closed;}
     @Override public synchronized boolean readyForPublishing(){return ready&&!stopping&&original==null;}
+    @Override public com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.Receipt credentialReceipt() { return provider.credentialReceipt(); }
+    private Map<String,Object> securedReaders() {
+        return provider.credentialReceipt() == null ? readerConfiguration
+                : KafkaClientArtifactMtlsConfiguration.apply(readerConfiguration, provider.credentialReceipt());
+    }
     public synchronized boolean readyForNewWork(){return ready&&!stopping&&original==null;}
     @Override public synchronized boolean settleClose(){
         stopping=true;ready=false;if(registered)physicalAdmission.closeTargetReady(channel);

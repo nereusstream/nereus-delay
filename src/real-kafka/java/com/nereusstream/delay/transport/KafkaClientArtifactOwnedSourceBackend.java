@@ -72,6 +72,22 @@ public final class KafkaClientArtifactOwnedSourceBackend implements TargetOwnedB
     private boolean startupConstructed;
     private boolean sdkTerminated;
     private com.nereusstream.delay.ownership.SourceAssignment positionedAssignment;
+    private volatile com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.Receipt credentialReceipt;
+
+    public static KafkaClientArtifactOwnedSourceBackend openVerifiedMtls(Settings settings, Map<String, Object> operational,
+            byte[] sdkJar, com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.Receipt receipt,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
+            Runnable actualActivation, TargetDestinationSdkBudget budget, CapacityVector cost,
+            WorkClassExecutionRegistry classes, SharedRocksDbResources resources, ThreadPoolExecutor io) {
+        final var loaded = Objects.requireNonNull(receipt, "resolved Source mTLS material");
+        final var owner = open(settings, KafkaClientArtifactMtlsConfiguration.apply(operational, loaded), sdkJar, () -> {
+            actualActivation.run(); loaded.requireActive(time.get());
+        }, budget, cost, classes, resources, io);
+        owner.credentialReceipt = loaded;
+        return owner;
+    }
+
+    @Override public com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.Receipt credentialReceipt() { return credentialReceipt; }
 
     private KafkaClientArtifactOwnedSourceBackend(Settings settings, Map<String, Object> input, byte[] sdkJar,
             TargetDestinationSdkBudget budget, CapacityVector cost, WorkClassExecutionRegistry classes,

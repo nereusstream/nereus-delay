@@ -33,6 +33,8 @@ public final class PulsarClientArtifactTargetProducerFactory {
             long maximumPublicationBytes, TargetDestinationActivation activation, boolean nativeEnabled) {
         Objects.requireNonNull(group, "actual shared P1 owner");
         Objects.requireNonNull(activation, "actual Source/Profile activation");
+        final var receipt = activation.verifiedMaterial();
+        group.requireLoadedMaterial(receipt);
         if (physical.resource().kind() != BrokerResourceIdentity.Kind.PULSAR
                 || !physical.id().equals(channel.context().target()) || maximumPublicationBytes <= 0
                 || maximumPublicationBytes == Long.MAX_VALUE || timeout.toMillis() <= 0 || timeout.toMillis() > 60_000
@@ -53,6 +55,8 @@ public final class PulsarClientArtifactTargetProducerFactory {
         final String name = new String(producerIdentity, StandardCharsets.UTF_8);
         return new TargetDestinationChannelRuntime.Open() {
             @Override public PulsarClientArtifactOwnedBackendGroup ownedBackendGroup() { return group; }
+            @Override public com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.Receipt credentialReceipt() { return receipt; }
+            @Override public void requireLoadedMaterial(TargetChannelIdentity current) { activation.requireLoadedMaterial(current); }
 
             @Override public com.nereusstream.delay.adapter.DestinationPublishAdapter create(
                     Runnable guard, TargetDestinationSdkBudget.Client reserved) {

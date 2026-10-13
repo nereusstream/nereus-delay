@@ -435,3 +435,20 @@ P1关闭不代替Kafka，未ACK数据及原首结果/UNKNOWN/checkpoint保护继
 接实际Worker/Host native gate，必要构建/编译和SDK普通push结果见04。完整service
 provider/startup/reopen和资源envelope继续实施，有限验证目的见12，测试/Broker/style
 仍后置，全四包、29切片和全部完成flags不变。
+
+## 2026-10-13：实际 Broker mTLS material receipt
+
+主会话裁定新 Target 生产装配采用本地 immutable-version mTLS resolver，不接受任意
+Authentication/安全 Map 加自报 fingerprint。独立 verifier tuple 和叶证书 DER 指纹、
+私有 qualified reference/版本目录、原受信 Broker probe、RSA/EC PKCS#8 配对与证书
+策略按 Registry 新条目执行；旧 tuple、opaque binding wire 和普通/旧 Lane API 不改。
+resolver 不授予 ACL，也不在 Worker 自签或伪造 probe。真实部署材料/信任/保护缺失
+时 activation unavailable，测试/Broker/轮换与文件故障仍集中后置，不以 fixture 补生产链。
+
+解析 receipt 由私有构造产生，SDK 只消费同一不可变快照。K1 inline PEM SSL 与 P1
+AuthenticationTls 捕获流使用固定 server-trust/endpoint/hostname 策略；SASL/token/
+OAuth/dynamic Authentication/PLAINTEXT 在此新路径明确不支持。Source/SDK opening
+pre/post 与 SEND 保留原 Source/resource/Owner gates，新增凭据检查在 SEND 本地执行。
+旧 UNKNOWN/Journal/cleanup 继续持有原材料，重新解析/续租/rotation 沿原 control、
+Head/protection 和 SDK generation 边界，不引入新持久 grant、插件或远端 secret 服务。
+本轮不读取/生成真实凭据，不执行环境迁退，四包与29切片及完成 flags 保持。

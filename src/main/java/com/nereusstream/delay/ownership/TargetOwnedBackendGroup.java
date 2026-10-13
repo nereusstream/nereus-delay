@@ -28,4 +28,6 @@ public interface TargetOwnedBackendGroup {
     boolean nativeResourcesTerminated();
 
     Throwable cleanupFailure();
+
+    default LocalBrokerMtlsResolver.Receipt credentialReceipt() { return null; }
 }

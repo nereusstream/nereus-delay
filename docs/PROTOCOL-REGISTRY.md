@@ -478,6 +478,45 @@ Envelope field 20 and every `ProfileRef.semantic_hash` must equal this value; re
 
 `CredentialEquivalenceAttestation` exact fields are 1 `ProfileRef profile`; 2 nonzero proposed raw `uint64 secret_generation` (the complete 64-bit pattern is preserved; zero is invalid); 3 proposed secret-reference SHA-256[32]; 4 immutable authorization-scope/policy digest[32]; 5 resolved immutable credential-version/public-fingerprint digest[32]; 6 nonzero `uint32 verifier_version`; 7 bounded verifier ID bytes; 8 `TrustedUtcIntervalEvidence verified_at`; 9 `int64 not_after_epoch_ms`; 10 verification-evidence SHA-256[32]; 11 attestation digest[32]; 12 nonzero signing-key version `uint32`; 13 Ed25519 signature[64]. Field 9 must be greater than `verified_at.latest_epoch_ms`, within the configured maximum attestation age, and the verifier/key must be in the activated trust set. Field 11 is SHA-256 of domain `nereus-delay-credential-equivalence\0` plus canonical Protobuf fields 1–10. Field 13 signs `SHA-256("nereus-delay-credential-equivalence-signature\0" || field11 || u32be(field12))`. Field 4 must equal the selected Profile body's immutable credential scope digest; fields 1–3 must equal the candidate binding. Fields 5/10 bind the exact immutable provider secret version or public credential fingerprint and the verifier's authenticated principal/resource/operation probe evidence; operator assertion or a successful TCP connection is not sufficient. `not_after` is the deadline for accepting this control-plane proof, not permission to mutate the referenced secret later.
 
+NDIP-3 local Broker mTLS selects a new tuple: ASCII verifier ID
+`nereus-delay-local-broker-mtls`, verifier version 1, and an explicitly activated signing-key
+version. For this tuple alone, field 5 is SHA-256 of the leaf X.509 DER bytes returned by
+`X509Certificate.getEncoded()`. Existing tuples/fingerprints retain their original meaning.
+RSA/EC PKCS#8 key material must match that certificate; the chain is leaf-first, has explicit
+client-auth EKU/digital-signature use, and passes the configured offline PKIX CA policy through
+the complete use-lease interval. This proves loaded material, not Broker ACL/operation authority.
+The original trusted verifier must still authenticate the principal/resource/operation probe
+bound by field 10; the Worker neither signs that attestation nor substitutes a TLS connection.
+
+The private reference for this provider is strictly ASCII
+`nd-local-mtls-v1://<credentialId>/<materialVersion>`, with two nonzero 16-byte IDs encoded as
+32 lowercase hex digits each and no other URI components. Under the deployment-controlled
+credential root, the immutable version directory contains `client-cert-chain.pem`,
+`client-key.pk8.pem`, and `verifier-evidence.bin`. No alias/overwrite is permitted while any
+original binding/UNKNOWN/Journal/lease obligation remains. Secure directory handles, nofollow
+ordinary-file reads, finite byte/certificate/version bounds, and retained identity/content
+checks reject symlink traversal, same-version replacement and conflicts. No real secret or
+environment operation is authorized by this registry entry.
+
+`verifier-evidence.bin` is private canonical Protobuf, not a new Source/wire receipt: fields
+1 uint32 version=1; 2 credential ID[16]; 3 material version[16]; 4 exact ProfileRef canonical
+bytes; 5 raw uint64 secret generation; 6 reference SHA-256[32]; 7 authorization-scope digest[32];
+8 leaf DER SHA-256[32]; 9 SHA-256(concatenated lp32 DER certificates in leaf-first order)[32];
+10 leaf SPKI SHA-256[32]; 11 SHA-256(field12)[32]; 12 nonempty original private authenticated
+Broker probe evidence; 13 SHA-256 of exact PKCS#8 PEM file bytes[32]. Attestation field 10 is
+SHA-256 of this entire canonical file. Field 13 binds immutable private material bytes across
+reopen; it does not redefine the public credential fingerprint. Only the trusted verifier may
+produce the authenticated evidence/attestation. Private reference/key/evidence bytes and their
+paths do not enter Source/Store/checkpoint/logs/metrics/exception text.
+
+The privately constructed local receipt retains the verified snapshot and original binding/
+lease/holder. K1 uses its inline PEM SSL configuration; P1 uses captured certificate/key/trust
+streams. Server CA snapshots, exact deployment endpoints and mandatory hostname validation
+have a separate configuration identity. Caller SASL/SSL/auth overrides and non-mTLS production
+fallback are rejected. SEND uses local receipt/lease checks, never file/catalog/secret resolution;
+new material enters a new SDK generation through the existing control/protection boundary.
+Missing deployment material/trust/probe evidence is activation unavailable, not a fixture proof.
+
 `CredentialBinding` is a separate private control-plane object with exact fields: 1 `ProfileRef profile`; 2 nonzero raw `uint64 secret_generation` (complete 64-bit pattern, zero invalid); 3 bounded nonempty private `bytes secret_reference`; 4 `bytes secret_reference_sha256`=32; 5 `CredentialEquivalenceAttestation equivalence_attestation`; 6 `uint32 binding_protocol_version`=1; 7 `bytes binding_digest`=32. Field 4 equals SHA-256(field 3); attestation fields 1–3 must equal binding fields 1–2/4. Field 7 is:
 
 ```text
