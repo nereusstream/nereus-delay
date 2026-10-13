@@ -177,6 +177,24 @@ public final class TargetWorkerProcessRuntime {
         catch (RuntimeException | Error failure) { retain(failure); throw failure; }
     }
 
+    /** Same-DB reopen never bootstraps an empty root or bypasses the original Catalog/Pin checkpoint install gates. */
+    public TargetWorkerSourceStartup reopenSource(TargetWorkerSourceStartup.Owner owner,
+            com.nereusstream.delay.protocol.TargetQuotaScope scope, TargetWorkerSourceRuntimeFactory.Content content,
+            SourceReplaySuccessor actualActiveSuccessor) {
+        final TargetWorkerSourceStartup startup;
+        synchronized (this) {
+            requireAssemblyAdmission(); oxia.providers();
+            if (sources.containsKey(scope.shard()) || sources.size() >= configuration.worker().store().maxOwnedShards()) {
+                throw new IllegalStateException("Source reopen exceeds its original process Shard envelope");
+            }
+            startup = new TargetWorkerSourceStartup(this,
+                    new Assembly(configuration.worker(), classes, resources, io, oxia), owner, scope, content, actualActiveSuccessor, nanos);
+            sources.put(scope.shard(), startup);
+        }
+        try { startup.openReopened(); return startup; }
+        catch (RuntimeException | Error failure) { retain(failure); throw failure; }
+    }
+
     /** Builds the original Host from this root's privately retained Source startups, not caller-built Workers. */
     public TargetWorkerHostRuntime prepareHost(TargetCheckpointCandidateSchedule.CollectedSemanticRequestFactory checkpoints,
             LongSupplier checkpointClock, Consumer<Throwable> failures) {

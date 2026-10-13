@@ -48,6 +48,7 @@ public final class TargetWorkerSourceStartup {
     private final TargetWorkerProcessRuntime.Assembly graph;
     private final Owner owner;
     private final Initial initial;
+    private final TargetQuotaScope scope;
     private final TargetWorkerSourceRuntimeFactory.Content content;
     private final SourceReplaySuccessor successor;
     private final LongSupplier nanos;
@@ -56,6 +57,9 @@ public final class TargetWorkerSourceStartup {
     private ShardStore store;
     private TargetWorkerSourceRuntimeFactory.Activated activation;
     private TargetWorkerSourceRuntimeFactory.AssemblyFailure failedAssembly;
+    private TargetWorkerSourceRuntimeFactory.Recovery recovery;
+    private TargetWorkerRecoverySource recoverySource;
+    private Throwable recoveryCleanupFailure;
     private TargetOwnedBackendGroup backend;
     private TargetWorkerShardRuntime worker;
     private boolean stopping;
@@ -73,7 +77,85 @@ public final class TargetWorkerSourceStartup {
             SourceReplaySuccessor successor, LongSupplier nanos) {
         this.process = process; this.graph = graph; this.owner = Objects.requireNonNull(owner);
         this.initial = Objects.requireNonNull(initial); this.content = Objects.requireNonNull(content);
+        this.scope = initial.scope();
         this.successor = Objects.requireNonNull(successor); this.nanos = nanos;
+    }
+
+    TargetWorkerSourceStartup(TargetWorkerProcessRuntime process, TargetWorkerProcessRuntime.Assembly graph,
+            Owner owner, TargetQuotaScope scope, TargetWorkerSourceRuntimeFactory.Content content,
+            SourceReplaySuccessor activeSuccessor, LongSupplier nanos) {
+        this.process = process; this.graph = graph; this.owner = Objects.requireNonNull(owner);
+        this.initial = null; this.scope = Objects.requireNonNull(scope); this.content = Objects.requireNonNull(content);
+        this.successor = Objects.requireNonNull(activeSuccessor); this.nanos = nanos;
+        if (scope.target() != null) throw new IllegalArgumentException("Source reopen requires its original Shard scope");
+    }
+
+    /** Opens the actual same-DB Target Store under the newly acquired original assignment/session lease. */
+    void openReopened() {
+        try {
+            assignment = TargetWorkerSourceRuntimeFactory.accept(graph.oxia(), owner.tenant(), owner.publication(), owner.workerId());
+            TargetWorkerSourceRuntimeFactory.requireScope(graph.oxia(), owner.tenant(), assignment, scope);
+            lease = TargetWorkerSourceRuntimeFactory.acquire(graph.oxia(), owner.tenant(), owner.publication(),
+                    owner.workerId(), owner.ownerId(), owner.leaseDurationMs(), owner.clock());
+            requireCurrent();
+            store = ShardStore.openTarget(graph.config().store(), scope.shard(), graph.resources());
+            requireCurrent();
+        } catch (RuntimeException | Error failure) {
+            retain(failure); throw new StartupFailure(failure, this);
+        } finally { synchronized (this) { initializationRunning = false; } }
+    }
+
+    /** Adopts the exact verified reader before auditing/replaying; never takes an arbitrary iterator or issues ACK. */
+    public void startRecovery(TargetWorkerRecoverySource source, com.nereusstream.delay.protocol.OwnerIdentity identity,
+            com.nereusstream.delay.adapter.PulsarAttemptJournal journal, Runnable sourceProtection, Runnable journalProtection) {
+        final Construction original;
+        synchronized (this) {
+            if (initial != null || initializationRunning || recoverySource != null || recovery != null || activation != null) {
+                throw new IllegalStateException("original same-DB recovery is unavailable or already started");
+            }
+            original = beginConstruction(false);
+        }
+        try (original) {
+            original.requireCurrent();
+            Objects.requireNonNull(source).requireStartup(assignment, graph.config().maximumSourceFrameBytes(),
+                    graph.classes(), graph.resources());
+            synchronized (this) { recoverySource = source; }
+            source.replayCursor().requireGuarded();
+            recovery = TargetWorkerSourceRuntimeFactory.reopen(graph.oxia(), graph.config(), graph.classes(),
+                    graph.resources(), store, scope, owner.tenant(), owner.publication(), owner.workerId(), lease,
+                    source.replayCursor(), source.successorAfter(store.appliedShardLogPosition()), content, identity, journal,
+                    sourceProtection, journalProtection, owner.clock(), nanos);
+        } catch (RuntimeException | Error failure) {
+            if (failure instanceof TargetWorkerSourceRuntimeFactory.AssemblyFailure partial) {
+                synchronized (this) { failedAssembly = partial; lease = partial.lease(); }
+            }
+            retain(failure); throw new StartupFailure(failure, this);
+        }
+    }
+
+    /** One bounded no-ACK recovery turn; active Source remains unavailable while native reader cleanup is pending. */
+    public OwnerRecoveryTurn runRecoveryTurn() {
+        final Construction original;
+        synchronized (this) {
+            if (recovery == null || recoverySource == null || activation != null) throw new IllegalStateException("original recovery is not pending");
+            original = beginConstruction(false);
+        }
+        try (original) {
+            original.requireCurrent();
+            var turn = recovery.coordinator().runTurn();
+            if (turn.complete()) {
+                synchronized (this) { lease = recovery.coordinator().activeLease(); }
+                try { recoverySource.close(); }
+                catch (RuntimeException | Error failure) {
+                    synchronized (this) { if (recoveryCleanupFailure == null) recoveryCleanupFailure = failure; }
+                    return turn;
+                }
+                if (recoverySource.cleanupComplete()) {
+                    synchronized (this) { activation = recovery.activateCompleted(successor); }
+                }
+            }
+            return turn;
+        } catch (RuntimeException | Error failure) { retain(failure); throw new StartupFailure(failure, this); }
     }
 
     void initialize() {
@@ -132,7 +214,9 @@ public final class TargetWorkerSourceStartup {
         if (assignment == null || !assignment.sameIdentity(accepted) || lease == null || !lease.sameIdentity(current)
                 || !Bytes.constantTimeEquals(current.sessionIdentity(), graph.oxia().providers().sessionIdentity())
                 || !current.validAt(now) || now < 0 || now < lastNow
-                || current.state() != lease.state()
+                || (recoverySource == null ? current.state() != lease.state()
+                        : current.state() != ShardLifecycleState.ACQUIRING && current.state() != ShardLifecycleState.CATCHING_UP
+                            && current.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS)
                 || store != null && Long.compareUnsigned(store.runtimeMetadata().lastOpenedOwnerEpoch(), lease.ownerEpoch()) > 0) {
             throw new IllegalStateException("Source startup lost its actual assignment/session/Owner/time authority");
         }
@@ -151,13 +235,17 @@ public final class TargetWorkerSourceStartup {
 
     /** Original acquired/activated lease for binding the deployment's existing OwnerIdentity; never inferred on failure. */
     public synchronized OwnerLease ownerLease() {
-        activation();
+        if (lease == null || stopping || firstFailure != null) throw new IllegalStateException("original acquired Source lease is unavailable");
         return lease;
     }
 
     /** Original SDK factory construction is single flight and must return before the Store/lease can retire. */
     public synchronized Construction beginWorkerConstruction() {
-        requireCurrent(); activation();
+        return beginConstruction(true);
+    }
+
+    private synchronized Construction beginConstruction(boolean active) {
+        requireCurrent(); if (active) activation();
         if (worker != null || constructionThread != null) throw new IllegalStateException("Source Worker construction is already owned");
         final var original = Thread.currentThread();
         final var construction = new Construction(this, original);
@@ -203,6 +291,7 @@ public final class TargetWorkerSourceStartup {
         synchronized (this) {
             activation().requireGraph(graph.classes(), graph.resources(), store());
             actual.requireSourceStartup(activation.runtime(), store);
+            if (recoverySource != null) actual.retainRecoveryBackend(recoverySource.backend());
             if (worker != null || backend == null || actual.sourceBackendGroup() != backend
                     || !actual.shardId().equals(assignment.shardId())) {
                 throw new IllegalStateException("Source Worker does not own its original SDK/Store graph");
@@ -219,6 +308,8 @@ public final class TargetWorkerSourceStartup {
         return worker;
     }
     public synchronized Optional<Throwable> firstFailure() { return Optional.ofNullable(firstFailure); }
+    public synchronized Optional<Throwable> recoveryCleanupFailure() { return Optional.ofNullable(recoveryCleanupFailure); }
+    public synchronized boolean activationReady() { return activation != null && !stopping && firstFailure == null; }
     public synchronized void retain(Throwable failure) {
         if (firstFailure == null) firstFailure = failure;
         else if (firstFailure != failure) {
@@ -243,6 +334,17 @@ public final class TargetWorkerSourceStartup {
             }
             if (failedAssembly != null) {
                 failedAssembly.retryContentCleanup(); if (!failedAssembly.contentIoExited()) return false;
+            }
+            if (recovery != null) {
+                recovery.coordinator().stopAuthorityPreparation(); recovery.coordinator().retryAuthorityCleanup();
+                if (!recovery.coordinator().authorityIoExited()) return false;
+            }
+            if (recoverySource != null) {
+                recoverySource.close(); if (!recoverySource.cleanupComplete()) return false;
+                final var readerBackend = recoverySource.backend();
+                if (readerBackend != null && readerBackend != backend) {
+                    readerBackend.closeBeforeHostBinding(); if (!readerBackend.resourcesTerminated()) return false;
+                }
             }
             if (backend != null) {
                 backend.closeBeforeHostBinding(); if (!backend.resourcesTerminated()) return false;
@@ -273,6 +375,7 @@ public final class TargetWorkerSourceStartup {
     }
 
     synchronized boolean failedCleanupComplete() { return failedCleanupComplete; }
+
 
     public static final class StartupFailure extends IllegalStateException {
         private static final long serialVersionUID = 1L;

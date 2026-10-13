@@ -94,6 +94,7 @@ public final class TargetWorkerShardRuntime
     private volatile TargetWorkerHostRuntime publicationHost;
     private final TargetOwnedBackendGroup sourceBackendGroup;
     private final SourceRecordConsumer actualSourceConsumer;
+    private TargetOwnedBackendGroup recoveryBackend;
     private volatile TargetMessageExpiryWorkClassExecutor messageExpiryHandoff;
     private volatile TargetMessageExpiryMaintenance messageExpiryMaintenance;
     private volatile TargetCheckpointCandidateWorkClassExecutor.Submission pendingCheckpoint;
@@ -228,6 +229,7 @@ public final class TargetWorkerShardRuntime
 
     synchronized java.util.List<TargetOwnedBackendGroup> publicationBackendGroups() {
         final var groups = new java.util.ArrayList<TargetOwnedBackendGroup>();
+        if (recoveryBackend != null) groups.add(recoveryBackend);
         for (var owner : publicationResources.values()) {
             final var group = owner.ownedBackendGroup();
             if (group != null && groups.stream().noneMatch(existing -> existing == group)) { groups.add(group); }
@@ -1538,6 +1540,16 @@ public final class TargetWorkerShardRuntime
         if (target != expected || store != actualStore) {
             throw new IllegalArgumentException("Worker belongs to another original Source startup/Store");
         }
+    }
+
+    /** The completed reader's original shared SDK owner participates in the same Host composition/close preflight. */
+    synchronized void retainRecoveryBackend(TargetOwnedBackendGroup actual) {
+        if (actual == null) return;
+        actual.requireWorkerGraph(workClasses, resources);
+        if (publicationHost != null || recoveryBackend != null && recoveryBackend != actual) {
+            throw new IllegalStateException("recovery SDK owner cannot transfer to another Worker/Host");
+        }
+        recoveryBackend = actual;
     }
 
     public TargetOwnedBackendGroup sourceBackendGroup() { return sourceBackendGroup; }

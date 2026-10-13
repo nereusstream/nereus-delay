@@ -400,13 +400,20 @@ public final class TargetOwnerRecoveryCoordinator {
 
     /** Builds an active Source runtime only from the final, still-current recovery audit and held authorities. */
     public synchronized TargetSourceApplyRuntime activeRuntime() {
+        return activeRuntime(authorities.successor());
+    }
+
+    /** Active consumption uses its own adapter proof; a closed recovery reader cannot authorize later Source delivery. */
+    public synchronized TargetSourceApplyRuntime activeRuntime(SourceReplaySuccessor activeSuccessor) {
+        Objects.requireNonNull(activeSuccessor, "actual active Source successor");
         final var root = completedRoot();
         requireCatalog();
         final var active = activeLease();
-        if (authorityPreparation == null) return new TargetSourceApplyRuntime(root, store, assignment, active, authorities, limits, monotonic);
+        if (authorityPreparation == null) return new TargetSourceApplyRuntime(root, store, assignment, active,
+                authorities.withSuccessor(activeSuccessor), limits, monotonic);
         if (!authorityPreparation.ioExited()) throw new IllegalStateException("recovery content I/O is still live");
         final var preparation = authorityPreparation.fork();
-        final var selected = preparation.authorities(authorities.leases(), authorities.successor(),
+        final var selected = preparation.authorities(authorities.leases(), activeSuccessor,
                 authorities.duplicateWrites(), authorities.reads());
         final var runtime = new TargetSourceApplyRuntime(root, store, assignment, active, selected, limits, monotonic);
         runtime.configureAuthorityPreparation(preparation, clock);

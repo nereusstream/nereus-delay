@@ -285,6 +285,12 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                     duplicateWrites, reads, commands, nativePolicyControls, admissions, outcomes,
                     Objects.requireNonNull(selected, "channelControls"));
         }
+
+        public Authorities withSuccessor(final SourceReplaySuccessor selected) {
+            return new Authorities(leases, Objects.requireNonNull(selected), grants, fences, expiries, closes,
+                    membershipControls, duplicateWrites, reads, commands, nativePolicyControls, admissions,
+                    outcomes, channelControls);
+        }
         public Authorities(
                 final OxiaOwnerLeaseStore leases,
                 final SourceReplaySuccessor successor,

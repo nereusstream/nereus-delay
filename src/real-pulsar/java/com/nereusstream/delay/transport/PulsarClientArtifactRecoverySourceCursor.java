@@ -40,7 +40,8 @@ import org.apache.pulsar.client.api.TopicResourceGuardAttestation;
  * generation or attestation fails the cursor and therefore requires a fresh
  * assignment/session.</p>
  */
-public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<SourceReplayEntry>, AutoCloseable {
+public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<SourceReplayEntry>,
+        com.nereusstream.delay.ownership.TargetWorkerRecoverySource {
     private final GuardedConsumer<byte[]> consumer;
     private final TopicResourceGuard expectedGuard;
     private final SourceAssignment assignment;
@@ -52,6 +53,7 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
     private final Runnable protection;
     private final OwnedSourceCursor<Consumer<byte[]>> cleanup;
     private final PulsarClientArtifactOwnedBackendGroup backend;
+    private LocalBrokerMtlsResolver.SourceReceipt verifiedCredential;
     private Message<byte[]> buffered;
     private SourceReplayEntry current;
     private PulsarSourcePosition successorAnchor;
@@ -136,8 +138,10 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
                 final var assignment = Objects.requireNonNull(acceptPostSeekAssignment.apply(positioned), "accepted assignment");
                 authorization.requireAssignment(assignment);
                 protection.run();
-                return new PulsarClientArtifactRecoverySourceCursor(consumer, resource, assignment, topic,
+                final var cursor = new PulsarClientArtifactRecoverySourceCursor(consumer, resource, assignment, topic,
                         receiveTimeout, true, maximumFrameBytes, protection, owned, group);
+                cursor.verifiedCredential = credential;
+                return cursor;
             });
         } catch (Exception | Error failure) {
             if (failure instanceof InterruptedException) { Thread.currentThread().interrupt(); }
@@ -243,6 +247,21 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
         successorPrevious = anchor;
         return this::isLastDeliveredSuccessor;
     }
+
+    @Override public synchronized SourceReplaySuccessor successorAfter(SourcePosition resumeAfter) {
+        if (!(resumeAfter instanceof PulsarSourcePosition position)) throw new IllegalArgumentException("P1 replay anchor changes Source kind");
+        return successorAfter(position);
+    }
+    @Override public synchronized void requireStartup(SourceAssignment expected, long frameBytes,
+            com.nereusstream.delay.scheduler.WorkClassExecutionRegistry classes,
+            com.nereusstream.delay.store.SharedRocksDbResources resources) {
+        if (!target || verifiedCredential == null || backend == null || !assignment.sameIdentity(expected)
+                || maximumFrameBytes > frameBytes) throw new IllegalStateException("recovery cursor lacks its original verified Source startup");
+        backend.requireWorkerGraph(classes, resources);
+        verifiedCredential.authorization().requireAssignment(expected);
+    }
+    @Override public com.nereusstream.delay.ownership.TargetOwnedBackendGroup backend() { return backend; }
+    @Override public synchronized boolean cleanupComplete() { return closed && cleanup.cleanupComplete(); }
 
     /** Keeps the exact post-seek native guard live across Target recovery look-ahead and queued writes. */
     public com.nereusstream.delay.ownership.SourceReplayCursor<SourceReplayEntry> replayCursor() {

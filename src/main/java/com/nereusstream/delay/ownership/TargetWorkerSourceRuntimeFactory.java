@@ -180,6 +180,7 @@ public final class TargetWorkerSourceRuntimeFactory {
         private final String workerId;
         private final TargetOwnerRecoveryCoordinator recovery;
         private Activated activated;
+        private SourceReplaySuccessor activeSuccessor;
         private Recovery(TargetWorkerOxiaRuntime oxia, TargetWorkerRuntimeConfig config, WorkClassExecutionRegistry classes,
                 SharedRocksDbResources resources, ShardStore store, SourceAssignment assignment, AuthenticatedTenantContext tenant,
                 WorkerAssignmentAuthority.Publication publication, String workerId, TargetOwnerRecoveryCoordinator recovery) {
@@ -188,10 +189,17 @@ public final class TargetWorkerSourceRuntimeFactory {
         }
         public TargetOwnerRecoveryCoordinator coordinator() { return recovery; }
         public synchronized Activated activateCompleted() {
+            return activateCompleted(null);
+        }
+        public synchronized Activated activateCompleted(SourceReplaySuccessor actualActiveSuccessor) {
             accept(oxia, tenant, publication, workerId);
-            if (activated != null) return activated;
-            var runtime = recovery.activeRuntime();
+            if (activated != null) {
+                if (activeSuccessor != actualActiveSuccessor) throw new IllegalStateException("active Source proof cannot be replaced");
+                return activated;
+            }
+            var runtime = actualActiveSuccessor == null ? recovery.activeRuntime() : recovery.activeRuntime(actualActiveSuccessor);
             activated = new Activated(oxia, config, classes, resources, store, assignment, runtime);
+            activeSuccessor = actualActiveSuccessor;
             return activated;
         }
     }

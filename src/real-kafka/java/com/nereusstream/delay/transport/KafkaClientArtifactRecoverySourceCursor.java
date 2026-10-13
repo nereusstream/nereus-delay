@@ -29,10 +29,13 @@ import org.apache.kafka.common.TopicPartition;
  * The Route activation barrier remains an identity fence, not a substitute
  * for local Store recovery metadata.</p>
  */
-public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<SourceReplayEntry>, AutoCloseable {
+public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<SourceReplayEntry>,
+        com.nereusstream.delay.ownership.TargetWorkerRecoverySource {
     private static final int MAX_EMPTY_POLLS_BEFORE_ACTIVATION_BARRIER = 120;
     private final GuardedConsumer<byte[], byte[]> consumer;
     private final KafkaActivationBarrier activationBarrier;
+    private final SourceAssignment assignment;
+    private com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt verifiedCredential;
     private final String authenticatedClusterId;
     private final java.util.UUID nativeTopicUuid;
     private final ShardId shard;
@@ -102,7 +105,9 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
                 resource.nativeTopicUuid(), assignment.shardId().partition(), pollTimeout);
         try {
             protection.run();
-            return forTarget(actual, assignment, topic, startOffsetInclusive, pollTimeout, maximumFrameBytes, protection);
+            final var cursor = forTarget(actual, assignment, topic, startOffsetInclusive, pollTimeout, maximumFrameBytes, protection);
+            cursor.verifiedCredential = credential;
+            return cursor;
         } catch (RuntimeException | Error failure) {
             try { actual.closeGuardedResources(pollTimeout); if (!actual.guardedResourcesTerminated()) throw new IllegalStateException("Recovery Source native cleanup is incomplete"); }
             catch (RuntimeException | Error cleanup) {
@@ -123,6 +128,7 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
         this.maximumFrameBytes = maximumFrameBytes;
         this.protection = protection;
         this.consumer = Objects.requireNonNull(consumer, "consumer");
+        this.assignment = Objects.requireNonNull(assignment);
         final SourceAssignment accepted = Objects.requireNonNull(assignment, "assignment");
         if (!(accepted.activationBarrier() instanceof KafkaActivationBarrier barrier)) {
             throw new IllegalArgumentException("Kafka recovery cursor requires a Kafka activation barrier");
@@ -257,6 +263,21 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
     public com.nereusstream.delay.ownership.SourceReplayCursor<SourceReplayEntry> replayCursor() {
         return com.nereusstream.delay.ownership.SourceReplayCursor.guarded(this, this::requireCurrent);
     }
+
+    @Override public synchronized void requireStartup(SourceAssignment expected, long frameBytes,
+            com.nereusstream.delay.scheduler.WorkClassExecutionRegistry classes,
+            com.nereusstream.delay.store.SharedRocksDbResources resources) {
+        if (!target || verifiedCredential == null || !assignment.sameIdentity(expected)
+                || maximumFrameBytes > frameBytes) throw new IllegalStateException("recovery cursor lacks its original verified Source startup");
+        verifiedCredential.authorization().requireAssignment(expected);
+    }
+    @Override public synchronized com.nereusstream.delay.ownership.SourceReplaySuccessor successorAfter(
+            com.nereusstream.delay.protocol.SourcePosition resumeAfter) {
+        requireCurrent(); activationBarrier.validatePosition(resumeAfter);
+        return com.nereusstream.delay.ownership.SourceReplaySuccessor.strictKafka();
+    }
+    @Override public com.nereusstream.delay.ownership.TargetOwnedBackendGroup backend() { return null; }
+    @Override public synchronized boolean cleanupComplete() { return closed && target && consumer.guardedResourcesTerminated(); }
 
     /** Rechecks this exact native Source identity and the caller-held protection without reading or committing. */
     public synchronized void requireCurrent() {
