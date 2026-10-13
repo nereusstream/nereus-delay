@@ -277,7 +277,7 @@ public final class KafkaClientArtifactTargetTransactionalTransport implements De
 
     private synchronized void closeProducer() {
         closed.set(true);
-        if(!producerCloseCompleted){producer.close(operationTimeout);producerCloseCompleted=true;}
+        if(!producerCloseCompleted){KafkaClientArtifactProducerCleanup.close(producer, operationTimeout);producerCloseCompleted=true;}
         if(producerBudget!=null)producerBudget.closed();
     }
     /** Close fences queued work; it never marks a running consumer or its physical stage complete early. */

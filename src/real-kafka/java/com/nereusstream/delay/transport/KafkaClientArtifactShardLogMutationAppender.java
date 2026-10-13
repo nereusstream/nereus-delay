@@ -42,6 +42,7 @@ public final class KafkaClientArtifactShardLogMutationAppender implements ShardL
     private final ProducerResourceGuard guard;
     private final Duration responseTimeout;
     private final SystemWriterAppendBudget.Writer writer;
+    private final Runnable sourceGate;
 
     public KafkaClientArtifactShardLogMutationAppender(
             final GuardedProducer<byte[], byte[]> producer,
@@ -61,6 +62,11 @@ public final class KafkaClientArtifactShardLogMutationAppender implements ShardL
             final UUID nativeTopicUuid,
             final Duration responseTimeout,
             final SystemWriterAppendBudget.Writer writer) {
+        this(producer, shard, authenticatedClusterId, physicalTopic, nativeTopicUuid, responseTimeout, writer, null);
+    }
+    KafkaClientArtifactShardLogMutationAppender(GuardedProducer<byte[],byte[]> producer, ShardId shard,
+            String authenticatedClusterId, String physicalTopic, UUID nativeTopicUuid, Duration responseTimeout,
+            SystemWriterAppendBudget.Writer writer, Runnable sourceGate) {
         this.producer = Objects.requireNonNull(producer, "producer");
         this.shard = Objects.requireNonNull(shard, "shard");
         this.authenticatedClusterId = requireText(authenticatedClusterId, "authenticatedClusterId");
@@ -77,6 +83,7 @@ public final class KafkaClientArtifactShardLogMutationAppender implements ShardL
             throw new IllegalArgumentException("responseTimeout must be positive");
         }
         this.writer = writer;
+        this.sourceGate = sourceGate;
         if (writer != null) {
             writer.bindProducer(producer);
         }
@@ -117,8 +124,12 @@ public final class KafkaClientArtifactShardLogMutationAppender implements ShardL
         }
         final CompletableFuture<Observation> completion = new CompletableFuture<>();
         try {
-            final java.util.function.Supplier<java.util.concurrent.Future<GuardedRecordMetadata>> send = () ->
-                    producer.sendGuarded(new ProducerRecord<>(physicalTopic, partition, null, frame), guard,
+            final java.util.function.Supplier<java.util.concurrent.Future<GuardedRecordMetadata>> send = () -> {
+                if (sourceGate != null) {
+                    try { sourceGate.run(); }
+                    catch (RuntimeException failed) { throw new SourceWriteNotStarted(failed); }
+                }
+                return producer.sendGuarded(new ProducerRecord<>(physicalTopic, partition, null, frame), guard,
                             (metadata, failure) -> {
                                 try {
                                     completion.complete(new Observation(metadata, failure));
@@ -126,12 +137,17 @@ public final class KafkaClientArtifactShardLogMutationAppender implements ShardL
                                     if (reservation != null) { reservation.sdkCompleted(); }
                                 }
                             });
+            };
             if (writer == null) {
                 send.get();
             } else if (!writer.invokeSdk(reservation, send).started()) {
                 return AppendOutcome.definitelyNotPersisted();
             }
         } catch (RuntimeException failure) {
+            if (failure instanceof SourceWriteNotStarted) {
+                if (reservation != null) reservation.sdkCompleted();
+                return AppendOutcome.definitelyNotPersisted();
+            }
             final ResourceGuardException proof = unwrap(failure);
             if (reservation != null && proof != null && proof.definitelyNotPersisted()) {
                 reservation.sdkCompleted();
@@ -216,4 +232,8 @@ public final class KafkaClientArtifactShardLogMutationAppender implements ShardL
     }
 
     private record Observation(GuardedRecordMetadata metadata, Throwable failure) {}
+    private static final class SourceWriteNotStarted extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+        private SourceWriteNotStarted(Throwable cause) { super("Source credential denied before native append", cause); }
+    }
 }

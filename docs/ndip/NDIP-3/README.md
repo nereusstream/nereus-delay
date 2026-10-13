@@ -3,7 +3,8 @@
 2026-10-13 当前开发：owned P1 shared-client/native 创建交接、Host 私有关闭 permit、
 whole-Host quarantine 和未正常完成的 Store/Owner 退出接线已加入；SDK fork 开发锁
 更新为 b8fc1f39eb517c14cc1cdf35e60a0b1dcad2ec40。owned K1 Source 的原native cleanup、
-wakeup/读退出与 mixed Host fault exit 已接线，K1开发锁更新为0a8fa588fe；只有必要
+wakeup/读退出与 mixed Host fault exit 已接线，K1开发锁更新为5dbfa38637；guarded Producer
+实际cleanup/partial-construction、Source system writer及history/observer角色已加入，只有必要
 构建/编译结果。完整服务装配、其余三包及全部集中验收仍开放，所有完成flags保持false。
 当前开发边界见[实施计划](02-实施计划.md)，实际结果与待验证条件见04和12。
 

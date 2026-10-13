@@ -432,6 +432,20 @@ public final class LocalBrokerMtlsResolver {
         public void requireOperation(SourceTransportCredentialAuthorization.Operation operation, TrustedUtcIntervalEvidence time) {
             requireActive(time); authorization.requireOperation(operation);
         }
+        public Runnable guardRead(SourceTransportCredentialAuthorization.Operation role,
+                com.nereusstream.delay.protocol.SourcePosition position, String topic, String name,
+                Supplier<TrustedUtcIntervalEvidence> time, Runnable heldOwnerAndRetention) {
+            if (role != SourceTransportCredentialAuthorization.Operation.HISTORY
+                    && role != SourceTransportCredentialAuthorization.Operation.OBSERVATION
+                    && role != SourceTransportCredentialAuthorization.Operation.RECOVERY) { throw unavailable(); }
+            authorization.requirePosition(position, topic); authorization.requireName(role, name);
+            Objects.requireNonNull(heldOwnerAndRetention, "original reader Owner/retention protection");
+            return () -> {
+                requireOperation(role, time.get()); requireOperation(SourceTransportCredentialAuthorization.Operation.LOOKUP, time.get());
+                heldOwnerAndRetention.run();
+                requireOperation(role, time.get());
+            };
+        }
         public void requireKafkaBootstrap(Object endpoint) {
             final String configured = endpoint instanceof List<?> values
                     ? String.join(",", values.stream().map(value -> (String) value).toList()) : (String) endpoint;

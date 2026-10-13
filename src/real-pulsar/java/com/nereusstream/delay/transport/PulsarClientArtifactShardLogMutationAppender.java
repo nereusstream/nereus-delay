@@ -42,6 +42,7 @@ public final class PulsarClientArtifactShardLogMutationAppender implements Shard
     private final int partition;
     private final Duration responseTimeout;
     private final SystemWriterAppendBudget.Writer writer;
+    private final Runnable sourceGate;
 
     public PulsarClientArtifactShardLogMutationAppender(
             final Producer<byte[]> producer,
@@ -66,6 +67,12 @@ public final class PulsarClientArtifactShardLogMutationAppender implements Shard
             final long physicalTopicCreationTimestamp,
             final Duration responseTimeout,
             final SystemWriterAppendBudget.Writer writer) {
+        this(producer, sourceConsumer, shard, authenticatedClusterId, resourceIncarnation, physicalTopic,
+                physicalTopicCreationTimestamp, responseTimeout, writer, null);
+    }
+    PulsarClientArtifactShardLogMutationAppender(Producer<byte[]> producer, GuardedConsumer<?> sourceConsumer,
+            ShardId shard, String authenticatedClusterId, byte[] resourceIncarnation, String physicalTopic,
+            long physicalTopicCreationTimestamp, Duration responseTimeout, SystemWriterAppendBudget.Writer writer, Runnable sourceGate) {
         this.producer = Objects.requireNonNull(producer, "producer");
         this.sourceConsumer = Objects.requireNonNull(sourceConsumer, "sourceConsumer");
         this.shard = Objects.requireNonNull(shard, "shard");
@@ -85,6 +92,7 @@ public final class PulsarClientArtifactShardLogMutationAppender implements Shard
             throw new IllegalArgumentException("Pulsar mutation binding is not pinned to one guarded topic");
         }
         this.writer = writer;
+        this.sourceGate = sourceGate;
         if (writer != null) { writer.bindProducer(producer); }
     }
 
@@ -128,14 +136,25 @@ public final class PulsarClientArtifactShardLogMutationAppender implements Shard
         }
         final CompletableFuture<MessageId> completion;
         try {
+            final java.util.function.Supplier<CompletableFuture<MessageId>> send = () -> {
+                if (sourceGate != null) {
+                    try { sourceGate.run(); }
+                    catch (RuntimeException failed) { throw new SourceWriteNotStarted(failed); }
+                }
+                return PulsarClientArtifactOwnedBackendGroup.nativeSend(producer, () -> producer.newMessage().value(frame).sendAsync());
+            };
             if (writer == null) {
-                completion = PulsarClientArtifactOwnedBackendGroup.nativeSend(producer, () -> producer.newMessage().value(frame).sendAsync());
+                completion = send.get();
             } else {
-                final var handed = writer.invokeSdk(reservation, () -> PulsarClientArtifactOwnedBackendGroup.nativeSend(producer, () -> producer.newMessage().value(frame).sendAsync()));
+                final var handed = writer.invokeSdk(reservation, send);
                 if (!handed.started()) { return AppendOutcome.definitelyNotPersisted(); }
                 completion = handed.result();
             }
         } catch (RuntimeException failure) {
+            if (failure instanceof SourceWriteNotStarted) {
+                if (reservation != null) reservation.sdkCompleted();
+                return AppendOutcome.definitelyNotPersisted();
+            }
             if (reservation != null && failure(failure).disposition() == AppendDisposition.DEFINITIVELY_NOT_PERSISTED) {
                 reservation.sdkCompleted();
             }
@@ -168,6 +187,11 @@ public final class PulsarClientArtifactShardLogMutationAppender implements Shard
             return AppendOutcome.unknown();
         }
         return persisted(messageId, after);
+    }
+
+    private static final class SourceWriteNotStarted extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+        private SourceWriteNotStarted(Throwable cause) { super("Source credential denied before native append", cause); }
     }
 
     @Override

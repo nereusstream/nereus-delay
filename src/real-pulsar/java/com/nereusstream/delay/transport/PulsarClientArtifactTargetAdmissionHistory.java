@@ -38,6 +38,36 @@ public final class PulsarClientArtifactTargetAdmissionHistory {
 
     private PulsarClientArtifactTargetAdmissionHistory() {}
 
+    public static SystemMutation readVerified(PulsarClientArtifactOwnedBackendGroup group, TopicResourceGuard resource,
+            TargetPublishRecoveryDiscovery.Reference reference, Duration timeout, Runnable historyGuard,
+            com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt credential,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time) {
+        return readVerified(group, resource, reference.source(), timeout, historyGuard, credential, time, MAX_FRAME_BYTES, reference::requireImage);
+    }
+    public static SystemMutation readControlVerified(PulsarClientArtifactOwnedBackendGroup group, TopicResourceGuard resource,
+            TargetCheckpointDependencies.ControlReference reference, Duration timeout, Runnable historyGuard,
+            com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt credential,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time) {
+        return readVerified(group, resource, reference.source(), timeout, historyGuard, credential, time, MAX_CONTROL_FRAME_BYTES, reference::requireImage);
+    }
+    public static SystemMutation readOutcomeVerified(PulsarClientArtifactOwnedBackendGroup group, TopicResourceGuard resource,
+            TargetCheckpointDependencies.OutcomeReference reference, Duration timeout, Runnable historyGuard,
+            com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt credential,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time) {
+        return readVerified(group, resource, reference.source(), timeout, historyGuard, credential, time, MAX_FRAME_BYTES, reference::requireImage);
+    }
+    private static SystemMutation readVerified(PulsarClientArtifactOwnedBackendGroup group, TopicResourceGuard resource,
+            SourcePosition source, Duration timeout, Runnable originalProtection,
+            com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt credential,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time, int frameBytes,
+            java.util.function.BiFunction<SystemMutation,SourcePosition,SystemMutation> image) {
+        group.requireSourceReadResource(credential, resource);
+        final var role = com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.HISTORY;
+        final String name = credential.authorization().newReaderName(role);
+        final var guard = credential.guardRead(role, source, credential.authorization().physicalTopic(), name, time, originalProtection);
+        return read(group.nativeClientForFactory(), resource, source, timeout, guard, frameBytes, image, name);
+    }
+
     /** History retention, credential and Owner authority remain mandatory; this reader grants no SEND or GC. */
     public static SystemMutation read(
             final PulsarClient client, final TopicResourceGuard resource,
@@ -131,6 +161,13 @@ public final class PulsarClientArtifactTargetAdmissionHistory {
             final SourcePosition expectedSource, final Duration timeout, final Runnable historyGuard,
             final int maximumFrameBytes,
             final java.util.function.BiFunction<SystemMutation, SourcePosition, SystemMutation> requireImage) {
+        return read(client, resource, expectedSource, timeout, historyGuard, maximumFrameBytes, requireImage,
+                "nereus-target-admission-history-" + UUID.randomUUID());
+    }
+    private static SystemMutation read(final PulsarClient client, final TopicResourceGuard resource,
+            final SourcePosition expectedSource, final Duration timeout, final Runnable historyGuard,
+            final int maximumFrameBytes, final java.util.function.BiFunction<SystemMutation, SourcePosition, SystemMutation> requireImage,
+            final String subscription) {
         final var guard = Objects.requireNonNull(historyGuard, "historyGuard");
         if (!(expectedSource instanceof PulsarSourcePosition expected)
                 || !Arrays.equals(expected.brokerResourceIncarnation(), resource.resourceIncarnation())) {
@@ -145,7 +182,7 @@ public final class PulsarClientArtifactTargetAdmissionHistory {
         guard.run();
         final var builder = Objects.requireNonNull(client, "client").newConsumer(Schema.BYTES)
                 .topic(expected.physicalTopic())
-                .subscriptionName("nereus-target-admission-history-" + UUID.randomUUID())
+                .subscriptionName(subscription)
                 .subscriptionType(SubscriptionType.Exclusive)
                 .subscriptionMode(SubscriptionMode.NonDurable)
                 .subscriptionInitialPosition(SubscriptionInitialPosition.Earliest)

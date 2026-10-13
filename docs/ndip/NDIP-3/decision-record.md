@@ -468,3 +468,19 @@ assignment→原Owner/恢复流程→actual consumer/Worker/assignment/Owner/nat
 签名权限；到期/失效沿原quarantine，cleanup及旧未ACK/UNKNOWN义务不随其解除。实际
 system append/history/observer/recovery roles与完整service/reopen继续接线，测试/Broker
 和环境激活集中后置，无真实凭据读写或新fake production默认。全部完成flags保持。
+
+## 2026-10-13：K1 Producer native事实与Source writer
+
+主会话批准复用既有Consumer组件cleanup事实，补guarded Producer有限清理、真实
+termination和private partial-construction handle；范围含同SDK的Source/BASELINE/K2。
+保留普通Produce/事务/guard/wire；先封业务、单一deadline观察graceful/force和self-close，
+Sender未退出时不由owner并发关network/accumulator/metrics。Sender退出与资源完成
+分开；原失败/组件清理/constructor中的NetworkClient归属和晚到handle保留，只有真实
+native completion释放SDK费用，Source/UNKNOWN/Journal/持久mutation义务不因此删除。
+不用新清理pool、替代producer、重复SEND/commit/abort或第二次noop当证明。
+
+开发K1 fork推进为5dbfa3863749669462f7a06993b1708e0c56300c，JAR hash与必要构建/编译
+见04和progress开发锁。Source writer用原OwnedBackendGroup/Host permit和SystemWriter
+预算，configured core验证实际Source appender身份，正常Host只在各Shard final drain
+完成后关这些backends。history/observer角色使用真实Source receipt，不据该局部接线或
+编译关闭包1/29切片。recovery/provider/service完整装配继续，全部测试及环境动作后置。

@@ -195,6 +195,20 @@ public final class TargetWorkerShardRuntime
         default LocalBrokerMtlsResolver.Receipt credentialReceipt() { return null; }
     }
     private final java.util.Map<String,PublicationResources> publicationResources=new java.util.HashMap<>();
+    private final java.util.Map<String,OwnedSourceSystemWriter> systemWriterBackends = new java.util.HashMap<>();
+    public void registerSystemWriterBackend(String identity, OwnedSourceSystemWriter backend,
+            TargetDestinationSdkBudget budget, LongSupplier clock) {
+        final TargetWorkerHostRuntime host;
+        synchronized (this) {
+            requirePublishRecoveryOwner(clock); budget.requireWorker(workClasses, resources);
+            backend.ownedBackendGroup().requireWorkerGraph(workClasses, resources);
+            systemWriterBackends.entrySet().removeIf(entry -> entry.getValue().resourcesTerminated());
+            if (backend.sourceWriterWorker() != this || systemWriterBackends.size() >= budget.maximumClients()
+                    || systemWriterBackends.putIfAbsent(identity, backend) != null) throw new IllegalStateException("Source writer generation is already owned or full");
+            host = publicationHost;
+        }
+        if (host != null) host.registerPublicationBackend(this, backend.ownedBackendGroup());
+    }
     public void registerPublicationResources(String identity,PublicationResources owner,
             TargetDestinationSdkBudget budget,LongSupplier clock) {
         final var actual = Objects.requireNonNull(owner, "publication owner");
@@ -217,6 +231,10 @@ public final class TargetWorkerShardRuntime
         for (var owner : publicationResources.values()) {
             final var group = owner.ownedBackendGroup();
             if (group != null && groups.stream().noneMatch(existing -> existing == group)) { groups.add(group); }
+        }
+        for (var backend : systemWriterBackends.values()) {
+            final var group = backend.ownedBackendGroup();
+            if (groups.stream().noneMatch(existing -> existing == group)) groups.add(group);
         }
         return java.util.List.copyOf(groups);
     }
@@ -249,6 +267,14 @@ public final class TargetWorkerShardRuntime
         requirePublicationOwner(owner, clock);
         receipt.authorization().requireAssignment(assignment);
         receipt.requireActive(time.get());
+        return new SourceTransportCredentialUse(receipt, target, assignment, owner, nativeGeneration, time, clock);
+    }
+    public synchronized SourceTransportCredentialUse bindSystemWriterCredential(LocalBrokerMtlsResolver.SourceReceipt receipt,
+            SourceAssignment assignment, com.nereusstream.delay.protocol.OwnerIdentity owner, Object nativeGeneration,
+            Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time, LongSupplier clock) {
+        target.requireAcceptedAssignment(assignment); requirePublicationOwner(owner, clock);
+        receipt.authorization().requireAssignment(assignment);
+        receipt.requireOperation(SourceTransportCredentialAuthorization.Operation.SYSTEM_APPEND, time.get());
         return new SourceTransportCredentialUse(receipt, target, assignment, owner, nativeGeneration, time, clock);
     }
 
@@ -732,6 +758,10 @@ public final class TargetWorkerShardRuntime
         }
         if (!publishRuntime.available()) {
             throw new IllegalStateException("configured service activation has an existing publication flight");
+        }
+        if (systemWriterBackends.values().stream().noneMatch(writer -> writer.readyForAppending()
+                && publishRuntime.usesSourceAppender(writer))) {
+            throw new IllegalStateException("configured service requires its actual owned Source system appender");
         }
     }
 

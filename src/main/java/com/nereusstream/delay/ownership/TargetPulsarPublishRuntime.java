@@ -31,6 +31,7 @@ import java.util.function.Supplier;
 
 /** One bounded Claim→Source Admission→configured baseline or Managed Journal SDK→Source Outcome flight. */
 public final class TargetPulsarPublishRuntime {
+    boolean usesSourceAppender(ShardLogMutationAppender actual) { return sourceAppender == actual; }
     public enum Status { IDLE, BUSY, PREPARING, WAITING_ADMISSION, RESOLVING_PAYLOAD, SUBMITTING,
         WAITING_OUTCOME, SETTLED, REJECTED, REVOKED, READ_YIELD, FAILED }
 
@@ -121,6 +122,7 @@ public final class TargetPulsarPublishRuntime {
     private final Executor io;
     private final ArtifactGenerationSet artifacts;
     private final TargetPublishAdmissionMutationFactory signer;
+    private final ShardLogMutationAppender sourceAppender;
     private final TargetPublishAdmissionWorkClassExecutor admissions;
     private final TargetOutcomeWorkClassExecutor outcomes;
     private final TargetPulsarPublishExecutor publisher;
@@ -164,6 +166,7 @@ public final class TargetPulsarPublishRuntime {
         this.io = Objects.requireNonNull(io, "boundedIoExecutor");
         this.artifacts = Objects.requireNonNull(artifacts, "artifacts");
         admissions = new TargetPublishAdmissionWorkClassExecutor(worker, appender);
+        sourceAppender = Objects.requireNonNull(appender);
         outcomes = new TargetOutcomeWorkClassExecutor(worker, appender);
         publisher = new TargetPulsarPublishExecutor(journal, adapter, artifacts, () -> {
             final var flight = Objects.requireNonNull(pending.get(), "pending publication");
@@ -221,6 +224,7 @@ public final class TargetPulsarPublishRuntime {
         this.io = Objects.requireNonNull(io, "boundedIoExecutor");
         this.artifacts = Objects.requireNonNull(artifacts, "artifacts");
         admissions = new TargetPublishAdmissionWorkClassExecutor(worker, appender);
+        sourceAppender = Objects.requireNonNull(appender);
         outcomes = new TargetOutcomeWorkClassExecutor(worker, appender);
         configureOrdinary(kind, adapter, outcomeSigner, gate, results, completion);
     }

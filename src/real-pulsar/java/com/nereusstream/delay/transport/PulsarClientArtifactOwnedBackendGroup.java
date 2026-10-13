@@ -299,6 +299,22 @@ public final class PulsarClientArtifactOwnedBackendGroup implements TargetOwnedB
             throw new IllegalStateException("P1 client did not load this original resolved mTLS snapshot");
         }
     }
+    void requireSourceReadMaterial(com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt receipt) {
+        receipt.requirePulsarEndpoint(settings.serviceUrl());
+        if (sourceCredentialReceipt == null ? credentialReceipt == null || !receipt.sameMaterial(credentialReceipt)
+                : !sourceCredentialReceipt.sameMaterial(receipt)) {
+            throw new IllegalStateException("P1 reader did not load the signed Source material snapshot");
+        }
+    }
+    void requireSourceReadResource(com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt receipt,
+            org.apache.pulsar.client.api.TopicResourceGuard actual) {
+        requireSourceReadMaterial(receipt);
+        final var resource = receipt.authorization().resource().pulsar();
+        if (!new org.apache.pulsar.client.api.TopicResourceGuard(resource.authenticatedClusterId(), resource.resourceIncarnation(),
+                resource.physicalTopicCreationTimestamp()).equals(actual)) {
+            throw new IllegalStateException("P1 Source reader changes its signed Broker resource");
+        }
+    }
 
     private static PulsarClientArtifactOwnedBackendGroup openInternal(Settings settings, CredentialBinding credential,
             byte[] sdkJar, Authentication authentication, Runnable actualActivation,

@@ -30,6 +30,41 @@ public final class KafkaClientArtifactTargetAdmissionHistory {
 
     private KafkaClientArtifactTargetAdmissionHistory() {}
 
+    public static SystemMutation readVerified(Map<String,Object> configuration, String physicalTopic,
+            TargetPublishRecoveryDiscovery.Reference reference, Duration timeout, Runnable historyGuard,
+            com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt credential,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time, byte[] sdkJar) {
+        return readVerified(configuration, physicalTopic, reference.source(), timeout, historyGuard, credential, time,
+                sdkJar, MAX_FRAME_BYTES, reference::requireImage);
+    }
+    public static SystemMutation readControlVerified(Map<String,Object> configuration, String physicalTopic,
+            TargetCheckpointDependencies.ControlReference reference, Duration timeout, Runnable historyGuard,
+            com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt credential,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time, byte[] sdkJar) {
+        return readVerified(configuration, physicalTopic, reference.source(), timeout, historyGuard, credential, time,
+                sdkJar, MAX_CONTROL_FRAME_BYTES, reference::requireImage);
+    }
+    public static SystemMutation readOutcomeVerified(Map<String,Object> configuration, String physicalTopic,
+            TargetCheckpointDependencies.OutcomeReference reference, Duration timeout, Runnable historyGuard,
+            com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt credential,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time, byte[] sdkJar) {
+        return readVerified(configuration, physicalTopic, reference.source(), timeout, historyGuard, credential, time,
+                sdkJar, MAX_FRAME_BYTES, reference::requireImage);
+    }
+    private static SystemMutation readVerified(Map<String,Object> configuration, String topic, SourcePosition source,
+            Duration timeout, Runnable originalProtection,
+            com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt credential,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time, byte[] sdkJar,
+            int frameBytes, java.util.function.BiFunction<SystemMutation,SourcePosition,SystemMutation> image) {
+        com.nereusstream.delay.ownership.TargetSdkArtifactIdentity.requireExact(org.apache.kafka.clients.consumer.KafkaConsumer.class, sdkJar);
+        final var role = com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.HISTORY;
+        final String name = credential.authorization().newReaderName(role);
+        final var guard = credential.guardRead(role, source, topic, name, time, originalProtection);
+        final var config = new HashMap<>(KafkaClientArtifactMtlsConfiguration.applySource(configuration, credential));
+        config.put(ConsumerConfig.CLIENT_ID_CONFIG, name);
+        return read(config, topic, source, timeout, guard, frameBytes, image);
+    }
+
     /**
      * The caller must protect source retention and authorize the history reader's credential/Owner lifetime.
      * This mandatory guard runs before opening, before Fetch and after exact image validation. A successful
@@ -197,7 +232,8 @@ public final class KafkaClientArtifactTargetAdmissionHistory {
 
     private static void close(GuardedConsumer<byte[], byte[]> consumer, Duration timeout, Throwable failure) {
         try {
-            consumer.close(CloseOptions.timeout(timeout));
+            consumer.closeGuardedResources(timeout);
+            if (!consumer.guardedResourcesTerminated()) throw new IllegalStateException("K1 history native resources are still live");
         } catch (RuntimeException | Error closeFailure) {
             final var retained = new CleanupFailure(consumer, timeout, failure == null ? closeFailure : failure);
             if (failure != null && closeFailure != failure) { retained.addSuppressed(closeFailure); }
@@ -234,7 +270,8 @@ public final class KafkaClientArtifactTargetAdmissionHistory {
 
         public synchronized void retryClose() {
             if (!complete) {
-                consumer.close(CloseOptions.timeout(timeout));
+                consumer.closeGuardedResources(timeout);
+                if (!consumer.guardedResourcesTerminated()) throw new IllegalStateException("K1 history native cleanup is not confirmed");
                 complete = true;
             }
         }

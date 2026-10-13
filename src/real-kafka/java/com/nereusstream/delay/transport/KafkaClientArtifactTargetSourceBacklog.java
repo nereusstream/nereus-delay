@@ -21,6 +21,19 @@ import org.apache.kafka.common.record.TimestampType;
 public final class KafkaClientArtifactTargetSourceBacklog {
     private KafkaClientArtifactTargetSourceBacklog() {}
 
+    public static Query openVerified(Map<String,Object> configuration, String topic, TargetSourceBacklog.Cut cut,
+            TargetSourceBacklog.Limits limits, Runnable protection,
+            com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt credential,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time, byte[] sdkJar) {
+        com.nereusstream.delay.ownership.TargetSdkArtifactIdentity.requireExact(org.apache.kafka.clients.consumer.KafkaConsumer.class, sdkJar);
+        final var role = com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.OBSERVATION;
+        final String name = credential.authorization().newReaderName(role);
+        final var guard = credential.guardRead(role, cut.applied(), topic, name, time, protection);
+        final var config = new HashMap<>(KafkaClientArtifactMtlsConfiguration.applySource(configuration, credential));
+        config.put(ConsumerConfig.CLIENT_ID_CONFIG, name);
+        return open(config, topic, cut, limits, guard);
+    }
+
     public static Query open(final Map<String, Object> configuration, final String physicalTopic,
             final TargetSourceBacklog.Cut cut, final TargetSourceBacklog.Limits limits, final Runnable protection) {
         return new Query(configuration, physicalTopic, cut, limits, protection);
@@ -81,7 +94,8 @@ public final class KafkaClientArtifactTargetSourceBacklog {
             owned = new OwnedSourceCursor<>(opening, consumer -> {
                 final var completion = new CompletableFuture<Void>();
                 try {
-                    consumer.close(CloseOptions.timeout(Duration.ofMillis(timeoutMs)));
+                    consumer.closeGuardedResources(Duration.ofMillis(timeoutMs));
+                    if (!consumer.guardedResourcesTerminated()) throw new IllegalStateException("K1 observer native resources are still live");
                     completion.complete(null);
                 } catch (RuntimeException | Error failure) {
                     completion.completeExceptionally(failure);
@@ -127,7 +141,9 @@ public final class KafkaClientArtifactTargetSourceBacklog {
             long tailExclusive = -1;
             KafkaSourcePosition last = null;
             while (true) {
+                collector.requireCurrent();
                 final var records = consumer.pollGuarded(Duration.ofNanos(collector.remainingNanos()));
+                collector.requireCurrent();
                 final var evidence = KafkaClientArtifactFetchEvidence.requireBatch(records, resource);
                 if (evidence == null) { continue; }
                 if (tailExclusive < 0) {

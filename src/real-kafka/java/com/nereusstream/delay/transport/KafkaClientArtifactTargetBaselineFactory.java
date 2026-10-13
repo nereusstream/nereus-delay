@@ -71,12 +71,16 @@ public final class KafkaClientArtifactTargetBaselineFactory {
                 } catch(RuntimeException|Error failure) {
                     if(producer!=null) {
                         final var actual=producer;
-                        try { actual.close(operationTimeout);reserved.closed(); }
+                        try { KafkaClientArtifactProducerCleanup.close(actual, operationTimeout);reserved.closed(); }
                         catch(RuntimeException|Error closeFailure) {
-                            final var held=new KafkaClientArtifactTargetCleanupFailure(failure,()->{actual.close(operationTimeout);reserved.closed();});
+                            final var held=new KafkaClientArtifactTargetCleanupFailure(failure,()->{KafkaClientArtifactProducerCleanup.close(actual, operationTimeout);reserved.closed();});
                             held.addSuppressed(closeFailure);throw held;
                         }
-                    } else if(constructing)reserved.closed();else reserved.releaseUnstarted();
+                    } else if (failure instanceof KafkaProducer.ConstructionCleanupFailure partial) {
+                        throw KafkaClientArtifactProducerCleanup.partial(partial, operationTimeout, reserved::closed);
+                    } else if(constructing && failure instanceof org.apache.kafka.common.config.ConfigException)reserved.closed();
+                    else if (!constructing) reserved.releaseUnstarted();
+                    else throw new KafkaClientArtifactTargetCleanupFailure(failure, () -> { throw new IllegalStateException("producer construction has no native termination fact"); });
                     throw failure;
                 }
             }

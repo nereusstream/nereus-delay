@@ -144,6 +144,26 @@ public final class SourceTransportCredentialAuthorization {
             throw unavailable();
         }
     }
+    public String newReaderName(Operation operation) {
+        final int field = operation == Operation.HISTORY ? 22 : operation == Operation.OBSERVATION ? 23
+                : operation == Operation.RECOVERY ? 24 : 0;
+        if (field == 0) { throw unavailable(); }
+        requireOperation(operation);
+        final String prefix = name(field, false);
+        if (prefix.length() > 219) { throw unavailable(); }
+        return prefix + '.' + java.util.UUID.randomUUID();
+    }
+    public void requirePosition(SourcePosition position, String topic) {
+        if (!shard.equals(position.shardId()) || !physicalTopic().equals(topic)) { throw unavailable(); }
+        if (position instanceof KafkaSourcePosition kafka) {
+            if (resource.kind() != BrokerResourceIdentity.Kind.KAFKA
+                    || !resource.kafka().authenticatedClusterId().equals(kafka.authenticatedClusterId())
+                    || !resource.kafka().nativeTopicUuid().equals(kafka.nativeTopicUuid())) { throw unavailable(); }
+        } else if (!(position instanceof PulsarSourcePosition pulsar)
+                || resource.kind() != BrokerResourceIdentity.Kind.PULSAR
+                || !physicalTopic().equals(pulsar.physicalTopic())
+                || !Arrays.equals(resource.pulsar().resourceIncarnation(), pulsar.brokerResourceIncarnation())) { throw unavailable(); }
+    }
     public void requireAssignment(SourceAssignment assignment) {
         if (!shard.equals(assignment.shardId())) { throw unavailable(); }
         final var barrier = assignment.activationBarrier();

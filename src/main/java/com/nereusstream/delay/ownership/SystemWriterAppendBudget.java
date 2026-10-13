@@ -81,6 +81,14 @@ public final class SystemWriterAppendBudget {
             }
         }
 
+        /** Opening rejected before any SDK producer exists; no pending/native obligation may be discarded. */
+        public void abandonUnstarted() {
+            synchronized (SystemWriterAppendBudget.this) {
+                if (producerIdentity != null || !pending.isEmpty()) throw new IllegalStateException("system writer has an original producer obligation");
+                closing = true; producerClosed = true; writers.remove(this);
+            }
+        }
+
         /** Reserves one maximum frame before encoding or entering the SDK; no local wait/queue is created. */
         public Optional<Reservation> tryReserve(final ShardId requestedShard) {
             synchronized (SystemWriterAppendBudget.this) {

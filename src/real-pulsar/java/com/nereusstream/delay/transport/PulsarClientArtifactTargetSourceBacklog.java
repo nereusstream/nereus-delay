@@ -27,6 +27,17 @@ import org.apache.pulsar.client.impl.MessageIdImpl;
 public final class PulsarClientArtifactTargetSourceBacklog {
     private PulsarClientArtifactTargetSourceBacklog() {}
 
+    public static Query openVerified(PulsarClientArtifactOwnedBackendGroup group, TopicResourceGuard resource,
+            TargetSourceBacklog.Cut cut, TargetSourceBacklog.Limits limits, Runnable protection,
+            com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt credential,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time) {
+        group.requireSourceReadResource(credential, resource);
+        final var role = com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.OBSERVATION;
+        final String name = credential.authorization().newReaderName(role);
+        final var guard = credential.guardRead(role, cut.applied(), credential.authorization().physicalTopic(), name, time, protection);
+        return new Query(group.nativeClientForFactory(), resource, cut, limits, guard, name);
+    }
+
     public static Query open(final PulsarClient client, final TopicResourceGuard resource,
             final TargetSourceBacklog.Cut cut, final TargetSourceBacklog.Limits limits, final Runnable protection) {
         return new Query(client, resource, cut, limits, protection);
@@ -56,12 +67,19 @@ public final class PulsarClientArtifactTargetSourceBacklog {
         private final CompletableFuture<Consumer<byte[]>> opening = new CompletableFuture<>();
         private final OwnedSourceCursor<Consumer<byte[]>> owned;
         private final PulsarClientArtifactOwnedBackendGroup backend;
+        private final String subscription;
         private boolean readStarted;
         private boolean openStarted;
         private boolean closing;
 
         private Query(final PulsarClient client, final TopicResourceGuard resource,
                 final TargetSourceBacklog.Cut cut, final TargetSourceBacklog.Limits limits, final Runnable protection) {
+            this(client, resource, cut, limits, protection, "nereus-target-source-backlog-" + UUID.randomUUID());
+        }
+        private Query(final PulsarClient client, final TopicResourceGuard resource,
+                final TargetSourceBacklog.Cut cut, final TargetSourceBacklog.Limits limits, final Runnable protection,
+                final String subscription) {
+            this.subscription = subscription;
             this.client = Objects.requireNonNull(client, "client");
             backend = PulsarClientArtifactOwnedBackendGroup.find(client);
             owned = new OwnedSourceCursor<>(opening, PulsarClientArtifactOwnedBackendGroup::closeConsumer, backend);
@@ -90,7 +108,7 @@ public final class PulsarClientArtifactTargetSourceBacklog {
                     openStarted = true;
                     try {
                         final var builder = client.newConsumer(Schema.BYTES).topic(applied.physicalTopic())
-                                .subscriptionName("nereus-target-source-backlog-" + UUID.randomUUID())
+                                .subscriptionName(subscription)
                                 .subscriptionType(SubscriptionType.Exclusive).subscriptionMode(SubscriptionMode.NonDurable)
                                 .subscriptionInitialPosition(SubscriptionInitialPosition.Earliest).receiverQueueSize(1)
                                 .autoUpdatePartitions(false).startMessageIdInclusive().resourceGuard(resource);
@@ -134,6 +152,7 @@ public final class PulsarClientArtifactTargetSourceBacklog {
                 while (true) {
                     collector.requireCurrent();
                     final var message = consumer.receive(Math.toIntExact(remainingMs(collector)), TimeUnit.MILLISECONDS);
+                    collector.requireCurrent();
                     final var after = PulsarClientArtifactRecoverySourcePositioner.requireCurrentProof(consumer,
                             resource, applied.physicalTopic(), applied.shardId().partition());
                     if (before.connectionGeneration() != after.connectionGeneration()

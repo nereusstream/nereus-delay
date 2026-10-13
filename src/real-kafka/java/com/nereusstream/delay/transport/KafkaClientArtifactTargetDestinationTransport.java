@@ -156,7 +156,7 @@ public final class KafkaClientArtifactTargetDestinationTransport
         synchronized (this) { closing = true; }
         synchronized (closeLock) {
             if (!nativeClosed) {
-                producer.close(closeTimeout);
+                KafkaClientArtifactProducerCleanup.close(producer, closeTimeout);
                 nativeClosed = true;
             }
             if (producerBudget != null) { producerBudget.closed(); }

@@ -40,7 +40,14 @@ public final class KafkaClientArtifactSourceConsumerFactory {
         sourceConfiguration.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
         final ConsumerResourceGuard guard = new ConsumerResourceGuard(
                 authenticatedClusterId, physicalTopic, toKafkaUuid(nativeTopicUuid), partition);
-        final Consumer<byte[], byte[]> nativeConsumer = new KafkaConsumer<>(sourceConfiguration);
+        final Consumer<byte[], byte[]> nativeConsumer;
+        try { nativeConsumer = new KafkaConsumer<>(sourceConfiguration); }
+        catch (org.apache.kafka.clients.consumer.internals.ClassicKafkaConsumer.ConstructionCleanupFailure partial) {
+            throw new KafkaClientArtifactTargetCleanupFailure(partial, () -> {
+                partial.reconcile(closeTimeout);
+                if (!partial.resourcesTerminated()) throw new IllegalStateException("K1 partial Source reader is still live");
+            });
+        }
         try {
             if (!(nativeConsumer instanceof GuardedConsumer<?, ?>)) {
                 throw new IllegalStateException("Kafka source requires the guarded K1 Consumer artifact");
