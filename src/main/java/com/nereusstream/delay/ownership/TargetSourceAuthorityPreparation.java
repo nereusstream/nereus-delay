@@ -219,7 +219,7 @@ public final class TargetSourceAuthorityPreparation {
         private static final long serialVersionUID = 1L;
         private final transient Held original;
         private boolean complete;
-        private CleanupFailure(Held original, Throwable failure) { super("Source content cleanup is not confirmed", failure); this.original = original; }
+        CleanupFailure(Held original, Throwable failure) { super("Source content cleanup is not confirmed", failure); this.original = original; }
         @Override public synchronized boolean cleanupComplete() { return complete; }
         @Override public synchronized CompletableFuture<Void> retryCleanup() {
             if (complete) return CompletableFuture.completedFuture(null);

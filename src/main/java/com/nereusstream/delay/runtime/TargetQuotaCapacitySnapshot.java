@@ -165,13 +165,14 @@ public final class TargetQuotaCapacitySnapshot {
         Objects.requireNonNull(held, "original protected capacity snapshot");
         try {
             held.requireCurrent();
-            final var image = freeze(Objects.requireNonNull(held.image(), "capacity image"), limits, entry);
+            final var frozen = freeze(Objects.requireNonNull(held.image(), "capacity image"), limits, entry);
+            final var image = frozen.image();
             if (!same(publication.canonicalBytes(), image.publication().canonicalBytes()) || !sameSource(use, image.use())) {
                 throw invalid("capacity snapshot belongs to another publication or Source use point");
             }
             validate(image);
             held.requireCurrent();
-            return new Verified(held, image, Bytes.sha256(entry.mutation().canonicalEnvelope()));
+            return new Verified(held, image, Bytes.sha256(entry.mutation().canonicalEnvelope()), frozen.bytes());
         } catch (RuntimeException | Error failure) {
             try { held.close(); } catch (RuntimeException | Error cleanup) {
                 final var retained = new CleanupFailure(held, failure);
@@ -201,11 +202,15 @@ public final class TargetQuotaCapacitySnapshot {
         private final Held held;
         private final Image image;
         private final byte[] sourceMutationDigest;
+        private final long retainedBytes;
         private int guards;
         private boolean closed;
-        private Verified(Held held, Image image, byte[] sourceMutationDigest) {
+        private Verified(Held held, Image image, byte[] sourceMutationDigest, long retainedBytes) {
             this.held = held; this.image = image; this.sourceMutationDigest = sourceMutationDigest;
+            this.retainedBytes = retainedBytes;
         }
+        /** The collector's existing canonical-input byte accounting, not an inferred JVM/native allocation size. */
+        public long retainedBytes() { return retainedBytes; }
 
         @Override public synchronized void requireAuthorized(TargetQuotaGrantControlBody body,
                 TargetQuotaGrantControlVerifier.View view, SourcePosition source, TargetQuotaIncarnation allocation) {
@@ -282,7 +287,9 @@ public final class TargetQuotaCapacitySnapshot {
         private ViewChanged() { super("capacity Source view changed before atomic preparation"); }
     }
 
-    private static Image freeze(Image image, Limits limits, SourceReplayMutation entry) {
+    private record Frozen(Image image, long bytes) {}
+
+    private static Frozen freeze(Image image, Limits limits, SourceReplayMutation entry) {
         Objects.requireNonNull(limits);
         if (image.cuts().size() > limits.shards() || image.policy().members().size() > limits.shards()
                 || (long) image.cuts().size() + image.targets().size() > limits.grants()
@@ -333,7 +340,7 @@ public final class TargetQuotaCapacitySnapshot {
                 + (view.grant() == null ? 0 : view.grant().canonicalBytes().length)
                 + (view.total() == null ? 0 : view.total().canonicalBytes().length));
         if (bytes > limits.bytes()) throw invalid("capacity collection exceeds its configured byte bound");
-        return frozen;
+        return new Frozen(frozen, bytes);
     }
 
     private static void validate(Image image) {

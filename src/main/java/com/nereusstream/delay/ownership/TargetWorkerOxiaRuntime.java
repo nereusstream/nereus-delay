@@ -181,6 +181,14 @@ public final class TargetWorkerOxiaRuntime {
         return assembly.providers();
     }
 
+    /** Root-local concrete content collector; actual Owner/Store guards are added by the Source runtime at bind. */
+    public synchronized TargetSourceAuthorityPreparation newSourcePreparation(TargetSourceAuthorityLoader.Provider content,
+            com.nereusstream.delay.store.TargetStoreBackend.CommitAuthority physical, Duration timeout, long maximumBytes) {
+        providers();
+        var loader = new TargetSourceAuthorityLoader(content, physical, maximumBytes);
+        return new TargetSourceAuthorityPreparation(loader, executor, nanos, timeout, maximumBytes);
+    }
+
     void requireWorker(TargetWorkerShardRuntime worker) {
         worker.requireOxiaAuthority(providers().leases(), classes, resources);
     }

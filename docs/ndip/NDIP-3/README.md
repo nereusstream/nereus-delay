@@ -1,5 +1,10 @@
 # NDIP-3 工作包：目标分区队列收敛与调度热路径改造
 
+2026-10-14 接续：仓库内Source具体collector已覆盖十类typed inputs，并冻结原Control
+registration/key、接入private capacity paired commit与operation hold cleanup；Oxia子根
+提供同pool factory。必要编译通过，具体生产材料/本地回调与完整主根/reopen继续，
+集中验证及全部完成flags保持原边界。
+
 2026-10-14 接续：Oxia实际三client子根已接原Host的正常/fault权限退场与私有close permit；
 Route通知复用有限pool，head引用revision采用有界point-read。三套开发编译通过；完整
 内容providers、服务主根/cold reopen及其余三包继续，集中验证和所有完成flags不变。

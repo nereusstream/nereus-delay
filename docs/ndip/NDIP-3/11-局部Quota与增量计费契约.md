@@ -2268,3 +2268,9 @@ SDK client。maximumConnections 是当前配置预留，尚未由实际 Broker t
 真实SDK组件以及owner I/O结束后才释放。仅SASL自己的引用递减，最后引用的实际login
 清理保留receipt；P1/其它Source或Target结束不授权释放此client。configured connections/
 fetch与最低费用是预留及结构检查，实际最大batch/拓扑/threads/RSS仍须包3闭合和测量。
+
+2026-10-14 Source collector接capacity：private Verified暴露的retainedBytes是原freeze逻辑
+已核对的canonical-input计数，供Source完整snapshot合并边界；不是实际JVM/native分配
+或RSS。原冻结/计数校验使用同一Image，Source material bytes含原provider材料及新冻结
+Control注册/key和capacity输入。父计划/完整域/physical reservation与paired commit合同
+保持；operation read保护cleanup和durable allocation release继续独立。
