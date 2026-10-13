@@ -65,6 +65,8 @@ public final class TargetWorkerProcessRuntime {
     private final Configuration configuration;
     private final LongSupplier nanos;
     private final List<Thread> ioThreads = new ArrayList<>();
+    private final java.util.Map<com.nereusstream.delay.protocol.ShardId, TargetWorkerSourceStartup> sources =
+            new java.util.LinkedHashMap<>();
     private SharedRocksDbResources resources;
     private SharedRocksDbResources.NativeOpeningFailure partialSharedOpening;
     private WorkClassExecutionRegistry classes;
@@ -156,8 +158,79 @@ public final class TargetWorkerProcessRuntime {
         return new Assembly(configuration.worker(), classes, resources, io, oxia);
     }
 
+    /** Opens the actual Target Store and commits the genuine initial grant before exposing a Source activation. */
+    public TargetWorkerSourceStartup initializeSource(TargetWorkerSourceStartup.Owner owner,
+            TargetWorkerSourceStartup.Initial initial, TargetWorkerSourceRuntimeFactory.Content content,
+            SourceReplaySuccessor successor) {
+        final TargetWorkerSourceStartup startup;
+        synchronized (this) {
+            requireAssemblyAdmission(); oxia.providers();
+            if (sources.containsKey(initial.scope().shard()) || sources.size() >= configuration.worker().store().maxOwnedShards()
+                    || initial.entry().mutation().canonicalEnvelope().length > configuration.worker().maximumSourceFrameBytes()) {
+                throw new IllegalStateException("Source bootstrap exceeds its original process Shard/frame envelope");
+            }
+            startup = new TargetWorkerSourceStartup(this,
+                    new Assembly(configuration.worker(), classes, resources, io, oxia), owner, initial, content, successor, nanos);
+            sources.put(initial.scope().shard(), startup);
+        }
+        try { startup.initialize(); return startup; }
+        catch (RuntimeException | Error failure) { retain(failure); throw failure; }
+    }
+
+    /** Builds the original Host from this root's privately retained Source startups, not caller-built Workers. */
+    public TargetWorkerHostRuntime prepareHost(TargetCheckpointCandidateSchedule.CollectedSemanticRequestFactory checkpoints,
+            LongSupplier checkpointClock, Consumer<Throwable> failures) {
+        final List<TargetWorkerSourceStartup> original;
+        synchronized (this) { requireAssemblyAdmission(); original = List.copyOf(sources.values()); }
+        if (original.isEmpty()) throw new IllegalStateException("process has no actual Source startups");
+        final var workers = original.stream().filter(source -> !source.failedCleanupComplete())
+                .map(source -> source.workerForHost(this)).toList();
+        if (workers.isEmpty()) throw new IllegalStateException("all original Source startups have retired");
+        return prepareHost(workers, checkpoints, checkpointClock, failures);
+    }
+
     private void requireAssemblyAdmission() {
         if (stopping || host != null || preparingHost) throw new IllegalStateException("process assembly is closed");
+    }
+
+    synchronized void requireSourceAssemblyAdmission(TargetWorkerSourceStartup original) {
+        if (stopping || host != null || preparingHost || !sources.containsValue(original)) {
+            throw new IllegalStateException("original process Source assembly is no longer admitted");
+        }
+    }
+
+    /** Failed controlled startups retain the authority/pool until every original local dependency has actually exited. */
+    public boolean stopFailedSourceAssembly(TargetOwnerDrainCoordinator.Request request) {
+        Objects.requireNonNull(request);
+        final List<TargetWorkerSourceStartup> original;
+        synchronized (this) {
+            if (assemblyBorrowed || host != null || preparingHost || sources.isEmpty()) {
+                throw new IllegalStateException("failed controlled Sources require their original unborrowed assembly graph");
+            }
+            original = List.copyOf(sources.values());
+        }
+        // Keep remote/native cleanup outside the process monitor. Successful startup is still admitted.
+        for (var source : original) {
+            if (source.firstFailure().isEmpty()) throw new IllegalStateException("Source startup is still admitted");
+        }
+        synchronized (this) {
+            if (assemblyBorrowed || host != null || preparingHost || !original.equals(List.copyOf(sources.values()))) {
+                throw new IllegalStateException("Source assembly changed during failed startup stop");
+            }
+            stopping = true;
+        }
+        boolean exited = true;
+        for (var source : original) exited &= source.retryFailedStartupCleanup(request);
+        if (!exited) return false;
+        synchronized (this) { dependenciesExited = true; }
+        oxia.stopUnattached(); retryCleanup();
+        return cleanupComplete();
+    }
+
+    synchronized void requireFailedSourceCleanup(TargetWorkerSourceStartup original) {
+        if (!stopping || host != null || preparingHost || assemblyBorrowed || !sources.containsValue(original)) {
+            throw new IllegalStateException("failed Source cleanup lacks its original stopped pre-Host process");
+        }
     }
 
     /** Transfers actual Source Workers into the prepared Host before starting any background loop. */
@@ -165,7 +238,20 @@ public final class TargetWorkerProcessRuntime {
             TargetCheckpointCandidateSchedule.CollectedSemanticRequestFactory checkpoints,
             LongSupplier checkpointClock, Consumer<Throwable> failures) {
         final var original = List.copyOf(workers);
-        synchronized (this) { requireAssemblyAdmission(); preparingHost = true; assemblyBorrowed = true; }
+        final List<TargetWorkerSourceStartup> controlled;
+        synchronized (this) { requireAssemblyAdmission(); controlled = List.copyOf(sources.values()); }
+        if (!controlled.isEmpty()) {
+            final var expected = controlled.stream().filter(source -> !source.failedCleanupComplete())
+                    .map(source -> source.workerForHost(this)).toList();
+            if (expected.size() != original.size() || expected.stream().anyMatch(worker -> !original.contains(worker))) {
+                throw new IllegalArgumentException("prepared Host must include every unretired original Source startup");
+            }
+        }
+        synchronized (this) {
+            requireAssemblyAdmission();
+            if (!controlled.equals(List.copyOf(sources.values()))) throw new IllegalStateException("Source assembly changed");
+            preparingHost = true; assemblyBorrowed = true;
+        }
         try {
             for (var worker : original) oxia.requireWorker(worker);
             final var prepared = TargetWorkerHostRuntime.prepareWithCollectedCheckpoints(configuration.worker(),
@@ -249,7 +335,7 @@ public final class TargetWorkerProcessRuntime {
     /** Before the graph escapes, only SDK startup IO exists. Borrowed assembly must retire through its actual Host. */
     public void stopBeforeAssembly() {
         synchronized (this) {
-            if (assemblyBorrowed || host != null || preparingHost) {
+            if (assemblyBorrowed || host != null || preparingHost || !sources.isEmpty()) {
                 throw new IllegalStateException("borrowed application graph must exit through its original Host");
             }
             stopping = true; dependenciesExited = true;

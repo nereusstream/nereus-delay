@@ -20,6 +20,104 @@ import org.apache.pulsar.client.api.TopicResourceGuardAttestation;
 public final class PulsarClientArtifactTargetWorkerSourceFactory {
     private PulsarClientArtifactTargetWorkerSourceFactory() {}
 
+    /** Completes this process root's actual Source startup and retains its original SDK owner on failure. */
+    public static TargetWorkerShardRuntime createVerifiedSource(PulsarClientArtifactOwnedBackendGroup group,
+            GuardedConsumer<byte[]> consumer, TopicResourceGuard guard, String topic, Duration receiveTimeout,
+            com.nereusstream.delay.ownership.TargetWorkerSourceStartup startup,
+            TargetWorkerShardRuntime.Maintenance maintenance, com.nereusstream.delay.protocol.OwnerIdentity identity,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
+            java.util.function.LongSupplier clock) {
+        startup.registerBackend(group);
+        try (var original = startup.beginWorkerConstruction()) {
+            original.requireCurrent();
+            final var graph = startup.graph();
+            final var worker = createVerifiedSource(group, consumer, guard, topic, receiveTimeout,
+                    startup.activation(), graph.classes(), startup.store(), graph.resources(), maintenance, identity, time, clock);
+            startup.admitWorker(worker);
+            return worker;
+        } catch (RuntimeException | Error failure) { startup.retain(failure); throw failure; }
+    }
+
+    /** Allocates the actual verified client and later receipt-enabled consumer on the original process graph. */
+    public static Opening openVerifiedSource(com.nereusstream.delay.ownership.TargetWorkerSourceStartup startup,
+            PulsarClientArtifactOwnedBackendGroup.Settings settings, byte[] sdkJar,
+            com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt receipt,
+            TopicResourceGuard guard, String topic, String subscription, Duration receiveTimeout,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
+            com.nereusstream.delay.ownership.TargetDestinationSdkBudget budget, com.nereusstream.delay.protocol.CapacityVector cost,
+            TargetWorkerShardRuntime.Maintenance maintenance, com.nereusstream.delay.protocol.OwnerIdentity identity,
+            java.util.function.LongSupplier clock) {
+        try (var original = startup.beginWorkerConstruction()) {
+            original.requireCurrent();
+            startup.requireCurrent();
+            Objects.requireNonNull(maintenance); Objects.requireNonNull(identity); Objects.requireNonNull(time); Objects.requireNonNull(clock);
+            final var assignment = startup.activation().assignment();
+            if (!(assignment.activationBarrier() instanceof PulsarActivationBarrier barrier)
+                    || !assignment.shardId().equals(receipt.authorization().shard()) || assignment.shardId().partition() < 0
+                    || !topic.equals(barrier.physicalTopic())
+                    || !Arrays.equals(guard.resourceIncarnation(), barrier.brokerResourceIncarnation())
+                    || receiveTimeout == null || receiveTimeout.toMillis() < 1 || receiveTimeout.toMillis() > 60_000) {
+                throw new IllegalArgumentException("P1 SDK opening changes its original accepted Source resource/time bound");
+            }
+            final var graph = startup.graph();
+            final var group = PulsarClientArtifactOwnedBackendGroup.openVerifiedSourceMtls(settings, sdkJar, receipt,
+                    time, startup::requireCurrent, budget, cost, graph.classes(), graph.resources(), graph.io());
+            startup.registerBackend(group);
+            startup.requireCurrent();
+            return new Opening(startup, group, receipt, guard, topic, subscription, receiveTimeout, maintenance, identity, time, clock);
+        } catch (RuntimeException | Error failure) { startup.retain(failure); throw failure; }
+    }
+
+    public static final class Opening {
+        private final com.nereusstream.delay.ownership.TargetWorkerSourceStartup startup;
+        private final PulsarClientArtifactOwnedBackendGroup group;
+        private final com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt receipt;
+        private final TopicResourceGuard guard;
+        private final String topic;
+        private final String subscription;
+        private final Duration timeout;
+        private final TargetWorkerShardRuntime.Maintenance maintenance;
+        private final com.nereusstream.delay.protocol.OwnerIdentity identity;
+        private final java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time;
+        private final java.util.function.LongSupplier clock;
+        private TargetWorkerShardRuntime worker;
+        private boolean failed;
+        private Opening(com.nereusstream.delay.ownership.TargetWorkerSourceStartup startup,
+                PulsarClientArtifactOwnedBackendGroup group, com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt receipt,
+                TopicResourceGuard guard, String topic, String subscription, Duration timeout,
+                TargetWorkerShardRuntime.Maintenance maintenance, com.nereusstream.delay.protocol.OwnerIdentity identity,
+                java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
+                java.util.function.LongSupplier clock) {
+            this.startup = startup; this.group = group; this.receipt = receipt; this.guard = guard;
+            this.topic = topic; this.subscription = subscription; this.timeout = timeout;
+            this.maintenance = maintenance; this.identity = identity; this.time = time; this.clock = clock;
+        }
+        /** Explicit driver turn; subscribe/native proof waits retain their original finite SDK bounds. */
+        public synchronized java.util.Optional<TargetWorkerShardRuntime> advance() {
+            if (failed) throw new IllegalStateException("original P1 Source opening failed");
+            if (worker != null) return java.util.Optional.of(worker);
+            try {
+                startup.requireCurrent();
+                if (!group.finishStartup()) return java.util.Optional.empty();
+                try (var original = startup.beginWorkerConstruction()) {
+                    original.requireCurrent();
+                    final var consumer = PulsarClientArtifactSourceConsumerFactory.createVerifiedSource(
+                            group, receipt, guard, topic, subscription, time);
+                    final var graph = startup.graph();
+                    worker = createVerifiedSource(group, consumer, guard, topic, timeout, startup.activation(),
+                            graph.classes(), startup.store(), graph.resources(), maintenance, identity, time, clock);
+                    startup.admitWorker(worker);
+                }
+                return java.util.Optional.of(worker);
+            } catch (org.apache.pulsar.client.api.PulsarClientException | RuntimeException | Error failure) {
+                failed = true; startup.retain(failure);
+                if (failure instanceof RuntimeException runtime) throw runtime;
+                if (failure instanceof Error fatal) throw fatal;
+                throw new IllegalStateException("original P1 Source subscribe failed", failure);
+            }
+        }
+    }
+
     /** Actual service path consumes only the repository's privately constructed Source activation. */
     public static TargetWorkerShardRuntime createVerifiedSource(PulsarClientArtifactOwnedBackendGroup group,
             GuardedConsumer<byte[]> consumer, TopicResourceGuard guard, String topic, Duration receiveTimeout,

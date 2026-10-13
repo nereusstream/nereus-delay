@@ -196,7 +196,7 @@ public final class TargetWorkerSourceRuntimeFactory {
         }
     }
 
-    private static SourceAssignment accept(TargetWorkerOxiaRuntime oxia, AuthenticatedTenantContext tenant,
+    static SourceAssignment accept(TargetWorkerOxiaRuntime oxia, AuthenticatedTenantContext tenant,
             WorkerAssignmentAuthority.Publication publication, String workerId) {
         var providers = Objects.requireNonNull(oxia).providers();
         var expected = Objects.requireNonNull(publication).assignment();
@@ -251,7 +251,7 @@ public final class TargetWorkerSourceRuntimeFactory {
         };
     }
 
-    private static void requireScope(TargetWorkerOxiaRuntime oxia, AuthenticatedTenantContext tenant,
+    static void requireScope(TargetWorkerOxiaRuntime oxia, AuthenticatedTenantContext tenant,
             SourceAssignment assignment, TargetQuotaScope scope) {
         var route = new RouteSourceAssignmentResolver(oxia.providers().routes()).exactResolved(tenant,
                 assignment.shardId().routeIncarnation(), assignment.shardId().partition(),

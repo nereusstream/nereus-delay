@@ -1534,6 +1534,12 @@ public final class TargetWorkerShardRuntime
         }
     }
 
+    void requireSourceStartup(TargetSourceApplyRuntime expected, ShardStore actualStore) {
+        if (target != expected || store != actualStore) {
+            throw new IllegalArgumentException("Worker belongs to another original Source startup/Store");
+        }
+    }
+
     public TargetOwnedBackendGroup sourceBackendGroup() { return sourceBackendGroup; }
     public boolean ownsSourceConsumer(SourceRecordConsumer expected) { return actualSourceConsumer == expected; }
 

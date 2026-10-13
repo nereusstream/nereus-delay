@@ -24,6 +24,11 @@ public interface TargetOwnedBackendGroup {
     /** Receives only the private permit issued after this Host's Store/runtime commit barriers. */
     CompletableFuture<Void> closeOwnedBackend(TargetWorkerHostRuntime.BackendClosePermit permit);
 
+    /** Original owned startup failure cleanup only; an attached backend must still require its Host permit. */
+    default CompletableFuture<Void> closeBeforeHostBinding() {
+        return CompletableFuture.failedFuture(new IllegalStateException("backend does not own pre-Host cleanup"));
+    }
+
     boolean resourcesTerminated();
     boolean nativeResourcesTerminated();
 
