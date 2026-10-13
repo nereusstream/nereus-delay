@@ -1,6 +1,7 @@
 package com.nereusstream.delay.route;
 
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.ownership.OxiaClientConstructionFailure;
 import io.oxia.client.api.CloseableIterable;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.Notification;
@@ -49,6 +50,7 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
     private boolean closed;
     private boolean closeCompleted;
     private Duration configuredRequestTimeout;
+    private final java.util.List<OxiaRouteRecordClient> retiring = new java.util.ArrayList<>();
 
     /** Creates a session that owns and closes the supplied Oxia client. */
     public OxiaRouteAuthoritySession(final SyncOxiaClient client, final String keyPrefix) {
@@ -117,7 +119,8 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
                 .clientIdentifier(canonicalClientIdentifier)
                 .sessionTimeout(sessionTimeout);
         if (requestTimeout != null) authorityBuilder.requestTimeout(requestTimeout);
-        final SyncOxiaClient sessionClient = authorityBuilder.syncClient();
+        final SyncOxiaClient sessionClient = OxiaClientConstructionFailure.openClient(authorityBuilder);
+        SyncOxiaClient notificationClient = null;
         try {
             final var notificationBuilder = OxiaClientBuilder.create(serviceAddress)
                     .namespace(canonicalNamespace)
@@ -125,7 +128,7 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
                             canonicalText(canonicalClientIdentifier + "-route-watch", "notificationClientIdentifier"))
                     .sessionTimeout(sessionTimeout);
             if (requestTimeout != null) notificationBuilder.requestTimeout(requestTimeout);
-            final SyncOxiaClient notificationClient = notificationBuilder.syncClient();
+            notificationClient = OxiaClientConstructionFailure.openClient(notificationBuilder);
             final var session = new OxiaRouteAuthoritySession(
                     new SyncRecordClient(sessionClient),
                     () -> createAuthorityClient(
@@ -142,13 +145,31 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
                     canonicalPrefix);
             session.configuredRequestTimeout = requestTimeout;
             return session;
-        } catch (RuntimeException failure) {
-            try {
-                sessionClient.close();
-            } catch (Exception closeFailure) {
-                failure.addSuppressed(closeFailure);
-            }
-            throw failure;
+        } catch (RuntimeException | OxiaException | Error failure) {
+            throw OxiaClientConstructionFailure.retain(failure, sessionClient, notificationClient);
+        }
+    }
+
+    /** Both SDK allocations remain on their original Worker owners before this application session is constructed. */
+    public static OxiaRouteAuthoritySession fromOwnedClients(
+            com.nereusstream.delay.ownership.TargetWorkerOxiaClientOwner authority,
+            com.nereusstream.delay.ownership.TargetWorkerOxiaClientOwner watch, String keyPrefix) {
+        Objects.requireNonNull(authority, "original authority owner");
+        Objects.requireNonNull(watch, "original watch owner");
+        var deadline = authority.requireConfiguredRequestTimeout();
+        if (authority == watch || !deadline.equals(watch.requireConfiguredRequestTimeout())) {
+            throw new IllegalArgumentException("Route requires distinct original clients with matching actual deadlines");
+        }
+        var authorityClient = authority.requireClient();
+        var watchClient = watch.requireClient();
+        try {
+            var session = new OxiaRouteAuthoritySession(new SyncRecordClient(authorityClient, authority),
+                    null, new SyncRecordClient(watchClient, watch), null, canonicalKeyPrefix(keyPrefix));
+            session.configuredRequestTimeout = deadline;
+            return session;
+        } catch (RuntimeException | Error failure) {
+            authority.requestClose(); watch.requestClose();
+            throw OxiaClientConstructionFailure.retain(failure, authorityClient, watchClient);
         }
     }
 
@@ -172,7 +193,7 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
                     .clientIdentifier(canonicalText(clientIdentifier, "clientIdentifier"))
                     .sessionTimeout(sessionTimeout);
             if (requestTimeout != null) builder.requestTimeout(requestTimeout);
-            return new SyncRecordClient(builder.syncClient());
+            return new SyncRecordClient(OxiaClientConstructionFailure.openClient(builder));
         } catch (OxiaException failure) {
             throw new IllegalStateException("failed to create Oxia Route authority client", failure);
         }
@@ -189,7 +210,7 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
                     .clientIdentifier(canonicalText(clientIdentifier + "-route-watch", "notificationClientIdentifier"))
                     .sessionTimeout(sessionTimeout);
             if (requestTimeout != null) builder.requestTimeout(requestTimeout);
-            return new SyncRecordClient(builder.syncClient());
+            return new SyncRecordClient(OxiaClientConstructionFailure.openClient(builder));
         } catch (OxiaException failure) {
             throw new IllegalStateException("failed to create Oxia Route notification client", failure);
         }
@@ -253,9 +274,12 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
     }
 
     private void replaceAuthorityDelegate() {
+        retiring.removeIf(client -> client instanceof SyncRecordClient actual && actual.nativeTerminated());
+        if (retiring.size() >= 2) throw new IllegalStateException("original Route client cleanup remains pending");
         final OxiaRouteRecordClient replacement =
                 Objects.requireNonNull(delegateFactory.get(), "delegateFactory returned null");
         final OxiaRouteRecordClient previous = delegate;
+        retiring.add(previous);
         delegate = replacement;
         clearSession();
         rotateMarker();
@@ -389,6 +413,10 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
         sessionVersion = null;
         sessionIdentity = null;
         Throwable closeFailure = null;
+        for (var original : retiring) {
+            try { original.close(); }
+            catch (RuntimeException | Error failure) { closeFailure = appendCloseFailure(closeFailure, failure); }
+        }
         try {
             delegate.close();
         } catch (RuntimeException | Error failure) {
@@ -608,9 +636,19 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
 
     private static final class SyncRecordClient implements OxiaRouteRecordClient {
         private final SyncOxiaClient delegate;
+        private final com.nereusstream.delay.ownership.TargetWorkerOxiaClientOwner owner;
+
+        private boolean nativeTerminated() {
+            return io.oxia.client.OxiaClientLifecycle.cleanupOf(delegate).status().terminated();
+        }
 
         private SyncRecordClient(final SyncOxiaClient delegate) {
-            this.delegate = Objects.requireNonNull(delegate, "client");
+            this(delegate, null);
+        }
+
+        private SyncRecordClient(SyncOxiaClient delegate,
+                com.nereusstream.delay.ownership.TargetWorkerOxiaClientOwner owner) {
+            this.delegate = Objects.requireNonNull(delegate, "client"); this.owner = owner;
         }
 
         @Override
@@ -636,6 +674,11 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
 
         @Override
         public void close() {
+            if (owner != null) {
+                owner.requestClose(); owner.retryCleanup();
+                if (!owner.cleanupComplete()) throw new IllegalStateException("original Route SDK owner cleanup pending");
+                return;
+            }
             try {
                 delegate.close();
             } catch (Exception failure) {

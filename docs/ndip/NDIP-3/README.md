@@ -1,5 +1,10 @@
 # NDIP-3 工作包：目标分区队列收敛与调度热路径改造
 
+2026-10-14 当前开发：Oxia原opening/partial与native cleanup补丁及Worker有限I/O owner已加入，
+SDK分支a3125e3和client/API source+SHA锁已接；必要SDK构建与三套Delay编译通过。
+完整service/root的权限依赖退出顺序、原内容providers及cold reopen继续开发，集中验证
+未执行，四包/29切片及三个完成flags不提升。详细边界见02、04和12。
+
 2026-10-13 当前开发：owned P1 shared-client/native 创建交接、Host 私有关闭 permit、
 whole-Host quarantine 和未正常完成的 Store/Owner 退出接线已加入；SDK fork 开发锁
 更新为 b8fc1f39eb517c14cc1cdf35e60a0b1dcad2ec40。owned K1 Source 的原native cleanup、

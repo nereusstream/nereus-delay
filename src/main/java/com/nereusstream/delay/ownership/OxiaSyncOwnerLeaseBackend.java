@@ -55,6 +55,7 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
     private final SessionMarker sessionMarker;
     private final Runnable sessionCheck;
     private Duration configuredRequestTimeout;
+    private TargetWorkerOxiaClientOwner clientOwner;
 
     /** Creates a backend over an already configured Oxia client. */
     public OxiaSyncOwnerLeaseBackend(final SyncOxiaClient client, final String keyPrefix) {
@@ -126,18 +127,27 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
         if (requestTimeout != null) {
             builder.requestTimeout(requestTimeout);
         }
-        final SyncOxiaClient client = builder.syncClient();
+        final SyncOxiaClient client = OxiaClientConstructionFailure.openClient(builder);
         try {
             final var backend = new OxiaSyncOwnerLeaseBackend(client, canonicalPrefix, true);
             backend.configuredRequestTimeout = requestTimeout;
             return new ClientHandle(client, backend);
-        } catch (RuntimeException failure) {
-            try {
-                client.close();
-            } catch (Exception closeFailure) {
-                failure.addSuppressed(closeFailure);
-            }
-            throw failure;
+        } catch (RuntimeException | Error failure) {
+            throw OxiaClientConstructionFailure.retain(failure, client);
+        }
+    }
+
+    public static ClientHandle fromOwnedClient(TargetWorkerOxiaClientOwner owner, String keyPrefix) {
+        var client = Objects.requireNonNull(owner, "original Oxia owner").requireClient();
+        var requestTimeout = owner.requireConfiguredRequestTimeout();
+        try {
+            var backend = new OxiaSyncOwnerLeaseBackend(client, canonicalKeyPrefix(keyPrefix), true);
+            backend.configuredRequestTimeout = requestTimeout;
+            backend.clientOwner = owner;
+            return new ClientHandle(client, backend);
+        } catch (RuntimeException | Error failure) {
+            owner.requestClose();
+            throw OxiaClientConstructionFailure.retain(failure, client);
         }
     }
 
@@ -758,6 +768,14 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
 
         @Override
         public void close() throws IOException {
+            if (backend.clientOwner != null) {
+                backend.clientOwner.requestClose();
+                if (!backend.clientOwner.cleanupComplete()) throw new IOException("original Oxia owner cleanup pending");
+                if (backend.clientOwner.firstFailure().isPresent()) {
+                    throw new IOException("original Oxia owner retained a failure", backend.clientOwner.firstFailure().get());
+                }
+                return;
+            }
             try {
                 client.close();
             } catch (Exception failure) {

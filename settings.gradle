@@ -14,3 +14,28 @@ dependencyResolutionManagement {
 
 rootProject.name = 'nereus-delay'
 
+
+// NDIP-3's owned lifecycle uses the locked 0.9.0 client/API source pair. No Gradle-cache JAR is replaced.
+def oxiaLock = new Properties()
+file('src/main/resources/META-INF/nereus-delay-oxia-client-lifecycle.properties').withInputStream { oxiaLock.load(it) }
+def oxiaSource = file(providers.gradleProperty('oxiaClientSourceDir')
+        .getOrElse('../oxia-client-java-worktrees/nereus-delay-client-cleanup-v1'))
+if (!oxiaSource.isDirectory()) {
+    throw new GradleException('locked Oxia source missing; set -PoxiaClientSourceDir to the controlled SDK checkout')
+}
+def oxiaGit = { List<String> arguments ->
+    def process = new ProcessBuilder(['git'] + arguments).directory(oxiaSource).redirectErrorStream(true).start()
+    def output = process.inputStream.getText('UTF-8').trim()
+    if (process.waitFor() != 0) throw new GradleException('cannot inspect controlled Oxia SDK source')
+    output
+}
+if (oxiaGit(['rev-parse', 'HEAD']) != oxiaLock.getProperty('sourceCommit')
+        || !oxiaGit(['status', '--porcelain']).isEmpty()) {
+    throw new GradleException('Oxia SDK source differs from its exact clean lifecycle lock')
+}
+includeBuild(oxiaSource) {
+    dependencySubstitution {
+        substitute module('io.github.oxia-db:oxia-client') using project(':client')
+        substitute module('io.github.oxia-db:oxia-client-api') using project(':client-api')
+    }
+}

@@ -1729,6 +1729,15 @@
       "apiJarSha256": "f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394",
       "commonJarSha256": "94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8",
       "scope": "Original producer/consumer pending creation completion after Closing/Closed; retained client constructor cleanup ownership and actual shutdown-thread termination; Delay owned P1 group, private Host close permit, native registration handover and local read accounting. Necessary SDK JAR build and main/real SDK compilation only. Tests/style/Broker remain deferred; original P1 receipts and Broker/image retain their original source scope. Full process startup/configuration, mixed-Source fault exit and packages 2-4 remain incomplete."
+    },
+    "developmentOxiaSourceLock": {
+      "branch": "nereus/delay-client-cleanup-v1",
+      "baselineCommit": "ce8143e06bcb089a2916c8ce4bf64b40c1d4d5bc",
+      "commit": "a3125e3efb420fd1f7ca3cd1ad2b1cdd27c67f9d",
+      "sdkJarSha256": "7f75add82f6a721b28b9728a946785bacdddcfea8bc2f8dc4a77fb0d97de7c1e",
+      "apiJarSha256": "839f666b0ee3c2de520c67241e0f70cf4ef12cffd656fe76de3729dbc0b4702e",
+      "scope": "Owned local SDK opening, partial allocation and finite cleanup observation; native termination is independent of first failure and remote logical outcomes. Development compilation only. Full service/root dependency shutdown and resource envelope remain incomplete.",
+      "publication": "Fork branch verified remotely; historical O1 and Broker receipts unchanged."
     }
   },
   "implementationComplete": false,

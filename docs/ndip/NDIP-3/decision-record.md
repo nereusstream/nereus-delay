@@ -516,3 +516,22 @@ Owner/截止时间、watch connected或deployment Owner=true；不声称native c
 提交义务不释放。根入口必须配置真实client有限request timeout；Owner renewal竞争
 重读在原操作deadline内最多四次，不开启无界锁内retry。此为保留原正确性边界，不
 增加wire/grant/租约服务或新“本地Owner权威”，性能/原子性保证不因此提升。
+
+## 2026-10-14：Oxia 0.9.0原资源生命周期补齐
+
+主会话核对原SDK后批准在既有nereusstream/oxia-client-java fork的独立工作树/分支，
+从v0.9.0@ce8143e06bcb089a2916c8ce4bf64b40c1d4d5bc实现最小本地生命周期补丁。
+Delay仍单agent、直接main。不另建进程监督系统，不把未知进程终止provider或永久pending
+作为完整root方案；不改变Oxia服务端协议、session/Owner/notification/CAS契约。
+
+Sync/Async、opening/partial/late allocation保留同一真实cleanup owner。一个组件失败
+仍尝试其它安全项，首失败不因closed=true/noop遗忘；原executor、transport、batcher/
+stream/callback用实际退出/termination判定，不以shutdownNow/isShutdown或线程名证明。
+统一有限观察预算，callback不等自身，未退出的首任务不并行重开cleanup，pending费用
+保留；全局共享运行时不归本client关闭。退出不证明远端写未发生、marker已删除或Owner
+已释放。应用Owner/Route构造和replacement同样保留原client及cleanup，原权限依赖退场
+后才能关闭authority。具体root依赖图、费用envelope和集中验证仍是原必做项。
+
+允许该专用分支scoped commit/普通push origin，禁止upstream/release/缓存JAR覆盖。
+交付必须有精确source与client/API SHA锁，compile/runtime采用相同受控组合；历史O1/
+Broker receipts不因新SDK编译重标。必要构建/编译已执行，其它测试及环境操作仍后置。
