@@ -25,6 +25,17 @@ public final class TargetWorkerMaintenanceLoop implements AutoCloseable {
     private ScheduledFuture<?> scheduled;
     private volatile Runnable sourceObservationTurn;
     private volatile Runnable checkpointTurn;
+    private volatile Runnable sourceApplyTurn;
+
+    /** Source processing shares this existing bounded tick; install it before the first background turn. */
+    void configureSourceApplyTurn(Runnable turn) {
+        synchronized (this) {
+            if (closed || scheduled != null || sourceApplyTurn != null) {
+                throw new IllegalStateException("Target maintenance Source apply is started, closed or already configured");
+            }
+            sourceApplyTurn = Objects.requireNonNull(turn, "turn");
+        }
+    }
 
     void configureCheckpointTurn(Runnable turn) {
         synchronized (this) {
@@ -157,10 +168,17 @@ public final class TargetWorkerMaintenanceLoop implements AutoCloseable {
             }
             activeTurnThread = Thread.currentThread();
             try {
+                if (sourceApplyTurn != null) {
+                    try { sourceApplyTurn.run(); }
+                    catch (RuntimeException | Error caught) {
+                        failure = caught;
+                        firstFailure.compareAndSet(null, caught);
+                    }
+                }
                 try {
-                    fleet.runNextMaintenanceTurnIfPresent(budget);
+                    if (!(failure instanceof Error)) { fleet.runNextMaintenanceTurnIfPresent(budget); }
                 } catch (RuntimeException | Error caught) {
-                    failure = caught;
+                    failure = combineFailures(failure, caught);
                     firstFailure.compareAndSet(null, caught);
                 }
                 if (!(failure instanceof Error)) {

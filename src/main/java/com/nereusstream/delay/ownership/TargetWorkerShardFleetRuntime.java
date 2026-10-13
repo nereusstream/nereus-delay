@@ -207,6 +207,22 @@ public final class TargetWorkerShardFleetRuntime {
         }
     }
 
+    /** Host admission runs after selection; the caller must not hold its Host monitor while waiting for this fleet. */
+    synchronized Optional<SourceTurn> runNextSourceTurnIfPresent(
+            final java.util.function.Function<ShardTurns, Optional<SourceApplyCoordinator.TurnResult>> admission) {
+        Objects.requireNonNull(admission, "admission");
+        requireNotInSelectedTurn();
+        if (shards.isEmpty()) { return Optional.empty(); }
+        final var selected = shards.get(sourceCursor);
+        sourceCursor = sourceCursor == shards.size() - 1 ? 0 : sourceCursor + 1;
+        activeTurnThread = Thread.currentThread();
+        try {
+            return admission.apply(selected).map(result -> new SourceTurn(selected.shardId(), result));
+        } finally {
+            activeTurnThread = null;
+        }
+    }
+
     public synchronized MaintenanceTurn runNextMaintenanceTurn(final SchedulerBudget budget) {
         return runNextMaintenanceTurnIfPresent(budget)
                 .orElseThrow(() -> new IllegalStateException("Target Worker fleet has no active maintenance shard"));

@@ -417,17 +417,31 @@ public final class TargetWorkerHostRuntime {
         sourceObservationOwnerClock = selectedClock;
     }
 
-    public synchronized boolean runNextSourceObservationTurn() {
-        if (stopping || sourceObservationCache == null) { return false; }
-        final int count = shards.size();
+    public boolean runNextSourceObservationTurn() {
+        final TargetSourceBacklogCache cache;
+        final java.util.function.BiFunction<TargetWorkerShardRuntime, TargetSourceBacklog.Cut,
+                TargetSourceBacklogRead> factory;
+        final LongSupplier clock;
+        final int count;
+        synchronized (this) {
+            if (stopping || sourceObservationCache == null) { return false; }
+            cache = sourceObservationCache;
+            factory = sourceObservationFactory;
+            clock = sourceObservationOwnerClock;
+            count = shards.size();
+        }
         for (int visited = 0; visited < count; visited++) {
-            if (sourceObservationCursor >= count) { sourceObservationCursor = 0; }
-            final var shard = shards.get(sourceObservationCursor++);
-            if (shard instanceof TargetWorkerShardRuntime worker && !withdrawn.contains(shard.shardId())
-                    && !completed.containsKey(shard.shardId()) && !draining.contains(shard.shardId())
-                    && worker.pendingCheckpointTask().isEmpty()) {
-                return sourceObservationCache.refresh(worker, sourceObservationOwnerClock,
-                        cut -> sourceObservationFactory.apply(worker, cut));
+            final Shard shard;
+            synchronized (this) {
+                if (stopping) { return false; }
+                if (sourceObservationCursor >= shards.size()) { sourceObservationCursor = 0; }
+                shard = shards.get(sourceObservationCursor++);
+                if (withdrawn.contains(shard.shardId()) || completed.containsKey(shard.shardId())
+                        || draining.contains(shard.shardId())) { continue; }
+            }
+            if (shard instanceof TargetWorkerShardRuntime worker) {
+                return tryWithShardAdmission(worker, () -> worker.pendingCheckpointTask().isEmpty()
+                        && cache.refresh(worker, clock, cut -> factory.apply(worker, cut))).orElse(false);
             }
         }
         return false;
@@ -877,7 +891,7 @@ public final class TargetWorkerHostRuntime {
     }
 
     /** Calls at most one Shard source turn while whole-fleet admission is open. */
-    public synchronized TargetWorkerShardFleetRuntime.SourceTurn runNextSourceTurn(final LongSupplier ownerClock) {
+    public TargetWorkerShardFleetRuntime.SourceTurn runNextSourceTurn(final LongSupplier ownerClock) {
         if (runtimeConfig == null) {
             throw new IllegalStateException("Target host has no unified runtime configuration");
         }
@@ -885,15 +899,49 @@ public final class TargetWorkerHostRuntime {
     }
 
     /** Calls at most one Shard source turn while whole-fleet admission is open. */
-    public synchronized TargetWorkerShardFleetRuntime.SourceTurn runNextSourceTurn(
+    public TargetWorkerShardFleetRuntime.SourceTurn runNextSourceTurn(
             final SchedulerBudget budget, final LongSupplier ownerClock) {
+        synchronized (this) {
+            if (stopping) { throw new IllegalStateException("Target host source admission is stopping"); }
+        }
+        return runNextSourceTurnIfPresent(budget, ownerClock)
+                .orElseThrow(() -> new IllegalStateException("Target host has no admitted Source turn"));
+    }
+
+    private Optional<TargetWorkerShardFleetRuntime.SourceTurn> runNextSourceTurnIfPresent(
+            final SchedulerBudget budget, final LongSupplier ownerClock) {
+        Objects.requireNonNull(budget, "budget");
+        Objects.requireNonNull(ownerClock, "ownerClock");
         if (runtimeConfig != null && !runtimeConfig.sourceTurn().equals(budget)) {
             throw new IllegalArgumentException("Source turn budget differs from the configured Target Host");
         }
-        if (stopping) {
-            throw new IllegalStateException("Target host source admission is stopping");
+        return fleet.runNextSourceTurnIfPresent(selected -> {
+            if (!(selected instanceof Shard shard)) {
+                throw new IllegalStateException("Target Source selection lacks the exact Host Shard");
+            }
+            return tryWithShardAdmission(shard, () -> selected.pendingCheckpointTask().isPresent()
+                    ? Optional.<SourceApplyCoordinator.TurnResult>empty()
+                    : Optional.of(selected.runSourceTurn(budget, ownerClock))).flatMap(result -> result);
+        });
+    }
+
+    /** Installs actual Source poll/apply/ACK rotation on the existing maintenance thread before activation. */
+    public synchronized void configureSourceProcessing(final LongSupplier ownerClock) {
+        final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
+        if (runtimeConfig == null || stopping || maintenanceStarted) {
+            throw new IllegalStateException("Source processing requires a configured, prepared Target Host");
         }
-        return fleet.runNextSourceTurn(budget, ownerClock);
+        final var budget = runtimeConfig.sourceTurn();
+        maintenanceLoop.configureSourceApplyTurn(() -> {
+            final var selected = runNextSourceTurnIfPresent(budget, clock);
+            if (selected.isEmpty()) { return; }
+            final var result = selected.orElseThrow().result();
+            if (result.failure() != null && result.status() != SourceApplyCoordinator.TurnStatus.READ_INCOMPLETE) {
+                if (result.failure() instanceof Error fatal) { throw fatal; }
+                throw new IllegalStateException("Target Source turn failed for " + selected.orElseThrow().shardId()
+                        + " at " + result.status(), result.failure());
+            }
+        });
     }
 
     /** Submits an unpublished candidate only through the currently admitted exact Worker Shard. */
@@ -1163,6 +1211,23 @@ public final class TargetWorkerHostRuntime {
         }
     }
 
+    /** Background selection quietly skips a Shard already reserved by Claim, checkpoint, drain or stop. */
+    private <T> Optional<T> tryWithShardAdmission(final Shard expectedShard, final Supplier<T> admission) {
+        Objects.requireNonNull(expectedShard, "shard");
+        Objects.requireNonNull(admission, "admission");
+        final var id = expectedShard.shardId();
+        synchronized (this) {
+            final int index = indexOfShard(id);
+            if (stopping || index < 0 || shards.get(index) != expectedShard || withdrawn.contains(id)
+                    || completed.containsKey(id) || !draining.add(id)) { return Optional.empty(); }
+        }
+        try {
+            synchronized (expectedShard) { return Optional.of(admission.get()); }
+        } finally {
+            synchronized (this) { draining.remove(id); notifyAll(); }
+        }
+    }
+
     /** Settles only an existing candidate, including after whole-host stop or Shard withdrawal. */
     public Optional<TargetCheckpointCandidateWorkClassExecutor.Outcome> settlePendingCheckpointTurn(
             final TargetWorkerShardRuntime expectedShard, final SchedulerBudget budget) {
@@ -1213,7 +1278,14 @@ public final class TargetWorkerHostRuntime {
     }
 
     /** Test seam for membership without constructing native Stores. */
-    synchronized void admitShard(final Shard shard, final TargetWorkerShardFleetRuntime.ShardTurns turns) {
+    void admitShard(final Shard shard, final TargetWorkerShardFleetRuntime.ShardTurns turns) {
+        // Wait for any selected native turn without blocking Host quarantine/stop admission.
+        synchronized (fleet) {
+            synchronized (this) { admitShardAfterFleetTurn(shard, turns); }
+        }
+    }
+
+    private void admitShardAfterFleetTurn(final Shard shard, final TargetWorkerShardFleetRuntime.ShardTurns turns) {
         if (stopping) {
             throw new IllegalStateException("Target host admission is stopping");
         }
@@ -1240,28 +1312,26 @@ public final class TargetWorkerHostRuntime {
         if (shard instanceof TargetWorkerShardRuntime worker && ordinaryTargetCacheLimit > 0) {
             worker.configureTargetQueueHeadCache(ordinaryTargetCacheLimit);
         }
-        synchronized (fleet) {
-            fleet.admit(turns, () -> {
-                if (shard instanceof TargetWorkerShardRuntime worker && worker.sourceBackendGroup() != null) {
-                    final var backend = worker.sourceBackendGroup();
-                    if (!ownedBackends.contains(backend)) {
-                        final var next = new ArrayList<TargetWorkerShardRuntime>();
-                        for (var existing : shards) {
-                            if (!existing.shardId().equals(shardId)) { next.add((TargetWorkerShardRuntime) existing); }
-                        }
-                        next.add(worker);
-                        backend.bindHost(this, List.copyOf(next));
-                        ownedBackends.add(backend);
-                    } else { backend.admitWorker(this, worker); }
-                }
-            });
-            if (previousIndex < 0) {
-                shards.add(shard);
-            } else {
-                shards.set(previousIndex, shard);
-                withdrawn.remove(shardId);
-                completed.remove(shardId);
+        fleet.admit(turns, () -> {
+            if (shard instanceof TargetWorkerShardRuntime worker && worker.sourceBackendGroup() != null) {
+                final var backend = worker.sourceBackendGroup();
+                if (!ownedBackends.contains(backend)) {
+                    final var next = new ArrayList<TargetWorkerShardRuntime>();
+                    for (var existing : shards) {
+                        if (!existing.shardId().equals(shardId)) { next.add((TargetWorkerShardRuntime) existing); }
+                    }
+                    next.add(worker);
+                    backend.bindHost(this, List.copyOf(next));
+                    ownedBackends.add(backend);
+                } else { backend.admitWorker(this, worker); }
             }
+        });
+        if (previousIndex < 0) {
+            shards.add(shard);
+        } else {
+            shards.set(previousIndex, shard);
+            withdrawn.remove(shardId);
+            completed.remove(shardId);
         }
     }
 
@@ -1358,31 +1428,32 @@ public final class TargetWorkerHostRuntime {
         Objects.requireNonNull(sourceBudget, "sourceBudget");
         Objects.requireNonNull(ownerClock, "ownerClock");
         final Shard shard;
-        synchronized (this) {
-            shard = requireShard(Objects.requireNonNull(expectedShard, "shard").shardId());
-            if (shard != expectedShard) {
-                throw new IllegalArgumentException("Target host shard instance has been replaced");
-            }
-            final ShardDrain prior = completed.get(shard.shardId());
-            if (prior != null) {
-                return prior;
-            }
-            final ShardId shardId = shard.shardId();
-            if (stopping) {
-                throw new IllegalStateException("Target host whole-fleet drain is stopping");
-            }
-            if (!draining.add(shardId)) {
-                throw new IllegalStateException("Target host shard drain is already in progress");
-            }
-            if (!withdrawn.contains(shardId)) {
-                try {
-                    fleet.withdraw(shardId);
-                    withdrawn.add(shardId);
-                    targetQueueChangeSignal.signal();
-                } catch (RuntimeException | Error failure) {
-                    draining.remove(shardId);
-                    notifyAll();
-                    throw failure;
+        // The fleet lock is the selected-turn exit boundary; do not wait for it under the Host lock.
+        synchronized (fleet) {
+            synchronized (this) {
+                shard = requireShard(Objects.requireNonNull(expectedShard, "shard").shardId());
+                if (shard != expectedShard) {
+                    throw new IllegalArgumentException("Target host shard instance has been replaced");
+                }
+                final ShardDrain prior = completed.get(shard.shardId());
+                if (prior != null) { return prior; }
+                final ShardId shardId = shard.shardId();
+                if (stopping) {
+                    throw new IllegalStateException("Target host whole-fleet drain is stopping");
+                }
+                if (!draining.add(shardId)) {
+                    throw new IllegalStateException("Target host shard drain is already in progress");
+                }
+                if (!withdrawn.contains(shardId)) {
+                    try {
+                        fleet.withdraw(shardId);
+                        withdrawn.add(shardId);
+                        targetQueueChangeSignal.signal();
+                    } catch (RuntimeException | Error failure) {
+                        draining.remove(shardId);
+                        notifyAll();
+                        throw failure;
+                    }
                 }
             }
         }
