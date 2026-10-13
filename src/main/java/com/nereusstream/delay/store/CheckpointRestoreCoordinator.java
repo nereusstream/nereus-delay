@@ -104,6 +104,7 @@ public final class CheckpointRestoreCoordinator {
                     restored.close();
                 } catch (RuntimeException | Error closeFailure) {
                     failure.addSuppressed(closeFailure);
+                    failure.addSuppressed(new RestoredStoreCleanup(restored));
                 }
             }
             try {
@@ -116,6 +117,19 @@ public final class CheckpointRestoreCoordinator {
             if (downloadPermit != null) {
                 downloadPermit.close();
             }
+        }
+    }
+
+    /** A successful install followed by provider-tree cleanup failure still owns its exact installed native Store. */
+    private static final class RestoredStoreCleanup extends IllegalStateException
+            implements com.nereusstream.delay.ownership.CheckpointInputFuture.Cleanup {
+        private static final long serialVersionUID = 1L;
+        private final transient ShardStore store;
+        private RestoredStoreCleanup(ShardStore store) { super("original installed Store cleanup remains live"); this.store = store; }
+        @Override public boolean cleanupComplete() { return store.isClosed(); }
+        @Override public java.util.concurrent.CompletableFuture<Void> retryCleanup() {
+            try { store.close(); return java.util.concurrent.CompletableFuture.completedFuture(null); }
+            catch (RuntimeException | Error failure) { return java.util.concurrent.CompletableFuture.failedFuture(failure); }
         }
     }
 

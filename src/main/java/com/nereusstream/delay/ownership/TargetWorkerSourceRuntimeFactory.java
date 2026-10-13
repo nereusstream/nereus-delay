@@ -143,6 +143,31 @@ public final class TargetWorkerSourceRuntimeFactory {
             OwnerLease lease, SourceReplayCursor<? extends SourceReplayEntry> source, SourceReplaySuccessor actualSourceSuccessor,
             Content content, OwnerIdentity identity, com.nereusstream.delay.adapter.PulsarAttemptJournal journal,
             Runnable recoveryProtection, Runnable journalProtection, LongSupplier ownerClock, LongSupplier nanos) {
+        return reopenInternal(oxia, config, classes, resources, store, scope, tenant, publication, workerId, lease,
+                source, actualSourceSuccessor, content, identity, journal, recoveryProtection, journalProtection,
+                ownerClock, nanos, null, null);
+    }
+
+    /** Exact installed Target image recovery retains its original published Catalog/Pin throughout Source/Claim replay. */
+    public static Recovery recoverInstalled(TargetWorkerOxiaRuntime oxia, TargetWorkerRuntimeConfig config,
+            WorkClassExecutionRegistry classes, SharedRocksDbResources resources, ShardStore store, TargetQuotaScope scope,
+            AuthenticatedTenantContext tenant, WorkerAssignmentAuthority.Publication publication, String workerId,
+            OwnerLease lease, SourceReplayCursor<? extends SourceReplayEntry> source, SourceReplaySuccessor actualSourceSuccessor,
+            Content content, OwnerIdentity identity, com.nereusstream.delay.adapter.PulsarAttemptJournal journal,
+            Runnable recoveryProtection, Runnable journalProtection, LongSupplier ownerClock, LongSupplier nanos,
+            com.nereusstream.delay.store.RecoveryCatalogAuthority catalog, com.nereusstream.delay.protocol.RecoveryPin pin) {
+        return reopenInternal(oxia, config, classes, resources, store, scope, tenant, publication, workerId, lease,
+                source, actualSourceSuccessor, content, identity, journal, recoveryProtection, journalProtection,
+                ownerClock, nanos, Objects.requireNonNull(catalog), Objects.requireNonNull(pin));
+    }
+
+    private static Recovery reopenInternal(TargetWorkerOxiaRuntime oxia, TargetWorkerRuntimeConfig config,
+            WorkClassExecutionRegistry classes, SharedRocksDbResources resources, ShardStore store, TargetQuotaScope scope,
+            AuthenticatedTenantContext tenant, WorkerAssignmentAuthority.Publication publication, String workerId,
+            OwnerLease lease, SourceReplayCursor<? extends SourceReplayEntry> source, SourceReplaySuccessor actualSourceSuccessor,
+            Content content, OwnerIdentity identity, com.nereusstream.delay.adapter.PulsarAttemptJournal journal,
+            Runnable recoveryProtection, Runnable journalProtection, LongSupplier ownerClock, LongSupplier nanos,
+            com.nereusstream.delay.store.RecoveryCatalogAuthority catalog, com.nereusstream.delay.protocol.RecoveryPin pin) {
         config.requireRuntime(classes, resources);
         var assignment = accept(oxia, tenant, publication, workerId);
         requireLeaseContext(oxia, assignment, lease);
@@ -155,9 +180,14 @@ public final class TargetWorkerSourceRuntimeFactory {
             var reopened = TargetStoreBootstrap.reopen(store, scope,
                     new TargetStoreBackend.WriteLimits(config.source().records(), config.source().bytes()),
                     config.checkpoint().newReadBudget(nanos), guardedReads, config.checkpoint().ledger());
-            recovery = new TargetOwnerRecoveryCoordinator(store, reopened, assignment, lease, authorities, config.source(), source,
-                    recoveryProtection, new ReplayTurnBudget(config.source().records(), config.source().bytes(), config.source().elapsedNanos()),
-                    classes, ownerClock, nanos, () -> config.checkpoint().newReadBudget(nanos), config.checkpoint().ledger());
+            final var turn = new ReplayTurnBudget(config.source().records(), config.source().bytes(), config.source().elapsedNanos());
+            recovery = catalog == null
+                    ? new TargetOwnerRecoveryCoordinator(store, reopened, assignment, lease, authorities, config.source(), source,
+                            recoveryProtection, turn, classes, ownerClock, nanos,
+                            () -> config.checkpoint().newReadBudget(nanos), config.checkpoint().ledger())
+                    : new TargetOwnerRecoveryCoordinator(store, reopened, assignment, lease, authorities, config.source(), source,
+                            catalog, pin, recoveryProtection, turn, classes, ownerClock, nanos,
+                            () -> config.checkpoint().newReadBudget(nanos), config.checkpoint().ledger());
             recovery.configureAuthorityPreparation(preparation);
             recovery.configureClaimTakeover(identity, journal, journalProtection);
             return new Recovery(oxia, config, classes, resources, store, assignment, tenant, publication, workerId, recovery);

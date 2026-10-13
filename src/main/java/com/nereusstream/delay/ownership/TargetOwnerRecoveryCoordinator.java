@@ -36,6 +36,7 @@ public final class TargetOwnerRecoveryCoordinator {
     private final RecoveryPin pin;
     private final CheckpointManifest manifest;
     private final Runnable protection;
+    private final Runnable completionProtection;
     private final ReplayTurnBudget turnBudget;
     private final WorkClassExecutionRegistry workClasses;
     private final LongSupplier clock;
@@ -114,6 +115,7 @@ public final class TargetOwnerRecoveryCoordinator {
         this.catalog = checkpointRestore ? Objects.requireNonNull(catalog, "catalog") : null;
         this.pin = checkpointRestore ? Objects.requireNonNull(pin, "pin") : null;
         final var heldProtection = Objects.requireNonNull(protection, "protection");
+        completionProtection = heldProtection;
         this.protection = () -> {
             this.source.requireCurrent();
             heldProtection.run();
@@ -369,14 +371,15 @@ public final class TargetOwnerRecoveryCoordinator {
     }
 
     private void requireCatalog() {
-        protection.run();
+        final var held = complete ? completionProtection : protection;
+        held.run();
         if (catalog == null) { return; }
         catalog.validatePublishedRestoreCandidate(manifest);
         if (!catalog.activeRecoveryPin()
                 .orElseThrow(() -> new IllegalStateException("Target recovery Pin is no longer active")).equals(pin)) {
             throw new IllegalStateException("Target recovery exact RecoveryPin changed");
         }
-        protection.run();
+        held.run();
     }
 
     private long elapsed(long started) {
@@ -400,6 +403,8 @@ public final class TargetOwnerRecoveryCoordinator {
 
     /** Builds an active Source runtime only from the final, still-current recovery audit and held authorities. */
     public synchronized TargetSourceApplyRuntime activeRuntime() {
+        // The legacy branch keeps its original reader-bound successor and therefore still requires that reader.
+        source.requireCurrent();
         return activeRuntime(authorities.successor());
     }
 

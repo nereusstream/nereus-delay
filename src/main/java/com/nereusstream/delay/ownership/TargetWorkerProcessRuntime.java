@@ -78,6 +78,7 @@ public final class TargetWorkerProcessRuntime {
     private TargetWorkerHostRuntime host;
     private boolean assemblyBorrowed;
     private boolean preparingHost;
+    private boolean startupTurnActive;
     private boolean hostTransferred;
     private boolean stopping;
     private boolean dependenciesExited;
@@ -195,6 +196,36 @@ public final class TargetWorkerProcessRuntime {
         catch (RuntimeException | Error failure) { retain(failure); throw failure; }
     }
 
+    /** Acquires the actual Source lease before creating its published-checkpoint pin or download/install request. */
+    public TargetWorkerSourceStartup checkpointSource(TargetWorkerSourceStartup.Owner owner,
+            com.nereusstream.delay.protocol.TargetQuotaScope scope, TargetWorkerSourceRuntimeFactory.Content content,
+            SourceReplaySuccessor actualActiveSuccessor) {
+        final TargetWorkerSourceStartup startup;
+        synchronized (this) {
+            requireAssemblyAdmission(); oxia.providers();
+            if (sources.containsKey(scope.shard()) || sources.size() >= configuration.worker().store().maxOwnedShards()) {
+                throw new IllegalStateException("checkpoint Source exceeds its original process Shard envelope");
+            }
+            startup = new TargetWorkerSourceStartup(this,
+                    new Assembly(configuration.worker(), classes, resources, io, oxia), owner, scope, content, actualActiveSuccessor, nanos);
+            sources.put(scope.shard(), startup);
+        }
+        try { startup.acquireCheckpoint(); return startup; }
+        catch (RuntimeException | Error failure) { retain(failure); throw failure; }
+    }
+
+    /** Drives original queued restore/recovery actions with the configured finite startup budget, including failed-stop settlement. */
+    public List<com.nereusstream.delay.scheduler.WorkClassTask> runStartupWorkTurn() {
+        synchronized (this) {
+            if (host != null || preparingHost || startupTurnActive || dependenciesExited || resourcesClosed) {
+                throw new IllegalStateException("original process startup work is no longer admitted");
+            }
+            startupTurnActive = true;
+        }
+        try { return classes.runTurn(configuration.worker().checkpoint().settlementTurn()); }
+        finally { synchronized (this) { startupTurnActive = false; } }
+    }
+
     /** Builds the original Host from this root's privately retained Source startups, not caller-built Workers. */
     public TargetWorkerHostRuntime prepareHost(TargetCheckpointCandidateSchedule.CollectedSemanticRequestFactory checkpoints,
             LongSupplier checkpointClock, Consumer<Throwable> failures) {
@@ -208,7 +239,7 @@ public final class TargetWorkerProcessRuntime {
     }
 
     private void requireAssemblyAdmission() {
-        if (stopping || host != null || preparingHost) throw new IllegalStateException("process assembly is closed");
+        if (stopping || host != null || preparingHost || startupTurnActive) throw new IllegalStateException("process assembly is closed");
     }
 
     synchronized void requireSourceAssemblyAdmission(TargetWorkerSourceStartup original) {
@@ -240,7 +271,7 @@ public final class TargetWorkerProcessRuntime {
         boolean exited = true;
         for (var source : original) exited &= source.retryFailedStartupCleanup(request);
         if (!exited) return false;
-        synchronized (this) { dependenciesExited = true; }
+        synchronized (this) { if (startupTurnActive) return false; dependenciesExited = true; }
         oxia.stopUnattached(); retryCleanup();
         return cleanupComplete();
     }

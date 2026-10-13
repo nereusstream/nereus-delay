@@ -1038,6 +1038,7 @@ public final class ShardStore implements AutoCloseable {
                 } catch (RuntimeException | Error cleanupFailure) {
                     if (returningInstalled && installed != null && !installed.isClosed()) {
                         closeForRestoreCleanup(installed, cleanupFailure);
+                        if (!installed.isClosed()) cleanupFailure.addSuppressed(new RestoreNativeCleanup(null, null, installed));
                     }
                     if (primaryFailure != null && cleanupFailure != primaryFailure) {
                         primaryFailure.addSuppressed(cleanupFailure);
@@ -1051,6 +1052,7 @@ public final class ShardStore implements AutoCloseable {
                 } catch (RuntimeException | Error cleanupFailure) {
                     if (returningInstalled && installed != null && !installed.isClosed()) {
                         closeForRestoreCleanup(installed, cleanupFailure);
+                        if (!installed.isClosed()) cleanupFailure.addSuppressed(new RestoreNativeCleanup(null, null, installed));
                     }
                     if (primaryFailure != null && cleanupFailure != primaryFailure) {
                         primaryFailure.addSuppressed(cleanupFailure);
@@ -1116,6 +1118,9 @@ public final class ShardStore implements AutoCloseable {
         final boolean preparedSafe = closeForRestoreCleanup(prepared, failure);
         final boolean restoreTreeSafe = stagedSafe && preparedSafe;
         final boolean activeDbSafe = closeForRestoreCleanup(installed, failure);
+        if (!stagedSafe || !preparedSafe || !activeDbSafe) {
+            failure.addSuppressed(new RestoreNativeCleanup(staged, prepared, installed));
+        }
         if (activeDbMoved && activeDbSafe && canRemoveUnpublishedActiveDb(shardRoot, storeUuid)) {
             try {
                 deleteTree(activeDb);
@@ -1148,6 +1153,30 @@ public final class ShardStore implements AutoCloseable {
             }
         }
         return false;
+    }
+
+    /** Original partial restore probes remain reachable after failed native teardown; no ACTIVE directory is deleted here. */
+    public static final class RestoreNativeCleanup extends IllegalStateException
+            implements com.nereusstream.delay.ownership.CheckpointInputFuture.Cleanup {
+        private static final long serialVersionUID = 1L;
+        private final transient ShardStore[] stores;
+        private RestoreNativeCleanup(ShardStore staged, ShardStore prepared, ShardStore installed) {
+            super("original restore native handles remain live"); stores = new ShardStore[] {staged, prepared, installed};
+        }
+        @Override public synchronized boolean cleanupComplete() {
+            for (var store : stores) if (store != null && !store.isClosed()) return false;
+            return true;
+        }
+        @Override public synchronized java.util.concurrent.CompletableFuture<Void> retryCleanup() {
+            Throwable first = null;
+            for (var store : stores) {
+                if (store == null || store.isClosed()) continue;
+                try { store.close(); }
+                catch (RuntimeException | Error failure) { if (first == null) first = failure; }
+            }
+            return first == null ? java.util.concurrent.CompletableFuture.completedFuture(null)
+                    : java.util.concurrent.CompletableFuture.failedFuture(first);
+        }
     }
 
     /** Only remove an installed DB when ACTIVE cannot already refer to it. */

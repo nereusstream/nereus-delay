@@ -59,6 +59,9 @@ public final class TargetWorkerSourceStartup {
     private TargetWorkerSourceRuntimeFactory.AssemblyFailure failedAssembly;
     private TargetWorkerSourceRuntimeFactory.Recovery recovery;
     private TargetWorkerRecoverySource recoverySource;
+    private com.nereusstream.delay.store.RecoveryCatalogAuthority checkpointCatalog;
+    private com.nereusstream.delay.protocol.RecoveryPin checkpointPin;
+    private com.nereusstream.delay.store.CheckpointRestoreWorkClassExecutor.Submission restoreSubmission;
     private Throwable recoveryCleanupFailure;
     private TargetOwnedBackendGroup backend;
     private TargetWorkerShardRuntime worker;
@@ -92,17 +95,70 @@ public final class TargetWorkerSourceStartup {
 
     /** Opens the actual same-DB Target Store under the newly acquired original assignment/session lease. */
     void openReopened() {
+        acquireExisting(true);
+    }
+
+    void acquireCheckpoint() { acquireExisting(false); }
+
+    private void acquireExisting(boolean openStore) {
         try {
             assignment = TargetWorkerSourceRuntimeFactory.accept(graph.oxia(), owner.tenant(), owner.publication(), owner.workerId());
             TargetWorkerSourceRuntimeFactory.requireScope(graph.oxia(), owner.tenant(), assignment, scope);
             lease = TargetWorkerSourceRuntimeFactory.acquire(graph.oxia(), owner.tenant(), owner.publication(),
                     owner.workerId(), owner.ownerId(), owner.leaseDurationMs(), owner.clock());
             requireCurrent();
-            store = ShardStore.openTarget(graph.config().store(), scope.shard(), graph.resources());
+            if (openStore) store = ShardStore.openTarget(graph.config().store(), scope.shard(), graph.resources());
             requireCurrent();
         } catch (RuntimeException | Error failure) {
             retain(failure); throw new StartupFailure(failure, this);
         } finally { synchronized (this) { initializationRunning = false; } }
+    }
+
+    /** Queues authenticated published download/install in the original bounded CHECKPOINT class. */
+    public synchronized void restoreCheckpoint(com.nereusstream.delay.store.CheckpointDownloadRequest request,
+            com.nereusstream.delay.protocol.RecoveryPin pin, com.nereusstream.delay.store.RecoveryCatalogAuthority catalog,
+            com.nereusstream.delay.store.CheckpointDownloadAdapter downloader,
+            com.nereusstream.delay.store.TargetCheckpointRootVerifier.ImageAuthority images, Runnable protection) {
+        requireCurrent();
+        if (initial != null || initializationRunning || store != null || restoreSubmission != null || checkpointPin != null) {
+            throw new IllegalStateException("original published checkpoint startup cannot be replaced");
+        }
+        Objects.requireNonNull(request); Objects.requireNonNull(pin); Objects.requireNonNull(catalog);
+        if (!request.manifest().shardId().equals(scope.shard()) || !pin.shard().shardId().equals(scope.shard())
+                || pin.owner().ownerEpoch() != lease.ownerEpoch()
+                || !Bytes.constantTimeEquals(pin.owner().leaseFencingDigest(), lease.leaseToken())
+                || !Bytes.constantTimeEquals(pin.oxiaSessionIdentityDigest(), graph.oxia().providers().sessionIdentity())) {
+            throw new IllegalArgumentException("published checkpoint pin changes its actual Source Owner/session/Shard");
+        }
+        final var configured = graph.config().checkpoint();
+        final Runnable held = () -> { requireCurrent(); Objects.requireNonNull(protection).run(); };
+        final var authentication = new ShardStore.TargetRestoreAuthentication(configured.quota(), configured.ledger(),
+                configured.semantics(), Objects.requireNonNull(images), held, configured.newReadBudget(nanos));
+        final var coordinator = new com.nereusstream.delay.store.CheckpointRestoreCoordinator(graph.config().store(),
+                scope.shard(), graph.resources(), downloader, catalog, configured.physical());
+        final var executor = new com.nereusstream.delay.store.CheckpointRestoreWorkClassExecutor(graph.classes(), coordinator);
+        checkpointCatalog = catalog; checkpointPin = pin;
+        try {
+            restoreSubmission = executor.submit(new com.nereusstream.delay.store.CheckpointRestoreWorkClassExecutor.RestoreRequest(
+                    request, pin, authentication));
+        } catch (RuntimeException | Error failure) { retain(failure); throw new StartupFailure(failure, this); }
+    }
+
+    /** Observes only the original restore action after its registry execution has returned. */
+    public synchronized boolean finishCheckpointRestore() {
+        requireCurrent();
+        if (restoreSubmission == null) throw new IllegalStateException("published restore has not been queued");
+        if (store != null) return true;
+        if (graph.classes().state(restoreSubmission.task()).orElse(null)
+                == com.nereusstream.delay.scheduler.WorkClassExecutionRegistry.ExecutionState.RUNNING) return false;
+        final var outcome = restoreSubmission.outcome();
+        if (outcome.isEmpty()) return false;
+        if (outcome.get().failure() != null) {
+            retain(outcome.get().failure()); throw new StartupFailure(outcome.get().failure(), this);
+        }
+        store = outcome.get().restored();
+        try { requireCurrent(); return true; }
+        catch (RuntimeException | Error failure) { retain(failure); throw new StartupFailure(failure, this); }
     }
 
     /** Adopts the exact verified reader before auditing/replaying; never takes an arbitrary iterator or issues ACK. */
@@ -110,7 +166,7 @@ public final class TargetWorkerSourceStartup {
             com.nereusstream.delay.adapter.PulsarAttemptJournal journal, Runnable sourceProtection, Runnable journalProtection) {
         final Construction original;
         synchronized (this) {
-            if (initial != null || initializationRunning || recoverySource != null || recovery != null || activation != null) {
+            if (initial != null || initializationRunning || store == null || recoverySource != null || recovery != null || activation != null) {
                 throw new IllegalStateException("original same-DB recovery is unavailable or already started");
             }
             original = beginConstruction(false);
@@ -121,10 +177,14 @@ public final class TargetWorkerSourceStartup {
                     graph.classes(), graph.resources());
             synchronized (this) { recoverySource = source; }
             source.replayCursor().requireGuarded();
-            recovery = TargetWorkerSourceRuntimeFactory.reopen(graph.oxia(), graph.config(), graph.classes(),
+            recovery = checkpointCatalog == null ? TargetWorkerSourceRuntimeFactory.reopen(graph.oxia(), graph.config(), graph.classes(),
                     graph.resources(), store, scope, owner.tenant(), owner.publication(), owner.workerId(), lease,
                     source.replayCursor(), source.successorAfter(store.appliedShardLogPosition()), content, identity, journal,
-                    sourceProtection, journalProtection, owner.clock(), nanos);
+                    sourceProtection, journalProtection, owner.clock(), nanos)
+                    : TargetWorkerSourceRuntimeFactory.recoverInstalled(graph.oxia(), graph.config(), graph.classes(),
+                            graph.resources(), store, scope, owner.tenant(), owner.publication(), owner.workerId(), lease,
+                            source.replayCursor(), source.successorAfter(store.appliedShardLogPosition()), content, identity, journal,
+                            sourceProtection, journalProtection, owner.clock(), nanos, checkpointCatalog, checkpointPin);
         } catch (RuntimeException | Error failure) {
             if (failure instanceof TargetWorkerSourceRuntimeFactory.AssemblyFailure partial) {
                 synchronized (this) { failedAssembly = partial; lease = partial.lease(); }
@@ -326,6 +386,17 @@ public final class TargetWorkerSourceStartup {
         if (firstFailure == null) throw new IllegalStateException("successful startup is still admitted for assembly");
         stopping = true;
         try {
+            if (restoreSubmission != null) {
+                if (graph.classes().state(restoreSubmission.task()).orElse(null)
+                        == com.nereusstream.delay.scheduler.WorkClassExecutionRegistry.ExecutionState.RUNNING
+                        || restoreSubmission.outcome().isEmpty()) return false;
+                if (store == null && restoreSubmission.outcome().orElseThrow().restored() != null) {
+                    store = restoreSubmission.outcome().orElseThrow().restored();
+                }
+                final var failed = restoreSubmission.outcome().orElseThrow().failure();
+                if (failed != null && !retryRestoreNativeCleanup(failed,
+                        java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>()))) return false;
+            }
             if (store != null && !storeClosed) store.fenceForUncleanClose();
             if (worker != null) worker.quarantineBackendWrites();
             if (activation != null) {
@@ -375,6 +446,17 @@ public final class TargetWorkerSourceStartup {
     }
 
     synchronized boolean failedCleanupComplete() { return failedCleanupComplete; }
+
+    private boolean retryRestoreNativeCleanup(Throwable failure, java.util.Set<Throwable> seen) {
+        if (!seen.add(failure)) return true;
+        boolean complete = true;
+        if (failure instanceof CheckpointInputFuture.Cleanup cleanup) {
+            cleanup.retryCleanup(); complete = cleanup.cleanupComplete();
+        }
+        if (failure.getCause() != null) complete &= retryRestoreNativeCleanup(failure.getCause(), seen);
+        for (var suppressed : failure.getSuppressed()) complete &= retryRestoreNativeCleanup(suppressed, seen);
+        return complete;
+    }
 
 
     public static final class StartupFailure extends IllegalStateException {
