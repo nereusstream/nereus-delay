@@ -696,6 +696,24 @@ public final class TargetWorkerShardRuntime
         }
     }
 
+    /** Complete local dependencies for configured service activation; native/Broker authority stays in each provider. */
+    synchronized void requireConfiguredServiceReady(TargetWorkerHostRuntime expected, LongSupplier clock) {
+        requirePublishRecoveryOwner(clock);
+        if (publicationHost != expected || sourceBackendGroup == null || !sourceBackendGroup.workerReady(this)) {
+            throw new IllegalStateException("configured service requires its actual owned Source and Host");
+        }
+        requirePublishingStartupClosure();
+        Objects.requireNonNull(publishRecoveryMaintenance, "configured retained Admission/UNKNOWN recovery");
+        if (publishRuntime.requiresJournal()) { requirePulsarStartupClosure(); }
+        if (publicationResources.values().stream().noneMatch(owner -> !owner.closed() && owner.readyForPublishing())
+                || publicationResources.values().stream().anyMatch(owner -> !owner.closed() && !owner.readyForPublishing())) {
+            throw new IllegalStateException("configured service has absent or unfinished actual publication resources");
+        }
+        if (!publishRuntime.available()) {
+            throw new IllegalStateException("configured service activation has an existing publication flight");
+        }
+    }
+
     boolean publisherSupportsNative() { return publishRuntime != null && publishRuntime.supportsNative(); }
 
     void requirePulsarStartupClosure() {

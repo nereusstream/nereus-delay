@@ -229,6 +229,9 @@ public final class TargetWorkerHostRuntime {
     private boolean stopping;
     private boolean drainAllActive;
     private boolean maintenanceStarted;
+    private boolean sourceProcessingConfigured;
+    private Thread serviceActivationThread;
+    private boolean serviceActivated;
     private volatile boolean backendQuarantined;
     private boolean quarantineActive;
     private boolean faultExitActive;
@@ -309,6 +312,7 @@ public final class TargetWorkerHostRuntime {
 
     private TargetCheckpointCandidateSchedule registerPeriodicCheckpointSchedule(
             TargetCheckpointCandidateSchedule schedule, LongSupplier clock, SchedulerBudget budget) {
+        requireServiceActivationCaller();
         if (stopping || checkpointSchedule != null) {
             throw new IllegalStateException("Target Host checkpoint scheduling is stopping or already configured");
         }
@@ -400,6 +404,7 @@ public final class TargetWorkerHostRuntime {
     public synchronized void configureSourceObservations(final TargetSourceBacklogCache cache,
             final java.util.function.BiFunction<TargetWorkerShardRuntime, TargetSourceBacklog.Cut,
                     TargetSourceBacklogRead> factory, final LongSupplier ownerClock) {
+        requireServiceActivationCaller();
         if (stopping || sourceObservationCache != null) {
             throw new IllegalStateException("Target Host Source observer is stopping or already configured");
         }
@@ -517,6 +522,7 @@ public final class TargetWorkerHostRuntime {
 
     /** Activate the existing maintenance loop only after service-specific backends/providers have been installed. */
     public synchronized void startMaintenance() {
+        requireServiceActivationCaller();
         if (stopping || backendQuarantined || maintenanceStarted)
             throw new IllegalStateException("Target Host maintenance is stopping or already started");
         maintenanceLoop.start();
@@ -725,6 +731,7 @@ public final class TargetWorkerHostRuntime {
             final TargetWorkerOrdinaryDrr.Requests requests, final LongSupplier ownerClock,
             final LongSupplier schedulerClock, final LongSupplier monotonicClock,
             final BoundedAsyncMetricExporter metrics, final Consumer<Throwable> failureConsumer) {
+        requireServiceActivationCaller();
         final var delegate = Objects.requireNonNull(requests, "requests");
         final var workers = currentTargetWorkers();
         workers.forEach(TargetWorkerShardRuntime::requirePublishingStartupClosure);
@@ -812,6 +819,7 @@ public final class TargetWorkerHostRuntime {
             final LongSupplier monotonicClock,
             final BoundedAsyncMetricExporter metrics,
             final Consumer<Throwable> failureConsumer) {
+        requireServiceActivationCaller();
         if (runtimeConfig != null && (!runtimeConfig.inventory().equals(inventoryLimits)
                 || !runtimeConfig.ordinary().equals(drrLimits)
                 || !runtimeConfig.ordinaryTurn().equals(turnBudget)
@@ -911,6 +919,7 @@ public final class TargetWorkerHostRuntime {
     public TargetWorkerShardFleetRuntime.SourceTurn runNextSourceTurn(
             final SchedulerBudget budget, final LongSupplier ownerClock) {
         synchronized (this) {
+            requireServiceActivationCaller();
             if (stopping) { throw new IllegalStateException("Target host source admission is stopping"); }
         }
         return runNextSourceTurnIfPresent(budget, ownerClock)
@@ -924,6 +933,9 @@ public final class TargetWorkerHostRuntime {
         if (runtimeConfig != null && !runtimeConfig.sourceTurn().equals(budget)) {
             throw new IllegalArgumentException("Source turn budget differs from the configured Target Host");
         }
+        synchronized (this) {
+            if (stopping || serviceActivationThread != null) { return Optional.empty(); }
+        }
         return fleet.runNextSourceTurnIfPresent(selected -> {
             if (!(selected instanceof Shard shard)) {
                 throw new IllegalStateException("Target Source selection lacks the exact Host Shard");
@@ -936,6 +948,7 @@ public final class TargetWorkerHostRuntime {
 
     /** Installs actual Source poll/apply/ACK rotation on the existing maintenance thread before activation. */
     public synchronized void configureSourceProcessing(final LongSupplier ownerClock) {
+        requireServiceActivationCaller();
         final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
         if (runtimeConfig == null || stopping || maintenanceStarted) {
             throw new IllegalStateException("Source processing requires a configured, prepared Target Host");
@@ -951,6 +964,68 @@ public final class TargetWorkerHostRuntime {
                         + " at " + result.status(), result.failure());
             }
         });
+        sourceProcessingConfigured = true;
+    }
+
+    /** Enables the original configured Source, observer, checkpoint and Claim/publisher graph in one startup turn. */
+    public TargetWorkerOrdinaryLoop activateConfiguredService(
+            TargetSourceBacklogCache observations,
+            java.util.function.BiFunction<TargetWorkerShardRuntime, TargetSourceBacklog.Cut,
+                    TargetSourceBacklogRead> observationFactory,
+            TargetWorkerOrdinaryDrr.Requests requests, LongSupplier ownerClock, LongSupplier schedulerClock,
+            LongSupplier monotonicClock, BoundedAsyncMetricExporter metrics, Consumer<Throwable> failures) {
+        Objects.requireNonNull(observations, "observations");
+        Objects.requireNonNull(observationFactory, "actual Source observation factory");
+        Objects.requireNonNull(requests, "actual Claim requests");
+        Objects.requireNonNull(ownerClock, "ownerClock");
+        Objects.requireNonNull(schedulerClock, "schedulerClock");
+        Objects.requireNonNull(monotonicClock, "monotonicClock");
+        Objects.requireNonNull(failures, "failureConsumer");
+        final List<TargetWorkerShardRuntime> workers;
+        synchronized (this) {
+            if (runtimeConfig == null || stopping || backendQuarantined || serviceActivationThread != null
+                    || serviceActivated || ordinaryLoop != null || maintenanceStarted || sourceProcessingConfigured
+                    || sourceObservationCache != null || checkpointSchedule == null || !finalCheckpointOnDrain
+                    || !draining.isEmpty() || !withdrawn.isEmpty()) {
+                throw new IllegalStateException("configured service requires an idle prepared Host with formal checkpoints");
+            }
+            workers = currentTargetWorkers();
+            serviceActivationThread = Thread.currentThread();
+        }
+        boolean installing = false;
+        try {
+            // These checks may await Worker/authority reads; keep them outside the Host monitor.
+            observations.requireBounds(runtimeConfig.store().maxOwnedShards(),
+                    runtimeConfig.backlogGrowth().maximumObservationAgeNanos());
+            for (var worker : workers) { worker.requireConfiguredServiceReady(this, ownerClock); }
+            installing = true;
+            configureSourceObservations(observations, observationFactory, ownerClock);
+            configureSourceProcessing(ownerClock);
+            final var publishing = startPublishing(requests, ownerClock, schedulerClock, monotonicClock, metrics, failures);
+            startMaintenance();
+            synchronized (this) {
+                if (stopping || backendQuarantined) {
+                    throw new IllegalStateException("configured service was stopped during activation");
+                }
+                serviceActivated = true;
+            }
+            return publishing;
+        } catch (RuntimeException | Error failure) {
+            if (installing) {
+                try { quarantineOwnedBackends(); }
+                catch (RuntimeException | Error cleanup) { if (cleanup != failure) { failure.addSuppressed(cleanup); } }
+            }
+            throw failure;
+        } finally {
+            synchronized (this) { serviceActivationThread = null; notifyAll(); }
+        }
+    }
+
+    /** Configuration changes and manual Source turns must not race the single service startup turn. */
+    private void requireServiceActivationCaller() {
+        if (serviceActivationThread != null && serviceActivationThread != Thread.currentThread()) {
+            throw new IllegalStateException("Target service activation owns this Host configuration");
+        }
     }
 
     /** Submits an unpublished candidate only through the currently admitted exact Worker Shard. */
@@ -1227,7 +1302,8 @@ public final class TargetWorkerHostRuntime {
         final var id = expectedShard.shardId();
         synchronized (this) {
             final int index = indexOfShard(id);
-            if (stopping || index < 0 || shards.get(index) != expectedShard || withdrawn.contains(id)
+            if (stopping || serviceActivationThread != null && serviceActivationThread != Thread.currentThread()
+                    || index < 0 || shards.get(index) != expectedShard || withdrawn.contains(id)
                     || completed.containsKey(id) || !draining.add(id)) { return Optional.empty(); }
         }
         try {
@@ -1295,6 +1371,7 @@ public final class TargetWorkerHostRuntime {
     }
 
     private void admitShardAfterFleetTurn(final Shard shard, final TargetWorkerShardFleetRuntime.ShardTurns turns) {
+        requireServiceActivationCaller();
         if (stopping) {
             throw new IllegalStateException("Target host admission is stopping");
         }
@@ -1441,6 +1518,7 @@ public final class TargetWorkerHostRuntime {
         // The fleet lock is the selected-turn exit boundary; do not wait for it under the Host lock.
         synchronized (fleet) {
             synchronized (this) {
+                requireServiceActivationCaller();
                 shard = requireShard(Objects.requireNonNull(expectedShard, "shard").shardId());
                 if (shard != expectedShard) {
                     throw new IllegalArgumentException("Target host shard instance has been replaced");
@@ -1630,6 +1708,7 @@ public final class TargetWorkerHostRuntime {
     public void registerOwnedBackend(TargetOwnedBackendGroup backend) {
         final List<TargetWorkerShardRuntime> workers;
         synchronized (this) {
+            requireServiceActivationCaller();
             if (stopping || backendQuarantined) { throw new IllegalStateException("Host backend registration is closed"); }
             if (ownedBackends.stream().anyMatch(existing -> existing == backend)) { return; }
             workers = shards.stream().map(shard -> {
