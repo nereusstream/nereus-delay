@@ -56,6 +56,7 @@ public final class TargetQuotaCapacitySnapshot {
         Image image();
         /** Pins the exact revisions, original history and non-borrowable reservation; no remote I/O here. */
         void requireCurrent();
+        /** Releases the operation hold only; active grant/placement ownership survives until its real drain. */
         @Override void close();
     }
 
@@ -209,10 +210,11 @@ public final class TargetQuotaCapacitySnapshot {
         @Override public synchronized void requireAuthorized(TargetQuotaGrantControlBody body,
                 TargetQuotaGrantControlVerifier.View view, SourcePosition source, TargetQuotaIncarnation allocation) {
             requireCurrent();
-            if (!same(image.publication().canonicalBytes(), body.canonicalBytes()) || !sameSource(image.use(), source)
-                    || !sameView(image.view(), view) || !sameAllocation(image.reservation().allocation(), allocation)) {
+            if (!same(image.publication().canonicalBytes(), body.canonicalBytes()) || !sameSource(image.use(), source)) {
                 throw invalid("capacity use differs from the collected exact Store/Source/allocation");
             }
+            if (!sameView(image.view(), view)) throw new ViewChanged();
+            if (!sameAllocation(image.reservation().allocation(), allocation)) throw invalid("capacity allocation differs from its actual held reservation");
             requireCurrent();
         }
 
@@ -272,6 +274,12 @@ public final class TargetQuotaCapacitySnapshot {
             if (guards != 0) throw invalid("capacity snapshot still protects an atomic commit");
             held.close(); closed = true;
         }
+    }
+
+    /** Exact local Store view changed before planning any write; re-collect, never reinterpret external denial. */
+    public static final class ViewChanged extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+        private ViewChanged() { super("capacity Source view changed before atomic preparation"); }
     }
 
     private static Image freeze(Image image, Limits limits, SourceReplayMutation entry) {

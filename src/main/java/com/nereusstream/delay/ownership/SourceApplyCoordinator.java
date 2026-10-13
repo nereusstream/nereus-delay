@@ -109,6 +109,17 @@ public final class SourceApplyCoordinator {
         if (pending.appliedOutcome == null) {
             if (pending.submission == null) {
                 try {
+                    if (!target.prepareAuthorities(pending.entry, ownerClock, false)) {
+                        return new TurnResult(TurnStatus.WAITING_FOR_AUTHORITY, pending.entry, null, null, null);
+                    }
+                } catch (java.util.concurrent.RejectedExecutionException full) {
+                    return TurnResult.rejected(TurnStatus.SUBMISSION_REJECTED, pending.entry, full);
+                } catch (RuntimeException | Error failure) {
+                    if (target.isReadIncomplete(failure)) return TurnResult.failed(TurnStatus.READ_INCOMPLETE, pending.entry, failure);
+                    target.fence();
+                    return TurnResult.failed(TurnStatus.AUTHORITY_FAILURE, pending.entry, failure);
+                }
+                try {
                     pending.submission = executor.submit(pending.entry, ownerClock);
                 } catch (RuntimeException | Error failure) {
                     return TurnResult.rejected(TurnStatus.SUBMISSION_REJECTED, pending.entry, failure);
@@ -123,7 +134,7 @@ public final class SourceApplyCoordinator {
                     if (observed == null) {
                         return TurnResult.failed(TurnStatus.WORK_CLASS_FAILURE, pending.entry, failure);
                     }
-                    if (target.isReadIncomplete(observed.failure())) {
+                    if (target.isReadIncomplete(observed.failure()) || target.isAuthorityPreparationRequired(observed.failure())) {
                         // A different selected action may have failed after this
                         // source read yielded. Never hide that error as a read retry.
                         pending.submission = null;
@@ -143,13 +154,18 @@ public final class SourceApplyCoordinator {
                 // Other failures still require the existing fenced recovery path.
                 pending.submission = null;
                 return TurnResult.failed(
-                        target.isReadIncomplete(applied.failure())
+                        target.isAuthorityPreparationRequired(applied.failure()) ? TurnStatus.AUTHORITY_RETRY
+                        : target.isReadIncomplete(applied.failure())
                                 ? TurnStatus.READ_INCOMPLETE
                                 : TurnStatus.APPLY_FAILURE,
                         pending.entry,
                         applied.failure());
             }
             pending.appliedOutcome = Objects.requireNonNull(applied.result(), "source apply result");
+        }
+
+        if (!target.completeAuthorities(pending.entry)) {
+            return new TurnResult(TurnStatus.WAITING_FOR_AUTHORITY_CLEANUP, pending.entry, null, null, null);
         }
 
         if (!pending.acknowledged) {
@@ -216,7 +232,7 @@ public final class SourceApplyCoordinator {
         }
     }
 
-    private static boolean sameEntry(final SourceReplayEntry first, final SourceReplayEntry second) {
+    static boolean sameEntry(final SourceReplayEntry first, final SourceReplayEntry second) {
         return second != null
                 && java.util.Arrays.equals(
                         first.position().canonicalBytes(), second.position().canonicalBytes())
@@ -258,6 +274,10 @@ public final class SourceApplyCoordinator {
         WAITING_FOR_SOURCE,
         SOURCE_POLL_FAILURE,
         WAITING_FOR_WORK_CLASS,
+        WAITING_FOR_AUTHORITY,
+        WAITING_FOR_AUTHORITY_CLEANUP,
+        AUTHORITY_RETRY,
+        AUTHORITY_FAILURE,
         APPLIED_AND_ACKED,
         SUBMISSION_REJECTED,
         WORK_CLASS_FAILURE,

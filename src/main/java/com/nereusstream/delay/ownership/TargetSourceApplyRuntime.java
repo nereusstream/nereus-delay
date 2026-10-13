@@ -432,6 +432,78 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     private volatile OwnerLease lease;
     private volatile boolean fenced;
     private long lastOwnerTime = -1;
+    private volatile TargetSourceAuthorityPreparation authorityPreparation;
+    private boolean authorityRefresh;
+
+    /** Installs the root's complete content/history graph before this runtime can submit Source work. */
+    public synchronized void configureAuthorityPreparation(TargetSourceAuthorityPreparation selected, LongSupplier clock) {
+        if (authorityPreparation != null || fenced) throw new IllegalStateException("Source preparation is already configured or fenced");
+        Objects.requireNonNull(clock, "ownerClock");
+        Objects.requireNonNull(selected).bind(authorities, () -> {
+            if (recoveryOnly) recoveryProtection.run();
+            synchronized (ownerStateLock) {
+                final long now = clock.getAsLong();
+                final boolean wrongState = recoveryOnly
+                        ? lease.state() != ShardLifecycleState.ACQUIRING
+                            && lease.state() != ShardLifecycleState.CATCHING_UP
+                            && lease.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS
+                        : lease.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS;
+                if (fenced || store.isCloseStarted() || now < lastOwnerTime || !lease.validAt(now)
+                        || store.runtimeMetadata().lastOpenedOwnerEpoch() != lease.ownerEpoch() || wrongState) {
+                    throw new IllegalStateException("Source preparation lost its original local Owner/Store");
+                }
+            }
+        });
+        authorityPreparation = selected;
+    }
+
+    boolean hasAuthorityPreparation() { return authorityPreparation != null; }
+
+    void stopAuthorityPreparation() { final var selected = authorityPreparation; if (selected != null) selected.requestStop(); }
+    void retryAuthorityCleanup() { final var selected = authorityPreparation; if (selected != null) selected.retryCleanup(); }
+    boolean authorityIoExited() { final var selected = authorityPreparation; return selected == null || selected.ioExited(); }
+    Throwable authorityIoFailure() { final var selected = authorityPreparation; return selected == null ? null : selected.pendingIoFailure(); }
+
+    @Override synchronized boolean prepareAuthorities(SourceReplayEntry entry, LongSupplier clock, boolean recovery) {
+        final var selected = authorityPreparation;
+        if (selected == null) return true;
+        requireSubmission(entry, recovery); requireOwner(clock);
+        if (authorityRefresh) {
+            if (!selected.complete(entry)) return false;
+            authorityRefresh = false;
+        }
+        final var budget = new BoundedReadBudget(limits.records(), limits.bytes(), limits.elapsedNanos(), monotonicClock);
+        try {
+            if (entry instanceof SourceReplayRecord command) {
+                if (commandReplay.prepareReplayOrExpired(budget, command.command(), entry.position()).isPresent()) return true;
+            } else if (replay.prepareIfPresent(budget, ((SourceReplayMutation) entry).mutation(), entry.position()).isPresent()) return true;
+        } catch (ReadIncompleteException incomplete) { throw new ReadYield(incomplete); }
+        return selected.prepare(entry, contentFamily(entry));
+    }
+
+    @Override boolean completeAuthorities(SourceReplayEntry entry) {
+        final var selected = authorityPreparation;
+        return selected == null || selected.complete(entry);
+    }
+
+    @Override boolean isAuthorityPreparationRequired(Throwable failure) {
+        return failure instanceof TargetSourceAuthorityPreparation.Required
+                || failure instanceof com.nereusstream.delay.runtime.TargetQuotaCapacitySnapshot.ViewChanged;
+    }
+
+    private static TargetSourceAuthorityPreparation.Family contentFamily(SourceReplayEntry entry) {
+        if (entry instanceof SourceReplayRecord) return TargetSourceAuthorityPreparation.Family.COMMAND;
+        final var mutation = ((SourceReplayMutation) entry).mutation();
+        if (mutation.type() == SystemMutationType.TIME_FENCE) return TargetSourceAuthorityPreparation.Family.FENCE;
+        if (mutation.type() == SystemMutationType.EXPIRE_GENERATION) return TargetSourceAuthorityPreparation.Family.EXPIRY;
+        if (mutation.type() == SystemMutationType.TARGET_PUBLISH_ADMISSION) return TargetSourceAuthorityPreparation.Family.ADMISSION;
+        if (mutation.type() == SystemMutationType.PUBLISH_OUTCOME || mutation.type() == SystemMutationType.EVIDENCE_RESOLUTION) return TargetSourceAuthorityPreparation.Family.OUTCOME;
+        if (isChannelControl(mutation)) return TargetSourceAuthorityPreparation.Family.CHANNEL;
+        if (isTargetClose(mutation)) return TargetSourceAuthorityPreparation.Family.CLOSE;
+        if (isMembershipControl(mutation)) return TargetSourceAuthorityPreparation.Family.MEMBERSHIP;
+        if (isNativePolicyControl(mutation)) return TargetSourceAuthorityPreparation.Family.NATIVE_POLICY;
+        return TargetSourceAuthorityPreparation.Family.GRANT;
+    }
 
     /** Requires prior explicit activation, including persisted Owner epoch and the reached source barrier. */
     public TargetSourceApplyRuntime(
@@ -1291,7 +1363,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 throw new IllegalStateException("Target expiry position belongs to another assigned source");
             }
         } catch (RuntimeException | Error failure) {
-            fenced = true;
+            fence();
             throw failure;
         }
     }
@@ -1542,7 +1614,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             if (recoveryOnly) { throw new IllegalStateException("Target recovery cannot perform active maintenance"); }
             requireOwner(clock);
         } catch (RuntimeException | Error failure) {
-            fenced = true;
+            fence();
             throw failure;
         }
     }
@@ -1700,8 +1772,11 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                             entry.position().canonicalBytes()));
         } catch (ReadYield incomplete) {
             throw incomplete;
+        } catch (TargetSourceAuthorityPreparation.Required | com.nereusstream.delay.runtime.TargetQuotaCapacitySnapshot.ViewChanged refresh) {
+            authorityRefresh = true;
+            throw refresh;
         } catch (RuntimeException | Error failure) {
-            fenced = true;
+            fence();
             throw failure;
         }
     }
@@ -1828,7 +1903,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 throw new IllegalStateException("Target ACK no longer names the current durable source");
             }
         } catch (RuntimeException | Error failure) {
-            fenced = true;
+            fence();
             throw failure;
         }
     }
@@ -1984,6 +2059,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     @Override
     public synchronized void fence() {
         fenced = true;
+        stopAuthorityPreparation();
     }
 
     public synchronized boolean fenced() {
@@ -1993,6 +2069,11 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     @Override
     boolean isReadIncomplete(final Throwable failure) {
         return failure instanceof ReadYield;
+    }
+
+    com.nereusstream.delay.store.BoundedReadBudget.Exhaustion sourceReadIncompleteReason(Throwable failure) {
+        return failure instanceof ReadYield yield ? ((ReadIncompleteException) yield.getCause()).reason()
+                : failure instanceof com.nereusstream.delay.runtime.HeadReadIncompleteException head ? head.reason() : null;
     }
 
     private static final class ReadYield extends RuntimeException {

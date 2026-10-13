@@ -747,6 +747,9 @@ public final class TargetWorkerShardRuntime
             throw new IllegalStateException("configured service requires its actual owned Source and Host");
         }
         requirePublishingStartupClosure();
+        if (!target.hasAuthorityPreparation()) {
+            throw new IllegalStateException("configured service requires complete bounded Source content/history preparation");
+        }
         Objects.requireNonNull(publishRecoveryMaintenance, "configured retained Admission/UNKNOWN recovery");
         if (publishRuntime.requiresJournal()) { requirePulsarStartupClosure(); }
         if (publicationResources.values().stream().noneMatch(owner -> !owner.closed() && owner.readyForPublishing())
@@ -1326,6 +1329,9 @@ public final class TargetWorkerShardRuntime
         if (pendingCheckpoint != null) { pendingCheckpoint.retryPendingIoCleanup(); }
     }
 
+    public Throwable pendingSourceAuthorityFailure() { return target.authorityIoFailure(); }
+    public void retryPendingSourceAuthorityCleanup() { target.retryAuthorityCleanup(); }
+
     /** Stops new source polls and maintenance submissions after retained maintenance work settles. */
     public synchronized void pauseNewTurns() {
         requireCheckpointSettled();
@@ -1539,6 +1545,8 @@ public final class TargetWorkerShardRuntime
             TargetOwnerDrainCoordinator.Request request, LongSupplier clock) {
         if (!backendQuarantined) { throw new IllegalStateException("Worker is not quarantined"); }
         if (sourceBackendGroup == null || !sourceBackendGroup.resourcesTerminated()) { return Optional.empty(); }
+        target.stopAuthorityPreparation(); target.retryAuthorityCleanup();
+        if (!target.authorityIoExited()) return Optional.empty();
         if (pendingCheckpoint != null) {
             pendingCheckpoint.retryPendingIoCleanup();
             if (!pendingCheckpoint.ownedIoExited()) { return Optional.empty(); }

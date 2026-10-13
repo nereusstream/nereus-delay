@@ -646,6 +646,14 @@ Provider必须来自受信composition root，其原证据认证与完整域/物�
 替代。当前只有具体验证/组合入口与编译；bounded actual collector、provider/root接线
 及集中Source/恢复/容量验证尚未完成，不提升B4或生产authority。
 
+同日Source preparation后续：capacity的exact local View发生planning前变化时，专有
+ViewChanged分支证明尚无write，由原Source loop关闭旧operation hold并重新收集；
+外部policy/version/reservation失效仍是实际失败。snapshot.close仅结束本次读取保护，
+不是已激活grant/actual placement ownership的释放；这些仍由原Source drain/transfer
+义务结束后释放。Source内容collector只接受该private Verified作为GrantControl容量
+检查，原registration/作者/role/key和Owner/Store guard保持。具体原provider与完整
+root仍待装配，该组合的集中验证未执行。
+
 ## 12. Accounting projection 自身的固定存储预留
 
 ### 12.1 唯一 root owner 与不可递归的费用

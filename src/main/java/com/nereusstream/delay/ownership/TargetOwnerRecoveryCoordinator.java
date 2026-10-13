@@ -3,7 +3,6 @@ package com.nereusstream.delay.ownership;
 import com.nereusstream.delay.protocol.CommandCodec;
 import com.nereusstream.delay.protocol.RecoveryInstallPhase;
 import com.nereusstream.delay.protocol.RecoveryPin;
-import com.nereusstream.delay.runtime.HeadReadIncompleteException;
 import com.nereusstream.delay.runtime.TargetStoreBootstrap;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
@@ -56,6 +55,23 @@ public final class TargetOwnerRecoveryCoordinator {
     private boolean complete;
     private int turnNumber;
     private long lastNow = -1;
+    private TargetSourceAuthorityPreparation authorityPreparation;
+
+    /** Same bounded content providers as active Source; this instance is exclusively bound to replay. */
+    public synchronized void configureAuthorityPreparation(TargetSourceAuthorityPreparation selected) {
+        if (turnNumber != 0 || replay != null || authorityPreparation != null) {
+            throw new IllegalStateException("recovery content preparation must be configured before replay");
+        }
+        authorityPreparation = Objects.requireNonNull(selected);
+    }
+
+    public synchronized void stopAuthorityPreparation() {
+        if (authorityPreparation != null) authorityPreparation.requestStop();
+    }
+    public synchronized void retryAuthorityCleanup() {
+        if (authorityPreparation != null) authorityPreparation.retryCleanup();
+    }
+    public synchronized boolean authorityIoExited() { return authorityPreparation == null || authorityPreparation.ioExited(); }
 
     /** Protection rechecks held snapshots at native guards; provider acquisition/full reads remain outside monitors. */
     public TargetOwnerRecoveryCoordinator(ShardStore store, TargetStoreBootstrap.Reopened reopened,
@@ -200,7 +216,12 @@ public final class TargetOwnerRecoveryCoordinator {
                     turnNumber = turn;
                     return new OwnerRecoveryTurn(outcomes, false, turn);
                 }
-                if (pending == null) { pending = sourceApply.submitRecovery(pendingEntry, clock); }
+                if (pending == null) {
+                    if (!replay.prepareAuthorities(pendingEntry, clock, true)) {
+                        turnNumber = turn; return new OwnerRecoveryTurn(outcomes, false, turn);
+                    }
+                    pending = sourceApply.submitRecovery(pendingEntry, clock);
+                }
                 Throwable dispatchFailure = null;
                 try {
                     workClasses.runTurn(new SchedulerBudget(1, pending.task().bytes(),
@@ -214,13 +235,22 @@ public final class TargetOwnerRecoveryCoordinator {
                     turnNumber = turn;
                     return new OwnerRecoveryTurn(outcomes, false, turn, true, pending.task());
                 }
-                if (applied.failure() instanceof HeadReadIncompleteException incomplete) {
+                final var incomplete = replay.sourceReadIncompleteReason(applied.failure());
+                if (incomplete != null) {
                     pending = null;
                     if (dispatchFailure != null) { throwUnchecked(dispatchFailure); }
                     turnNumber = turn;
-                    return new OwnerRecoveryTurn(outcomes, false, turn, false, null, incomplete.reason());
+                    return new OwnerRecoveryTurn(outcomes, false, turn, false, null, incomplete);
+                }
+                if (replay.isAuthorityPreparationRequired(applied.failure())) {
+                    pending = null;
+                    if (dispatchFailure != null) throwUnchecked(dispatchFailure);
+                    turnNumber = turn; return new OwnerRecoveryTurn(outcomes, false, turn);
                 }
                 if (applied.failure() != null) { throwUnchecked(applied.failure()); }
+                if (!replay.completeAuthorities(pendingEntry)) {
+                    turnNumber = turn; return new OwnerRecoveryTurn(outcomes, false, turn);
+                }
                 if (!sameEntry(pendingEntry, source.peek())) {
                     throw new IllegalStateException("Target recovery Source changed before cursor advance");
                 }
@@ -235,6 +265,10 @@ public final class TargetOwnerRecoveryCoordinator {
             turnNumber = turn;
             return new OwnerRecoveryTurn(outcomes, false, turn, false, null, incomplete.reason());
         } catch (RuntimeException | Error failure) {
+            if (replay != null && replay.isReadIncomplete(failure)) {
+                turnNumber = turn;
+                return new OwnerRecoveryTurn(outcomes, false, turn, false, null, replay.sourceReadIncompleteReason(failure));
+            }
             if (replay != null) { replay.fence(); }
             throw failure;
         }
@@ -258,6 +292,7 @@ public final class TargetOwnerRecoveryCoordinator {
         requireLease(false);
         replay = TargetSourceApplyRuntime.recovery(initial, store, assignment, lease, authorities, limits,
                 monotonic, protection);
+        if (authorityPreparation != null) replay.configureAuthorityPreparation(authorityPreparation, clock);
         sourceApply = new SourceApplyWorkClassExecutor(workClasses, replay);
     }
 
@@ -368,7 +403,14 @@ public final class TargetOwnerRecoveryCoordinator {
         final var root = completedRoot();
         requireCatalog();
         final var active = activeLease();
-        return new TargetSourceApplyRuntime(root, store, assignment, active, authorities, limits, monotonic);
+        if (authorityPreparation == null) return new TargetSourceApplyRuntime(root, store, assignment, active, authorities, limits, monotonic);
+        if (!authorityPreparation.ioExited()) throw new IllegalStateException("recovery content I/O is still live");
+        final var preparation = authorityPreparation.fork();
+        final var selected = preparation.authorities(authorities.leases(), authorities.successor(),
+                authorities.duplicateWrites(), authorities.reads());
+        final var runtime = new TargetSourceApplyRuntime(root, store, assignment, active, selected, limits, monotonic);
+        runtime.configureAuthorityPreparation(preparation, clock);
+        return runtime;
     }
 
     private static boolean sameEntry(SourceReplayEntry first, SourceReplayEntry second) {

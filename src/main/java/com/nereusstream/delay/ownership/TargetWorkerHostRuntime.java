@@ -958,7 +958,8 @@ public final class TargetWorkerHostRuntime {
             final var selected = runNextSourceTurnIfPresent(budget, clock);
             if (selected.isEmpty()) { return; }
             final var result = selected.orElseThrow().result();
-            if (result.failure() != null && result.status() != SourceApplyCoordinator.TurnStatus.READ_INCOMPLETE) {
+            if (result.failure() != null && result.status() != SourceApplyCoordinator.TurnStatus.READ_INCOMPLETE
+                    && result.status() != SourceApplyCoordinator.TurnStatus.AUTHORITY_RETRY) {
                 if (result.failure() instanceof Error fatal) { throw fatal; }
                 throw new IllegalStateException("Target Source turn failed for " + selected.orElseThrow().shardId()
                         + " at " + result.status(), result.failure());

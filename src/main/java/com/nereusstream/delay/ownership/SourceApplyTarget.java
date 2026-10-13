@@ -16,6 +16,12 @@ abstract class SourceApplyTarget {
 
     abstract void fence();
 
+    boolean prepareAuthorities(SourceReplayEntry entry, LongSupplier clock, boolean recovery) { return true; }
+
+    boolean completeAuthorities(SourceReplayEntry entry) { return true; }
+
+    boolean isAuthorityPreparationRequired(Throwable failure) { return false; }
+
     void beforeAcknowledgement(SourceReplayEntry entry, SourceReplayOutcome outcome, LongSupplier clock) {
         // Legacy targets retain their existing broker-ack boundary; Target additionally rechecks its live lease.
     }
