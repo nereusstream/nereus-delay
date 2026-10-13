@@ -51,67 +51,72 @@ public final class PulsarClientArtifactTargetProducerFactory {
         final var expectedAttestation = new TopicResourceGuardAttestation(expectedGuard, resource.physicalTopic(), partition);
         final byte[] producerIdentity = channel.context().producerIdentity();
         final String name = new String(producerIdentity, StandardCharsets.UTF_8);
-        return (guard, reserved) -> {
-            guard.run(); activation.run();
-            group.requireTargetCredential(channel);
-            final long[] minimum = new long[CapacityDimension.COUNT];
-            minimum[CapacityDimension.ADAPTER_PRODUCERS.wireValue() - 1] = 1;
-            minimum[CapacityDimension.BUFFERED_MESSAGES.wireValue() - 1] = 1;
-            minimum[CapacityDimension.BUFFERED_BYTES.wireValue() - 1] = maximumPublicationBytes;
-            reserved.requireCovers(new CapacityVector(minimum));
-            final var client = group.nativeClientForFactory();
-            final var builder = PulsarClientArtifactProducerFactory.builder(client,
-                    resource.authenticatedClusterId(), resource.resourceIncarnation(), resource.physicalTopic(),
-                    resource.physicalTopicCreationTimestamp(), name)
-                    .sendTimeout(Math.toIntExact(timeout.toMillis()), java.util.concurrent.TimeUnit.MILLISECONDS);
-            final var creating = new CompletableFuture<Producer<byte[]>>();
-            final PulsarClientArtifactProducerClose[] closing = new PulsarClientArtifactProducerClose[1];
-            final var owned = new OwnedSourceCursor<>(creating, producer -> {
-                synchronized (closing) {
-                    if (closing[0] == null) { closing[0] = new PulsarClientArtifactProducerClose(client, producer, timeout, reserved); }
-                    return closing[0].closeFuture();
-                }
-            }, group);
-            try {
-                group.registerCleanup(owned, owned::operationExited, owned::cleanupComplete, proof -> {
-                    proof.requireClient(client); owned.requestClose(); owned.backendShutdownCompleted(group);
-                });
-                PulsarClientArtifactOwnedBackendGroup.createProducer(client, builder, reserved)
-                        .whenComplete((producer, failure) -> {
-                            if (failure == null) { creating.complete(producer); }
-                            else { creating.completeExceptionally(failure); }
-                        });
-            } catch (RuntimeException | Error failure) {
-                reserved.releaseUnstarted();
-                // No SDK call was made: a frozen/full registration window rejected this opening.
-                owned.abandonBeforeOpen();
-                throw failure;
-            }
-            try {
-                return owned.read(timeout.toMillis(), producer -> {
-                    guard.run(); activation.run();
-                    group.requireProducerArtifact(producer);
-                    // This locked SDK completes createAsync only after validating the configured guard response.
-                    if (!resource.physicalTopic().equals(producer.getTopic())
-                            || !Arrays.equals(Bytes.utf8(producer.getProducerName()), producerIdentity)
-                            || !Bytes.constantTimeEquals(channel.context().resourceGuardAttestationDigest(),
-                                    PulsarClientArtifactSourceRecordConsumer.attestationDigest(expectedAttestation))) {
-                        throw new IllegalStateException("P1 live producer does not attest the original channel identity");
+        return new TargetDestinationChannelRuntime.Open() {
+            @Override public PulsarClientArtifactOwnedBackendGroup ownedBackendGroup() { return group; }
+
+            @Override public com.nereusstream.delay.adapter.DestinationPublishAdapter create(
+                    Runnable guard, TargetDestinationSdkBudget.Client reserved) {
+                guard.run(); activation.run();
+                group.requireTargetCredential(channel);
+                final long[] minimum = new long[CapacityDimension.COUNT];
+                minimum[CapacityDimension.ADAPTER_PRODUCERS.wireValue() - 1] = 1;
+                minimum[CapacityDimension.BUFFERED_MESSAGES.wireValue() - 1] = 1;
+                minimum[CapacityDimension.BUFFERED_BYTES.wireValue() - 1] = maximumPublicationBytes;
+                reserved.requireCovers(new CapacityVector(minimum));
+                final var client = group.nativeClientForFactory();
+                final var builder = PulsarClientArtifactProducerFactory.builder(client,
+                        resource.authenticatedClusterId(), resource.resourceIncarnation(), resource.physicalTopic(),
+                        resource.physicalTopicCreationTimestamp(), name)
+                        .sendTimeout(Math.toIntExact(timeout.toMillis()), java.util.concurrent.TimeUnit.MILLISECONDS);
+                final var creating = new CompletableFuture<Producer<byte[]>>();
+                final PulsarClientArtifactProducerClose[] closing = new PulsarClientArtifactProducerClose[1];
+                final var owned = new OwnedSourceCursor<>(creating, producer -> {
+                    synchronized (closing) {
+                        if (closing[0] == null) { closing[0] = new PulsarClientArtifactProducerClose(client, producer, timeout, reserved); }
+                        return closing[0].closeFuture();
                     }
-                    final var transport = new PulsarClientArtifactDestinationTransport(client, producer,
-                            resource.authenticatedClusterId(), resource.resourceIncarnation(), resource.physicalTopic(),
-                            resource.physicalTopicCreationTimestamp(), partition, Bytes.sha256(producerIdentity), null,
-                            nativeEnabled, timeout, reserved);
-                    return new PinnedPulsarDestinationAdapter(new PulsarTargetResource(resource.authenticatedClusterId(),
-                            resource.resourceIncarnation(), resource.physicalTopic(), resource.physicalTopicCreationTimestamp(), partition),
-                            transport, PulsarDestinationTimingPolicy.ordinaryManaged(), nativeEnabled);
-                });
-            } catch (Exception | Error failure) {
-                if (failure instanceof InterruptedException) { Thread.currentThread().interrupt(); }
-                owned.requestClose();
-                throw new CreationFailure(failure, group, owned);
-            } finally {
-                group.cleanupProgress();
+                }, group);
+                try {
+                    group.registerCleanup(owned, owned::operationExited, owned::cleanupComplete, proof -> {
+                        proof.requireClient(client); owned.requestClose(); owned.backendShutdownCompleted(group);
+                    });
+                    PulsarClientArtifactOwnedBackendGroup.createProducer(client, builder, reserved)
+                            .whenComplete((producer, failure) -> {
+                                if (failure == null) { creating.complete(producer); }
+                                else { creating.completeExceptionally(failure); }
+                            });
+                } catch (RuntimeException | Error failure) {
+                    reserved.releaseUnstarted();
+                    // No SDK call was made: a frozen/full registration window rejected this opening.
+                    owned.abandonBeforeOpen();
+                    throw failure;
+                }
+                try {
+                    return owned.read(timeout.toMillis(), producer -> {
+                        guard.run(); activation.run();
+                        group.requireProducerArtifact(producer);
+                        // This locked SDK completes createAsync only after validating the configured guard response.
+                        if (!resource.physicalTopic().equals(producer.getTopic())
+                                || !Arrays.equals(Bytes.utf8(producer.getProducerName()), producerIdentity)
+                                || !Bytes.constantTimeEquals(channel.context().resourceGuardAttestationDigest(),
+                                        PulsarClientArtifactSourceRecordConsumer.attestationDigest(expectedAttestation))) {
+                            throw new IllegalStateException("P1 live producer does not attest the original channel identity");
+                        }
+                        final var transport = new PulsarClientArtifactDestinationTransport(client, producer,
+                                resource.authenticatedClusterId(), resource.resourceIncarnation(), resource.physicalTopic(),
+                                resource.physicalTopicCreationTimestamp(), partition, Bytes.sha256(producerIdentity), null,
+                                nativeEnabled, timeout, reserved);
+                        return new PinnedPulsarDestinationAdapter(new PulsarTargetResource(resource.authenticatedClusterId(),
+                                resource.resourceIncarnation(), resource.physicalTopic(), resource.physicalTopicCreationTimestamp(), partition),
+                                transport, PulsarDestinationTimingPolicy.ordinaryManaged(), nativeEnabled);
+                    });
+                } catch (Exception | Error failure) {
+                    if (failure instanceof InterruptedException) { Thread.currentThread().interrupt(); }
+                    owned.requestClose();
+                    throw new CreationFailure(failure, group, owned);
+                } finally {
+                    group.cleanupProgress();
+                }
             }
         };
     }

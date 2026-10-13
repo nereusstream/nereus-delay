@@ -34,12 +34,16 @@ public final class TargetDestinationChannelRuntime implements DestinationPublish
     @FunctionalInterface
     public interface Open {
         DestinationPublishAdapter create(Runnable guard, TargetDestinationSdkBudget.Client reserved);
+
+        /** Actual pre-existing client owner, including creation failures and late handles before an adapter exists. */
+        default TargetOwnedBackendGroup ownedBackendGroup() { return null; }
     }
 
     private final TargetChannelIdentity channel;
     private final DestinationPhysicalAdmission physical;
     private final TargetDestinationMux mux;
     private final ThreadPoolExecutor io;
+    private final TargetOwnedBackendGroup openingBackend;
     private OwnedCheckpointIo<DestinationPublishAdapter> opening;
     private volatile boolean initializing = true;
     private boolean registeredOwner;
@@ -58,6 +62,8 @@ public final class TargetDestinationChannelRuntime implements DestinationPublish
         this.physical = Objects.requireNonNull(physical, "physical pool");
         this.mux = Objects.requireNonNull(mux, "Worker dispatch");
         this.io = Objects.requireNonNull(io, "bounded I/O pool");
+        final var actualFactory = Objects.requireNonNull(factory, "actual SDK factory");
+        openingBackend = actualFactory.ownedBackendGroup();
         if (channel.context().kind() != ChannelKind.BASELINE_PRODUCER
                 && channel.context().kind() != ChannelKind.PULSAR_DEDUP_PRODUCER) {
             throw new IllegalArgumentException("baseline/managed opening cannot replace K2 fencing/anchor startup");
@@ -78,7 +84,7 @@ public final class TargetDestinationChannelRuntime implements DestinationPublish
                 }
             };
             opening = OwnedCheckpointIo.submitResource(guard ->
-                    Objects.requireNonNull(factory.create(guard, reserved), "actual native adapter"), openingGuard, value -> {
+                    Objects.requireNonNull(actualFactory.create(guard, reserved), "actual native adapter"), openingGuard, value -> {
                 try { value.close(); }
                 catch (RuntimeException | Error failed) { throw new TargetSdkCleanupFailure(failed, value::close); }
             }, io);
@@ -108,6 +114,9 @@ public final class TargetDestinationChannelRuntime implements DestinationPublish
         if (!opening.ioExited()) { return false; }
         adapter = opening.completedValue().orElseThrow(() -> new IllegalStateException("SDK opening failed",
                 CheckpointInputFuture.ownedFailure(opening.receipt())));
+        if (openingBackend != null && adapter.ownedBackendGroup() != openingBackend) {
+            throw new IllegalStateException("Target adapter changed its original SDK backend owner");
+        }
         mux.register(channel, this);
         dispatchRegistered = true;
         physical.openTargetReady(channel);
@@ -118,7 +127,7 @@ public final class TargetDestinationChannelRuntime implements DestinationPublish
     @Override public synchronized boolean readyForPublishing() { return ready && !stopping; }
     @Override public synchronized boolean closed() { return closed; }
     @Override public synchronized TargetOwnedBackendGroup ownedBackendGroup() {
-        return adapter == null ? null : adapter.ownedBackendGroup();
+        return adapter == null ? openingBackend : adapter.ownedBackendGroup();
     }
     @Override public TargetChannelIdentity channelIdentity() { return channel; }
 

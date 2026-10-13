@@ -569,6 +569,9 @@ public final class TargetWorkerHostRuntime {
                 if (backend != null && backends.stream().noneMatch(existing -> existing == backend)) {
                     backends.add(backend);
                 }
+                for (var publication : worker.publicationBackendGroups()) {
+                    if (backends.stream().noneMatch(existing -> existing == publication)) { backends.add(publication); }
+                }
             }
             // Reject a borrowed/unready group before any other group transfers to this Host.
             for (var backend : backends) { backend.requireHostComposition(host, exactShards); }
@@ -576,6 +579,7 @@ public final class TargetWorkerHostRuntime {
             if (activateMaintenance) { host.startMaintenance(); }
             return host;
         } catch (RuntimeException | Error failure) {
+            if (host != null) { synchronized (host) { host.stopping = true; } }
             if (host != null && host.ownedBackends.isEmpty()) {
                 host.rollbackTargetQueueChangeSignalBindings(host.shards, failure);
             }
@@ -636,6 +640,10 @@ public final class TargetWorkerHostRuntime {
             for (Shard shard : this.shards) {
                 attemptedBindings.add(shard);
                 bindTargetQueueChangeSignal(shard);
+            }
+            // Publish the Host only after every Store signal has established its exclusive binding.
+            for (Shard shard : this.shards) {
+                if (shard instanceof TargetWorkerShardRuntime worker) { worker.bindPublicationHost(this); }
             }
         } catch (RuntimeException | Error failure) {
             rollbackTargetQueueChangeSignalBindings(attemptedBindings, failure);
@@ -874,6 +882,7 @@ public final class TargetWorkerHostRuntime {
     private void unbindTargetQueueChangeSignal(final Shard shard) {
         if (shard instanceof TargetWorkerShardRuntime worker) {
             worker.unbindTargetQueueChangeSignal(targetQueueChangeSignal);
+            worker.unbindPublicationHost(this);
         }
     }
 
@@ -1312,6 +1321,7 @@ public final class TargetWorkerHostRuntime {
         if (shard instanceof TargetWorkerShardRuntime worker && ordinaryTargetCacheLimit > 0) {
             worker.configureTargetQueueHeadCache(ordinaryTargetCacheLimit);
         }
+        if (shard instanceof TargetWorkerShardRuntime worker) { worker.bindPublicationHost(this); }
         fleet.admit(turns, () -> {
             if (shard instanceof TargetWorkerShardRuntime worker && worker.sourceBackendGroup() != null) {
                 final var backend = worker.sourceBackendGroup();
@@ -1631,6 +1641,15 @@ public final class TargetWorkerHostRuntime {
             backend.bindHost(this, workers);
             ownedBackends.add(backend);
         }
+    }
+
+    /** Publication ownership transfers before its asynchronous SDK opening may start. */
+    synchronized void registerPublicationBackend(TargetWorkerShardRuntime expected, TargetOwnedBackendGroup backend) {
+        if (requireShard(expected.shardId()) != expected || withdrawn.contains(expected.shardId())
+                || completed.containsKey(expected.shardId())) {
+            throw new IllegalStateException("publication backend lacks its exact admitted Host Worker");
+        }
+        registerOwnedBackend(Objects.requireNonNull(backend, "actual publication backend"));
     }
 
     /**

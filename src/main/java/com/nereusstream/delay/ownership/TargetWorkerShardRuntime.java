@@ -91,6 +91,7 @@ public final class TargetWorkerShardRuntime
     private final LongSupplier ownerClock;
     private volatile boolean sourceAndMaintenancePaused;
     private volatile boolean backendQuarantined;
+    private volatile TargetWorkerHostRuntime publicationHost;
     private final TargetOwnedBackendGroup sourceBackendGroup;
     private final SourceRecordConsumer actualSourceConsumer;
     private volatile TargetMessageExpiryWorkClassExecutor messageExpiryHandoff;
@@ -147,6 +148,17 @@ public final class TargetWorkerShardRuntime
         target.unbindTargetQueueChangeSignal(signal);
     }
 
+    void bindPublicationHost(final TargetWorkerHostRuntime host) {
+        if (publicationHost != null && publicationHost != host) {
+            throw new IllegalStateException("Target Worker publication resources already belong to another Host");
+        }
+        publicationHost = Objects.requireNonNull(host, "host");
+    }
+
+    void unbindPublicationHost(final TargetWorkerHostRuntime host) {
+        if (publicationHost == host) { publicationHost = null; }
+    }
+
     synchronized void configureTargetQueueHeadCache(final int maximumEntries) {
         requireNewTurnsAdmitted();
         resources.requireRuntimeBusinessAdmission();
@@ -182,12 +194,30 @@ public final class TargetWorkerShardRuntime
         default com.nereusstream.delay.protocol.TargetChannelIdentity channelIdentity() { return null; }
     }
     private final java.util.Map<String,PublicationResources> publicationResources=new java.util.HashMap<>();
-    public synchronized void registerPublicationResources(String identity,PublicationResources owner,
+    public void registerPublicationResources(String identity,PublicationResources owner,
             TargetDestinationSdkBudget budget,LongSupplier clock) {
-        requirePublishRecoveryOwner(clock);budget.requireWorker(workClasses,resources);
-        publicationResources.entrySet().removeIf(entry->entry.getValue().closed());
-        if(publicationResources.size()>=budget.maximumClients()||publicationResources.putIfAbsent(identity,Objects.requireNonNull(owner))!=null)
-            throw new IllegalStateException("publication resource generation is already owned or its window is exhausted");
+        final var actual = Objects.requireNonNull(owner, "publication owner");
+        final TargetWorkerHostRuntime host;
+        synchronized (this) {
+            requirePublishRecoveryOwner(clock);
+            budget.requireWorker(workClasses,resources);
+            publicationResources.entrySet().removeIf(entry->entry.getValue().closed());
+            if(publicationResources.size()>=budget.maximumClients()||publicationResources.putIfAbsent(identity,actual)!=null)
+                throw new IllegalStateException("publication resource generation is already owned or its window is exhausted");
+            host = publicationHost;
+        }
+        // Do not acquire the Host monitor while holding a Worker/native-read monitor.
+        final var backend = actual.ownedBackendGroup();
+        if (host != null && backend != null) { host.registerPublicationBackend(this, backend); }
+    }
+
+    synchronized java.util.List<TargetOwnedBackendGroup> publicationBackendGroups() {
+        final var groups = new java.util.ArrayList<TargetOwnedBackendGroup>();
+        for (var owner : publicationResources.values()) {
+            final var group = owner.ownedBackendGroup();
+            if (group != null && groups.stream().noneMatch(existing -> existing == group)) { groups.add(group); }
+        }
+        return java.util.List.copyOf(groups);
     }
     @Override public synchronized Optional<WorkClassTask> settlePendingPublicationResourcesForDrain(){
         for(var entry:publicationResources.entrySet()){
