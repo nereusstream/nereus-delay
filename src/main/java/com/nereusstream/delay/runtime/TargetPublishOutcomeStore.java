@@ -184,6 +184,82 @@ public final class TargetPublishOutcomeStore {
         }
     }
 
+    /** Actual UNKNOWN budget/Source/mapping/slot facts; it grants no new physical SEND permission. */
+    public static final class KafkaUnknown {
+        private final SystemMutation admission;
+        private final TargetQuotaAttemptBudget budget;
+        private final com.nereusstream.delay.protocol.TargetKafkaReceiptMapping mapping;
+        private KafkaUnknown(SystemMutation admission, TargetQuotaAttemptBudget budget,
+                com.nereusstream.delay.protocol.TargetKafkaReceiptMapping mapping) {
+            this.admission = admission; this.budget = budget; this.mapping = mapping;
+        }
+        public SystemMutation admission() { return admission; }
+        public TargetQuotaAttemptBudget budget() { return budget; }
+        public com.nereusstream.delay.protocol.TargetKafkaReceiptMapping mapping() { return mapping; }
+        public com.nereusstream.delay.protocol.SourcePosition admissionSource() { return mapping.mutation().source(); }
+        public com.nereusstream.delay.protocol.SourcePosition unknownSource() { return budget.mutation().source(); }
+        public void requireSame(KafkaUnknown actual) {
+            if (!Arrays.equals(admission.canonicalEnvelope(), actual.admission.canonicalEnvelope())
+                    || !Arrays.equals(budget.canonicalBytes(), actual.budget.canonicalBytes())
+                    || !Arrays.equals(mapping.canonicalBytes(), actual.mapping.canonicalBytes())) {
+                throw new IllegalStateException("Target K2 UNKNOWN changed during receipt recovery");
+            }
+        }
+    }
+
+    /** Reads the original first results and exact pending slot under the current read/Owner barrier. */
+    public KafkaUnknown readKafkaUnknown(BoundedReadBudget reads, SystemMutation admission,
+            TargetStoreBackend.ReadAuthority authority) {
+        final var body = TargetPublishAdmissionBody.decode(Objects.requireNonNull(admission, "original Admission").canonicalBody());
+        if (body.kafkaReceipt() == null || !scope.shard().equals(body.shard())) {
+            throw new IllegalArgumentException("K2 resolution requires original v6 Admission in this Shard");
+        }
+        return backend.guardedRead(reads, reader -> {
+            final var first = admissionProof(reader, admission);
+            final var admittedPosition = TargetResultRecord.decode(TargetValueEnvelope.decode(required(reader,
+                    ColumnFamily.DEDUPE, positionResultKey(first.mutation().source())), TargetResultRecord.VALUE_TYPE).payload());
+            admittedPosition.requireFirst(first);
+            admittedPosition.requireOwner(root(reader));
+            if (admittedPosition.kind() != TargetResultRecord.Kind.POSITION_SYSTEM
+                    || !admittedPosition.mutation().equals(first.mutation())) {
+                throw new IllegalStateException("K2 original Admission lost its POSITION companion");
+            }
+            final byte[] key = Bytes.concat(new byte[] {TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG, TargetKeyCodec.KEY_FORMAT},
+                    body.publishAttemptId());
+            final var attempt = TargetQuotaAttemptBudget.decodeForStore(key, TargetValueEnvelope.decode(required(reader,
+                    ColumnFamily.META, key), TargetQuotaAttemptBudget.VALUE_TYPE).payload(), scope.shard());
+            attempt.mutation().requireAtOrBefore(reader.aggregate().mutation());
+            attempt.mutation().requireAfter(first.mutation());
+            if (attempt.phase() != TargetQuotaAttemptBudget.Phase.UNKNOWN
+                    || !Arrays.equals(attempt.recoveryLineage(), lineage) || !Arrays.equals(attempt.tenantScope(), scope.tenantScope())
+                    || !attempt.locator().equals(body.locator()) || !Arrays.equals(attempt.admissionDigest(), admission.mutationHash())
+                    || !attempt.commitment().equals(body.commitment()) || !attempt.allocated().equals(body.allocated())
+                    || attempt.executionBytes() != body.executionBytes()
+                    || !generation(reader, body.locator()).runtime().attemptObligations().contains(body.obligation())) {
+                throw new IllegalStateException("K2 resolution lacks its exact retained UNKNOWN obligation/budget");
+            }
+            requireUnknownProof(reader, attempt);
+            final byte[] slotKey = com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.key(body.channel());
+            final var slot = com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.decodeForStore(slotKey,
+                    TargetValueEnvelope.decode(required(reader, ColumnFamily.META, slotKey),
+                            com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.VALUE_TYPE).payload(), scope.shard());
+            if (slot.pendingMappingId() == null) { throw new IllegalStateException("K2 UNKNOWN lost its pending slot"); }
+            final byte[] mappingKey = Bytes.concat(new byte[] {TargetKeyCodec.KAFKA_RECEIPT_MAPPING_TAG, TargetKeyCodec.KEY_FORMAT},
+                    slot.pendingMappingId());
+            final var mapping = com.nereusstream.delay.protocol.TargetKafkaReceiptMapping.decodeForStore(mappingKey,
+                    TargetValueEnvelope.decode(required(reader, ColumnFamily.META, mappingKey),
+                            com.nereusstream.delay.protocol.TargetKafkaReceiptMapping.VALUE_TYPE).payload(), scope.shard());
+            mapping.requireOriginal(admission, first.mutation().source());
+            slot.requirePending(mapping);
+            if (!mapping.mutation().equals(first.mutation()) || !slot.mutation().equals(first.mutation())
+                    || !Arrays.equals(mapping.recoveryLineage(), lineage) || !Arrays.equals(slot.recoveryLineage(), lineage)) {
+                throw new IllegalStateException("K2 UNKNOWN mapping/slot changed original Source/lineage");
+            }
+            reader.requireWithinElapsedBudget();
+            return new KafkaUnknown(admission, attempt, mapping);
+        }, authority);
+    }
+
     /** Reads actual first results and the unreleased resolved budget; external authentication is separate. */
     public NegativeOutcome readNegativeOutcome(final BoundedReadBudget budget, final byte[] mappingId,
             final SystemMutation admission, final SystemMutation outcome,

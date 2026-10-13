@@ -23,8 +23,32 @@ public final class TargetPublishRecoveryMaintenance {
         CompletableFuture<Prepared> load(TargetPublishRecoveryDiscovery.Reference reference);
     }
 
+    /** Actual provider authentication of the private guarded scan plus original Source/resource/Artifact protection. */
+    @FunctionalInterface
+    public interface ResolutionAuthority {
+        void requireAuthenticated(com.nereusstream.delay.runtime.TargetPublishOutcomeStore.KafkaUnknown unknown,
+                com.nereusstream.delay.protocol.PublishEvidence evidence);
+    }
+
+    public record Resolution(com.nereusstream.delay.protocol.PublishEvidence evidence,
+            com.nereusstream.delay.protocol.AuthorIdentity service, com.nereusstream.delay.protocol.StableCode stableCode,
+            TargetPublishOutcomeMutationFactory signer, ResolutionAuthority authority) {
+        public Resolution {
+            Objects.requireNonNull(evidence, "actual recovery evidence");
+            Objects.requireNonNull(service, "actual SERVICE author");
+            Objects.requireNonNull(stableCode, "result code");
+            Objects.requireNonNull(signer, "SERVICE signer");
+            Objects.requireNonNull(authority, "actual recovery authority");
+            if (service.kind() != com.nereusstream.delay.protocol.AuthorIdentity.Kind.SERVICE) {
+                throw new IllegalArgumentException("recovery resolution requires its SERVICE identity");
+            }
+        }
+    }
+
     public record Prepared(SystemMutation admission, OwnerIdentity owner,
-            WorkerPublishOutcomeMutationFactory.OutcomeContext context) {
+            WorkerPublishOutcomeMutationFactory.OutcomeContext context, Resolution resolution) {
+        public Prepared(SystemMutation admission, OwnerIdentity owner,
+                WorkerPublishOutcomeMutationFactory.OutcomeContext context) { this(admission, owner, context, null); }
         public Prepared {
             Objects.requireNonNull(admission, "admission");
             Objects.requireNonNull(owner, "owner");
@@ -42,6 +66,7 @@ public final class TargetPublishRecoveryMaintenance {
     private final History history;
     private final LongSupplier ownerClock;
     private TargetPublishRecoveryDiscovery.Cursor cursor;
+    private boolean scanningKafkaUnknown;
     private TargetPublishRecoveryDiscovery.Reference selected;
     private CompletableFuture<Prepared> loading;
     private TargetPublishRecoveryExecutor.Submission pending;
@@ -73,7 +98,9 @@ public final class TargetPublishRecoveryMaintenance {
                 return new Turn(Status.WAITING_SOURCE, pending.mutation(), pending.failure().orElse(null));
             }
             if (selected == null) {
-                final var page = worker.discoverPublishRecovery(readBudget(), cursor, 1, ownerClock);
+                final var page = scanningKafkaUnknown
+                        ? worker.discoverKafkaUnknown(readBudget(), cursor, 1, ownerClock)
+                        : worker.discoverPublishRecovery(readBudget(), cursor, 1, ownerClock);
                 cursor = page.continuation();
                 if (!page.entries().isEmpty()) {
                     selected = page.entries().getFirst();
@@ -81,12 +108,13 @@ public final class TargetPublishRecoveryMaintenance {
                 }
                 if (page.complete()) {
                     cursor = null;
-                    return new Turn(Status.IDLE, null, null);
+                    scanningKafkaUnknown = !scanningKafkaUnknown;
+                    return new Turn(scanningKafkaUnknown ? Status.SCAN_YIELD : Status.IDLE, null, null);
                 }
                 return new Turn(Status.SCAN_YIELD, null, null);
             }
             if (loading == null) {
-                if (!worker.publishRecoveryStillAdmitted(readBudget(), selected, ownerClock)) {
+                if (!worker.publishRecoveryStillPending(readBudget(), selected, ownerClock)) {
                     return clearHandled();
                 }
                 loading = Objects.requireNonNull(history.load(selected), "history future");
@@ -95,7 +123,7 @@ public final class TargetPublishRecoveryMaintenance {
             if (!loading.isDone()) {
                 return new Turn(Status.LOADING, null, null);
             }
-            if (!worker.publishRecoveryStillAdmitted(readBudget(), selected, ownerClock)) {
+            if (!worker.publishRecoveryStillPending(readBudget(), selected, ownerClock)) {
                 return clearHandled();
             }
             final Prepared prepared;
@@ -107,8 +135,15 @@ public final class TargetPublishRecoveryMaintenance {
                         failedHistory.getCause() == null ? failedHistory : failedHistory.getCause());
             }
             selected.requireImage(prepared.admission(), selected.source());
-            pending = executor.submit(
-                    readBudget(), prepared.admission(), prepared.owner(), prepared.context(), ownerClock);
+            if (selected.attempt().phase() == com.nereusstream.delay.protocol.TargetQuotaAttemptBudget.Phase.UNKNOWN) {
+                pending = executor.submitResolution(readBudget(), prepared.admission(), prepared.owner(), prepared.context(),
+                        Objects.requireNonNull(prepared.resolution(), "actual K2 UNKNOWN recovery result"), ownerClock);
+            } else {
+                if (prepared.resolution() != null) {
+                    throw new IllegalArgumentException("initial ADMITTED recovery cannot skip its Source UNKNOWN hold");
+                }
+                pending = executor.submit(readBudget(), prepared.admission(), prepared.owner(), prepared.context(), ownerClock);
+            }
             return new Turn(Status.SUBMITTED, pending.mutation(), pending.failure().orElse(null));
         } catch (TargetPublishRecoveryDiscovery.StaleCursor changed) {
             cursor = null;

@@ -22,7 +22,7 @@ import org.apache.kafka.common.record.TimestampType;
 
 /** Bounded resumable read_committed lookup from the original protected range, independent of old producer callbacks. */
 public final class KafkaClientArtifactTargetReceiptReader implements AutoCloseable {
-    public static final String REQUIRED_K1_SOURCE_COMMIT = "a707e84e023d0eb174fdf52c879dc1f9f1d6d2ce";
+    public static final String REQUIRED_K1_SOURCE_COMMIT = "8087db6498c4f4d03eabfbfcb83bc6410872531a";
     public enum Status { WAITING, ADVANCED, PUBLISHED }
     public record Turn(Status status, long nextOffset, Observation observation) {}
 
@@ -68,11 +68,22 @@ public final class KafkaClientArtifactTargetReceiptReader implements AutoCloseab
     private Observation observed;
     private GuardedFetchEvidence rangeObservation;
     private long processedNextOffset = -1;
+    private final boolean freezeRecoveryUpperBound;
+    private long recoveryUpperBound = -1;
+    private long recoveryMaxBrokerTime;
     private boolean closed;
+    private boolean closeCompleted;
 
     public KafkaClientArtifactTargetReceiptReader(final Map<String, Object> configuration,
             final TargetKafkaReceiptMapping mapping, final Protection protection,
             final Duration timeout, final int maximumRecords, final int maximumBytes) {
+        this(configuration, mapping, protection, timeout, maximumRecords, maximumBytes, false);
+    }
+
+    KafkaClientArtifactTargetReceiptReader(final Map<String, Object> configuration,
+            final TargetKafkaReceiptMapping mapping, final Protection protection,
+            final Duration timeout, final int maximumRecords, final int maximumBytes,
+            final boolean freezeRecoveryUpperBound) {
         sdkJarSha256 = requireSdkIdentity();
         this.mapping = Objects.requireNonNull(mapping, "actual retained mapping");
         this.protection = Objects.requireNonNull(protection, "protected read authority");
@@ -83,6 +94,7 @@ public final class KafkaClientArtifactTargetReceiptReader implements AutoCloseab
         }
         this.maximumRecords = maximumRecords;
         this.maximumBytes = maximumBytes;
+        this.freezeRecoveryUpperBound = freezeRecoveryUpperBound;
         nextOffset = mapping.admission().kafkaReceipt().scanStartOffset();
         protection.requireCurrent(mapping, nextOffset);
         final var receipt = mapping.admission().kafkaReceipt();
@@ -141,6 +153,10 @@ public final class KafkaClientArtifactTargetReceiptReader implements AutoCloseab
         }
         protection.requireCurrent(mapping, nextOffset);
         rangeObservation = proof;
+        if (freezeRecoveryUpperBound && recoveryUpperBound < 0) {
+            recoveryUpperBound = proof.highWatermark();
+            if (recoveryUpperBound < nextOffset) { throw new IllegalStateException("fenced receipt range was truncated"); }
+        }
         final var processed = records.nextOffsets().get(partition);
         if (processed == null || proof.fetchOffset() > nextOffset || processed.offset() < nextOffset
                 || processed.offset() > proof.lastStableOffset()) {
@@ -161,6 +177,9 @@ public final class KafkaClientArtifactTargetReceiptReader implements AutoCloseab
                 throw new IllegalStateException("Target receipt resource requires actual Broker LogAppendTime");
             }
             maxBrokerTime = Math.max(maxBrokerTime, record.timestamp());
+            if (freezeRecoveryUpperBound && record.offset() < recoveryUpperBound) {
+                recoveryMaxBrokerTime = Math.max(recoveryMaxBrokerTime, record.timestamp());
+            }
             if (Arrays.equals(TargetKafkaReceiptWire.key(mapping), record.key())) {
                 TargetKafkaReceiptWire.requireRecord(mapping, record.key(), record.value());
                 final var uuid = mapping.admission().kafkaReceipt().receiptResource().receiptTopicUuid();
@@ -188,6 +207,8 @@ public final class KafkaClientArtifactTargetReceiptReader implements AutoCloseab
     /** Actual same-response range facts; this is not a contiguous-scan or NOT_PUBLISHED certification. */
     public synchronized Optional<GuardedFetchEvidence> rangeObservation() { return Optional.ofNullable(rangeObservation); }
     public synchronized long processedNextOffset() { return processedNextOffset; }
+    synchronized long recoveryUpperBound() { return recoveryUpperBound; }
+    synchronized long recoveryMaxBrokerTime() { return recoveryMaxBrokerTime; }
 
     public synchronized Optional<byte[]> rangeObservationImage() {
         if (rangeObservation == null) { return Optional.empty(); }
@@ -255,5 +276,8 @@ public final class KafkaClientArtifactTargetReceiptReader implements AutoCloseab
     }
 
     public synchronized Optional<Observation> observation() { return Optional.ofNullable(observed); }
-    @Override public synchronized void close() { if (!closed) { closed = true; consumer.close(); } }
+    @Override public synchronized void close() {
+        closed = true;
+        if (!closeCompleted) { consumer.close(); closeCompleted = true; }
+    }
 }

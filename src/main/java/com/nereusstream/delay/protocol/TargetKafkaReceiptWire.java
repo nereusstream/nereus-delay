@@ -87,4 +87,10 @@ public final class TargetKafkaReceiptWire {
         final var f = QueryCodecSupport.read(evidence.branch(), "Target receipt absence");
         requireCursor(mapping, EvidenceCursor.decode(QueryCodecSupport.nested(f.getFirst(), 1)));
     }
+
+    public static EvidenceCursor cursor(TargetKafkaReceiptMapping mapping, PublishEvidence evidence) {
+        if (evidence.verificationStatus() == EvidenceVerificationStatus.VERIFIED_PUBLISHED) { requirePublished(mapping, evidence); }
+        else { requireNotPublished(mapping, evidence); }
+        return EvidenceCursor.decode(QueryCodecSupport.nested(QueryCodecSupport.read(evidence.branch(), "Target receipt cursor").getFirst(), 1));
+    }
 }

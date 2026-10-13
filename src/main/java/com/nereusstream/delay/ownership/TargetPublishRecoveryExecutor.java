@@ -48,9 +48,31 @@ public final class TargetPublishRecoveryExecutor {
         }
         final var proof = worker.readRecoveryAdmission(budget, admission, ownerClock);
         final var submission = new Submission(admission, recoveryOwner,
-                outcomes.createRecoveryUnknown(proof, recoveryOwner, context));
+                outcomes.createRecoveryUnknown(proof, recoveryOwner, context), false);
         pending = submission;
         handoff(submission, ownerClock);
+        return submission;
+    }
+
+    public synchronized Submission submitResolution(BoundedReadBudget reads, SystemMutation admission,
+            OwnerIdentity owner, WorkerPublishOutcomeMutationFactory.OutcomeContext context,
+            TargetPublishRecoveryMaintenance.Resolution resolution, LongSupplier clock) {
+        if (pending != null) {
+            if (!Arrays.equals(pending.admission.canonicalEnvelope(), admission.canonicalEnvelope())
+                    || !pending.owner.equals(owner) || !pending.resolution) {
+                throw new IllegalStateException("Target recovery retains a different exact resolution");
+            }
+            return pending;
+        }
+        final var proof = worker.readKafkaUnknown(reads, admission, clock);
+        resolution.authority().requireAuthenticated(proof, resolution.evidence());
+        final var mutation = resolution.signer().createKafkaResolution(proof, resolution.evidence(),
+                resolution.service(), resolution.stableCode(), context);
+        // External authority ran outside the Store view; re-read exact pending facts before accepting the image.
+        proof.requireSame(worker.readKafkaUnknown(reads, admission, clock));
+        final var submission = new Submission(admission, owner, mutation, true);
+        pending = submission;
+        handoff(submission, clock);
         return submission;
     }
 
@@ -66,7 +88,8 @@ public final class TargetPublishRecoveryExecutor {
             return false;
         }
         if (result.applyStatus() != ApplyStatus.APPLIED
-                || result.stableCode() != StableCode.RECOVERY_FIRST_SEND_UNCERTAIN
+                || result.mutationType() != submission.mutation.type()
+                || !submission.resolution && result.stableCode() != StableCode.RECOVERY_FIRST_SEND_UNCERTAIN
                 || !Bytes.constantTimeEquals(result.mutationHash(), submission.mutation.mutationHash())) {
             throw new IllegalStateException("Target recovery hold lacks its exact applied Source first result");
         }
@@ -87,13 +110,15 @@ public final class TargetPublishRecoveryExecutor {
         private final SystemMutation admission;
         private final OwnerIdentity owner;
         private final SystemMutation mutation;
+        private final boolean resolution;
         private volatile TargetOutcomeWorkClassExecutor.Submission handoff;
         private volatile Throwable failure;
 
-        private Submission(SystemMutation admission, OwnerIdentity owner, SystemMutation mutation) {
+        private Submission(SystemMutation admission, OwnerIdentity owner, SystemMutation mutation, boolean resolution) {
             this.admission = admission;
             this.owner = owner;
             this.mutation = mutation;
+            this.resolution = resolution;
         }
 
         public SystemMutation mutation() { return mutation; }

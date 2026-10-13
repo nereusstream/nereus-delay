@@ -40,6 +40,7 @@ public final class TargetPublishRecoveryDiscovery {
         private final byte[] after;
         private final TargetQueueSnapshotReader.Cut cut;
         private final boolean retainedInputs;
+        private final boolean kafkaUnknown;
 
         private Cursor(TargetPublishRecoveryDiscovery owner, byte[] after, TargetQueueSnapshotReader.Cut cut,
                 boolean retainedInputs) {
@@ -47,6 +48,12 @@ public final class TargetPublishRecoveryDiscovery {
             this.after = after == null ? null : Bytes.copy(after);
             this.cut = cut;
             this.retainedInputs = retainedInputs;
+            this.kafkaUnknown = false;
+        }
+
+        private Cursor(TargetPublishRecoveryDiscovery owner, byte[] after, TargetQueueSnapshotReader.Cut cut) {
+            this.owner = owner; this.after = after == null ? null : Bytes.copy(after); this.cut = cut;
+            retainedInputs = false; kafkaUnknown = true;
         }
 
         /** Identity comparison only; owning Worker/Owner and current Store protection are still mandatory. */
@@ -148,10 +155,60 @@ public final class TargetPublishRecoveryDiscovery {
         return scan(budget, continuation, maximumRows, authority, true);
     }
 
+    /** Enumerates only immutable K2 mappings whose exact attempt still has a Source UNKNOWN hold. */
+    public Page scanKafkaUnknown(BoundedReadBudget budget, Cursor continuation, int maximumRows,
+            TargetStoreBackend.ReadAuthority authority) {
+        if (maximumRows <= 0 || continuation != null && (continuation.owner != this || !continuation.kafkaUnknown)) {
+            throw new IllegalArgumentException("invalid K2 UNKNOWN recovery page or continuation");
+        }
+        return backend.guardedRead(budget, reader -> {
+            final var cut = new TargetQueueSnapshotReader.Cut(reader.metadata().storeIncarnation(), reader.nativeSequence());
+            if (continuation != null && !continuation.cut.equals(cut)) { throw new StaleCursor(); }
+            byte[] after = continuation == null ? null : continuation.after;
+            byte[] lower = after == null ? new byte[] {TargetKeyCodec.KAFKA_RECEIPT_MAPPING_TAG, TargetKeyCodec.KEY_FORMAT} : afterKey(after);
+            final byte[] upper = {TargetKeyCodec.KAFKA_RECEIPT_MAPPING_TAG, TargetKeyCodec.KEY_FORMAT + 1};
+            final var entries = new ArrayList<Reference>();
+            for (int rowIndex = 0; rowIndex < maximumRows; rowIndex++) {
+                try {
+                    final var row = reader.first(ColumnFamily.META, lower, upper, List.of());
+                    if (row == null) {
+                        reader.requireWithinElapsedBudget();
+                        return new Page(entries, new Cursor(this, after, cut), Stop.RANGE_END);
+                    }
+                    final var mapping = com.nereusstream.delay.protocol.TargetKafkaReceiptMapping.decodeForStore(row.key(),
+                            TargetValueEnvelope.decode(row.value(), com.nereusstream.delay.protocol.TargetKafkaReceiptMapping.VALUE_TYPE)
+                                    .payload(), scope.shard());
+                    final byte[] attemptKey = Bytes.concat(LOWER, mapping.admission().publishAttemptId());
+                    final var attempt = TargetQuotaAttemptBudget.decodeForStore(attemptKey,
+                            TargetValueEnvelope.decode(required(reader, ColumnFamily.META, attemptKey),
+                                    TargetQuotaAttemptBudget.VALUE_TYPE).payload(), scope.shard());
+                    if (!Arrays.equals(mapping.recoveryLineage(), lineage)
+                            || !Arrays.equals(mapping.mutationHash(), attempt.admissionDigest())
+                            || !mapping.admission().locator().equals(attempt.locator())) {
+                        throw new IllegalStateException("K2 recovery mapping changes retained attempt/lineage");
+                    }
+                    if (attempt.phase() == TargetQuotaAttemptBudget.Phase.UNKNOWN) {
+                        final var reference = retainedReference(reader, attempt);
+                        if (!mapping.mutation().source().equals(reference.source())
+                                || !Arrays.equals(mapping.mutation().mutationDigest(), reference.envelopeDigest())) {
+                            throw new IllegalStateException("K2 UNKNOWN reference changes original Admission Source");
+                        }
+                        entries.add(reference);
+                    }
+                    after = row.key(); lower = afterKey(after);
+                    reader.requireWithinElapsedBudget();
+                } catch (ReadIncompleteException incomplete) {
+                    return new Page(entries, new Cursor(this, after, cut), Stop.READ_BUDGET);
+                }
+            }
+            return new Page(entries, new Cursor(this, after, cut), Stop.PAGE_LIMIT);
+        }, authority);
+    }
+
     private Page scan(final BoundedReadBudget budget, final Cursor continuation, final int maximumRows,
             final TargetStoreBackend.ReadAuthority authority, final boolean retainedInputs) {
         if (maximumRows < 1 || continuation != null
-                && (continuation.owner != this || continuation.retainedInputs != retainedInputs)) {
+                && (continuation.owner != this || continuation.retainedInputs != retainedInputs || continuation.kafkaUnknown)) {
             throw new IllegalArgumentException("invalid Target recovery page limit or foreign continuation");
         }
         return backend.guardedRead(Objects.requireNonNull(budget, "budget"), reader -> {
@@ -209,6 +266,15 @@ public final class TargetPublishRecoveryDiscovery {
     /** Rechecks immutable Budget identity; an applied Outcome can retire this initial queue while history loads. */
     public boolean stillAdmitted(final BoundedReadBudget budget, final Reference reference,
             final TargetStoreBackend.ReadAuthority authority) {
+        return stillPending(budget, reference, authority, false);
+    }
+
+    public boolean stillPending(BoundedReadBudget budget, Reference reference, TargetStoreBackend.ReadAuthority authority) {
+        return stillPending(budget, reference, authority, true);
+    }
+
+    private boolean stillPending(BoundedReadBudget budget, Reference reference,
+            TargetStoreBackend.ReadAuthority authority, boolean includeUnknown) {
         final var expected = Objects.requireNonNull(reference, "reference").attempt();
         return backend.guardedRead(budget, reader -> {
             final var current = TargetQuotaAttemptBudget.decodeForStore(expected.key(),
@@ -229,11 +295,19 @@ public final class TargetPublishRecoveryDiscovery {
                     throw new IllegalStateException("Target ADMITTED recovery Budget changed without an Outcome");
                 }
                 verify(reader, current);
+            } else if (includeUnknown && current.phase() == TargetQuotaAttemptBudget.Phase.UNKNOWN
+                    && expected.phase() == TargetQuotaAttemptBudget.Phase.UNKNOWN) {
+                if (!Arrays.equals(current.canonicalBytes(), expected.canonicalBytes())) {
+                    throw new IllegalStateException("Target UNKNOWN recovery Budget changed before resolution");
+                }
+                retainedReference(reader, current);
             } else {
                 expected.mutation().requireAtOrBefore(current.mutation());
             }
             reader.requireWithinElapsedBudget();
-            return current.phase() == TargetQuotaAttemptBudget.Phase.ADMITTED;
+            return current.phase() == TargetQuotaAttemptBudget.Phase.ADMITTED
+                    || includeUnknown && current.phase() == TargetQuotaAttemptBudget.Phase.UNKNOWN
+                            && expected.phase() == TargetQuotaAttemptBudget.Phase.UNKNOWN;
         }, authority);
     }
 

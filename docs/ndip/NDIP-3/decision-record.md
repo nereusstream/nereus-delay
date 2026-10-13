@@ -274,3 +274,69 @@ I/O executor；不新增线程/队列。失败时只有实际 SDK teardown 完�
 teardown 失败保留未完成 stage/资源义务。完整 fencing/absence/实际 provider/reopen 仍待
 连接，包1、集中验证及 productionAuthority 均未完成。Delay compileJava/compileRealKafka
 通过，未执行测试、Broker 或格式/文档验收。
+
+
+## 2026-10-13：K2 实际 producer 资源检查与 Source 恢复接线
+
+主会话批准 K1 extension-only `GuardedProducer.requireResourceGuard`，默认实现明确
+unsupported；普通 Producer、send/initTransactions 和 Broker wire 不改。不能以
+waitOnMetadata 的缓存命中或全局 updateVersion 增长当作当前检查。实际实现只有一个
+当前 pending guard，注册时提升原 requestVersion，派生时保留这次 exact request version；
+走原 Sender/Metadata 的单 topic 请求且 allowAutoTopicCreation=false，匹配本次版本的
+raw response 必须覆盖精确 topic/partition，错误/缺字段失败。返回该响应的 Cluster
+而非共享缓存，使用原 validateGuardedCluster 比对 cluster/UUID；有限 max.block.ms
+包括整个调用等待，关闭/中断/取消/迟到旧响应不授予权限。Metadata 的 protected request
+wrapper helper 仅供这一内部继承接线，不新增公共 proof DTO、线程、AdminClient 或 waiter
+缓存。未调用扩展时原 metadata builder/update 路径保留。
+
+必要依赖 `nereus/delay-guarded-producer-v1@8087db6498c4f4d03eabfbfcb83bc6410872531a`
+已普通 push；client compileJava 与按完整 commitId 的 shadowJar 通过（jar task SKIPPED）。
+SDK SHA-256=`e443b062e6d717164c28b6acf2ba0c163878d7df83af7b09fdeb8262a297e9b9`。
+前序 a707/5128/05849884 证据保持各自原 scope，Broker/image 未重建，未运行测试。
+
+Delay 实际 factory 在同一新 producer 上检查 target/receipt，标准 initTransactions 后
+再检查两者及当前 Owner/session/credential 权限，才为原 retained mapping 创建私有 Fence。
+冷启动重新执行，不恢复旧成功标志。KafkaClientArtifactTargetReceiptRecovery 逐 turn
+一个实际 poll；首个有证据响应固定 U=HW，全段用 paired actual nextOffsets，最终覆盖 U
+且 LSO>=U、logStart 未越原 start、持续保护与权限有效才产生私有 absence observation。
+实际 receipt 优先正向；时间 frontier 只折叠 U 前实际 LogAppendTime，空区间为保守空 fold，
+不把 U 后新写入时间并入旧 cursor。失败关闭 consumer；失败 teardown 保留可重试关闭。
+
+TargetPublishOutcomeStore 新增私有构造 KafkaUnknown，只读核对原 Admission SYSTEM/
+POSITION、actual UNKNOWN first result、unreleased budget/obligation、immutable mapping 和
+pending slot。原 admitted readRecovery 不放宽。原 recovery maintenance 在初始 ADMITTED
+扫描之后，以独立 META26 continuation 有界发现 K2 UNKNOWN；actual provider 认证结果后，
+SERVICE signer 生成原 EVIDENCE_RESOLUTION，外部认证后再核对同一 UNKNOWN snapshot。
+既有 WorkClass/appender 保留 exact signed bytes，直到 actual Source APPLIED 后才清 pending；
+原 Source v6 批次负责 slot/Attempt/Message/结果和双账本结算。没有新的 SEND/retry权。
+当前 compileJava/compileRealKafka 通过，全部测试、Broker 和格式/文档验收留至集中阶段。
+
+## 2026-10-13：K2 持久保护与 anchor backing 的归属
+
+主会话批准必要的专用实现，归原 PLATFORM_OPERATOR/CONTROL 历史 key、角色、精确资源
+scope 与 Registry 信任域；业务 Target/CREATE_CHANNEL 权限不自动覆盖任意 receipt。
+Worker/新 Owner 仅为 reader/user，不签发或解除保护，不升格 KafkaReceiptSlotResource DTO、
+ephemeral RecoveryPin 或其他 credential/native-policy 签名域。
+
+在同一 Registry Oxia prefix 建专用持久 catalog，保护键为
+`/target-kafka-receipt-protection/<exact-resource-hash>/<evidenceGeneration>`；resource hash
+复用 ResourceRetireIntent 的 exact canonical resource 与 `nereus-delay-resource-identity`
+域。anchor 键为 `/target-kafka-receipt-anchor/<scanObservationDigest>`，保存完整原 Observation
+image 与已认证关联依据。均有有限版本化 bytes、原 issuer/signature/scope；put-if-absent、
+冲突全字节比对、未知响应后 exact reread，成功发布也须 reread。无 TTL/ephemeral；handle
+session fence 保护 I/O，保护本身不随 Owner/session 死亡结束。新 image/签名域/上限须在
+实际实现时同步 PROTOCOL-REGISTRY 与 07；现有 Binding v1/Admission v6 bytes 保持。
+
+真实管理入口须在排他管理权下先建立 Nereus 独占 receipt topic 的持续约束：禁止 compaction，
+关闭时间/容量自动删日志，隔离 Worker 的 DeleteRecords/DeleteTopics/配置修改权限，认证
+exact resource 和原 capability 耐久前提，再持久发布保护及采样/持久重读 anchor，才可签 v6。
+冷启动按原两 digest 重读并核验同资源/epoch/scanStart/current protection/真实环境激活。
+两次 describeConfigs、普通 signed blob 或空 requireCurrent 不能证明连续性；发现中断/
+不可解释管理变化，旧区间不可倒补证明，UNKNOWN/pending 保留。topic 约束覆盖所有仍引用
+它的 Shard/slot，不能单个 Outcome/扫描完成就解除。
+
+解除沿既有 RESOURCE_RETIRE_INTENT→Floor/ProtectionSet→外部动作→RESOURCE_DELETE_CONFIRMED，
+覆盖所有 attempt/read/control/query/checkpoint/shared-topic 引用并保留不可复活依据；具体
+工具按包2/4实现。包1 catalog/provider 必须默认持久保留并拒绝无证据解除。当前这一真实
+activation→保护→anchor→Admission→冷恢复重读链仍待实现，包1和整体 flags 不变；本条不
+授权当前开发阶段改生产配置、执行实际迁移/删除或解除保护。

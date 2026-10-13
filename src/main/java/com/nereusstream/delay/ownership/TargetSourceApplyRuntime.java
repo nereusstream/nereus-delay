@@ -922,6 +922,14 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         return recovery;
     }
 
+    synchronized com.nereusstream.delay.runtime.TargetPublishOutcomeStore.KafkaUnknown readKafkaUnknown(
+            BoundedReadBudget budget, SystemMutation admission, LongSupplier clock) {
+        requireGcOwner(clock);
+        final var result = targetOutcomes.readKafkaUnknown(budget, admission, workerReads(clock));
+        requireGcOwner(clock);
+        return result;
+    }
+
     synchronized TargetPublishRecoveryDiscovery.Page discoverPublishRecovery(
             final BoundedReadBudget budget, final TargetPublishRecoveryDiscovery.Cursor continuation,
             final int maximumRows, final LongSupplier ownerClock) {
@@ -930,6 +938,22 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         final var page = publishRecoveryDiscovery.scan(budget, continuation, maximumRows, workerReads(clock));
         requireGcOwner(clock);
         return page;
+    }
+
+    synchronized TargetPublishRecoveryDiscovery.Page discoverKafkaUnknown(
+            BoundedReadBudget reads, TargetPublishRecoveryDiscovery.Cursor continuation, int maximumRows, LongSupplier clock) {
+        requireGcOwner(clock);
+        final var page = publishRecoveryDiscovery.scanKafkaUnknown(reads, continuation, maximumRows, workerReads(clock));
+        requireGcOwner(clock);
+        return page;
+    }
+
+    synchronized boolean publishRecoveryStillPending(BoundedReadBudget reads,
+            TargetPublishRecoveryDiscovery.Reference reference, LongSupplier clock) {
+        requireGcOwner(clock);
+        final boolean current = publishRecoveryDiscovery.stillPending(reads, reference, workerReads(clock));
+        requireGcOwner(clock);
+        return current;
     }
 
     synchronized void requirePublishRecoveryOwner(final LongSupplier ownerClock) {

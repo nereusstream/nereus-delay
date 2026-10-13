@@ -44,6 +44,7 @@ public final class KafkaClientArtifactTargetTransactionalTransport implements De
     private final AtomicBoolean closed = new AtomicBoolean();
     private volatile KafkaClientArtifactTargetReceiptReader.Observation observation;
     private volatile Throwable firstFailure;
+    private KafkaClientArtifactTargetTransactionalFactory.Fence fence;
 
     // Factory-only construction follows actual initTransactions and independent channel/resource authority.
     KafkaClientArtifactTargetTransactionalTransport(GuardedTransactionalProducer<byte[], byte[]> producer,
@@ -190,6 +191,16 @@ public final class KafkaClientArtifactTargetTransactionalTransport implements De
     }
 
     public Optional<Throwable> firstFailure() { return Optional.ofNullable(firstFailure); }
+
+    synchronized void installFence(KafkaClientArtifactTargetTransactionalFactory.Fence actual) {
+        if (fence != null || closed.get() || busy.get()) { throw new IllegalStateException("Fence cannot replace an active resource"); }
+        fence = Objects.requireNonNull(actual, "actual same-ID fencing observation");
+    }
+
+    public synchronized Optional<KafkaClientArtifactTargetTransactionalFactory.Fence> fence() {
+        if (closed.get()) { throw new IllegalStateException("fencing producer is closed"); }
+        return Optional.ofNullable(fence);
+    }
 
     private static GuardedRecordMetadata await(Future<GuardedRecordMetadata> future, long deadline) throws Exception {
         final long remaining = deadline - System.nanoTime();

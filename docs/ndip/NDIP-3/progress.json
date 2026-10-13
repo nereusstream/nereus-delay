@@ -1675,9 +1675,9 @@
     "developmentEndpoint": "All four package code conditions hold and no known required writer/provider/integration remains; then freeze source and hand off the finite validation/environment matrix, without open-ended follow-on development.",
     "developmentKafkaSourceLock": {
       "branch": "nereus/delay-guarded-producer-v1",
-      "commit": "a707e84e023d0eb174fdf52c879dc1f9f1d6d2ce",
-      "sdkJarSha256": "da8b1d38ab40c34ba1d00ecfd18d37504941895d4cf9bce3c6728b36ec95040c",
-      "scope": "Target K2 same-response log-start/empty Fetch and one CompletedFetch processing segment per guarded poll, paired with actual nextOffsets; client compilation only; old receipts retain their original source and Broker/image scope."
+      "commit": "8087db6498c4f4d03eabfbfcb83bc6410872531a",
+      "sdkJarSha256": "e443b062e6d717164c28b6acf2ba0c163878d7df83af7b09fdeb8262a297e9b9",
+      "scope": "Target K2 same-response log-start/empty Fetch, one CompletedFetch segment with paired nextOffsets, and fresh exact-topic/partition read-only producer Metadata response guard; client compilation only; old receipts retain their original source and Broker/image scope."
     }
   },
   "implementationComplete": false,

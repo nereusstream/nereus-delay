@@ -113,4 +113,26 @@ public final class TargetPublishOutcomeMutationFactory {
                 AuthorIdentity.owner(owner.deploymentId(), owner.workerRunId(), owner.ownerEpoch(),
                         owner.leaseFencingDigest()).canonicalBytes(), keyVersion, key);
     }
+
+    /** SERVICE resolution of actual Source UNKNOWN; independent history/evidence/retention rights are mandatory. */
+    public SystemMutation createKafkaResolution(
+            com.nereusstream.delay.runtime.TargetPublishOutcomeStore.KafkaUnknown unknown,
+            PublishEvidence evidence, AuthorIdentity service, StableCode code,
+            WorkerPublishOutcomeMutationFactory.OutcomeContext context) {
+        final var actual = Objects.requireNonNull(unknown, "actual UNKNOWN proof");
+        if (Objects.requireNonNull(service, "actual SERVICE author").kind() != AuthorIdentity.Kind.SERVICE
+                || !Arrays.equals(context.transfer(), actual.mapping().admission().outcomeTransfer())) {
+            throw new IllegalArgumentException("K2 resolution changes SERVICE identity or frozen charge transfer");
+        }
+        final var cursor = com.nereusstream.delay.protocol.TargetKafkaReceiptWire.cursor(actual.mapping(), evidence);
+        final int effect = evidence.verificationStatus()
+                == com.nereusstream.delay.protocol.EvidenceVerificationStatus.VERIFIED_PUBLISHED ? 1 : 2;
+        final byte[] body = PublishOutcomeBody.encodeEvidenceResolution(actual.admission().shardId(),
+                context.retryUntilEpochMs(), actual.mapping().admission().publishAttemptId(), cursor,
+                evidence.canonicalBytes(), code, effect, context.disposition(), context.transfer(),
+                context.observedAt(), context.retryDecision());
+        return SystemMutation.signed(actual.admission().shardId(), SystemMutationType.EVIDENCE_RESOLUTION,
+                context.retryUntilEpochMs(), actual.mapping().admission().publishAttemptId(), body,
+                service.canonicalBytes(), keyVersion, key);
+    }
 }

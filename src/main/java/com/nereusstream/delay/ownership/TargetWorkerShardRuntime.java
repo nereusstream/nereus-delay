@@ -374,6 +374,13 @@ public final class TargetWorkerShardRuntime
         return target.readRecoveryAdmission(budget, image, ownerClock);
     }
 
+    public synchronized com.nereusstream.delay.runtime.TargetPublishOutcomeStore.KafkaUnknown readKafkaUnknown(
+            BoundedReadBudget budget, SystemMutation admission, LongSupplier clock) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        return target.readKafkaUnknown(budget, admission, clock);
+    }
+
     /** Enumerates retained Admission references under this active Worker, with opaque same-view continuation. */
     public synchronized com.nereusstream.delay.runtime.TargetPublishRecoveryDiscovery.Page discoverPublishRecovery(
             final BoundedReadBudget budget,
@@ -382,6 +389,23 @@ public final class TargetWorkerShardRuntime
         requireNewTurnsAdmitted();
         resources.requireRuntimeBusinessAdmission();
         return target.discoverPublishRecovery(budget, continuation, maximumRows, ownerClock);
+    }
+
+    public synchronized com.nereusstream.delay.runtime.TargetPublishRecoveryDiscovery.Page discoverKafkaUnknown(
+            BoundedReadBudget reads, com.nereusstream.delay.runtime.TargetPublishRecoveryDiscovery.Cursor continuation,
+            int maximumRows, LongSupplier clock) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        return target.discoverKafkaUnknown(reads, continuation, maximumRows, clock);
+    }
+
+    synchronized boolean publishRecoveryStillPending(BoundedReadBudget reads,
+            com.nereusstream.delay.runtime.TargetPublishRecoveryDiscovery.Reference reference, LongSupplier clock) {
+        requirePublishRecoveryOwner(clock);
+        if (publishRuntime != null && publishRuntime.ownsAttempt(reference.attempt().publishAttemptId())) {
+            return false;
+        }
+        return target.publishRecoveryStillPending(reads, reference, clock);
     }
 
     /** Enumerates all retained Admission inputs for checkpoint/history protection under this active Worker. */
