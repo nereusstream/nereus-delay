@@ -376,3 +376,19 @@ APPLIED adoption 等待点、native NV47/NV48和alias计费，及checkpoint sche
 见本批执行输出。没有测试/style/docs/Broker/性能/迁退 gate 通过声明，也没有当前生产
 Admin/config/delete 动作。完整服务启动/物理资源与I/O关闭、集中验证、包2/3/4和全部必做
 义务继续；all completion/production flags 保持false。
+
+
+## 2026-10-13：P1必要SDK关闭语义修复范围
+
+决策来源仍为用户授权的主决策会话
+“调整 A–F 分区队列推进方式”（`01a13046-4fcd-7e90-8a56-dc2c3828fe23`）。
+该会话明确允许在既有P1 worktree/fork分支修复Producer首次close completion、
+PulsarClientImpl shutdown失败传播及client-owned ExecutorProvider实际termination，
+scoped commit并普通push；Delay保存首future/failed handle，明确共享backend owner
+quiesce全部用户后才可关闭原client。不得据Closing/isShutdown或再次close制造成功，
+不自动关闭借用client，不为每个Target新建client。
+
+实际P1 fork提交为`69b2a64e9359681919d4e7239cc79c1d37c0122a`，只有三处client类；
+必要client构建和Delay main/real SDK编译已有结果，测试/真实Broker/style/docs门禁
+仍统一后置。source/JAR身份与有限回归意图见12，原P1/Broker历史scope保持。实际
+共享owner/多通道服务root仍须完成，包1、全部29切片及production均未据此完成。

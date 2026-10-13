@@ -29,6 +29,7 @@ import org.apache.pulsar.client.api.TopicResourceGuardAttestation;
 public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJournal.DurableAppender, AutoCloseable {
     private final PulsarClient client;
     private final Producer<byte[]> producer;
+    private final PulsarClientArtifactProducerClose producerClose;
     private final PulsarJournalResource resource;
     private final TopicResourceGuard expectedGuard;
     private final String replaySubscriptionName;
@@ -54,6 +55,7 @@ public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJo
             final Duration responseTimeout)
             throws PulsarClientException {
         Objects.requireNonNull(client, "client");
+        requirePositive(responseTimeout);
         final PulsarJournalResource exactResource = Objects.requireNonNull(resource, "resource");
         final Producer<byte[]> producer = PulsarClientArtifactProducerFactory.create(
                 client,
@@ -83,6 +85,7 @@ public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJo
             final PulsarAttemptJournal.NegativeReplayAuthority negativeReplayAuthority)
             throws PulsarClientException {
         Objects.requireNonNull(client, "client");
+        requirePositive(responseTimeout);
         if (maximumRecords <= 0 || maximumRecordBytes <= 0
                 || maximumRecords == Integer.MAX_VALUE || maximumRecordBytes == Long.MAX_VALUE) {
             throw new IllegalArgumentException("Target Journal replay limits must be finite and positive");
@@ -96,12 +99,8 @@ public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJo
         try {
             return new PulsarClientArtifactAttemptJournal(client, producer, shard, exactResource,
                     replaySubscriptionName, responseTimeout, true, maximumRecords, maximumRecordBytes, guard, negativeReplayAuthority);
-        } catch (RuntimeException | PulsarClientException failure) {
-            try {
-                producer.close();
-            } catch (PulsarClientException closeFailure) {
-                failure.addSuppressed(closeFailure);
-            }
+        } catch (RuntimeException | PulsarClientException | Error failure) {
+            PulsarClientArtifactProducerClose.afterFailedCreation(client, producer, responseTimeout, failure);
             throw failure;
         }
     }
@@ -121,6 +120,7 @@ public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJo
             final Duration responseTimeout)
             throws PulsarClientException {
         Objects.requireNonNull(client, "client");
+        requirePositive(responseTimeout);
         final PulsarJournalResource exactResource = Objects.requireNonNull(resource, "resource");
         final Producer<byte[]> exactProducer = Objects.requireNonNull(producer, "producer");
         try {
@@ -131,12 +131,8 @@ public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJo
                     exactResource,
                     replaySubscriptionName,
                     responseTimeout);
-        } catch (RuntimeException | PulsarClientException failure) {
-            try {
-                exactProducer.close();
-            } catch (PulsarClientException closeFailure) {
-                failure.addSuppressed(closeFailure);
-            }
+        } catch (RuntimeException | PulsarClientException | Error failure) {
+            PulsarClientArtifactProducerClose.afterFailedCreation(client, exactProducer, responseTimeout, failure);
             throw failure;
         }
     }
@@ -168,6 +164,7 @@ public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJo
             throws PulsarClientException {
         this.client = Objects.requireNonNull(client, "client");
         this.producer = Objects.requireNonNull(producer, "producer");
+        this.producerClose = new PulsarClientArtifactProducerClose(client, producer, responseTimeout);
         this.shard = Objects.requireNonNull(shard, "shard");
         this.resource = Objects.requireNonNull(resource, "resource");
         this.expectedGuard = new TopicResourceGuard(
@@ -318,11 +315,7 @@ public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJo
 
     @Override
     public void close() {
-        try {
-            producer.close();
-        } catch (PulsarClientException failure) {
-            throw new IllegalStateException("Attempt Journal producer close failed", failure);
-        }
+        producerClose.close();
     }
 
     private int replay(final PulsarClient client, final String subscriptionName) throws PulsarClientException {

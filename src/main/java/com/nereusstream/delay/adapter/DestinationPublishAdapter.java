@@ -65,6 +65,23 @@ public interface DestinationPublishAdapter extends AutoCloseable {
                 DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null));
     }
 
+    /** Full immutable channel remains available for multi-Target/generation routing until the last SDK gate. */
+    default CompletionStage<DestinationPublishResult> publishTargetPreparedRecord(
+            com.nereusstream.delay.protocol.TargetOrdinaryPublicationBinding publication,
+            PulsarPreparedRecord record, ArtifactGenerationSet artifacts,
+            BoundedDestinationPublishAdapter.TargetPreparedPublishPreflight gate) {
+        PulsarPreparedRecordFactory.requireTargetBinding(publication, record, artifacts);
+        return publishPreparedRecord(record, artifacts, (actual, set) -> gate.check(publication, actual, set));
+    }
+
+    default CompletionStage<DestinationPublishResult> publishTargetPreparedRecord(
+            com.nereusstream.delay.protocol.TargetNativePublicationBinding publication,
+            PulsarPreparedRecord record, ArtifactGenerationSet artifacts,
+            BoundedDestinationPublishAdapter.TargetNativePreparedPublishPreflight gate) {
+        PulsarPreparedRecordFactory.requireTargetBinding(publication, record, artifacts);
+        return publishPreparedRecord(record, artifacts, (actual, set) -> gate.check(publication, actual, set));
+    }
+
     @Override
     default void close() {
         // Implementations with broker resources override this method.

@@ -195,7 +195,7 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
                 () -> admission.tryAcquireTarget(publication.channel(), record.physicalByteCharge()),
                 () -> !admission.targetChannelSnapshot(publication.channel()).ready()
                         ? completedUnknownValue() : null,
-                () -> delegate.publishPreparedRecord(record, artifacts, (r, a) ->
+                () -> delegate.publishTargetPreparedRecord(publication, record, artifacts, (p, r, a) ->
                         !admission.targetChannelSnapshot(publication.channel()).ready()
                                 ? completedUnknownValue() : preflight.check(publication, r, a)));
     }
@@ -211,7 +211,7 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
                 () -> admission.tryAcquireTarget(publication.channel(), record.physicalByteCharge()),
                 () -> !admission.targetChannelSnapshot(publication.channel()).ready()
                         ? completedUnknownValue() : null,
-                () -> delegate.publishPreparedRecord(record, artifacts, (r, a) ->
+                () -> delegate.publishTargetPreparedRecord(publication, record, artifacts, (p, r, a) ->
                         !admission.targetChannelSnapshot(publication.channel()).ready()
                                 ? completedUnknownValue() : preflight.check(publication, r, a)));
     }

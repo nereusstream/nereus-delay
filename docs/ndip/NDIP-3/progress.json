@@ -51,7 +51,12 @@
       "validationScope": "Existing evidence applies only to its recorded source and original slice scope; no certification of subsequent runtime integration.",
       "implementationFiles": [
         "src/main/java/com/nereusstream/delay/ownership/TargetDestinationSdkBudget.java",
-        "src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetReceiptRuntime.java"
+        "src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetReceiptRuntime.java",
+        "src/main/java/com/nereusstream/delay/adapter/TargetDestinationMux.java",
+        "src/main/java/com/nereusstream/delay/ownership/TargetDestinationChannelRuntime.java",
+        "src/main/java/com/nereusstream/delay/ownership/TargetDestinationActivation.java",
+        "src/main/java/com/nereusstream/delay/ownership/TargetSdkArtifactIdentity.java",
+        "src/main/java/com/nereusstream/delay/ownership/TargetSdkCleanupFailure.java"
       ]
     },
     {
@@ -675,7 +680,12 @@
         "src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetReceiptProvider.java",
         "src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetReceiptManagement.java",
         "src/main/java/com/nereusstream/delay/ownership/TargetDestinationSdkBudget.java",
-        "src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetReceiptRuntime.java"
+        "src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetReceiptRuntime.java",
+        "src/main/java/com/nereusstream/delay/adapter/TargetDestinationMux.java",
+        "src/main/java/com/nereusstream/delay/ownership/TargetDestinationChannelRuntime.java",
+        "src/main/java/com/nereusstream/delay/ownership/TargetDestinationActivation.java",
+        "src/main/java/com/nereusstream/delay/ownership/TargetSdkArtifactIdentity.java",
+        "src/main/java/com/nereusstream/delay/ownership/TargetSdkCleanupFailure.java"
       ],
       "validationHandoff": "12-集中验证交接清单.md",
       "implementationSources": [
@@ -1548,7 +1558,14 @@
         "src/main/java/com/nereusstream/delay/protocol/TargetKafkaReceiptMapping.java",
         "src/main/java/com/nereusstream/delay/protocol/TargetKafkaReceiptSlot.java",
         "src/main/java/com/nereusstream/delay/protocol/TargetKafkaReceiptWire.java",
-        "src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetReceiptReader.java"
+        "src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetReceiptReader.java",
+        "src/main/java/com/nereusstream/delay/adapter/TargetDestinationMux.java",
+        "src/main/java/com/nereusstream/delay/ownership/TargetDestinationChannelRuntime.java",
+        "src/main/java/com/nereusstream/delay/ownership/TargetDestinationActivation.java",
+        "src/main/java/com/nereusstream/delay/ownership/TargetSdkArtifactIdentity.java",
+        "src/main/java/com/nereusstream/delay/ownership/TargetSdkCleanupFailure.java",
+        "src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactProducerClose.java",
+        "src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactProducerCleanupFailure.java"
       ],
       "validationHandoff": "12-集中验证交接清单.md"
     },
@@ -1620,7 +1637,17 @@
         "src/main/java/com/nereusstream/delay/ownership/TargetCheckpointRuntimeConfig.java",
         "src/main/java/com/nereusstream/delay/runtime/OxiaSyncTargetKafkaReceiptProtectionCatalog.java",
         "src/main/java/com/nereusstream/delay/ownership/TargetDestinationSdkBudget.java",
-        "src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetReceiptRuntime.java"
+        "src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetReceiptRuntime.java",
+        "src/main/java/com/nereusstream/delay/adapter/TargetDestinationMux.java",
+        "src/main/java/com/nereusstream/delay/ownership/TargetDestinationChannelRuntime.java",
+        "src/main/java/com/nereusstream/delay/ownership/TargetDestinationActivation.java",
+        "src/main/java/com/nereusstream/delay/ownership/TargetSdkArtifactIdentity.java",
+        "src/main/java/com/nereusstream/delay/ownership/TargetSdkCleanupFailure.java",
+        "src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactProducerClose.java",
+        "src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactProducerCleanupFailure.java",
+        "src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactAttemptJournal.java",
+        "src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactDestinationTransport.java",
+        "src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTargetBaselineFactory.java"
       ],
       "validationHandoff": "12-集中验证交接清单.md",
       "currentCodeScope": "Package 3: unified config/loader, actual K1/P1 backlog readers/cache, Host observations, Source ingress backpressure and same-log bounded system append window are implemented. Runtime-wide real composition and complete maximum legal mutation/resource service envelope remain code gaps. RSS/space/device-I/O/UNKNOWN/cleanup and configured Host combinations are deferred validation; no production authority inferred."
@@ -1694,6 +1721,14 @@
       "commit": "8087db6498c4f4d03eabfbfcb83bc6410872531a",
       "sdkJarSha256": "e443b062e6d717164c28b6acf2ba0c163878d7df83af7b09fdeb8262a297e9b9",
       "scope": "Target K2 same-response log-start/empty Fetch, one CompletedFetch segment with paired nextOffsets, and fresh exact-topic/partition read-only producer Metadata response guard; client compilation only; old receipts retain their original source and Broker/image scope."
+    },
+    "developmentPulsarSourceLock": {
+      "branch": "nereus/delay-resource-guard-v1",
+      "commit": "69b2a64e9359681919d4e7239cc79c1d37c0122a",
+      "sdkJarSha256": "f9d731d057b2ad99f4d4502eab3b9080d691e35a4f334eda06d6125065a57c9c",
+      "apiJarSha256": "f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394",
+      "commonJarSha256": "94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8",
+      "scope": "Producer/client first close completion, original-producer reconnect cleanup and owned executor termination; necessary client build and Delay SDK compilation only. Tests/style/Broker deferred; original P1 receipts and Broker/image retain their original source scope."
     }
   },
   "implementationComplete": false,

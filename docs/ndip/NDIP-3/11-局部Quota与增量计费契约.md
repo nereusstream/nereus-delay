@@ -2207,3 +2207,14 @@ producer、sampler/receipt/cold reader分别计其实际独立客户端，不以
 Outcome resolved或Owner退出抵消费用。physical request/zombie与SDK client generation
 不是同一费用：单请求退出不等于客户端关闭，客户端关闭不等于原durable义务释放。
 配置额度未实测为容量/性能结论；原EVIDENCE/STATE与51–55归属不改。
+
+
+2026-10-13 Target SDK费用开发补充：通道资源owner和full-channel mux接原唯一Worker SDK
+window；SDK前预留、失败opening/discard和重复Host drain保留同generation及native ledger
+reservation。K1 BASELINE在实际producer.close返回后才释放；P1保存首次close future，
+有限等待超时及终态失败不释放。P1 typed failure允许其明确的共享backend owner在全部
+用户quiesce后关闭原client，首次client失败后的实际shutdown使用原有限I/O池；仍要求
+原Producer close完成。严格executor termination失败保留费用，后续同owner可观察晚到
+termination。独立SDK generation费用、physical request/zombie和Source logical obligation
+仍分别结清，backend清理不产生NOT_PUBLISHED或解除retention。多通道完整服务与实际
+P1 shared-client envelope配置继续在包1/3完成；本批编译不认证资源上限。

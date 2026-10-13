@@ -660,3 +660,10 @@ Message Schedule Source 新增完整 Source 身份、cut 上界与同 order cano
 当前完整状态映射、独立守恒、外部 Admission/Journal/protection 与 fenced authority
 仍未审计，报告只能 BLOCKED，不创建目标 Store、不激活、不清退。F1 开始开发但未完成；
 测试及真实迁移/清退均在全部开发完成后执行，全部完成/验证/生产 flags 保持 false。
+
+
+2026-10-13后续：full-channel Target mux、tracked通道opening/关闭、K1 BASELINE实际
+factory及P1首close权威/owned executor termination开发已接入。P1开发锁更新为
+69b2a64e9359681919d4e7239cc79c1d37c0122a；JAR身份与待集中验证项见12，构建记录见04。
+main/locked K1/P1编译通过，实际P1工厂/共享owner/完整服务及其余功能包继续开放，
+全部集中验证后置、29切片/production flags保持。

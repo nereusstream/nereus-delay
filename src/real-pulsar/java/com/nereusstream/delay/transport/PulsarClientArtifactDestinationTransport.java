@@ -7,6 +7,7 @@ import com.nereusstream.delay.adapter.PulsarDestinationRequest;
 import com.nereusstream.delay.adapter.PulsarSendAckEvidence;
 import com.nereusstream.delay.adapter.TargetOrdinaryPublishRequest;
 import com.nereusstream.delay.adapter.BoundedDestinationPublishAdapter.TargetOrdinaryPublishPreflight;
+import com.nereusstream.delay.ownership.TargetDestinationSdkBudget;
 import com.nereusstream.delay.protocol.ArtifactGenerationSet;
 import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
@@ -20,6 +21,7 @@ import com.nereusstream.delay.protocol.StableCode;
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.Optional;
@@ -31,6 +33,7 @@ import org.apache.pulsar.client.api.GuardedSendSuccessEvidence;
 import org.apache.pulsar.client.api.MessageId;
 import org.apache.pulsar.client.api.MessageIdAdv;
 import org.apache.pulsar.client.api.Producer;
+import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.TopicResourceGuard;
 import org.apache.pulsar.client.api.TopicResourceGuardAttestation;
 import org.apache.pulsar.client.api.TopicResourceGuardException;
@@ -39,6 +42,7 @@ import org.apache.pulsar.client.api.TopicResourceGuardException;
 public final class PulsarClientArtifactDestinationTransport
         implements PinnedPulsarDestinationAdapter.PulsarDestinationTransport {
     private final Producer<byte[]> producer;
+    private final PulsarClientArtifactProducerClose producerClose;
     private final String authenticatedClusterId;
     private final byte[] resourceIncarnation;
     private final String physicalTopic;
@@ -107,7 +111,19 @@ public final class PulsarClientArtifactDestinationTransport
             final byte[] producerNameHash,
             final PublishEvidenceProvider publishEvidenceProvider,
             final boolean nativePreparedDeliveryEnabled) {
+        this(null, producer, authenticatedClusterId, resourceIncarnation, physicalTopic,
+                physicalTopicCreationTimestamp, partition, producerNameHash, publishEvidenceProvider,
+                nativePreparedDeliveryEnabled, Duration.ofSeconds(30), null);
+    }
+
+    /** Managed opening binds the actual shared client and keeps the generation allocation until native cleanup. */
+    public PulsarClientArtifactDestinationTransport(final PulsarClient client, final Producer<byte[]> producer,
+            final String authenticatedClusterId, final byte[] resourceIncarnation, final String physicalTopic,
+            final long physicalTopicCreationTimestamp, final int partition, final byte[] producerNameHash,
+            final PublishEvidenceProvider publishEvidenceProvider, final boolean nativePreparedDeliveryEnabled,
+            final Duration closeTimeout, final TargetDestinationSdkBudget.Client budget) {
         this.producer = Objects.requireNonNull(producer, "producer");
+        this.producerClose = new PulsarClientArtifactProducerClose(client, producer, closeTimeout, budget);
         this.authenticatedClusterId = Objects.requireNonNull(authenticatedClusterId, "authenticatedClusterId");
         Bytes.requireLength(resourceIncarnation, 32, "resourceIncarnation");
         this.resourceIncarnation = Bytes.copy(resourceIncarnation);
@@ -301,11 +317,7 @@ public final class PulsarClientArtifactDestinationTransport
 
     @Override
     public void close() {
-        try {
-            producer.close();
-        } catch (org.apache.pulsar.client.api.PulsarClientException failure) {
-            throw new IllegalStateException("Pulsar destination producer close failed", failure);
-        }
+        producerClose.close();
     }
 
     private DestinationPublishResult success(

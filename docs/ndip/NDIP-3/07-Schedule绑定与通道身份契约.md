@@ -788,3 +788,18 @@ transaction关闭序列化queued no-start和实际running I/O；running reader�
 关闭、physical window为空才注销channel，再做final checkpoint/Store/Owner drain。原
 CONTROL Admin/shared executor属于其原owner；关闭SDK不解除catalog保护、staging、
 原Attempt/ref或删除任何资源。全服务/多通道生产配置和集中验收继续开放。
+
+
+2026-10-13 Target多通道与P1关闭开发补充：TargetDestinationMux使用完整immutable channel
+identity选择端点，ordinary/managed/native prepared提交保留实际publication和SDK前的
+final gate，不能只凭producer name或续期后的当前channel处理旧generation。BASELINE
+opening读取实际Source/Target、Profile/credential及loaded SDK hash；READY和失败/STOP
+cleanup沿同Worker资源图，派发表移除要求实际native close和physical窗口已空。
+
+P1 Producer重复close观察原操作；Closing、Closed、SDK view取消和close timeout均不是
+新的成功结果。晚到的producer创建只关闭对应Producer，原close包含schema、任务、注册、
+pending callbacks/buffers和该creation的关闭结果。Broker close失败后仍执行安全本地
+清理并保留失败；不会据连接失活合成Broker确认。Delay保留原future和failed handle，
+Journal创建后失败也携带cleanup义务。共享client的显式owner关闭只能在所有相关用户
+quiesce后执行，实际owned executors未terminate时保留窗口/原资源；清理不撤销UNKNOWN、
+Journal、Source、credential和retention义务。P1 managed factory及服务root装配继续开放。
